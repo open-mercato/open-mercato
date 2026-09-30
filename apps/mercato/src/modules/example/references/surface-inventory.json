@@ -1,9 +1,9 @@
 {
   "version": 1,
   "moduleId": "example",
-  "generatedNote": "Finite capability inventory for the canonical `example` reference module. Paths are app-root-relative and resolve identically in the monorepo app (apps/mercato/), the create-app template mirror (packages/create-app/template/), and an emitted standalone app. `readStatus` is derived: `readable` only when `referenceStatus` is `canonical` AND `coverageKind` is `example`. `sourcePaths` never contains `__tests__/**` or `__integration__/**` — those appear only under `integrationTestPaths` as repository-only evidence (scaffolding filters them out of emitted apps). READ THAT FIELD NAME CAREFULLY: it holds BOTH unit (`__tests__/**`) and integration (`__integration__/**`) evidence, so a row whose entries are all `__tests__/**` has NO integration coverage — it is proven by unit tests only. A populated `integrationTestPaths` is not proof that an integration spec exists. No line anchors, no directory-only entries, no wildcards. Rows marked `qa-only` failed the reference-quality gate documented in ../README.md and carry an exact `qaOnlyReason`. This inventory covers only surfaces that exist TODAY; verified gaps land with their own slices.",
+  "generatedNote": "Finite capability inventory for the canonical `example` reference module. Paths are app-root-relative and resolve identically in the monorepo app (apps/mercato/), the create-app template mirror (packages/create-app/template/), and an emitted standalone app. `readStatus` is derived: `readable` only when `referenceStatus` is `canonical` AND `coverageKind` is `example`. `sourcePaths` never contains `__tests__/**` or `__integration__/**` \u2014 those appear only under `integrationTestPaths` as repository-only evidence (scaffolding filters them out of emitted apps). READ THAT FIELD NAME CAREFULLY: it holds BOTH unit (`__tests__/**`) and integration (`__integration__/**`) evidence, so a row whose entries are all `__tests__/**` has NO integration coverage \u2014 it is proven by unit tests only. A populated `integrationTestPaths` is not proof that an integration spec exists. No line anchors, no directory-only entries, no wildcards. Rows marked `qa-only` failed the reference-quality gate documented in ../README.md and carry an exact `qaOnlyReason`. This inventory covers only surfaces that exist TODAY; verified gaps land with their own slices.",
   "factCoverage": {
-    "generatedNote": "Enum-derived coverage ledger for the PR #4883 module-fact and override-target contract. The `families` array below is a VERBATIM MIRROR of what `buildModuleFactCoverageLedger()` (packages/cli/src/lib/generators/module-facts.ts) builds from the exported `as const` ledgers MODULE_FACT_SOURCE_KINDS, MODULE_OWNED_CONTRACT_KINDS, ALL_OVERRIDE_DOMAINS, MODULE_OVERRIDE_MODES, MODULE_OVERRIDE_TARGET_NOTES and MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES; each family's `enumSource` names the file and symbol it is derived from, and module-facts.example-fact-coverage.test.ts resolves that symbol and fails if this copy drifts from the built ledger. Every value of every family carries exactly one row: a value with no row, or a row for a value the enum no longer carries, throws from `buildModuleFactCoverageLedger()`, which `extractAllModuleFacts()` calls on every run — so it fails fact generation, not only the test. STATUS IS NOT PROOF ON ITS OWN: `emitted-example` rows are verified against a real extraction of the example module by that test, which asserts a non-zero real count. `pending-emission` means the spec REQUIRES emission but the example does not emit it yet — the `pendingEmission` field names the slice that owns closing the gap, and the test asserts the real count is still zero so the claim cannot go stale. `negative-fixture` means only a deliberately broken fixture produces it; the test asserts a real fixture exists for each such row. `currently-unbound` means the value is reserved by the closed public set but no code path emits it, so not even a fixture can produce it. `framework-only` means an app-level setting that never becomes a module contribution. `catalog-only` means the framework catalog describes the surface but the example contributes nothing for it; the test asserts a real count of zero for every row carrying it. A row carrying `requiresGeneratedRegistry` is extractable only from the generated module registry, so a source-only extraction reports zero for it legitimately — and because that flag is the only skip out of the non-zero proof, the test proves the flag itself: every row carrying it must count zero from a source-only extraction AND non-zero once the same extraction is given a module registry.",
+    "generatedNote": "Enum-derived coverage ledger for the PR #4883 module-fact and override-target contract. The `families` array below is a VERBATIM MIRROR of what `buildModuleFactCoverageLedger()` (packages/cli/src/lib/generators/module-facts.ts) builds from the exported `as const` ledgers MODULE_FACT_SOURCE_KINDS, MODULE_OWNED_CONTRACT_KINDS, ALL_OVERRIDE_DOMAINS, MODULE_OVERRIDE_MODES, MODULE_OVERRIDE_TARGET_NOTES and MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES; each family's `enumSource` names the file and symbol it is derived from, and module-facts.example-fact-coverage.test.ts resolves that symbol and fails if this copy drifts from the built ledger. Every value of every family carries exactly one row: a value with no row, or a row for a value the enum no longer carries, throws from `buildModuleFactCoverageLedger()`, which `extractAllModuleFacts()` calls on every run \u2014 so it fails fact generation, not only the test. STATUS IS NOT PROOF ON ITS OWN: `emitted-example` rows are verified against a real extraction of the example module by that test, which asserts a non-zero real count. `pending-emission` means the spec REQUIRES emission but the example does not emit it yet \u2014 the `pendingEmission` field names the slice that owns closing the gap, and the test asserts the real count is still zero so the claim cannot go stale. `negative-fixture` means only a deliberately broken fixture produces it; the test asserts a real fixture exists for each such row. `currently-unbound` means the value is reserved by the closed public set but no code path emits it, so not even a fixture can produce it. `framework-only` means an app-level setting that never becomes a module contribution. `catalog-only` means the framework catalog describes the surface but the example contributes nothing for it; the test asserts a real count of zero for every row carrying it. A row carrying `requiresGeneratedRegistry` is extractable only from the generated module registry, so a source-only extraction reports zero for it legitimately \u2014 and because that flag is the only skip out of the non-zero proof, the test proves the flag itself: every row carrying it must count zero from a source-only extraction AND non-zero once the same extraction is given a module registry.",
     "families": [
       {
         "family": "ModuleFactSourceKind",
@@ -281,11 +281,6 @@
             "value": "nav",
             "status": "framework-only",
             "note": "nav.groupOrder is an app-level framework setting; no module target is ever emitted for it"
-          },
-          {
-            "value": "calendar",
-            "status": "framework-only",
-            "note": "calendar event types are resolved from runtime widget, module, and DI contributions; no module fact target is emitted"
           }
         ]
       },
@@ -1264,7 +1259,7 @@
     {
       "capabilityId": "runtime.tenant-scoped-cache",
       "title": "DI-resolved cache with tenant/organization scoping and tag invalidation",
-      "description": "Cache-aside read of a Todo count summary. The logical key carries tenant AND organization, `runWithCacheTenant` enters the cache-tenant context around every backend call, the cached value re-asserts its own scope on read, and entries are tagged with the same `crud:example.todo:tenant:<id>:org:<id>:collection` tag `makeCrudRoute` derives — so the platform's own post-commit `invalidateCrudCache` drops them too. A wildcard `example.todo.*` subscriber invalidates after commit on every write path.",
+      "description": "Cache-aside read of a Todo count summary. The logical key carries tenant AND organization, `runWithCacheTenant` enters the cache-tenant context around every backend call, the cached value re-asserts its own scope on read, and entries are tagged with the same `crud:example.todo:tenant:<id>:org:<id>:collection` tag `makeCrudRoute` derives \u2014 so the platform's own post-commit `invalidateCrudCache` drops them too. A wildcard `example.todo.*` subscriber invalidates after commit on every write path.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -1430,7 +1425,7 @@
     {
       "capabilityId": "data.entity-extensions",
       "title": "Cross-module entity link declaration",
-      "description": "`EntityExtension` in `data/extensions.ts` linking the customers base entity to this module's per-customer priority entity through plain FK-id join keys, the shape the ban on cross-module ORM relations forces. Declares `table` explicitly even though the query engine's regular pluralizer now derives the same `example_customer_priorities`; the field is the escape hatch for an entity whose `@Entity({ tableName })` does not match the derived name. DECLARATION-ONLY: no runtime call site exists — nothing in the platform passes `includeExtensions`, the basic engine's extension join adds no projection and no filterable alias, and the hybrid engine DI registers ignores the flag outside its basic-engine fallback.",
+      "description": "`EntityExtension` in `data/extensions.ts` linking the customers base entity to this module's per-customer priority entity through plain FK-id join keys, the shape the ban on cross-module ORM relations forces. Declares `table` explicitly even though the query engine's regular pluralizer now derives the same `example_customer_priorities`; the field is the escape hatch for an entity whose `@Entity({ tableName })` does not match the derived name. DECLARATION-ONLY: no runtime call site exists \u2014 nothing in the platform passes `includeExtensions`, the basic engine's extension join adds no projection and no filterable alias, and the hybrid engine DI registers ignores the flag outside its basic-engine fallback.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -1488,7 +1483,7 @@
     {
       "capabilityId": "search.encrypted-column-list-filter",
       "title": "List filtering over an encrypted column through the token index",
-      "description": "Text search over the encrypted `notes` column uses a plain `$ilike`, the SAME shape as the plaintext `title` filter. The query engine intercepts like/ilike and rewrites it into a hashed `search_tokens` lookup when the column is encrypted and search is active (`packages/shared/src/lib/query/engine.ts` → `applyFilterOp`), applying the tenant/organization scope itself via `applySearchTokens`; the index stores hashes of the DECRYPTED value because the indexer runs `decryptIndexDocForSearch` before tokenizing. The lesson this row teaches is that a module must NOT hand-roll an id narrowing for an encrypted column — that duplicates platform behaviour and re-derives a scope the platform already applies. When search is off the engine warns via `warnOnCiphertextLikeFallback` rather than silently matching nothing.",
+      "description": "Text search over the encrypted `notes` column uses a plain `$ilike`, the SAME shape as the plaintext `title` filter. The query engine intercepts like/ilike and rewrites it into a hashed `search_tokens` lookup when the column is encrypted and search is active (`packages/shared/src/lib/query/engine.ts` \u2192 `applyFilterOp`), applying the tenant/organization scope itself via `applySearchTokens`; the index stores hashes of the DECRYPTED value because the indexer runs `decryptIndexDocForSearch` before tokenizing. The lesson this row teaches is that a module must NOT hand-roll an id narrowing for an encrypted column \u2014 that duplicates platform behaviour and re-derives a scope the platform already applies. When search is off the engine warns via `warnOnCiphertextLikeFallback` rather than silently matching nothing.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -1932,7 +1927,7 @@
     {
       "capabilityId": "umes.extension-points",
       "title": "Declared extension hosts (`extension-points.ts`)",
-      "description": "`defineModuleExtensionPoints` declaring the four extension hosts this module exposes to others: the Todo DataTable (`dataTableExtensionHost`), Todo CrudForm (`crudFormExtensionHost`), phase-C handler injection host (`injectionExtensionHost`), and component-override showcase (`componentExtensionHost`). Every host is consumed by its declared source file via `extensionPoints.hosts.<key>`, which is what the framework's binding detector requires — the extractor reports no `unbound-declaration` for this module.",
+      "description": "`defineModuleExtensionPoints` declaring the four extension hosts this module exposes to others: the Todo DataTable (`dataTableExtensionHost`), Todo CrudForm (`crudFormExtensionHost`), phase-C handler injection host (`injectionExtensionHost`), and component-override showcase (`componentExtensionHost`). Every host is consumed by its declared source file via `extensionPoints.hosts.<key>`, which is what the framework's binding detector requires \u2014 the extractor reports no `unbound-declaration` for this module.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -1949,7 +1944,7 @@
     {
       "capabilityId": "umes.injection-table",
       "title": "Widget injection table (spot id to widget id mapping)",
-      "description": "`ModuleInjectionTable` mapping every supported spot-id shape — portal sections, `crud-form:<entityId>`, `data-table:<tableId>:<surface>`, menu spots, detail spots, tab groups, and a nested widget addon spot — to widget ids. Exported as one unconditional object literal, which is what the fact extractor can fold: it reads 26 contributions from this file (it read 0 while the export was chosen by an env-flag ternary). Cross-module entries ship always-on and are inert without their host module.",
+      "description": "`ModuleInjectionTable` mapping every supported spot-id shape \u2014 portal sections, `crud-form:<entityId>`, `data-table:<tableId>:<surface>`, menu spots, detail spots, tab groups, and a nested widget addon spot \u2014 to widget ids. Exported as one unconditional object literal, which is what the fact extractor can fold: it reads 26 contributions from this file (it read 0 while the export was chosen by an env-flag ternary). Cross-module entries ship always-on and are inert without their host module.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2061,7 +2056,7 @@
     {
       "capabilityId": "runtime.bulk-operation-progress",
       "title": "Durable bulk operation: outbox, leased worker, and operation progress",
-      "description": "Selected-row DataTable bulk action wired to a real `ProgressJob`. The injected data-only action POSTs `{ ids, idempotencyKey }`; the start route verifies every id inside the caller scope, claims a `(tenant, organization, user, idempotency_key)`-unique `ExampleTodoBulkOperation` row plus a progress job, and returns 202 with `progressJobId` — the value `DataTable.runBulkAction` tracks on the shared top progress bar. That same row is the transactional outbox: publication is deliberately at-least-once, and the scheduler-driven dispatcher republishes rows that were never delivered or whose execution lease expired. The queue worker takes a compare-and-swap lease, resumes from `nextItemIndex`, checks `isCancellationRequested()` before each item, and mutates through the `example.todos.update` command so audit, undo, events, cache and index invalidation stay intact.",
+      "description": "Selected-row DataTable bulk action wired to a real `ProgressJob`. The injected data-only action POSTs `{ ids, idempotencyKey }`; the start route verifies every id inside the caller scope, claims a `(tenant, organization, user, idempotency_key)`-unique `ExampleTodoBulkOperation` row plus a progress job, and returns 202 with `progressJobId` \u2014 the value `DataTable.runBulkAction` tracks on the shared top progress bar. That same row is the transactional outbox: publication is deliberately at-least-once, and the scheduler-driven dispatcher republishes rows that were never delivered or whose execution lease expired. The queue worker takes a compare-and-swap lease, resumes from `nextItemIndex`, checks `isCancellationRequested()` before each item, and mutates through the `example.todos.update` command so audit, undo, events, cache and index invalidation stay intact.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2090,7 +2085,7 @@
     {
       "capabilityId": "module.setup-scheduler-target",
       "title": "Tenant setup: registering a module-owned scheduler target",
-      "description": "Idempotent organization-scoped `ScheduledJob` registered from `seedDefaults` — the only always-running hook that receives a container, because `onTenantCreated` gets an `EntityManager` and nothing else. The schedule id is a deterministic hash of `(module, tenant, organization)` so repeated setup runs upsert one row per scope. The call is wrapped so a `SchedulerService.register` rejection — notably the per-tenant active-schedule cap, which answers 422 — degrades to a logged warning instead of aborting tenant initialization.",
+      "description": "Idempotent organization-scoped `ScheduledJob` registered from `seedDefaults` \u2014 the only always-running hook that receives a container, because `onTenantCreated` gets an `EntityManager` and nothing else. The schedule id is a deterministic hash of `(module, tenant, organization)` so repeated setup runs upsert one row per scope. The call is wrapped so a `SchedulerService.register` rejection \u2014 notably the per-tenant active-schedule cap, which answers 422 \u2014 degrades to a logged warning instead of aborting tenant initialization.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2145,7 +2140,7 @@
     {
       "capabilityId": "umes.component-replacement",
       "title": "Component replacement, wrapping and props transform (`widgets/components.ts`)",
-      "description": "`ComponentOverride` entries covering all three modes the union defines, exported as one unconditional array literal. `wrapper` decorates three handles other modules expose, with a pass-through gate that returns the original component BY IDENTITY for the demo-only checkout entries. `replacement` (plus the `propsSchema` the union requires alongside it) and `propsTransform` target a handle this module hosts itself in `components/ComponentOverrideShowcase.tsx`, rendered by `/backend/component-overrides`, so the two non-composing modes have a live call site without rewriting a screen that belongs to another module. Ordering is load-bearing, but only on one of the two resolvers: `useRegisteredComponent` — the client hook this host calls — buckets the modes, so a props transform reaches the render wherever it sorted and the highest-priority replacement wins; `resolveRegisteredComponent`, the server fold behind `page:` handles, walks in one pass and assigns `resolved = override.replacement`, discarding everything composed before it. The replacement takes the lowest number on the handle so both resolvers produce the same tree. Every value the fact extractor must read — the handle constant and the `propsTransform` callable — is declared in `widgets/components.ts` itself, because `staticValue` resolves an identifier only against initializers in the file it parses; a cross-file import publishes zero contributions for the handle and misclassifies the transform as `replace`.",
+      "description": "`ComponentOverride` entries covering all three modes the union defines, exported as one unconditional array literal. `wrapper` decorates three handles other modules expose, with a pass-through gate that returns the original component BY IDENTITY for the demo-only checkout entries. `replacement` (plus the `propsSchema` the union requires alongside it) and `propsTransform` target a handle this module hosts itself in `components/ComponentOverrideShowcase.tsx`, rendered by `/backend/component-overrides`, so the two non-composing modes have a live call site without rewriting a screen that belongs to another module. Ordering is load-bearing, but only on one of the two resolvers: `useRegisteredComponent` \u2014 the client hook this host calls \u2014 buckets the modes, so a props transform reaches the render wherever it sorted and the highest-priority replacement wins; `resolveRegisteredComponent`, the server fold behind `page:` handles, walks in one pass and assigns `resolved = override.replacement`, discarding everything composed before it. The replacement takes the lowest number on the handle so both resolvers produce the same tree. Every value the fact extractor must read \u2014 the handle constant and the `propsTransform` callable \u2014 is declared in `widgets/components.ts` itself, because `staticValue` resolves an identifier only against initializers in the file it parses; a cross-file import publishes zero contributions for the handle and misclassifies the transform as `replace`.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2223,7 +2218,7 @@
     {
       "capabilityId": "notifications.client-renderer",
       "title": "Client notification renderer (`notifications.client.ts`)",
-      "description": "Client-side re-declaration of the module's server notification types with a custom `Renderer` attached. Maps over `notifications.ts` instead of restating literals, so the frozen notification id, translation keys, actions, and expiry stay single-sourced. The renderer's action-selection decision is exported as a pure function; the component itself is inline (and therefore built with `React.createElement`) rather than living in `widgets/notifications/` — see the outstanding-notes list in ./surface-map.md.",
+      "description": "Client-side re-declaration of the module's server notification types with a custom `Renderer` attached. Maps over `notifications.ts` instead of restating literals, so the frozen notification id, translation keys, actions, and expiry stay single-sourced. The renderer's action-selection decision is exported as a pure function; the component itself is inline (and therefore built with `React.createElement`) rather than living in `widgets/notifications/` \u2014 see the outstanding-notes list in ./surface-map.md.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2347,7 +2342,7 @@
     {
       "capabilityId": "overrides.compileable-reference",
       "title": "Compileable `entry.overrides` reference inside the module",
-      "description": "A typed, inert `ModuleOverrides` value covering all sixteen wired domains, kept in the module's own `references/` folder. It exists because the app-registry copy does not survive scaffolding: `applyStarterPreset` rewrites `src/modules.ts` from a lean template for the `empty` and `crm` presets, and that template's `ModuleEntry` type does not even declare an `overrides` field — while this module's source ships in every preset. Compiling against the real `ModuleOverrides` interface is what makes it break the build instead of rotting when a domain is renamed or retyped. Nothing imports it into a `ModuleEntry`, so the dispatcher never sees it in a running app.",
+      "description": "A typed, inert `ModuleOverrides` value covering all sixteen wired domains, kept in the module's own `references/` folder. It exists because the app-registry copy does not survive scaffolding: `applyStarterPreset` rewrites `src/modules.ts` from a lean template for the `empty` and `crm` presets, and that template's `ModuleEntry` type does not even declare an `overrides` field \u2014 while this module's source ships in every preset. Compiling against the real `ModuleOverrides` interface is what makes it break the build instead of rotting when a domain is renamed or retyped. Nothing imports it into a `ModuleEntry`, so the dispatcher never sees it in a running app.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2363,7 +2358,7 @@
     {
       "capabilityId": "ai.tool-pack",
       "title": "AI tool pack (`ai-tools.ts`)",
-      "description": "Module-root tool pack folded into `ai-tools.generated.ts` and loaded into the MCP tool registry. Two read-only tools declared with `defineAiTool`, both gated on features that exist in `acl.ts`, and both resolving tenant/organization from the runtime-supplied `McpToolContext` through a fail-closed helper — never from tool input, which a prompt-injected model controls. `example.get_todo_summary` deliberately reads through this module's own DI service instead of counting rows itself, so the tool and `api/todos/summary/route.ts` cannot drift.",
+      "description": "Module-root tool pack folded into `ai-tools.generated.ts` and loaded into the MCP tool registry. Two read-only tools declared with `defineAiTool`, both gated on features that exist in `acl.ts`, and both resolving tenant/organization from the runtime-supplied `McpToolContext` through a fail-closed helper \u2014 never from tool input, which a prompt-injected model controls. `example.get_todo_summary` deliberately reads through this module's own DI service instead of counting rows itself, so the tool and `api/todos/summary/route.ts` cannot drift.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2382,7 +2377,7 @@
     {
       "capabilityId": "ai.agent",
       "title": "AI agent definition (`ai-agents.ts`)",
-      "description": "One read-only chat agent over this module's own tool pack. `readOnly: true` and `mutationPolicy: 'read-only'` agree because every declared tool is `isMutation: false`; `allowedTools` is a closed whitelist, so adding a tool to `ai-tools.ts` does not silently widen the agent. `systemPrompt` is assembled from named LOCAL sections for authoring clarity only — `AiAgentDefinition.systemPrompt` is a plain string and the override path wraps it as a single `role` section, so those names are NOT addressable by the prompt-override system.",
+      "description": "One read-only chat agent over this module's own tool pack. `readOnly: true` and `mutationPolicy: 'read-only'` agree because every declared tool is `isMutation: false`; `allowedTools` is a closed whitelist, so adding a tool to `ai-tools.ts` does not silently widen the agent. `systemPrompt` is assembled from named LOCAL sections for authoring clarity only \u2014 `AiAgentDefinition.systemPrompt` is a plain string and the override path wraps it as a single `role` section, so those names are NOT addressable by the prompt-override system.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2401,7 +2396,7 @@
     {
       "capabilityId": "ai.agent-extension",
       "title": "Additive AI agent extension",
-      "description": "`aiAgentExtensions` exported from the same `ai-agents.ts`, patching an agent another module owns (`customers.account_assistant`) instead of forking it. Purely additive — `appendAllowedTools` / `appendSystemPrompt` / `appendSuggestions`, no replace and no delete — and it lends only a tool this module declares. When the target agent is absent the registry logs `Skipping extension for unknown agent` and continues; an extension is never allowed to fail a boot.",
+      "description": "`aiAgentExtensions` exported from the same `ai-agents.ts`, patching an agent another module owns (`customers.account_assistant`) instead of forking it. Purely additive \u2014 `appendAllowedTools` / `appendSystemPrompt` / `appendSuggestions`, no replace and no delete \u2014 and it lends only a tool this module declares. When the target agent is absent the registry logs `Skipping extension for unknown agent` and continues; an extension is never allowed to fail a boot.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2421,7 +2416,7 @@
     {
       "capabilityId": "ai.tool-override",
       "title": "File-tier AI tool override",
-      "description": "`aiToolOverrides` exported from `ai-tools.ts` — a keyed replace-or-disable map the generator emits as `aiToolOverrideEntries` and the runtime folds in through `composeToolOverrideMap` then `applyToolOverrideMap`. `null` removes a tool by name; a definition replaces it, and a replacement whose `name` does not equal its key is skipped with a warning, so key and definition cannot drift apart. It is tier 3 of four (programmatic > `modules.ts` > this file > the base declaration), which makes a module-shipped override a default rather than a final word. The key deliberately names a tool THIS module owns: a production override names a foreign tool, but a canonical reference module that is enabled for inspection must not silently change a shipped assistant. The replacement is derived from the base by spread, so the handler cannot fork into two implementations.",
+      "description": "`aiToolOverrides` exported from `ai-tools.ts` \u2014 a keyed replace-or-disable map the generator emits as `aiToolOverrideEntries` and the runtime folds in through `composeToolOverrideMap` then `applyToolOverrideMap`. `null` removes a tool by name; a definition replaces it, and a replacement whose `name` does not equal its key is skipped with a warning, so key and definition cannot drift apart. It is tier 3 of four (programmatic > `modules.ts` > this file > the base declaration), which makes a module-shipped override a default rather than a final word. The key deliberately names a tool THIS module owns: a production override names a foreign tool, but a canonical reference module that is enabled for inspection must not silently change a shipped assistant. The replacement is derived from the base by spread, so the handler cannot fork into two implementations.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2440,7 +2435,7 @@
     {
       "capabilityId": "ai.agent-override",
       "title": "File-tier AI agent override",
-      "description": "`aiAgentOverrides` exported from `ai-agents.ts`, alongside the base `aiAgents` and the additive `aiAgentExtensions` in the same file — three mechanisms the generator reads separately. This one is keyed replace-or-disable: `null` deletes the agent from the registry, a definition replaces it wholesale, and a replacement whose `id` does not equal its key is skipped and the base entry survives. Reach for the override when you must change what an agent IS; reach for the extension when you only want to lend it something. Same tier position and the same self-targeting rationale as `ai.tool-override`.",
+      "description": "`aiAgentOverrides` exported from `ai-agents.ts`, alongside the base `aiAgents` and the additive `aiAgentExtensions` in the same file \u2014 three mechanisms the generator reads separately. This one is keyed replace-or-disable: `null` deletes the agent from the registry, a definition replaces it wholesale, and a replacement whose `id` does not equal its key is skipped and the base entry survives. Reach for the override when you must change what an agent IS; reach for the extension when you only want to lend it something. Same tier position and the same self-targeting rationale as `ai.tool-override`.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -2507,6 +2502,37 @@
       ],
       "dependencyModules": [],
       "ruleOwner": "om-integration-tests"
+    },
+    {
+      "capabilityId": "umes.customers.calendar-event-types",
+      "title": "Customers calendar event types and optional Visit availability",
+      "description": "Add Visit, optionally tombstone Note and patch Meeting, register the same server definitions through soft Customers DI, and keep Visit-only panel and command validation operational with unavailable staff/resources warnings. Calendar policy stays in Customers and the contributing app module.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/widgets/injection/calendar-visit/widget.ts",
+        "src/modules/example/widgets/injection/visit-availability/widget.ts",
+        "src/modules/example/widgets/injection-table.ts",
+        "src/modules/example/di.ts",
+        "src/modules/example/components/VisitPanel.tsx",
+        "src/modules/example/commands/interceptors.ts",
+        "src/modules/example/lib/visitAvailabilityGuard.ts",
+        "src/modules/example/lib/visitAvailability.ts",
+        "src/modules/example/api/visit-availability/route.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/widgets/__tests__/calendar-event-types.test.ts",
+        "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts",
+        "src/modules/example/components/__tests__/VisitPanel.test.tsx",
+        "src/modules/example/lib/__tests__/visitAvailability.test.ts",
+        "src/modules/example/api/visit-availability/__tests__/route.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-018-visit-availability.spec.ts"
+      ],
+      "dependencyModules": [
+        "customers"
+      ],
+      "ruleOwner": ".ai/guides/customers-calendar.md"
     }
   ],
   "designSystemInventoryPath": ".ai/harness/design-system-inventory.json",

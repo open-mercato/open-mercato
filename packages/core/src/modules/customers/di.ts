@@ -3,8 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
-import { registerModuleOverrideApplier, type CalendarOverridesShape } from '@open-mercato/shared/modules/overrides'
-import { createCalendarEventTypeRegistry, registerCalendarModuleOverrides, type CalendarModuleOverrideEntry } from './calendar-event-types'
+import { createCalendarEventTypeRegistry } from './calendar-event-types'
 import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from './lib/calendar/eventTypeResolver'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
@@ -66,10 +65,6 @@ registerOptimisticLockReaders({
   [RESOURCE_KIND_COMPANY]: readCustomerCompanyUpdatedAt,
   [RESOURCE_KIND_PERSON]: readCustomerPersonUpdatedAt,
   [RESOURCE_KIND_PEOPLE]: readCustomerPersonUpdatedAt,
-})
-
-registerModuleOverrideApplier<CalendarOverridesShape>('calendar', (entries) => {
-  registerCalendarModuleOverrides(entries as CalendarModuleOverrideEntry[])
 })
 
 const calendarEventTypeRegistry = createCalendarEventTypeRegistry()

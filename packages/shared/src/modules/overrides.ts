@@ -131,12 +131,6 @@ export interface NavOverridesShape {
   groupOrder?: string[]
 }
 
-/** Calendar event-type definitions are validated by the customers module. */
-export interface CalendarOverridesShape {
-  eventTypes?: Record<string, unknown | null>
-  patches?: readonly unknown[]
-}
-
 /**
  * Umbrella shape for `entry.overrides`. Every key is optional; a
  * downstream app sets only the domains it cares about.
@@ -158,7 +152,6 @@ export interface ModuleOverrides {
   di?: DiOverridesMap | LooseOverrideMap
   encryption?: EncryptionOverridesShape
   nav?: NavOverridesShape
-  calendar?: CalendarOverridesShape
 }
 
 /**
@@ -199,7 +192,6 @@ export type ModuleOverrideDomain =
   | 'di'
   | 'encryption'
   | 'nav'
-  | 'calendar'
 
 export interface ModuleOverrideEntry<TShape> {
   moduleId: string
@@ -253,7 +245,6 @@ const DOMAIN_KEYS: ModuleOverrideDomain[] = [
   'di',
   'encryption',
   'nav',
-  'calendar',
 ]
 
 const TRACKING_ISSUE_HINT =

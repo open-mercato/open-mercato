@@ -3,7 +3,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { waitForAsyncRegistration } from '@open-mercato/shared/lib/bootstrap/factory'
 import {
   getInjectionRegistryVersion,
-  loadInjectionDataWidgetsForSpot,
+  loadInjectionWidgetsForSpot,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
 import {
   calendarEventTypeBehaviorSchema,
@@ -97,7 +97,7 @@ async function ensureCalendarEventTypeWidgetsLoaded(): Promise<void> {
   if (loadedWidgetVersion === version) return
   if (loadingWidgets) return loadingWidgets
   const pending = (async () => {
-    const widgets = await loadInjectionDataWidgetsForSpot(extensionPoints.hosts.calendarEventTypes.spotId)
+    const widgets = await loadInjectionWidgetsForSpot(extensionPoints.hosts.calendarEventTypes.spotId)
     registerWidgetCalendarEventTypeContributions(widgets.map((widget) => {
       if (!('eventTypes' in widget)) {
         throw new Error(`[internal] Calendar event type widget ${widget.metadata.id} has no eventTypes payload`)
@@ -230,7 +230,8 @@ export function resolveCatalogEventType(
   key: string,
   options: { includeHistorical?: boolean } = {},
 ): ScopedCalendarEventType | undefined {
-  const item = catalog.items.find((entry) => entry.key === key)
+  const normalizedKey = key.trim().toLowerCase()
+  const item = catalog.items.find((entry) => entry.key === normalizedKey)
   if (item || !options.includeHistorical) return item
   const registryHistorical = resolveCalendarEventType(key, { includeHistorical: true })
   if (registryHistorical) {

@@ -27,7 +27,6 @@ jest.mock('@/.mercato/generated/component-overrides.generated', () => ({
 }))
 
 jest.mock('@/modules', () => ({
-  applyProgrammaticComponentOverrides: jest.fn(),
   enabledModules: [{
     id: 'app',
     from: '@app',

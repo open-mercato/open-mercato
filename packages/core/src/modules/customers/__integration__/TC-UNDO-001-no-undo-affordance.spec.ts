@@ -55,7 +55,7 @@ test.describe('TC-UNDO-001 §4 non-undoable commands expose no undo token', () =
 
       const res = await apiRequest(request, 'POST', '/api/customers/activities', {
         token,
-        data: { entityId: personId, activityType: 'call', subject: `No undo activity ${stamp}` },
+        data: { entityId: personId, activityType: 'note', subject: `No undo activity ${stamp}` },
       })
       // Bridge enabled → 201 created; bridge retired → 410 gone. Neither issues an undo token.
       expect([201, 410]).toContain(res.status())

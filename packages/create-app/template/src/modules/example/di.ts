@@ -1,3 +1,5 @@
+import type { CalendarEventTypeRegistry } from '@open-mercato/core/modules/customers/calendar-event-types'
+import calendarVisitWidget from './widgets/injection/calendar-visit/widget'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
@@ -27,6 +29,18 @@ export const EXAMPLE_CURRENCY_RATE_PROVIDER = 'exampleCurrencyRateProvider' as c
 
 // Example DI registrar; modules can register their own services/components
 export function register(container: AppContainer) {
+  let calendarRegistry: CalendarEventTypeRegistry | null
+  try {
+    calendarRegistry = container.resolve<CalendarEventTypeRegistry>('calendarEventTypeRegistry')
+  } catch {
+    calendarRegistry = null
+  }
+  if (calendarRegistry) {
+    for (const definition of calendarVisitWidget.eventTypes) calendarRegistry.upsert('example', definition)
+    for (const [key, definition] of Object.entries(calendarVisitWidget.eventTypeOverrides ?? {})) calendarRegistry.replace('example', key, definition)
+    for (const patch of calendarVisitWidget.eventTypePatches ?? []) calendarRegistry.patch('example', patch)
+  }
+
   // The module's own service registration, as opposed to the adapter-registry calls
   // below (which register into module-external registries, not into this container).
   //

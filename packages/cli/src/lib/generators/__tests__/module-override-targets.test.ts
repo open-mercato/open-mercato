@@ -86,8 +86,9 @@ describe('module override targets — adapter registry coverage', () => {
     for (const adapter of MODULE_OVERRIDE_TARGET_ADAPTERS) {
       expect(ALL_OVERRIDE_DOMAINS).toContain(adapter.domain)
     }
-    expect(ALL_OVERRIDE_DOMAINS).toHaveLength(17)
-    expect(MODULE_OVERRIDE_TARGET_ADAPTERS).toHaveLength(17)
+    // exactly the 16 runtime domains, one adapter each
+    expect(ALL_OVERRIDE_DOMAINS).toHaveLength(16)
+    expect(MODULE_OVERRIDE_TARGET_ADAPTERS).toHaveLength(16)
   })
 
   it('classifies nav as framework-only (never a module target)', () => {
@@ -97,14 +98,6 @@ describe('module override targets — adapter registry coverage', () => {
     const { overrideTargets } = collectModuleOverrideTargets(baseFacts())
     expect(overrideTargets.some((target) => target.domain === 'nav')).toBe(false)
     expect(overrideTargets.some((target) => JSON.stringify(target.path) === JSON.stringify(['nav', 'groupOrder']))).toBe(false)
-  })
-
-  it('classifies calendar as framework-only because event types resolve at runtime', () => {
-    const calendarAdapter = MODULE_OVERRIDE_TARGET_ADAPTERS.find((adapter) => adapter.domain === 'calendar')
-    expect(calendarAdapter?.frameworkOnly).toBe(true)
-    expect(calendarAdapter?.collect(baseFacts())).toEqual([])
-    const { overrideTargets } = collectModuleOverrideTargets(baseFacts())
-    expect(overrideTargets.some((target) => target.domain === 'calendar')).toBe(false)
   })
 })
 

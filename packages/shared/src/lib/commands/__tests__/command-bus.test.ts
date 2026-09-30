@@ -7,7 +7,7 @@ import {
   isCommandInterceptorError,
 } from '@open-mercato/shared/lib/commands'
 import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
-import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'
+import type { CommandInterceptor, CommandInterceptorContext } from '@open-mercato/shared/lib/commands/command-interceptor'
 
 describe('CommandBus', () => {
   afterEach(() => {
@@ -384,6 +384,31 @@ describe('CommandBus', () => {
         request,
       } })).rejects.toMatchObject({ status: 422 })
       expect(beforeExecute).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes request and organization scope to both execution lifecycle hooks', async () => {
+      registerCommand({ id: 'test.lifecycle-context', execute: async () => ({ ok: true }) })
+      const request = new Request('http://localhost/test')
+      const organizationScope = { selectedId: 'parent', filterIds: ['parent', 'child'], allowedIds: ['parent', 'child'], tenantId: 'tenant-1' }
+      const beforeExecute = jest.fn(async (_input: unknown, context: CommandInterceptorContext) => {
+        expect(context.request).toBe(request)
+        expect(context.organizationScope).toBe(organizationScope)
+        return { ok: true }
+      })
+      const afterExecute = jest.fn(async (_input: unknown, _result: unknown, context: CommandInterceptorContext) => {
+        expect(context.request).toBe(request)
+        expect(context.organizationScope).toBe(organizationScope)
+      })
+      registerCommandInterceptors([{ moduleId: 'test', interceptors: [{
+        id: 'test.lifecycle-context-interceptor', targetCommand: 'test.lifecycle-context', beforeExecute, afterExecute,
+      }] }])
+      await new CommandBus().execute('test.lifecycle-context', { input: {}, ctx: {
+        container: createContainer({ injectionMode: InjectionMode.CLASSIC }),
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'parent' },
+        organizationScope, selectedOrganizationId: 'parent', organizationIds: ['parent', 'child'], request,
+      } })
+      expect(beforeExecute).toHaveBeenCalledTimes(1)
+      expect(afterExecute).toHaveBeenCalledTimes(1)
     })
 
     const blockingInterceptor = (result: Record<string, unknown>): CommandInterceptor => ({

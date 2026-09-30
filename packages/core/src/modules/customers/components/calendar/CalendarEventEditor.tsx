@@ -11,6 +11,8 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { CrudForm, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
+import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { projectCalendarCustomValues, useCalendarCustomFields, validateCalendarCustomValues } from './editor/useCalendarCustomFields'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -58,7 +60,7 @@ export interface CalendarEventEditorProps {
 }
 
 const FORM_ID = 'customers-calendar-event-editor'
-const INTERACTION_ENTITY_IDS = [E.customers.customer_interaction]
+const INTERACTION_INJECTION_SPOT = `crud-form:${E.customers.customer_interaction.replace(/:/g, '.')}`
 
 // CrudForm values carry the flattened EditorFormState keys (seeded via
 // initialValues) plus cf_* custom-field keys managed by CrudForm itself.
@@ -304,12 +306,14 @@ export function CalendarEventEditor({
   const initialTypeKey = String(initialValues.category ?? initialValues.kind ?? 'meeting')
   React.useEffect(() => { setSelectedTypeKey(initialTypeKey) }, [initialTypeKey, formKey])
   const selectedDefinition = selectedEventType(catalog.items, selectedTypeKey)
+  const customFields = useCalendarCustomFields(open, E.customers.customer_interaction, selectedDefinition.behavior.customFieldsetIds)
+  const injectionWidgets = useInjectionWidgets(INTERACTION_INJECTION_SPOT)
   const canCreateType = catalog.items.some((entry) => entry.key === selectedTypeKey && entry.selectable && !entry.historical)
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
       const form = formStateOfValues(values)
-      if (catalog.status !== 'ready') {
+      if (catalog.status !== 'ready' || customFields.status !== 'ready' || injectionWidgets.loading || injectionWidgets.error) {
         throw createCrudFormError(t('customers.calendar.editor.catalogLoadFailed'))
       }
       const definition = selectedEventType(catalog.items, form.category ?? form.kind)
@@ -336,6 +340,11 @@ export function CalendarEventEditor({
       }
       if (Object.keys(fieldErrors).length > 0) {
         throw createCrudFormError(Object.values(fieldErrors)[0], fieldErrors)
+      }
+      const customValidation = validateCalendarCustomValues(values, customFields.definitions)
+      if (!customValidation.ok) {
+        const translatedErrors = Object.fromEntries(Object.entries(customValidation.fieldErrors).map(([key, message]) => [key, t(message, message)]))
+        throw createCrudFormError(Object.values(translatedErrors)[0], translatedErrors)
       }
       setSaving(true)
       try {
@@ -370,7 +379,7 @@ export function CalendarEventEditor({
         if (applicable.priority) payload.priority = form.priority === 'low' ? 10 : form.priority === 'high' ? 90 : 50
         else delete payload.priority
         if (!applicable.resources) delete payload.linkedEntities
-        const custom = collectCustomFieldValues(values, {
+        const custom = collectCustomFieldValues(projectCalendarCustomValues(values, customFields.definitions), {
           transform: (value) => normalizeCustomFieldSubmitValue(value),
         })
         for (const [key, value] of Object.entries(custom)) payload[`cf_${key}`] = value
@@ -390,7 +399,21 @@ export function CalendarEventEditor({
           if (!fields) throw error
           const approved = await confirm({
             title: t('customers.calendar.editor.discardTitle'),
-            text: `${t('customers.calendar.editor.discardDescription')} ${t('customers.calendar.editor.discardFields')} ${fields.join(', ')}`,
+            text: `${t('customers.calendar.editor.discardDescription')} ${t('customers.calendar.editor.discardFields')} ${fields.map((field) => {
+              const definition = customFields.definitions.find((entry) => `cf_${entry.key}` === field)
+              if (definition?.label) return definition.label
+              const labelKeys: Record<string, string> = {
+                location: 'customers.calendar.editor.location',
+                participants: 'customers.calendar.editor.attendees',
+                linkedEntities: 'customers.calendar.editor.resources',
+                allDay: 'customers.calendar.editor.allDay',
+                durationMinutes: 'customers.calendar.editor.dates.ends',
+                priority: 'customers.calendar.editor.priority.label',
+                recurrenceRule: 'customers.calendar.editor.repeat.label',
+                recurrenceEnd: 'customers.calendar.editor.repeat.ends',
+              }
+              return t(labelKeys[field] ?? 'customers.calendar.editor.discardUnknownField')
+            }).join(', ')}`,
             confirmText: t('customers.calendar.editor.discardConfirm'),
             cancelText: t('customers.calendar.editor.cancel'),
             variant: 'destructive',
@@ -414,7 +437,7 @@ export function CalendarEventEditor({
         setSaving(false)
       }
     },
-    [catalog, confirm, initialTypeKey, isEdit, item?.id, mode, onOpenChange, onSaved, resourcesEnabled, staffEnabled, t],
+    [catalog, customFields, injectionWidgets.loading, injectionWidgets.error, confirm, initialTypeKey, isEdit, item?.id, mode, onOpenChange, onSaved, resourcesEnabled, staffEnabled, t],
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(
@@ -441,9 +464,9 @@ export function CalendarEventEditor({
           />
         ),
       },
-      { id: 'customFields', kind: 'customFields' },
+      ...(customFields.fields.length ? [{ id: 'customFields', title: t('entities.customFields.title'), fields: customFields.fields.map((field) => field.id) }] : []),
     ],
-    [open, isEdit, item, conflictScope, currentUserId, resourcesEnabled, staffEnabled, saving, catalog],
+    [open, isEdit, item, conflictScope, currentUserId, resourcesEnabled, staffEnabled, saving, catalog, customFields.fields, t],
   )
 
   const handleKeyDown = useDialogKeyHandler({
@@ -451,7 +474,7 @@ export function CalendarEventEditor({
       const formElement = document.getElementById(FORM_ID)
       if (formElement instanceof HTMLFormElement) formElement.requestSubmit()
     },
-    disabled: saving || catalog.status !== 'ready' || (mode === 'create' && !canCreateType),
+    disabled: saving || customFields.status !== 'ready' || injectionWidgets.loading || !!injectionWidgets.error || catalog.status !== 'ready' || (mode === 'create' && !canCreateType),
   })
 
   const dialogTitle = isEdit ? t('customers.calendar.editor.title.edit', 'Edit event') : t('customers.calendar.editor.title.create', 'New event')
@@ -509,16 +532,10 @@ export function CalendarEventEditor({
               embedded
               hideFooterActions
               customFieldsManageMode="page"
-              fields={[]}
+              fields={customFields.fields}
               groups={groups}
               initialValues={initialValues}
-              entityIds={INTERACTION_ENTITY_IDS}
-              calendarEventTypeKey={catalog.status === 'ready' ? selectedTypeKey : undefined}
-              calendarEventTypeFields={catalog.status === 'ready' ? selectedDefinition.behavior.fields : undefined}
-              calendarResourcesEnabled={resourcesEnabled}
-              customFieldsetAllowlist={catalog.status === 'ready'
-                ? { [E.customers.customer_interaction]: selectedDefinition.behavior.customFieldsetIds }
-                : undefined}
+              injectionSpotId={INTERACTION_INJECTION_SPOT}
               onSubmit={handleSubmit}
             />
           </div>
@@ -534,7 +551,7 @@ export function CalendarEventEditor({
           <Button
             type="submit"
             form={FORM_ID}
-            disabled={saving || catalog.status !== 'ready' || (mode === 'create' && !canCreateType)}
+            disabled={saving || customFields.status !== 'ready' || injectionWidgets.loading || !!injectionWidgets.error || catalog.status !== 'ready' || (mode === 'create' && !canCreateType)}
           >
             {saving ? t('customers.calendar.editor.saving', 'Saving…') : t('customers.calendar.editor.save', 'Save event')}
           </Button>

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
@@ -195,7 +196,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
         existing.icon = icon ?? null
         changed = true
       }
-      if (behavior !== undefined && JSON.stringify(existing.activityTypeBehavior ?? null) !== JSON.stringify(behavior)) {
+      if (behavior !== undefined && !isDeepStrictEqual(existing.activityTypeBehavior ?? null, behavior)) {
         existing.activityTypeBehavior = behavior
         changed = true
       }
@@ -529,7 +530,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
 
     if (
       parsed.behavior !== undefined &&
-      JSON.stringify(entry.activityTypeBehavior ?? null) !== JSON.stringify(parsed.behavior)
+      !isDeepStrictEqual(entry.activityTypeBehavior ?? null, parsed.behavior)
     ) {
       entry.activityTypeBehavior = parsed.behavior
       changed = true

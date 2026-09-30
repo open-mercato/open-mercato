@@ -5,7 +5,7 @@ export type VisitAvailabilitySubject = {
   reasonKey: string | null
 }
 
-export type VisitAvailabilityResponse = { subjects: VisitAvailabilitySubject[] }
+export type VisitAvailabilityResponse = { subjects: VisitAvailabilitySubject[]; warnings?: string[] }
 
 function selectedIds(value: unknown, kind: 'staff' | 'resource'): string[] {
   if (!Array.isArray(value)) return []

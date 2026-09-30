@@ -1,9 +1,8 @@
 import './lib/i18n/register-dictionary-loader'
 
 import type { BootstrapData } from '@open-mercato/shared/lib/bootstrap'
-import { applyProgrammaticComponentOverrides, enabledModules } from '@/modules'
-import { applyModuleOverridesFromEnabledModules, registerModuleOverrideApplier, type CalendarOverridesShape } from '@open-mercato/shared/modules/overrides'
-import { registerCalendarModuleOverrides, type CalendarModuleOverrideEntry } from '@open-mercato/core/modules/customers/calendar-event-types'
+import { enabledModules } from '@/modules'
+import { applyModuleOverridesFromEnabledModules } from '@open-mercato/shared/modules/overrides'
 import '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-overrides'
 
 import { modules } from '@/.mercato/generated/modules.bootstrap.generated'
@@ -32,12 +31,6 @@ import { runBootstrapRegistrations } from '@/.mercato/generated/bootstrap-regist
 import { allCodeWorkflows } from '@/.mercato/generated/workflows.generated'
 import { registerCodeWorkflows } from '@open-mercato/core/modules/workflows/lib/code-registry'
 
-if (enabledModules.some((entry) => entry.id === 'customers')) {
-  registerModuleOverrideApplier<CalendarOverridesShape>('calendar', (entries) => {
-    registerCalendarModuleOverrides(entries as CalendarModuleOverrideEntry[])
-  })
-}
-applyProgrammaticComponentOverrides()
 applyModuleOverridesFromEnabledModules(enabledModules)
 registerEventModuleConfigs(eventModuleConfigs)
 registerMessageTypes(messageTypes, { replace: true })

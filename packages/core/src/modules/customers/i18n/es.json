@@ -258,6 +258,7 @@
   "customers.calendar.editor.descriptionPlaceholder": "Añadir detalles…",
   "customers.calendar.editor.discardConfirm": "Cambiar tipo y borrar valores",
   "customers.calendar.editor.discardDescription": "Al cambiar el tipo de evento se borrarán los valores que no correspondan al nuevo tipo.",
+  "customers.calendar.editor.discardUnknownField": "Campo personalizado",
   "customers.calendar.editor.discardFields": "Valores que se borrarán:",
   "customers.calendar.editor.discardTitle": "¿Cambiar el tipo de evento?",
   "customers.calendar.editor.error": "No se pudo guardar el evento",

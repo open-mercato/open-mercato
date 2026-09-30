@@ -15,6 +15,18 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
 }))
 
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
+  useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
+}))
+
+jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/customFieldForms'),
+  fetchCustomFieldFormStructure: async () => ({ definitions: [
+    { key: 'visit_notes', kind: 'text', label: 'Visit notes', fieldset: 'visit_details' },
+    { key: 'internal_notes', kind: 'text', label: 'Internal notes', fieldset: 'internal' },
+  ] }),
+}))
+
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: confirmMock, ConfirmDialogElement: null }),
 }))
@@ -66,7 +78,7 @@ describe('CalendarEventEditor catalog host', () => {
     catalogState = { status: 'ready', items: [visitType] }
   })
 
-  it('passes the stored type and its fieldsets into the single CrudForm on edit', async () => {
+  it('builds selected-type fields in the module and keeps the shared CrudForm generic', async () => {
     const item = buildCalendarItem({
       interactionType: 'visit',
       updatedAt: '2026-09-29T12:00:00.000Z',
@@ -85,8 +97,11 @@ describe('CalendarEventEditor catalog host', () => {
 
     await waitFor(() => {
       const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined
-      expect(props?.calendarEventTypeKey).toBe('visit')
-      expect(props?.customFieldsetAllowlist).toEqual({ 'customers:customer_interaction': ['visit_details'] })
+      expect(props?.calendarEventTypeKey).toBeUndefined()
+      expect(props?.customFieldsetAllowlist).toBeUndefined()
+      expect(props?.entityIds).toBeUndefined()
+      expect(props?.fields).toEqual([expect.objectContaining({ id: 'cf_visit_notes' })])
+      expect(props?.injectionSpotId).toBe('crud-form:customers.customer_interaction')
       expect(props?.initialValues).toMatchObject({ updatedAt: '2026-09-29T12:00:00.000Z' })
     })
   })
@@ -128,6 +143,7 @@ describe('CalendarEventEditor catalog host', () => {
       />,
     )
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled())
     const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
     const onSubmit = props.onSubmit as (values: Record<string, unknown>) => Promise<void>
     await act(async () => {
@@ -137,7 +153,7 @@ describe('CalendarEventEditor catalog host', () => {
     expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
     expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({
       variant: 'destructive',
-      text: expect.stringContaining('location, cf_visit_notes'),
+      text: expect.stringContaining('customers.calendar.editor.location, Visit notes'),
     }))
     expect(onOpenChange).not.toHaveBeenCalled()
     expect(onSaved).not.toHaveBeenCalled()
@@ -165,6 +181,7 @@ describe('CalendarEventEditor catalog host', () => {
       />,
     )
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled())
     const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
     const onSubmit = props.onSubmit as (values: Record<string, unknown>) => Promise<void>
     await act(async () => {

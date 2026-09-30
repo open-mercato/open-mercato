@@ -1,4 +1,9 @@
 {
+  "example.calendar.visitAvailability.skipped": "Availability checks were skipped for unavailable modules.",
+  "example.calendar.visitAvailability.optionalModulesTitle": "Optional availability checks",
+  "example.calendar.visitAvailability.staffDisabled": "The staff module is not enabled. Staff availability checks are skipped; you can still save the visit.",
+  "example.calendar.visitAvailability.resourcesDisabled": "The resources module is not enabled. Resource selection and availability checks are unavailable; you can still save the visit.",
+  "example.calendar.visitAvailability.plannerDisabled": "The planner module is not enabled. Availability checks are skipped; you can still save the visit.",
   "example.adminTitle": "Example Admin",
   "example.audit.todos.create": "Create todo",
   "example.audit.todos.delete": "Delete todo",

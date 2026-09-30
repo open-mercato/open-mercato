@@ -258,6 +258,7 @@
   "customers.calendar.editor.descriptionPlaceholder": "Add details…",
   "customers.calendar.editor.discardConfirm": "Change type and clear values",
   "customers.calendar.editor.discardDescription": "Changing the event type will clear values that do not apply to the new type.",
+  "customers.calendar.editor.discardUnknownField": "Custom field",
   "customers.calendar.editor.discardFields": "Values to clear:",
   "customers.calendar.editor.discardTitle": "Change event type?",
   "customers.calendar.editor.error": "Failed to save event",

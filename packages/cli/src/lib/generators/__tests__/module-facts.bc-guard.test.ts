@@ -79,24 +79,6 @@ describe('module-facts BC resolve guard (T2)', () => {
       .toContain(recoveredContribution)
   })
 
-  it('declares the customers calendar widget spot and exact panel host', () => {
-    const customers = factsByModule.customers
-    expect(customers.extensionSurfaces?.hosts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'calendar:customers.event-types',
-        family: 'generic',
-        bound: true,
-      }),
-    ]))
-    expect(customers.extensionSurfaces?.hosts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'section:customers.calendar-event-editor.type-panel',
-        family: 'component-handle',
-        bound: true,
-      }),
-    ]))
-  })
-
   it('keeps generated extension facts within bounded build-time and context budgets', () => {
     const completeJson = renderModuleFactsJson(factsByModule)
     const legacyJson = renderModuleFactsJson(Object.fromEntries(

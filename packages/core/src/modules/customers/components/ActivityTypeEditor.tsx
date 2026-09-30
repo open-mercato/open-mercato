@@ -205,7 +205,7 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
           }} />}
     </div>
     <Dialog open={selected !== undefined} onOpenChange={(open) => { if (!open) setSelected(undefined) }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-screen overflow-y-auto sm:max-w-2xl">
         <DialogHeader><DialogTitle>{selected
           ? t('customers.config.activityTypes.configure', 'Configure') : t('customers.config.activityTypes.new', 'New activity type')}</DialogTitle></DialogHeader>
         {selected?.isInherited ? <p className="text-sm text-muted-foreground">{t('customers.config.activityTypes.inheritedHint', 'Saving creates a local override for this organization.')}</p> : null}

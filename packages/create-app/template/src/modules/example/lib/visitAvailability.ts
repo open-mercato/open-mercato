@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { getEnabledModuleIds, hasEnabledModulesRegistry } from '@open-mercato/shared/security/enabledModulesRegistry'
 
 const uuid = z.string().uuid()
 const ids = z.array(uuid).max(20).refine((value) => new Set(value).size === value.length)
@@ -22,9 +23,17 @@ export type VisitAvailabilitySubject = {
   reasonKey: string | null
 }
 
+export function visitAvailabilityWarnings(): string[] {
+  if (!hasEnabledModulesRegistry()) return []
+  const enabledModules = new Set(getEnabledModuleIds())
+  return ['staff', 'resources', 'planner'].flatMap((moduleId) => enabledModules.has(moduleId)
+    ? []
+    : [`example.calendar.visitAvailability.${moduleId}Disabled`])
+}
+
 type Row = Record<string, unknown>
 type Window = { start: Date; end: Date }
-type PlannerService = { getMergedAvailabilityWindows: (input: { rules: Array<{ id?: string; rrule: string; timezone?: string; exdates?: string[]; kind?: 'availability' | 'unavailability' }>; range: Window }) => Window[] }
+type PlannerService = { getMergedAvailabilityWindows: (input: { respectTimezone?: boolean; rules: Array<{ id?: string; rrule: string; timezone?: string; exdates?: string[]; kind?: 'availability' | 'unavailability' }>; range: Window }) => Window[] }
 type Rbac = { userHasAllFeatures: (userId: string, features: string[], scope: { tenantId: string; organizationId: string }) => Promise<boolean> }
 
 export function resolveVisitService<T>(container: Pick<AwilixContainer, 'resolve'>, name: string): T | null {
@@ -78,9 +87,11 @@ export async function evaluateVisitAvailability(args: {
   input: VisitAvailabilityInput
 }): Promise<VisitAvailabilitySubject[]> {
   const { container, actorUserId, scope, input } = args
+  const enabledModules = hasEnabledModulesRegistry() ? new Set(getEnabledModuleIds()) : null
+  const canCheck = (moduleId: string) => !enabledModules || (enabledModules.has(moduleId) && enabledModules.has('planner'))
   const subjects: VisitAvailabilitySubject[] = [
-    ...input.staffUserIds.map((id): VisitAvailabilitySubject => ({ type: 'staff', id, status: 'unknown', reasonKey: 'example.calendar.visitAvailability.unknown' })),
-    ...input.resourceIds.map((id): VisitAvailabilitySubject => ({ type: 'resource', id, status: 'unknown', reasonKey: 'example.calendar.visitAvailability.unknown' })),
+    ...(canCheck('staff') ? input.staffUserIds : []).map((id): VisitAvailabilitySubject => ({ type: 'staff', id, status: 'unknown', reasonKey: 'example.calendar.visitAvailability.unknown' })),
+    ...(canCheck('resources') ? input.resourceIds : []).map((id): VisitAvailabilitySubject => ({ type: 'resource', id, status: 'unknown', reasonKey: 'example.calendar.visitAvailability.unknown' })),
   ]
   if (!subjects.length) return subjects
   const queryEngine = resolveVisitService<QueryEngine>(container, 'queryEngine')
@@ -108,12 +119,8 @@ export async function evaluateVisitAvailability(args: {
       for (const subject of selected) {
         const record = records.find((row) => value(row, type === 'staff' ? 'userId' : 'id', type === 'staff' ? 'user_id' : 'id') === subject.id)
         if (!record) {
-          if (type === 'staff') {
-            subject.reasonKey = 'example.calendar.visitAvailability.unknown'
-          } else {
-            subject.status = 'unavailable'
-            subject.reasonKey = 'example.calendar.visitAvailability.inactiveSubject'
-          }
+          subject.status = 'unavailable'
+          subject.reasonKey = 'example.calendar.visitAvailability.inactiveSubject'
           continue
         }
         const memberId = value(record, 'id', 'id')
@@ -144,7 +151,7 @@ export async function evaluateVisitAvailability(args: {
           subject.reasonKey = 'example.calendar.visitAvailability.noSchedule'
           continue
         }
-        const windows = planner.getMergedAvailabilityWindows({ rules: normalizedRules, range: { start, end } })
+        const windows = planner.getMergedAvailabilityWindows({ rules: normalizedRules, range: { start, end }, respectTimezone: true })
         subject.status = covers(windows, start, end) ? 'available' : 'unavailable'
         subject.reasonKey = subject.status === 'available' ? null : 'example.calendar.visitAvailability.unavailable'
       }

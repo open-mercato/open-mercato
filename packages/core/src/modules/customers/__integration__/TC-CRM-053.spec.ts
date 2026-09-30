@@ -41,7 +41,7 @@ test.describe('TC-CRM-053: Activity validation — date/time required, phone val
         token,
         data: {
           entityId: companyId,
-          interactionType: 'call',
+          interactionType: 'note',
           title: 'Empty date',
           date: '',
           time: '10:00',
@@ -71,7 +71,7 @@ test.describe('TC-CRM-053: Activity validation — date/time required, phone val
         token,
         data: {
           entityId: companyId,
-          interactionType: 'call',
+          interactionType: 'note',
           title: 'Empty time',
           date: '2026-05-15',
           time: '',

@@ -63,7 +63,7 @@ test.describe('TC-UNDO-004: deprecated activities/todos bridge routes emit an un
 
       const res = await apiRequest(request, 'POST', '/api/customers/activities', {
         token,
-        data: { entityId: personId, activityType: 'call', subject: `QA bridge ${stamp()}` },
+        data: { entityId: personId, activityType: 'note', subject: `QA bridge ${stamp()}` },
       });
       expect(res.status(), 'activity create 201').toBe(201);
       expect(res.headers()['deprecation'], 'bridge still advertises Deprecation').toBeTruthy();

@@ -236,17 +236,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  // 113 source-required of 138: four exact packed-package links plus the app-local token link
-  // are visible through the UI owners without granting any directory-shaped source access.
-  assert.equal(inventory.derived.sourceRequiredCount, 113)
-  assert.equal(inventory.records.length, 138)
-  assert.equal(inventory.derived.renderedLinkCount, 115)
+  assert.equal(inventory.derived.sourceRequiredCount, 125)
+  assert.equal(inventory.records.length, 150)
+  assert.equal(inventory.derived.renderedLinkCount, 127)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 113)
+  assert.equal(sourceRequired.length, 125)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -430,7 +428,7 @@ test('capability joins come from the example surface inventory, not from the top
       assert.ok(capability.sourcePaths.includes(record.resolvedPath))
     }
   }
-  assert.equal(joined, 89)
+  assert.equal(joined, 97)
 
   const unjoined = inventory.records.filter(
     (record) => record.requirement === 'source-required' && record.capabilityIds.length === 0,
@@ -438,8 +436,12 @@ test('capability joins come from the example surface inventory, not from the top
   assert.deepEqual(
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
+      '.ai/guides/customers-calendar.md',
       // The installed UI implementation joins no example capability: it is the framework's own
       // component, not a canonical-example surface.
+      'node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts',
+      'node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx',
+      'node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts',
       'node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx',
       'node_modules/@open-mercato/shared/src/lib/commands/registry.ts',
       'node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts',

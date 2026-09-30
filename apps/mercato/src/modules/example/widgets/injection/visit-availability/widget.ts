@@ -9,19 +9,25 @@ const widget: InjectionWidgetModule<InjectionContext, Record<string, unknown>> =
     id: 'example.injection.visit-availability',
     title: 'Visit availability validation',
     requiredModules: ['customers'],
-    calendarEventTypeKeys: ['visit'],
     enabled: true,
   },
   Widget: VisitAvailabilityWidget,
   eventHandlers: {
-    onBeforeSave: async (values, context) => {
-      const fields = context.calendarEventTypeFields
-      const applicability = fields && typeof fields === 'object' ? fields as Record<string, unknown> : null
+    onBeforeSave: async (values) => {
+      if ((values.category ?? values.kind) !== 'visit') return { ok: true }
+      let fields: Record<string, unknown>
+      try {
+        const catalog = await apiCall<{ items: { key: string; behavior: { fields: Record<string, unknown> } }[] }>('/api/customers/activity-types')
+        const definition = catalog.result?.items?.find((item) => item.key === 'visit')
+        if (!catalog.ok || !definition) return { ok: false, fieldErrors: { ends: 'example.calendar.visitAvailability.retry' } }
+        fields = definition.behavior.fields
+      } catch {
+        return { ok: false, fieldErrors: { ends: 'example.calendar.visitAvailability.retry' } }
+      }
       const url = visitAvailabilityRequestUrl({
         ...values,
-        participants: applicability?.people === 'none' ? [] : values.participants,
-        resources: applicability?.resources === false || context.calendarResourcesEnabled === false
-          ? [] : values.resources,
+        participants: fields.people === 'none' ? [] : values.participants,
+        resources: fields.resources === false ? [] : values.resources,
       })
       if (!url) return { ok: false, fieldErrors: { ends: 'example.calendar.visitAvailability.invalidInterval' } }
       try {

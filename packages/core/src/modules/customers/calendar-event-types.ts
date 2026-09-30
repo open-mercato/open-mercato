@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 
 export const calendarEventBaseKindSchema = z.enum(['meeting', 'call', 'email', 'note', 'event', 'task'])
 
@@ -97,6 +98,12 @@ export const calendarEventTypeHistoricalFallbackSchema = z.strictObject({
   definition: calendarEventTypeDefinitionSchema,
 })
 
+export type CalendarEventTypeWidget = InjectionWidgetModule & {
+  eventTypes: readonly CalendarEventTypeDefinition[]
+  eventTypeOverrides?: Readonly<Record<string, CalendarEventTypeDefinition | null>>
+  eventTypePatches?: readonly CalendarEventTypePatch[]
+}
+
 export type CalendarEventBaseKind = z.infer<typeof calendarEventBaseKindSchema>
 export type CalendarEventTypeFields = z.infer<typeof calendarEventTypeFieldsSchema>
 export type CalendarEventTypeBehavior = z.infer<typeof calendarEventTypeBehaviorSchema>
@@ -155,11 +162,11 @@ const resources = true
 
 export const calendarEventTypes: readonly CalendarEventTypeDefinition[] = deepFreeze([
   { key: 'meeting', label: 'Meeting', labelKey: 'customers.calendar.editor.types.meeting', icon: 'lucide:users', color: '#f59e0b', behavior: behavior('meeting', 0, { endTime: true, allDay: true, recurrence: true, location: 'location', people: 'attendees', priority: false, resources }) },
-  { key: 'call', label: 'Call', labelKey: 'customers.calendar.editor.types.call', icon: 'lucide:phone-call', color: '#2563eb', behavior: behavior('call', 100, { endTime: false, allDay: true, recurrence: true, location: 'phoneLink', people: 'participants', priority: false, resources }) },
+  { key: 'call', label: 'Call', labelKey: 'customers.calendar.editor.types.call', icon: 'lucide:phone-call', color: '#2563eb', behavior: behavior('call', 100, { endTime: true, allDay: true, recurrence: true, location: 'phoneLink', people: 'participants', priority: false, resources }) },
   { key: 'email', label: 'Email', labelKey: 'customers.calendar.editor.types.email', icon: 'lucide:mail', color: '#16a34a', behavior: behavior('email', 200, { endTime: false, allDay: true, recurrence: true, location: 'none', people: 'recipients', priority: false, resources }) },
   { key: 'note', label: 'Note', labelKey: 'customers.calendar.editor.types.note', icon: 'lucide:notebook', color: '#a855f7', behavior: behavior('note', 300, { endTime: false, allDay: false, recurrence: false, location: 'none', people: 'none', priority: false, resources }) },
   { key: 'event', label: 'Event', labelKey: 'customers.calendar.editor.types.event', icon: 'lucide:calendar', color: '#6366f1', behavior: behavior('event', 400, { endTime: true, allDay: true, recurrence: true, location: 'location', people: 'attendees', priority: false, resources }) },
-  { key: 'task', label: 'Task', labelKey: 'customers.calendar.editor.types.task', icon: 'lucide:check-square', color: '#ef4444', behavior: behavior('task', 500, { endTime: false, allDay: true, recurrence: true, location: 'none', people: 'assignee', priority: true, resources }) },
+  { key: 'task', label: 'Task', labelKey: 'customers.calendar.editor.types.task', icon: 'lucide:check-square', color: '#ef4444', behavior: behavior('task', 500, { endTime: true, allDay: true, recurrence: true, location: 'none', people: 'assignee', priority: true, resources }) },
 ])
 
 export const calendarEventTypeOverrides: Readonly<Record<string, CalendarEventTypeDefinitionOverride | null>> = Object.freeze({})
@@ -623,7 +630,9 @@ export function resolveCalendarEventType(
   rawKey: string,
   options: { includeHistorical?: boolean } = {},
 ): EffectiveCalendarEventType | undefined {
-  const key = calendarEventTypeKeySchema.parse(rawKey)
+  const parsedKey = calendarEventTypeKeySchema.safeParse(rawKey.trim().toLowerCase())
+  if (!parsedKey.success) return undefined
+  const key = parsedKey.data
   const current = compose()
   const resolved = current.items.find((item) => item.key === key)
   if (resolved || !options.includeHistorical) return resolved

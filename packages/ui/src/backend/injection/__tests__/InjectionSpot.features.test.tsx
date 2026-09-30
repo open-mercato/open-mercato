@@ -38,7 +38,7 @@ jest.mock('../WidgetSharedState', () => ({
   getWidgetSharedState: () => ({}),
 }))
 
-import { InjectionSpot, useInjectionSpotEvents, useInjectionWidgets } from '../InjectionSpot'
+import { InjectionSpot, useInjectionSpotEvents } from '../InjectionSpot'
 import { useInjectionDataWidgets } from '../useInjectionDataWidgets'
 
 const SPOT_ID = 'data-table:test.widgets:toolbar'
@@ -132,68 +132,6 @@ describe('Injection widget feature gating', () => {
     expect(queryByTestId('hidden-widget')).toBeNull()
     expect(onLoadVisibleMock).toHaveBeenCalledTimes(1)
     expect(onLoadHiddenMock).not.toHaveBeenCalled()
-  })
-
-  it('mounts and dispatches only widgets matching the selected calendar event type', async () => {
-    const visitBeforeSave = jest.fn()
-    const meetingBeforeSave = jest.fn()
-    const globalBeforeSave = jest.fn()
-    const visitAfterSave = jest.fn()
-    const meetingAfterSave = jest.fn()
-    const globalAfterSave = jest.fn()
-    const visitWidget = lifecycleWidget('visit-widget', undefined, visitBeforeSave)
-    visitWidget.metadata.calendarEventTypeKeys = ['visit']
-    visitWidget.metadata.requiredFields = ['visitDate']
-    visitWidget.eventHandlers = {
-      onBeforeSave: async () => { visitBeforeSave() },
-      onAfterSave: async () => { visitAfterSave() },
-    }
-    const meetingWidget = lifecycleWidget('meeting-widget', undefined, meetingBeforeSave)
-    meetingWidget.metadata.calendarEventTypeKeys = ['meeting']
-    meetingWidget.metadata.requiredFields = ['meetingRoom']
-    meetingWidget.eventHandlers = {
-      onBeforeSave: async () => { meetingBeforeSave() },
-      onAfterSave: async () => { meetingAfterSave() },
-    }
-    const globalWidget = lifecycleWidget('global-widget', undefined, globalBeforeSave)
-    globalWidget.eventHandlers = {
-      onBeforeSave: async () => { globalBeforeSave() },
-      onAfterSave: async () => { globalAfterSave() },
-    }
-    loadInjectionWidgetsForSpotMock.mockResolvedValue([visitWidget, meetingWidget, globalWidget])
-
-    const { result, rerender } = renderHook(
-      ({ calendarEventTypeKey }: { calendarEventTypeKey: string }) => {
-        const context = { calendarEventTypeKey }
-        const { widgets } = useInjectionWidgets(SPOT_ID, { context })
-        const { triggerEvent } = useInjectionSpotEvents(SPOT_ID, widgets)
-        return { widgets, triggerEvent }
-      },
-      { initialProps: { calendarEventTypeKey: 'visit' } },
-    )
-
-    await waitFor(() => expect(result.current.widgets.map((widget) => widget.widgetId)).toEqual(['visit-widget', 'global-widget']))
-    expect(result.current.widgets.flatMap((widget) => widget.module.metadata.requiredFields ?? [])).toEqual(['visitDate'])
-    await act(async () => { await result.current.triggerEvent('onBeforeSave', {}, { calendarEventTypeKey: 'visit' }) })
-    await act(async () => { await result.current.triggerEvent('onAfterSave', {}, { calendarEventTypeKey: 'visit' }) })
-    expect(visitBeforeSave).toHaveBeenCalledTimes(1)
-    expect(meetingBeforeSave).not.toHaveBeenCalled()
-    expect(globalBeforeSave).toHaveBeenCalledTimes(1)
-    expect(visitAfterSave).toHaveBeenCalledTimes(1)
-    expect(meetingAfterSave).not.toHaveBeenCalled()
-    expect(globalAfterSave).toHaveBeenCalledTimes(1)
-
-    rerender({ calendarEventTypeKey: 'meeting' })
-    await waitFor(() => expect(result.current.widgets.map((widget) => widget.widgetId)).toEqual(['meeting-widget', 'global-widget']))
-    expect(result.current.widgets.flatMap((widget) => widget.module.metadata.requiredFields ?? [])).toEqual(['meetingRoom'])
-    await act(async () => { await result.current.triggerEvent('onBeforeSave', {}, { calendarEventTypeKey: 'meeting' }) })
-    await act(async () => { await result.current.triggerEvent('onAfterSave', {}, { calendarEventTypeKey: 'meeting' }) })
-    expect(visitBeforeSave).toHaveBeenCalledTimes(1)
-    expect(meetingBeforeSave).toHaveBeenCalledTimes(1)
-    expect(globalBeforeSave).toHaveBeenCalledTimes(2)
-    expect(visitAfterSave).toHaveBeenCalledTimes(1)
-    expect(meetingAfterSave).toHaveBeenCalledTimes(1)
-    expect(globalAfterSave).toHaveBeenCalledTimes(2)
   })
 
   it('filters component widget overrides by metadata features', () => {

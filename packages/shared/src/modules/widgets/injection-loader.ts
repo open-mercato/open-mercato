@@ -378,7 +378,6 @@ function isDataWidgetModule(widget: Record<string, unknown>): widget is LoadedDa
     'steps',
     'badge',
     'menuItems',
-    'eventTypes',
   ]
   return keys.some((key) => key in widget)
 }

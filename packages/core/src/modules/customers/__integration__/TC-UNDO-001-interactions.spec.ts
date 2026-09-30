@@ -56,7 +56,7 @@ test.describe('TC-UNDO-001 customers.interactions undo/redo', () => {
         field: 'title',
         createPayload: (s) => ({
           entityId: personId,
-          interactionType: 'call',
+          interactionType: 'note',
           title: `Undo Interaction ${s}`,
         }),
         updatePayload: (id, s) => ({

@@ -240,6 +240,7 @@ export class CommandBus {
         auth: options.ctx.auth ?? null,
         selectedOrganizationId: options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null,
         container: options.ctx.container,
+        organizationScope: options.ctx.organizationScope ?? null,
         request: options.ctx.request ?? null,
       }
       const beforeResult = await runCommandInterceptorsBefore(
@@ -333,6 +334,8 @@ export class CommandBus {
         auth: effectiveOptions.ctx.auth ?? null,
         selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
         container: effectiveOptions.ctx.container,
+        request: effectiveOptions.ctx.request ?? null,
+        organizationScope: effectiveOptions.ctx.organizationScope ?? null,
       }
       const afterResult = await runCommandInterceptorsAfter(
         allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
@@ -384,6 +387,8 @@ export class CommandBus {
           auth: ctx.auth ?? null,
           selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
           container: ctx.container,
+          request: ctx.request ?? null,
+          organizationScope: ctx.organizationScope ?? null,
         }
         const beforeResult = await runCommandInterceptorsBeforeUndo(
           allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
@@ -410,6 +415,8 @@ export class CommandBus {
           auth: ctx.auth ?? null,
           selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
           container: ctx.container,
+          request: ctx.request ?? null,
+          organizationScope: ctx.organizationScope ?? null,
         }
         await runCommandInterceptorsAfterUndo(
           allInterceptors, log.commandId, undoCtx, interceptorCtx,

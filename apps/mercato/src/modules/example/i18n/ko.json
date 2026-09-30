@@ -1,4 +1,9 @@
 {
+  "example.calendar.visitAvailability.skipped": "사용할 수 없는 모듈의 가용성 확인을 건너뛰었습니다.",
+  "example.calendar.visitAvailability.optionalModulesTitle": "선택적 가용성 확인",
+  "example.calendar.visitAvailability.staffDisabled": "직원 모듈이 활성화되어 있지 않습니다. 직원 가용성 확인을 건너뛰며 방문을 저장할 수 있습니다.",
+  "example.calendar.visitAvailability.resourcesDisabled": "리소스 모듈이 활성화되어 있지 않습니다. 리소스 선택 및 가용성 확인을 사용할 수 없지만 방문을 저장할 수 있습니다.",
+  "example.calendar.visitAvailability.plannerDisabled": "플래너 모듈이 활성화되어 있지 않습니다. 가용성 확인을 건너뛰며 방문을 저장할 수 있습니다.",
   "example.adminTitle": "예제 관리자",
   "example.audit.todos.create": "할 일 생성",
   "example.audit.todos.delete": "할 일 삭제",

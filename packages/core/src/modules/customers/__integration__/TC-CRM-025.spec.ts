@@ -102,8 +102,8 @@ test.describe('TC-CRM-025: Customer Interaction Adapters', () => {
         token,
         data: {
           entityId: personId,
-          activityType: 'call',
-          subject: 'TC-CRM-025 adapter call',
+          activityType: 'note',
+          subject: 'TC-CRM-025 adapter note',
           body: 'Adapter-created activity',
         },
       });
@@ -120,7 +120,7 @@ test.describe('TC-CRM-025: Customer Interaction Adapters', () => {
       const items = Array.isArray(listBody?.items) ? (listBody!.items as Array<Record<string, unknown>>) : [];
       const createdRow = items.find((item) => item.id === activityId);
       expect(createdRow).toBeTruthy();
-      expect(createdRow?.subject).toBe('TC-CRM-025 adapter call');
+      expect(createdRow?.subject).toBe('TC-CRM-025 adapter note');
 
       const detailResponse = await apiRequest(
         request,

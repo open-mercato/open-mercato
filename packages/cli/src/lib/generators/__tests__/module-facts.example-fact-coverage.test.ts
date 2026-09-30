@@ -350,16 +350,16 @@ describe('factCoverage ledger — checked against the real example extraction', 
     expect(fs.existsSync(path.join(findRepoRoot(), 'apps/mercato/src/modules/example/generators.ts'))).toBe(true)
   })
 
-  it('emits targets for module-owned domains and none for framework-only domains', () => {
+  it('emits a real override target for all fifteen module-owned domains and none for framework-only nav', () => {
     const domainCounts = counts.ModuleOverrideDomain
     for (const domain of ALL_OVERRIDE_DOMAINS) {
-      if (domain === 'nav' || domain === 'calendar') {
+      if (domain === 'nav') {
         expect(domainCounts[domain] ?? 0).toBe(0)
         continue
       }
       expect(domainCounts[domain] ?? 0).toBeGreaterThan(0)
     }
-    expect(Object.keys(domainCounts)).toHaveLength(ALL_OVERRIDE_DOMAINS.length - 2)
+    expect(Object.keys(domainCounts)).toHaveLength(ALL_OVERRIDE_DOMAINS.length - 1)
   })
 
   it('round-trips all three modes and both closed notes through real targets', () => {

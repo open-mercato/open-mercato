@@ -1,4 +1,9 @@
 {
+  "example.calendar.visitAvailability.skipped": "Die Verfügbarkeitsprüfungen für nicht verfügbare Module wurden übersprungen.",
+  "example.calendar.visitAvailability.optionalModulesTitle": "Optionale Verfügbarkeitsprüfungen",
+  "example.calendar.visitAvailability.staffDisabled": "Das Mitarbeitermodul ist nicht aktiviert. Die Verfügbarkeit von Mitarbeitern wird nicht geprüft; der Besuch kann weiterhin gespeichert werden.",
+  "example.calendar.visitAvailability.resourcesDisabled": "Das Ressourcenmodul ist nicht aktiviert. Ressourcenauswahl und Verfügbarkeitsprüfung sind nicht verfügbar; der Besuch kann weiterhin gespeichert werden.",
+  "example.calendar.visitAvailability.plannerDisabled": "Das Planungsmodul ist nicht aktiviert. Die Verfügbarkeit wird nicht geprüft; der Besuch kann weiterhin gespeichert werden.",
   "example.adminTitle": "Beispiel-Admin",
   "example.audit.todos.create": "To-do anlegen",
   "example.audit.todos.delete": "To-do löschen",

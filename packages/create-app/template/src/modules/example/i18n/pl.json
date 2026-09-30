@@ -1,4 +1,9 @@
 {
+  "example.calendar.visitAvailability.skipped": "Pominięto sprawdzanie dostępności dla niedostępnych modułów.",
+  "example.calendar.visitAvailability.optionalModulesTitle": "Opcjonalne sprawdzanie dostępności",
+  "example.calendar.visitAvailability.staffDisabled": "Moduł pracowników nie jest włączony. Sprawdzanie dostępności pracowników jest pomijane; nadal możesz zapisać wizytę.",
+  "example.calendar.visitAvailability.resourcesDisabled": "Moduł zasobów nie jest włączony. Wybór zasobów i sprawdzanie ich dostępności są niedostępne; nadal możesz zapisać wizytę.",
+  "example.calendar.visitAvailability.plannerDisabled": "Moduł planowania nie jest włączony. Sprawdzanie dostępności jest pomijane; nadal możesz zapisać wizytę.",
   "example.adminTitle": "Panel przykładowy",
   "example.audit.todos.create": "Utwórz zadanie",
   "example.audit.todos.delete": "Usuń zadanie",

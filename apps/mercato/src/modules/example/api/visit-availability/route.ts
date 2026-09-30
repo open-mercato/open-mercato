@@ -5,7 +5,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { evaluateVisitAvailability, visitAvailabilityInputSchema } from '../../lib/visitAvailability'
+import { evaluateVisitAvailability, visitAvailabilityInputSchema, visitAvailabilityWarnings } from '../../lib/visitAvailability'
 
 const querySchema = z.object({
   startAt: z.string(),
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
       scope: { tenantId: auth.tenantId, organizationId },
       input,
     })
-    return NextResponse.json({ subjects })
+    return NextResponse.json({ subjects, warnings: visitAvailabilityWarnings() })
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: 'Invalid availability query' }, { status: 400 })
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
@@ -63,7 +63,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Check availability of selected staff and resources',
       description: 'Returns scoped per-subject availability for a proposed Visit interval.',
       query: querySchema,
-      responses: [{ status: 200, description: 'Availability preview', schema: z.object({ subjects: z.array(z.object({
+      responses: [{ status: 200, description: 'Availability preview', schema: z.object({ warnings: z.array(z.string()), subjects: z.array(z.object({
         type: z.enum(['staff', 'resource']), id: z.string().uuid(), status: z.enum(['available', 'unavailable', 'unknown']), reasonKey: z.string().nullable(),
       })) }) }],
       errors: [

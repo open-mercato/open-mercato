@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
 
 type Catalog = { fallbackKey: string; items: Array<{ key: string; selectable: boolean; behavior: { baseKind: string }; source: string }> }
 
@@ -81,7 +82,7 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       expect(proposed.status(), await proposed.text()).toBe(409)
       expect(await proposed.json()).toMatchObject({
         code: 'calendar_type_change_confirmation_required',
-        fields: expect.arrayContaining(['durationMinutes', 'location']),
+        fields: expect.arrayContaining(['location']),
       })
 
       const confirmed = await apiRequest(request, 'PUT', '/api/customers/interactions', {
@@ -93,7 +94,7 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       expect(list.status(), await list.text()).toBe(200)
       const row = ((await list.json()) as { items?: Array<{ id: string; interactionType: string; durationMinutes?: number | null; location?: string | null }> })
         .items?.find((item) => item.id === meetingId)
-      expect(row).toMatchObject({ interactionType: 'task', durationMinutes: null, location: null })
+      expect(row).toMatchObject({ interactionType: 'task', durationMinutes: 60, location: null })
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', meetingId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
@@ -133,6 +134,7 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       const catalog = await catalogResponse.json() as Catalog
       expect(catalog.items.find((item) => item.key === key)).toMatchObject({ label: 'QA calendar type', selectable: true, behavior: { order: 8000 } })
 
+      const originalVersion = updatedAt
       const changedResponse = await apiRequest(request, 'PATCH', `${dictionaryPath}/${entryId}`, {
         token,
         headers: updatedAt ? { 'x-om-ext-optimistic-lock-expected-updated-at': updatedAt } : undefined,
@@ -141,6 +143,15 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       expect(changedResponse.status(), await changedResponse.text()).toBe(200)
       const changed = await changedResponse.json() as { updatedAt?: string }
       updatedAt = changed.updatedAt ?? updatedAt
+      expect(originalVersion).toBeTruthy()
+      expect(updatedAt).not.toBe(originalVersion)
+      const staleResponse = await apiRequest(request, 'PATCH', `${dictionaryPath}/${entryId}`, {
+        token,
+        headers: { 'x-om-ext-optimistic-lock-expected-updated-at': originalVersion! },
+        data: { label: 'Stale write must be rejected' },
+      })
+      expect(staleResponse.status(), await staleResponse.text()).toBe(409)
+      expect(await staleResponse.json()).toMatchObject({ code: 'optimistic_lock_conflict' })
       const updatedCatalogResponse = await apiRequest(request, 'GET', '/api/customers/activity-types', { token })
       expect(updatedCatalogResponse.status()).toBe(200)
       const updatedCatalog = await updatedCatalogResponse.json() as Catalog
@@ -151,6 +162,125 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       })
     }
   })
+
+  test('rejects hidden selections and inapplicable same-type edits while preserving record values', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const key = `qa_hidden_${Date.now()}`
+    let personId: string | null = null
+    let entryId: string | null = null
+    let interactionId: string | null = null
+    let updatedAt: string | null = null
+    try {
+      personId = await createPersonFixture(request, token, { firstName: 'Hidden', lastName: key, displayName: key })
+      const catalogResponse = await apiRequest(request, 'GET', '/api/customers/activity-types', { token })
+      expect(catalogResponse.status()).toBe(200)
+      const catalog = await catalogResponse.json() as Catalog
+      const note = catalog.items.find((type) => type.key === 'note')!
+      expect(note).toBeTruthy()
+      const dictionary = await apiRequest(request, 'POST', '/api/customers/dictionaries/activity-types', {
+        token, data: { value: key, label: key, behavior: { ...note.behavior, selectable: true } },
+      })
+      expect(dictionary.status(), await dictionary.text()).toBe(201)
+      const entry = await dictionary.json() as { id: string; updatedAt: string }
+      entryId = entry.id
+      updatedAt = entry.updatedAt
+      const created = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: { entityId: personId, interactionType: key, title: 'Existing note-like type', allDay: false },
+      })
+      expect(created.status(), await created.text()).toBe(201)
+      interactionId = (await created.json() as { id: string }).id
+      const inapplicable = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+        token, data: { id: interactionId, durationMinutes: 45 },
+      })
+      expect(inapplicable.status(), await inapplicable.text()).toBe(400)
+      expect(await inapplicable.json()).toMatchObject({ code: 'activity_type_field_not_applicable', fields: ['durationMinutes'] })
+      const hidden = await apiRequest(request, 'PATCH', `/api/customers/dictionaries/activity-types/${entryId}`, {
+        token, headers: { 'x-om-ext-optimistic-lock-expected-updated-at': updatedAt! },
+        data: { behavior: { ...note.behavior, selectable: false } },
+      })
+      expect(hidden.status(), await hidden.text()).toBe(200)
+      updatedAt = (await hidden.json() as { updatedAt: string }).updatedAt
+      const unavailable = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: { entityId: personId, interactionType: key, title: 'Hidden type is not selectable' },
+      })
+      expect(unavailable.status(), await unavailable.text()).toBe(400)
+      expect(await unavailable.json()).toMatchObject({ code: 'activity_type_unavailable' })
+      const unchanged = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+        token, data: { id: interactionId, title: 'Existing hidden type is still editable' },
+      })
+      expect(unchanged.status(), await unchanged.text()).toBe(200)
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      if (entryId) await apiRequest(request, 'DELETE', `/api/customers/dictionaries/activity-types/${entryId}`, {
+        token, headers: updatedAt ? { 'x-om-ext-optimistic-lock-expected-updated-at': updatedAt } : undefined,
+      })
+    }
+  })
+
+  test('returns 403 for an authenticated user without interaction or settings permissions', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { organizationId, tenantId } = getTokenContext(token)
+    const stamp = Date.now()
+    const email = `calendar-catalog-${stamp}@example.com`
+    const password = 'QaCatalog123!'
+    let roleId: string | null = null
+    let userId: string | null = null
+    try {
+      roleId = await createRoleFixture(request, token, { name: `calendar-no-permissions-${stamp}`, tenantId })
+      await setRoleAclFeatures(request, token, { roleId, features: [], organizations: [organizationId] })
+      userId = await createUserFixture(request, token, { email, password, organizationId, roles: [roleId] })
+      const restrictedToken = await getAuthToken(request, email, password)
+      const forbidden = await apiRequest(request, 'GET', '/api/customers/activity-types', { token: restrictedToken })
+      expect(forbidden.status(), await forbidden.text()).toBe(403)
+    } finally {
+      await deleteUserIfExists(request, token, userId)
+      await deleteRoleIfExists(request, token, roleId)
+    }
+  })
+
+  for (const activityType of ['call', 'task'] as const) {
+    test(`creates and edits ${activityType} duration from the company schedule dialog`, async ({ page, request }) => {
+      const token = await getAuthToken(request, 'admin')
+      const title = `QA schedule ${activityType} ${Date.now()}`
+      let companyId: string | null = null
+      let interactionId: string | null = null
+      try {
+        companyId = await createCompanyFixture(request, token, `Company for ${title}`)
+        await login(page, 'admin')
+        await page.goto(`/backend/customers/companies-v2/${companyId}`)
+        await page.getByRole('tab', { name: /Activity log/i }).click()
+        await page.getByRole('button', { name: /^Add new$/ }).click()
+        await page.getByRole('button', { name: /New task/i }).first().click()
+        const dialog = page.getByRole('dialog')
+        if (activityType === 'call') await dialog.getByRole('button', { name: 'Call', exact: true }).click()
+        await dialog.getByPlaceholder(/Activity title/i).fill(title)
+        const createdPromise = page.waitForResponse((response) => response.url().includes('/api/customers/interactions') && response.request().method() === 'POST')
+        await dialog.getByRole('button', { name: activityType === 'call' ? /^Log call$/ : /^Save task$/ }).click()
+        const created = await createdPromise
+        expect(created.status(), await created.text()).toBe(201)
+        interactionId = (await created.json() as { id: string }).id
+        const payload = created.request().postDataJSON() as { durationMinutes: number; scheduledAt: string }
+        expect(payload.durationMinutes).toBeGreaterThan(0)
+        await expect(dialog).toBeHidden()
+        const dayNumber = await page.evaluate((scheduledAt) => String(new Date(scheduledAt).getDate()).padStart(2, '0'), payload.scheduledAt)
+        await page.getByRole('button', { name: new RegExp(` ${dayNumber}$`) }).click()
+        await page.getByText(title, { exact: true }).first().click()
+        const editDialog = page.getByRole('dialog', { name: 'Edit activity', exact: true })
+        await expect(editDialog).toBeVisible()
+        await editDialog.getByPlaceholder(/Activity title/i).fill(`${title} edited`)
+        const changedPromise = page.waitForResponse((response) => response.url().includes('/api/customers/interactions') && response.request().method() === 'PUT')
+        await editDialog.getByRole('button', { name: /^Update activity$/ }).click()
+        const changed = await changedPromise
+        expect(changed.status(), await changed.text()).toBe(200)
+        expect((changed.request().postDataJSON() as { durationMinutes: number }).durationMinutes).toBe(payload.durationMinutes)
+        await expect(editDialog).toBeHidden()
+      } finally {
+        await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
+        await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+      }
+    })
+  }
 
   test('does not expose a sibling organization’s activity type in the selected organization', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')

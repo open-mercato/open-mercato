@@ -258,6 +258,7 @@
   "customers.calendar.editor.descriptionPlaceholder": "Dodaj szczegóły…",
   "customers.calendar.editor.discardConfirm": "Zmień typ i usuń wartości",
   "customers.calendar.editor.discardDescription": "Zmiana typu wydarzenia usunie wartości, które nie dotyczą nowego typu.",
+  "customers.calendar.editor.discardUnknownField": "Pole niestandardowe",
   "customers.calendar.editor.discardFields": "Wartości do usunięcia:",
   "customers.calendar.editor.discardTitle": "Zmienić typ wydarzenia?",
   "customers.calendar.editor.error": "Nie udało się zapisać wydarzenia",

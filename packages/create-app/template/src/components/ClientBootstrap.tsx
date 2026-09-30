@@ -66,7 +66,6 @@ export function ensureModuleOverridesApplied(): Promise<void> {
       import('@/modules'),
       import('@open-mercato/shared/modules/overrides'),
     ])
-    appModules.applyProgrammaticComponentOverrides()
     overrides.applyModuleOverridesFromEnabledModules(appModules.enabledModules, {
       domains: CLIENT_OVERRIDE_DOMAINS,
     })

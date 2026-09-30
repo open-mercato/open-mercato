@@ -79,7 +79,8 @@ export function withExampleCalendarEventTypePanel(
   Original: React.ComponentType<CalendarEventTypePanelProps>,
 ): React.ComponentType<CalendarEventTypePanelProps> {
   function ExampleCalendarEventTypePanel(props: CalendarEventTypePanelProps) {
-    return props.definition.key === 'visit' && props.panelKey === 'example.visit'
+    return props.definition.key === 'visit' && props.panelKey === 'example.visit' &&
+      !parseBooleanWithDefault(process.env.NEXT_PUBLIC_OM_EXAMPLE_DISABLE_VISIT_PANEL, false)
       ? React.createElement(VisitPanel, props)
       : React.createElement(Original, props)
   }

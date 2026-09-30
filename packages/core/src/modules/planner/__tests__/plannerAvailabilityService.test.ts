@@ -32,6 +32,16 @@ describe('DefaultPlannerAvailabilityService', () => {
     expect(viaService).toEqual(direct)
   })
 
+  it('supports an explicit timezone opt-in while preserving default UTC behavior', () => {
+    const service = new DefaultPlannerAvailabilityService()
+    const params = {
+      rules: [{ rrule: 'DTSTART:20260322T080000Z;DURATION:PT2H;FREQ=WEEKLY', timezone: 'Europe/Warsaw' }],
+      range: { start: new Date('2026-03-29T06:00:00Z'), end: new Date('2026-03-29T11:00:00Z') },
+    }
+    expect(service.getMergedAvailabilityWindows(params)[0].start.toISOString()).toBe('2026-03-29T08:00:00.000Z')
+    expect(service.getMergedAvailabilityWindows({ ...params, respectTimezone: true })[0].start.toISOString()).toBe('2026-03-29T07:00:00.000Z')
+  })
+
   it('merges unavailability into availability windows', () => {
     const service = new DefaultPlannerAvailabilityService()
     const range = {

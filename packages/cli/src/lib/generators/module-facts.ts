@@ -3754,11 +3754,6 @@ const OVERRIDE_DOMAIN_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> 
     status: 'framework-only',
     note: 'nav.groupOrder is an app-level framework setting; no module target is ever emitted for it',
   },
-  calendar: {
-    value: 'calendar',
-    status: 'framework-only',
-    note: 'calendar event types are resolved from runtime widget, module, and DI contributions; no module fact target is emitted',
-  },
 }
 
 const OVERRIDE_MODE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {

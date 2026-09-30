@@ -45,7 +45,7 @@ jest.mock('../utils/customFieldForms', () => ({
 }))
 
 import * as React from 'react'
-import { act, fireEvent, waitFor } from '@testing-library/react'
+import { act, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
 
@@ -81,12 +81,6 @@ function configureTwoFieldsets() {
         label: 'Serial number',
         kind: 'text',
         fieldsets: [LAPTOP_CODE],
-      },
-      {
-        entityId: ENTITY_ID,
-        key: 'notes',
-        label: 'Notes',
-        kind: 'text',
       },
     ],
     metadata: {
@@ -128,8 +122,7 @@ describe('CrudForm customFieldsetBindings hydration', () => {
   beforeEach(() => {
     fetchCustomFieldFormStructureMock.mockReset()
     buildFormFieldFromCustomFieldDefMock.mockReset()
-    triggerInjectionEventMock.mockReset()
-    triggerInjectionEventMock.mockImplementation(async (_event: string, data: Record<string, unknown>) => ({ ok: true, data }))
+    triggerInjectionEventMock.mockClear()
     configureTwoFieldsets()
   })
 
@@ -161,120 +154,5 @@ describe('CrudForm customFieldsetBindings hydration', () => {
       expect(container.querySelector('[data-crud-field-id="cf_serial_number"]')).not.toBeNull()
     })
     expect(container.querySelector('[data-crud-field-id="cf_asset_tag"]')).toBeNull()
-  })
-})
-
-describe('CrudForm customFieldsetAllowlist', () => {
-  beforeEach(() => {
-    fetchCustomFieldFormStructureMock.mockReset()
-    buildFormFieldFromCustomFieldDefMock.mockReset()
-    triggerInjectionEventMock.mockReset()
-    triggerInjectionEventMock.mockImplementation(async (_event: string, data: Record<string, unknown>) => ({ ok: true, data }))
-    configureTwoFieldsets()
-  })
-
-  it('renders only allowed fieldset sections and updates when the allowlist changes', async () => {
-    function Host({ allowlist }: { allowlist?: readonly string[] }) {
-      return (
-        <CrudForm
-          embedded
-          title="Resource"
-          entityId={ENTITY_ID}
-          fields={fields}
-          groups={groups}
-          customFieldsetAllowlist={allowlist === undefined ? undefined : { [ENTITY_ID]: allowlist }}
-          onSubmit={() => {}}
-        />
-      )
-    }
-
-    const { container, rerender } = renderWithProviders(<Host allowlist={[GENERAL_CODE]} />)
-    await waitFor(() => {
-      expect(container.querySelector('[data-crud-field-id="cf_asset_tag"]')).not.toBeNull()
-    })
-    expect(container.querySelector('[data-crud-field-id="cf_serial_number"]')).toBeNull()
-    expect(container.querySelector('[data-crud-field-id="cf_notes"]')).toBeNull()
-    expect(container.querySelector('[role="combobox"]')).toBeNull()
-
-    rerender(<Host allowlist={[GENERAL_CODE, LAPTOP_CODE, '__general__']} />)
-    await waitFor(() => {
-      expect(container.querySelector('[data-crud-field-id="cf_asset_tag"]')).not.toBeNull()
-      expect(container.querySelector('[data-crud-field-id="cf_serial_number"]')).not.toBeNull()
-      expect(container.querySelector('[data-crud-field-id="cf_notes"]')).not.toBeNull()
-    })
-    expect(container.querySelector('[role="combobox"]')).toBeNull()
-
-    rerender(<Host allowlist={[]} />)
-    await waitFor(() => {
-      expect(container.querySelector('[data-crud-field-id="cf_serial_number"]')).toBeNull()
-      expect(container.querySelector('[data-crud-field-id="cf_notes"]')).toBeNull()
-    })
-    expect(container.querySelector('[data-crud-field-id="cf_asset_tag"]')).toBeNull()
-
-    rerender(<Host />)
-    await waitFor(() => {
-      expect(container.querySelector('[data-crud-field-id="cf_asset_tag"]')).not.toBeNull()
-      expect(container.querySelector('[data-crud-field-id="cf_notes"]')).not.toBeNull()
-    })
-    expect(container.querySelector('[role="combobox"]')).not.toBeNull()
-  })
-
-  it('submits only active custom fields while retaining hidden edit values for a later type switch', async () => {
-    const onSubmit = jest.fn()
-    function Host({ allowlist }: { allowlist: readonly string[] }) {
-      return (
-        <CrudForm
-          embedded
-          title="Resource"
-          entityId={ENTITY_ID}
-          fields={fields}
-          groups={groups}
-          customFieldsetAllowlist={{ [ENTITY_ID]: allowlist }}
-          initialValues={{ id: 'res-1', name: 'Laptop', cf_asset_tag: 'ASSET-1', cf_serial_number: 'SERIAL-1' }}
-          onSubmit={onSubmit}
-        />
-      )
-    }
-
-    const { container, rerender } = renderWithProviders(<Host allowlist={[GENERAL_CODE]} />)
-    await waitFor(() => expect(container.querySelector('[data-crud-field-id="cf_asset_tag"]')).not.toBeNull())
-    await act(async () => { fireEvent.submit(container.querySelector('form') as HTMLFormElement) })
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
-    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ cf_asset_tag: 'ASSET-1' })
-    expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty('cf_serial_number')
-
-    rerender(<Host allowlist={[LAPTOP_CODE]} />)
-    await waitFor(() => {
-      expect(container.querySelector('[data-crud-field-id="cf_serial_number"] input')).toHaveValue('SERIAL-1')
-    })
-  })
-})
-
-describe('CrudForm calendar widget errors', () => {
-  it('clears widget field errors after the selected event type changes', async () => {
-    triggerInjectionEventMock.mockReset()
-    triggerInjectionEventMock.mockImplementation(async (event: string, data: Record<string, unknown>) =>
-      event === 'onBeforeSave'
-        ? { ok: false, fieldErrors: { name: 'Unavailable' } }
-        : { ok: true, data },
-    )
-    function Host({ eventType }: { eventType: string }) {
-      return (
-        <CrudForm
-          embedded
-          title="Event"
-          fields={fields}
-          initialValues={{ name: 'Meeting' }}
-          injectionSpotId="crud-form:customers.customer_interaction"
-          calendarEventTypeKey={eventType}
-          onSubmit={() => {}}
-        />
-      )
-    }
-    const { container, rerender } = renderWithProviders(<Host eventType="visit" />)
-    await act(async () => { fireEvent.submit(container.querySelector('form') as HTMLFormElement) })
-    await waitFor(() => expect(container.querySelector('[data-crud-field-id="name"]')).toHaveTextContent('Unavailable'))
-    rerender(<Host eventType="meeting" />)
-    await waitFor(() => expect(container.querySelector('[data-crud-field-id="name"]')).not.toHaveTextContent('Unavailable'))
   })
 })

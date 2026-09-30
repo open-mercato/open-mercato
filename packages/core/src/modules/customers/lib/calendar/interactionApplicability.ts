@@ -10,7 +10,7 @@ const CORE_FIELD_RULES: readonly [keyof CalendarEventTypeBehavior['fields'], rea
 ]
 
 function hasValue(value: unknown): boolean {
-  if (value === null || value === undefined || value === '') return false
+  if (value === null || value === undefined || value === '' || value === false) return false
   if (Array.isArray(value)) return value.length > 0
   return true
 }

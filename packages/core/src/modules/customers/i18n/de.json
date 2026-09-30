@@ -258,6 +258,7 @@
   "customers.calendar.editor.descriptionPlaceholder": "Details hinzufügen…",
   "customers.calendar.editor.discardConfirm": "Typ ändern und Werte löschen",
   "customers.calendar.editor.discardDescription": "Beim Ändern des Ereignistyps werden Werte gelöscht, die für den neuen Typ nicht gelten.",
+  "customers.calendar.editor.discardUnknownField": "Benutzerdefiniertes Feld",
   "customers.calendar.editor.discardFields": "Zu löschende Werte:",
   "customers.calendar.editor.discardTitle": "Ereignistyp ändern?",
   "customers.calendar.editor.error": "Termin konnte nicht gespeichert werden",

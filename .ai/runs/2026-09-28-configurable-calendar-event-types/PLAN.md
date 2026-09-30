@@ -6,6 +6,17 @@
 **Source spec PR:** [#6687](https://github.com/open-mercato/open-mercato/pull/6687)
 **Source specs:** `.ai/specs/2026-09-28-configurable-calendar-event-types.md`, `.ai/specs/2026-09-28-calendar-event-type-extensions.md`, and `.ai/specs/2026-09-28-calendar-event-type-react-panels.md` on `spec/configurable-calendar-event-types`
 
+## Maintainer corrections — 2026-09-30
+
+The maintainer requested module isolation and all findings from Wojciech Szyjka's independent review. These corrections supersede the shared-calendar portions of the original steps below:
+
+- Shared `CrudForm`, `InjectionSpot`, widget metadata/loading, and override domains remain unchanged. Customers owns custom-field filtering and ordinary widget payload parsing; module validators own type selection checks.
+- An empty custom-fieldset list preserves unrestricted legacy fields. Call and Task allow duration. Hidden types retain their actual behavior on edit and internal/adapter writes keep working; picker APIs enforce selection.
+- The example owns optional DI registration for API/worker declarations. API bootstrap keeps its visual-registry partition. Note/Meeting demo overrides are opt-in; Staff, Resources, and Planner absence produces warnings and skips absent checks.
+- Visit scope follows the record or parent organization, enabled-module failures remain blocking, and metadata-only edits skip availability checks. Visit is not admin configurable. Planner timezone evaluation is explicitly opt-in and uses bounded expansion.
+- The standalone harness includes a Customers calendar guide with links to the canonical example and an evaluated routing case.
+- Merge current `develop`, then verify CI on the final revision before handing off for testing.
+
 ## Source revision reconciliation
 
 The source PR was revised on 2026-09-29 after the original execution plan and Steps 1.1–1.4 were committed. The current source specs replace the calendar-specific generator with the existing headless widget loader, `modules.ts` calendar overrides, and a Customers DI registry. They require the example key `visit` (rather than `site-visit`), a Meeting label patch, a Note tombstone, selected-type validation, and an availability-aware Visit panel. Step 1.4a below corrects the superseded registry work without rewriting earlier commits. All remaining work follows the three current source specs.

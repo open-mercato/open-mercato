@@ -434,18 +434,6 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
   /**
-   * Limits rendered custom-field sections by entity ID. An omitted entity keeps
-   * its normal fieldset behavior. For a listed entity, only the named fieldset
-   * codes render; `__general__` includes fields without a fieldset. An empty
-   * list renders no custom-field sections for that entity.
-   */
-  customFieldsetAllowlist?: Record<string, readonly string[]>
-  /** Activates widgets whose metadata lists this calendar event type key. */
-  calendarEventTypeKey?: string
-  /** Effective field applicability for selected-type widgets in this form. */
-  calendarEventTypeFields?: Readonly<{ people?: string; resources?: boolean }>
-  calendarResourcesEnabled?: boolean
-  /**
    * How the custom-fields "Manage fields" affordance behaves:
    * - 'inline' (default) — opens the embedded fieldset quick-editor dialog.
    * - 'page' — navigates straight to the full custom-fields editor page in a
@@ -826,10 +814,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   readOnly = false,
   readOnlyOverlay,
   customFieldsetBindings,
-  customFieldsetAllowlist,
-  calendarEventTypeKey,
-  calendarEventTypeFields,
-  calendarResourcesEnabled,
   customFieldsManageMode = 'inline',
   injectionSpotId,
   legacyInjectionSpotId,
@@ -887,18 +871,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const activeFieldChangeDispatchRef = React.useRef<{ eventId: number; formGeneration: number } | null>(null)
   const [fieldChangeDispatchVersion, setFieldChangeDispatchVersion] = React.useState(0)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
-  const widgetFieldErrorIdsRef = React.useRef(new Set<string>())
-  const previousCalendarEventTypeKeyRef = React.useRef(calendarEventTypeKey)
-  React.useEffect(() => {
-    if (previousCalendarEventTypeKeyRef.current === calendarEventTypeKey) return
-    previousCalendarEventTypeKeyRef.current = calendarEventTypeKey
-    const widgetFieldErrorIds = widgetFieldErrorIdsRef.current
-    if (!widgetFieldErrorIds.size) return
-    setErrors((current) => Object.fromEntries(
-      Object.entries(current).filter(([fieldId]) => !widgetFieldErrorIds.has(fieldId)),
-    ))
-    widgetFieldErrorIds.clear()
-  }, [calendarEventTypeKey])
   const [pending, setPending] = React.useState(false)
   // Synchronous guard against re-entrant submit/delete invocations (e.g. rapid
   // double-clicks of "Save" while validation and network IO are still running).
@@ -999,10 +971,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     isLoading,
     pending,
     operation,
-    calendarEventTypeKey,
-    calendarEventTypeFields,
-    calendarResourcesEnabled,
-  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation, calendarEventTypeKey, calendarEventTypeFields, calendarResourcesEnabled])
+  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
   const injectionContextRef = React.useRef(injectionContext)
   React.useEffect(() => {
     injectionContextRef.current = injectionContext
@@ -1234,11 +1203,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded])
 
-  const { widgets: primaryInjectionWidgets, loading: primaryWidgetsLoading, error: primaryWidgetsError } = useInjectionWidgets(resolvedInjectionSpotId, {
+  const { widgets: primaryInjectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
     triggerOnLoad: true,
   })
-  const { widgets: legacyInjectionWidgets, loading: legacyWidgetsLoading, error: legacyWidgetsError } = useInjectionWidgets(legacyInjectionSpotId, {
+  const { widgets: legacyInjectionWidgets } = useInjectionWidgets(legacyInjectionSpotId, {
     context: injectionContext,
     triggerOnLoad: true,
   })
@@ -1851,19 +1820,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      const allowedFieldsets = customFieldsetAllowlist?.[entityId]
-      if (allowedFieldsets) {
-        const allowedCodes = new Set(allowedFieldsets)
-        availableFieldsets.forEach((fieldset) => {
-          if (!allowedCodes.has(fieldset.code)) return
-          const section = buildSection(entityId, fieldset.code, defsByFieldset.get(fieldset.code) ?? [], fieldset)
-          if (section) sections.push(section)
-        })
-        if (allowedCodes.has('__general__')) {
-          const generalSection = buildSection(entityId, null, defsByFieldset.get(null) ?? [], undefined)
-          if (generalSection) sections.push(generalSection)
-        }
-      } else if (!hasFieldsets) {
+      if (!hasFieldsets) {
         const fallbackDefs =
           defsByFieldset.get(null) ?? Array.from(defsByFieldset.values()).flat()
         const section = buildSection(entityId, null, fallbackDefs, undefined)
@@ -1906,7 +1863,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
       }
 
-      if (!sections.length && hasFieldsets && !allowedFieldsets) {
+      if (!sections.length && hasFieldsets) {
         const fallbackCode = availableFieldsets[0]?.code ?? null
         sections.push(createEmptySection(fallbackCode))
       }
@@ -1925,7 +1882,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [
     cfDefinitions,
     cfFieldsetSelections,
-    customFieldsetAllowlist,
     customEntity,
     customFieldsLabel,
     entitySettings,
@@ -3000,7 +2956,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     try {
     setFormError(null)
     setErrors({})
-    widgetFieldErrorIdsRef.current.clear()
 
     const requiredMessage = t('ui.forms.errors.required')
     const highlightedMessage = t('ui.forms.errors.highlighted')
@@ -3016,11 +2971,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
     } catch {
       // ignore focus cleanup errors
-    }
-
-    if (calendarEventTypeKey && (primaryWidgetsLoading || legacyWidgetsLoading || primaryWidgetsError || legacyWidgetsError)) {
-      flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
-      return
     }
 
     // Basic required-field validation when no zod schema is provided
@@ -3057,19 +3007,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         const defs = cfDefinitions.length
           ? cfDefinitions
           : await import('./utils/customFieldDefs').then((mod) => mod.fetchCustomFieldDefs(resolvedEntityIds))
-        const visibleCustomFieldIds = new Set(cfFields.map((field) => field.id))
-        const activeDefs = customFieldsetAllowlist
-          ? defs.filter((definition) => {
-              const definitionEntityId = definition.entityId ?? resolvedEntityIds[0]
-              return customFieldsetAllowlist[definitionEntityId] === undefined ||
-                visibleCustomFieldIds.has(customEntity ? definition.key : `cf_${definition.key}`)
-            })
-          : defs
         const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
         // Build values keyed by def.key for validation
         const cfValues: Record<string, unknown> = {}
         if (customEntity) {
-          for (const def of activeDefs) {
+          for (const def of defs) {
             if (Object.prototype.hasOwnProperty.call(values, def.key)) {
               cfValues[def.key] = values[def.key]
             }
@@ -3079,7 +3021,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             if (k.startsWith('cf_')) cfValues[k.replace(/^cf_/, '')] = v
           }
         }
-        const defsForValidation = mapDefsForValidation(activeDefs)
+        const defsForValidation = mapDefsForValidation(defs)
         const result = validateValuesAgainstDefs(cfValues, defsForValidation)
         if (!result.ok) {
           if (customEntity) {
@@ -3103,17 +3045,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
     }
 
-    const stripInactiveCustomFields = (source: Record<string, unknown>) => {
-      const next = { ...source }
-      if (customFieldsetAllowlist && !customEntity) {
-        const visibleCustomFieldIds = new Set(cfFields.map((field) => field.id))
-        for (const key of Object.keys(next)) {
-          if (key.startsWith('cf_') && !visibleCustomFieldIds.has(key)) delete next[key]
-        }
-      }
-      return next
-    }
-    const widgetValues = stripInactiveCustomFields(valuesRef.current as Record<string, unknown>)
+    const widgetValues = { ...(valuesRef.current as Record<string, unknown>) }
     for (const hiddenId of hiddenInjectedFieldIds) {
       delete widgetValues[hiddenId]
     }
@@ -3155,8 +3087,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       try {
         const result = await triggerInjectionEvent('transformFormData', submitValues, injectionContext)
         if (result.data) {
-          submitValues = stripInactiveCustomFields(result.data as Record<string, unknown>) as TValues
-          const projectedCoreValues = { ...submitValues }
+          submitValues = result.data as TValues
+          const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
           for (const injectedId of injectedFieldIdSet) {
             delete projectedCoreValues[injectedId]
           }
@@ -3202,7 +3134,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             // ignore event dispatch failures
           }
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
-            widgetFieldErrorIdsRef.current = new Set(Object.keys(result.fieldErrors))
             const transformedErrors = await transformValidationErrors(result.fieldErrors)
             setErrors(translateValidationErrors(transformedErrors))
           }
@@ -3522,9 +3453,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const renderCustomFieldsContent = React.useCallback((): React.ReactNode[] => {
     if (!customFieldLayout.length) {
-      if (resolvedEntityIds.length && resolvedEntityIds.every((id) => customFieldsetAllowlist?.[id] !== undefined)) {
-        return []
-      }
       return [
         <div key="custom-fields-empty" className="rounded-lg border bg-card p-4">
           {customFieldsEmptyState}
@@ -3536,10 +3464,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const multipleEntities = customFieldLayout.length > 1
 
     customFieldLayout.forEach((entityLayout) => {
-      if (!entityLayout.sections.length && customFieldsetAllowlist?.[entityLayout.entityId] !== undefined) return
       const manageHref = buildCustomFieldsManageHref(entityLayout.entityId)
       const showSelector =
-        !customFieldsetAllowlist?.[entityLayout.entityId] &&
         entityLayout.hasFieldsets &&
         entityLayout.singleFieldsetPerRecord &&
         entityLayout.availableFieldsets.length > 0
@@ -3659,7 +3585,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             </div>,
           )
         })
-      } else if (customFieldsetAllowlist?.[entityLayout.entityId] === undefined) {
+      } else {
         nodes.push(
           <div key={`custom-fields-empty-${entityLayout.entityId}`} className="rounded-lg border bg-card p-4">
             {customFieldsEmptyState}
@@ -3672,7 +3598,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [
     buildCustomFieldsManageHref,
     customFieldLayout,
-    customFieldsetAllowlist,
     customFieldsEmptyState,
     defaultFieldsetLabel,
     emptyFieldsetMessage,
@@ -3682,7 +3607,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     manageFieldsetLabel,
     placedCustomFieldIds,
     renderFields,
-    resolvedEntityIds,
   ])
 
   const fieldsetManagerDialog = (
@@ -3818,7 +3742,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           }
           const renderedSections = renderCustomFieldsContent()
           if (renderedSections.length) customFieldsInnerNodes.push(...renderedSections)
-          if (!customFieldsInnerNodes.length) continue
 
           if (collapsibleGroupsEnabled && g.title) {
             const customFieldCount = customFieldLayout.reduce(

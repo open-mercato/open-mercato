@@ -2,6 +2,7 @@ const getAuthFromRequest = jest.fn()
 const createRequestContainer = jest.fn()
 const resolveOrganizationScopeForRequest = jest.fn()
 const evaluateVisitAvailability = jest.fn()
+const visitAvailabilityWarnings = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => getAuthFromRequest(...args),
@@ -14,7 +15,8 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 }))
 jest.mock('../../../lib/visitAvailability', () => {
   const actual = jest.requireActual('../../../lib/visitAvailability')
-  return { ...actual, evaluateVisitAvailability: (...args: unknown[]) => evaluateVisitAvailability(...args) }
+  return { ...actual, evaluateVisitAvailability: (...args: unknown[]) => evaluateVisitAvailability(...args),
+    visitAvailabilityWarnings: () => visitAvailabilityWarnings() }
 })
 
 import { GET } from '../route'
@@ -25,6 +27,7 @@ const RESOURCE_ID = '33333333-3333-4333-8333-333333333333'
 describe('GET visit availability', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    visitAvailabilityWarnings.mockReturnValue([])
     getAuthFromRequest.mockResolvedValue({ tenantId: 'tenant', sub: USER_ID })
     resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: 'organization' })
     createRequestContainer.mockResolvedValue({ hasRegistration: () => true, resolve: () => ({ userHasAllFeatures: async () => true }) })
@@ -40,8 +43,16 @@ describe('GET visit availability', () => {
   it('passes bounded subject IDs and authenticated scope to the evaluator', async () => {
     const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&resourceIds=${RESOURCE_ID}`))
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ subjects: [{ type: 'resource', id: RESOURCE_ID, status: 'available', reasonKey: null }] })
+    expect(await response.json()).toEqual({ subjects: [{ type: 'resource', id: RESOURCE_ID, status: 'available', reasonKey: null }], warnings: [] })
     expect(evaluateVisitAvailability).toHaveBeenCalledWith(expect.objectContaining({ scope: { tenantId: 'tenant', organizationId: 'organization' }, input: expect.objectContaining({ resourceIds: [RESOURCE_ID] }) }))
+  })
+
+  it('returns warning keys without failing when availability modules are absent', async () => {
+    evaluateVisitAvailability.mockResolvedValue([])
+    visitAvailabilityWarnings.mockReturnValue(['example.calendar.visitAvailability.staffDisabled', 'example.calendar.visitAvailability.resourcesDisabled'])
+    const response = await GET(new Request('http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z'))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ subjects: [], warnings: ['example.calendar.visitAvailability.staffDisabled', 'example.calendar.visitAvailability.resourcesDisabled'] })
   })
 
   it('rejects a user without interaction management access', async () => {

@@ -4,7 +4,6 @@ import {
   resetModuleOverrideAppliersForTests,
 } from '@open-mercato/shared/modules/overrides'
 import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
-import { applyProgrammaticComponentOverrides } from '@/modules'
 import {
   CLIENT_OVERRIDE_DOMAINS,
   OVERRIDE_DEPENDENT_GROUPS,
@@ -31,7 +30,6 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 let failNextModulesRead = false
 
 jest.mock('@/modules', () => ({
-  applyProgrammaticComponentOverrides: jest.fn(),
   get enabledModules() {
     if (failNextModulesRead) {
       failNextModulesRead = false
@@ -66,7 +64,6 @@ function makeEntries(): ModuleInjectionWidgetEntry[] {
 }
 
 beforeEach(() => {
-  jest.mocked(applyProgrammaticComponentOverrides).mockClear()
   resetModuleOverrideAppliersForTests()
   resetModuleContractOverridesForTests()
   resetModuleOverridesAppliedForTests()
@@ -94,7 +91,6 @@ describe('client bootstrap module overrides (#5152)', () => {
 
     await ensureModuleOverridesApplied()
 
-    expect(applyProgrammaticComponentOverrides).toHaveBeenCalledTimes(1)
     expect(applyInjectionWidgetOverridesToEntries(makeEntries()).map((entry) => entry.key))
       .toEqual(['catalog:pricing:widget'])
   })

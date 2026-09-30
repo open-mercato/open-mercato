@@ -182,8 +182,6 @@ export type InjectionWidgetMetadata = {
    * only — enforcement still comes from the widget's `onBeforeSave` result.
    */
   requiredFields?: string[]
-  /** Event types for which this form widget is mounted; omitted means global. */
-  calendarEventTypeKeys?: readonly string[]
 }
 
 /**
@@ -449,14 +447,6 @@ export type InjectionFieldWidget = {
   eventHandlers?: WidgetInjectionEventHandlers<InjectionContext, Record<string, unknown>>
 }
 
-/** Serializable calendar declarations; customers validates the bounded schema. */
-export type InjectionCalendarEventTypeWidget = {
-  metadata: InjectionWidgetMetadata
-  eventTypes: readonly unknown[]
-  eventTypeOverrides?: Readonly<Record<string, unknown | null>>
-  eventTypePatches?: readonly unknown[]
-}
-
 export type InjectionDataWidgetModule =
   | InjectionColumnWidget
   | InjectionRowActionWidget
@@ -466,7 +456,6 @@ export type InjectionDataWidgetModule =
   | InjectionWizardWidget
   | InjectionStatusBadgeWidget
   | InjectionMenuItemWidget
-  | InjectionCalendarEventTypeWidget
 
 export type InjectionAnyWidgetModule<TContext = unknown, TData = unknown> =
   | InjectionWidgetModule<TContext, TData>

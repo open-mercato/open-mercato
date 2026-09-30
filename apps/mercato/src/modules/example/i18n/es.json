@@ -1,4 +1,9 @@
 {
+  "example.calendar.visitAvailability.skipped": "Se omitieron las comprobaciones de disponibilidad de los módulos no disponibles.",
+  "example.calendar.visitAvailability.optionalModulesTitle": "Comprobaciones de disponibilidad opcionales",
+  "example.calendar.visitAvailability.staffDisabled": "El módulo de personal no está habilitado. Se omiten las comprobaciones de disponibilidad del personal; puedes guardar la visita.",
+  "example.calendar.visitAvailability.resourcesDisabled": "El módulo de recursos no está habilitado. La selección de recursos y las comprobaciones de disponibilidad no están disponibles; puedes guardar la visita.",
+  "example.calendar.visitAvailability.plannerDisabled": "El módulo de planificación no está habilitado. Se omiten las comprobaciones de disponibilidad; puedes guardar la visita.",
   "example.adminTitle": "Administración de ejemplo",
   "example.audit.todos.create": "Crear tarea",
   "example.audit.todos.delete": "Eliminar tarea",

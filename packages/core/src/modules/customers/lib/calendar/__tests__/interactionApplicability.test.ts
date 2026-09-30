@@ -9,6 +9,12 @@ const noResourceNote = {
 }
 
 describe('calendar interaction field applicability', () => {
+  it('treats false allDay as an empty value that does not need discarding', () => {
+    expect(findInapplicableCoreFields(noResourceNote, { allDay: false })).toEqual([])
+    expect(clearInapplicableCoreFields(noResourceNote, { allDay: false })).toEqual({})
+    expect(findInapplicableCoreFields(noResourceNote, { allDay: true })).toEqual(['allDay'])
+  })
+
   it('rejects non-null core fields that a type cannot store', () => {
     expect(findInapplicableCoreFields(noResourceNote, {
       durationMinutes: 45,
@@ -19,7 +25,7 @@ describe('calendar interaction field applicability', () => {
       priority: 10,
       linkedEntities: [{ type: 'resource', id: 'room' }],
     })).toEqual([
-      'durationMinutes', 'allDay', 'recurrenceRule', 'priority',
+      'durationMinutes', 'recurrenceRule', 'priority',
       'location', 'participants', 'linkedEntities',
     ])
     expect(findInapplicableCoreFields(meeting.behavior, { location: 'Office' })).toEqual([])

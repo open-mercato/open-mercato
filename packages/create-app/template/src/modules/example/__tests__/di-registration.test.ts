@@ -6,6 +6,7 @@
  * container's `em`, so a SINGLETON would pin one request's EntityManager — and with
  * it one request's tenant — for the life of the process.
  */
+import { createCalendarEventTypeRegistry, resetCalendarEventTypeRegistryForTests, resolveCalendarEventType } from '@open-mercato/core/modules/customers/calendar-event-types'
 import { InjectionMode, asValue, createContainer } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache'
@@ -81,5 +82,22 @@ describe('example module DI registration', () => {
     const second = container.createScope().resolve(EXAMPLE_TODO_SUMMARY_SERVICE)
 
     expect(first).not.toBe(second)
+  })
+})
+
+
+describe('example calendar API registration', () => {
+  it('registers Visit through optional DI without loading the visual widget registry', () => {
+    resetCalendarEventTypeRegistryForTests()
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ calendarEventTypeRegistry: asValue(createCalendarEventTypeRegistry()) })
+    register(container)
+    expect(resolveCalendarEventType('visit')).toMatchObject({ key: 'visit', adminConfigurable: false })
+    expect(resolveCalendarEventType('note')).toBeDefined()
+    expect(resolveCalendarEventType('meeting')?.labelKey).toBe('customers.calendar.editor.types.meeting')
+  })
+
+  it('continues registration when Customers is absent', () => {
+    expect(() => register(createContainer({ injectionMode: InjectionMode.CLASSIC }))).not.toThrow()
   })
 })

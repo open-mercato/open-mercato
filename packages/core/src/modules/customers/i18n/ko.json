@@ -258,6 +258,7 @@
   "customers.calendar.editor.descriptionPlaceholder": "세부 정보 추가…",
   "customers.calendar.editor.discardConfirm": "유형 변경 및 값 삭제",
   "customers.calendar.editor.discardDescription": "이벤트 유형을 변경하면 새 유형에 적용되지 않는 값이 삭제됩니다.",
+  "customers.calendar.editor.discardUnknownField": "사용자 정의 필드",
   "customers.calendar.editor.discardFields": "삭제할 값:",
   "customers.calendar.editor.discardTitle": "이벤트 유형을 변경할까요?",
   "customers.calendar.editor.error": "이벤트를 저장하지 못했습니다",

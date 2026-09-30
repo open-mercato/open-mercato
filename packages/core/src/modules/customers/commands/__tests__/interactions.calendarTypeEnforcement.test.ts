@@ -70,7 +70,7 @@ const INTERACTION = '44444444-4444-4444-8444-444444444444'
 const NEW_DEAL = '55555555-5555-4555-8555-555555555555'
 
 const note = calendarEventTypes.find((type) => type.key === 'note')!
-const noteBehavior = { ...note.behavior, fields: { ...note.behavior.fields, resources: false } }
+const noteBehavior = { ...note.behavior, customFieldsetIds: ['note-only'], fields: { ...note.behavior.fields, resources: false } }
 
 function makeContext() {
   const interaction = {
@@ -89,7 +89,7 @@ function makeContext() {
     recurrenceEnd: null,
     allDay: null,
   }
-  const em = { fork: () => em, flush: jest.fn(async () => {}) }
+  const em = { fork: () => em, flush: jest.fn(async () => {}), create: jest.fn((_entity: unknown, values: Record<string, unknown>) => ({ ...values, id: INTERACTION })), persist: jest.fn(), getReference: jest.fn((_entity: unknown, id: string) => ({ id })) }
   const context = {
     container: {
       resolve: (token: string) => {
@@ -119,6 +119,49 @@ beforeEach(() => {
 })
 
 describe('interaction calendar-type command enforcement', () => {
+  it.each(['call', 'task'])('accepts legacy %s duration on create and same-type update', async (key) => {
+    const type = calendarEventTypes.find((type) => type.key === key)!
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: [{ ...type, selectable: true }] })
+    const { interaction, context } = makeContext()
+    const create = registeredCommands.get('customers.interactions.create')!
+    await expect(create.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: key, durationMinutes: 45 }, context)).resolves.toMatchObject({ interactionId: INTERACTION })
+    interaction.interactionType = key
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    await registeredCommands.get('customers.interactions.update')!.execute({ id: INTERACTION, durationMinutes: 60 }, context)
+    expect(interaction.durationMinutes).toBe(60)
+  })
+
+  it('keeps configured hidden task behavior and permits internal task writes', async () => {
+    const task = calendarEventTypes.find((type) => type.key === 'task')!
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: [{ ...task, selectable: false }] })
+    const { interaction, context } = makeContext()
+    const create = registeredCommands.get('customers.interactions.create')!
+    const input = { tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'task', priority: 90 }
+    await expect(create.execute({ ...input, enforceSelectableType: true }, context)).rejects.toMatchObject({ status: 400, body: { code: 'activity_type_unavailable' } })
+    await expect(create.execute(input, context)).resolves.toMatchObject({ interactionId: INTERACTION })
+    interaction.interactionType = 'task'
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    await registeredCommands.get('customers.interactions.update')!.execute({ id: INTERACTION, priority: 10, enforceSelectableType: true }, context)
+    expect(interaction.priority).toBe(10)
+  })
+
+  it('keeps custom field writes unrestricted when no fieldsets are configured', async () => {
+    const { interaction, context } = makeContext()
+    await registeredCommands.get('customers.interactions.create')!.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'meeting', cf_outcome: 'Created' }, context)
+    expect(setCustomFieldsIfAnyMock).toHaveBeenCalledWith(expect.objectContaining({ values: { outcome: 'Created' } }))
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    await registeredCommands.get('customers.interactions.update')!.execute({ id: INTERACTION, cf_outcome: 'Updated' }, context)
+    expect(setCustomFieldsIfAnyMock).toHaveBeenLastCalledWith(expect.objectContaining({ values: { outcome: 'Updated' } }))
+  })
+
+  it.each(['customers.interactions.create', 'customers.interactions.update'])('returns retryable 503 for catalog failures in %s', async (id) => {
+    const { interaction, em, context } = makeContext()
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    resolveScopedCalendarEventTypesMock.mockRejectedValueOnce(new Error('database unavailable'))
+    await expect(registeredCommands.get(id)!.execute({ id: INTERACTION, tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'meeting' }, context)).rejects.toMatchObject({ status: 503, body: { code: 'activity_type_catalog_unavailable', retryable: true } })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('rejects an inapplicable create field before persisting', async () => {
     const { em, context } = makeContext()
     const command = registeredCommands.get('customers.interactions.create')!
@@ -142,7 +185,7 @@ describe('interaction calendar-type command enforcement', () => {
     interaction.interactionType = 'note'
     findOneWithDecryptionMock.mockResolvedValue(interaction)
     const command = registeredCommands.get('customers.interactions.update')!
-    await expect(command.execute({ id: INTERACTION, interactionType: 'missing' }, context))
+    await expect(command.execute({ id: INTERACTION, interactionType: 'missing', enforceSelectableType: true }, context))
       .rejects.toMatchObject({ status: 400, body: { code: 'activity_type_unavailable' } })
     await command.execute({
       id: INTERACTION,

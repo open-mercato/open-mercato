@@ -40,21 +40,6 @@ beforeEach(() => {
 })
 
 describe('applyModuleOverridesFromEnabledModules', () => {
-  it('dispatches calendar overrides in enabled module order', () => {
-    const received: Array<ModuleOverrideEntry<{ eventTypes?: Record<string, unknown> }>> = []
-    registerModuleOverrideApplier<{ eventTypes?: Record<string, unknown> }>('calendar', (entries) => {
-      received.push(...entries)
-    })
-
-    applyModuleOverridesFromEnabledModules([
-      { id: 'first', overrides: { calendar: { eventTypes: { note: null } } } },
-      { id: 'second', overrides: { calendar: { patches: [{ targetEventTypeKey: 'meeting', replaceLabel: 'Customer meeting' }] } } },
-    ])
-
-    expect(received.map((entry) => entry.moduleId)).toEqual(['first', 'second'])
-    expect(received[0]?.overrides.eventTypes).toEqual({ note: null })
-  })
-
   it('forwards an entry.overrides.<domain> sub-tree to the registered applier', () => {
     const received: Array<ModuleOverrideEntry<{ agents?: Record<string, unknown> }>> = []
     registerModuleOverrideApplier<{ agents?: Record<string, unknown> }>('ai', (entries) => {

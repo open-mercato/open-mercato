@@ -29,12 +29,19 @@ type ParsedRule = {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const timezoneFormatters = new Map<string, Intl.DateTimeFormat>()
 
 function zonedParts(instant: Date, timezone: string): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).formatToParts(instant)
+  let formatter = timezoneFormatters.get(timezone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    })
+    if (timezoneFormatters.size >= 64) timezoneFormatters.delete(timezoneFormatters.keys().next().value!)
+    timezoneFormatters.set(timezone, formatter)
+  }
+  const parts = formatter.formatToParts(instant)
   const number = (kind: string) => Number(parts.find((part) => part.type === kind)?.value)
   return { year: number('year'), month: number('month'), day: number('day'), hour: number('hour'), minute: number('minute'), second: number('second') }
 }
@@ -128,11 +135,15 @@ function startOfDay(value: Date): Date {
 function expandZonedRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: AvailabilityRange): AvailabilityWindow[] {
   const timezone = rule.timezone!
   const anchor = zonedParts(parsed.startAt, timezone)
-  let wall = new Date(Date.UTC(anchor.year, anchor.month - 1, anchor.day, anchor.hour, anchor.minute, anchor.second))
+  const anchorWall = Date.UTC(anchor.year, anchor.month - 1, anchor.day, anchor.hour, anchor.minute, anchor.second)
   const step = parsed.freq === 'WEEKLY' ? 7 * DAY_MS : DAY_MS
   const duration = parsed.durationMinutes * 60000
   const windows: AvailabilityWindow[] = []
-  let remaining = parsed.count ?? Number.POSITIVE_INFINITY
+  const rangeAnchor = zonedParts(range.start, timezone)
+  const rangeStartWall = Date.UTC(rangeAnchor.year, rangeAnchor.month - 1, rangeAnchor.day, rangeAnchor.hour, rangeAnchor.minute, rangeAnchor.second)
+  const skipped = Math.max(0, Math.floor((rangeStartWall - duration - DAY_MS - anchorWall) / step))
+  let wall = new Date(anchorWall + skipped * step)
+  let remaining = (parsed.count ?? Number.POSITIVE_INFINITY) - skipped
   while (wall.getTime() <= range.end.getTime() + DAY_MS && remaining > 0) {
     const start = zonedWallToInstant(wall, timezone)
     if (start && !shouldExcludeOccurrence(start, rule.exdates, timezone)) {
@@ -170,29 +181,13 @@ function expandRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: Avail
     windows.push({ start, end, ruleId: rule.id })
   }
 
-  if (freq === 'DAILY') {
-    let cursor = new Date(startAt)
-    let remaining = count ?? Number.POSITIVE_INFINITY
-    while (cursor < range.end && remaining > 0) {
-      addWindow(new Date(cursor))
-      cursor = new Date(cursor.getTime() + DAY_MS)
-      remaining -= 1
-    }
-    return windows
-  }
-
-  let cursor = new Date(startAt)
-  let remaining = count ?? Number.POSITIVE_INFINITY
-  if (cursor < range.start) {
-    const diffDays = Math.floor((range.start.getTime() - cursor.getTime()) / DAY_MS)
-    const weeksToAdd = Math.floor(diffDays / 7)
-    if (weeksToAdd > 0) {
-      cursor = new Date(cursor.getTime() + weeksToAdd * 7 * DAY_MS)
-    }
-  }
+  const step = freq === 'WEEKLY' ? 7 * DAY_MS : DAY_MS
+  const skipped = Math.max(0, Math.floor((range.start.getTime() - durationMs - startAt.getTime()) / step))
+  let cursor = new Date(startAt.getTime() + skipped * step)
+  let remaining = (count ?? Number.POSITIVE_INFINITY) - skipped
   while (cursor < range.end && remaining > 0) {
     addWindow(new Date(cursor))
-    cursor = new Date(cursor.getTime() + 7 * DAY_MS)
+    cursor = new Date(cursor.getTime() + step)
     remaining -= 1
   }
   return windows
@@ -231,8 +226,10 @@ function subtractWindow(window: AvailabilityWindow, blockers: AvailabilityWindow
 export function getMergedAvailabilityWindows(params: {
   rules: AvailabilityRuleLike[]
   range: AvailabilityRange
+  respectTimezone?: boolean
 }): AvailabilityWindow[] {
-  const parsedRules = params.rules
+  const rules = params.respectTimezone ? params.rules : params.rules.map((rule) => ({ ...rule, timezone: undefined }))
+  const parsedRules = rules
     .map((rule) => {
       const parsed = parseRrule(rule.rrule)
       if (!parsed) return null

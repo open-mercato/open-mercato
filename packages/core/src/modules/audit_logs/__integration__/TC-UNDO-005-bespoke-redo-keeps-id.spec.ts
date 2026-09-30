@@ -145,7 +145,7 @@ test.describe('TC-UNDO-005: bespoke create redo restores original ids', () => {
         token,
         createPath: '/api/customers/interactions',
         readPath: () => `/api/customers/interactions?entityId=${encodeURIComponent(createdCompanyId)}&limit=100`,
-        data: { organizationId, tenantId, entityId: createdCompanyId, interactionType: 'call', title, body: 'Redo body', status: 'done' },
+        data: { organizationId, tenantId, entityId: createdCompanyId, interactionType: 'note', title, body: 'Redo body', status: 'done' },
         assertRestored: (restored) => {
           expect(restored.title, 'redo preserves interaction title').toBe(title)
         },

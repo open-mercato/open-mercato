@@ -239,6 +239,13 @@ describe('scoped calendar event type resolver', () => {
     })
   })
 
+  test('normalizes lookup without rewriting historical persisted keys', async () => {
+    findWithDecryptionMock.mockResolvedValue([{ value: 'Site Visit', normalizedValue: 'site visit', label: 'Site Visit', organizationId, activityTypeBehavior: null, updatedAt: new Date() }])
+    const catalog = await resolveScopedCalendarEventTypes({ em: {} as never, tenantId, organizationId, readableOrganizationIds: [] })
+    expect(resolveCatalogEventType(catalog, ' Site Visit ')?.key).toBe('site visit')
+    expect(resolveCatalogEventType(catalog, 'Removed Type', { includeHistorical: true })).toMatchObject({ key: 'Removed Type', historical: true })
+  })
+
   test('preserves registry tombstone history and its last known behavior', async () => {
     createCalendarEventTypeRegistry().replace('example', 'task', null)
     findWithDecryptionMock.mockResolvedValue([{

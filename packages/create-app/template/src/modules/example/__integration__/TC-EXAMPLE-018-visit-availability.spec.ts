@@ -9,14 +9,14 @@ const START = '2026-10-05T09:00:00.000Z'
 const END = '2026-10-05T10:00:00.000Z'
 
 test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', () => {
-  test('mounts the Visit panel and keeps the patched and hidden type choices', async ({ page }) => {
+  test('mounts the Visit panel without changing the default type choices', async ({ page }) => {
     await login(page, 'admin')
     await page.goto('/backend/calendar')
     await page.getByRole('button', { name: 'New event' }).click()
     const dialog = page.getByRole('dialog', { name: 'New event' })
     const typeChoices = dialog.getByRole('group', { name: 'Event type' })
-    await expect(typeChoices.getByRole('button', { name: 'Customer meeting' })).toBeVisible()
-    await expect(typeChoices.getByRole('button', { name: 'Note' })).toHaveCount(0)
+    await expect(typeChoices.getByRole('button', { name: 'Meeting', exact: true })).toBeVisible()
+    await expect(typeChoices.getByRole('button', { name: 'Note', exact: true })).toBeVisible()
     await typeChoices.getByRole('button', { name: 'Visit' }).click()
     await expect(dialog.getByTestId('example-visit-panel')).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Visit availability' })).toBeVisible()
@@ -46,15 +46,15 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
       expect(catalogResponse.status(), await catalogResponse.text()).toBe(200)
       const catalog = await catalogResponse.json() as { items: Array<{ key: string; label: string; selectable: boolean; panelKey?: string; labelKey?: string }> }
       expect(catalog.items.find((item) => item.key === 'visit')).toMatchObject({ selectable: true, panelKey: 'example.visit' })
-      expect(catalog.items.find((item) => item.key === 'meeting')).toMatchObject({ labelKey: 'example.calendar.customerMeeting' })
-      expect(catalog.items.find((item) => item.key === 'note')).toBeUndefined()
+      expect(catalog.items.find((item) => item.key === 'meeting')).toMatchObject({ selectable: true })
+      expect(catalog.items.find((item) => item.key === 'note')).toMatchObject({ selectable: true })
 
       const query = new URLSearchParams({ startAt: START, endAt: END, resourceIds: resourceId! })
       const preview = await apiRequest(request, 'GET', `/api/example/visit-availability?${query.toString()}`, { token })
       expect(preview.status(), await preview.text()).toBe(200)
       expect(await preview.json()).toEqual({ subjects: [{
         type: 'resource', id: resourceId, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.noSchedule',
-      }] })
+      }], warnings: [] })
 
       const visitInput = { entityId: personId, interactionType: 'visit', title: `Visit QA ${stamp}`, scheduledAt: START, durationMinutes: 60 }
       const rejected = await apiRequest(request, 'POST', '/api/customers/interactions', {
@@ -67,6 +67,11 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
       expect(accepted.status(), await accepted.text()).toBe(201)
       visitId = (await accepted.json() as { id?: string }).id ?? null
       expect(visitId).toBeTruthy()
+
+      const titleUpdate = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+        token, data: { id: visitId, title: `Renamed Visit QA ${stamp}` },
+      })
+      expect(titleUpdate.status(), await titleUpdate.text()).toBe(200)
 
       const update = await apiRequest(request, 'PUT', '/api/customers/interactions', {
         token,

@@ -18,7 +18,6 @@ import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/re
 import {
   invalidateInjectionWidgetCache,
   loadInjectionDataWidgetById,
-  loadInjectionDataWidgetsForSpot,
   loadInjectionWidgetById,
   loadInjectionWidgetsForSpot,
   registerCoreInjectionTables,
@@ -30,7 +29,6 @@ const HOST_SPOT_ID = 'data-table:host.list:search-trailing'
 const ALWAYS_AVAILABLE_WIDGET_ID = 'host.injection.always-available'
 const REQUIRES_AI_WIDGET_ID = 'host.injection.requires-ai-assistant'
 const DATA_WIDGET_ID = 'host.injection.data-menu'
-const CALENDAR_WIDGET_ID = 'example.injection.calendar-visit'
 
 const PlaceholderComponent = () => null
 
@@ -67,27 +65,6 @@ const dataWidget: InjectionDataWidgetModule = {
   },
   menuItems: [],
 }
-
-const calendarWidget: InjectionDataWidgetModule = {
-  metadata: { id: CALENDAR_WIDGET_ID, title: 'Visit type' },
-  eventTypes: [{ key: 'visit', label: 'Visit' }],
-}
-
-it('loads a calendar type payload only from its mapped spot', async () => {
-  registerCoreInjectionWidgets([
-    makeWidgetEntry('example', 'example/widgets/injection/calendar-visit/widget.ts', async () => calendarWidget),
-  ])
-  registerCoreInjectionTables([{
-    moduleId: 'example',
-    table: { 'calendar:customers.event-types': CALENDAR_WIDGET_ID },
-  }])
-  registerEnabledModuleIds(['customers', 'example'])
-
-  const widgets = await loadInjectionDataWidgetsForSpot('calendar:customers.event-types')
-  expect(widgets).toHaveLength(1)
-  expect(widgets[0]).toMatchObject({ eventTypes: [{ key: 'visit', label: 'Visit' }] })
-  expect(await loadInjectionDataWidgetsForSpot('calendar:unrelated.event-types')).toEqual([])
-})
 
 function makeWidgetEntry(
   moduleId: string,

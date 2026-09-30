@@ -52,7 +52,7 @@ import { canChangeEmailVisibility } from '../lib/visibilityFilter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
-import { resolveCatalogEventType, resolveScopedCalendarEventTypes, type ScopedCalendarEventType } from '../lib/calendar/eventTypeResolver'
+import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from '../lib/calendar/eventTypeResolver'
 import { clearInapplicableCoreFields, findInapplicableCoreFields, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
 import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-event-types'
 
@@ -200,6 +200,11 @@ async function setInteractionCustomFields(
   })
 }
 
+function requestsSelectableTypeEnforcement(input: unknown): boolean {
+  return input !== null && typeof input === 'object'
+    && 'enforceSelectableType' in input && input.enforceSelectableType === true
+}
+
 async function resolveInteractionTypeBehavior(
   ctx: CommandRuntimeContext,
   em: EntityManager,
@@ -207,19 +212,32 @@ async function resolveInteractionTypeBehavior(
   organizationId: string,
   key: string,
   unchangedType: boolean,
+  enforceSelectableType: boolean,
 ): Promise<{ behavior: CalendarEventTypeBehavior; organizationIds: string[] }> {
   const hierarchy = ctx.container.resolve('organizationHierarchyService') as OrganizationHierarchyService
   const ancestors = await hierarchy.resolveAncestorIds({ tenantId, organizationId })
   if (ancestors === null) throw notFound('Organization not found')
   const organizationIds = [organizationId, ...ancestors.slice().reverse()]
-  const catalog = await resolveScopedCalendarEventTypes({
-    em,
-    tenantId,
-    organizationId,
-    readableOrganizationIds: organizationIds,
-  })
-  const selected = resolveCatalogEventType(catalog, key)
-  if (selected?.selectable) return { behavior: selected.behavior, organizationIds }
+  let catalog
+  try {
+    catalog = await resolveScopedCalendarEventTypes({
+      em,
+      tenantId,
+      organizationId,
+      readableOrganizationIds: organizationIds,
+    })
+  } catch {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(503, {
+      error: translate('customers.calendar.activityTypes.errors.loadFailed', 'Failed to load activity types'),
+      code: 'activity_type_catalog_unavailable',
+      retryable: true,
+    })
+  }
+  const selected = resolveCatalogEventType(catalog, key, { includeHistorical: unchangedType || !enforceSelectableType })
+  if (selected && (unchangedType || !enforceSelectableType || selected.selectable)) {
+    return { behavior: selected.behavior, organizationIds }
+  }
   if (unchangedType) return { behavior: calendarEventTypes[0]!.behavior, organizationIds }
   const { translate } = await resolveTranslations()
   throw new CrudHttpError(400, {
@@ -239,7 +257,7 @@ async function loadApplicableCustomFieldKeys(
   const fieldsets = behavior.customFieldsetIds.map((id) => id === '__general__' ? '' : id)
   const applicable = fieldsets.length
     ? await loadCustomFieldDefinitionIndex({ ...options, fieldset: fieldsets })
-    : new Map<string, unknown>()
+    : all
   return {
     defined: new Set([...all.keys()].map((key) => key.toLowerCase())),
     allowed: new Set([...applicable.keys()].map((key) => key.toLowerCase())),
@@ -460,7 +478,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       }
 
       const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
-        ctx, trx, entity.tenantId, entity.organizationId, parsed.interactionType, false,
+        ctx, trx, entity.tenantId, entity.organizationId, parsed.interactionType, false, requestsSelectableTypeEnforcement(rawInput),
       )
       const inapplicableCore = findInapplicableCoreFields(behavior, parsed)
       const customKeys = Object.keys(custom).length
@@ -747,7 +765,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       const nextType = parsed.interactionType ?? interaction.interactionType
       const changingType = nextType !== interaction.interactionType
       const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
-        ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType,
+        ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType, requestsSelectableTypeEnforcement(rawInput),
       )
       const currentCoreValues = {
         durationMinutes: interaction.durationMinutes,
