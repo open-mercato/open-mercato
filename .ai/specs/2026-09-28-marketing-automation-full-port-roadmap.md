@@ -279,7 +279,7 @@ a missing dependency for a missing plan.
 section is a second pass, done by comparing what a MERCHANT can do in each system rather than by table or cron.
 It found unblocked work the backlog never listed, and it records why two items that look cheap are not.
 
-Method: two inventories. Ordo (`Ordo_Automation`, the Magento source — local checkout at `~/Projects/ordo`): 14
+Method: two inventories. Ordo (`Ordo_Automation`, the author's own Magento module, contributed here under MIT): 14
 triggers, 19 conditions plus a nested group, 14 action types, 62 tables, 34 crons, 23 ACL resources, 58 REST
 routes. This module: 18 catalogue triggers (14 available), 5 sweep sources, 10 step types, 21 tables. Ordo paths
 below are relative to its root.
