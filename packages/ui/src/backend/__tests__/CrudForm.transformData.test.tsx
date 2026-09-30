@@ -167,7 +167,9 @@ describe('CrudForm transform pipeline behavior', () => {
     await waitFor(() =>
       expect(screen.getByTestId('submitted')).toHaveTextContent('"note":"MAKE ME UPPERCASE"'),
     )
-    expect(input).toHaveValue('MAKE ME UPPERCASE')
+    // The submitted payload and the field value are two separate state updates with no guaranteed
+    // order between them, so the visible value is awaited rather than read once.
+    await waitFor(() => expect(input).toHaveValue('MAKE ME UPPERCASE'))
   })
 
   it('does not treat transformDisplayData initialization as an unsaved change', async () => {
