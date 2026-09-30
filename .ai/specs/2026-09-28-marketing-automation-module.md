@@ -887,6 +887,25 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-30** — the review's mechanical asks, done. The module is **opt-in**
+  (`OM_ENABLE_MARKETING_AUTOMATION`, default false) rather than registered by default in `apps/mercato`, so a
+  reference app no longer migrates 23 tables and serves six public routes for a vertical nobody asked for; the
+  scaffolding template mirrors the same gate instead of carrying a commented-out entry. The 23 development
+  migrations are **one initial migration**, regenerated against a scratch database and then verified by
+  building a schema from it and diffing against the one the originals produced — 250 columns, 72 indexes, no
+  difference, and a byte-identical ORM snapshot. The two fixes that belong to other PRs (#6753, #6758, #6764)
+  and the `detect-locale` one (#6754) are **out of the branch**, along with `.ai/lessons`; the one spec that
+  found the `KpiCard` defect is `test.fixme` naming #6753 until that lands. Event ids were renamed while the
+  module is still unreleased and renaming is free: `campaign.saved` folds into `campaign.updated`,
+  `campaign.signal` becomes `campaign.signalled`, and `customer.score_changed` becomes `score.changed` because
+  this module does not own the customer. `catalog` joins `requires` — the category narrowing and the
+  price-watch scan read its tables, so the dependency existed without being declared. Provenance is answered on
+  the PR and the roadmap names the source module's licensing instead of a path on a laptop.
+
+  Still open, and deliberately not guessed at here: making `sales` and `catalog` optional so a CRM-only
+  installation can run campaigns. That waits on the read-model decision — query engine, a service the owning
+  module exposes through DI, or snapshot tables kept from events — which is the spec PR's job.
+
 - **2026-09-30** — the rest of the UX audit, all of it the same complaint: the screens spoke the engine's
   language. The results screen led every funnel row with the step's id in monospace and listed which
   messages carried a link the same way — both print the step's own label now, with the id kept in a tooltip
