@@ -294,6 +294,7 @@ Downstream apps replace or disable any contract a module presents through a sing
 | Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
 | DI | `applyDiOverridesToContainer()` |
 | Sidebar nav ordering | `applyNavGroupOrderOverrides()`, `getNavGroupOrderOverride()` |
+| Form section policies | `applyFormSectionPolicyOverrides()`, `getFormSectionPolicy()`, `subscribeToFormSectionPolicies()` |
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
@@ -305,6 +306,7 @@ MUST rules:
 - An `enabledModules` entry gated on a **server-only** env var (anything not `NEXT_PUBLIC_*`) MUST NOT carry `widgets` or `notifications` overrides. The browser re-evaluates `modules.ts` with those reads `undefined`, so the entry is absent there: the server dispatches the override and the client does not, and the widget returns on hydration with nothing logged. Declare such an override on an ungated entry, or gate it on a `NEXT_PUBLIC_` var. Outside production `ClientBootstrap` warns for every module id in `enabled-module-ids.generated` that the browser-evaluated list is missing.
 - Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 - `nav.groupOrder` **prepends** group ids ahead of the built-in ordering; ids it does not name keep their current position. It is a default, resolved beneath role and per-user sidebar preferences, and an absent override MUST leave ordering byte-identical.
+- `forms.sections` keys are CrudForm host spot ids (`crud-form:<entityId>`) and the value is **data only** (`{ hidden: string[] }`): the domain transports a policy, each host documents what it does with one. It accepts **built-in section ids only** — a `widget:<widgetId>` id is rejected, because hiding a widget's card leaves its `onBeforeSave`/`transformFormData` handlers running and a save can then be blocked by a control the user cannot see; disable the widget with `widgets.injection['<widgetId>'] = null` instead. One policy per host (later module wins, with a warning naming both); unknown section ids are ignored with a dev warning. It is in `CLIENT_OVERRIDE_DOMAINS`, so the server-only-env-gating caveat above applies to it too.
 - Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds. The injection-widget `key`⇄`widgetId` alias index is on `globalThis` for the same reason — `@open-mercato/ui` writes it while filtering entries, `@open-mercato/core` reads it while filtering tables.
 
 ### Query Engine Extensibility (UMES)

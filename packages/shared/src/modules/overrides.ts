@@ -132,6 +132,40 @@ export interface NavOverridesShape {
 }
 
 /**
+ * Presentation + behaviour policy for one `CrudForm` host, keyed by the host's
+ * spot id (e.g. `'crud-form:catalog.product'`).
+ *
+ * Data only — no functions, no components — so the policy is serialisable, safe
+ * to evaluate in the browser, and cheap to reason about. This domain only
+ * *transports* it: what a host does with the policy is that host's own
+ * documented contract.
+ */
+export interface FormSectionPolicy {
+  /**
+   * Built-in section ids to hide, drawn from the set the host documents as
+   * stable. Ids the host does not declare are ignored with a dev-only warning,
+   * so a stale id after an upstream rename never white-screens a page.
+   *
+   * An injection-widget card (`widget:<widgetId>`) is deliberately NOT
+   * addressable here: hiding it would remove the card while leaving its
+   * `onBeforeSave` / `transformFormData` handlers running, which can block a
+   * save from a control the user cannot see. Disable the widget itself with
+   * `overrides.widgets.injection['<widgetId>'] = null` instead.
+   */
+  hidden?: readonly string[]
+}
+
+export type FormSectionPolicyOverride = FormSectionPolicy | null
+export type FormSectionPolicyOverridesMap = Record<string, FormSectionPolicyOverride>
+
+/**
+ * Form domain — per-host section policies. Keys are CrudForm host spot ids.
+ */
+export interface FormsOverridesShape {
+  sections?: FormSectionPolicyOverridesMap | LooseOverrideMap
+}
+
+/**
  * Umbrella shape for `entry.overrides`. Every key is optional; a
  * downstream app sets only the domains it cares about.
  */
@@ -152,6 +186,7 @@ export interface ModuleOverrides {
   di?: DiOverridesMap | LooseOverrideMap
   encryption?: EncryptionOverridesShape
   nav?: NavOverridesShape
+  forms?: FormsOverridesShape
 }
 
 /**
@@ -192,6 +227,7 @@ export type ModuleOverrideDomain =
   | 'di'
   | 'encryption'
   | 'nav'
+  | 'forms'
 
 export interface ModuleOverrideEntry<TShape> {
   moduleId: string
@@ -245,6 +281,7 @@ const DOMAIN_KEYS: ModuleOverrideDomain[] = [
   'di',
   'encryption',
   'nav',
+  'forms',
 ]
 
 const TRACKING_ISSUE_HINT =
@@ -533,6 +570,122 @@ export function applyNavGroupOrderOverrides(groupOrder: string[] | null): void {
 export function getNavGroupOrderOverride(): readonly string[] | null {
   const state = getNavOverrideState()
   return state.programmatic ?? state.modules?.groupOrder ?? null
+}
+
+/**
+ * Form section policy state.
+ *
+ * On `globalThis` for the same reason the nav state above is: the writer is the
+ * app's bootstrap while the reader is a form host in `@open-mercato/core`, and a
+ * standalone build can evaluate `@open-mercato/shared` through more than one
+ * chunk. A module-local variable would let bootstrap write into one instance
+ * while the host read `null` from another.
+ */
+const GLOBAL_FORM_SECTION_OVERRIDE_STATE_KEY = '__openMercatoFormSectionOverrideState__'
+
+type FormSectionPolicyRecord = { moduleId: string; policy: FormSectionPolicy }
+
+type FormSectionOverrideState = {
+  /** From `modules.ts` inline `overrides.forms.sections`, with the declaring module. */
+  modules: Record<string, FormSectionPolicyRecord>
+  /** From `applyFormSectionPolicyOverrides`. Takes precedence over `modules`. */
+  programmatic: Record<string, FormSectionPolicy>
+  /** Bumped on every state change so `useSyncExternalStore` readers re-render. */
+  listeners: Set<() => void>
+}
+
+function getFormSectionOverrideState(): FormSectionOverrideState {
+  const existing = (globalThis as Record<string, unknown>)[GLOBAL_FORM_SECTION_OVERRIDE_STATE_KEY]
+  if (existing && typeof existing === 'object') {
+    const typed = existing as FormSectionOverrideState
+    if ('modules' in typed && 'programmatic' in typed && typed.listeners instanceof Set) return typed
+  }
+  const initial: FormSectionOverrideState = { modules: {}, programmatic: {}, listeners: new Set() }
+  ;(globalThis as Record<string, unknown>)[GLOBAL_FORM_SECTION_OVERRIDE_STATE_KEY] = initial
+  return initial
+}
+
+function notifyFormSectionPolicyListeners(): void {
+  for (const listener of getFormSectionOverrideState().listeners) {
+    // One bad listener must not stop the others from learning about the change.
+    try {
+      listener()
+    } catch (err) {
+      logger.warn('A form section policy listener threw; continuing', { err })
+    }
+  }
+}
+
+/**
+ * Drops blank and duplicate ids, preserving declaration order. Returns `null`
+ * when the input is not a usable policy, so callers can treat "declared
+ * nothing" and "declared junk" identically.
+ */
+function normalizeFormSectionPolicy(value: unknown): FormSectionPolicy | null {
+  if (!value || typeof value !== 'object') return null
+  const hidden = (value as FormSectionPolicy).hidden
+  if (!Array.isArray(hidden)) return null
+  const ids = Array.from(
+    new Set(
+      hidden
+        .filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0),
+    ),
+  )
+  return { hidden: ids }
+}
+
+/**
+ * Programmatic form section policies, for env-driven boot decisions and tests.
+ * Takes precedence over `modules.ts` inline `overrides.forms.sections`,
+ * consistent with every other domain's programmatic tier.
+ *
+ * Pass `null` to clear every programmatic policy.
+ */
+export function applyFormSectionPolicyOverrides(policies: FormSectionPolicyOverridesMap | null): void {
+  const state = getFormSectionOverrideState()
+  for (const key of Object.keys(state.programmatic)) delete state.programmatic[key]
+  if (policies) {
+    for (const [rawKey, value] of Object.entries(policies)) {
+      const key = normalizeIdOverrideKey(rawKey, 'forms.sections')
+      if (!key) continue
+      // `null` disables the policy for this host — the host falls back to its
+      // shipped behaviour, which is also what an unlisted host gets.
+      if (value === null) continue
+      const policy = normalizeFormSectionPolicy(value)
+      if (!policy) continue
+      state.programmatic[key] = policy
+    }
+  }
+  notifyFormSectionPolicyListeners()
+}
+
+/**
+ * The section policy configured for a CrudForm host, or `null` when none is —
+ * which consumers MUST treat as "render and submit exactly as shipped".
+ *
+ * React callers should prefer `useFormSectionPolicy` from
+ * `@open-mercato/ui/backend/injection/useFormSectionPolicy`: on the client the
+ * override dispatcher resolves *after* first paint, so a one-shot read can miss
+ * a policy that arrives a tick later.
+ */
+export function getFormSectionPolicy(hostId: string): FormSectionPolicy | null {
+  if (typeof hostId !== 'string' || !hostId) return null
+  const state = getFormSectionOverrideState()
+  return state.programmatic[hostId] ?? state.modules[hostId]?.policy ?? null
+}
+
+/**
+ * Subscribe to form section policy changes. Returns an unsubscribe function.
+ * Designed for `useSyncExternalStore`.
+ */
+export function subscribeToFormSectionPolicies(listener: () => void): () => void {
+  const state = getFormSectionOverrideState()
+  state.listeners.add(listener)
+  return () => {
+    state.listeners.delete(listener)
+  }
 }
 
 function normalizeIdOverrideKey(key: string, label: string): string | null {
@@ -872,6 +1025,10 @@ export function resetModuleContractOverridesForTests(): void {
   const navState = getNavOverrideState()
   navState.modules = null
   navState.programmatic = null
+  const formSectionState = getFormSectionOverrideState()
+  for (const key of Object.keys(formSectionState.modules)) delete formSectionState.modules[key]
+  for (const key of Object.keys(formSectionState.programmatic)) delete formSectionState.programmatic[key]
+  formSectionState.listeners.clear()
 }
 
 /**
@@ -1736,8 +1893,46 @@ function navOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<NavOverr
   }
 }
 
+function formsOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<FormsOverridesShape>>): void {
+  const state = getFormSectionOverrideState()
+  let changed = false
+  for (const entry of entries) {
+    const sections = entry.overrides?.sections
+    if (!sections || typeof sections !== 'object') continue
+    for (const [rawKey, value] of Object.entries(sections)) {
+      const key = normalizeIdOverrideKey(rawKey, 'forms.sections')
+      if (!key) continue
+      // `null` disables the policy for this host, so the host keeps its shipped
+      // behaviour — and a later module can still resurrect it by mapping the
+      // key back to a policy, exactly as the other domains behave.
+      if (value === null) {
+        if (state.modules[key]) {
+          delete state.modules[key]
+          changed = true
+        }
+        continue
+      }
+      const policy = normalizeFormSectionPolicy(value)
+      if (!policy) continue
+      const previous = state.modules[key]
+      if (previous && previous.moduleId !== entry.moduleId) {
+        logger.warn('forms.sections policy for this host declared by more than one module — the later one wins', {
+          hostId: key,
+          previousModuleId: previous.moduleId,
+          moduleId: entry.moduleId,
+          hint: 'A form host has exactly one section policy; declare it on one module entry.',
+        })
+      }
+      state.modules[key] = { moduleId: entry.moduleId, policy }
+      changed = true
+    }
+  }
+  if (changed) notifyFormSectionPolicyListeners()
+}
+
 function registerBuiltInModuleOverrideAppliers(): void {
   registerModuleOverrideApplier<NavOverridesShape>('nav', navOverridesApplier)
+  registerModuleOverrideApplier<FormsOverridesShape>('forms', formsOverridesApplier)
   registerModuleOverrideApplier<RoutesOverridesShape>('routes', routesOverridesApplier)
   registerModuleOverrideApplier<EventsOverridesShape>('events', eventsOverridesApplier)
   registerModuleOverrideApplier<WorkerOverridesMap>('workers', workersOverridesApplier)

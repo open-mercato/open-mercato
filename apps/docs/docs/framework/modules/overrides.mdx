@@ -66,6 +66,7 @@ The default app and `create-mercato-app` template also export a non-applied `mod
 | DI bindings | `di` | container key |
 | Encryption maps | `encryption.maps` | entity id |
 | Sidebar nav ordering | `nav.groupOrder` | nav group id |
+| Form section policies | `forms.sections` | CrudForm host spot id (`crud-form:<entityId>`) |
 
 ## Examples
 
@@ -317,6 +318,47 @@ Per-role ordering is a different mechanism: seed `SidebarPreferencesSettings.gro
 Use `nav.groupOrder` for an app-wide default and role preferences when different roles need different
 orders.
 
+### Form Section Policies
+
+`forms.sections` lets an app hide built-in sections of a `CrudForm` page it does not own, keyed by the
+form host's spot id:
+
+```ts
+overrides: {
+  forms: {
+    sections: {
+      'crud-form:catalog.product': { hidden: ['compliance', 'product-uom', 'dimensions'] },
+    },
+  },
+}
+```
+
+- **The domain only transports the policy.** What a host *does* with it is that host's own documented
+  contract. For the catalog product edit form — the reference implementation — hiding a section removes
+  its card, its client validation, its slice of the update payload and its secondary writes together,
+  and leaves the stored values untouched. See
+  [CrudForm → Hiding sections](../admin-ui/crud-form.mdx#hiding-sections) for the full catalog contract
+  and the list of stable ids.
+- **Built-in ids only.** An injection widget's card (`widget:<widgetId>`) is deliberately not
+  addressable here: hiding it would drop the card while leaving its `onBeforeSave` /
+  `transformFormData` handlers running, so a save could be blocked by a control the user cannot see.
+  Disable the widget itself instead:
+
+  ```ts
+  overrides: { widgets: { injection: { 'my_module.injection.my_widget': null } } }
+  ```
+
+- **One policy per host.** If two module entries declare a policy for the same host, the later one in
+  load order wins and a warning names both. `null` disables the policy, putting the host back on its
+  shipped behaviour; a later entry can map the key back to a policy to resurrect it.
+- Unknown section ids are ignored with a development warning, so a stale id after an upstream rename
+  never white-screens a page.
+- **Client dispatch matters.** This domain is read in the browser by client form hosts, so it is part
+  of `CLIENT_OVERRIDE_DOMAINS`. The same server-only-env caveat as `widgets`/`notifications` therefore
+  applies: a module entry gated on a non-`NEXT_PUBLIC_*` variable is absent when `modules.ts` is
+  re-evaluated in the browser, so its policy would apply while server-rendered and vanish on
+  hydration. Declare the policy on an ungated entry, or gate it on a `NEXT_PUBLIC_` variable.
+
 ## Programmatic Overrides
 
 Use programmatic helpers for env-driven boot decisions and tests:
@@ -340,6 +382,16 @@ import { applyNavGroupOrderOverrides } from '@open-mercato/shared/modules/overri
 
 applyNavGroupOrderOverrides(['my_app.nav.group'])
 applyNavGroupOrderOverrides(null) // clear, falling back to modules.ts
+```
+
+Form section policies work the same way, which is the convenient way to drive them from an integration
+test without shipping a fixture app module:
+
+```ts
+import { applyFormSectionPolicyOverrides } from '@open-mercato/shared/modules/overrides'
+
+applyFormSectionPolicyOverrides({ 'crud-form:catalog.product': { hidden: ['compliance'] } })
+applyFormSectionPolicyOverrides(null) // clear, falling back to modules.ts
 ```
 
 Programmatic calls must happen before the affected registry registers its base entries. The standard app bootstrap already calls `applyModuleOverridesFromEnabledModules(enabledModules)` for inline `modules.ts` overrides.

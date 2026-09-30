@@ -157,6 +157,7 @@ Each phase is a focused PR that:
 | 17 | DI bindings | `di` | container key | **YES** |
 | 18 | Encryption maps | `encryption.maps` | entity id | **YES** |
 | 19 | Sidebar nav ordering | `nav.groupOrder` | nav group id | **YES** |
+| 20 | Form section policies | `forms.sections` | CrudForm host spot id | **YES** |
 
 Phase 1 is the AI domain (already shipped via spec [`2026-04-30-ai-overrides-and-module-disable.md`](2026-04-30-ai-overrides-and-module-disable.md), now folded under the unified umbrella through one rename — see "Migration & BC" below).
 
@@ -183,6 +184,7 @@ Phases 2-18 now ship through PR #1960. The dispatcher still supports the "not ye
 - [x] Phase 17 — DI binding overrides.
 - [x] Phase 18 — encryption map overrides.
 - [x] Phase 19 — sidebar nav ordering overrides.
+- [x] Phase 20 — form section policy overrides (`.ai/specs/2026-09-30-catalog-product-form-section-policy.md`).
 - [x] Documentation follow-up — bb2030e1b.
 
 ## Migration & backward compatibility

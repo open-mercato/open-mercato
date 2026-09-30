@@ -74,10 +74,14 @@ beforeEach(() => {
 })
 
 describe('client bootstrap module overrides (#5152)', () => {
-  it('dispatches only the domains whose registries the browser re-registers', () => {
-    // A domain added here without a matching client registration would fill a store
-    // nothing reads and report server-wired appliers as unwired in the browser.
-    expect(CLIENT_OVERRIDE_DOMAINS).toEqual(['widgets', 'notifications'])
+  it('dispatches the domains the browser actually consumes', () => {
+    // A domain added here without a client-side consumer would fill a store nothing
+    // reads and report server-wired appliers as unwired in the browser. `widgets` and
+    // `notifications` back registries the browser re-registers; `forms` backs no
+    // registry but is read directly by client form hosts via `getFormSectionPolicy`,
+    // so it has to be dispatched here too or a section policy would apply only while
+    // server-rendered — the #5152 shape, one domain over.
+    expect(CLIENT_OVERRIDE_DOMAINS).toEqual(['widgets', 'notifications', 'forms'])
   })
 
   it('awaits the dispatch only for the registry groups an override can change', () => {

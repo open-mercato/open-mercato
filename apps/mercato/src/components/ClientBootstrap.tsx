@@ -12,7 +12,12 @@ const logger = createLogger('app').child({ component: 'ClientBootstrap' })
 // a disabled widget reappears on hydration (#5152). Only the domains backing the
 // registries below are dispatched — the rest stay server-only, so a domain whose
 // applier never loads in the browser is not reported as unwired.
-export const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications']
+//
+// `forms` is the one domain here that backs no registry: its consumer is a client
+// form host reading `getFormSectionPolicy(...)` directly. It is dispatched for the
+// same reason all the same — the policy decides what a `'use client'` page renders
+// and submits, so it has to exist in the browser, not only on the server.
+export const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications', 'forms']
 
 let moduleOverridesPromise: Promise<void> | null = null
 
