@@ -50,9 +50,13 @@ Three questions, each with a recommendation and the reason it is only a recommen
 **Recommendation: a dedicated engine, as designed here.** Three reasons, in order of weight:
 
 1. `workflows`' `ActivityType` is a FROZEN contract surface (`BACKWARD_COMPATIBILITY.md`), so every
-   marketing action would need the deprecation protocol — and `SEND_EMAIL` resolves a DI key
-   (`emailService`) that nothing registers in production, so workflow email does not currently send.
-   Fixing that turns a self-contained module into a change to core.
+   marketing action would need the deprecation protocol — and the channel is not there to build on
+   yet. `executeSendEmail` resolves `emailService` from the container
+   (`workflows/lib/activity-executor.ts`); nothing in this repository registers that key, so the
+   handler takes its documented stub path: it logs a warning and returns
+   `{ sent: false, simulated: true, reason: 'no-email-service' }`. It does not fail — it reports a
+   simulated send, which is the harder failure to notice. Making workflow email actually send is a
+   change to core, and it would have to come before a marketing module could rest on it.
 2. A durable workflow instance per contact per campaign is the wrong granularity at marketing volume.
    This engine persists a run only when a journey actually waits.
 3. The marketing gates — frequency cap, quiet hours, consent, send-time, re-entry dedup — are
