@@ -868,6 +868,81 @@ describe('SubmissionService', () => {
     expect(patientView.decodedData).toEqual({ has_condition: false })
   })
 
+  it('derives the slice from the actor row when only viewerUserId is given', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0 })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+    await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      patch: { full_name: 'Jane' },
+      savedBy: patient,
+    })
+
+    // An invitation resume passes `viewerUserId` and a `viewerRole` that is
+    // null for every invitation the admin UI creates (it posts only
+    // { email, name }). The actor row is the authority — without deriving from
+    // it the respondent got `decoded_data: {}` and a blank form.
+    const resumed = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      viewerRole: null,
+      viewerUserId: patient,
+    })
+    expect(resumed.decodedData).toEqual({ full_name: 'Jane' })
+
+    // A viewerUserId with no actor row still denies.
+    const stranger = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      viewerRole: null,
+      viewerUserId: randomUUID(),
+    })
+    expect(stranger.decodedData).toEqual({})
+  })
+
+  it('returns the full payload only for an explicit unsliced read', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0 })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+    await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      patch: { full_name: 'Jane' },
+      savedBy: patient,
+    })
+
+    // The consent projector has no viewer and must see every answer, including
+    // fields the participant role cannot read, to write consent rows.
+    const projected = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      unsliced: true,
+    })
+    expect(projected.decodedData).toEqual({ full_name: 'Jane' })
+  })
+
   it('returns nothing from getCurrent when the reader names no role', async () => {
     const { service } = createTestSetup({ autosaveIntervalMs: 0, schema: visibilitySchema() })
     const patient = randomUUID()

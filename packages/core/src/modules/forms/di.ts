@@ -162,6 +162,11 @@ export function register(container: AppContainer): void {
               submissionId,
               organizationId,
               tenantId,
+              // The projector has no viewer and must see `signature` answers to
+              // write consent rows. `getCurrent` fails closed on an absent role,
+              // so this opt-in is required — without it every signature reads
+              // `undefined` and consent records are silently never written.
+              unsliced: true,
             })
             return {
               submission: view.submission,
