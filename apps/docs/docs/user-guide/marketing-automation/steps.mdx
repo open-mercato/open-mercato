@@ -46,7 +46,7 @@ Pick one from the **Steps** part of the canvas palette; a form appears beside it
 | `{{score.points}}` | Their lead score |
 | `{{score.tier}}` | Their loyalty tier |
 | `{{survey.nps}}` | Their latest NPS answer |
-| `{{trigger.…}}` | Whatever the trigger brought with it — see [Triggers](./triggers) |
+| `{{trigger.…}}` | Whatever the trigger brought with it — see [Triggers](./triggers.mdx) |
 | `{{referral.code}}` / `{{referral.url}}` | Their referral code, after an **Issue a referral code** step earlier in the campaign |
 | `{{unsubscribeUrl}}` | The unsubscribe link for this message |
 | `{{recommendations}}` | A block of recommended products |
@@ -109,7 +109,7 @@ Press **Add variant** for each lane, then **Add steps here** on a lane and pick 
 
 A lane with **no steps** is a control group, or *holdout*: those people get nothing, and the number of them is reported so you can see the difference a campaign makes at all. A holdout is excluded from the winner comparison, since nothing can raise a control group's click rate.
 
-See [Results and A/B tests](./results) for how a winner is decided.
+See [Results and A/B tests](./results.mdx) for how a winner is decided.
 
 ## Add tag
 
@@ -132,7 +132,7 @@ Tagging goes through the same mechanism the Customers module uses, so the tag ap
 
 The score is a running total of every award, so a step that gets retried cannot award twice. Loyalty tiers are worked out from the score rather than stored, so a tier can never be out of date.
 
-Awarding points fires the **Lead score changed** trigger, which carries the previous total as well as the new one — so another campaign can react to a customer crossing a threshold. See [Triggers](./triggers).
+Awarding points fires the **Lead score changed** trigger, which carries the previous total as well as the new one — so another campaign can react to a customer crossing a threshold. See [Triggers](./triggers.mdx).
 
 ## Ask for an NPS score
 
@@ -202,7 +202,7 @@ Choosing **everyone who may see campaign runs** addresses the notice by permissi
 | **Topic** | Your name for this signal — lower-case letters, digits, dots, dashes and underscores |
 | **Extra fields** | One `key=value` per line. Values are interpolated like a message body, so `{{customer.email}}` works |
 
-The step emits an event. Your operator subscribes an endpoint to it under [Webhooks](../webhooks) and filters on the topic; delivery then comes with signing, retries and a delivery log for free.
+The step emits an event. Your operator subscribes an endpoint to it under [Webhooks](../webhooks.mdx) and filters on the topic; delivery then comes with signing, retries and a delivery log for free.
 
 The payload carries the topic, the campaign, the run, the step, the customer's identifier, and your extra fields. Deliberately nothing else about the customer — this leaves the platform for an endpoint you chose, so it carries an identifier the receiver can look up rather than a name or an address. If you genuinely need the email address there, put `{{customer.email}}` in a field yourself.
 
@@ -230,5 +230,5 @@ A step that genuinely errors — your email provider refusing the message, say �
 
 ## Where to go next
 
-- [**Send rules**](./send-rules) — the checks that stand between a sending step and an actual message
-- [**Results and A/B tests**](./results) — reading what happened
+- [**Send rules**](./send-rules.mdx) — the checks that stand between a sending step and an actual message
+- [**Results and A/B tests**](./results.mdx) — reading what happened

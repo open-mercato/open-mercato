@@ -21,7 +21,7 @@ The checks are asked fresh every time you open the screen. There is no "setup co
 
 | Check | Required? | What it means |
 |---|---|---|
-| **Configure an email channel** | Required | Until a shop-wide email channel exists, every send fails at the point of delivery. See [Communication channels](../communication-channels) |
+| **Configure an email channel** | Required | Until a shop-wide email channel exists, every send fails at the point of delivery. See [Communication channels](../communication-channels.mdx) |
 | **Set a signing secret and a public URL** | Recommended | Needed for open and click tracking, one-click unsubscribe links, and inbound hooks. Messages still send without them — you simply cannot measure anything |
 | **Create a campaign** | Required | A trigger, an audience, and the steps that follow |
 | **Publish it** | Required | A campaign that is not enabled never runs, however complete it looks |
@@ -37,7 +37,7 @@ This module has two background jobs that run on a timer. They are registered aut
 
 Nothing else notices. Campaigns still save. Campaigns triggered by an event — an order, a tag, a registration — still fire perfectly. But **every scheduled campaign silently never runs**: win-back, review requests, birthday greetings, reorder reminders. So does the safety net that picks a waiting customer back up if their delayed job was lost.
 
-The fix is to re-run the module setup for the organization; ask whoever administers your installation. The check links to [the scheduler screen](../scheduler) so you can confirm afterwards.
+The fix is to re-run the module setup for the organization; ask whoever administers your installation. The check links to [the scheduler screen](../scheduler.mdx) so you can confirm afterwards.
 :::
 
 If your installation does not have the scheduler at all, this check does not appear as outstanding. That is a legitimate configuration — an installation without it simply has no scheduled campaigns — rather than something to fix.
@@ -63,9 +63,9 @@ A template whose requirements are not met is still listed, with the requirement 
 
 **New campaign** opens the canvas. Give it a name, then:
 
-1. **Add trigger** — pick from the palette. See [Triggers](./triggers).
-2. Click the **Audience** box to set conditions, or leave it empty to mean "everyone the trigger produces". See [Audiences and segments](./audiences).
-3. **Add step** — choose from the palette and fill in the form that appears beside it. See [Campaign steps](./steps).
+1. **Add trigger** — pick from the palette. See [Triggers](./triggers.mdx).
+2. Click the **Audience** box to set conditions, or leave it empty to mean "everyone the trigger produces". See [Audiences and segments](./audiences.mdx).
+3. **Add step** — choose from the palette and fill in the form that appears beside it. See [Campaign steps](./steps.mdx).
 
 Reorder steps with the up and down arrows. **Auto-arrange** tidies the layout. **Save** writes the campaign; the canvas shows **Unsaved changes** until you do, and warns you if you try to leave with work outstanding.
 
