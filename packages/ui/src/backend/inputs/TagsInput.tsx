@@ -144,7 +144,6 @@ export function TagsInput({
   }, [disabled, input, loadSuggestions, touched])
 
   const suggestionsOpen = !suggestionsDismissed
-    && !disabled
     && ((loading && touched) || (!loading && filteredSuggestions.length > 0))
 
   React.useEffect(() => {
