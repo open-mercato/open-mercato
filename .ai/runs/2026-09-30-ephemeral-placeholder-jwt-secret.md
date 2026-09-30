@@ -27,5 +27,5 @@ Issue: #6747
 
 ### Phase 1: Fix and tests
 
-- [ ] 1.1 Export isUnsafeJwtSecret predicate from shared jwt with unit tests
-- [ ] 1.2 Resolve ephemeral JWT_SECRET through the predicate in both env builders with unit tests
+- [x] 1.1 Export isUnsafeJwtSecret predicate from shared jwt with unit tests — 0abf44566
+- [x] 1.2 Resolve ephemeral JWT_SECRET through the predicate in both env builders with unit tests — 113a1c3c5
