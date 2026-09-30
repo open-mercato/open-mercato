@@ -17,7 +17,9 @@
 //      The external source and skill list live under `external` in tiers.json.
 //      A folder under .ai/skills/ matching an external skill name is a
 //      repo-local override that the external skill reads in place; it is never
-//      linked into the canonical or per-agent directories.
+//      linked into the canonical or per-agent directories. A tiered local skill
+//      whose name the collection also publishes (but that is not registered in
+//      `external.skills`) replaces the collection's copy.
 //
 // Agent support matrix. Per-agent links are created ONLY for agents that
 // cannot read the canonical project-level .agents/skills/ directory, so no
@@ -277,7 +279,16 @@ export function createInstaller({
       const skillTarget = join(skillsDir, skill)
       const entry = lstatSync(skillTarget, { throwIfNoEntry: false })
       if (!entry?.isDirectory()) fail(`skill folder '${skillTarget}' is missing on disk.`)
-      createLink(join(agentsDir, skill), skillTarget, platform, warn)
+      const linkPath = join(agentsDir, skill)
+      const existing = lstatSync(linkPath, { throwIfNoEntry: false })
+      if (existing?.isDirectory() && !existing.isSymbolicLink()) {
+        // The external collection ships a skill with the same name as this tier
+        // skill (`skills add --skill '*'` copies every published skill). The local
+        // skill wins, so replace the collection's copy instead of leaving it in place.
+        rmSync(linkPath, { recursive: true, force: true })
+        log(`info: local skill '${skill}' replaces the external collection's copy of the same name.`)
+      }
+      createLink(linkPath, skillTarget, platform, warn)
     }
     sweepHarness(agentsDir, selectedSkills)
   }

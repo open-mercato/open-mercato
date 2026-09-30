@@ -9,6 +9,8 @@ Skills come from **two sources**, mixed together by `yarn install-skills`:
 
 A folder under `.ai/skills/` whose name matches an external skill (listed under `external` in `tiers.json`) is a **repo-local override**: the external skill reads and follows it on top of its built-in workflow. Override folders are never symlinked into the harness directories.
 
+A **tiered** local skill can also share its name with a skill the collection publishes but `tiers.json` does not register under `external` (the collection grows independently, and `npx skills add --skill '*'` installs all of it). The local skill wins: when it is selected, the installer replaces the collection's copy in `.agents/skills/` with the link to `.ai/skills/<name>` and prints an `info:` line naming the skill.
+
 ---
 
 ## Structure
