@@ -72,7 +72,10 @@ export async function bookedVisitSubjects(args: {
         recurrenceEnd: dateValue(value(row, 'recurrenceEnd', 'recurrence_end')),
       })
       if (payload.timezone && !isCalendarTimezone(payload.timezone)) throw new Error('[internal] Invalid booking timezone')
-      if (payload.recurrenceRule && !parseRecurrenceRule(payload.recurrenceRule)) throw new Error('[internal] Unsupported booking recurrence')
+      if (payload.recurrenceRule) {
+        const recurrence = parseRecurrenceRule(payload.recurrenceRule)
+        if (!recurrence || (recurrence.freq === 'DAILY' && recurrence.byDay !== null)) throw new Error('[internal] Unsupported booking recurrence')
+      }
       if (payload.recurrenceEnd && Number.isNaN(new Date(payload.recurrenceEnd).getTime())) throw new Error('[internal] Invalid booking recurrence end')
       const item = mapInteractionToCalendarItem(payload, {})
       if (!item || item.end <= item.start) throw new Error('[internal] Invalid booking interval')

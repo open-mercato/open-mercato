@@ -85,6 +85,13 @@ describe('Visit calendar bookings', () => {
       .toEqual(new Set([`staff:${USER_ID}`, `resource:${RESOURCE_ID}`]))
   })
 
+  it('fails closed for a bounded daily rule restricted by weekday instead of missing its second Monday', async () => {
+    const proposed = { ...input, startAt: '2026-10-05T07:15:00Z', endAt: '2026-10-05T08:00:00Z' }
+    await expect(check([{ ...booking, scheduled_at: '2026-09-28T07:00:00Z', duration_minutes: 60,
+      recurrence_rule: 'FREQ=DAILY;BYDAY=MO;COUNT=2' }], proposed).result)
+      .rejects.toThrow('[internal] Unsupported booking recurrence')
+  })
+
   it.each([
     { recurrence_rule: 'FREQ=MONTHLY' }, { timezone: 'Invalid/Zone' },
     { scheduled_at: 'bad' }, { duration_minutes: -30 },
