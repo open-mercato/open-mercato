@@ -112,11 +112,15 @@ import {
 } from "@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection";
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
 import {
+  CATALOG_PRODUCT_FORM_HOST_ID,
   CATALOG_PRODUCT_FORM_SECTIONS,
+  resolveHiddenCatalogProductSections,
+  restoreHiddenSectionFields,
   type CatalogProductSectionContext,
   type CatalogProductSectionDerived,
   type CatalogProductSectionWriteContext,
 } from "@open-mercato/core/modules/catalog/components/products/formSections";
+import { useFormSectionPolicy } from "@open-mercato/ui/backend/injection/useFormSectionPolicy";
 import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
@@ -347,6 +351,13 @@ export default function EditCatalogProductPage({
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([]);
   const [initialValues, setInitialValues] =
     React.useState<Partial<ProductFormValues> | null>(null);
+  // Mirrored into a ref so `handleSubmit` can restore hidden sections from the
+  // loaded record without taking `initialValues` as a dependency — that would
+  // hand CrudForm a new `onSubmit` identity on every load and after every save.
+  const initialValuesRef = React.useRef<Partial<ProductFormValues> | null>(null);
+  React.useEffect(() => {
+    initialValuesRef.current = initialValues;
+  }, [initialValues]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [isNotFound, setIsNotFound] = React.useState(false);
@@ -892,12 +903,32 @@ export default function EditCatalogProductPage({
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId));
   }, []);
 
-  // The sections this form renders and submits. Phase 3 narrows this with the
-  // app's `overrides.forms.sections` policy; today every shipped section is
-  // visible, so the loop below is a no-op filter over all ten.
+  // An app module may hide built-in sections through
+  // `overrides.forms.sections['crud-form:catalog.product']`. The policy is read
+  // through a subscription rather than a one-shot getter because on the client
+  // the override dispatcher resolves after first paint.
+  const sectionPolicy = useFormSectionPolicy(CATALOG_PRODUCT_FORM_HOST_ID);
+  const hiddenSectionIds = React.useMemo(
+    () =>
+      resolveHiddenCatalogProductSections(sectionPolicy, {
+        onDiagnostic:
+          process.env.NODE_ENV === "production"
+            ? undefined
+            : (message, details) => logger.warn(message, details),
+      }),
+    [sectionPolicy],
+  );
+  // The sections this form renders and submits. Everything downstream — the
+  // rendered cards, the validation, the payload and the secondary writes —
+  // derives from this one list, so hiding a card cannot desynchronise from
+  // hiding its behaviour.
   const visibleSections = React.useMemo(
-    () => CATALOG_PRODUCT_FORM_SECTIONS,
-    [],
+    () => CATALOG_PRODUCT_FORM_SECTIONS.filter((section) => !hiddenSectionIds.has(section.id)),
+    [hiddenSectionIds],
+  );
+  const hiddenGroupIds = React.useMemo(
+    () => Array.from(hiddenSectionIds),
+    [hiddenSectionIds],
   );
 
   const groups = React.useMemo<CrudFormGroup[]>(
@@ -1066,8 +1097,18 @@ export default function EditCatalogProductPage({
           ),
         );
       }
+      // Every field owned by a hidden section reverts to its loaded value
+      // before anything else looks at the form. That is the whole coherence
+      // rule: a hidden section can then neither fail a validation the user
+      // cannot see nor carry a stale edit into a payload it is excluded from,
+      // while visible sections that read its fields still see real data.
+      const restoredValues = restoreHiddenSectionFields(
+        formValues,
+        hiddenSectionIds,
+        initialValuesRef.current as ProductFormValues | null,
+      );
       const parsed = productFormSchema.safeParse(
-        withCanonicalUomFields(formValues, locale),
+        withCanonicalUomFields(restoredValues, locale),
       );
       if (!parsed.success) {
         const issues = parsed.error.issues;
@@ -1411,7 +1452,7 @@ export default function EditCatalogProductPage({
         );
       }
     },
-    [productId, t, taxRates, variants, visibleSections],
+    [hiddenSectionIds, productId, t, taxRates, variants, visibleSections],
   );
 
   if (!productId) {
@@ -1479,6 +1520,7 @@ export default function EditCatalogProductPage({
           ) : undefined}
           fields={[]}
           groups={groups}
+          hiddenGroupIds={hiddenGroupIds}
           injectionSpotId={extensionPoints.hosts.productForm.spotId}
           entityId={E.catalog.catalog_product}
           customFieldsetBindings={{

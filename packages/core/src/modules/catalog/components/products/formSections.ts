@@ -534,3 +534,109 @@ export function isCatalogProductFormSectionId(
 ): value is CatalogProductFormSectionId {
   return SECTIONS_BY_ID.has(value as CatalogProductFormSectionId);
 }
+
+/**
+ * Turn an app's `overrides.forms.sections` policy into the set of built-in
+ * sections this form must hide.
+ *
+ * Two kinds of bad input are rejected here rather than forwarded:
+ *
+ * - **Unknown ids** are ignored with a development warning. A stale id after an
+ *   upstream rename must never white-screen a product page; the worst outcome
+ *   of a typo is that nothing is hidden.
+ * - **`widget:<widgetId>` ids** are refused outright, because hiding an
+ *   injection widget's *card* leaves its `onBeforeSave` / `transformFormData`
+ *   handlers registered against the spot. The result is a save blocked by a
+ *   control that is not in the DOM, with nothing to scroll to — strictly worse
+ *   than not hiding it. The diagnostic names the mechanism that does work.
+ */
+export function resolveHiddenCatalogProductSections(
+  policy: { hidden?: readonly string[] } | null | undefined,
+  options: { onDiagnostic?: (message: string, details: Record<string, unknown>) => void } = {},
+): ReadonlySet<CatalogProductFormSectionId> {
+  const hidden = policy?.hidden
+  if (!Array.isArray(hidden) || hidden.length === 0) return EMPTY_HIDDEN_SECTIONS
+
+  const resolved = new Set<CatalogProductFormSectionId>()
+  const unknown: string[] = []
+  const widgetIds: string[] = []
+
+  for (const raw of hidden) {
+    if (typeof raw !== "string") continue
+    const id = raw.trim()
+    if (!id) continue
+    if (id.startsWith("widget:")) {
+      widgetIds.push(id)
+      continue
+    }
+    if (isCatalogProductFormSectionId(id)) {
+      resolved.add(id)
+      continue
+    }
+    unknown.push(id)
+  }
+
+  const report = options.onDiagnostic
+  if (report) {
+    if (unknown.length) {
+      report(
+        "[internal] forms.sections named unknown catalog product section ids — ignoring them",
+        { hostId: CATALOG_PRODUCT_FORM_HOST_ID, unknownIds: unknown, knownIds: [...CATALOG_PRODUCT_FORM_SECTION_IDS] },
+      )
+    }
+    if (widgetIds.length) {
+      report(
+        "[internal] forms.sections cannot hide injection widget cards — hiding one would leave its save-time handlers running",
+        {
+          hostId: CATALOG_PRODUCT_FORM_HOST_ID,
+          widgetIds,
+          use: "overrides.widgets.injection['<widgetId>'] = null",
+        },
+      )
+    }
+  }
+
+  return resolved
+}
+
+const EMPTY_HIDDEN_SECTIONS: ReadonlySet<CatalogProductFormSectionId> = new Set()
+
+/**
+ * Reset every field owned by a hidden section back to its loaded value.
+ *
+ * This single rule is what makes hiding coherent, and both guarantees fall out
+ * of it rather than needing separate mechanisms:
+ *
+ * - *No unreachable validation error.* The stored record is by construction
+ *   something the server accepted, so a hidden section's restored fields cannot
+ *   fail the shared `productFormSchema` on a control the user cannot see.
+ * - *Stored data preserved.* A hidden section contributes no payload key, and
+ *   because its values were restored first, nothing a stale edit left behind can
+ *   leak into a key some other section happens to own.
+ *
+ * Restoring to the **loaded** values rather than to blank defaults is
+ * deliberate: visible sections legitimately read hidden ones (the option-schema
+ * title comes from `details`, the offer fallback from `details` too), and blank
+ * defaults would feed them an empty string.
+ */
+export function restoreHiddenSectionFields(
+  values: ProductFormValues,
+  hiddenSectionIds: ReadonlySet<CatalogProductFormSectionId>,
+  loadedValues: ProductFormValues | null | undefined,
+): ProductFormValues {
+  if (hiddenSectionIds.size === 0) return values
+  const restored: ProductFormValues = { ...values }
+  for (const section of CATALOG_PRODUCT_FORM_SECTIONS) {
+    if (!hiddenSectionIds.has(section.id)) continue
+    for (const field of section.ownedFields) {
+      // Nothing loaded for this field (a record predating it, say) leaves the
+      // current value in place: the section contributes no payload key either
+      // way, so this only affects what a visible section may read.
+      if (!loadedValues || !(field in loadedValues)) continue
+      ;(restored as Record<string, unknown>)[field as string] = (
+        loadedValues as Record<string, unknown>
+      )[field as string]
+    }
+  }
+  return restored
+}
