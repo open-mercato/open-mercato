@@ -295,7 +295,16 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
   })
 
   test('a card with no value yet still explains why', async ({ page, request }) => {
-    // KpiCard used to render only "--" for a null value and drop the footer, so these explanations never showed.
+    /**
+     * Waiting on open-mercato/open-mercato#6753.
+     *
+     * `KpiCard` renders `footer` in one of its two layouts and drops it in the `value === null` branch, so the
+     * four empty cards on this screen lose every explanation they were given. The one-line fix was found by
+     * this spec, lives in `packages/ui`, and is approved as its own PR at the reviewer's request — carrying a
+     * duplicate of it on this branch is what they asked us not to do. The assertion below is the one that
+     * proves the fix; it goes back to running the moment #6753 is on `develop` and this branch is rebased.
+     */
+    test.fixme(true, 'needs the KpiCard empty-state footer fix from #6753')
     const token = await getAuthToken(request, 'admin')
     let personId: string | null = null
     try {
