@@ -361,7 +361,7 @@ It also settles `cart-module.md`'s Open Question 4 ("does an AI-proposed line co
 - `CartLine` attribution becomes `added_by_actor_type` + `added_by_actor_id`, and `CartMergeLog`'s actor becomes polymorphic — a rep is an `auth.User`, a buyer a `customer_accounts.CustomerUser`, and the two tables have no foreign key between them.
 - Acceptance is two-step — a pre-flight preview returning a short-lived token, then a confirm that re-resolves — because the price shown in a proposal and the price charged after the merge are resolved at different moments. This is the shape `storefront-customer-account.md` §7.3 already fixed for shopping-list conversion.
 - **A merge into a scope-resolving cart must run an assortment re-visibility pass.** Without it, `cart-module.md` §6a.4's channel exemption composes with merge into a bypass of that spec's R11. This is a Critical defect in merge itself, independent of assisted selling, and it ships with `cart` Phase 3 rather than with this feature.
-- Two approval planes exist and MUST NOT be conflated. AI→employee is already implemented (`prepareMutation` + `AiPendingAction` + its confirm route) and is not re-specified; proposal→buyer is new. They are not merely conventionally separate: `getAuthFromRequest` rejects any session whose `payload.type === 'customer'`, so a buyer is structurally incapable of authenticating against the employee plane.
+- Two approval planes exist and MUST NOT be conflated. AI→employee is already implemented (`prepareMutation` + `AiPendingAction` + its confirm route) and is not re-specified; proposal→buyer is new. They are not merely conventionally separate: `getAuthFromRequest` (`packages/shared/src/lib/auth/server.ts:479`) rejects any request-path session whose `payload.type === 'customer'` (`:421`), so a buyer is structurally incapable of authenticating against the employee plane.
 
 **Rejected alternative.** Letting staff edit the buyer's cart directly, with an audit log. It is what `cart-module.md` §10.2 already forbids, and the forbidding is right: the buyer did not agree to the change, and no amount of logging turns an unagreed mutation into a proposal. Also rejected: making the chat message the unit of acceptance, which forces the buyer to re-enter what was suggested and makes transcription error a pricing error.
 
@@ -383,7 +383,7 @@ It also settles `cart-module.md`'s Open Question 4 ("does an AI-proposed line co
 | 10 | `2026-08-14-storefront-app.md` | to write | `apps/storefront`, `@open-mercato/storefront-ui` | 4, 5, 7, 8 |
 | 11 | `2026-08-21-pricing-engine.md` | written | `catalog` (admin UI + resolver hardening), `pricing` (new, optional) | — (Phase 2 is a prerequisite for its own Phase 3 only) |
 | 12 | `2026-08-21-buyer-scoped-catalog-visibility.md` | written | `packages/shared`, `customer_groups`, `ecommerce`, `cart` | 1, 3, 5 (amends all three) |
-| 13 | `2026-09-22-assisted-selling.md` | written | `assisted_selling` (new), `cart` (seam), `ecommerce` (transport), `apps/storefront` (UI) | 5 (rev 7), 4, 9, 10 |
+| 13 | `2026-09-22-assisted-selling.md` | written | `assisted_selling` (new), `cart` (seam), `ecommerce` (transport), `apps/storefront` (UI) | 5 (rev 8), 4, 9, 10 |
 
 ### 6.1 What each spec must contain beyond the standard checklist
 
@@ -530,6 +530,10 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-09-30
+
+- **Spec 13's cart dependency corrected to rev 8** (§6), matching the spec's own header — rev 8 carries the proposal-seam review fixes spec 13 rev 2 relies on. ADR-10's approval-plane claim now cites the request-path rejection in `getAuthFromRequest` precisely.
 
 ### 2026-09-22
 
