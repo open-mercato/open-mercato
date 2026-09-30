@@ -141,7 +141,7 @@ export function FormRunner({
       const title = state.resolveRecall(endingSection.title as Record<string, string>, locale)
       return (
         <article className="rounded-lg border border-border bg-card p-6 space-y-3">
-          <Tag variant="success">{t('forms.runner.actions.submit')}</Tag>
+          <Tag variant="success">{t('forms.runner.actions.submitted')}</Tag>
           <h2 className="text-lg font-semibold text-foreground">{title || endingSection.key}</h2>
           {endingSection.fieldKeys.map((fieldKey) => {
             const node = (schema.properties as Record<string, Record<string, unknown>>)?.[fieldKey]
