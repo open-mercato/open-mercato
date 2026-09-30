@@ -19,6 +19,7 @@ import { useUnsavedGuard } from '../../../../components/useUnsavedGuard'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import { AudienceBuilder, type AudienceOptions } from '../../../../components/AudienceBuilder.js'
+import { CustomerPicker } from '../../../../components/CustomerPicker.js'
 import { findAudienceField, type AudienceField } from '../../../../lib/audience/field-catalog.js'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { CampaignCanvas } from '../../../../components/CampaignCanvas'
@@ -1208,7 +1209,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                               <div className="text-xs text-muted-foreground">
                                 {t(
                                   'marketing_automation.render.noSubject',
-                                  'No customer chosen, so the placeholders are empty — put an id in the journey preview field to fill them in.',
+                                  'No customer chosen, so the placeholders are empty. Pick one under "Preview for" to fill them in.',
                                 )}
                               </div>
                             )}
@@ -1429,13 +1430,18 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="preview-subject">
-                      {t('marketing_automation.preview.subject', 'Customer id')}
+                      {t('marketing_automation.preview.subject', 'Preview for')}
                     </Label>
-                    <Input
+                    {/*
+                      Searched by name, not typed as a uuid.
+                      This was an `Input` labelled "Customer id" whose placeholder was a literal
+                      `00000000-0000-0000-0000-000000000000`, which put the module's best safety feature —
+                      "show me what this person would get, and when" — behind a value no marketer can produce.
+                    */}
+                    <CustomerPicker
                       id="preview-subject"
                       value={previewSubject}
-                      placeholder="00000000-0000-0000-0000-000000000000"
-                      onChange={(event) => { setPreviewSubject(event.target.value); setPreview(null) }}
+                      onChange={(customerEntityId) => { setPreviewSubject(customerEntityId); setPreview(null) }}
                     />
                   </div>
                   <Button

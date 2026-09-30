@@ -9,6 +9,7 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -126,6 +127,14 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
   /** Bumped to re-read the profile, rather than duplicating the fetch the effect below already owns. */
   const [refreshToken, setRefreshToken] = React.useState(0)
   const [explainCampaignId, setExplainCampaignId] = React.useState('')
+  /**
+   * The campaigns this question can be asked about, by name.
+   *
+   * The field was a text input labelled "Campaign id", styled in monospace for a uuid — a value nobody
+   * reading a customer's profile has to hand. The inbound-hooks screen already offers campaigns as a list of
+   * names from this same endpoint; this is that, moved.
+   */
+  const [campaigns, setCampaigns] = React.useState<Array<{ id: string; name: string }>>([])
   const [explanation, setExplanation] = React.useState<Explanation | null>(null)
   const [explaining, setExplaining] = React.useState(false)
 
@@ -283,6 +292,28 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
       setBusy(false)
     }
   }
+
+  /**
+   * The campaign list for the question above, fetched once.
+   *
+   * Separate from the profile load on purpose: a failure here costs the dropdown its options and must not
+   * take the whole profile down with it, so it sets no error state and reports nothing. An empty list reads
+   * as "no campaigns", which is also what an unauthorised caller sees — and both are true enough for a
+   * control that is optional to this screen.
+   */
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const response = await apiCall<{ items?: Array<{ id?: unknown; name?: unknown }> }>(
+        '/api/marketing_automation/campaigns?pageSize=100',
+      ).catch(() => null)
+      if (cancelled || !response?.ok) return
+      setCampaigns((response.result?.items ?? []).flatMap((item) => (
+        typeof item.id === 'string' && typeof item.name === 'string' ? [{ id: item.id, name: item.name }] : []
+      )))
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   React.useEffect(() => {
     if (!customerId) return
@@ -489,13 +520,17 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           </div>
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <div className="space-y-1">
-              <Label htmlFor="explain-campaign">{t('marketing_automation.explain.campaign', 'Campaign id')}</Label>
-              <Input
-                id="explain-campaign"
-                className="w-80 font-mono text-xs"
-                value={explainCampaignId}
-                onChange={(event) => setExplainCampaignId(event.target.value)}
-              />
+              <Label htmlFor="explain-campaign">{t('marketing_automation.explain.campaign', 'Campaign')}</Label>
+              <Select value={explainCampaignId || undefined} onValueChange={setExplainCampaignId}>
+                <SelectTrigger id="explain-campaign" className="w-80">
+                  <SelectValue placeholder={t('marketing_automation.hooks.pickCampaign', 'Pick a campaign')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {campaigns.map((campaign) => (
+                    <SelectItem key={campaign.id} value={campaign.id}>{campaign.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <Button
               variant="outline"
