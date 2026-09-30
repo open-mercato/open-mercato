@@ -161,7 +161,45 @@ test.describe('TC-MA-042 campaign authoring on the canvas', () => {
     }
   })
 
-  test('the audience is built in the condition builder, estimated, and saved as an expression', async ({ page, request }) => {
+  /**
+   * The guided editor is the default, and the point of this test is that it writes the SAME expression.
+   *
+   * Nothing here types a field path or a JSON value: the field is picked from a grouped list, the operator
+   * reads as a phrase, and the value is a number box. What lands in the database is the expression the
+   * platform's own evaluator has always read.
+   */
+  test('an audience is built by picking a field and an operator, and saved as the same expression', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const marker = `TC-MA-042 guided ${Date.now()}`
+    const campaignId = await createCampaign(request, token, marker)
+    try {
+      await login(page, 'admin')
+      await openEditor(page, campaignId)
+
+      await node(page, 'Audience').click()
+      await page.getByRole('button', { name: 'Add a condition' }).click()
+
+      // The first rule starts on the first catalogued field; changing it resets the operator and the
+      // value, because both belonged to the old field.
+      await page.getByRole('combobox').filter({ hasText: 'Saved segment' }).click()
+      await page.getByRole('option', { name: 'Number of orders', exact: true }).click()
+      await expect(page.getByRole('combobox').filter({ hasText: 'at least' })).toBeVisible()
+      await fillControlledInput(page.getByRole('spinbutton').first(), '2')
+
+      const saved = await saveAndRead(page, request, token, campaignId)
+      expect(saved.definition.audience).toMatchObject({
+        operator: 'AND',
+        rules: [expect.objectContaining({ field: 'orders.count', operator: '>=', value: 2 })],
+      })
+
+      // And the node says it in words, rather than repeating the path back at the author.
+      await expect(node(page, 'Number of orders at least 2')).toBeVisible()
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
+  test('the advanced editor still takes a raw field path, and the guided one shows what it wrote', async ({ page, request }) => {
     const token = await getAuthToken(request, 'admin')
     const marker = `TC-MA-042 audience ${Date.now()}`
     const campaignId = await createCampaign(request, token, marker)
@@ -170,6 +208,7 @@ test.describe('TC-MA-042 campaign authoring on the canvas', () => {
       await openEditor(page, campaignId)
 
       await node(page, 'Audience').click()
+      await page.getByRole('button', { name: 'Advanced editor' }).click()
       await page.getByRole('button', { name: 'Add First Condition' }).click()
       await fillControlledInput(page.getByPlaceholder('e.g., status, user.email'), 'customer.displayName')
       await fillControlledInput(page.getByPlaceholder('e.g., "ACTIVE" or ["A","B"]'), marker)
@@ -182,7 +221,8 @@ test.describe('TC-MA-042 campaign authoring on the canvas', () => {
         operator: 'AND',
         rules: [expect.objectContaining({ field: 'customer.displayName', operator: '=', value: marker })],
       })
-      await expect(node(page, 'customer.displayName')).toBeVisible()
+      // `customer.displayName` IS catalogued, so the node names it rather than printing the path.
+      await expect(node(page, `Name is ${marker}`)).toBeVisible()
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
     }

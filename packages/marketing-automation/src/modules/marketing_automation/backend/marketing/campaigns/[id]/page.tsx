@@ -18,6 +18,8 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useUnsavedGuard } from '../../../../components/useUnsavedGuard'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
+import { AudienceBuilder, type AudienceOptions } from '../../../../components/AudienceBuilder.js'
+import { findAudienceField, type AudienceField } from '../../../../lib/audience/field-catalog.js'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { CampaignCanvas } from '../../../../components/CampaignCanvas'
 import { ParamFields } from '../../../../components/ParamFields'
@@ -50,6 +52,22 @@ type PaletteTrigger = {
 type PaletteContentBlock = { key: string; name: string }
 
 type PaletteSegment = { slug: string; name: string }
+
+/**
+ * The whole palette response, named once.
+ *
+ * It used to be written out twice — at the fetch and at the state — and the two drifted the moment a
+ * member was added, which is exactly what happened when the audience catalogue arrived.
+ */
+type Palette = {
+  triggers: PaletteTrigger[]
+  steps: PaletteStep[]
+  sweepSources: PaletteSweepSource[]
+  contentBlocks: PaletteContentBlock[]
+  segments: PaletteSegment[]
+  audienceFields: AudienceField[]
+  audienceOptions: AudienceOptions
+}
 
 type PaletteSweepSource = {
   id: string
@@ -107,8 +125,17 @@ function newStepId(): string {
   return `step-${Math.random().toString(36).slice(2, 10)}`
 }
 
-/** Short, human summary of an audience expression for the canvas node body. */
-function summarizeAudience(audience: CampaignDefinition['audience']): string[] {
+/**
+ * Short, human summary of an audience expression for the canvas node body.
+ *
+ * Written through the same catalogue the editor uses, so the node reads "Number of orders at least 1"
+ * rather than `orders.count >= 1`. A rule the catalogue does not describe falls back to the raw form —
+ * it was authored in the advanced editor and there is nothing truer to show.
+ */
+function summarizeAudience(
+  audience: CampaignDefinition['audience'],
+  t: (key: string, fallback?: string) => string,
+): string[] {
   if (!audience) return []
   const lines: string[] = []
   const walk = (node: unknown) => {
@@ -119,7 +146,12 @@ function summarizeAudience(audience: CampaignDefinition['audience']): string[] {
       return
     }
     if (typeof group.field === 'string' && group.field) {
-      lines.push(`${group.field} ${String(group.operator ?? '')} ${JSON.stringify(group.value ?? null)}`)
+      const field = findAudienceField(group.field)
+      const operator = String(group.operator ?? '')
+      const value = group.value === null || group.value === undefined ? '' : String(group.value)
+      lines.push(field
+        ? `${t(field.labelKey, field.path)} ${t(`marketing_automation.audience.operator.${field.kind}.${operator}`, operator)} ${value}`.trim()
+        : `${group.field} ${operator} ${JSON.stringify(group.value ?? null)}`)
     }
   }
   walk(audience)
@@ -155,13 +187,14 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const [updatedAt, setUpdatedAt] = React.useState('')
   const [triggers, setTriggers] = React.useState<CampaignTriggerInput[]>([])
   const [definition, setDefinition] = React.useState<CampaignDefinition>({ version: 1, audience: null, steps: [] })
-  const [palette, setPalette] = React.useState<{
-    triggers: PaletteTrigger[]
-    steps: PaletteStep[]
-    sweepSources: PaletteSweepSource[]
-    contentBlocks: PaletteContentBlock[]
-    segments: PaletteSegment[]
-  } | null>(null)
+  const [palette, setPalette] = React.useState<Palette | null>(null)
+  /**
+   * Off by default, and remembered for the session only.
+   *
+   * Persisting it would be a preference nobody set: somebody who opened the advanced editor once to read a
+   * rule should not find it waiting for them on the next campaign.
+   */
+  const [advancedAudience, setAdvancedAudience] = React.useState(false)
   const [estimate, setEstimate] = React.useState<AudienceEstimate | null>(null)
   const [estimating, setEstimating] = React.useState(false)
   const [previewSubject, setPreviewSubject] = React.useState('')
@@ -188,7 +221,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       try {
         const [campaign, paletteResult] = await Promise.all([
           apiCall<CampaignResponse>(`/api/marketing_automation/campaigns/${campaignId}`),
-          apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[]; sweepSources: PaletteSweepSource[]; contentBlocks: PaletteContentBlock[]; segments: PaletteSegment[] }>('/api/marketing_automation/palette'),
+          apiCall<Palette>('/api/marketing_automation/palette'),
         ])
         if (cancelled) return
         if (!campaign.ok || !campaign.result) {
@@ -228,7 +261,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
         position: node.position,
         data: {
           isEveryone: node.data.isEveryone,
-          summary: summarizeAudience(definition.audience),
+          summary: summarizeAudience(definition.audience, t),
           logic: (definition.audience as { operator?: 'AND' | 'OR' | 'NOT' } | null)?.operator ?? null,
           estimate,
         },
@@ -259,7 +292,8 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       return { id: node.id, type: 'split', position: node.position, data: { ...shared, variants: node.data.variants } }
     }
     return { id: node.id, type: 'step', position: node.position, data: shared }
-  }), [graph.nodes, definition.audience, palette, estimate])
+  // `t` joins the dependencies now that the node bodies are written with it.
+  }), [graph.nodes, definition.audience, palette, estimate, t])
 
   const edges = React.useMemo<Edge[]>(
     () => graph.edges.map((edge) => ({ ...edge, deletable: false, focusable: false })),
@@ -942,33 +976,45 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                 <div className="text-overline text-muted-foreground">
                   {t('marketing_automation.canvas.node.audience.title', 'Audience')}
                 </div>
-                {/* The platform's own condition builder, unchanged: audiences are the same
-                    expression trees the rest of Open Mercato edits. */}
-                <ConditionBuilder
-                  value={definition.audience as GroupCondition | null}
-                  onChangeAction={(value) => {
-                    // The previous number describes the previous audience, so it stops being shown
-                    // the moment the expression changes rather than lingering as a wrong answer.
-                    setEstimate(null)
-                    mutate({ definition: { ...definition, audience: value } })
-                  }}
-                />
-                {/* An author cannot target a segment whose reference they have to remember. */}
-                {(palette?.segments ?? []).length > 0 ? (
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">
-                      {t('marketing_automation.segments.availableHint', 'Saved segments you can target with the field "segments":')}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {(palette?.segments ?? []).map((segment) => (
-                        <span key={segment.slug} className="rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">
-                          <span className="font-mono">{segment.slug}</span>
-                          {` · ${segment.name}`}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                {/*
+                  The guided editor by default, the platform's own builder behind a toggle.
+
+                  Both write the same expression, so this is a choice of interface rather than of language:
+                  a marketer picks a field from a list and a value from the shop's own tags and segments,
+                  and somebody who knows the data model can still type a path the catalogue has never heard
+                  of. The advanced editor is not hidden away — a rule written there is shown, read-only, in
+                  the guided one, so nothing authored is ever invisible.
+                */}
+                {advancedAudience ? (
+                  <ConditionBuilder
+                    value={definition.audience as GroupCondition | null}
+                    onChangeAction={(value) => {
+                      // The previous number describes the previous audience, so it stops being shown
+                      // the moment the expression changes rather than lingering as a wrong answer.
+                      setEstimate(null)
+                      mutate({ definition: { ...definition, audience: value } })
+                    }}
+                  />
+                ) : (
+                  <AudienceBuilder
+                    value={definition.audience as GroupCondition | null}
+                    fields={palette?.audienceFields ?? []}
+                    options={palette?.audienceOptions ?? {}}
+                    onChange={(value) => {
+                      setEstimate(null)
+                      mutate({ definition: { ...definition, audience: value } })
+                    }}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="block text-xs text-muted-foreground underline"
+                  onClick={() => setAdvancedAudience((on) => !on)}
+                >
+                  {advancedAudience
+                    ? t('marketing_automation.audience.guided', 'Back to the guided editor')
+                    : t('marketing_automation.audience.advanced', 'Advanced editor')}
+                </button>
                 <Button variant="outline" disabled={estimating} onClick={() => void runEstimate()}>
                   {estimating ? <Spinner /> : t('marketing_automation.action.estimateAudience', 'Estimate audience')}
                 </Button>

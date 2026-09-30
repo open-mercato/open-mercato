@@ -5,6 +5,10 @@ import { TRIGGER_CATALOG } from '../../lib/trigger-catalog.js'
 import { sweepSourceCatalog } from '../../lib/sweep-sources.js'
 import { listContentBlockKeys } from '../../lib/content-blocks.js'
 import { loadSegmentDefinitions } from '../../lib/segments.js'
+import { AUDIENCE_FIELDS } from '../../lib/audience/field-catalog.js'
+import { loadCategoryOptions, loadChannelOptions, loadTagOptions } from '../../lib/audience/field-options.js'
+import { loadTierThresholds } from '../../lib/tiers.js'
+import { getSupportedLocales } from '@open-mercato/shared/lib/i18n/locale-set'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -25,7 +29,10 @@ export const metadata = routeMetadata
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ triggers: [], steps: [], sweepSources: [], contentBlocks: [], segments: [] }, { status: 401 })
+    return NextResponse.json(
+      { triggers: [], steps: [], sweepSources: [], contentBlocks: [], segments: [], audienceFields: [], audienceOptions: {} },
+      { status: 401 },
+    )
   }
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
@@ -38,6 +45,21 @@ export async function GET(req: Request) {
   const contentBlocks = await listContentBlockKeys(em, scope)
   // Offered so an author can target a saved segment without remembering its reference.
   const segments = (await loadSegmentDefinitions(em, scope)).map((segment) => ({ slug: segment.slug, name: segment.name }))
+
+  /**
+   * What the audience editor's dropdowns are filled with.
+   *
+   * Every list is a fact about THIS shop, which is why they are queried rather than written down: a
+   * hardcoded set of categories is wrong for every tenant but the one it was written for. Fetched together
+   * because the editor cannot render a single row without them, so splitting them across requests would
+   * only produce a form that fills in piecemeal.
+   */
+  const [tags, categories, channels, tierThresholds] = await Promise.all([
+    loadTagOptions(em, scope),
+    loadCategoryOptions(em, scope),
+    loadChannelOptions(em, scope),
+    loadTierThresholds(container, scope),
+  ])
 
   return NextResponse.json({
     triggers: TRIGGER_CATALOG.map((entry) => ({
@@ -52,6 +74,25 @@ export async function GET(req: Request) {
     sweepSources: sweepSourceCatalog(),
     contentBlocks,
     segments,
+    /**
+     * What an audience may ask about, and what each question's answer looks like.
+     *
+     * Authoring an audience used to mean typing a dot-path into a text box and JSON into another. The
+     * catalogue is served rather than bundled for the same reason the trigger labels are: it is one list
+     * that the screen renders and the tests can read, and it stays the single place a field becomes
+     * targetable.
+     */
+    audienceFields: AUDIENCE_FIELDS,
+    audienceOptions: {
+      segments: segments.map((segment) => ({ value: segment.slug, label: segment.name })),
+      tags,
+      categories,
+      channels,
+      tiers: tierThresholds.map((tier) => ({ value: tier.key, label: tier.key })),
+      // The languages this installation actually serves, so a per-language campaign offers the ones whose
+      // copy can exist rather than every language there is.
+      locales: getSupportedLocales().map((locale) => ({ value: locale, label: locale })),
+    },
     steps: listMarketingSteps().map((step) => ({
       type: step.type,
       labelKey: step.labelKey,
