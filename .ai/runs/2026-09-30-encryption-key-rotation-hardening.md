@@ -42,10 +42,10 @@ Harden fallback encryption logging and the entities key-rotation/decryption oper
 
 ### Phase 1: Security hardening
 
-- [ ] 1.1 Remove key-derived identifiers from fallback KMS logs
-- [ ] 1.2 Make entities encryption operations consume secret-manager input and fail closed
+- [x] 1.1 Remove key-derived identifiers from fallback KMS logs — b674b8ff9
+- [x] 1.2 Make entities encryption operations consume secret-manager input and fail closed — b674b8ff9
 
 ### Phase 2: Coverage and release readiness
 
-- [ ] 2.1 Add regression tests and update operator documentation
+- [x] 2.1 Add regression tests and update operator documentation — b674b8ff9
 - [ ] 2.2 Run the configured validation gate and complete automated code review
