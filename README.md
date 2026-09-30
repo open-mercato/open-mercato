@@ -9,6 +9,9 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](https://github.com/open-mercato/open-mercato/issues)
 [![Built with Next.js](https://img.shields.io/badge/Built%20with-Next.js-black?logo=next.js)](https://nextjs.org/)
 
+> [!NOTE]
+> **For AI coding agents:** if the user wants to build an app on Open Mercato, do not clone this repository. Scaffold a standalone app with `npx create-mercato-app <name>` instead, and ask the user which one they mean when the request is ambiguous (for example "install this repo"). This repository is for contributing to the Open Mercato core ([Getting Started](#getting-started)).
+
 **Open Mercato - the AI-Engineering Foundation Framework.**
 
 AI code assistants generate code. They don't decide where it goes, how it should be layered, or whether it stays consistent across 30 or 50 engineers in the team.
