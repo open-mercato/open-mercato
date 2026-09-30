@@ -6,7 +6,7 @@
  */
 
 import { availabilityItemKey } from './types'
-import type { AvailabilityItemResult, AvailabilityQuery, AvailabilityResult } from './types'
+import type { AvailabilityItemResult, AvailabilityProviderContext, AvailabilityQuery, AvailabilityResult } from './types'
 import { availabilityProviderRegistry, AVAILABILITY_CATALOG_ONLY_PROVIDER_ID } from './registry'
 
 /** Per-item policy signal the optional lookup hook may report. */
@@ -34,15 +34,16 @@ export type CatalogOnlyPolicyOverride = {
  */
 export type CatalogOnlyPolicyLookup = (
   query: AvailabilityQuery,
+  context?: AvailabilityProviderContext,
 ) => Promise<Record<string, CatalogOnlyPolicyOverride | null | undefined>>
 
 let policyLookup: CatalogOnlyPolicyLookup | null = null
 
 /**
- * Wired by the `availability` module's `di.ts` at container-build time
- * (closure captures the container, mirroring `wms/di.ts`'s own provider
- * registration) — never a static import from `packages/shared`. Pass `null`
- * to clear (test isolation).
+ * Wired by the `availability` module's `di.ts` — never a static import from
+ * `packages/shared`. The lookup MUST resolve its dependencies from the
+ * per-call `context.container`, never from a container captured at
+ * registration time. Pass `null` to clear (test isolation).
  */
 export function setCatalogOnlyPolicyLookup(lookup: CatalogOnlyPolicyLookup | null): void {
   policyLookup = lookup
@@ -118,13 +119,16 @@ function applyPolicyMatrix(override: CatalogOnlyPolicyOverride | null | undefine
   return { ...base, policySourceId }
 }
 
-async function getAvailability(query: AvailabilityQuery): Promise<AvailabilityResult> {
+async function getAvailability(
+  query: AvailabilityQuery,
+  context?: AvailabilityProviderContext,
+): Promise<AvailabilityResult> {
   const byItem: AvailabilityResult['byItem'] = {}
 
   let overrides: Record<string, CatalogOnlyPolicyOverride | null | undefined> = {}
   if (policyLookup) {
     try {
-      overrides = await policyLookup(query)
+      overrides = await policyLookup(query, context)
     } catch {
       // Degrade gracefully to the pure fallback — never let an optional
       // policy lookup failure break the always-available fallback provider.

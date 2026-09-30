@@ -23,7 +23,7 @@ type Row = {
   storeId: string | null
   productId: string | null
   variantId: string | null
-  isStockManaged: boolean
+  isStockManaged: boolean | null
   allowBackorder: boolean
   isActive: boolean
   updatedAt: string | null
@@ -178,7 +178,11 @@ export default function AvailabilityPoliciesListPage() {
     {
       accessorKey: 'isStockManaged',
       header: t('availability.policies.list.columns.stockManaged'),
-      cell: ({ row }) => (row.original.isStockManaged ? t('availability.common.yes') : t('availability.common.no')),
+      cell: ({ row }) => {
+        const value = row.original.isStockManaged
+        if (value === null) return t('availability.policies.form.field.isStockManaged.inherit')
+        return value ? t('availability.common.yes') : t('availability.common.no')
+      },
     },
     {
       accessorKey: 'allowBackorder',

@@ -137,6 +137,14 @@ describe('catalog-only fallback provider', () => {
     expect(result.byItem['product-1:variant-1'].state).toBe('not_tracked')
   })
 
+  it('hands the per-call context to the policy hook', async () => {
+    const lookup = jest.fn(async () => ({}))
+    setCatalogOnlyPolicyLookup(lookup)
+    const container = { resolve: <T,>(): T => undefined as T }
+    await resolveAvailability(makeQuery(), { container })
+    expect(lookup).toHaveBeenCalledWith(makeQuery(), { container })
+  })
+
   it('is reachable end-to-end via resolveAvailability', async () => {
     const result = await resolveAvailability(makeQuery())
     expect(result.byItem['product-1:variant-1'].state).toBe('not_tracked')

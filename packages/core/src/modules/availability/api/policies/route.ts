@@ -8,6 +8,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { availabilityPolicyCreateSchema, availabilityPolicyUpdateSchema } from '../../data/validators'
 import {
   createAvailabilityCrudOpenApi,
@@ -87,7 +88,7 @@ type AvailabilityPolicyRow = {
   storeId: string | null
   productId: string | null
   variantId: string | null
-  isStockManaged: boolean
+  isStockManaged: boolean | null
   allowBackorder: boolean
   backorderLeadTimeDays: number | null
   preorderReleaseAt: string | null
@@ -108,7 +109,7 @@ const toRow = (policy: AvailabilityPolicy): AvailabilityPolicyRow => ({
   storeId: policy.storeId ?? null,
   productId: policy.productId ?? null,
   variantId: policy.variantId ?? null,
-  isStockManaged: !!policy.isStockManaged,
+  isStockManaged: policy.isStockManaged ?? null,
   allowBackorder: !!policy.allowBackorder,
   backorderLeadTimeDays: policy.backorderLeadTimeDays ?? null,
   preorderReleaseAt: policy.preorderReleaseAt ? policy.preorderReleaseAt.toISOString() : null,
@@ -171,7 +172,13 @@ export async function GET(req: Request) {
   orderBy[sortField ?? 'createdAt'] = sortDir === 'asc' ? 'ASC' : 'DESC'
 
   const offset = (page - 1) * pageSize
-  const [rows, total] = await em.findAndCount(AvailabilityPolicy, filter, { orderBy, limit: pageSize, offset })
+  const [rows, total] = await findAndCountWithDecryption(
+    em,
+    AvailabilityPolicy,
+    filter,
+    { orderBy, limit: pageSize, offset },
+    { tenantId: auth.tenantId, organizationId: organizationId ?? null },
+  )
   const items = rows.map(toRow)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -189,7 +196,7 @@ const availabilityPolicyListItemSchema = z.object({
   storeId: z.uuid().nullable(),
   productId: z.uuid().nullable(),
   variantId: z.uuid().nullable(),
-  isStockManaged: z.boolean(),
+  isStockManaged: z.boolean().nullable(),
   allowBackorder: z.boolean(),
   backorderLeadTimeDays: z.number().nullable(),
   preorderReleaseAt: z.string().nullable(),

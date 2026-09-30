@@ -11,14 +11,10 @@ import { ScopeFields, type PolicyScope } from '../ScopeFields'
 import { ResolutionPreviewPanel, type PolicyTrace } from '../ResolutionPreviewPanel'
 import { buildPolicyFieldGroups } from '../formGroups'
 import { toIsoDateTimeOrNull } from '../policyPayload'
-import {
-  ResolvedStockManagedContext,
-  resolveStockManagedValue,
-  withResolvedStockManagedField,
-} from '../StockManagedField'
+import { STOCK_MANAGED_INHERIT, fromStockManagedChoice } from '../StockManagedField'
 
 type FormValues = {
-  isStockManaged?: boolean
+  isStockManaged?: string | null
   allowBackorder?: boolean
   backorderLeadTimeDays?: number | string | null
   preorderReleaseAt?: string | null
@@ -44,9 +40,8 @@ export default function AvailabilityPolicyCreatePage() {
 
   const [resolvedStockManaged, setResolvedStockManaged] = React.useState<boolean | null>(null)
 
-  const groups = React.useMemo(() => withResolvedStockManagedField(buildPolicyFieldGroups(t)), [t])
-  const stockManagedContext = React.useMemo(
-    () => ({ resolved: resolvedStockManaged, label: t('availability.policies.form.field.isStockManaged') }),
+  const groups = React.useMemo(
+    () => buildPolicyFieldGroups(t, { resolvedStockManaged }),
     [resolvedStockManaged, t],
   )
   const handleTraceChange = React.useCallback((trace: PolicyTrace | null) => {
@@ -55,72 +50,69 @@ export default function AvailabilityPolicyCreatePage() {
   }, [])
 
   return (
-    <ResolvedStockManagedContext.Provider value={stockManagedContext}>
-      <CrudForm<FormValues>
-        title={t('availability.policies.create.title')}
-        titleHeadingLevel={1}
-        backHref="/backend/availability/policies"
-        fields={[]}
-        groups={groups}
-        initialValues={{ isActive: true }}
-        submitLabel={t('availability.policies.form.action.create')}
-        cancelHref="/backend/availability/policies"
-        contentHeader={(
-          <div className="space-y-4">
-            <ScopeFields value={scope} onChange={setScope} />
-            <ResolutionPreviewPanel
-              productId={scope.productId}
-              variantId={scope.variantId || null}
-              storeId={scope.storeId || null}
-              onTraceChange={handleTraceChange}
-            />
-          </div>
-        )}
-        onSubmit={async (values) => {
-          if (scope.variantId && !scope.productId) {
-            throw createCrudFormError(
-              t('availability.policies.errors.variantRequiresProduct'),
-              { productId: t('availability.policies.errors.variantRequiresProduct') },
-            )
-          }
-          if (values.allowBackorder && toNullableInt(values.backorderLeadTimeDays) == null) {
-            throw createCrudFormError(
-              t('availability.policies.errors.backorderRequiresLeadTime'),
-              { backorderLeadTimeDays: t('availability.policies.errors.backorderRequiresLeadTime') },
-            )
-          }
-          const min = toNullableInt(values.minOrderQuantity)
-          const max = toNullableInt(values.maxOrderQuantity)
-          if (min != null && max != null && max < min) {
-            throw createCrudFormError(
-              t('availability.policies.errors.maxBelowMin'),
-              { maxOrderQuantity: t('availability.policies.errors.maxBelowMin') },
-            )
-          }
+    <CrudForm<FormValues>
+      title={t('availability.policies.create.title')}
+      titleHeadingLevel={1}
+      backHref="/backend/availability/policies"
+      fields={[]}
+      groups={groups}
+      initialValues={{ isActive: true, isStockManaged: STOCK_MANAGED_INHERIT }}
+      submitLabel={t('availability.policies.form.action.create')}
+      cancelHref="/backend/availability/policies"
+      contentHeader={(
+        <div className="space-y-4">
+          <ScopeFields value={scope} onChange={setScope} />
+          <ResolutionPreviewPanel
+            productId={scope.productId}
+            variantId={scope.variantId || null}
+            storeId={scope.storeId || null}
+            onTraceChange={handleTraceChange}
+          />
+        </div>
+      )}
+      onSubmit={async (values) => {
+        if (scope.variantId && !scope.productId) {
+          throw createCrudFormError(
+            t('availability.policies.errors.variantRequiresProduct'),
+            { productId: t('availability.policies.errors.variantRequiresProduct') },
+          )
+        }
+        if (values.allowBackorder && toNullableInt(values.backorderLeadTimeDays) == null) {
+          throw createCrudFormError(
+            t('availability.policies.errors.backorderRequiresLeadTime'),
+            { backorderLeadTimeDays: t('availability.policies.errors.backorderRequiresLeadTime') },
+          )
+        }
+        const min = toNullableInt(values.minOrderQuantity)
+        const max = toNullableInt(values.maxOrderQuantity)
+        if (min != null && max != null && max < min) {
+          throw createCrudFormError(
+            t('availability.policies.errors.maxBelowMin'),
+            { maxOrderQuantity: t('availability.policies.errors.maxBelowMin') },
+          )
+        }
 
-          const isStockManaged = resolveStockManagedValue(values.isStockManaged, resolvedStockManaged)
-          const payload = {
-            organizationId,
-            tenantId,
-            productId: scope.productId || null,
-            variantId: scope.variantId || null,
-            storeId: scope.storeId || null,
-            ...(isStockManaged === undefined ? {} : { isStockManaged }),
-            allowBackorder: !!values.allowBackorder,
-            backorderLeadTimeDays: toNullableInt(values.backorderLeadTimeDays),
-            preorderReleaseAt: toIsoDateTimeOrNull(values.preorderReleaseAt),
-            lowStockThreshold: toNullableInt(values.lowStockThreshold),
-            minOrderQuantity: min,
-            maxOrderQuantity: max,
-            quantityIncrement: toNullableInt(values.quantityIncrement),
-            hideWhenOutOfStock: !!values.hideWhenOutOfStock,
-            isActive: values.isActive !== false,
-          }
-          await createCrud('availability/policies', payload)
-          flash(t('availability.policies.flash.created'), 'success')
-          router.push('/backend/availability/policies')
-        }}
-      />
-    </ResolvedStockManagedContext.Provider>
+        const payload = {
+          organizationId,
+          tenantId,
+          productId: scope.productId || null,
+          variantId: scope.variantId || null,
+          storeId: scope.storeId || null,
+          isStockManaged: fromStockManagedChoice(values.isStockManaged),
+          allowBackorder: !!values.allowBackorder,
+          backorderLeadTimeDays: toNullableInt(values.backorderLeadTimeDays),
+          preorderReleaseAt: toIsoDateTimeOrNull(values.preorderReleaseAt),
+          lowStockThreshold: toNullableInt(values.lowStockThreshold),
+          minOrderQuantity: min,
+          maxOrderQuantity: max,
+          quantityIncrement: toNullableInt(values.quantityIncrement),
+          hideWhenOutOfStock: !!values.hideWhenOutOfStock,
+          isActive: values.isActive !== false,
+        }
+        await createCrud('availability/policies', payload)
+        flash(t('availability.policies.flash.created'), 'success')
+        router.push('/backend/availability/policies')
+      }}
+    />
   )
 }

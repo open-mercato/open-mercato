@@ -8,6 +8,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveAvailability, availabilityItemKey } from '@open-mercato/shared/lib/availability'
 import type { AvailabilityModuleConfigReader, AvailabilityQuery } from '@open-mercato/shared/lib/availability'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { tryResolve } from '../../lib/tryResolve'
 import type { PolicyResolutionService } from '../../lib/policyResolution'
@@ -97,7 +98,13 @@ export async function POST(req: Request) {
   // `catalog` is ejected (Phase 1 gate: coherent behaviour without it).
   const CatalogProduct = tryResolve<EntityName<CatalogRecordRow>>(container, 'CatalogProduct')
   if (CatalogProduct) {
-    const product = await em.findOne(CatalogProduct, { id: productId, organizationId, tenantId, deletedAt: null })
+    const product = await findOneWithDecryption(
+      em,
+      CatalogProduct,
+      { id: productId, organizationId, tenantId, deletedAt: null },
+      undefined,
+      { tenantId, organizationId },
+    )
     if (!product) {
       return NextResponse.json(
         { error: translate('availability.errors.productNotFound', 'No such product') },
@@ -107,12 +114,13 @@ export async function POST(req: Request) {
     if (variantId) {
       const CatalogProductVariant = tryResolve<EntityName<CatalogVariantRow>>(container, 'CatalogProductVariant')
       if (CatalogProductVariant) {
-        const variant = await em.findOne(CatalogProductVariant, {
-          id: variantId,
-          organizationId,
-          tenantId,
-          deletedAt: null,
-        })
+        const variant = await findOneWithDecryption(
+          em,
+          CatalogProductVariant,
+          { id: variantId, organizationId, tenantId, deletedAt: null },
+          undefined,
+          { tenantId, organizationId },
+        )
         if (!variant) {
           return NextResponse.json(
             { error: translate('availability.errors.variantNotFound', 'No such variant') },
@@ -142,7 +150,7 @@ export async function POST(req: Request) {
   }
 
   const moduleConfig = tryResolve<AvailabilityModuleConfigReader>(container, 'moduleConfigService')
-  const result = await resolveAvailability(query, moduleConfig ? { moduleConfig } : undefined)
+  const result = await resolveAvailability(query, moduleConfig ? { moduleConfig, container } : { container })
   const item = result.byItem[availabilityItemKey({ catalogProductId: productId, catalogVariantId: variantId ?? null })] ?? null
 
   const policyResolutionService = tryResolve<PolicyResolutionService>(container, 'policyResolutionService')

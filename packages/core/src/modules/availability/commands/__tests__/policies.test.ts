@@ -44,7 +44,7 @@ function makeCtx(options: ContainerOptions = {}) {
     if (entity === AvailabilityPolicy) return options.policyRecord ?? null
     return null
   })
-  const flush = jest.fn(async () => {})
+  const flush = jest.fn<Promise<void>, []>(async () => {})
   const em = { findOne, flush, fork: () => em }
   const dataEngine = { markOrmEntityChange: jest.fn() }
   const container = {
@@ -117,39 +117,73 @@ beforeEach(() => {
   jest.clearAllMocks()
 })
 
-describe('availability.policies.create — isStockManaged module default (§5.2)', () => {
-  it('defaults to true when wms is enabled and the product has an inventory profile', async () => {
-    const { ctx } = makeCtx({ wmsEnabled: true, profileRow: { id: 'profile-1' } })
-    await createPolicyCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, productId: PRODUCT_ID, variantId: VARIANT_ID }, ctx)
-    expect(createdRecord().isStockManaged).toBe(true)
-  })
-
-  it('defaults to false when wms is enabled but the product has no inventory profile', async () => {
-    const { ctx } = makeCtx({ wmsEnabled: true, profileRow: null })
-    await createPolicyCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, productId: PRODUCT_ID }, ctx)
-    expect(createdRecord().isStockManaged).toBe(false)
-  })
-
-  it('defaults to false when wms is not enabled', async () => {
-    const { ctx } = makeCtx({ wmsEnabled: false })
-    await createPolicyCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, productId: PRODUCT_ID }, ctx)
-    expect(createdRecord().isStockManaged).toBe(false)
-  })
-
-  it('defaults to false for a store-default row without a product, without querying profiles', async () => {
+describe('availability.policies.create — isStockManaged inherits unless set (§5.2)', () => {
+  it('stores null (inherit) for a store-default row created without an explicit choice', async () => {
     const { ctx, findOne } = makeCtx({ wmsEnabled: true, profileRow: { id: 'profile-1' } })
-    await createPolicyCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID }, ctx)
-    expect(createdRecord().isStockManaged).toBe(false)
+    await createPolicyCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, lowStockThreshold: 5 }, ctx)
+    expect(createdRecord().isStockManaged).toBeNull()
     expect(findOne).not.toHaveBeenCalled()
   })
 
-  it('keeps an explicit isStockManaged value over the module default', async () => {
+  it('stores null (inherit) for a product row created without an explicit choice, leaving the module default dynamic', async () => {
+    const { ctx } = makeCtx({ wmsEnabled: true, profileRow: { id: 'profile-1' } })
+    await createPolicyCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, productId: PRODUCT_ID, variantId: VARIANT_ID }, ctx)
+    expect(createdRecord().isStockManaged).toBeNull()
+  })
+
+  it('keeps an explicit isStockManaged value', async () => {
     const { ctx } = makeCtx({ wmsEnabled: true, profileRow: { id: 'profile-1' } })
     await createPolicyCommand.execute(
       { tenantId: TENANT_ID, organizationId: ORG_ID, productId: PRODUCT_ID, isStockManaged: false },
       ctx,
     )
     expect(createdRecord().isStockManaged).toBe(false)
+  })
+
+  it('keeps an explicit false on a store-default row', async () => {
+    const { ctx } = makeCtx()
+    await createPolicyCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, isStockManaged: false }, ctx)
+    expect(createdRecord().isStockManaged).toBe(false)
+  })
+})
+
+describe('availability.policies undo — duplicate target maps to 409', () => {
+  function uniqueViolation() {
+    return Object.assign(new Error('duplicate key value violates unique constraint "availability_policies_scope_target_unique"'), {
+      code: '23505',
+      constraint: 'availability_policies_scope_target_unique',
+    })
+  }
+
+  it('undoing an update that collides with a newer policy throws a 409 conflict, not a raw DB error', async () => {
+    const record = makePolicyRecord()
+    const { ctx, flush } = makeCtx({ policyRecord: record })
+    flush.mockRejectedValueOnce(uniqueViolation())
+    await expect(
+      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot() }) } as never),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(emitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('undoing a delete when a replacement policy now owns the target throws a 409 conflict', async () => {
+    const record = makePolicyRecord()
+    record.deletedAt = new Date()
+    const { ctx, flush } = makeCtx({ policyRecord: record })
+    flush.mockRejectedValueOnce(uniqueViolation())
+    await expect(
+      deletePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot() }) } as never),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(emitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('rethrows unrelated flush errors unchanged', async () => {
+    const record = makePolicyRecord()
+    const { ctx, flush } = makeCtx({ policyRecord: record })
+    const failure = new Error('connection lost')
+    flush.mockRejectedValueOnce(failure)
+    await expect(
+      updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot() }) } as never),
+    ).rejects.toBe(failure)
   })
 })
 
@@ -175,8 +209,8 @@ describe('availability.policies undo — emits availability.policy.* side effect
   it('undoing an update restores the snapshot and emits updated', async () => {
     const record = makePolicyRecord()
     const { ctx } = makeCtx({ policyRecord: record })
-    await updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: makeSnapshot() }) } as never)
-    expect(record.isStockManaged).toBe(false)
+    await updatePolicyCommand.undo!({ input: {}, ctx, logEntry: makeLogEntry({ before: { ...makeSnapshot(), isStockManaged: null } }) } as never)
+    expect(record.isStockManaged).toBeNull()
     expectUndoEmit('updated')
   })
 

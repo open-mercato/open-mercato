@@ -14,13 +14,14 @@ import { ScopeFields, type PolicyScope } from '../ScopeFields'
 import { ResolutionPreviewPanel } from '../ResolutionPreviewPanel'
 import { buildPolicyFieldGroups } from '../formGroups'
 import { toIsoDateTimeOrNull } from '../policyPayload'
+import { fromStockManagedChoice, toStockManagedChoice } from '../StockManagedField'
 
 type PolicyRecord = {
   id: string
   storeId: string | null
   productId: string | null
   variantId: string | null
-  isStockManaged: boolean
+  isStockManaged: boolean | null
   allowBackorder: boolean
   backorderLeadTimeDays: number | null
   preorderReleaseAt: string | null
@@ -34,7 +35,7 @@ type PolicyRecord = {
 }
 
 type FormValues = {
-  isStockManaged?: boolean
+  isStockManaged?: string | null
   allowBackorder?: boolean
   backorderLeadTimeDays?: number | string | null
   preorderReleaseAt?: string | null
@@ -114,7 +115,7 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
       cancelHref="/backend/availability/policies"
       optimisticLockUpdatedAt={policy.updatedAt ?? null}
       initialValues={{
-        isStockManaged: policy.isStockManaged,
+        isStockManaged: toStockManagedChoice(policy.isStockManaged),
         allowBackorder: policy.allowBackorder,
         backorderLeadTimeDays: policy.backorderLeadTimeDays,
         preorderReleaseAt: policy.preorderReleaseAt,
@@ -168,7 +169,7 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
           productId: scope.productId || null,
           variantId: scope.variantId || null,
           storeId: scope.storeId || null,
-          isStockManaged: !!values.isStockManaged,
+          isStockManaged: fromStockManagedChoice(values.isStockManaged),
           allowBackorder: !!values.allowBackorder,
           backorderLeadTimeDays: toNullableInt(values.backorderLeadTimeDays),
           preorderReleaseAt: toIsoDateTimeOrNull(values.preorderReleaseAt),

@@ -14,7 +14,7 @@ const policyFieldsSchema = z.object({
   storeId: uuid().nullable().optional(),
   productId: uuid().nullable().optional(),
   variantId: uuid().nullable().optional(),
-  isStockManaged: z.boolean().optional(),
+  isStockManaged: z.boolean().nullable().optional(),
   allowBackorder: z.boolean().optional(),
   backorderLeadTimeDays: nonNegativeInt().nullable().optional(),
   preorderReleaseAt: z.coerce.date().nullable().optional(),

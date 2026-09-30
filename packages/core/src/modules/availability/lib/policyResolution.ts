@@ -6,15 +6,18 @@
  * Resolution design (documented here because §5.2 does not fully spell it
  * out — see PLAN.md § Key design decisions):
  *
- * - Boolean columns (`isStockManaged`, `allowBackorder`, `hideWhenOutOfStock`,
- *   `isActive`) are NOT NULL, so a matched row's own value is always
- *   concrete — there is no "unset" to fall through. The single most specific
- *   EXISTING row decides every boolean field.
- * - Nullable columns (`backorderLeadTimeDays`, `preorderReleaseAt`,
- *   `lowStockThreshold`, `minOrderQuantity`, `maxOrderQuantity`,
- *   `quantityIncrement`) genuinely cascade: a matched row that leaves the
- *   field `null` defers to the next-less-specific row, per US-A2's "which
- *   level currently decides each field" requirement.
+ * - Boolean columns (`allowBackorder`, `hideWhenOutOfStock`, `isActive`) are
+ *   NOT NULL, so a matched row's own value is always concrete — there is no
+ *   "unset" to fall through. The single most specific EXISTING row decides
+ *   each of these fields.
+ * - Nullable columns (`isStockManaged`, `backorderLeadTimeDays`,
+ *   `preorderReleaseAt`, `lowStockThreshold`, `minOrderQuantity`,
+ *   `maxOrderQuantity`, `quantityIncrement`) genuinely cascade: a matched row
+ *   that leaves the field `null` defers to the next-less-specific row, per
+ *   US-A2's "which level currently decides each field" requirement.
+ *   `isStockManaged` falls through to its dynamic §5.2 module default when no
+ *   row sets it, so an org-wide default row created only to set a threshold
+ *   never switches stock tracking off for the whole organization.
  *
  * `resolveMany()` exists so `wms`'s batched `check()` (§4.2/R4 — one policy
  * lookup regardless of item count) can soft-resolve this service and still
@@ -82,7 +85,7 @@ const NULLABLE_FIELDS = [
   'quantityIncrement',
 ] as const
 
-const BOOLEAN_FIELDS = ['isStockManaged', 'allowBackorder', 'hideWhenOutOfStock', 'isActive'] as const
+const BOOLEAN_FIELDS = ['allowBackorder', 'hideWhenOutOfStock', 'isActive'] as const
 
 // The `wms` inventory profile read here through a soft-resolved entity class — only the
 // columns this module filters on, so `availability` never imports `wms`.
@@ -144,10 +147,14 @@ function resolveFromRows(
     result[field] = firstRow ? { value: firstRow[field], policySourceId: firstRow.id } : { value: false, policySourceId: null }
   }
 
-  // is_stock_managed's module default is dynamic (wms + profile existence), not a flat `false`.
-  if (!firstRow) result.isStockManaged = { value: isStockManagedModuleDefault, policySourceId: null }
   // is_active's module default is "active" (nothing to deactivate).
   if (!firstRow) result.isActive = { value: true, policySourceId: null }
+
+  const stockManagedRow = findStockManagedSourceRow(rows)
+  result.isStockManaged =
+    stockManagedRow && stockManagedRow.isStockManaged != null
+      ? { value: stockManagedRow.isStockManaged, policySourceId: stockManagedRow.id }
+      : { value: isStockManagedModuleDefault, policySourceId: null }
 
   for (const field of NULLABLE_FIELDS) {
     const sourceRow = rows.find((row): row is AvailabilityPolicy => row != null && row[field] != null) ?? null
@@ -155,6 +162,10 @@ function resolveFromRows(
   }
 
   return result
+}
+
+function findStockManagedSourceRow(rows: Array<AvailabilityPolicy | null>): AvailabilityPolicy | null {
+  return rows.find((row): row is AvailabilityPolicy => row != null && row.isStockManaged != null) ?? null
 }
 
 function assignNullableField<K extends (typeof NULLABLE_FIELDS)[number]>(
@@ -257,10 +268,10 @@ export function createPolicyResolutionService(container: {
         })
       : []
 
-    // Only scopes that resolve to no row at all need the dynamic is_stock_managed
+    // Only scopes where no chain row sets is_stock_managed need its dynamic
     // module default — batch just those.
     const rowsByScope = scopes.map((scope) => matchChainRows(scope, pool))
-    const needsModuleDefault = scopes.filter((scope, index) => !rowsByScope[index].some((row) => row != null))
+    const needsModuleDefault = scopes.filter((_scope, index) => !findStockManagedSourceRow(rowsByScope[index]))
     const moduleDefaults = await resolveIsStockManagedModuleDefaultMany(em, container, needsModuleDefault)
 
     return scopes.map((scope, index) =>

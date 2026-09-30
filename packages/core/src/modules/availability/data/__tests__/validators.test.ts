@@ -17,6 +17,11 @@ describe('availabilityPolicyCreateSchema', () => {
     expect(result.success).toBe(true)
   })
 
+  it('accepts isStockManaged null (inherit) alongside explicit booleans', () => {
+    expect(availabilityPolicyCreateSchema.safeParse({ ...baseInput, isStockManaged: null }).success).toBe(true)
+    expect(availabilityPolicyCreateSchema.safeParse({ ...baseInput, isStockManaged: false }).success).toBe(true)
+  })
+
   it('rejects a variantId without a productId', () => {
     const result = availabilityPolicyCreateSchema.safeParse({
       ...baseInput,

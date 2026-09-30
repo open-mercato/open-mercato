@@ -18,7 +18,6 @@ import {
   type AvailabilityPolicyCreateInput,
   type AvailabilityPolicyUpdateInput,
 } from '../data/validators'
-import { resolveIsStockManagedModuleDefault } from '../lib/policyResolution'
 import { buildAvailabilityPolicyCommandWhere, ensureAvailabilityPolicyCommandScope } from './scope'
 
 const AVAILABILITY_POLICY_ENTITY_ID = E.availability.availability_policy
@@ -41,7 +40,7 @@ type AvailabilityPolicySnapshot = {
   storeId: string | null
   productId: string | null
   variantId: string | null
-  isStockManaged: boolean
+  isStockManaged: boolean | null
   allowBackorder: boolean
   backorderLeadTimeDays: number | null
   preorderReleaseAt: string | null
@@ -65,7 +64,7 @@ function toSnapshot(record: AvailabilityPolicy): AvailabilityPolicySnapshot {
     storeId: record.storeId ?? null,
     productId: record.productId ?? null,
     variantId: record.variantId ?? null,
-    isStockManaged: !!record.isStockManaged,
+    isStockManaged: record.isStockManaged ?? null,
     allowBackorder: !!record.allowBackorder,
     backorderLeadTimeDays: record.backorderLeadTimeDays ?? null,
     preorderReleaseAt: record.preorderReleaseAt ? record.preorderReleaseAt.toISOString() : null,
@@ -123,18 +122,18 @@ async function emitPolicyUndoSideEffects(
   })
 }
 
-async function resolveCreateIsStockManagedDefault(
-  ctx: CommandRuntimeContext,
-  parsed: AvailabilityPolicyCreateInput,
-): Promise<boolean> {
-  if (!parsed.productId) return false
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
-  return resolveIsStockManagedModuleDefault(em, ctx.container, {
-    tenantId: parsed.tenantId,
-    organizationId: parsed.organizationId,
-    productId: parsed.productId,
-    variantId: parsed.variantId ?? null,
-  })
+async function throwDuplicateTargetConflict(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw conflict(translate('availability.policies.errors.duplicateTarget', 'A policy already exists for this store/product/variant combination.'))
+}
+
+async function flushUndo(em: EntityManager): Promise<void> {
+  try {
+    await em.flush()
+  } catch (err) {
+    if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) await throwDuplicateTargetConflict()
+    throw err
+  }
 }
 
 const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { policyId: string }> = {
@@ -149,7 +148,7 @@ const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { polic
     record.storeId = parsed.storeId ?? null
     record.productId = parsed.productId ?? null
     record.variantId = parsed.variantId ?? null
-    record.isStockManaged = parsed.isStockManaged ?? (await resolveCreateIsStockManagedDefault(ctx, parsed))
+    record.isStockManaged = parsed.isStockManaged ?? null
     record.allowBackorder = parsed.allowBackorder ?? false
     record.backorderLeadTimeDays = parsed.backorderLeadTimeDays ?? null
     record.preorderReleaseAt = parsed.preorderReleaseAt ?? null
@@ -174,10 +173,7 @@ const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { polic
         phases: [({ em }) => { em.persist(record) }],
       })
     } catch (err) {
-      if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) {
-        const { translate } = await resolveTranslations()
-        throw conflict(translate('availability.policies.errors.duplicateTarget', 'A policy already exists for this store/product/variant combination.'))
-      }
+      if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) await throwDuplicateTargetConflict()
       throw err
     }
 
@@ -277,10 +273,7 @@ const updatePolicyCommand: CommandHandler<AvailabilityPolicyUpdateInput, { polic
         ],
       })
     } catch (err) {
-      if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) {
-        const { translate } = await resolveTranslations()
-        throw conflict(translate('availability.policies.errors.duplicateTarget', 'A policy already exists for this store/product/variant combination.'))
-      }
+      if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) await throwDuplicateTargetConflict()
       throw err
     }
 
@@ -314,7 +307,7 @@ const updatePolicyCommand: CommandHandler<AvailabilityPolicyUpdateInput, { polic
     const record = await em.findOne(AvailabilityPolicy, { id: before.id })
     if (!record) return
     applyUndoSnapshot(record, before)
-    await em.flush()
+    await flushUndo(em)
     await emitPolicyUndoSideEffects(ctx, 'updated', record)
   },
 }
@@ -380,7 +373,7 @@ const deletePolicyCommand: CommandHandler<{ id: string; organizationId: string; 
     if (!record) return
     record.deletedAt = null
     record.updatedAt = new Date()
-    await em.flush()
+    await flushUndo(em)
     await emitPolicyUndoSideEffects(ctx, 'created', record)
   },
 }

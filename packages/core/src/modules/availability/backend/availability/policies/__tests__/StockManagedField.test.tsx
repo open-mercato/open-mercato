@@ -1,37 +1,58 @@
-import type { CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { resolveStockManagedValue, withResolvedStockManagedField } from '../StockManagedField'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import {
+  STOCK_MANAGED_INHERIT,
+  STOCK_MANAGED_OFF,
+  STOCK_MANAGED_ON,
+  buildStockManagedOptions,
+  fromStockManagedChoice,
+  toStockManagedChoice,
+} from '../StockManagedField'
+import { buildPolicyFieldGroups } from '../formGroups'
 
-describe('resolveStockManagedValue', () => {
-  it('prefers the value the user explicitly chose', () => {
-    expect(resolveStockManagedValue(false, true)).toBe(false)
-    expect(resolveStockManagedValue(true, false)).toBe(true)
+const t: TranslateFn = (key, fallbackOrParams, params) => {
+  const resolvedParams = typeof fallbackOrParams === 'object' ? fallbackOrParams : params
+  return resolvedParams ? `${key}:${JSON.stringify(resolvedParams)}` : key
+}
+
+describe('toStockManagedChoice / fromStockManagedChoice', () => {
+  it('maps a stored null to the inherit choice and back to null', () => {
+    expect(toStockManagedChoice(null)).toBe(STOCK_MANAGED_INHERIT)
+    expect(toStockManagedChoice(undefined)).toBe(STOCK_MANAGED_INHERIT)
+    expect(fromStockManagedChoice(STOCK_MANAGED_INHERIT)).toBeNull()
   })
 
-  it('falls back to the resolved scope value while the field is untouched', () => {
-    expect(resolveStockManagedValue(undefined, true)).toBe(true)
-    expect(resolveStockManagedValue(undefined, false)).toBe(false)
+  it('round-trips explicit booleans', () => {
+    expect(fromStockManagedChoice(toStockManagedChoice(true))).toBe(true)
+    expect(fromStockManagedChoice(toStockManagedChoice(false))).toBe(false)
   })
 
-  it('stays undefined when nothing was chosen or resolved, so the server default applies', () => {
-    expect(resolveStockManagedValue(undefined, null)).toBeUndefined()
+  it('treats a cleared select (undefined / empty) as inherit, never as an explicit false', () => {
+    expect(fromStockManagedChoice(undefined)).toBeNull()
+    expect(fromStockManagedChoice('')).toBeNull()
+    expect(fromStockManagedChoice(null)).toBeNull()
   })
 })
 
-describe('withResolvedStockManagedField', () => {
-  it('swaps only the isStockManaged checkbox for a custom field', () => {
-    const groups: CrudFormGroup[] = [
-      {
-        id: 'sell-policy',
-        fields: [
-          { id: 'isStockManaged', type: 'checkbox', label: 'Stock managed', description: 'help' },
-          { id: 'allowBackorder', type: 'checkbox', label: 'Allow backorder' },
-        ],
-      },
-    ]
-    const [group] = withResolvedStockManagedField(groups)
-    const [stockManaged, backorder] = group.fields ?? []
-    expect(typeof stockManaged === 'object' && stockManaged.type).toBe('custom')
-    expect(typeof stockManaged === 'object' && stockManaged.description).toBe('help')
-    expect(backorder).toBe(groups[0].fields?.[1])
+describe('buildStockManagedOptions', () => {
+  it('offers inherit, yes and no', () => {
+    const options = buildStockManagedOptions(t)
+    expect(options.map((option) => option.value)).toEqual([STOCK_MANAGED_INHERIT, STOCK_MANAGED_ON, STOCK_MANAGED_OFF])
+    expect(options[0].label).toBe('availability.policies.form.field.isStockManaged.inherit')
+  })
+
+  it('shows the currently resolved value on the inherit option when known', () => {
+    const [inherit] = buildStockManagedOptions(t, true)
+    expect(inherit.label).toContain('availability.policies.form.field.isStockManaged.inheritResolved')
+    expect(inherit.label).toContain('availability.common.yes')
+  })
+})
+
+describe('buildPolicyFieldGroups', () => {
+  it('renders isStockManaged as a tri-state select', () => {
+    const groups = buildPolicyFieldGroups(t)
+    const field = groups.flatMap((group) => group.fields ?? []).find(
+      (candidate) => typeof candidate === 'object' && candidate.id === 'isStockManaged',
+    )
+    expect(typeof field === 'object' && field.type).toBe('select')
   })
 })

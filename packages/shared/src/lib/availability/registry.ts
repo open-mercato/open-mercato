@@ -10,7 +10,12 @@
  * @see .ai/specs/2026-08-14-availability-contract.md §4.1a
  */
 
-import type { AvailabilityProvider, AvailabilityQuery, AvailabilityResult } from './types'
+import type {
+  AvailabilityDependencyResolver,
+  AvailabilityProvider,
+  AvailabilityQuery,
+  AvailabilityResult,
+} from './types'
 
 export const AVAILABILITY_CATALOG_ONLY_PROVIDER_ID = 'catalog-only'
 
@@ -80,6 +85,12 @@ export interface AvailabilityModuleConfigReader {
 export interface ResolveAvailabilityOptions {
   /** `ModuleConfigService('availability', 'selectedProvider')` reader. See {@link AvailabilityModuleConfigReader}. */
   moduleConfig?: AvailabilityModuleConfigReader
+  /**
+   * The calling request's DI container, forwarded to the selected provider
+   * as {@link AvailabilityProviderContext.container}. Omitting it makes a
+   * DI-backed provider build its own request container for the call.
+   */
+  container?: AvailabilityDependencyResolver | null
 }
 
 function resolveAutoProvider(): AvailabilityProvider | null {
@@ -116,5 +127,5 @@ export async function resolveAvailability(
   if (!resolved) {
     throw new Error('[internal] No availability provider registered, including the built-in catalog-only fallback')
   }
-  return resolved.getAvailability(query)
+  return resolved.getAvailability(query, { container: options?.container ?? null })
 }
