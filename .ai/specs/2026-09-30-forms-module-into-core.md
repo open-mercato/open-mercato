@@ -271,9 +271,19 @@ CAPTCHA; attachment downloads missing the sandbox CSP the platform gives
 survive anonymize + retention); and `allErrors: true` on Ajv over an uncapped patch. Each needs its
 own change with integration coverage.
 
-One finding generalises beyond this module and deserves its own sweep:
-**`z.string().url()` accepting script schemes is a repo-wide trap.** Any other module whose
-`.url()` value reaches an `href` or `window.location` has the same hole.
+The review flagged H1 as a possible repo-wide trap, since `z.string().url()` accepting script
+schemes is not forms-specific. **Swept, and forms was the only module affected.** All eleven
+non-test `z.string().url()` sites outside forms (in `ai_assistant`, `communication_channels`,
+`notifications`, `payment_gateways`, `sso`, `shared/modules/entities` and `webhooks`) are
+server-side configuration or endpoint values — a provider base URL, SSO endpoints, gateway
+callbacks, a select-options fetch URL, a notification app base URL — none of which is assigned to
+`window.location` or an `href`. `webhooks` additionally carries its own
+`assertStaticallySafeWebhookUrl` guard.
+
+The two client-side navigation sinks outside forms that take a data-driven target are also already
+guarded: `useNotificationsSse` / `useNotificationsPoll` accept a notification's href only when it
+`startsWith('/')`, which rejects every scheme. Forms was the one place where an author-controlled
+`.url()` value reached `window.location` unchecked.
 
 ## Known limitations
 
