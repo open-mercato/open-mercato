@@ -30,6 +30,11 @@ describe('detectLocale with a narrowed supported set', () => {
     cookieStore.value = undefined
     headerStore.acceptLanguage = ''
     delete process.env.OM_FORCE_LOCALE
+    // Cleared going IN as well as coming out. The registry is process-wide and several suites in this folder
+    // register into it, so a worker that ran one of them first left `de` outside the supported set here — the
+    // cookie was then ignored and detection fell through to the narrowed set's first entry. The suite passed
+    // alone and failed inside the package, which is the signature of depending on what ran before it.
+    clearRegisteredLocales()
   })
 
   afterEach(() => {
