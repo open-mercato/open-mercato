@@ -125,7 +125,10 @@ test.describe('TC-MA-042 campaign authoring on the canvas', () => {
 
       await fillControlledInput(page.locator('#campaign-name'), `TC-MA-042 authored ${stamp}`)
       await paletteButton(page, 'Customer registered').click()
-      await expect(node(page, 'customers.person.created')).toBeVisible()
+      // By the name, not the event id. The node used to print `customers.person.created` under its title;
+      // it now says when the trigger fires, because the id was the engine talking to itself.
+      await expect(node(page, 'Customer registered')).toBeVisible()
+      await expect(node(page, 'as it happens')).toBeVisible()
 
       // A campaign that ends on a wait is refused, and the editor says why instead of "could not save".
       await paletteButton(page, 'Wait').click()
