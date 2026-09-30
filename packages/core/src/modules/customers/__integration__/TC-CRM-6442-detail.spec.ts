@@ -9,16 +9,15 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
 const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at';
 
 /**
- * Deal owner assignment from the detail form and the create forms.
+ * Deal owner assignment from the detail form.
  *
- * Spec: .ai/specs/2026-09-24-crm-deal-owner-assignment.md (D2, D4, D7, D10, D11)
+ * Spec: .ai/specs/2026-09-24-crm-deal-owner-assignment.md (D2, D4, D5), implementation step 7.
  *
- * The UI writes the owner through the ordinary form contracts — `PUT /api/customers/deals`
- * from the detail form and `POST /api/customers/deals` from both create forms — so these
- * assert the endpoints those surfaces actually call, including the optimistic-lock 409 the
- * detail form relies on.
+ * The detail form writes through the ordinary `PUT /api/customers/deals` contract, so this
+ * asserts that endpoint as the form calls it: reassignment, clearing (D5), the untouched case,
+ * and the optimistic-lock 409 the conflict bar relies on.
  */
-test.describe('CRM deal owner assignment — detail and create paths', () => {
+test.describe('CRM deal owner assignment — detail form', () => {
   const createdDealIds: string[] = [];
   let token = '';
   let ownerUserId = '';
@@ -59,22 +58,9 @@ test.describe('CRM deal owner assignment — detail and create paths', () => {
     }
   });
 
-  test('creates a deal with an owner, as both create forms do', async ({ request }) => {
-    const dealId = await createDealFixture(request, token, {
-      title: `TC-CRM-6442 created with owner ${Date.now()}`,
-      ownerUserId,
-    });
-    createdDealIds.push(dealId);
-
-    const detail = await apiRequest(request, 'GET', `/api/customers/deals/${dealId}`, { token });
-    expect(detail.ok()).toBeTruthy();
-    const payload = await readJsonSafe(detail);
-    expect((payload as { deal?: { ownerUserId?: string } })?.deal?.ownerUserId).toBe(ownerUserId);
-  });
-
   test('changes the owner through the detail form PUT and persists it', async ({ request }) => {
     const dealId = await createDealFixture(request, token, {
-      title: `TC-CRM-6442 reassign ${Date.now()}`,
+      title: `TC-CRM-6442-detail reassign ${Date.now()}`,
       ownerUserId,
     });
     createdDealIds.push(dealId);
@@ -96,7 +82,7 @@ test.describe('CRM deal owner assignment — detail and create paths', () => {
 
   test('rejects a stale owner update with 409 so the form surfaces the conflict', async ({ request }) => {
     const dealId = await createDealFixture(request, token, {
-      title: `TC-CRM-6442 stale ${Date.now()}`,
+      title: `TC-CRM-6442-detail stale ${Date.now()}`,
       ownerUserId,
     });
     createdDealIds.push(dealId);
@@ -125,7 +111,7 @@ test.describe('CRM deal owner assignment — detail and create paths', () => {
   // Spec D5: clearing is supported. An explicit null unassigns; an absent key does not.
   test('clears the owner when the payload sends an explicit null', async ({ request }) => {
     const dealId = await createDealFixture(request, token, {
-      title: `TC-CRM-6442 clear ${Date.now()}`,
+      title: `TC-CRM-6442-detail clear ${Date.now()}`,
       ownerUserId,
     });
     createdDealIds.push(dealId);
@@ -147,7 +133,7 @@ test.describe('CRM deal owner assignment — detail and create paths', () => {
 
   test('leaves the owner untouched when the payload omits it', async ({ request }) => {
     const dealId = await createDealFixture(request, token, {
-      title: `TC-CRM-6442 untouched ${Date.now()}`,
+      title: `TC-CRM-6442-detail untouched ${Date.now()}`,
       ownerUserId,
     });
     createdDealIds.push(dealId);
@@ -157,7 +143,7 @@ test.describe('CRM deal owner assignment — detail and create paths', () => {
 
     const update = await apiRequest(request, 'PUT', '/api/customers/deals', {
       token,
-      data: { id: dealId, title: `TC-CRM-6442 untouched renamed ${Date.now()}` },
+      data: { id: dealId, title: `TC-CRM-6442-detail untouched renamed ${Date.now()}` },
       headers: { [OPTIMISTIC_LOCK_HEADER]: String(updatedAt) },
     });
     expect(update.ok()).toBeTruthy();

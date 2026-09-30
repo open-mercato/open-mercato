@@ -75,6 +75,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { UserCircle2 } from 'lucide-react'
 import { ReassignOwnerDialog } from './components/ReassignOwnerDialog'
 import type { BulkActionExecuteResult } from '@open-mercato/ui/backend/DataTable'
+import { requestBulkOwnerReassignment, buildReassignOwnerSuccess } from '../../../lib/reassignDealOwner'
 
 const logger = createLogger('customers')
 
@@ -599,20 +600,15 @@ export default function CustomersDealsPage() {
       try {
         await runBulkMutation({
           operation: async () => {
-            const call = await apiCall<{ ok: boolean; progressJobId: string | null; message: string }>(
-              '/api/customers/deals/bulk-update-owner',
-              {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ ids, ownerUserId }),
-              },
-            )
-            if (!call.ok) {
-              throw new Error(
-                t('customers.deals.list.bulkReassignOwner.error', 'Failed to start bulk owner update.'),
-              )
-            }
-            progressJobId = call.result?.progressJobId ?? null
+            const outcome = await requestBulkOwnerReassignment({
+              ids,
+              ownerUserId,
+              errorMessage: t(
+                'customers.deals.list.bulkReassignOwner.error',
+                'Failed to start bulk owner update.',
+              ),
+            })
+            progressJobId = outcome.progressJobId
           },
           context: {
             formId: bulkMutationContextId,
@@ -632,14 +628,13 @@ export default function CustomersDealsPage() {
       }
       setIsReassigningOwner(false)
       setReassignOwnerOpen(false)
-      settleReassignOwner({
-        ok: true,
+      settleReassignOwner(buildReassignOwnerSuccess({
+        ids,
         progressJobId,
-        affectedCount: ids.length,
         message: t('customers.deals.list.bulkReassignOwner.queued', 'Bulk owner update started ({count} deals).', {
           count: ids.length,
         }),
-      })
+      }))
     },
     [bulkMutationContextId, reassignOwnerRows, retryBulkMutation, runBulkMutation, settleReassignOwner, t],
   )
