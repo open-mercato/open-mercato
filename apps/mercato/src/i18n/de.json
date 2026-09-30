@@ -995,6 +995,7 @@
   "ui.inputs.phoneNumberField.invalid": "Geben Sie eine gültige Telefonnummer mit Ländervorwahl ein (z. B. +49 30 1234567)",
   "ui.inputs.searchInput.clear": "Suche löschen",
   "ui.inputs.searchInput.placeholder": "Suchen…",
+  "ui.inputs.tagsInput.loading": "Vorschläge werden geladen…",
   "ui.inputs.tagsInput.placeholder": "Tag hinzufügen und Enter drücken",
   "ui.inputs.tagsInput.removeTag": "{label} entfernen",
   "ui.inputs.websiteInput.placeholder": "www.beispiel.de",

@@ -995,6 +995,7 @@
   "ui.inputs.phoneNumberField.invalid": "국가 코드를 포함한 올바른 전화번호를 입력하세요 (예: +1 212 555 1234)",
   "ui.inputs.searchInput.clear": "검색어 지우기",
   "ui.inputs.searchInput.placeholder": "검색…",
+  "ui.inputs.tagsInput.loading": "추천 항목을 불러오는 중…",
   "ui.inputs.tagsInput.placeholder": "태그를 입력하고 Enter를 누르세요",
   "ui.inputs.tagsInput.removeTag": "{label} 제거",
   "ui.inputs.websiteInput.placeholder": "www.example.com",

@@ -995,6 +995,7 @@
   "ui.inputs.phoneNumberField.invalid": "Wprowadź prawidłowy numer telefonu z kodem kraju (np. +48 22 123 4567)",
   "ui.inputs.searchInput.clear": "Wyczyść wyszukiwanie",
   "ui.inputs.searchInput.placeholder": "Szukaj…",
+  "ui.inputs.tagsInput.loading": "Ładowanie podpowiedzi…",
   "ui.inputs.tagsInput.placeholder": "Dodaj tag i naciśnij Enter",
   "ui.inputs.tagsInput.removeTag": "Usuń {label}",
   "ui.inputs.websiteInput.placeholder": "www.przyklad.pl",

@@ -291,7 +291,7 @@ export function TagsInput({
           }}
         />
         {suggestionsOpen && loading && touched ? (
-          <div className="basis-full mt-1 text-xs text-muted-foreground">Loading suggestions…</div>
+          <div className="basis-full mt-1 text-xs text-muted-foreground">{t('ui.inputs.tagsInput.loading', 'Loading suggestions…')}</div>
         ) : null}
         {suggestionsOpen && !loading && filteredSuggestions.length ? (
           <div className="basis-full mt-1 flex flex-col gap-1">
