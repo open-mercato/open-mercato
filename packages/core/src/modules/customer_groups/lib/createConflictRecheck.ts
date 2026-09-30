@@ -15,6 +15,12 @@ export function registerCreateConflictRecheck(request: Request | undefined, rech
   if (request) recheckByRequest.set(request, recheck)
 }
 
+// Reaching `afterCreate` means the insert committed, so a later 500 (a side effect
+// failing) is not a unique violation — the re-run would only find this request's own row.
+export function clearCreateConflictRecheck(request: Request | undefined): void {
+  if (request) recheckByRequest.delete(request)
+}
+
 export function withCreateConflictRecheck(
   handler: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {

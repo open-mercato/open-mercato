@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -89,11 +90,14 @@ async function submitCustomerGroupCreate(
       ),
       'warning',
     )
+    return
   }
+  flash(t('customer_groups.groups.flash.created', 'Customer group created'), 'success')
 }
 
 export default function CreateCustomerGroupPage() {
   const t = useT()
+  const router = useRouter()
   const [defaultGroups, setDefaultGroups] = React.useState<CustomerGroupSummary[]>([])
   const [defaultGroupsLoading, setDefaultGroupsLoading] = React.useState<boolean>(true)
   const [initialPriority, setInitialPriority] = React.useState<number | null>(null)
@@ -250,8 +254,6 @@ export default function CreateCustomerGroupPage() {
     [initialPriority],
   )
 
-  const successMessage = encodeURIComponent(t('customer_groups.groups.flash.created', 'Customer group created'))
-
   return (
     <Page>
       <PageBody>
@@ -266,9 +268,9 @@ export default function CreateCustomerGroupPage() {
           isLoading={initialPriority === null}
           submitLabel={t('customer_groups.groups.form.action.create', 'Create')}
           cancelHref="/backend/customer-groups"
-          successRedirect={`/backend/customer-groups?flash=${successMessage}&type=success`}
           onSubmit={async (values) => {
             await submitCustomerGroupCreate(values, t)
+            router.push('/backend/customer-groups')
           }}
         />
       </PageBody>

@@ -262,7 +262,15 @@ export async function PUT(req: Request, context: RouteContext) {
 
     await em.flush()
     await guarded.runAfterSuccess()
-    await announceCustomerGroupTermsUpdated(container, terms)
+    try {
+      await announceCustomerGroupTermsUpdated(container, terms)
+    } catch (announceErr) {
+      logger.error('customer_groups.terms.put announce failed', { err: announceErr })
+      getTelemetryRuntime()?.reportError(announceErr, {
+        module: 'customer_groups',
+        code: 'customer_groups.terms_announce_failed',
+      })
+    }
 
     return NextResponse.json({ terms: serializeTerms(terms) })
   } catch (err) {

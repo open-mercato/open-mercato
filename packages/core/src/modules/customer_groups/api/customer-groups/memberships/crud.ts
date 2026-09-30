@@ -15,7 +15,7 @@ import {
   isCustomerInScope,
 } from '../../../lib/customerScope'
 import { isMembershipValidAt } from '../../../services/customerGroupsService'
-import { registerCreateConflictRecheck } from '../../../lib/createConflictRecheck'
+import { clearCreateConflictRecheck, registerCreateConflictRecheck } from '../../../lib/createConflictRecheck'
 import {
   customerGroupMembershipCreateSchema,
   customerGroupMembershipUpdateSchema,
@@ -466,7 +466,8 @@ export const customerGroupMembershipCrud = makeCrudRoute<
         ),
       )
     },
-    afterCreate: async (entity) => {
+    afterCreate: async (entity, ctx) => {
+      clearCreateConflictRecheck(ctx.request)
       await emitMembershipEvent('customer_groups.membership.added', entity as CustomerGroupMembership)
     },
     beforeUpdate: async (input, ctx) => {

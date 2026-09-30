@@ -17,7 +17,7 @@ import {
   type CustomerGroupUpdateInput,
 } from '../../data/validators'
 import { emitCustomerGroupLifecycleEvent } from '../../lib/groupEvents'
-import { registerCreateConflictRecheck } from '../../lib/createConflictRecheck'
+import { clearCreateConflictRecheck, registerCreateConflictRecheck } from '../../lib/createConflictRecheck'
 import { emitMembershipEvent } from './memberships/crud'
 
 // Shared (non-route) module: `route.ts` delegates to this single `makeCrudRoute`
@@ -544,6 +544,7 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       )
     },
     afterCreate: async (entity, ctx) => {
+      clearCreateConflictRecheck(ctx.request)
       const group = entity as CustomerGroup
       if (parseCreateInput(ctx.input, ctx).isDefault !== true) return
       const now = new Date()

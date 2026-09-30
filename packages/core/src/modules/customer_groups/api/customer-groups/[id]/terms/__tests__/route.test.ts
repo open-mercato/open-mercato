@@ -357,6 +357,23 @@ describe('PUT /api/customer-groups/[id]/terms', () => {
     expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(announceTermsUpdatedMock.mock.invocationCallOrder[0])
   })
 
+  it('still answers 200 and reports it when announcing a committed write fails', async () => {
+    setupContainer(createFakeEm({ group: existingGroup, terms: { ...existingTerms } }))
+    const failure = new Error('cache unavailable')
+    announceTermsUpdatedMock.mockRejectedValueOnce(failure)
+
+    const res = await PUT(
+      jsonRequest({ paymentTermsDays: 45 }, { [OPTIMISTIC_LOCK_HEADER_NAME]: existingTerms.updatedAt!.toISOString() }),
+      routeCtx(),
+    )
+
+    expect(res.status).toBe(200)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      failure,
+      expect.objectContaining({ module: 'customer_groups', code: 'customer_groups.terms_announce_failed' }),
+    )
+  })
+
   it('does not announce a write rejected by the optimistic lock', async () => {
     setupContainer(createFakeEm({ group: existingGroup, terms: { ...existingTerms } }))
 
