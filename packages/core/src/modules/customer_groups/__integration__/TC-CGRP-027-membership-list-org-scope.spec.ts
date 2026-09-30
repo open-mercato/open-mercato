@@ -29,7 +29,9 @@ import { fixturePriority, uniqueStamp } from './helpers';
  *   - an unfiltered list contains the org-A membership and never the org-B one;
  *   - moving the org-A membership onto the org-B person is a 400 and leaves
  *     the membership on its original customer.
- * The unrestricted admin, listing by `groupId`, sees both memberships.
+ * The unrestricted admin, listing by `groupId` with "All organizations"
+ * selected, sees both memberships; a single selected organization narrows the
+ * list to that organization, like every other CRUD list.
  */
 const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
 const PEOPLE_PATH = '/api/customers/people';
@@ -144,7 +146,7 @@ test.describe('TC-CGRP-027: membership lists are narrowed to the caller organiza
         request,
         'GET',
         `${MEMBERSHIPS_PATH}?groupId=${encodeURIComponent(groupId)}&pageSize=100`,
-        { token: adminToken, selectedOrgId: orgBId },
+        { token: adminToken, selectedOrgId: '__all__' },
       );
       expect(adminByGroup.status(), 'admin list by group should be 200').toBe(200);
       const adminByGroupIds = ((await readJsonSafe<MembershipListBody>(adminByGroup))?.items ?? []).map((item) => item.id);
