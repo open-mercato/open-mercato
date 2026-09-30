@@ -94,6 +94,14 @@
       "types": "./src/modules/feature_toggles/commands/index.ts",
       "default": "./dist/modules/feature_toggles/commands/index.js"
     },
+    "./modules/forms": {
+      "types": "./src/modules/forms/index.ts",
+      "default": "./dist/modules/forms/index.js"
+    },
+    "./modules/forms/commands": {
+      "types": "./src/modules/forms/commands/index.ts",
+      "default": "./dist/modules/forms/commands/index.js"
+    },
     "./modules/configs": {
       "types": "./src/modules/configs/index.ts",
       "default": "./dist/modules/configs/index.js"

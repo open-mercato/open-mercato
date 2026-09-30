@@ -10,7 +10,7 @@ import { z } from 'zod'
  * event they emit:
  *
  * ```ts
- * import { formsEventPayloadSchemas } from '@open-mercato/core/modules/forms'
+ * import { formsEventPayloadSchemas } from '@open-mercato/core/modules/forms/events-payloads'
  * await emitFormsEvent('forms.submission.submitted', formsEventPayloadSchemas['forms.submission.submitted'].parse(payload))
  * ```
  *
