@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { createTimeProjectFixture, assignEmployeeToProjectFixture, deleteStaffEntityIfExists } from '@open-mercato/core/helpers/integration/timesheetFixtures'
+import { assignEmployeeToProjectFixture } from '@open-mercato/core/helpers/integration/timesheetFixtures'
+import { createTestTimeProject, type TestTimeProjectFixture } from './fixtures'
+
+export const integrationMeta = {
+  dependsOnModules: ['customers'],
+}
 
 /**
  * TC-STAFF-020: My Timesheets Grid Loads
@@ -12,31 +17,33 @@ test.describe('TC-STAFF-020: My Timesheets Grid Loads', () => {
   test('should render the weekly timesheet grid with projects, day columns, and save button', async ({ page, request }) => {
     test.setTimeout(60_000)
 
-    // Setup fixtures via API
     const projectSuffix = Date.now()
     const projectName = `QA Grid Project ${projectSuffix}`
     const adminToken = await getAuthToken(request, 'admin')
-    const projectId = await createTimeProjectFixture(request, adminToken, {
-      name: projectName,
-      code: `QAG-${projectSuffix}`,
-    })
-
-    const employeeToken = await getAuthToken(request, 'employee')
-    const selfRes = await apiRequest(request, 'GET', '/api/staff/team-members/self', { token: employeeToken })
-    const selfBody = (await selfRes.json()) as { member?: { id?: string } }
-    const employeeStaffMemberId = selfBody.member?.id ?? ''
-    expect(employeeStaffMemberId.length > 0, 'Employee must have a staff member profile').toBeTruthy()
-
-    await assignEmployeeToProjectFixture(request, adminToken, projectId, employeeStaffMemberId)
-    const showInGridRes = await apiRequest(request, 'PATCH', `/api/staff/timesheets/my-projects/${projectId}`, {
-      token: employeeToken,
-      data: { showInGrid: true },
-    })
-    expect(showInGridRes.ok(), `Failed to make project visible in grid: ${showInGridRes.status()}`).toBeTruthy()
+    let project: TestTimeProjectFixture | null = null
 
     try {
+      // Setup fixtures via API — inside the try so a mid-setup failure still cleans up
+      project = await createTestTimeProject(request, adminToken, {
+        name: projectName,
+        code: `QAG-${projectSuffix}`,
+      })
+
+      const employeeToken = await getAuthToken(request, 'employee')
+      const selfRes = await apiRequest(request, 'GET', '/api/staff/team-members/self', { token: employeeToken })
+      const selfBody = (await selfRes.json()) as { member?: { id?: string } }
+      const employeeStaffMemberId = selfBody.member?.id ?? ''
+      expect(employeeStaffMemberId.length > 0, 'Employee must have a staff member profile').toBeTruthy()
+
+      await assignEmployeeToProjectFixture(request, adminToken, project.id, employeeStaffMemberId)
+      const showInGridRes = await apiRequest(request, 'PATCH', `/api/staff/timesheets/my-projects/${project.id}`, {
+        token: employeeToken,
+        data: { showInGrid: true },
+      })
+      expect(showInGridRes.ok(), `Failed to make project visible in grid: ${showInGridRes.status()}`).toBeTruthy()
+
       await login(page, 'employee')
-      await page.goto('/backend/staff/timesheets')
+      await page.goto('/backend/staff/time-tracking/timesheet')
 
       // Verify the grid table renders
       const table = page.getByRole('table')
@@ -60,7 +67,9 @@ test.describe('TC-STAFF-020: My Timesheets Grid Loads', () => {
       // Verify "Save Changes" button is present
       await expect(page.getByRole('button', { name: /save changes/i })).toBeVisible()
     } finally {
-      await deleteStaffEntityIfExists(request, adminToken, 'staff/timesheets/time-projects', projectId)
+      if (project) {
+        await project.cleanup()
+      }
     }
   })
 })

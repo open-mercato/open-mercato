@@ -86,14 +86,20 @@ test('the template wires the ephemeral runner scripts and the override keeps the
     fs.readFileSync(new URL('../../template/package.json.template', import.meta.url), 'utf8'),
   ) as { scripts?: Record<string, string> }
   const scripts = templatePackageJson.scripts ?? {}
+  // The template routes the CLI through its own `mercato` script
+  // (`node ./scripts/mercato-cli.mjs`) rather than relying on a bare bin being
+  // on PATH — that wrapper is what makes the invocation work on Windows, and
+  // the `om-prepare-test-env` skill documents the same `yarn mercato …` form.
+  // The contract this guards is "the cross-platform mercato CLI, never an
+  // sh-based script"; the sibling assertion above still enforces the sh ban.
   assert.equal(
     scripts['test:integration:ephemeral'],
-    'mercato test:integration',
+    'yarn mercato test:integration',
     'test:integration:ephemeral must run the cross-platform mercato CLI suite runner',
   )
   assert.equal(
     scripts['test:integration:ephemeral:start'],
-    'mercato test:ephemeral',
+    'yarn mercato test:ephemeral',
     'test:integration:ephemeral:start must boot the app-only ephemeral env via the mercato CLI (reused by iterative filtered runs)',
   )
   const override = readOverrideSkill('om-prepare-test-env')

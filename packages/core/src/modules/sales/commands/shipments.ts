@@ -7,6 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { E } from '#generated/entities.ids.generated'
 import { SalesOrder, SalesOrderLine, SalesShipment, SalesShipmentItem } from '../data/entities'
@@ -296,7 +297,7 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
       recordId: entity.id,
       organizationId: snapshot.organizationId,
       tenantId: snapshot.tenantId,
-      values: normalizeCustomFieldsInput((snapshot as any).customFields),
+      values: normalizeCustomFieldResponse(normalizeCustomFieldsInput((snapshot as any).customFields)) ?? {},
     })
   }
   em.persist(entity)

@@ -56,6 +56,7 @@ import {
   extractCustomFieldValues,
 } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
+import { parseLocaleNumber } from "@open-mercato/shared/lib/number";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -490,6 +491,30 @@ export function LineItemDialog({
 }: SalesLineDialogProps) {
   const t = useT();
   const locale = useLocale();
+  // These fields are hand-rolled text inputs, so the raw string a user typed reaches the
+  // submit handler. It carries the separator the surrounding UI displays, which follows the
+  // application locale — `110,70` under Polish (issue #5552). A blank field keeps its old
+  // "must be greater than 0" message; only genuinely unparseable input returns null.
+  const parseUserNumber = React.useCallback(
+    (value: unknown): number | null => {
+      if (value == null) return 0;
+      if (typeof value === "number") return Number.isFinite(value) ? value : null;
+      if (typeof value !== "string") return null;
+      if (!value.trim()) return 0;
+      return parseLocaleNumber(value, locale);
+    },
+    [locale],
+  );
+  const numberExample = React.useMemo(() => {
+    try {
+      return new Intl.NumberFormat(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(110.7);
+    } catch {
+      return "110.70";
+    }
+  }, [locale]);
   const scope = useOrganizationScopeDetail();
   const resolvedOrganizationId = organizationId ?? scope.organizationId ?? null;
   const resolvedTenantId = tenantId ?? scope.tenantId ?? null;
@@ -952,7 +977,7 @@ export function LineItemDialog({
       try {
         const params = new URLSearchParams({ productId, pageSize: "20" });
         if (variantId) params.set("variantId", variantId);
-        const quantityValue = normalizeNumber(quantity, Number.NaN);
+        const quantityValue = parseUserNumber(quantity) ?? Number.NaN;
         if (Number.isFinite(quantityValue) && quantityValue > 0) {
           params.set("quantity", String(quantityValue));
         }
@@ -1093,7 +1118,7 @@ export function LineItemDialog({
         setPriceLoading(false);
       }
     },
-    [t],
+    [parseUserNumber, t],
   );
 
   const selectPriceAfterRefresh = React.useCallback(
@@ -1136,7 +1161,7 @@ export function LineItemDialog({
       fromUnit: string | null | undefined,
       toUnit: string | null | undefined,
     ): string | null => {
-      const amount = normalizeNumber(rawUnitPrice, Number.NaN);
+      const amount = parseUserNumber(rawUnitPrice) ?? Number.NaN;
       if (!Number.isFinite(amount) || amount <= 0) return null;
       const fromCode = normalizeUnitCode(fromUnit);
       const toCode = normalizeUnitCode(toUnit);
@@ -1156,7 +1181,7 @@ export function LineItemDialog({
       if (!Number.isFinite(convertedAmount) || convertedAmount <= 0) return null;
       return normalizeUnitPriceInputValue(convertedAmount);
     },
-    [resolveUnitPriceFactor],
+    [parseUserNumber, resolveUnitPriceFactor],
   );
 
   const applyPriceSelection = React.useCallback(
@@ -1342,8 +1367,16 @@ export function LineItemDialog({
         );
       }
 
-      const qtyNumber = Number(values.quantity ?? 0);
-      if (!Number.isFinite(qtyNumber) || qtyNumber <= 0) {
+      const qtyNumber = parseUserNumber(values.quantity);
+      if (qtyNumber === null) {
+        const message = t(
+          "sales.documents.items.errorQuantityInvalid",
+          "Enter the quantity as a number, for example {{example}}.",
+          { example: numberExample },
+        );
+        throw createCrudFormError(message, { quantity: message });
+      }
+      if (qtyNumber <= 0) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorQuantity",
@@ -1380,8 +1413,16 @@ export function LineItemDialog({
         );
       })();
 
-      const unitPriceNumber = Number(values.unitPrice ?? 0);
-      if (!Number.isFinite(unitPriceNumber) || unitPriceNumber <= 0) {
+      const unitPriceNumber = parseUserNumber(values.unitPrice);
+      if (unitPriceNumber === null) {
+        const message = t(
+          "sales.documents.items.errorUnitPriceInvalid",
+          "Enter the unit price as a number, for example {{example}}.",
+          { example: numberExample },
+        );
+        throw createCrudFormError(message, { unitPrice: message });
+      }
+      if (unitPriceNumber <= 0) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorUnitPrice",
@@ -1610,6 +1651,8 @@ export function LineItemDialog({
       variantOption,
       onSaved,
       closeDialog,
+      numberExample,
+      parseUserNumber,
       resolvedOrganizationId,
       resolvedTenantId,
     ],
@@ -2541,7 +2584,7 @@ export function LineItemDialog({
         layout: "full",
         component: ({ values }: FieldRenderProps) => {
           if (isCustomLine) return null;
-          const quantity = normalizeNumber(values?.quantity, Number.NaN);
+          const quantity = parseUserNumber(values?.quantity) ?? Number.NaN;
           const enteredUnit = normalizeUnitCode(values?.quantityUnit);
           if (!Number.isFinite(quantity) || quantity <= 0 || !enteredUnit) {
             return (
@@ -2651,6 +2694,7 @@ export function LineItemDialog({
     selectPriceAfterRefresh,
     hasTaxMetadata,
     isShippedOrderLine,
+    parseUserNumber,
   ]);
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {

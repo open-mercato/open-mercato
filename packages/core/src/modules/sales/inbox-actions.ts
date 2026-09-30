@@ -8,7 +8,6 @@ import {
   buildSourceMetadata,
   resolveOrderByReference,
   resolveFirstChannelId,
-  resolveChannelCurrency,
   resolveEffectiveDocumentKind,
   resolveShipmentStatusEntryId,
   resolveCustomerEntityIdByEmail,
@@ -289,23 +288,6 @@ async function executeUpdateShipmentAction(
 }
 
 // ---------------------------------------------------------------------------
-// Normalization helper for order/quote payloads
-// ---------------------------------------------------------------------------
-
-async function normalizeOrderPayload(
-  payload: Record<string, unknown>,
-  ctx: InboxActionExecutionContext,
-): Promise<Record<string, unknown>> {
-  if (!payload.currencyCode) {
-    const hCtx = asHelperContext(ctx)
-    const channelId = typeof payload.channelId === 'string' ? payload.channelId : null
-    const resolved = await resolveChannelCurrency(hCtx, channelId)
-    if (resolved) payload.currencyCode = resolved
-  }
-  return payload
-}
-
-// ---------------------------------------------------------------------------
 // Exported action definitions
 // ---------------------------------------------------------------------------
 
@@ -323,7 +305,6 @@ export const inboxActions: InboxActionDefinition[] = [
       'For create_order / create_quote: each line item MUST have "productName" (the product name goes here, NOT in "description"). Include currencyCode and customerName.',
       'For create_order / create_quote: extract shippingAddress and billingAddress as structured objects when addresses are mentioned. Parse street, city, postal code, country from the text. Do NOT put address data in notes.',
     ],
-    normalizePayload: normalizeOrderPayload,
     execute: (action, ctx) => executeCreateDocumentAction(action, ctx, 'order'),
   },
   {
@@ -332,7 +313,6 @@ export const inboxActions: InboxActionDefinition[] = [
     payloadSchema: orderPayloadSchema,
     label: 'Create Quote',
     promptSchema: '(shared with create_order)',
-    normalizePayload: normalizeOrderPayload,
     execute: (action, ctx) => executeCreateDocumentAction(action, ctx, 'quote'),
   },
   {

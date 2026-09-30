@@ -11,6 +11,7 @@ import {
   normalizeMimeInbound,
   parseReferences,
   referencesFromMeta,
+  resolveInboundTimestamp,
   sanitizeHeaderValue,
   stripBrackets,
   toAddressList,
@@ -374,6 +375,46 @@ describe('normalizeMimeInbound', () => {
     expect((result.channelMetadata as { headers: Record<string, string> }).headers).toEqual({ 'x-trace': 'abc' })
   })
 
+  describe('timestamp (#6095)', () => {
+    const normalize = (parsed: ParsedMail, extra: { receivedAt?: Date; fallbackDate?: Date } = {}) =>
+      normalizeMimeInbound({
+        parsed,
+        accountIdentifier: 'bob@x.com',
+        fallbackMessageId: 'fallback:1@bob@x.com',
+        resolveConversationId: ({ messageId }) => messageId,
+        ...extra,
+      })
+
+    it('prefers the provider receipt time over the MIME Date header', () => {
+      // The Date header is written by the sender's client; the receipt time is
+      // the provider's. Since #6095 the timestamp dates the platform message and
+      // the CRM interaction, so the sender must not control it.
+      const receivedAt = new Date('2026-05-28T10:00:07.000Z')
+      const result = normalize({ ...baseParsed, date: '2019-01-01T00:00:00.000Z' }, { receivedAt })
+      expect(result.timestamp).toEqual(receivedAt)
+    })
+
+    it('uses the MIME Date header when the provider supplied no receipt time', () => {
+      const result = normalize(baseParsed)
+      expect(result.timestamp).toEqual(new Date('2026-05-28T10:00:00.000Z'))
+    })
+
+    it('ignores a MIME Date header far in the future', () => {
+      const fallbackDate = new Date('2026-05-28T10:00:09.000Z')
+      // Computed relative to the real clock (not a fixed literal) so this stays
+      // well beyond the 24h future-skew threshold no matter when the suite runs.
+      const farFutureDate = new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toISOString()
+      const result = normalize({ ...baseParsed, date: farFutureDate }, { fallbackDate })
+      expect(result.timestamp).toEqual(fallbackDate)
+    })
+
+    it('ignores an unparsable MIME Date header', () => {
+      const fallbackDate = new Date('2026-05-28T10:00:09.000Z')
+      const result = normalize({ ...baseParsed, date: 'not a date' as unknown as string }, { fallbackDate })
+      expect(result.timestamp).toEqual(fallbackDate)
+    })
+  })
+
   it('uses the fallback id when Message-ID is absent and merges provider extras', () => {
     const result = normalizeMimeInbound({
       parsed: { ...baseParsed, messageId: null },
@@ -398,5 +439,39 @@ describe('normalizeMimeInbound', () => {
     })
     expect(result.bodyFormat).toBe('html')
     expect(result.body).toContain('<p>rich</p>')
+  })
+})
+
+describe('resolveInboundTimestamp', () => {
+  const now = new Date('2026-05-28T12:00:00.000Z')
+
+  it('takes the receipt time first, whatever the header says', () => {
+    const receivedAt = new Date('2026-05-28T11:59:00.000Z')
+    expect(
+      resolveInboundTimestamp({ receivedAt, mimeDate: new Date('2030-01-01T00:00:00Z'), now }),
+    ).toBe(receivedAt)
+  })
+
+  it('accepts a header within a day of clock skew', () => {
+    const mimeDate = new Date('2026-05-29T08:00:00.000Z')
+    expect(resolveInboundTimestamp({ mimeDate, now })).toBe(mimeDate)
+  })
+
+  it('rejects a header more than a day ahead and falls through', () => {
+    const fallbackDate = new Date('2026-05-28T11:00:00.000Z')
+    expect(
+      resolveInboundTimestamp({ mimeDate: new Date('2026-05-30T00:00:00.000Z'), fallbackDate, now }),
+    ).toBe(fallbackDate)
+  })
+
+  it('never returns an invalid date', () => {
+    expect(
+      resolveInboundTimestamp({
+        receivedAt: new Date('garbage'),
+        mimeDate: new Date('garbage'),
+        fallbackDate: new Date('garbage'),
+        now,
+      }),
+    ).toBe(now)
   })
 })

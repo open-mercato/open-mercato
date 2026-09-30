@@ -174,6 +174,75 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    // Dry-run isolation (spec section 8.2): simulations are excluded from the
+    // run list — and from anything counting off it — unless asked for by name.
+    test('excludes dry runs from the list by default', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances'))
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({ isDryRun: false }),
+        expect.any(Object)
+      )
+    })
+
+    test('returns dry runs only when dryRun=true is asked for explicitly', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances?dryRun=true'))
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({ isDryRun: true }),
+        expect.any(Object)
+      )
+    })
+
+    test('filters by a started-at date range, widening the calendar day to cover it', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest(
+        'http://localhost/api/workflows/instances?startedFrom=2026-07-01&startedTo=2026-07-29'
+      )
+      await listInstances(request)
+
+      const where = mockEm.findAndCount.mock.calls[0][1]
+      expect(where.startedAt.$gte.toISOString()).toBe('2026-07-01T00:00:00.000Z')
+      expect(where.startedAt.$lte.toISOString()).toBe('2026-07-29T23:59:59.999Z')
+    })
+
+    test('rejects an unparseable date bound with a 400 instead of querying on an Invalid Date', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?startedFrom=garbage')
+      const response = await listInstances(request)
+
+      expect(response.status).toBe(400)
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
+    })
+
+    test('rejects an inverted date range', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest(
+        'http://localhost/api/workflows/instances?startedFrom=2026-07-29&startedTo=2026-07-01'
+      )
+      const response = await listInstances(request)
+
+      expect(response.status).toBe(400)
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
+    })
+
+    test('adds no startedAt predicate when no date bound is given', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances'))
+
+      expect(mockEm.findAndCount.mock.calls[0][1].startedAt).toBeUndefined()
+    })
+
     test('should filter instances by status', async () => {
       mockEm.findAndCount.mockResolvedValue([[], 0])
 
@@ -187,6 +256,41 @@ describe('Workflow Instances API', () => {
         }),
         expect.any(Object)
       )
+    })
+
+    test('filters by the run VERDICT, independently of status', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?outcome=partial_failure')
+      await listInstances(request)
+
+      const where = mockEm.findAndCount.mock.calls[0][1]
+      expect(where.outcome).toBe('partial_failure')
+      // The two answer different questions; narrowing one must not narrow the other.
+      expect(where.status).toBeUndefined()
+    })
+
+    test('accepts several outcomes, comma-separated', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest(
+        'http://localhost/api/workflows/instances?outcome=partial_failure,failure'
+      )
+      await listInstances(request)
+
+      expect(mockEm.findAndCount.mock.calls[0][1].outcome).toEqual({
+        $in: ['partial_failure', 'failure'],
+      })
+    })
+
+    test('rejects an unknown outcome with a 400 instead of a predicate that matches everything', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?outcome=COMPLETED')
+      const response = await listInstances(request)
+
+      expect(response.status).toBe(400)
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
     })
 
     test('should filter instances by correlationKey', async () => {
@@ -221,6 +325,63 @@ describe('Workflow Instances API', () => {
         }),
         expect.any(Object)
       )
+    })
+
+    test('should filter direct children by parentInstanceId', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?parentInstanceId=parent-1')
+      await listInstances(request)
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({
+          $and: expect.arrayContaining([
+            { metadata: { $contains: { labels: { parentInstanceId: 'parent-1' } } } },
+          ]),
+        }),
+        expect.any(Object)
+      )
+    })
+
+    test('should filter top-level instances when hasParent=false', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?hasParent=false')
+      await listInstances(request)
+
+      const [, where] = mockEm.findAndCount.mock.calls[0]
+      expect(Array.isArray(where.$and)).toBe(true)
+      // The top-level predicate is a JSON-path IS NULL on
+      // metadata.labels.parentInstanceId, expressed via a MikroORM raw()
+      // fragment. raw() stores the condition under a Symbol key whose value is
+      // null (→ IS NULL), so reflect over own symbols, not string keys.
+      const jsonPathCondition = where.$and.find((cond: Record<string | symbol, unknown>) => {
+        const symbols = Object.getOwnPropertySymbols(cond)
+        return symbols.some(
+          (sym) => String(sym).includes('parentInstanceId') && cond[sym] === null
+        )
+      })
+      expect(jsonPathCondition).toBeDefined()
+    })
+
+    test('parentInstanceId takes precedence over hasParent', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances?parentInstanceId=parent-1&hasParent=false')
+      await listInstances(request)
+
+      const [, where] = mockEm.findAndCount.mock.calls[0]
+      expect(where.$and).toEqual(
+        expect.arrayContaining([
+          { metadata: { $contains: { labels: { parentInstanceId: 'parent-1' } } } },
+        ])
+      )
+      // No raw JSON-path null condition should be added when parentInstanceId wins.
+      const nullCondition = where.$and.find((cond: Record<string | symbol, unknown>) =>
+        Object.getOwnPropertySymbols(cond).some((sym) => String(sym).includes('parentInstanceId'))
+      )
+      expect(nullCondition).toBeUndefined()
     })
 
     test('should support custom pagination', async () => {
@@ -324,7 +485,7 @@ describe('Workflow Instances API', () => {
       expect(data.data.execution).toEqual({
         status: mockInstance.status,
         currentStep: mockInstance.currentStepId,
-        message: 'Workflow execution started in background',
+        message: 'Workflow execution started',
       })
       expect(data.message).toBe('Workflow started successfully')
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
@@ -336,6 +497,56 @@ describe('Workflow Instances API', () => {
           organizationId: testOrgId,
         })
       )
+    })
+
+    test('a plain start is never a dry run — the flag is opt-in only', async () => {
+      (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
+      (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
+
+      await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout' }),
+      }))
+
+      expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        expect.objectContaining({ isDryRun: false })
+      )
+    })
+
+    test('starts a dry run when the caller holds the test-run feature', async () => {
+      (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
+      (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
+
+      const response = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', dryRun: true }),
+      }))
+
+      expect(response.status).toBe(201)
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'test-user-id',
+        ['workflows.definitions.test_run'],
+        expect.any(Object)
+      )
+      expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        expect.objectContaining({ isDryRun: true })
+      )
+    })
+
+    test('refuses a dry run without the test-run feature, and starts nothing', async () => {
+      mockRbacService.userHasAllFeatures.mockImplementation(async (_user: string, features: string[]) =>
+        !features.includes('workflows.definitions.test_run')
+      )
+
+      const response = await startInstance(new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({ workflowId: 'checkout', dryRun: true }),
+      }))
+
+      expect(response.status).toBe(403)
+      expect(workflowExecutor.startWorkflow).not.toHaveBeenCalled()
     })
 
     test('should inject initiatedBy from auth context', async () => {
@@ -791,6 +1002,56 @@ describe('Workflow Instances API', () => {
 
       expect(response.status).toBe(400)
       expect(data.error).toContain('Cannot retry workflow in RUNNING status')
+    })
+
+    test('refuses to retry a partial_failure as a whole run, naming rerun-from-step', async () => {
+      // It reached END, so replaying the graph would re-run every part that
+      // already succeeded (maintainer decision, 2026-07-30).
+      mockEm.findOne.mockResolvedValue({
+        id: testInstanceId,
+        status: 'COMPLETED',
+        outcome: 'partial_failure',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
+        method: 'POST',
+      })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
+      const data = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(data.code).toBe('WORKFLOW_RUN_OUTCOME_NOT_RETRYABLE')
+      expect(data.error).toContain('Rerun the specific failed step')
+      expect(workflowExecutor.executeWorkflow).not.toHaveBeenCalled()
+    })
+
+    test('a FAILED run whose verdict is failure is still retryable', async () => {
+      const mockInstance = {
+        id: testInstanceId,
+        status: 'FAILED',
+        outcome: 'failure',
+        retryCount: 0,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+      mockEm.findOne.mockResolvedValue(mockInstance)
+      ;(workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: {},
+        events: [],
+        executionTime: 1,
+      })
+
+      const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
+        method: 'POST',
+      })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
+
+      expect(response.status).toBe(200)
+      expect(mockInstance.retryCount).toBe(1)
     })
 
     test('should handle execution errors during retry', async () => {

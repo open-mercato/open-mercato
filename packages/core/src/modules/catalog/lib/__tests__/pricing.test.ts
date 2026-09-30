@@ -6,9 +6,11 @@ import {
   registerCatalogPricingResolver,
   resetCatalogPricingResolvers,
   resolveCatalogPrice,
+  buildPriceRowFilter,
   type PriceRow,
   type PricingContext,
 } from '../pricing'
+import type * as PricingModule from '../pricing'
 
 describe('catalog pricing helpers', () => {
   const baseRow = (overrides: Partial<PriceRow> = {}): PriceRow => ({
@@ -207,5 +209,138 @@ describe('catalog pricing helpers', () => {
     const result = selectBestPrice([promo, tier], { ...ctx, quantity: 5 })
 
     expect(result?.id).toBe('promo')
+  })
+
+  it('shares resolver registrations across isolated module instances (globalThis scoping)', async () => {
+    // Simulates the standalone-app / multi-chunk failure mode: a resolver
+    // registered from one evaluation of `pricing.ts` must be visible to
+    // resolution running against a second, independent evaluation — proving
+    // the registry lives on `globalThis`, not in module-local state.
+    let firstModule: typeof PricingModule | undefined
+    let secondModule: typeof PricingModule | undefined
+
+    jest.isolateModules(() => {
+      firstModule = jest.requireActual<typeof PricingModule>('../pricing')
+    })
+    firstModule?.resetCatalogPricingResolvers()
+
+    const marker = baseRow({ id: 'from-first-instance' })
+    firstModule?.registerCatalogPricingResolver(async () => marker, {
+      priority: 5,
+      id: 'test-cross-instance-resolver',
+    })
+
+    jest.isolateModules(() => {
+      secondModule = jest.requireActual<typeof PricingModule>('../pricing')
+    })
+
+    const result = await secondModule?.resolveCatalogPrice([baseRow({ id: 'other' })], ctx)
+    expect(result?.id).toBe('from-first-instance')
+
+    firstModule?.resetCatalogPricingResolvers()
+  })
+
+  it('skips re-registration when the same resolver id is already present', async () => {
+    const first = jest.fn().mockResolvedValue(baseRow({ id: 'first' }))
+    const second = jest.fn().mockResolvedValue(baseRow({ id: 'second' }))
+
+    registerCatalogPricingResolver(first, { priority: 5, id: 'dedupe-test' })
+    registerCatalogPricingResolver(second, { priority: 5, id: 'dedupe-test' })
+
+    const result = await resolveCatalogPrice([baseRow({ id: 'fallback' })], ctx)
+
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).not.toHaveBeenCalled()
+    expect(result?.id).toBe('first')
+  })
+
+  it('filters by currencyCode only when the context specifies one', () => {
+    const usdRow = baseRow({ id: 'usd', currencyCode: 'USD' })
+    const eurRow = baseRow({ id: 'eur', currencyCode: 'EUR' })
+
+    // Omitted currencyCode: unchanged legacy behavior — both rows match, no filtering.
+    const noFilter = selectBestPrice([usdRow, eurRow], ctx)
+    expect(noFilter).not.toBeNull()
+
+    // Explicit currencyCode: only the matching row is a candidate.
+    const eurOnly = selectBestPrice([usdRow, eurRow], { ...ctx, currencyCode: 'EUR' })
+    expect(eurOnly?.id).toBe('eur')
+
+    // No row in the requested currency: no match, not a silent cross-currency pick.
+    const noMatch = selectBestPrice([usdRow], { ...ctx, currencyCode: 'EUR' })
+    expect(noMatch).toBeNull()
+  })
+
+  it('matches customerGroupIds as set membership, with legacy customerGroupId still supported', () => {
+    const groupRow = baseRow({ id: 'group-scoped', customerGroupId: 'group-b' })
+
+    // New shape: set membership.
+    expect(selectBestPrice([groupRow], { ...ctx, customerGroupIds: ['group-a', 'group-b'] })?.id).toBe('group-scoped')
+    expect(selectBestPrice([groupRow], { ...ctx, customerGroupIds: ['group-a'] })).toBeNull()
+
+    // Legacy shape: exact match, read as a one-element set when customerGroupIds is absent.
+    expect(selectBestPrice([groupRow], { ...ctx, customerGroupId: 'group-b' })?.id).toBe('group-scoped')
+    expect(selectBestPrice([groupRow], { ...ctx, customerGroupId: 'group-a' })).toBeNull()
+
+    // customerGroupIds takes precedence over the legacy field when both are present.
+    expect(
+      selectBestPrice([groupRow], { ...ctx, customerGroupId: 'group-a', customerGroupIds: ['group-b'] })?.id,
+    ).toBe('group-scoped')
+  })
+
+  it('buildPriceRowFilter narrows to unscoped-or-null rows when the context has no scope', () => {
+    const filter = buildPriceRowFilter({ quantity: 1, date: new Date() }) as any
+    expect(filter.$and).toEqual([
+      { customerId: null },
+      { customerGroupId: null },
+      { userId: null },
+      { userGroupId: null },
+      { channelId: null },
+    ])
+  })
+
+  it('buildPriceRowFilter admits null-or-matching rows for a scoped context', () => {
+    const filter = buildPriceRowFilter({
+      quantity: 1,
+      date: new Date(),
+      customerId: 'cust-1',
+      customerGroupIds: ['group-a', 'group-b'],
+      channelId: 'chan-1',
+      currencyCode: 'USD',
+    }) as any
+    expect(filter.$and).toEqual([
+      { $or: [{ customerId: null }, { customerId: 'cust-1' }] },
+      { $or: [{ customerGroupId: null }, { customerGroupId: { $in: ['group-a', 'group-b'] } }] },
+      { userId: null },
+      { userGroupId: null },
+      { $or: [{ channelId: null }, { channelId: 'chan-1' }] },
+      { currencyCode: 'USD' },
+    ])
+  })
+
+  it('buildPriceRowFilter reads the legacy customerGroupId as a one-element set', () => {
+    const filter = buildPriceRowFilter({ quantity: 1, date: new Date(), customerGroupId: 'group-a' }) as any
+    expect(filter.$and).toContainEqual({
+      $or: [{ customerGroupId: null }, { customerGroupId: { $in: ['group-a'] } }],
+    })
+  })
+
+  it('keeps stable registration order among resolvers at the same priority', async () => {
+    const calls: string[] = []
+    const resolverA = jest.fn().mockImplementation(async () => {
+      calls.push('a')
+      return undefined
+    })
+    const resolverB = jest.fn().mockImplementation(async () => {
+      calls.push('b')
+      return undefined
+    })
+
+    registerCatalogPricingResolver(resolverA, { priority: 5 })
+    registerCatalogPricingResolver(resolverB, { priority: 5 })
+
+    await resolveCatalogPrice([baseRow({ id: 'fallback' })], ctx)
+
+    expect(calls).toEqual(['a', 'b'])
   })
 })

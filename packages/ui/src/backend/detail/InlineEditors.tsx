@@ -31,7 +31,19 @@ const logger = createLogger('ui')
 export const INLINE_TRIGGER_HIDDEN_CLASSES =
   'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
 
-function resolveInlineErrorMessage(err: unknown, fallbackMessage: string): string {
+// Server validation errors arrive as stable i18n keys (e.g. `customers.people.form.*`), the
+// same contract CrudForm resolves via translateValidationMessage; without this they render
+// raw. `t(msg, msg)` is a no-op for already-localized strings.
+function resolveInlineErrorMessage(
+  err: unknown,
+  fallbackMessage: string,
+  translate: (key: string, fallback: string) => string,
+): string {
+  const raw = resolveRawInlineErrorMessage(err, fallbackMessage)
+  return translate(raw, raw)
+}
+
+function resolveRawInlineErrorMessage(err: unknown, fallbackMessage: string): string {
   const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
   const firstFieldError = fieldErrors
     ? Object.values(fieldErrors).find((text) => typeof text === 'string' && text.trim().length)
@@ -233,11 +245,11 @@ export function InlineTextEditor({
       await onSave(trimmed.length ? trimmed : null)
       setEditingSafe(false)
     } catch (err) {
-      setError(resolveInlineErrorMessage(err, fallbackError))
+      setError(resolveInlineErrorMessage(err, fallbackError, t))
     } finally {
       setSaving(false)
     }
-  }, [draft, fallbackError, onSave, setEditingSafe, validator])
+  }, [draft, fallbackError, onSave, setEditingSafe, t, validator])
 
   const interactiveProps: React.HTMLAttributes<HTMLDivElement> =
     activateOnClick && !editing
@@ -373,7 +385,7 @@ export function InlineTextEditor({
                             await onSave(formatted.length ? formatted : null)
                             setEditingSafe(false)
                           } catch (err) {
-                            setError(resolveInlineErrorMessage(err, fallbackError))
+                            setError(resolveInlineErrorMessage(err, fallbackError, t))
                           } finally {
                             setSaving(false)
                           }
@@ -616,11 +628,11 @@ export function InlineMultilineEditor({
       await onSave(trimmed.length ? trimmed : null)
       setEditing(false)
     } catch (err) {
-      setError(resolveInlineErrorMessage(err, fallbackError))
+      setError(resolveInlineErrorMessage(err, fallbackError, t))
     } finally {
       setSaving(false)
     }
-  }, [adjustError, draft, fallbackError, onSave])
+  }, [adjustError, draft, fallbackError, onSave, t])
 
   return (
     <div className={containerClasses} onClick={handleInteractiveClick}>

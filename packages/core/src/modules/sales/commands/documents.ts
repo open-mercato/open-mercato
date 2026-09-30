@@ -27,7 +27,10 @@ import { buildFeatureNotificationFromType } from "../../notifications/lib/notifi
 import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
-import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
+import {
+  normalizeCustomFieldResponse,
+  normalizeCustomFieldValues,
+} from "@open-mercato/shared/lib/custom-fields/normalize";
 import { E } from "#generated/entities.ids.generated";
 import { findWithDecryption, findOneWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import {
@@ -692,6 +695,17 @@ type DocumentAdjustmentCreateInput =
 function cloneJson<T>(value: T): T {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Graph snapshots load custom fields through `loadCustomFieldValues`, which keys
+ * them `cf_<key>`. Writing those keys back verbatim stores a new `cf_<key>` row
+ * instead of restoring `<key>`, so restores strip the prefix first.
+ */
+function toSnapshotCustomFieldWriteValues(
+  values: Record<string, unknown>,
+): ReturnType<typeof normalizeCustomFieldValues> {
+  return normalizeCustomFieldValues(normalizeCustomFieldResponse(values) ?? {});
 }
 
 /**
@@ -4328,7 +4342,7 @@ async function restoreQuoteGraph(
       recordId: quote.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(snapshot.quote.customFields),
+      values: toSnapshotCustomFieldWriteValues(snapshot.quote.customFields),
     });
   }
   for (const line of snapshot.lines) {
@@ -4338,7 +4352,7 @@ async function restoreQuoteGraph(
       recordId: line.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(line.customFields),
+      values: toSnapshotCustomFieldWriteValues(line.customFields),
     });
   }
   for (const adjustment of snapshot.adjustments) {
@@ -4348,7 +4362,7 @@ async function restoreQuoteGraph(
       recordId: adjustment.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(adjustment.customFields),
+      values: toSnapshotCustomFieldWriteValues(adjustment.customFields),
     });
   }
 
@@ -4676,7 +4690,7 @@ async function restoreOrderGraph(
       recordId: order.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(snapshot.order.customFields),
+      values: toSnapshotCustomFieldWriteValues(snapshot.order.customFields),
     });
   }
   for (const line of snapshot.lines) {
@@ -4686,7 +4700,7 @@ async function restoreOrderGraph(
       recordId: line.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(line.customFields),
+      values: toSnapshotCustomFieldWriteValues(line.customFields),
     });
   }
   for (const adjustment of snapshot.adjustments) {
@@ -4696,7 +4710,7 @@ async function restoreOrderGraph(
       recordId: adjustment.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(adjustment.customFields),
+      values: toSnapshotCustomFieldWriteValues(adjustment.customFields),
     });
   }
 
@@ -5463,11 +5477,55 @@ const updateQuoteCommand: CommandHandler<
   },
 };
 
+/**
+ * Output contracts for the order commands, consumed by the workflows context
+ * ledger through `commandRegistry.outputSchemaOf`.
+ *
+ * `sales.orders.update` genuinely returns the mutated `SalesOrder` entity, not
+ * an id — so the schema describes the entity's own scalar columns. It is a
+ * curated subset, not the whole entity: relation properties (`channel`,
+ * `shippingMethod`, `lines`) are ORM references that do not survive the JSON
+ * context column, and the jsonb snapshot blobs carry no pickable shape. Zod
+ * objects do not claim exhaustiveness, so naming a subset stays honest while
+ * keeping the variable picker readable.
+ */
+const orderEntityOutputSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  orderNumber: z.string(),
+  channelId: z.string().uuid().nullable().optional(),
+  customerEntityId: z.string().uuid().nullable().optional(),
+  currencyCode: z.string(),
+  status: z.string().nullable().optional(),
+  statusEntryId: z.string().uuid().nullable().optional(),
+  fulfillmentStatus: z.string().nullable().optional(),
+  paymentStatus: z.string().nullable().optional(),
+  subtotalNetAmount: z.string(),
+  subtotalGrossAmount: z.string(),
+  discountTotalAmount: z.string(),
+  taxTotalAmount: z.string(),
+  grandTotalNetAmount: z.string(),
+  grandTotalGrossAmount: z.string(),
+  paidTotalAmount: z.string(),
+  outstandingAmount: z.string(),
+  lineItemCount: z.number(),
+  placedAt: z.date().nullable().optional(),
+  dueAt: z.date().nullable().optional(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+const orderUpdateOutputSchema = z.object({ order: orderEntityOutputSchema });
+
+const orderIdOutputSchema = z.object({ orderId: z.string().uuid() });
+
 const updateOrderCommand: CommandHandler<
   DocumentUpdateInput,
   { order: SalesOrder }
 > = {
   id: "sales.orders.update",
+  outputSchema: orderUpdateOutputSchema,
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
     const em = ctx.container.resolve("em") as EntityManager;
@@ -5712,6 +5770,7 @@ const createOrderCommand: CommandHandler<
   { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
 > = {
   id: "sales.orders.create",
+  outputSchema: orderIdOutputSchema,
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
@@ -6155,6 +6214,7 @@ const deleteOrderCommand: CommandHandler<
   { orderId: string }
 > = {
   id: "sales.orders.delete",
+  outputSchema: orderIdOutputSchema,
   async prepare(input, ctx) {
     const id = requireId(input, "Order id is required");
     const em = ctx.container.resolve("em") as EntityManager;
