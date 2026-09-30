@@ -145,7 +145,7 @@ export function ParamFields({
             return (
               <div key={field.name} className="space-y-1">
                 <Label htmlFor={id}>{label}</Label>
-                <div className="text-xs text-status-error-base">
+                <div className="text-xs text-status-error-text">
                   {t('marketing_automation.params.tagsUnavailable', 'The tag list could not be loaded. Reload the page to try again.')}
                 </div>
               </div>

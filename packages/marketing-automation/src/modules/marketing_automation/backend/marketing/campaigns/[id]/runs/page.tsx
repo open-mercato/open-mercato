@@ -268,7 +268,7 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
               {t('marketing_automation.runs.action.steps', 'Steps')}
             </div>
             {openRun.lastError ? (
-              <div className="mb-2 text-xs text-status-error-base">
+              <div className="mb-2 text-xs text-status-error-text">
                 {t('marketing_automation.runs.columns.lastError', 'Last error')}: {openRun.lastError}
               </div>
             ) : null}

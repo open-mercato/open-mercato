@@ -111,7 +111,7 @@ export default function MarketingOverviewWidget({
   }
 
   if (error) {
-    return <div className="text-sm text-status-error-base">{error}</div>
+    return <div className="text-sm text-status-error-text">{error}</div>
   }
 
   if (!data) return null

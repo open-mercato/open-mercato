@@ -187,7 +187,7 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
     <Page>
       <PageBody>
         <div className="mb-4 flex items-baseline justify-between gap-3">
-          <div className="text-h3 text-foreground">{results.campaign.name}</div>
+          <div className="text-lg font-semibold text-foreground">{results.campaign.name}</div>
           <a className="text-sm underline" href={`/backend/marketing/campaigns/${campaignId}/runs`}>
             {t('marketing_automation.runs.title', 'Runs')}
           </a>

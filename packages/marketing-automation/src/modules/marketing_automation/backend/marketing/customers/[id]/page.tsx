@@ -372,7 +372,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
       <PageBody>
         {ConfirmDialogElement}
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div className="text-h3 text-foreground">
+          <div className="text-lg font-semibold text-foreground">
             {profile.customer.displayName ?? t('marketing_automation.profile.unnamed', 'Unnamed customer')}
             <div className="text-sm font-normal text-muted-foreground">{profile.customer.email ?? '—'}</div>
           </div>
