@@ -17,9 +17,12 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
  *
  * Surface S3 (spec `2026-05-21-forms-render-surfaces.md`, D3) — the generic
  * `forms.injection.embedded-form` widget renders a runnable form anywhere via
- * the shared `<EmbeddedForm>` primitive. The module dogfoods it through the
- * self-declared `forms:embed` spot; host modules place the same widget against
- * their own spots and pass an `EmbeddedFormSource` through the injection props.
+ * the shared `<EmbeddedForm>` primitive. It is deliberately NOT mapped here:
+ * host modules place it against a spot they declare themselves and pass an
+ * `EmbeddedFormSource` through the injection props. Forms' own embed surface
+ * (`frontend/embed/[slug]/page.tsx`) renders `<EmbeddedForm>` directly rather
+ * than through an injection spot, so mapping the widget onto a `forms:embed`
+ * spot here would leave a spot id no file in this repo ever mounts.
  */
 export const injectionTable: ModuleInjectionTable = {
   'submission-drawer:header-actions': [
@@ -43,12 +46,6 @@ export const injectionTable: ModuleInjectionTable = {
   'submission-drawer:footer': [
     {
       widgetId: 'forms.injection.self-audit-footer',
-      priority: 100,
-    },
-  ],
-  'forms:embed': [
-    {
-      widgetId: 'forms.injection.embedded-form',
       priority: 100,
     },
   ],

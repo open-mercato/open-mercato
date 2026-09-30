@@ -21,14 +21,15 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/forms/extension-points'
 import { colorForSavedByRole } from './RowBadges'
 
 export const FORMS_DRAWER_REFRESH_EVENT = 'forms:submission-drawer:refresh'
 
-export const SUBMISSION_DRAWER_HEADER_ACTIONS_SPOT = 'submission-drawer:header-actions'
-export const SUBMISSION_DRAWER_ACCESS_AUDIT_SPOT = 'submission-drawer:access-audit'
-export const SUBMISSION_DRAWER_FOOTER_SPOT = 'submission-drawer:footer'
-export const SUBMISSION_DRAWER_ANONYMIZE_ACTION_SPOT = 'submission-drawer:anonymize-action'
+export const SUBMISSION_DRAWER_HEADER_ACTIONS_SPOT = extensionPoints.hosts.submissionDrawerHeaderActions.spotId
+export const SUBMISSION_DRAWER_ACCESS_AUDIT_SPOT = extensionPoints.hosts.submissionDrawerAccessAudit.spotId
+export const SUBMISSION_DRAWER_FOOTER_SPOT = extensionPoints.hosts.submissionDrawerFooter.spotId
+export const SUBMISSION_DRAWER_ANONYMIZE_ACTION_SPOT = extensionPoints.hosts.submissionDrawerAnonymizeAction.spotId
 
 export type DrawerSubmission = {
   id: string
