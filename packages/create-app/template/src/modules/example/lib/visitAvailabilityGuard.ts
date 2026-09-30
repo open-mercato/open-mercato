@@ -8,6 +8,10 @@ import { evaluateVisitAvailability, resolveVisitService, visitAvailabilityInputS
 
 type Row = Record<string, unknown>
 
+function typeKey(value: unknown): string | null {
+  return typeof value === 'string' ? value.trim().toLowerCase() : null
+}
+
 function get(row: Row, camel: string, snake: string): unknown {
   return row[camel] ?? row[snake]
 }
@@ -89,8 +93,8 @@ function changedAvailability(input: Row, existing: Row): boolean {
 async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorContext): Promise<CommandInterceptorBeforeResult> {
   if (!rawInput || typeof rawInput !== 'object') return { ok: true }
   const input = rawInput as Row
-  const suppliedType = get(input, 'interactionType', 'interaction_type')
-  if (suppliedType !== undefined && suppliedType !== 'visit') return { ok: true }
+  const suppliedType = typeKey(get(input, 'interactionType', 'interaction_type'))
+  if (suppliedType !== null && suppliedType !== 'visit') return { ok: true }
   const updating = context.commandId === 'customers.interactions.update'
   if (!updating && suppliedType !== 'visit') return { ok: true }
   if (updating && !hasAvailabilityChange(input)) return { ok: true }
@@ -129,9 +133,9 @@ async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorCo
   } catch {
     return blocked('example.calendar.visitAvailability.retry', 503)
   }
-  const interactionType = suppliedType ?? get(existing, 'interactionType', 'interaction_type')
+  const interactionType = suppliedType ?? typeKey(get(existing, 'interactionType', 'interaction_type'))
   if (interactionType !== 'visit') return { ok: true }
-  if (updating && get(existing, 'interactionType', 'interaction_type') === 'visit' && !changedAvailability(input, existing)) return { ok: true }
+  if (updating && typeKey(get(existing, 'interactionType', 'interaction_type')) === 'visit' && !changedAvailability(input, existing)) return { ok: true }
   if (updating && typeof input.id === 'string') {
     await enforceCommandOptimisticLockWithGuards(context.container, {
       resourceKind: 'customers.interaction',

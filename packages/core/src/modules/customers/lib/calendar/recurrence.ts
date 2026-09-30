@@ -1,4 +1,5 @@
 import { addDays } from 'date-fns/addDays'
+import { calendarDayEndInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from './timezone'
 import type { CalendarItem, CalendarRange } from '../../components/calendar/types'
 
 const MAX_OCCURRENCES_PER_WINDOW = 100
@@ -96,11 +97,40 @@ function occursOn(date: Date, rule: ParsedRecurrenceRule, seriesStartWeekday: nu
   return allowedWeekdays.includes(date.getDay())
 }
 
+function expandZonedOccurrences(item: CalendarItem, range: CalendarRange, rule: ParsedRecurrenceRule, timezone: string): CalendarItem[] {
+  const startWall = calendarInstantToWallTime(item.start, timezone)
+  const cursor = new Date(`${startWall.date}T00:00:00Z`)
+  const finalDate = calendarInstantToWallTime(range.to, timezone).date
+  const seriesWeekday = cursor.getUTCDay()
+  const duration = item.end.getTime() - item.start.getTime()
+  const recurrenceEnd = typeof item.raw.recurrenceEnd === 'string' ? new Date(item.raw.recurrenceEnd).getTime() : null
+  const occurrences: CalendarItem[] = []
+  let occurrenceIndex = 0
+  while (cursor.toISOString().slice(0, 10) <= finalDate) {
+    const date = cursor.toISOString().slice(0, 10)
+    const start = calendarWallTimeToInstant(date, startWall.time, timezone)
+    if (start && ((rule.until && start > rule.until) || (recurrenceEnd !== null && start.getTime() > recurrenceEnd))) break
+    const matches = rule.freq === 'DAILY' || (rule.byDay ?? [seriesWeekday]).includes(cursor.getUTCDay())
+    if (start && matches) {
+      if (rule.count !== null && occurrenceIndex >= rule.count) break
+      const end = item.allDay ? calendarDayEndInstant(date, timezone)! : new Date(start.getTime() + duration)
+      if (start <= range.to && end > range.from) {
+        occurrences.push({ ...item, id: `${item.id}:${occurrenceIndex}`, start, end, isRecurringOccurrence: true })
+        if (occurrences.length >= MAX_OCCURRENCES_PER_WINDOW) break
+      }
+      occurrenceIndex += 1
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return occurrences
+}
+
 export function expandOccurrences(item: CalendarItem, range: CalendarRange): CalendarItem[] {
   const rawRule = item.raw.recurrenceRule
   if (typeof rawRule !== 'string' || rawRule.trim().length === 0) return [item]
   const rule = parseRecurrenceRule(rawRule)
   if (!rule) return [item]
+  if (isCalendarTimezone(item.raw.timezone)) return expandZonedOccurrences(item, range, rule, item.raw.timezone)
 
   const durationMs = item.end.getTime() - item.start.getTime()
   const recurrenceEndTime = parseRecurrenceEndTime(item.raw.recurrenceEnd)

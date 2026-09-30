@@ -33,7 +33,7 @@ export function visitAvailabilityWarnings(): string[] {
 
 type Row = Record<string, unknown>
 type Window = { start: Date; end: Date }
-type PlannerService = { getMergedAvailabilityWindows: (input: { respectTimezone?: boolean; rules: Array<{ id?: string; rrule: string; timezone?: string; exdates?: string[]; kind?: 'availability' | 'unavailability' }>; range: Window }) => Window[] }
+type PlannerService = { getMergedAvailabilityWindows: (input: { respectTimezone?: boolean; weeklyScheduleTemplate?: boolean; rules: Array<{ id?: string; rrule: string; timezone?: string; exdates?: string[]; kind?: 'availability' | 'unavailability' }>; range: Window }) => Window[] }
 type Rbac = { userHasAllFeatures: (userId: string, features: string[], scope: { tenantId: string; organizationId: string }) => Promise<boolean> }
 
 export function resolveVisitService<T>(container: Pick<AwilixContainer, 'resolve'>, name: string): T | null {
@@ -151,7 +151,7 @@ export async function evaluateVisitAvailability(args: {
           subject.reasonKey = 'example.calendar.visitAvailability.noSchedule'
           continue
         }
-        const windows = planner.getMergedAvailabilityWindows({ rules: normalizedRules, range: { start, end }, respectTimezone: true })
+        const windows = planner.getMergedAvailabilityWindows({ rules: normalizedRules, range: { start, end }, respectTimezone: true, weeklyScheduleTemplate: true })
         subject.status = covers(windows, start, end) ? 'available' : 'unavailable'
         subject.reasonKey = subject.status === 'available' ? null : 'example.calendar.visitAvailability.unavailable'
       }

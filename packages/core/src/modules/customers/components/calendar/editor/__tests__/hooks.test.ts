@@ -26,6 +26,18 @@ describe('useConflictProbe recurring candidates (#4735)', () => {
     jest.useRealTimers()
   })
 
+  test('probes the selected-zone instant and clears the warning when the zone changes', async () => {
+    apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { items: [{ id: 'conflict', interactionType: 'meeting', title: 'Same instant', status: 'planned', scheduledAt: '2026-09-29T07:15:00Z', durationMinutes: 60, ownerUserId: 'actor' }] } })
+    const form = { ...createDefaultFormState(), timezone: 'Europe/Warsaw', date: '2026-09-29', startTime: '09:15', endDate: '2026-09-29', endTime: '10:15' }
+    const { result, rerender, unmount } = renderHook(({ timezone }) => useConflictProbe(true, { ...form, timezone }, KIND_CONFIG.meeting, null, 'actor', 'all', null), { initialProps: { timezone: 'Europe/Warsaw' } })
+    await act(async () => { await jest.advanceTimersByTimeAsync(500) })
+    expect(result.current).not.toBeNull()
+    rerender({ timezone: 'UTC' })
+    await act(async () => { await jest.advanceTimersByTimeAsync(500) })
+    expect(result.current).toBeNull()
+    unmount()
+  })
+
   test('fetches recurring masters so the editor probes the same candidate set as the grid', async () => {
     const form = {
       ...createDefaultFormState(new Date(2026, 7, 5), new Date(2026, 7, 5, 9, 0, 0)),

@@ -1,6 +1,6 @@
 # Configurable Calendar Event Types
 
-**Status:** Proposed  
+**Status:** Implemented; QA pending
 **Issue:** [#6684](https://github.com/open-mercato/open-mercato/issues/6684)  
 **Depends on:** Calendar-type foundation in [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md)
 **Related:** [CRM Calendar](./2026-06-11-crm-calendar.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md), [Calendar Event Type React Panels](./2026-09-28-calendar-event-type-react-panels.md)
@@ -90,7 +90,7 @@ resolveCalendarEventTypes(scope)
   └── destructive-switch diff + undo
 ```
 
-The customers module owns the resolver and all persistence. This spec extends—not replaces—the canonical foundation resolver and read route from the extension spec. With no contributed entries, the input is its immutable shipped six-type baseline. With contributions, the input has already composed enabled widget declarations → `modules.ts` configuration → programmatic DI operations before scoped dictionary overlays run. Dictionary overlays never import or mutate another module.
+The customers module owns the resolver and all persistence. This spec extends—not replaces—the canonical foundation resolver and read route from the extension spec. With no contributed entries, the input is its immutable shipped six-type baseline. With contributions, the input has already composed enabled Customers-typed widget declarations → contributor-owned DI operations before scoped dictionary overlays run. Dictionary overlays never import or mutate another module.
 
 ### Effective behavior schema
 
@@ -111,6 +111,12 @@ Reuse `CustomerDictionaryEntry`. Add nullable JSONB column `activity_type_behavi
 
 No direct ORM relationship is introduced. The implementation updates the customers migration snapshot and does not apply the migration locally without approval.
 
+### Calendar timezone persistence
+
+Every calendar event type, including Visit and Task, exposes an IANA timezone selector. `CustomerInteraction.timezone` is an additive nullable text column; create/update accept an optional nullable IANA zone, list/detail/canonical task feeds return it, and audit/undo/redo snapshots preserve it. Calendar Task records use this same interaction entity, so timezone is never hidden inside custom attributes. Omitted legacy values remain null and use the existing/browser fallback; changing timezone does not clear it during event-type applicability checks. The additive migration and Customers snapshot ship without applying migrations locally.
+
+Scheduled times remain UTC instants. The editor interprets wall-clock date/time in the selected zone, restores that zone when reopening, and recurrence expansion preserves wall time across daylight-saving changes. This is event-local timezone behavior; it does not change planner's opt-in `respectTimezone` default.
+
 ## Resolver rules
 
 Resolution order is deterministic:
@@ -120,7 +126,7 @@ Resolution order is deterministic:
 3. inherited dictionary entry;
 4. local organization dictionary entry.
 
-Dictionary arrays replace rather than concatenate. Equal `order` values preserve dictionary ordering and then key ordering. Resolver output is immutable and includes widget/config/programmatic source-tier and property provenance, inheritance, configurability, and nullable `updatedAt` metadata. Dictionary rows apply only when the underlying definition is `adminConfigurable !== false`; existing rows for a newly non-configurable definition remain stored but inactive and visible as a settings warning until the restriction is removed.
+Dictionary arrays replace rather than concatenate. Equal `order` values preserve dictionary ordering and then key ordering. Resolver output is immutable and includes widget/programmatic source-tier and property provenance, inheritance, configurability, and nullable `updatedAt` metadata. Dictionary rows apply only when the underlying definition is `adminConfigurable !== false`; existing rows for a newly non-configurable definition remain stored but inactive and visible as a settings warning until the restriction is removed.
 
 If widget/configuration loading fails, callers report the error and fail closed for selection and mutation. The editor may use the shipped baseline to display an existing draft while a scoped catalog retry is pending; it cannot save from that fallback. Historical resolution is always available after successful loading: an unknown or unavailable key returns raw-key display metadata plus meeting-shaped behavior, but is not selectable for new records.
 
@@ -157,7 +163,7 @@ Existing interaction update input adds optional `confirmDiscardInapplicableValue
 { "error": "Changing type will clear existing values", "code": "calendar_type_change_confirmation_required", "fields": ["location", "cf_visit_outcome"] }
 ```
 
-Create with a missing/disabled key is rejected. Updating a historical record without changing its unavailable type remains allowed through fallback semantics. The optimistic-lock check precedes field-diff disclosure.
+Calendar-picker mutations request `enforceSelectableType` and reject unavailable changed keys. Internal commands retain legacy arbitrary/nonselectable keys unless that enforcement is requested. Same-key historical edits retain fallback semantics without rewriting the stored key. The optimistic-lock check precedes field-diff disclosure.
 
 ## UI/UX
 
@@ -169,7 +175,7 @@ Customers → Dictionaries → Activity types becomes the authoritative manager.
 - Fieldset choices come from existing definitions for `customers.customer_interaction` and cover loading, empty, no-results, stale-fieldset, and error states.
 - Calendar Customization removes the display-only Event Categories and Activity Types tag inputs and links to the authoritative manager.
 
-`CalendarEventEditor` remains one `CrudForm`. Add optional `customFieldsetAllowlist?: Record<string, readonly string[]>`; omitted means byte-identical current behavior. The calendar passes the selected type's fieldset codes. Empty means no configured fieldset sections; general fields require reserved `__general__`.
+`CalendarEventEditor` remains one unchanged generic `CrudForm`. Customers owns `useCalendarCustomFields`, which resolves and filters the selected type's definitions before passing ordinary fields/groups to the form. Empty `customFieldsetIds` preserves unrestricted legacy behavior; only a non-empty list restricts fieldsets. No calendar-specific shared form prop is added. The shipped Call and Task definitions retain `endTime: true`.
 
 The type selector orders effective selectable types by behavior order and dictionary sort. Editing an unavailable historical type prepends its current raw value with a warning, but switching away does not make it selectable again.
 
@@ -213,7 +219,7 @@ Structured logs include tenant/organization IDs, type key, resolver source count
 - Nullable JSONB and optional API fields are additive.
 - Existing routes, methods, custom-field spots, and stored interaction type values remain unchanged.
 - The deprecated resolver bridge and `UPGRADE_NOTES.md` entry remain for at least one minor version.
-- The canonical schema, six definitions, fallback, resolver, and read route come from the prerequisite foundation; scoped dictionary overlays remain above widget/`modules.ts`/programmatic sources and cannot execute React.
+- The canonical schema, six definitions, fallback, resolver, and read route come from the prerequisite foundation; scoped dictionary overlays remain above widget/programmatic sources and cannot execute React.
 - Old application code ignores the nullable column and continues using current fallbacks.
 - Removing this feature leaves dormant configuration but requires no data conversion.
 
@@ -237,7 +243,7 @@ Structured logs include tenant/organization IDs, type key, resolver source count
 ### Phase C — Administrator and calendar UI
 
 6. Add the specialized activity-type list/editor, inherited/local states, fieldset selector, and conflict/error coverage.
-7. Add `CrudForm.customFieldsetAllowlist`, replace hard-coded behavior lookups with resolved definitions, and wire destructive-switch confirmation.
+7. Use Customers-owned `useCalendarCustomFields` and resolved definitions, preserving empty-list legacy behavior and generic `CrudForm`; wire destructive-switch confirmation inside Customers.
 8. Remove obsolete Calendar Customization inputs and add the authoritative manager link.
 
 *Exit:* an administrator configures a custom type and a CRM user creates, reloads, edits, and safely switches it.
@@ -301,7 +307,7 @@ Approved for review. The original combined brief was split by capability with th
 
 ### 2026-09-28 — Static extension precedence alignment
 
-- Clarified that the companion registry fully resolves AI-parity file, `modules.ts`, and programmatic tiers before inherited/local dictionary overlays.
+- Clarified that the companion registry resolves module widget payloads and programmatic DI tiers before inherited/local dictionary overlays.
 - Defined inactive-row behavior when a higher static tier makes a type non-configurable.
 - Reused the registry spec's canonical schema, six definitions, resolver, fallback, and catalog route instead of duplicating ownership.
 
@@ -309,3 +315,20 @@ Approved for review. The original combined brief was split by capability with th
 
 - Superseded the generator-based input with widget injection and the programmatic DI API; dictionary overlays remain the highest scoped layer.
 - Made baseline fallback display-only when authoritative catalog loading fails, so hidden types cannot become selectable.
+
+### 2026-09-30 — Module-boundary implementation alignment
+
+- Aligned the implementation with Customers-owned widget payloads, contributor DI registration, and unchanged shared forms/loaders/override contracts.
+- Preserved unrestricted empty fieldsets, Call/Task end times, internal-command compatibility, and historical keys; calendar-picker selection remains explicit.
+- Documented immutable Visit behavior, opt-in demo overrides, missing optional-module warnings, and opt-in planner time-zone evaluation. QA remains pending.
+
+### 2026-09-30 — Timezone selection for every type
+
+- Added nullable interaction timezone persistence and validated API input/output for all calendar types, including Visit and Task; preserved it in command snapshots and canonical task projections.
+- Defined selected-zone wall-clock scheduling and daylight-saving-aware recurrence while retaining legacy null-zone fallback.
+
+### 2026-09-30 — Explicit event timezone round trip
+
+- Added optional nullable interaction `timezone` with IANA validation, API read/write support, undo snapshot preservation, and editor restoration. Existing null-zone records preserve legacy browser-local behavior.
+- Zoned weekly event recurrence keeps its wall time through daylight-saving changes, and module previews use the same chosen-zone conversion as submission. Visit keeps its fixed code-owned behavior and wraps standard Customers fields.
+- Added TC-CAL-014 coverage for normal/Visit zone persistence, invalid-zone 400s, editing a chosen zone, and DST recurrence rendering; execution awaits the timezone migration and live test gate.

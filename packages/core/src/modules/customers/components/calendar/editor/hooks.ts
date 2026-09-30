@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { calendarDayEndInstant, calendarWallTimeToInstant } from '../../../lib/calendar/timezone'
 import { endOfDay } from 'date-fns/endOfDay'
 import { startOfDay } from 'date-fns/startOfDay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -93,23 +94,24 @@ export function useConflictProbe(
     let start: Date
     let end: Date
     if (isAllDay) {
-      const dayDate = new Date(`${form.date}T00:00:00`)
-      if (Number.isNaN(dayDate.getTime())) {
+      const dayDate = form.timezone ? calendarWallTimeToInstant(form.date, '00:00', form.timezone) : new Date(`${form.date}T00:00:00`)
+      if (!dayDate || Number.isNaN(dayDate.getTime())) {
         setConflict(null)
         return
       }
-      start = startOfDay(dayDate)
-      end = endOfDay(dayDate)
+      start = form.timezone ? dayDate : startOfDay(dayDate)
+      end = form.timezone ? calendarDayEndInstant(form.date, form.timezone)! : endOfDay(dayDate)
     } else {
       if (!form.startTime) {
         setConflict(null)
         return
       }
-      start = new Date(`${form.date}T${form.startTime}:00`)
-      if (Number.isNaN(start.getTime())) {
+      const draftStart = form.timezone ? calendarWallTimeToInstant(form.date, form.startTime, form.timezone) : new Date(`${form.date}T${form.startTime}:00`)
+      if (!draftStart || Number.isNaN(draftStart.getTime())) {
         setConflict(null)
         return
       }
+      start = draftStart
       const durationMinutes = config.hasEnd ? computeDurationMinutes(form) ?? 30 : 30
       end = new Date(start.getTime() + durationMinutes * 60_000)
     }
@@ -165,6 +167,6 @@ export function useConflictProbe(
       controller.abort()
     }
     // Re-probe when schedule-relevant inputs change (time window, all-day, attendees, owner, status, scope).
-  }, [open, form.date, form.startTime, form.endDate, form.endTime, form.allDay, form.status, participantsKey, config.hasAllDay, config.hasEnd, excludeId, draftOwnerUserId, scope, currentUserId, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, form.date, form.timezone, form.startTime, form.endDate, form.endTime, form.allDay, form.status, participantsKey, config.hasAllDay, config.hasEnd, excludeId, draftOwnerUserId, scope, currentUserId, t]) // eslint-disable-line react-hooks/exhaustive-deps
   return conflict
 }

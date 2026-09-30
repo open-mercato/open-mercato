@@ -10,6 +10,7 @@ import { buildCalendarItem } from './fixtures'
 const crudPropsMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const confirmMock = jest.fn()
+let renderGroups = false
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
@@ -34,9 +35,12 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: (props: Record<string, unknown>) => {
     crudPropsMock(props)
-    return <form id={props.formId as string} />
+    const groups = props.groups as Array<{ id: string; component?: (ctx: { values: Record<string, unknown>; errors: Record<string, string>; setValue: (key: string, value: unknown) => void }) => React.ReactNode }>
+    return <form id={props.formId as string}>{renderGroups ? groups.map((group) => <React.Fragment key={group.id}>{group.component?.({ values: props.initialValues as Record<string, unknown>, errors: {}, setValue: jest.fn() })}</React.Fragment>) : null}</form>
   },
 }))
+
+jest.mock('../editor/EventTypePanel', () => ({ EventTypePanel: () => <div data-testid="type-panel" /> }))
 
 const visitType: ScopedCalendarEventType = {
   ...calendarEventTypes[0]!,
@@ -72,6 +76,7 @@ import { CalendarEventEditor } from '../CalendarEventEditor'
 
 describe('CalendarEventEditor catalog host', () => {
   beforeEach(() => {
+    renderGroups = false
     crudPropsMock.mockClear()
     apiCallOrThrowMock.mockReset()
     confirmMock.mockReset()
@@ -106,6 +111,46 @@ describe('CalendarEventEditor catalog host', () => {
     })
   })
 
+  it('uses configured behavior for a mixed-case stored key and preserves that key on save', async () => {
+    const note = calendarEventTypes.find((type) => type.key === 'note')!
+    catalogState = { status: 'ready', items: [{ ...visitType, key: 'site visit', behavior: { ...note.behavior, customFieldsetIds: ['visit_details'] } }] }
+    renderWithProviders(<CalendarEventEditor open mode="edit" item={buildCalendarItem({ interactionType: 'Site Visit', category: 'Site Visit' })} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled())
+    const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    expect(props.fields).toEqual([expect.objectContaining({ id: 'cf_visit_notes' })])
+    await act(async () => {
+      await (props.onSubmit as (values: Record<string, unknown>) => Promise<void>)({ ...(props.initialValues as Record<string, unknown>), relatedTo: { id: 'person-1', kind: 'person', label: 'Person' } })
+    })
+    const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0]?.[1].body) as Record<string, unknown>
+    expect(payload.interactionType).toBe('Site Visit')
+    expect(payload.durationMinutes).toBeNull()
+    expect(payload.location).toBeNull()
+  })
+
+  it.each([...calendarEventTypes.map((type) => type.key), 'visit'])('renders the host timezone selector for %s including custom panels', async (key) => {
+    renderGroups = true
+    const baseline = calendarEventTypes.find((type) => type.key === key)
+    catalogState = { status: 'ready', items: [{ ...visitType, ...(baseline ?? {}), key }] }
+    renderWithProviders(<CalendarEventEditor open mode="edit" item={buildCalendarItem({ interactionType: key, raw: { id: 'item-1', interactionType: key, status: 'planned', timezone: 'Europe/Warsaw' } })} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled())
+    expect(screen.getByRole('combobox', { name: 'Time zone' })).toHaveTextContent('Europe/Warsaw')
+    expect(screen.getByTestId('type-panel')).toBeInTheDocument()
+  })
+
+  it('saves the chosen timezone and rejects a DST gap without sending a write', async () => {
+    catalogState = { status: 'ready', items: [meetingType] }
+    renderWithProviders(<CalendarEventEditor open mode="edit" item={buildCalendarItem({ raw: { id: 'item-1', interactionType: 'meeting', status: 'planned', timezone: 'Europe/Warsaw' } })} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled())
+    const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    const submit = props.onSubmit as (values: Record<string, unknown>) => Promise<void>
+    const values = { ...(props.initialValues as Record<string, unknown>), timezone: 'Europe/Warsaw', date: '2026-09-29', startTime: '09:15', endDate: '2026-09-29', endTime: '12:00', relatedTo: { id: 'person-1', kind: 'person', label: 'Person' } }
+    await act(async () => { await submit(values) })
+    expect(JSON.parse(apiCallOrThrowMock.mock.calls[0]?.[1].body)).toMatchObject({ timezone: 'Europe/Warsaw', scheduledAt: '2026-09-29T07:15:00.000Z', durationMinutes: 165 })
+    apiCallOrThrowMock.mockClear()
+    await act(async () => { await expect(submit({ ...values, date: '2026-03-29', startTime: '02:30' })).rejects.toMatchObject({ fieldErrors: { timezone: 'This local time does not exist in the selected time zone' } }) })
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+  })
+
   it('keeps saving disabled when the authoritative catalog is unavailable', async () => {
     catalogState = { status: 'error', items: [] }
     renderWithProviders(
@@ -119,6 +164,7 @@ describe('CalendarEventEditor catalog host', () => {
     )
     expect(screen.getByRole('button', { name: 'Save event' })).toBeDisabled()
     expect(crudPropsMock).toHaveBeenCalled()
+    await act(async () => {})
   })
 
   it('previews exact cleared fields and preserves the draft when the type switch is cancelled', async () => {

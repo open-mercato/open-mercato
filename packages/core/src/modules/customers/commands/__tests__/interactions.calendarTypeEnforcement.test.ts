@@ -81,6 +81,7 @@ function makeContext() {
     interactionType: 'meeting',
     updatedAt: new Date('2026-09-01T00:00:00.000Z'),
     durationMinutes: 30,
+    timezone: 'Europe/Warsaw' as string | null,
     location: 'Office',
     linkedEntities: [{ type: 'resource', id: 'room', label: 'Room' }, { type: 'deal', id: 'deal', label: 'Deal' }],
     participants: null,
@@ -119,6 +120,21 @@ beforeEach(() => {
 })
 
 describe('interaction calendar-type command enforcement', () => {
+  it.each(['meeting', 'call', 'email', 'note', 'event', 'task'])('persists timezone for %s independently of field applicability', async (interactionType) => {
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: calendarEventTypes.map((type) => ({ ...type, selectable: true })) })
+    const { interaction, em, context } = makeContext()
+    await registeredCommands.get('customers.interactions.create')!.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType, timezone: 'America/New_York' }, context)
+    expect(em.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ timezone: 'America/New_York' }))
+    interaction.interactionType = interactionType
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    await registeredCommands.get('customers.interactions.update')!.execute({ id: INTERACTION, timezone: 'Asia/Tokyo' }, context)
+    expect(interaction.timezone).toBe('Asia/Tokyo')
+    await registeredCommands.get('customers.interactions.update')!.execute({ id: INTERACTION, title: 'Keep zone' }, context)
+    expect(interaction.timezone).toBe('Asia/Tokyo')
+    await registeredCommands.get('customers.interactions.update')!.execute({ id: INTERACTION, timezone: null }, context)
+    expect(interaction.timezone).toBeNull()
+  })
+
   it.each(['call', 'task'])('accepts legacy %s duration on create and same-type update', async (key) => {
     const type = calendarEventTypes.find((type) => type.key === key)!
     resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: [{ ...type, selectable: true }] })

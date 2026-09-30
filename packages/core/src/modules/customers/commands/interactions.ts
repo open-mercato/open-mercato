@@ -115,6 +115,7 @@ type InteractionSnapshot = {
     appearanceColor: string | null
     source: string | null
     durationMinutes: number | null
+    timezone?: string | null
     location: string | null
     allDay: boolean | null
     recurrenceRule: string | null
@@ -171,6 +172,7 @@ async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<I
       appearanceColor: interaction.appearanceColor ?? null,
       source: interaction.source ?? null,
       durationMinutes: interaction.durationMinutes ?? null,
+      timezone: interaction.timezone ?? null,
       location: interaction.location ?? null,
       allDay: interaction.allDay ?? null,
       recurrenceRule: interaction.recurrenceRule ?? null,
@@ -415,6 +417,7 @@ type InteractionGraphValues = {
   appearanceIcon: string | null
   appearanceColor: string | null
   durationMinutes: number | null
+  timezone: string | null
   location: string | null
   allDay: boolean | null
   recurrenceRule: string | null
@@ -451,6 +454,7 @@ function buildInteractionGraph(em: EntityManager, values: InteractionGraphValues
     appearanceIcon: values.appearanceIcon,
     appearanceColor: values.appearanceColor,
     durationMinutes: values.durationMinutes,
+    timezone: values.timezone ?? null,
     location: values.location,
     allDay: values.allDay,
     recurrenceRule: values.recurrenceRule,
@@ -516,6 +520,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         appearanceIcon: parsed.appearanceIcon ?? null,
         appearanceColor: parsed.appearanceColor ?? null,
         durationMinutes: parsed.durationMinutes ?? null,
+        timezone: parsed.timezone ?? null,
         location: parsed.location ?? null,
         allDay: parsed.allDay ?? null,
         recurrenceRule: parsed.recurrenceRule ?? null,
@@ -647,6 +652,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
           appearanceIcon: after.interaction.appearanceIcon,
           appearanceColor: after.interaction.appearanceColor,
           durationMinutes: after.interaction.durationMinutes,
+          timezone: after.interaction.timezone ?? null,
           location: after.interaction.location,
           allDay: after.interaction.allDay,
           recurrenceRule: after.interaction.recurrenceRule,
@@ -675,6 +681,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         interaction.appearanceIcon = after.interaction.appearanceIcon
         interaction.appearanceColor = after.interaction.appearanceColor
         interaction.durationMinutes = after.interaction.durationMinutes
+        interaction.timezone = after.interaction.timezone ?? null
         interaction.location = after.interaction.location
         interaction.allDay = after.interaction.allDay
         interaction.recurrenceRule = after.interaction.recurrenceRule
@@ -773,6 +780,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       )
       const currentCoreValues = {
         durationMinutes: interaction.durationMinutes,
+        timezone: interaction.timezone ?? null,
         allDay: interaction.allDay,
         recurrenceRule: interaction.recurrenceRule,
         recurrenceEnd: interaction.recurrenceEnd,
@@ -878,6 +886,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       if (parsed.body !== undefined) interaction.body = parsed.body ?? null
       if (parsed.status !== undefined) interaction.status = parsed.status
       if (parsed.scheduledAt !== undefined) interaction.scheduledAt = parsed.scheduledAt ?? null
+      if (parsed.timezone !== undefined) interaction.timezone = parsed.timezone ?? null
       if (parsed.occurredAt !== undefined) interaction.occurredAt = parsed.occurredAt ?? null
       if (sameTypeFields.priority !== undefined) interaction.priority = sameTypeFields.priority as number | null
       if (parsed.authorUserId !== undefined) interaction.authorUserId = parsed.authorUserId ?? null
@@ -1013,6 +1022,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           appearanceIcon: before.interaction.appearanceIcon,
           appearanceColor: before.interaction.appearanceColor,
           durationMinutes: before.interaction.durationMinutes,
+          timezone: before.interaction.timezone ?? null,
           location: before.interaction.location,
           allDay: before.interaction.allDay,
           recurrenceRule: before.interaction.recurrenceRule,
@@ -1042,6 +1052,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         interaction.appearanceIcon = before.interaction.appearanceIcon
         interaction.appearanceColor = before.interaction.appearanceColor
         interaction.durationMinutes = before.interaction.durationMinutes
+        interaction.timezone = before.interaction.timezone ?? null
         interaction.location = before.interaction.location
         interaction.allDay = before.interaction.allDay
         interaction.recurrenceRule = before.interaction.recurrenceRule
@@ -1493,6 +1504,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
             appearanceIcon: before.interaction.appearanceIcon,
             appearanceColor: before.interaction.appearanceColor,
             durationMinutes: before.interaction.durationMinutes,
+            timezone: before.interaction.timezone ?? null,
             location: before.interaction.location,
             allDay: before.interaction.allDay,
             recurrenceRule: before.interaction.recurrenceRule,
@@ -1523,6 +1535,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
           interaction.appearanceIcon = before.interaction.appearanceIcon
           interaction.appearanceColor = before.interaction.appearanceColor
           interaction.durationMinutes = before.interaction.durationMinutes
+          interaction.timezone = before.interaction.timezone ?? null
           interaction.location = before.interaction.location
           interaction.allDay = before.interaction.allDay
           interaction.recurrenceRule = before.interaction.recurrenceRule

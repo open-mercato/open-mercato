@@ -97,6 +97,30 @@ describe('getMergedAvailabilityWindows', () => {
     ])
   })
 
+  it('uses weekly staff schedules before the next-occurrence DTSTART anchor only when requested', () => {
+    const params = {
+      respectTimezone: true,
+      rules: [{ rrule: 'DTSTART:20261006T070000Z\nDURATION:PT4H\nRRULE:FREQ=WEEKLY;BYDAY=TU', timezone: 'Europe/Warsaw' }],
+      range: { start: new Date('2026-09-29T07:15:00Z'), end: new Date('2026-09-29T10:00:00Z') },
+    }
+    expect(getMergedAvailabilityWindows(params)).toEqual([])
+    expect(getMergedAvailabilityWindows({ ...params, weeklyScheduleTemplate: true }).map(toIsoWindow)).toEqual([
+      { start: '2026-09-29T07:00:00.000Z', end: '2026-09-29T11:00:00.000Z' },
+    ])
+  })
+
+  it('preserves dated one-off availability and count-bounded weekly starts in schedule-template mode', () => {
+    const params = { respectTimezone: true, weeklyScheduleTemplate: true,
+      range: { start: new Date('2026-09-29T07:15:00Z'), end: new Date('2026-09-29T10:00:00Z') },
+    }
+    expect(getMergedAvailabilityWindows({ ...params,
+      rules: [{ rrule: 'DTSTART:20261006T070000Z;DURATION:PT4H;FREQ=DAILY;COUNT=1', timezone: 'Europe/Warsaw' }],
+    })).toEqual([])
+    expect(getMergedAvailabilityWindows({ ...params,
+      rules: [{ rrule: 'DTSTART:20261006T070000Z;DURATION:PT4H;FREQ=WEEKLY;COUNT=2', timezone: 'Europe/Warsaw' }],
+    })).toEqual([])
+  })
+
   it('preserves UTC semantics for existing callers that supply a non-UTC timezone', () => {
     const windows = getMergedAvailabilityWindows({
       rules: [{ rrule: 'DTSTART:20260322T080000Z;DURATION:PT2H;FREQ=WEEKLY', timezone: 'Europe/Warsaw' }],

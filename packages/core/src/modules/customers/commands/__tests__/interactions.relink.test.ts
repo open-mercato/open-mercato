@@ -16,6 +16,13 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CustomerDeal, CustomerEntity, CustomerInteraction } from '../../data/entities'
+import { registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds } from '@open-mercato/shared/modules/widgets/injection-loader'
+
+beforeEach(() => {
+  registerCoreInjectionWidgets([])
+  registerCoreInjectionTables([])
+  registerEnabledModuleIds(['customers'])
+})
 
 type EmLike = {
   find: (...args: unknown[]) => Promise<unknown>
@@ -87,6 +94,7 @@ function createInteraction(entity: CustomerEntity): CustomerInteraction {
     appearanceColor: null,
     pinned: false,
     durationMinutes: null,
+    timezone: 'America/New_York',
     location: null,
     allDay: null,
     recurrenceRule: null,
@@ -181,6 +189,8 @@ function createHarness(interaction: CustomerInteraction, entities: CustomerEntit
           return dataEngine
         case 'eventBus':
           return eventBus
+        case 'organizationHierarchyService':
+          return { resolveAncestorIds: async () => [] }
         default:
           throw new Error(`Unexpected dependency: ${token}`)
       }
@@ -327,6 +337,7 @@ describe('customers.interactions.update — re-linking to a different CRM record
           appearanceColor: null,
           source: null,
           durationMinutes: null,
+          timezone: 'Europe/Warsaw',
           location: null,
           allDay: null,
           recurrenceRule: null,
@@ -361,6 +372,7 @@ describe('customers.interactions.update — re-linking to a different CRM record
       await handler().undo!({ input: {}, ctx, logEntry: logEntry as never })
 
       expect(interaction.entity).toBe(original)
+      expect(interaction.timezone).toBe('Europe/Warsaw')
       expect(recomputedEntityIds).toEqual(expect.arrayContaining([CURRENT_ENTITY_ID, TARGET_ENTITY_ID]))
       expect(nextInteractionTargets(emitCalls).sort()).toEqual([CURRENT_ENTITY_ID, TARGET_ENTITY_ID].sort())
     })

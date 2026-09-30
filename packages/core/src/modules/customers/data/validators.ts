@@ -3,6 +3,7 @@ import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
+import { isCalendarTimezone } from '../lib/calendar/timezone'
 
 const uuid = () => z.string().uuid()
 
@@ -495,7 +496,10 @@ const interactionGuestPermissionsSchema = z
   })
   .strict()
 
+export const calendarTimezoneSchema = z.string().trim().min(1).max(120).refine(isCalendarTimezone, { message: 'customers.calendar.editor.validation.timezoneInvalid' })
+
 const interactionExtendedFields = {
+  timezone: calendarTimezoneSchema.optional().nullable(),
   durationMinutes: z.number().int().min(0).optional().nullable(),
   location: z.string().trim().max(500).optional().nullable(),
   allDay: z.boolean().optional().nullable(),

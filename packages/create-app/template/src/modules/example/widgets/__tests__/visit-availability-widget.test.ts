@@ -27,6 +27,12 @@ describe('selected Visit availability widget', () => {
     expect(jest.mocked(apiCall).mock.calls[1]?.[0]).toContain('/api/example/visit-availability?')
   })
 
+  it('checks a mixed-case persisted Visit key', async () => {
+    jest.mocked(apiCall).mockResolvedValue({ ok: true, status: 200, result: { subjects: [] }, response: {} as Response, cacheStatus: null })
+    expect(await widget.eventHandlers?.onBeforeSave?.({ ...values, category: ' Visit ' }, {})).toEqual({ ok: true })
+    expect(jest.mocked(apiCall).mock.calls[1]?.[0]).toContain('/api/example/visit-availability?')
+  })
+
   it('fails closed when the interval or lookup is unavailable', async () => {
     expect(await widget.eventHandlers?.onBeforeSave?.({ ...values, endTime: '09:00' }, {}))
       .toEqual({ ok: false, fieldErrors: { ends: 'example.calendar.visitAvailability.invalidInterval' } })

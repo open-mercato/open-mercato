@@ -19,6 +19,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import { calendarDayEndInstant, calendarWallTimeToInstant, calendarTimezoneOptions, defaultCalendarTimezone, isCalendarTimezone } from '../../lib/calendar/timezone'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { E } from '#generated/entities.ids.generated'
@@ -39,8 +41,9 @@ import { EDITOR_SCROLL_EVENT, Field } from './editor/inputs'
 import { SegmentGroup } from './editor/SegmentGroup'
 import { RelatedToField } from './editor/RelatedToField'
 import { useConflictProbe, useEditorLabelResolution } from './editor/hooks'
+import { CalendarDiscardDialog } from './CalendarDiscardDialog'
 import { EventTypePanel } from './editor/EventTypePanel'
-import { eventTypeConfig, eventTypeOptions, selectedEventType, useEventTypeCatalog } from './editor/useEventTypeCatalog'
+import { eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from './editor/useEventTypeCatalog'
 import type { ScopedCalendarEventType } from '../../lib/calendar/eventTypeResolver'
 
 export interface CalendarEventEditorProps {
@@ -149,7 +152,7 @@ function EditorBody({
   )
   React.useEffect(() => {
     if (isEdit || !catalogReady) return
-    if (catalogItems.some((item) => item.key === selectedType && item.selectable && !item.historical)) return
+    if (isSelectableEventType(catalogItems, selectedType)) return
     const firstSelectable = catalogItems.find((item) => item.selectable && !item.historical)
     if (!firstSelectable) return
     update({ kind: firstSelectable.behavior.baseKind, category: firstSelectable.key })
@@ -222,6 +225,12 @@ function EditorBody({
           size="lg"
         />
       </Field>
+      <Field label={t('customers.calendar.editor.timezone', 'Time zone')} error={errors.timezone}>
+        <Select value={form.timezone ?? defaultCalendarTimezone()} onValueChange={(timezone) => update({ timezone })} disabled={saving}>
+          <SelectTrigger aria-label={t('customers.calendar.editor.timezone', 'Time zone')}><SelectValue /></SelectTrigger>
+          <SelectContent>{calendarTimezoneOptions().map((timezone) => <SelectItem key={timezone} value={timezone}>{timezone}</SelectItem>)}</SelectContent>
+        </Select>
+      </Field>
       <div className="lg:col-span-2">
         <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
           <RelatedToField
@@ -277,6 +286,14 @@ export function CalendarEventEditor({
   const t = useT()
   const [saving, setSaving] = React.useState(false)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const dirtyRef = React.useRef(false)
+  const [discardOpen, setDiscardOpen] = React.useState(false)
+  const requestClose = React.useCallback(() => {
+    if (saving) return
+    if (dirtyRef.current) setDiscardOpen(true)
+    else onOpenChange(false)
+  }, [onOpenChange, saving])
+  React.useEffect(() => { if (!open) { dirtyRef.current = false; setDiscardOpen(false) } }, [open])
   const isEdit = mode === 'edit' && Boolean(item?.id)
   const catalog = useEventTypeCatalog(open)
   const [selectedTypeKey, setSelectedTypeKey] = React.useState(() => isEdit && item ? item.interactionType : 'meeting')
@@ -308,7 +325,7 @@ export function CalendarEventEditor({
   const selectedDefinition = selectedEventType(catalog.items, selectedTypeKey)
   const customFields = useCalendarCustomFields(open, E.customers.customer_interaction, selectedDefinition.behavior.customFieldsetIds)
   const injectionWidgets = useInjectionWidgets(INTERACTION_INJECTION_SPOT)
-  const canCreateType = catalog.items.some((entry) => entry.key === selectedTypeKey && entry.selectable && !entry.historical)
+  const canCreateType = isSelectableEventType(catalog.items, selectedTypeKey)
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -319,18 +336,25 @@ export function CalendarEventEditor({
       const definition = selectedEventType(catalog.items, form.category ?? form.kind)
       const selectedKey = form.category ?? form.kind
       if ((mode === 'create' || selectedKey !== initialTypeKey) &&
-        !catalog.items.some((entry) => entry.key === selectedKey && entry.selectable && !entry.historical)) {
+        !isSelectableEventType(catalog.items, selectedKey)) {
         throw createCrudFormError(t('customers.calendar.editor.typeUnavailable'))
       }
       const config = eventTypeConfig(definition)
       const fieldErrors: Record<string, string> = {}
+      const timezone = form.timezone ?? defaultCalendarTimezone()
+      const startTime = form.allDay && config.hasAllDay ? '00:00' : form.startTime
+      if (!isCalendarTimezone(timezone)) fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneInvalid', 'Choose a valid time zone')
+      else if (!calendarWallTimeToInstant(form.date, startTime, timezone)) fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
+      if (config.hasEnd && !form.allDay && isCalendarTimezone(timezone) && !calendarWallTimeToInstant(form.endDate, form.endTime, timezone)) {
+        fieldErrors.ends = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
+      }
       if (!form.title.trim()) {
         fieldErrors.title = t('customers.calendar.editor.validation.titleRequired', 'Title is required')
       }
       if (!form.relatedTo) {
         fieldErrors.relatedTo = t('customers.calendar.editor.validation.relatedToRequired', 'Select a person or company to link this event')
       }
-      if (config.hasEnd && !form.allDay && computeDurationMinutes(form) === null) {
+      if (!fieldErrors.ends && config.hasEnd && !form.allDay && computeDurationMinutes(form) === null) {
         fieldErrors.ends = t('customers.calendar.editor.validation.endsBeforeStarts', 'End must be after start')
       }
       // A task must be assigned to a team member — surface the requirement inline
@@ -348,7 +372,7 @@ export function CalendarEventEditor({
       }
       setSaving(true)
       try {
-        const payload = buildInteractionPayload(form, {
+        const payload = buildInteractionPayload({ ...form, timezone }, {
           mode,
           id: item?.id,
           resourcesEnabled: resourcesEnabled === true,
@@ -357,14 +381,15 @@ export function CalendarEventEditor({
         const applicable = definition.behavior.fields
         const time = form.allDay && applicable.allDay ? '00:00' : form.startTime
         payload.time = time
-        payload.scheduledAt = new Date(`${form.date}T${time}:00`).toISOString()
+        payload.scheduledAt = calendarWallTimeToInstant(form.date, time, timezone)!.toISOString()
+        payload.timezone = timezone
         payload.allDay = applicable.allDay ? form.allDay : null
         payload.durationMinutes = applicable.endTime && !(form.allDay && applicable.allDay) ? computeDurationMinutes(form) : null
         payload.location = applicable.location === 'none' ? null : form.location.trim() || null
         const recurrenceRule = applicable.recurrence ? buildRecurrenceRule(form) : null
         payload.recurrenceRule = recurrenceRule
         payload.recurrenceEnd = recurrenceRule && form.repeatEndType === 'date' && form.repeatUntilDate
-          ? new Date(form.repeatUntilDate).toISOString()
+          ? calendarDayEndInstant(form.repeatUntilDate, timezone)!.toISOString()
           : null
         payload.participants = applicable.people !== 'none' && applicable.people !== 'assignee' && form.participants.length
           ? form.participants.map((participant) => ({
@@ -470,6 +495,7 @@ export function CalendarEventEditor({
   )
 
   const handleKeyDown = useDialogKeyHandler({
+    onCancel: () => { void requestClose() },
     onConfirm: () => {
       const formElement = document.getElementById(FORM_ID)
       if (formElement instanceof HTMLFormElement) formElement.requestSubmit()
@@ -480,7 +506,7 @@ export function CalendarEventEditor({
   const dialogTitle = isEdit ? t('customers.calendar.editor.title.edit', 'Edit event') : t('customers.calendar.editor.title.create', 'New event')
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else void requestClose() }}>
       <DialogContent
         onKeyDown={handleKeyDown}
         // Only dismiss on a genuine click OUTSIDE the whole editor. Radix
@@ -508,7 +534,7 @@ export function CalendarEventEditor({
           <IconButton
             variant="ghost"
             size="sm"
-            onClick={() => onOpenChange(false)}
+            onClick={() => { void requestClose() }}
             aria-label={t('customers.calendar.editor.close', 'Close')}
             className="shrink-0 text-muted-foreground"
           >
@@ -530,6 +556,8 @@ export function CalendarEventEditor({
               key={formKey}
               formId={FORM_ID}
               embedded
+              trackDirtyWhenEmbedded
+              onDirtyChange={(dirty) => { dirtyRef.current = dirty }}
               hideFooterActions
               customFieldsManageMode="page"
               fields={customFields.fields}
@@ -557,6 +585,10 @@ export function CalendarEventEditor({
           </Button>
         </div>
       </DialogContent>
+      <CalendarDiscardDialog open={discardOpen} onKeepEditing={() => setDiscardOpen(false)} onDiscard={() => {
+        setDiscardOpen(false)
+        onOpenChange(false)
+      }} />
       {ConfirmDialogElement}
     </Dialog>
   )

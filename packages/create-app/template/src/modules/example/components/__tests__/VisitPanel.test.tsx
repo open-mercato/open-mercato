@@ -8,9 +8,7 @@ import { VisitPanel } from '../VisitPanel'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => (key: string) => key }))
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({ apiCall: jest.fn(), readApiResultOrThrow: jest.fn() }))
-jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
-  ComboboxInput: ({ placeholder }: { placeholder: string }) => <input placeholder={placeholder} />,
-}))
+
 
 const props: CalendarEventTypePanelProps = {
   definition: {
@@ -36,23 +34,23 @@ describe('VisitPanel optional availability modules', () => {
   })
   afterEach(() => jest.useRealTimers())
 
-  it('warns immediately and avoids selecting or checking absent staff and resources', async () => {
-    render(<VisitPanel {...props} />)
+  it('keeps the supplied standard panel and avoids checking absent staff and resources', async () => {
+    render(<VisitPanel {...props}><div data-testid="standard-calendar-fields" /></VisitPanel>)
     expect(screen.getByTestId('example-visit-optional-modules-warning')).toHaveTextContent('example.calendar.visitAvailability.staffDisabled')
     expect(screen.getByTestId('example-visit-optional-modules-warning')).toHaveTextContent('example.calendar.visitAvailability.resourcesDisabled')
-    expect(screen.queryByPlaceholderText('example.calendar.visitAvailability.addResource')).not.toBeInTheDocument()
-    expect(screen.getByPlaceholderText('example.calendar.visitAvailability.addRecipient')).toBeInTheDocument()
+    expect(screen.getByTestId('standard-calendar-fields')).toBeInTheDocument()
+    expect(document.querySelector('input[type="date"], input[type="time"]')).toBeNull()
     await act(async () => { jest.advanceTimersByTime(250) })
     const url = new URL(String(jest.mocked(apiCall).mock.calls[0]?.[0]), 'http://localhost')
     expect(url.searchParams.has('staffUserIds')).toBe(false)
     expect(url.searchParams.has('resourceIds')).toBe(false)
   })
 
-  it('shows scheduling and linked-resource server errors inline', () => {
+  it('shows recipient and linked-resource errors alongside the supplied panel', () => {
     render(<VisitPanel {...props} capabilities={{ staffEnabled: true, resourcesEnabled: true }} errors={{
-      scheduledAt: 'Invalid visit interval', linkedEntities: 'Resource unavailable',
+      participants: 'Participant unavailable', linkedEntities: 'Resource unavailable',
     }} />)
-    expect(screen.getByText('Invalid visit interval')).toHaveAttribute('role', 'alert')
+    expect(screen.getByText('Participant unavailable')).toHaveAttribute('role', 'alert')
     expect(screen.getByText('Resource unavailable')).toHaveAttribute('role', 'alert')
   })
 
@@ -63,6 +61,6 @@ describe('VisitPanel optional availability modules', () => {
     render(<VisitPanel {...props} capabilities={{ staffEnabled: true, resourcesEnabled: true }} />)
     await act(async () => { jest.advanceTimersByTime(250) })
     expect(screen.getByTestId('example-visit-optional-modules-warning')).toHaveTextContent('example.calendar.visitAvailability.plannerDisabled')
-    expect(screen.getByPlaceholderText('example.calendar.visitAvailability.addResource')).toBeInTheDocument()
+
   })
 })

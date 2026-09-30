@@ -1,6 +1,7 @@
 import { evaluateVisitAvailability, visitAvailabilityInputSchema, visitAvailabilityWarnings } from '../visitAvailability'
 import { visitAvailabilityInterceptors } from '../visitAvailabilityGuard'
 import { getEnabledModuleIds, hasEnabledModulesRegistry } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { DefaultPlannerAvailabilityService } from '@open-mercato/core/modules/planner/services/plannerAvailabilityService'
 import type { CalendarEventTypeBehavior } from '@open-mercato/core/modules/customers/calendar-event-types'
 
 jest.mock('@open-mercato/shared/security/enabledModulesRegistry', () => ({
@@ -156,6 +157,35 @@ describe('Visit availability', () => {
     }, { commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
       selectedOrganizationId: scope.organizationId, container: missingServiceContainer,
     })).toMatchObject({ ok: false, status: 503 })
+  })
+
+  it('accepts Alex Chen Tuesday 09:15–12:00 Warsaw inside a weekly 09:00–13:00 schedule anchored next week', async () => {
+    const query = jest.fn(async (entity: string, options: { tenantId: string; organizationId?: string; filters: Record<string, unknown> }) => {
+      expect(options.tenantId).toBe(scope.tenantId)
+      expect(options.organizationId).toBe(scope.organizationId)
+      if (entity === 'staff:staff_team_member') {
+        expect(options.filters).toEqual({ user_id: { $in: [USER_ID] }, is_active: true })
+        return { items: [{ id: MEMBER_ID, user_id: USER_ID, is_active: true }], total: 1 }
+      }
+      if (entity === 'planner:planner_availability_rule') {
+        expect(options.filters).toEqual({ $or: [{ subject_type: 'member', subject_id: MEMBER_ID }] })
+        return { items: [{ id: RULE_ID, rrule: 'DTSTART:20261006T070000Z\nDURATION:PT4H\nRRULE:FREQ=WEEKLY;BYDAY=TU',
+          timezone: 'Europe/Warsaw', kind: 'availability', exdates: [],
+        }], total: 1 }
+      }
+      throw new Error('unexpected availability query')
+    })
+    const services: Record<string, unknown> = { queryEngine: { query }, plannerAvailabilityService: new DefaultPlannerAvailabilityService(),
+      rbacService: { userHasAllFeatures: async () => true },
+    }
+    const container = { resolve: (name: string) => services[name] } as never
+    const interval = { startAt: '2026-09-29T09:15:00+02:00', endAt: '2026-09-29T12:00:00+02:00', staffUserIds: [USER_ID], resourceIds: [] }
+    expect(await evaluateVisitAvailability({ container, actorUserId: USER_ID, scope, input: interval })).toEqual([
+      { type: 'staff', id: USER_ID, status: 'available', reasonKey: null },
+    ])
+    expect(await evaluateVisitAvailability({ container, actorUserId: USER_ID, scope, input: { ...interval, endAt: '2026-09-29T13:15:00+02:00' } })).toEqual([
+      { type: 'staff', id: USER_ID, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.unavailable' },
+    ])
   })
 
   it('validates bounded IDs and interval', () => {
@@ -337,6 +367,34 @@ describe('Visit availability', () => {
     })).toEqual({ ok: true })
     expect(query).toHaveBeenCalledTimes(1)
     expect(planner.getMergedAvailabilityWindows).not.toHaveBeenCalled()
+  })
+
+  it.each(['Visit', ' VISIT '])('does not bypass availability for a normalized %s create', async (interactionType) => {
+    const { container } = setup({ gap: true })
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.create')!
+    expect(await interceptor.beforeExecute!({ entityId: RULE_ID, interactionType, scheduledAt: input.startAt,
+      durationMinutes: 60, participants: [{ userId: USER_ID }],
+    }, { commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: scope.organizationId, container: container as never,
+    })).toMatchObject({ ok: false, status: 422 })
+  })
+
+  it.each(['Visit', ' VISIT '])('does not bypass availability for a normalized %s update', async (interactionType) => {
+    const { container } = setup({ gap: true, existingType: 'Visit' })
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.update')!
+    expect(await interceptor.beforeExecute!({ id: RULE_ID, interactionType, durationMinutes: 61 }, {
+      commandId: 'customers.interactions.update', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: scope.organizationId, container: container as never,
+    })).toMatchObject({ ok: false, status: 422 })
+  })
+
+  it('checks a historically capitalized Visit when an update omits the type', async () => {
+    const { container } = setup({ gap: true, existingType: 'Visit' })
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.update')!
+    expect(await interceptor.beforeExecute!({ id: RULE_ID, durationMinutes: 61 }, {
+      commandId: 'customers.interactions.update', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: scope.organizationId, container: container as never,
+    })).toMatchObject({ ok: false, status: 422 })
   })
 
   it('returns an optimistic-lock conflict before looking up availability on a stale update', async () => {

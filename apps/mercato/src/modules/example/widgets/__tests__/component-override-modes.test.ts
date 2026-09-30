@@ -61,6 +61,30 @@ describe('example Visit panel wrapper', () => {
     setValue: jest.fn(),
   }
 
+  it('keeps the standard panel props and maps server errors into its field aliases', () => {
+    const Original = jest.fn((props: CalendarEventTypePanelProps) => React.createElement('div', {
+      'data-testid': 'original-formatting', 'data-schedule-error': props.errors.ends, 'data-resource-error': props.errors.resources,
+    }))
+    const WrappedPanel = withExampleCalendarEventTypePanel(Original)
+    const values = { ...baseProps.values, customValue: 'preserved' }
+    const capabilities = { staffEnabled: false, resourcesEnabled: false }
+    const markup = renderToStaticMarkup(React.createElement(I18nProvider, { locale: 'en', dict: catalog },
+      React.createElement(WrappedPanel, { ...baseProps, values, capabilities,
+        definition: { ...baseProps.definition, key: 'visit' }, panelKey: 'example.visit',
+        errors: { scheduledAt: 'Invalid interval', linkedEntities: 'Invalid resource' },
+      })))
+    expect(markup).toContain('original-formatting')
+    expect(markup).toContain('data-schedule-error="Invalid interval"')
+    expect(markup).toContain('data-resource-error="Invalid resource"')
+    const received = Original.mock.calls[0]?.[0]
+    expect(received?.values).toBe(values)
+    expect(received?.capabilities).toBe(capabilities)
+    expect(received?.setValue).toBe(baseProps.setValue)
+    expect(received?.disabled).toBe(baseProps.disabled)
+    expect(markup).not.toContain('type="date"')
+    expect(markup).not.toContain('type="time"')
+  })
+
   it('delegates other event types and renders the Visit availability panel for Visit', () => {
     const meeting = renderToStaticMarkup(React.createElement(Wrapped, baseProps))
     expect(meeting).toContain('default-calendar-panel')
@@ -75,7 +99,7 @@ describe('example Visit panel wrapper', () => {
       }),
     ))
     expect(visit).toContain('Visit availability')
-    expect(visit).not.toContain('default-calendar-panel')
+    expect(visit).toContain('default-calendar-panel')
     expect(visit).not.toContain('type="submit"')
   })
 })

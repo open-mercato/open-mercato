@@ -39,9 +39,10 @@ export function selectedEventType(
   items: readonly ScopedCalendarEventType[],
   key: string,
 ): EffectiveCalendarEventType {
-  const selected = items.find((item) => item.key === key)
+  const normalizedKey = key.trim().toLowerCase()
+  const selected = items.find((item) => item.key === normalizedKey)
   if (selected) return selected
-  const baseline = calendarEventTypes.find((item) => item.key === key) ?? calendarEventTypes[0]!
+  const baseline = calendarEventTypes.find((item) => item.key === normalizedKey) ?? calendarEventTypes[0]!
   return {
     ...baseline,
     key,
@@ -52,6 +53,11 @@ export function selectedEventType(
   }
 }
 
+export function isSelectableEventType(items: readonly ScopedCalendarEventType[], key: string): boolean {
+  const normalizedKey = key.trim().toLowerCase()
+  return items.some((item) => item.key === normalizedKey && item.selectable && !item.historical)
+}
+
 export function eventTypeOptions(
   items: readonly ScopedCalendarEventType[],
   selectedKey: string,
@@ -60,12 +66,13 @@ export function eventTypeOptions(
   const displayLabel = (item: ScopedCalendarEventType) => item.labelKey
     ? translate(item.labelKey, item.label)
     : item.label
+  const normalizedSelectedKey = selectedKey.trim().toLowerCase()
   const options = items
     .filter((item) => item.selectable && !item.historical)
     .sort((left, right) => left.behavior.order - right.behavior.order)
-    .map((item) => ({ value: item.key, label: displayLabel(item), icon: item.icon ?? null }))
+    .map((item) => ({ value: item.key === normalizedSelectedKey ? selectedKey : item.key, label: displayLabel(item), icon: item.icon ?? null }))
   if (!options.some((option) => option.value === selectedKey)) {
-    const current = items.find((item) => item.key === selectedKey)
+    const current = items.find((item) => item.key === normalizedSelectedKey)
     options.unshift({ value: selectedKey, label: current ? displayLabel(current) : selectedKey, icon: current?.icon ?? null })
   }
   return options

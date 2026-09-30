@@ -35,11 +35,11 @@ function panelProps(key: string, setValue = jest.fn()): CalendarEventTypePanelPr
 describe('DefaultEventTypePanel', () => {
   test.each([
     ['meeting', true, true, true, 'location', 'multi', false],
-    ['call', false, true, true, 'phoneLink', 'multi', false],
+    ['call', true, true, true, 'phoneLink', 'multi', false],
     ['email', false, true, true, null, 'multi', false],
     ['note', false, false, false, null, null, false],
     ['event', true, true, true, 'location', 'multi', false],
-    ['task', false, true, true, null, 'single', true],
+    ['task', true, true, true, null, 'single', true],
   ] as const)('renders the baseline %s controls', (key, hasEnd, hasAllDay, hasRepeat, location, people, hasPriority) => {
     const { unmount } = renderWithProviders(<DefaultEventTypePanel {...panelProps(key)} />)
     expect(screen.getByTestId('schedule')).toHaveAttribute('data-end', String(hasEnd))

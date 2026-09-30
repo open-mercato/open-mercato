@@ -282,6 +282,39 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
     })
   }
 
+  test('round trips the selected event timezone and rejects an invalid zone', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let personId: string | null = null
+    let interactionId: string | null = null
+    try {
+      personId = await createPersonFixture(request, token, { firstName: 'Timezone', lastName: String(Date.now()), displayName: `Timezone roundtrip ${Date.now()}` })
+      const invalid = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: { entityId: personId, interactionType: 'meeting', timezone: 'Invalid/Zone', scheduledAt: '2026-09-29T07:15:00Z' },
+      })
+      expect(invalid.status(), await invalid.text()).toBe(400)
+      const created = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: { entityId: personId, interactionType: 'meeting', title: 'Chosen timezone', timezone: 'Europe/Warsaw', scheduledAt: '2026-09-29T07:15:00Z', durationMinutes: 165 },
+      })
+      expect(created.status(), await created.text()).toBe(201)
+      interactionId = (await created.json() as { id: string }).id
+      const list = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}`, { token })
+      expect(list.status()).toBe(200)
+      const saved = (await list.json() as { items: Array<{ id: string; timezone: string; scheduledAt: string; updatedAt: string }> }).items.find((item) => item.id === interactionId)!
+      expect(saved).toMatchObject({ timezone: 'Europe/Warsaw', scheduledAt: '2026-09-29T07:15:00.000Z' })
+      const updated = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+        token, headers: { 'x-om-ext-optimistic-lock-expected-updated-at': saved.updatedAt },
+        data: { id: interactionId, timezone: 'UTC', scheduledAt: '2026-09-29T09:15:00Z' },
+      })
+      expect(updated.status(), await updated.text()).toBe(200)
+      const refreshed = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}`, { token })
+      expect(refreshed.status()).toBe(200)
+      expect((await refreshed.json() as { items: Array<{ id: string; timezone: string; scheduledAt: string }> }).items.find((item) => item.id === interactionId)).toMatchObject({ timezone: 'UTC', scheduledAt: '2026-09-29T09:15:00.000Z' })
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
   test('does not expose a sibling organization’s activity type in the selected organization', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const superToken = await getAuthToken(request, 'superadmin')

@@ -189,6 +189,7 @@ export async function hydrateCanonicalInteractions({
       appearanceColor: interaction.appearanceColor ?? null,
       source: interaction.source ?? null,
       duration: interaction.durationMinutes ?? null,
+      timezone: interaction.timezone ?? null,
       location: interaction.location ?? null,
       allDay: interaction.allDay ?? null,
       recurrenceRule: interaction.recurrenceRule ?? null,

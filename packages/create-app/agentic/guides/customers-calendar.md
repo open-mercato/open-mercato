@@ -7,7 +7,7 @@ Use this guide after `.ai/guides/modules/customers/index.md` when adding, removi
 - [Customers definitions, schemas, and registry operations](../../node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts)
 - [Customers server catalog resolution](../../node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts)
 - [Customers editor](../../node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx)
-- [Example adds Visit, removes Note, and patches Meeting](../../src/modules/example/widgets/injection/calendar-visit/widget.ts)
+- [Example adds Visit and optionally demonstrates overrides](../../src/modules/example/widgets/injection/calendar-visit/widget.ts)
 - [Example injection bindings](../../src/modules/example/widgets/injection-table.ts)
 - [Example Visit lifecycle widget](../../src/modules/example/widgets/injection/visit-availability/widget.ts)
 - [Example optional availability checks](../../src/modules/example/lib/visitAvailability.ts)
@@ -40,6 +40,16 @@ Staff and resources are optional integrations. Do not statically import their en
 
 The availability widget must gate its handlers to Visit itself; UI visibility alone does not gate mutation hooks. Keep matching server validation in API/command interceptors so direct calls enforce the same rules. Preserve tenant/organization scope, optimistic locking, guarded mutations, and the read/save/reload round trip.
 
+## Event timezones and recurring availability
+
+Every calendar event editor exposes an IANA timezone selector. Keep its `timezone` in form values when wrapping the standard panel; use the Customers wall-time helpers to convert its local date/time into the `scheduledAt` instant. The API accepts optional nullable `timezone`, validates explicit IANA names, and returns it on reads. Persist the chosen zone and restore it on edit. Legacy records with a null zone retain browser-local interpretation. Weekly event recurrence with an explicit zone preserves the event-local wall time across daylight-saving changes; reject nonexistent local times rather than shifting them silently. When a local time occurs twice during a fall-back transition, conversion chooses the earlier instant.
+
+The Visit example wraps the original Customers panel, preserving its datepicker, time selects, recipient/resource pickers, and two-column layout. Add availability feedback around `Original`; do not duplicate the editor fields or import its private components. The preview must convert values in the selected event timezone, independently of the browser timezone, and match the server's persisted interval.
+
+Planner timezone interpretation is explicit: Visit calls `plannerAvailabilityService.getMergedAvailabilityWindows` with `respectTimezone: true` and `weeklyScheduleTemplate: true`. The second option applies only to unbounded weekly schedules. Staff/resource weekly editors store the next matching weekday as `DTSTART`; treat that date as a weekday/time anchor rather than an effective start date. For example, a Tuesday 09:00–13:00 Warsaw template anchored on October 6 also covers September 29, 09:15–12:00 Warsaw. Preserve one-off date overrides and count-bounded recurrence start dates. Existing callers that omit these options retain their previous UTC/DTSTART semantics.
+
+Availability reads translate an auth `userId` to the active staff member `id` before querying planner `subjectType: 'member'`; these IDs are different. Scope checks to the interaction or parent customer's authorized organization, not merely the selected UI organization. A title-only edit need not revalidate its saved assignments; changing the interval or subjects must run the fresh check.
+
 ## Validation
 
-Run `yarn generate` after adding injection files, then the smallest relevant typecheck and tests. Cover add/replace/patch/remove order, translated labels, custom fieldsets, historical fallback, Visit-only hooks, direct API validation, disabled staff, disabled resources, both absent, and enabled-but-denied dependencies. The harness regression is `OMH-238`; shared components and installed package files are outside the app's writable scope.
+Run `yarn generate` after adding injection files, then the smallest relevant typecheck and tests. Cover add/replace/patch/remove order, translated labels, custom fieldsets, historical fallback, Visit-only hooks, direct API validation, disabled staff, disabled resources, both absent, and enabled-but-denied dependencies, staff/resource weekly and one-off availability, selected-zone round trips, daylight-saving recurrence, and title-only edits after schedule removal. The harness regression is `OMH-238`; shared components and installed package files are outside the app's writable scope.

@@ -14,7 +14,8 @@ const widget: InjectionWidgetModule<InjectionContext, Record<string, unknown>> =
   Widget: VisitAvailabilityWidget,
   eventHandlers: {
     onBeforeSave: async (values) => {
-      if ((values.category ?? values.kind) !== 'visit') return { ok: true }
+      const eventTypeKey = values.category ?? values.kind
+      if (typeof eventTypeKey !== 'string' || eventTypeKey.trim().toLowerCase() !== 'visit') return { ok: true }
       let fields: Record<string, unknown>
       try {
         const catalog = await apiCall<{ items: { key: string; behavior: { fields: Record<string, unknown> } }[] }>('/api/customers/activity-types')

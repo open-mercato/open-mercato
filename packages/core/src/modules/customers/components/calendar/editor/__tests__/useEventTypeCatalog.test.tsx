@@ -9,7 +9,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
 }))
 
-import { eventTypeConfig, eventTypeOptions, selectedEventType, useEventTypeCatalog } from '../useEventTypeCatalog'
+import { eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from '../useEventTypeCatalog'
 
 function scopedType(key: string, order: number, selectable = true): ScopedCalendarEventType {
   return {
@@ -60,6 +60,16 @@ describe('calendar editor scoped type catalog', () => {
       },
     }
     expect(eventTypeConfig(custom)).toMatchObject({ hasRepeat: false, location: null })
+  })
+
+  it('resolves mixed-case stored keys with the configured behavior and keeps their selected value', () => {
+    const type = { ...scopedType('site visit', 0), label: 'Site visit', behavior: { ...calendarEventTypes[0]!.behavior, fields: { ...calendarEventTypes[0]!.behavior.fields, endTime: false, priority: true } } }
+    expect(selectedEventType([type], ' Site Visit ')).toBe(type)
+    expect(eventTypeConfig(selectedEventType([type], ' Site Visit '))).toMatchObject({ hasEnd: false, hasPriority: true })
+    expect(eventTypeOptions([type], ' Site Visit ', (_key, fallback) => fallback)).toEqual([{ value: ' Site Visit ', label: 'Site visit', icon: type.icon }])
+    expect(isSelectableEventType([type], ' Site Visit ')).toBe(true)
+    expect(isSelectableEventType([{ ...type, selectable: false }], ' Site Visit ')).toBe(false)
+    expect(selectedEventType([], 'Task').behavior.baseKind).toBe('task')
   })
 
   it('loads once per open and retries after a catalog failure', async () => {

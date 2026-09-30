@@ -572,7 +572,7 @@ export class CustomerActivity {
     `create index "customer_interactions_email_channel_idx" on "customer_interactions" ("channel_id", "entity_id") where "interaction_type" = 'email' and "channel_id" is not null and "deleted_at" is null`,
 })
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey' | 'channelId'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'timezone' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey' | 'channelId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -661,6 +661,9 @@ export class CustomerInteraction {
 
   @Property({ name: 'deal_id', type: 'uuid', nullable: true })
   dealId?: string | null
+
+  @Property({ name: 'timezone', type: 'text', nullable: true })
+  timezone?: string | null
 
   @Property({ name: 'duration_minutes', type: 'int', nullable: true })
   durationMinutes?: number | null

@@ -1,6 +1,7 @@
 import type { CalendarItem } from '../../components/calendar/types'
 import { calendarEventTypeKeySchema, resolveCalendarEventType } from '../../calendar-event-types'
 import { parseRecurrenceRule } from './recurrence'
+import { calendarDayEndInstant, calendarInstantToWallTime, calendarWallTimeToInstant, defaultCalendarTimezone, isCalendarTimezone } from './timezone'
 
 export type EditorKind = 'meeting' | 'call' | 'email' | 'note' | 'event' | 'task'
 
@@ -157,6 +158,7 @@ export type EditorFormState = {
   allDay: boolean
   date: string
   startTime: string
+  timezone?: string
   endDate: string
   endTime: string
   repeatFreq: EditorRepeatFreq
@@ -241,6 +243,7 @@ export function createDefaultFormState(
   }
   return {
     kind: 'meeting',
+    timezone: defaultCalendarTimezone(),
     title: '',
     relatedTo: null,
     dealId: null,
@@ -282,15 +285,16 @@ export function buildRecurrenceRule(state: EditorFormState): string | null {
   }
   if (state.repeatEndType === 'count') rule += `;COUNT=${state.repeatCount}`
   if (state.repeatEndType === 'date' && state.repeatUntilDate) {
-    rule += `;UNTIL=${state.repeatUntilDate.replace(/-/g, '')}T235959Z`
+    const until = state.timezone ? calendarDayEndInstant(state.repeatUntilDate, state.timezone) : null
+    rule += `;UNTIL=${until ? until.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z') : `${state.repeatUntilDate.replace(/-/g, '')}T235959Z`}`
   }
   return rule
 }
 
 export function computeDurationMinutes(state: EditorFormState): number | null {
-  const start = new Date(`${state.date}T${state.startTime}:00`)
-  const end = new Date(`${state.endDate}T${state.endTime}:00`)
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null
+  const start = state.timezone ? calendarWallTimeToInstant(state.date, state.startTime, state.timezone) : new Date(`${state.date}T${state.startTime}:00`)
+  const end = state.timezone ? calendarWallTimeToInstant(state.endDate, state.endTime, state.timezone) : new Date(`${state.endDate}T${state.endTime}:00`)
+  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null
   const minutes = Math.round((end.getTime() - start.getTime()) / 60_000)
   return minutes > 0 ? minutes : null
 }
@@ -315,7 +319,9 @@ export type BuildPayloadOptions = {
 export function buildInteractionPayload(state: EditorFormState, options: BuildPayloadOptions): Record<string, unknown> {
   const config = KIND_CONFIG[state.kind]
   const time = state.allDay && config.hasAllDay ? '00:00' : state.startTime
-  const scheduledAt = new Date(`${state.date}T${time}:00`).toISOString()
+  const instant = state.timezone ? calendarWallTimeToInstant(state.date, time, state.timezone) : new Date(`${state.date}T${time}:00`)
+  if (!instant || !Number.isFinite(instant.getTime())) throw new Error('[internal] Invalid calendar local time')
+  const scheduledAt = instant.toISOString()
   const recurrenceRule = config.hasRepeat ? buildRecurrenceRule(state) : null
   const payload: Record<string, unknown> = {
     ...(options.mode === 'edit' && options.id ? { id: options.id } : {}),
@@ -328,13 +334,14 @@ export function buildInteractionPayload(state: EditorFormState, options: BuildPa
     date: state.date,
     time,
     scheduledAt,
+    ...(state.timezone ? { timezone: state.timezone } : {}),
     durationMinutes: config.hasEnd && !(state.allDay && config.hasAllDay) ? computeDurationMinutes(state) : null,
     allDay: config.hasAllDay ? state.allDay : null,
     location: config.location ? state.location.trim() || null : null,
     recurrenceRule,
     recurrenceEnd:
       recurrenceRule && state.repeatEndType === 'date' && state.repeatUntilDate
-        ? new Date(state.repeatUntilDate).toISOString()
+        ? (state.timezone ? calendarDayEndInstant(state.repeatUntilDate, state.timezone)! : new Date(state.repeatUntilDate)).toISOString()
         : null,
     participants:
       config.people && config.people !== 'assignee' && state.participants.length > 0
@@ -370,10 +377,11 @@ function readUnknownNumber(value: unknown): number | null {
 
 type ParsedRepeat = Pick<EditorFormState, 'repeatFreq' | 'repeatDays' | 'repeatEndType' | 'repeatCount' | 'repeatUntilDate'>
 
-function parseRepeatFromRule(rawRule: unknown, start: Date): ParsedRepeat {
+function parseRepeatFromRule(rawRule: unknown, start: Date, timezone?: string): ParsedRepeat {
+  const wallStart = timezone ? new Date(`${calendarInstantToWallTime(start, timezone).date}T12:00:00`) : start
   const fallback: ParsedRepeat = {
     repeatFreq: 'none',
-    repeatDays: defaultRepeatDays(start),
+    repeatDays: defaultRepeatDays(wallStart),
     repeatEndType: 'never',
     repeatCount: 8,
     repeatUntilDate: '',
@@ -382,7 +390,7 @@ function parseRepeatFromRule(rawRule: unknown, start: Date): ParsedRepeat {
   if (!ruleText) return fallback
   const parsed = parseRecurrenceRule(ruleText)
   if (!parsed) return fallback
-  const repeatDays = defaultRepeatDays(start)
+  const repeatDays = defaultRepeatDays(wallStart)
   if (parsed.byDay) {
     repeatDays.fill(false)
     for (const jsWeekday of parsed.byDay) repeatDays[(jsWeekday + 6) % 7] = true
@@ -395,7 +403,7 @@ function parseRepeatFromRule(rawRule: unknown, start: Date): ParsedRepeat {
     repeatCount = parsed.count
   } else if (parsed.until) {
     repeatEndType = 'date'
-    repeatUntilDate = `${parsed.until.getUTCFullYear()}-${padDatePart(parsed.until.getUTCMonth() + 1)}-${padDatePart(parsed.until.getUTCDate())}`
+    repeatUntilDate = timezone ? calendarInstantToWallTime(parsed.until, timezone).date : `${parsed.until.getUTCFullYear()}-${padDatePart(parsed.until.getUTCMonth() + 1)}-${padDatePart(parsed.until.getUTCDate())}`
   }
   return {
     repeatFreq: parsed.freq === 'DAILY' ? 'daily' : 'weekly',
@@ -425,6 +433,9 @@ export function parseItemToFormState(item: CalendarItem): EditorFormState {
   const kind = editorKindOfInteractionType(item.interactionType)
   const raw = item.raw as Record<string, unknown>
   const { resources, preservedLinkedEntities } = parseLinkedEntities(raw.linkedEntities)
+  const timezone = isCalendarTimezone(raw.timezone) ? raw.timezone : defaultCalendarTimezone()
+  const startWall = calendarInstantToWallTime(item.start, timezone)
+  const endWall = calendarInstantToWallTime(item.end, timezone)
   return {
     kind,
     title: item.title,
@@ -432,11 +443,13 @@ export function parseItemToFormState(item: CalendarItem): EditorFormState {
     dealId: item.dealId,
     dealLabel: null,
     allDay: item.allDay,
-    date: formatLocalDateInput(item.start),
-    startTime: formatLocalTimeInput(item.start),
-    endDate: formatLocalDateInput(item.end),
-    endTime: formatLocalTimeInput(item.end),
-    ...parseRepeatFromRule(item.raw.recurrenceRule, item.start),
+    timezone,
+    date: startWall.date,
+    startTime: startWall.time,
+    endDate: endWall.date,
+    endTime: endWall.time,
+    ...parseRepeatFromRule(item.raw.recurrenceRule, item.start, isCalendarTimezone(raw.timezone) ? timezone : undefined),
+    ...(item.raw.recurrenceEnd && isCalendarTimezone(raw.timezone) ? { repeatUntilDate: calendarInstantToWallTime(new Date(item.raw.recurrenceEnd), timezone).date } : {}),
     category: item.interactionType,
     location: item.location ?? '',
     participants: parseParticipants(item),
