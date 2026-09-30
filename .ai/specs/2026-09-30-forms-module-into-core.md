@@ -341,10 +341,17 @@ corresponding UI surfaces, each needing its own 409 path and conflict bar — a 
 size to the rest of this migration, and one that alters observable behaviour on every admin write.
 It belongs in its own PR with its own tests.
 
-Two things bound the risk in the meantime. The highest-churn surface — submission autosave — already
-has a domain-specific equivalent: `base_revision_id` is checked server-side and a stale base is
-rejected with `STALE_BASE` 409. And form *definitions* are edited by designers one at a time rather
-than concurrently, which is why the gap survived unnoticed upstream.
+One thing bounds the risk: the highest-churn surface — submission autosave — already has a
+domain-specific equivalent, `base_revision_id`, checked server-side with a `STALE_BASE` 409.
+
+**Form-version drafts have no concurrency control at all**, and it is worth stating plainly because
+an earlier draft of this spec implied otherwise. `forms.form_version.update_draft` accepts no
+expected version, overwrites the draft wholesale, and then recomputes `schemaHash` from what it just
+wrote — so the hash is a pure function of the caller's own write and is never compared against
+anything. Two designers on one draft silently last-write-wins and neither is told. A per-write
+expected-version header is genuinely the wrong mechanism for a debounced autosave editor (a 409
+raised mid-typing has no sensible recovery), so this needs a signal designed for that shape rather
+than the standard header — which is exactly why it is deferred rather than bolted on.
 
 ## Open Questions
 

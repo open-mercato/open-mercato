@@ -427,9 +427,15 @@ export function FormStudio({ formId }: { formId: string }) {
   // and the locale set — fired on a debounce while the designer types. A
   // per-write expected-version header is the wrong mechanism for that shape: the
   // version moves on every batch, and a 409 raised mid-typing has no sensible
-  // recovery. The draft's concurrency signal is instead the server-refreshed
-  // `schemaHash` read back from each response below. End-to-end locking for the
-  // forms admin surface is tracked in
+  // recovery.
+  //
+  // Stated plainly: draft writes currently have NO concurrency control at all.
+  // `forms.form_version.update_draft` accepts no expected version, overwrites
+  // the draft wholesale, and recomputes `schemaHash` from what it just wrote —
+  // so the hash is a pure function of the caller's own write and is never
+  // compared against anything. Two designers on one draft silently
+  // last-write-wins and neither is told. A concurrency signal that suits an
+  // autosave editor is tracked in
   // .ai/specs/2026-09-30-forms-module-into-core.md § Known limitations.
   const persistDraftRaw = React.useCallback(async (next: FormSchema) => {
     if (!draftVersionId) return
