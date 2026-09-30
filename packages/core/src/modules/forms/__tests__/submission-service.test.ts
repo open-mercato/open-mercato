@@ -541,6 +541,66 @@ describe('SubmissionService', () => {
     void em
   })
 
+  it('refuses save on a submitted submission, and allows it again after reopen', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0 })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+    const saved = await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      patch: { full_name: 'Jane' },
+      savedBy: patient,
+    })
+    const submitted = await service.submit({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: saved.revision.id,
+      submittedBy: patient,
+    })
+    expect(submitted.status).toBe('submitted')
+
+    // A submitted submission is a signed record. `save()` guarded only
+    // `archived`, so a participant holding a live token could keep appending
+    // revisions while `submittedAt`/`submitMetadata` still attested to the
+    // original submit.
+    await expect(service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: saved.revision.id,
+      patch: { full_name: 'Tampered' },
+      savedBy: patient,
+    })).rejects.toMatchObject({ code: 'INVALID_STATUS', httpStatus: 422 })
+
+    // The audited re-edit path still works: reopen sets `reopened`, which is
+    // savable, so the guard must not block it.
+    await service.reopen({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      reopenedBy: patient,
+    })
+    const afterReopen = await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: saved.revision.id,
+      patch: { full_name: 'Legitimately revised' },
+      savedBy: patient,
+    })
+    expect(afterReopen.revision.revisionNumber).toBeGreaterThan(saved.revision.revisionNumber)
+  })
+
   it('refuses submit when the user has no active actor row (403 NO_ACTOR)', async () => {
     const { service } = createTestSetup({ autosaveIntervalMs: 0 })
     const patient = randomUUID()
