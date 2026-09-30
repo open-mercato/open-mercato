@@ -51,6 +51,27 @@ precedence change landed. If you maintain a fork with its own `apps/<host>/src/i
 it the same way before upgrading: a key that duplicates a module key with a different value now
 silently wins, for better or for worse.
 
+### `ChannelAdapter.fetchHistory` receives `scope.organizationId: null` for a channel with no organization (#6331)
+
+The `communication_channels` poll worker used to hand `adapter.fetchHistory` a scope in which a
+channel's missing organization (`communication_channels.organization_id IS NULL` — tenant-wide
+channels and channels created before organization scoping) was replaced by the tenant id. An
+adapter that scoped its own storage or provider queries by `input.scope.organizationId` therefore
+looked in a bucket that does not exist.
+
+`FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
+(`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
+own organization — `null` when it has none. The Gmail push path (`gmail-history-sync` →
+`applyPushNotification`, which forwards its scope into `fetchHistory`) still substitutes the tenant
+id and is tracked in #6634, so adapters should keep handling both shapes for now. `TenantScope` and every other adapter input are unchanged,
+and the hub still resolves channel credentials under the key they are written with (the tenant id
+for an organization-less channel).
+
+**Action for adapter authors:** if your `fetchHistory` reads `input.scope.organizationId`, handle
+`null` (a tenant-wide channel). TypeScript now flags code that passes it where a `string` is
+required. If you previously worked around the substitution by resolving the channel's real
+organization yourself, that workaround keeps working and can be dropped.
+
 ### `customers` now requires `progress` to be enabled (#6302)
 
 `customers`'s deal bulk-update workers and lib (`lib/bulkDeals.ts`,
