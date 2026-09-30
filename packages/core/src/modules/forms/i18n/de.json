@@ -1,4 +1,5 @@
 {
+  "backend.nav.operations": "Betrieb",
   "forms.actions.cancel": "Abbrechen",
   "forms.actions.save": "Speichern",
   "forms.actor.assign": "Zuweisen",

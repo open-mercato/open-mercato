@@ -1,4 +1,5 @@
 {
+  "backend.nav.operations": "Operations",
   "forms.actions.cancel": "Cancel",
   "forms.actions.save": "Save",
   "forms.actor.assign": "Assign",
