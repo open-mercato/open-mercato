@@ -100,6 +100,28 @@ and the `create-app` template already enable `progress`, so this repo's own apps
 scaffolded `classic`/`crm` apps are unaffected; the `wms` starter preset has been updated to add
 `progress` alongside `customers` for the same reason.
 
+### `ai_assistant` now ships its own encryption map (#6332)
+
+`@open-mercato/ai-assistant` previously declared no `encryption.ts`, so AI chat messages
+(`content`, `ui_parts`, `files_metadata`, `metadata`), conversation titles and pending-action
+payloads (`normalized_input`, `field_diff`, `records`) were stored in plaintext even with tenant
+data encryption enabled. The module now exports `defaultEncryptionMaps` for
+`ai_assistant:ai_chat_message`, `ai_assistant:ai_chat_conversation` and
+`ai_assistant:ai_pending_action`.
+
+`getDefaultEncryptionMaps` rejects two modules declaring a map for the same entity id, and the
+app bootstrap rethrows that error when encryption is enabled. An app that worked around the gap by
+declaring these maps in one of its own modules' `encryption.ts` will now fail to start with
+`Duplicate default encryption map for "ai_assistant:…"`.
+
+**Action for app authors:** delete any app-side `defaultEncryptionMaps` entries for the three
+`ai_assistant:*` entity ids. To keep a different field set, replace the shipped map through
+`overrides.encryption.maps['ai_assistant:ai_chat_message']` (and the other two ids) on a
+`src/modules.ts` entry instead of redeclaring it. Existing tenants pick the new maps up with
+`yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`; rows written
+before that stay plaintext (still readable) until rewritten, or until
+`yarn mercato entities rotate-encryption-key --tenant <tenantId>` encrypts them.
+
 ### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
 
 `TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
