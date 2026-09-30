@@ -124,6 +124,9 @@ test.describe('TC-MA-029 channel and language targeting, readiness', () => {
       'first_campaign',
       'publish',
       'first_run',
+      // The check that answers "are the periodic jobs registered" — every scheduled campaign depends on it,
+      // and nothing else on this screen would have said so.
+      'schedules',
       'segments',
       'content_blocks',
     ])

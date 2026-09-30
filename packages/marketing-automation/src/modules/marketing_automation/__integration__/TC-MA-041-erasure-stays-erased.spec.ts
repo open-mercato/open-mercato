@@ -46,6 +46,15 @@ async function createTag(request: APIRequestContext, token: string, label: strin
  * matches. Each test waits out a quiet period and asserts nothing happened, because "nothing" has no event to poll.
  */
 test.describe('TC-MA-041 erasure stays erased', () => {
+  /**
+   * Longer than the default, because each test waits out TWO quiet periods.
+   *
+   * Every assertion here is that nothing happened, which is measured by waiting — once for the erased person
+   * and once for the positive control walking the identical path. That plus the fixtures does not fit inside
+   * Playwright's default 20 seconds, and a timeout is indistinguishable from the pipeline being broken, which
+   * is the one failure this test is built to tell apart.
+   */
+  test.describe.configure({ timeout: 120_000 })
   test('an event about an erased person enrols them in no campaign', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()

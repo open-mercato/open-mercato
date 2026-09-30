@@ -46,6 +46,7 @@ const CHECK_TITLES: Record<string, string> = {
   first_campaign: 'Create a campaign',
   publish: 'Publish it',
   first_run: 'Watch the first customer go through',
+  schedules: 'Turn on the periodic jobs',
   segments: 'Name an audience you will reuse',
   content_blocks: 'Write a reusable block',
 }

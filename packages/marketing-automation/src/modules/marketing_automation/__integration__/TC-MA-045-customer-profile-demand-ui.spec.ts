@@ -189,7 +189,19 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
       const explain = page.getByRole('button', { name: 'Explain' })
       await expect(explain).toBeDisabled()
 
-      await fillControlledInput(page.getByLabel('Campaign id'), campaignId)
+      /**
+       * Chosen from a list, not typed.
+       *
+       * The control used to be a text box asking for a campaign id — a uuid a marketer has no way to know
+       * and no reason to hold. It is a `Select` of campaign names now, which is also why the second half of
+       * this test changed: an id that belongs to nothing is no longer something the screen can be asked
+       * about, so the unexplainable case has to be reached the way it actually happens.
+       */
+      await page.getByRole('combobox', { name: 'Campaign' }).click()
+      const option = page.getByRole('option', { name: `TC-MA-045 explain ${stamp}`, exact: true })
+      await expect(option).toBeVisible()
+      await option.press('Enter')
+
       await expect(explain).toBeEnabled()
       await explain.click()
 
@@ -198,7 +210,14 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
         await expect(page.getByText(gate, { exact: true })).toBeVisible()
       }
 
-      await fillControlledInput(page.getByLabel('Campaign id'), NOBODY)
+      /**
+       * The unexplainable case, as it really arises: the campaign this page listed is gone.
+       *
+       * Somebody else deleted it between the dropdown loading and the question being asked. The selection is
+       * still on screen, so the button is still enabled, and the screen has to say it could not explain that
+       * one rather than leaving the previous answer standing under a stale name.
+       */
+      await deleteCampaignIfExists(request, token, campaignId)
       await explain.click()
       await expect(page.getByText('That campaign could not be explained for this customer.').first()).toBeVisible({ timeout: 20_000 })
       await expect(page.getByText(/They would not receive it right now/)).toBeHidden()

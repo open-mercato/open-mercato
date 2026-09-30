@@ -77,6 +77,14 @@ function byName(marker: string) {
  * and campaign, and removes them in `finally`.
  */
 test.describe('TC-MA-039 score rules, applied automatically', () => {
+  /**
+   * Longer than the default, because every test here waits for a worker.
+   *
+   * `SETTLE` alone allows 30 seconds for a queued pass to land, which cannot fit inside Playwright's default
+   * 20-second test timeout — so a slow queue reported a timeout rather than the assertion that was still
+   * being polled, and the failure said nothing about what was wrong.
+   */
+  test.describe.configure({ timeout: 120_000 })
   test('assigning a tag the rule looks for awards the points, with no recalculate call', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
