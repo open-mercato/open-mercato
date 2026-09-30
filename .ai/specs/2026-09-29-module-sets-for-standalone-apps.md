@@ -46,7 +46,7 @@ Evidence is from `develop` @ `12f434927`.
 - **Not idempotent.** Re-enabling throws `Module "…" from "…" is already enabled in modules.ts.` (`module-install.ts:234-238`), so a script that enables several modules cannot be re-run.
 - **No post-install.** `enable` prints only "Review generated files" and "`yarn dev`" (`mercato.ts:1426-1429`).
   - New `acl.ts` features reach only NEW tenants unless `auth sync-role-acls` runs.
-  - A module's `onTenantCreated` is only ever called during tenant creation (`packages/core/src/modules/auth/lib/setup-app.ts:466-470`), and no command replays it for existing tenants.
+  - A module's `onTenantCreated` is only ever called during tenant creation (`packages/core/src/modules/auth/lib/setup-app.ts:466-470`), and no command replays it across existing tenants. The only replay is a side effect: `auth setup` with an existing user's email and no `--orgSlug` reuses that user and re-runs every module's `onTenantCreated` for that single tenant (`auth/cli.ts:518`), which is not a targeted, per-module backfill.
   - `seed:defaults --module <id>` exists (`mercato.ts:1479-1543`), but nothing points to it.
 - **Hard dependencies are about to reach the classic template.**
   - `checkout` is already enabled in the classic template (`packages/create-app/template/src/modules.ts:122`).
@@ -347,6 +347,7 @@ Semantics match tenant creation, so a backfilled tenant ends up like a new one:
 - **Routing:** a single `--module` id with no new flags keeps the legacy path. A comma list, `--set` or `--dry-run`/`--apply`/`--yes` selects the batch flow.
 - **`--apply`:** the plan discloses that `db migrate` applies every pending migration.
 - **Q1:** resolved as one spec with one implementation PR per phase.
+- **Precision:** noted the single-tenant `onTenantCreated` replay side effect of `auth setup` on user reuse.
 
 ### 2026-09-29 (rev 2 — independent review applied)
 - **Phases reordered:** resolver + multi-module enable → post-install → sets + preset. The manifest and its shared type no longer freeze in Phase 1 without content. The reviewer's three-spec split is recorded under Q1 for the owner.
