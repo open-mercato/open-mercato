@@ -203,6 +203,13 @@ test.describe('TC-MA-043 campaign results and runs screens', () => {
 
       await expect(page.getByText('Funnel', { exact: true })).toBeVisible()
       await expect(page.getByText('People, not messages — one person going through the campaign once counts once at each stage.')).toBeVisible()
+      /**
+       * The funnel is drawn as a funnel.
+       *
+       * The rate lives on the JOIN between two bands — the place the drop happens — and not only in the
+       * table underneath. One person entered and one was messaged, so the first join carries everybody.
+       */
+      await expect(page.getByText('100.0% carried on').first()).toBeVisible()
       const enteredRow = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'Entered', exact: true }) })
       await expect(enteredRow.getByRole('cell').nth(1)).toHaveText('1')
 

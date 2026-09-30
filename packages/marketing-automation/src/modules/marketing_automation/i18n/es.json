@@ -402,6 +402,7 @@
   "marketing_automation.results.column.variant": "Variante",
   "marketing_automation.results.funnel": "Embudo",
   "marketing_automation.results.funnel.clicked": "Hicieron clic",
+  "marketing_automation.results.funnel.continued": "{rate} continuó",
   "marketing_automation.results.funnel.converted": "Compraron después",
   "marketing_automation.results.funnel.entered": "Entraron",
   "marketing_automation.results.funnel.fromPrevious": "Desde la anterior",

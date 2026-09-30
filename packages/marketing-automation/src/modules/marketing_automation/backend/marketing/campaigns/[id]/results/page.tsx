@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { BarChart, KpiCard, LineChart } from '@open-mercato/ui/backend/charts'
+import { KpiCard, LineChart } from '@open-mercato/ui/backend/charts'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,6 +13,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { FunnelChart } from '../../../../../components/FunnelChart.js'
 
 type SplitResult = {
   stepId: string
@@ -242,16 +243,24 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                 'People, not messages — one person going through the campaign once counts once at each stage.',
               )}
             </div>
-            <BarChart
-              data={results.funnel.stages.map((stage) => ({
-                stage: t(`marketing_automation.results.funnel.${stage.key}`, stage.key),
+            {/*
+              A funnel, not a bar chart.
+              Horizontal bars are a ranking: five lengths sorted by length, with nothing saying that each
+              one is a SUBSET of the one above it. The taper says that in the shape, before anybody reads a
+              number, and the rate sits on the join where the drop actually happens.
+            */}
+            <FunnelChart
+              stages={results.funnel.stages.map((stage) => ({
+                key: stage.key,
                 people: stage.people,
+                label: t(`marketing_automation.results.funnel.${stage.key}`, stage.key),
               }))}
-              index="stage"
-              categories={['people']}
-              categoryLabels={{ people: t('marketing_automation.results.funnel.people', 'People') }}
-              layout="horizontal"
-              emptyMessage={t('marketing_automation.results.noActivity', 'Nothing has been sent yet.')}
+              peopleLabel={(people) => String(people)}
+              shareLabel={(share) => formatRate(share)}
+              dropLabel={(fromPrevious) => t(
+                'marketing_automation.results.funnel.continued',
+                '{rate} carried on',
+              ).replace('{rate}', formatRate(fromPrevious))}
             />
             <Table>
               <TableHeader>

@@ -402,6 +402,7 @@
   "marketing_automation.results.column.variant": "Variante",
   "marketing_automation.results.funnel": "Funnel",
   "marketing_automation.results.funnel.clicked": "Geklickt",
+  "marketing_automation.results.funnel.continued": "{rate} kamen weiter",
   "marketing_automation.results.funnel.converted": "Danach bestellt",
   "marketing_automation.results.funnel.entered": "Eingetreten",
   "marketing_automation.results.funnel.fromPrevious": "Von der vorigen",

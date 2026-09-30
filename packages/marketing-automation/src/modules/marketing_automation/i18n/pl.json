@@ -402,6 +402,7 @@
   "marketing_automation.results.column.variant": "Wariant",
   "marketing_automation.results.funnel": "Lejek",
   "marketing_automation.results.funnel.clicked": "Kliknęli",
+  "marketing_automation.results.funnel.continued": "{rate} przeszło dalej",
   "marketing_automation.results.funnel.converted": "Kupili później",
   "marketing_automation.results.funnel.entered": "Weszli",
   "marketing_automation.results.funnel.fromPrevious": "Z poprzedniego",

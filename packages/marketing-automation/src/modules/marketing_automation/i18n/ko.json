@@ -402,6 +402,7 @@
   "marketing_automation.results.column.variant": "변형",
   "marketing_automation.results.funnel": "퍼널",
   "marketing_automation.results.funnel.clicked": "클릭",
+  "marketing_automation.results.funnel.continued": "{rate}가 다음 단계로",
   "marketing_automation.results.funnel.converted": "이후 주문",
   "marketing_automation.results.funnel.entered": "진입",
   "marketing_automation.results.funnel.fromPrevious": "이전 단계 대비",

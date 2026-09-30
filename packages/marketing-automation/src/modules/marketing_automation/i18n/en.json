@@ -402,6 +402,7 @@
   "marketing_automation.results.column.variant": "Variant",
   "marketing_automation.results.funnel": "Funnel",
   "marketing_automation.results.funnel.clicked": "Clicked",
+  "marketing_automation.results.funnel.continued": "{rate} carried on",
   "marketing_automation.results.funnel.converted": "Ordered afterwards",
   "marketing_automation.results.funnel.entered": "Entered",
   "marketing_automation.results.funnel.fromPrevious": "From previous",
