@@ -54,6 +54,19 @@ describe('RowActions — panel width (#6719)', () => {
     expect(screen.getByText(LONG_POLISH_LABEL)).toBeInTheDocument()
   })
 
+  it('stacks items as flex children so w-max measures the widest one', () => {
+    renderMenu(THREE_ITEMS)
+    openMenu()
+
+    // Load-bearing, not cosmetic. Button is `inline-flex`, so under a block
+    // panel the items are inline-level and `max-content` is all of them laid
+    // end to end — far past `max-w-xs`, which pinned the panel to the cap
+    // regardless of its labels. Blockifying them makes `w-max` mean what it says.
+    const menu = screen.getByRole('menu')
+    expect(menu.className).toContain('flex')
+    expect(menu.className).toContain('flex-col')
+  })
+
   it('lets an over-long label wrap rather than overflow the panel', () => {
     renderMenu([{ id: 'register-push', label: LONG_POLISH_LABEL, onSelect: jest.fn() }])
     openMenu()

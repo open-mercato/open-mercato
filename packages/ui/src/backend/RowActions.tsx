@@ -175,8 +175,16 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
           // overhung by ~10px (#6719). `min-w-44` keeps the old width as a floor;
           // past `max-w-xs` the items wrap instead of growing further.
           //
+          // `flex flex-col` is load-bearing for that, not cosmetic. Button is
+          // `inline-flex`, so under a block panel the items are inline-level and
+          // `max-content` is the width of them all laid end to end — 523px here,
+          // past the cap, so the panel was pinned at `max-w-xs` whatever the
+          // labels said. They only looked stacked because `w-full` forced each
+          // onto its own line. Blockifying them as flex items makes `max-content`
+          // the widest item, which is what `w-max` was meant to measure.
+          //
           // Same fix, same shape as ActionsDropdown (#3580).
-          className="fixed w-max min-w-44 max-w-xs rounded-md border bg-background p-1 shadow focus-visible:outline-none z-dropdown"
+          className="fixed flex flex-col w-max min-w-44 max-w-xs rounded-md border bg-background p-1 shadow focus-visible:outline-none z-dropdown"
           style={{
             top: direction === 'down' ? anchorRect.bottom + 8 : anchorRect.top - 8,
             left: Math.min(anchorRect.right, window.innerWidth - 8),
