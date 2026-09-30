@@ -5,6 +5,7 @@ import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/in
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchAssignableStaffMembers } from '../../lib/assignableStaff'
 
 const logger = createLogger('customers')
@@ -55,6 +56,10 @@ export function DealOwnerSelect({
   disabled = false,
 }: DealOwnerSelectProps): React.ReactElement {
   const t = useT()
+  // Scopes the roster to the active organization. Without it the staff-module-absent
+  // fallback omits `scopeToActiveOrganization`, which lists users across every
+  // organization — every other deal-owner picker passes this.
+  const activeOrgId = useCurrentOrganization()?.id ?? null
 
   const seededOptions = React.useMemo<LookupSelectItem[]>(
     () => (initialOption?.id ? [toLookupItem(initialOption.id, initialOption.name, initialOption.email)] : []),
@@ -67,7 +72,7 @@ export function DealOwnerSelect({
       // The assignable roster belongs to the optional `staff` module; when it is disabled the
       // helper turns the 404 into an empty page, so this resolves to "no candidates" rather
       // than an error state.
-      const members = await fetchAssignableStaffMembers(query, { pageSize: ROSTER_PAGE_SIZE })
+      const members = await fetchAssignableStaffMembers(query, { pageSize: ROSTER_PAGE_SIZE, activeOrgId })
       items = members.map((member) => toLookupItem(member.userId, member.displayName, member.email))
     } catch (error) {
       logger.error('customers.deals.searchOwners failed', { err: error })
@@ -84,7 +89,7 @@ export function DealOwnerSelect({
       return [seeded, ...items]
     }
     return items
-  }, [seededOptions, value])
+  }, [activeOrgId, seededOptions, value])
 
   return (
     <LookupSelect

@@ -4,6 +4,10 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback,
 }))
 
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useCurrentOrganization: () => ({ id: 'org-1' }),
+}))
+
 const fetchAssignableStaffMembers = jest.fn()
 jest.mock('../../../lib/assignableStaff', () => ({
   fetchAssignableStaffMembers: (...args: unknown[]) => fetchAssignableStaffMembers(...args),
@@ -56,7 +60,9 @@ describe('DealOwnerSelect', () => {
     fireEvent.change(getInput(container), { target: { value: 'grace' } })
 
     await waitFor(() => expect(fetchAssignableStaffMembers).toHaveBeenCalled())
-    expect(fetchAssignableStaffMembers.mock.calls[0][1]).toMatchObject({ pageSize: 20 })
+    // activeOrgId scopes the staff-module-absent fallback; without it the roster spans
+    // every organization.
+    expect(fetchAssignableStaffMembers.mock.calls[0][1]).toMatchObject({ pageSize: 20, activeOrgId: 'org-1' })
     await waitFor(() => expect(screen.getByText('Grace Hopper')).toBeTruthy())
   })
 
