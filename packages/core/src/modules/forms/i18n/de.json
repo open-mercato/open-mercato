@@ -156,6 +156,7 @@
   "forms.errors.fork_source_invalid": "Die Quellversion gehört nicht zu diesem Formular.",
   "forms.errors.form_key_taken": "Ein Formular mit diesem Schlüssel existiert bereits in dieser Organisation.",
   "forms.errors.form_not_found": "Formular nicht gefunden.",
+  "forms.errors.invalid_payload": "Die übermittelten Daten sind ungültig.",
   "forms.errors.locales_empty": "Ein Formular muss mindestens eine Sprache unterstützen.",
   "forms.errors.no_op_publish": "Keine Änderungen zum Veröffentlichen — das Schema entspricht der aktuell veröffentlichten Version.",
   "forms.errors.schema_invalid": "Das Formularschema ist ungültig.",

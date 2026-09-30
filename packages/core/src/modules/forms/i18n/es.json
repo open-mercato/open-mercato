@@ -156,6 +156,7 @@
   "forms.errors.fork_source_invalid": "La versión de origen no pertenece a este formulario.",
   "forms.errors.form_key_taken": "Ya existe un formulario con esta clave en esta organización.",
   "forms.errors.form_not_found": "Formulario no encontrado.",
+  "forms.errors.invalid_payload": "Los datos enviados no son válidos.",
   "forms.errors.locales_empty": "Un formulario debe admitir al menos un idioma.",
   "forms.errors.no_op_publish": "No hay cambios que publicar: el esquema coincide con la versión publicada actual.",
   "forms.errors.schema_invalid": "El esquema del formulario no es válido.",

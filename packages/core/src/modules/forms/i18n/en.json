@@ -156,6 +156,7 @@
   "forms.errors.fork_source_invalid": "Source version does not belong to this form.",
   "forms.errors.form_key_taken": "A form with this key already exists in this organization.",
   "forms.errors.form_not_found": "Form not found.",
+  "forms.errors.invalid_payload": "The submitted data is not valid.",
   "forms.errors.locales_empty": "A form must support at least one locale.",
   "forms.errors.no_op_publish": "No changes to publish — the schema matches the current published version.",
   "forms.errors.schema_invalid": "The form schema is invalid.",

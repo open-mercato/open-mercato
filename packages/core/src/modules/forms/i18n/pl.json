@@ -156,6 +156,7 @@
   "forms.errors.fork_source_invalid": "Wersja źródłowa nie należy do tego formularza.",
   "forms.errors.form_key_taken": "Formularz z tym kluczem już istnieje w tej organizacji.",
   "forms.errors.form_not_found": "Nie znaleziono formularza.",
+  "forms.errors.invalid_payload": "Przesłane dane są nieprawidłowe.",
   "forms.errors.locales_empty": "Formularz musi obsługiwać co najmniej jeden język.",
   "forms.errors.no_op_publish": "Brak zmian do opublikowania — schemat odpowiada bieżącej opublikowanej wersji.",
   "forms.errors.schema_invalid": "Schemat formularza jest nieprawidłowy.",

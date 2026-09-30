@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -62,6 +63,15 @@ export function jsonError(status: number, error: string): NextResponse {
 export function handleRouteError(scope: string, error: unknown): NextResponse {
   if (isCrudHttpError(error)) {
     return NextResponse.json(error.body, { status: error.status })
+  }
+  // Every forms admin route validates its payload with a bare `schema.parse(...)`
+  // inside the try block this catches, so a rejected payload arrives here as a
+  // ZodError. Without this arm it became a 500 while the route's own `openApi`
+  // promised 400 — a client could not tell its own bad request from a server
+  // fault. Shape matches the CRUD factory and the other core modules that
+  // hand-roll this: `{ error, details: issues }` at 400.
+  if (error instanceof z.ZodError) {
+    return NextResponse.json({ error: 'forms.errors.invalid_payload', details: error.issues }, { status: 400 })
   }
   console.error(`[forms.api.${scope}] failed`, error)
   return NextResponse.json({ error: 'forms.errors.internal' }, { status: 500 })
