@@ -60,8 +60,9 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         const rawRecord = raw as Record<string, unknown>
         const body = rawRecord.body as Record<string, unknown> | undefined
         const query = rawRecord.query as Record<string, unknown> | undefined
+        const candidate = body?.id ?? query?.id
         return {
-          id: (body?.id ?? query?.id) as string | undefined,
+          id: typeof candidate === 'string' ? candidate : undefined,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
           tenantId: ctx.auth?.tenantId ?? undefined,
         }
