@@ -280,6 +280,16 @@ callbacks, a select-options fetch URL, a notification app base URL — none of w
 `window.location` or an `href`. `webhooks` additionally carries its own
 `assertStaticallySafeWebhookUrl` guard.
 
+A second generalisation was raised and also swept: 13 `forms.errors.*` codes shipped with no locale
+entry, and they are invisible to `yarn i18n:check-usage` because they travel as
+`jsonError(status, code)` response bodies rather than `t()` literals — while several render verbatim
+to the user through `flash(t(errPayload?.error))`. **The scanner blind spot is real, but forms was
+the only module standing in it.** Checking every `<module>.errors.*` code against its own `en.json`:
+`customers` 45/45 defined, `warranty_claims` 5/5, `sales` 3/3, `catalog` 3/3, `wms` 2/2 — zero
+missing anywhere else. Forms was the exception because the standalone package had no i18n gate at
+all. Worth knowing when adding a module: the check cannot see these keys, so the convention is
+upheld by habit rather than enforced.
+
 The two client-side navigation sinks outside forms that take a data-driven target are also already
 guarded: `useNotificationsSse` / `useNotificationsPoll` accept a notification's href only when it
 `startsWith('/')`, which rejects every scheme. Forms was the one place where an author-controlled
