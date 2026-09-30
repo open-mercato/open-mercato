@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '../DataTable'
 import { APP_EVENT_DOM_NAME } from '../injection/useAppEvent'
+import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 
 const mockRouterRefresh = jest.fn()
 
@@ -72,10 +73,39 @@ function renderTable(elementProps: Record<string, unknown>) {
 
 describe('DataTable extensions', () => {
   beforeEach(() => {
+    registerComponentOverrides([])
     ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
     useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: false, error: null }))
     flashMock.mockReset()
     mockRouterRefresh.mockReset()
+  })
+
+  afterEach(() => {
+    registerComponentOverrides([])
+  })
+
+  it('executes transforms and wrappers at the derived DataTable handle', () => {
+    registerComponentOverrides([
+      {
+        target: { componentId: 'data-table:catalog.products.list' },
+        priority: 10,
+        propsTransform: (props: Record<string, unknown>) => ({ ...props, title: 'Transformed title' }),
+      },
+      {
+        target: { componentId: 'data-table:catalog.products.list' },
+        priority: 20,
+        wrapper: (Original: React.ComponentType<Record<string, unknown>>) => function Wrapped(props) {
+          return <section data-testid="registered-table-wrapper"><Original {...props} /></section>
+        },
+      },
+    ])
+    renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Product' }],
+      extensionTableId: 'catalog.products.list',
+    })
+    expect(screen.getByTestId('registered-table-wrapper')).toBeInTheDocument()
+    expect(screen.getByText('Transformed title')).toBeInTheDocument()
   })
 
   it('renders injected columns from data-table extension surface', () => {
