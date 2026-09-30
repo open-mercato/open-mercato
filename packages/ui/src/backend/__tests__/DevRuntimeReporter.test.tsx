@@ -116,6 +116,36 @@ describe('DevRuntimeReporter', () => {
     expect(sentReports(fetchMock)[0]).toMatchObject({ kind: 'chunk-load-error' })
   })
 
+  it.each([
+    'ResizeObserver loop completed with undelivered notifications.',
+    'ResizeObserver loop limit exceeded',
+    'Uncaught Error: ResizeObserver loop completed with undelivered notifications.',
+  ])('ignores browser noise the spec itself fires: %s', async (message) => {
+    /**
+     * Not a failure: the browser fires this when an observer callback resizes what it observes, which is
+     * every chart and auto-sizing table on first paint, and it has already recovered. Reporting it raises
+     * "Runtime degraded" over an ordinary page, teaches a developer to dismiss the one banner that also
+     * announces chunk-load failures, and steals clicks from any browser test on a screen with a chart.
+     */
+    enableCollector()
+    render(<DevRuntimeReporter />)
+
+    window.dispatchEvent(new ErrorEvent('error', { message }))
+
+    await waitFor(() => expect(fetchMock).not.toHaveBeenCalled())
+  })
+
+  it('still forwards a real error that merely mentions a resize', async () => {
+    // The filter matches the browser's own wording, not the word "resize" — a genuine failure in
+    // somebody's resize handler must still be reported.
+    enableCollector()
+    render(<DevRuntimeReporter />)
+
+    window.dispatchEvent(new ErrorEvent('error', { message: 'TypeError: cannot read properties of null (reading \'resizeObserver\')' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  })
+
   it('forwards an unhandled promise rejection', async () => {
     enableCollector()
     render(<DevRuntimeReporter />)
