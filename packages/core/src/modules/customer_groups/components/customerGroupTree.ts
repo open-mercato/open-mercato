@@ -66,3 +66,19 @@ export function findDefaultConflict(
 ): CustomerGroupSummary | null {
   return groups.find((group) => group.isDefault && group.id !== excludeId) ?? null
 }
+
+// The priority a new group is pre-filled with: one reorder step (the drag-reorder
+// command renumbers in gaps of 10) above the highest live priority, since `priority`
+// is unique per tenant and a fixed default would collide on every create but the first.
+const PRIORITY_STEP = 10
+
+export function nextFreePriority(items: unknown[] | undefined | null): number {
+  if (!Array.isArray(items)) return 0
+  let highest: number | null = null
+  for (const item of items) {
+    const priority = item && typeof item === 'object' ? (item as { priority?: unknown }).priority : null
+    if (typeof priority !== 'number' || !Number.isFinite(priority)) continue
+    if (highest === null || priority > highest) highest = priority
+  }
+  return highest === null ? 0 : highest + PRIORITY_STEP
+}

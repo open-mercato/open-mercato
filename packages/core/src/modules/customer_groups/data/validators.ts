@@ -102,18 +102,26 @@ export const customerGroupDeleteSchema = z.object({
 
 export type CustomerGroupDeleteInput = z.infer<typeof customerGroupDeleteSchema>
 
-export const customerGroupMembershipCreateSchema = z
-  .object({
-    organizationId: uuid().nullable().optional(),
-    tenantId: uuid(),
-    groupId: uuid(),
-    customerId: uuid(),
-    source: customerGroupMembershipSourceSchema.optional().default('manual'),
-    validFrom: clearableDateSchema,
-    validUntil: clearableDateSchema,
-    assignedByUserId: clearableUuidSchema,
-    notes: clearableStringSchema(2000),
-  })
+const customerGroupMembershipCreateBaseSchema = z.object({
+  organizationId: uuid().nullable().optional(),
+  tenantId: uuid(),
+  groupId: uuid(),
+  customerId: uuid(),
+  source: customerGroupMembershipSourceSchema.optional().default('manual'),
+  validFrom: clearableDateSchema,
+  validUntil: clearableDateSchema,
+  assignedByUserId: clearableUuidSchema,
+  notes: clearableStringSchema(2000),
+})
+
+// Server-owned fields: the tenant comes from the session, the organization from the
+// referenced customer, and `assignedByUserId` from the acting user.
+const membershipServerOwnedFields = { organizationId: true, tenantId: true, assignedByUserId: true } as const
+
+export const customerGroupMembershipCreateRequestSchema =
+  customerGroupMembershipCreateBaseSchema.omit(membershipServerOwnedFields)
+
+export const customerGroupMembershipCreateSchema = customerGroupMembershipCreateBaseSchema
   .refine(
     (payload) =>
       !payload.validFrom || !payload.validUntil || payload.validFrom <= payload.validUntil,
@@ -142,6 +150,9 @@ const customerGroupMembershipUpdateBaseSchema = z
       notes: clearableStringSchema(2000),
     }),
   )
+
+export const customerGroupMembershipUpdateRequestSchema =
+  customerGroupMembershipUpdateBaseSchema.omit(membershipServerOwnedFields)
 
 export const customerGroupMembershipUpdateSchema = customerGroupMembershipUpdateBaseSchema.refine(
   (payload) =>

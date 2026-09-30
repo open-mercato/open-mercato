@@ -239,7 +239,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
         required: true,
         description: t(
           'customer_groups.groups.form.field.priorityHelp',
-          'Whole number. Higher priority groups are preferred when resolving pricing/terms.',
+          'Whole number, unique per tenant. When a customer belongs to several groups, the group with the higher number wins when resolving pricing and terms. The group list shows the lowest number first.',
         ),
       },
       {
@@ -292,9 +292,9 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
     return (
       <Page>
         <PageBody>
-          <p className="text-sm text-destructive">
-            {t('customer_groups.groups.form.errors.idRequired', 'Customer group identifier is required.')}
-          </p>
+          <ErrorMessage
+            label={t('customer_groups.groups.form.errors.idRequired', 'Customer group identifier is required.')}
+          />
         </PageBody>
       </Page>
     )

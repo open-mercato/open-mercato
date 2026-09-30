@@ -104,7 +104,8 @@ function formatFieldValue(
     return t('customer_groups.groups.personTab.explainTerms.value.days', '{count} days', { count: entry.value })
   }
   if (field === 'allowPurchaseOnAccount') {
-    return entry.value === true
+    if (typeof entry.value !== 'boolean') return notSet
+    return entry.value
       ? t('customer_groups.groups.personTab.explainTerms.value.yes', 'Yes')
       : t('customer_groups.groups.personTab.explainTerms.value.no', 'No')
   }

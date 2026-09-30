@@ -6,12 +6,14 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import { customerGroupKindValues } from '../../../data/validators'
 import {
   findDefaultConflict,
   mapListItemsToSummaries,
+  nextFreePriority,
   type CustomerGroupSummary,
 } from '../../../components/customerGroupTree'
 import { CustomerGroupParentField } from '../../../components/CustomerGroupParentField'
@@ -35,6 +37,15 @@ async function loadDefaultGroups(errorMessage: string): Promise<CustomerGroupSum
     { errorMessage, allowNullResult: true },
   )
   return mapListItemsToSummaries(response?.items)
+}
+
+async function loadNextFreePriority(errorMessage: string): Promise<number> {
+  const response = await readApiResultOrThrow<{ items?: unknown[] }>(
+    '/api/customer_groups/customer-groups?sortField=priority&sortDir=desc&pageSize=1',
+    undefined,
+    { errorMessage, allowNullResult: true },
+  )
+  return nextFreePriority(response?.items)
 }
 
 async function submitCustomerGroupCreate(
@@ -66,13 +77,41 @@ async function submitCustomerGroupCreate(
     isDefault: values.isDefault === true,
     isActive: values.isActive !== false,
   }
-  await createCrud('customer_groups/customer-groups', payload)
+  const { result } = await createCrud<{ id?: string | null; isDefault?: boolean }>(
+    'customer_groups/customer-groups',
+    payload,
+  )
+  if (payload.isDefault === true && result?.isDefault === false) {
+    flash(
+      t(
+        'customer_groups.groups.flash.defaultNotApplied',
+        'The group was created, but another group was made the default at the same time. Edit the group to make it the default.',
+      ),
+      'warning',
+    )
+  }
 }
 
 export default function CreateCustomerGroupPage() {
   const t = useT()
   const [defaultGroups, setDefaultGroups] = React.useState<CustomerGroupSummary[]>([])
   const [defaultGroupsLoading, setDefaultGroupsLoading] = React.useState<boolean>(true)
+  const [initialPriority, setInitialPriority] = React.useState<number | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    const errorMessage = t('customer_groups.groups.form.errors.loadGroups', 'Failed to load customer groups')
+    loadNextFreePriority(errorMessage)
+      .then((priority) => {
+        if (!cancelled) setInitialPriority(priority)
+      })
+      .catch(() => {
+        if (!cancelled) setInitialPriority(0)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -147,7 +186,7 @@ export default function CreateCustomerGroupPage() {
         required: true,
         description: t(
           'customer_groups.groups.form.field.priorityHelp',
-          'Whole number. Higher priority groups are preferred when resolving pricing/terms.',
+          'Whole number, unique per tenant. When a customer belongs to several groups, the group with the higher number wins when resolving pricing and terms. The group list shows the lowest number first.',
         ),
       },
       {
@@ -197,6 +236,20 @@ export default function CreateCustomerGroupPage() {
     [t],
   )
 
+  const initialValues = React.useMemo<Partial<CustomerGroupFormValues>>(
+    () => ({
+      code: '',
+      name: '',
+      description: '',
+      kind: 'b2c',
+      parentId: '',
+      priority: initialPriority ?? 0,
+      isDefault: false,
+      isActive: true,
+    }),
+    [initialPriority],
+  )
+
   const successMessage = encodeURIComponent(t('customer_groups.groups.flash.created', 'Customer group created'))
 
   return (
@@ -209,16 +262,8 @@ export default function CreateCustomerGroupPage() {
           fields={fields}
           groups={groupConfig}
           entityId={E.customer_groups.customer_group}
-          initialValues={{
-            code: '',
-            name: '',
-            description: '',
-            kind: 'b2c',
-            parentId: '',
-            priority: 0,
-            isDefault: false,
-            isActive: true,
-          }}
+          initialValues={initialValues}
+          isLoading={initialPriority === null}
           submitLabel={t('customer_groups.groups.form.action.create', 'Create')}
           cancelHref="/backend/customer-groups"
           successRedirect={`/backend/customer-groups?flash=${successMessage}&type=success`}

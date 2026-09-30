@@ -17,6 +17,7 @@ import {
   type CustomerGroupUpdateInput,
 } from '../../data/validators'
 import { emitCustomerGroupLifecycleEvent } from '../../lib/groupEvents'
+import { registerCreateConflictRecheck } from '../../lib/createConflictRecheck'
 import { emitMembershipEvent } from './memberships/crud'
 
 // Shared (non-route) module: `route.ts` delegates to this single `makeCrudRoute`
@@ -159,6 +160,8 @@ const CUSTOMER_GROUP_DEFAULT_UNIQUE_CONSTRAINT = 'customer_groups_tenant_default
 
 // The memberships route has no `events`/`actions`, so `makeCrudRoute` tags its list
 // cache with the canonicalized entity name; the group delete cascade flushes the same tag.
+// Every membership list entry carries the tenant's `org:null` collection tag (the route
+// is `orgField: null`), so one flush without a record id covers every removed row.
 const CUSTOMER_GROUP_MEMBERSHIP_CACHE_RESOURCE =
   canonicalizeResourceTag('CustomerGroupMembership') ?? 'customer.group.membership'
 
@@ -176,13 +179,32 @@ export function toDefaultGroupConflict(err: unknown, translate: Translate): unkn
   )
 }
 
+const CUSTOMER_GROUP_CODE_UNIQUE_CONSTRAINT = 'customer_groups_tenant_code_unique'
+const CUSTOMER_GROUP_PRIORITY_UNIQUE_CONSTRAINT = 'customer_groups_tenant_priority_unique'
+
+// The pre-checks in `assertCustomerGroupWriteAllowed` cannot see a concurrent write that
+// commits between the check and the flush; the partial unique indexes then reject the
+// loser, which maps to the same translated 409 the pre-check answers.
+export function toCustomerGroupUniqueConflict(err: unknown, translate: Translate): unknown {
+  if (isUniqueViolation(err, CUSTOMER_GROUP_CODE_UNIQUE_CONSTRAINT)) {
+    return conflict(translate('customer_groups.errors.codeDuplicate', 'A customer group with this code already exists.'))
+  }
+  if (isUniqueViolation(err, CUSTOMER_GROUP_PRIORITY_UNIQUE_CONSTRAINT)) {
+    return conflict(
+      translate('customer_groups.errors.priorityDuplicate', 'Another customer group already uses this priority.'),
+    )
+  }
+  return toDefaultGroupConflict(err, translate)
+}
+
 // `makeCrudRoute`'s create transaction wraps only the insert, so a new default group is
 // inserted with `isDefault: false` and promoted here, after the insert committed, in its
 // own transaction: clear the previous default first, then set the new one, so the
 // partial unique index is never violated and a failed create never touches the old
 // default. The group row is already committed at this point, so a concurrent promotion
 // that wins the unique index is retried rather than reported: a fresh transaction sees
-// the winner committed and replaces it, exactly as two sequential creates would.
+// the winner committed and replaces it, exactly as two sequential creates would. If every
+// attempt loses, the create still succeeds as a non-default group (see `afterCreate`).
 const DEFAULT_PROMOTION_ATTEMPTS = 3
 
 export async function promoteDefaultGroup(em: EntityManager, tenantId: string, groupId: string, now: Date): Promise<string[]> {
@@ -250,6 +272,26 @@ export async function softDeleteGroupMemberships(
     { deletedAt: now, updatedAt: now },
   )
   return memberships
+}
+
+// The delete cascade runs after `makeCrudRoute` soft-deleted the group (the factory has
+// no hook inside its delete), so terms and memberships are retired together in one
+// transaction and, if that transaction fails, the group delete is reverted: the request
+// fails with the group, its terms and its memberships all still live, never half-deleted.
+export async function cascadeGroupDelete(
+  em: EntityManager,
+  tenantId: string,
+  groupId: string,
+): Promise<CustomerGroupMembership[]> {
+  try {
+    return await em.transactional(async (tem) => {
+      await softDeleteGroupTerms(tem, tenantId, groupId)
+      return softDeleteGroupMemberships(tem, tenantId, groupId)
+    })
+  } catch (err) {
+    await em.nativeUpdate(CustomerGroup, { id: groupId, tenantId, deletedAt: { $ne: null } }, { deletedAt: null })
+    throw err
+  }
 }
 
 export type CustomerGroupNode = { id: string; parentId?: string | null }
@@ -437,6 +479,10 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
     schema: rawBodySchema,
     // Always inserted as non-default; `afterCreate` promotes it (see `promoteDefaultGroup`).
     mapToEntity: (input, ctx) => ({ ...toCustomerGroupEntityData(parseCreateInput(input, ctx)), isDefault: false }),
+    response: (entity) => {
+      const group = entity as CustomerGroup
+      return { id: group.id, isDefault: group.isDefault }
+    },
   },
   update: {
     schema: rawBodySchema,
@@ -465,6 +511,11 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
         clearedDefaultGroupsByUpdate.set(group, await assignDefaultGroup(em, group.tenantId, group.id, translate))
       }
       applyCustomerGroupUpdate(group, parsed)
+      try {
+        await em.flush()
+      } catch (err) {
+        throw toCustomerGroupUniqueConflict(err, translate)
+      }
     },
     response: () => ({ ok: true }),
   },
@@ -476,16 +527,20 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       if (!result.success) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { translate } = await resolveTranslations()
-      await assertCustomerGroupWriteAllowed(
-        em,
-        {
-          tenantId: scope.tenantId,
-          groupId: null,
-          code: result.data.code,
-          priority: result.data.priority,
-          parentId: result.data.parentId ?? null,
-        },
-        translate,
+      const check: CustomerGroupWriteCheck = {
+        tenantId: scope.tenantId,
+        groupId: null,
+        code: result.data.code,
+        priority: result.data.priority,
+        parentId: result.data.parentId ?? null,
+      }
+      await assertCustomerGroupWriteAllowed(em, check, translate)
+      registerCreateConflictRecheck(ctx.request, () =>
+        assertCustomerGroupWriteAllowed(
+          (ctx.container.resolve('em') as EntityManager).fork(),
+          { tenantId: check.tenantId, groupId: null, code: check.code, priority: check.priority },
+          translate,
+        ),
       )
     },
     afterCreate: async (entity, ctx) => {
@@ -496,8 +551,8 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       try {
         cleared = await promoteDefaultGroup(ctx.container.resolve('em') as EntityManager, group.tenantId, group.id, now)
       } catch (err) {
-        const { translate } = await resolveTranslations()
-        throw toDefaultGroupConflict(err, translate)
+        if (isUniqueViolation(err, CUSTOMER_GROUP_DEFAULT_UNIQUE_CONSTRAINT)) return
+        throw err
       }
       group.isDefault = true
       group.updatedAt = now
@@ -513,17 +568,17 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
     afterDelete: async (id, ctx) => {
       const em = ctx.container.resolve('em') as EntityManager
       const { tenantId } = scopeFromContext(ctx)
-      await softDeleteGroupTerms(em, tenantId, id)
-      const removedMemberships = await softDeleteGroupMemberships(em, tenantId, id)
+      const removedMemberships = await cascadeGroupDelete(em, tenantId, id)
+      if (!removedMemberships.length) return
+      await invalidateCrudCache(
+        ctx.container,
+        CUSTOMER_GROUP_MEMBERSHIP_CACHE_RESOURCE,
+        { id: null, tenantId, organizationId: null },
+        tenantId,
+        'deleted',
+      )
       for (const membership of removedMemberships) {
         await emitMembershipEvent('customer_groups.membership.removed', membership)
-        await invalidateCrudCache(
-          ctx.container,
-          CUSTOMER_GROUP_MEMBERSHIP_CACHE_RESOURCE,
-          { id: membership.id, tenantId, organizationId: membership.organizationId ?? null },
-          tenantId,
-          'deleted',
-        )
       }
     },
   },

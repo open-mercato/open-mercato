@@ -1,5 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findCustomerInScope, isCustomerInScope, listMembershipIdsInCustomerScope } from '../lib/customerScope'
+import {
+  CUSTOMER_SCOPE_JOIN_ALIAS,
+  buildCustomerScopeListFilter,
+  customerScopeJoin,
+  findCustomerInScope,
+  isCustomerInScope,
+} from '../lib/customerScope'
 
 function makeEm(rows: unknown[], options: { tablePresent?: boolean } = {}) {
   const tablePresent = options.tablePresent ?? true
@@ -43,46 +49,41 @@ describe('findCustomerInScope', () => {
   })
 })
 
-describe('listMembershipIdsInCustomerScope', () => {
-  it('returns no ids without querying when the caller has no visible organization', async () => {
-    const { em, execute } = makeEm([{ id: 'membership-1' }])
-    const ids = await listMembershipIdsInCustomerScope(em, { tenantId: 'tenant-1', organizationIds: [] })
-    expect(ids).toEqual([])
+describe('buildCustomerScopeListFilter', () => {
+  it('returns no filter without querying when the caller has no visible organization', async () => {
+    const { em, execute } = makeEm([])
+    await expect(buildCustomerScopeListFilter(em, [])).resolves.toBeNull()
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it('restricts memberships to customers in the caller organizations, tenant, group and id', async () => {
-    const { em, queryCalls } = makeEm([{ id: 'membership-1' }, { id: null }, {}])
-    const ids = await listMembershipIdsInCustomerScope(
-      em,
-      { tenantId: 'tenant-1', organizationIds: ['org-a', 'org-b'] },
-      { groupId: 'group-1', membershipId: 'membership-1' },
-    )
-    expect(ids).toEqual(['membership-1'])
-    const [sql, params] = queryCalls()[0]
-    expect(sql).toContain('join customer_entities c on c.id = m.customer_id')
-    expect(sql).toContain('m.tenant_id = ?')
-    expect(sql).toContain('c.tenant_id = ?')
-    expect(sql).toContain('c.organization_id in (?, ?)')
-    expect(sql).toContain('m.group_id = ?')
-    expect(sql).toContain('m.id = ?')
-    expect(sql).toContain('m.deleted_at is null')
-    expect(params).toEqual(['tenant-1', 'tenant-1', 'org-a', 'org-b', 'group-1', 'membership-1'])
-  })
-
-  it('omits the optional group and id predicates when they are not requested', async () => {
+  it('filters on the joined customer organization with one parameter per distinct organization', async () => {
     const { em, queryCalls } = makeEm([])
-    await listMembershipIdsInCustomerScope(em, { tenantId: 'tenant-1', organizationIds: ['org-a'] })
-    const [sql, params] = queryCalls()[0]
-    expect(sql).not.toContain('m.group_id')
-    expect(sql).not.toContain('m.id = ?')
-    expect(params).toEqual(['tenant-1', 'tenant-1', 'org-a'])
+    const filter = await buildCustomerScopeListFilter(em, ['org-a', 'org-b', 'org-a'])
+    expect(filter).toEqual({ [`${CUSTOMER_SCOPE_JOIN_ALIAS}.organization_id`]: { $in: ['org-a', 'org-b'] } })
+    expect(queryCalls()).toHaveLength(0)
   })
 
-  it('lists no memberships when the customers table does not exist', async () => {
-    const { em, queryCalls } = makeEm([{ id: 'membership-1' }], { tablePresent: false })
-    const ids = await listMembershipIdsInCustomerScope(em, { tenantId: 'tenant-1', organizationIds: ['org-a'] })
-    expect(ids).toEqual([])
+  it('never lists membership ids, however many memberships the tenant has', async () => {
+    const { em, execute } = makeEm(Array.from({ length: 70000 }, (_value, index) => ({ id: `membership-${index}` })))
+    const filter = await buildCustomerScopeListFilter(em, ['org-a'])
+    expect(filter).toEqual({ [`${CUSTOMER_SCOPE_JOIN_ALIAS}.organization_id`]: { $in: ['org-a'] } })
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledWith('select to_regclass(?) is not null as present', ['customer_entities'])
+  })
+
+  it('returns no filter when the customers table does not exist', async () => {
+    const { em, queryCalls } = makeEm([], { tablePresent: false })
+    await expect(buildCustomerScopeListFilter(em, ['org-a'])).resolves.toBeNull()
     expect(queryCalls()).toHaveLength(0)
+  })
+
+  it('joins memberships to customers on the customer id', () => {
+    expect(customerScopeJoin).toEqual({
+      alias: CUSTOMER_SCOPE_JOIN_ALIAS,
+      table: 'customer_entities',
+      from: { field: 'customer_id' },
+      to: { field: 'id' },
+      type: 'inner',
+    })
   })
 })

@@ -12,7 +12,12 @@ jest.mock('../../../events', () => ({
 }))
 
 import type { CrudCtx, CrudFactoryOptions } from '@open-mercato/shared/lib/crud/factory'
-import { customerGroupMembershipCrud, actorUserIdFromContext, membershipUpdateEvents } from '../memberships/crud'
+import {
+  customerGroupMembershipCrud,
+  actorUserIdFromContext,
+  membershipUpdateEvents,
+  toMembershipUniqueConflict,
+} from '../memberships/crud'
 import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
 
 type RawInput = Record<string, unknown>
@@ -52,6 +57,7 @@ function createFakeEm(
     visibleCustomerIds?: string[]
     customerOrganizationId?: string | null
     customerTablePresent?: boolean
+    flushError?: unknown
   } = {},
 ) {
   const liveGroupIds = new Set(options.liveGroupIds ?? [GROUP_ID])
@@ -69,6 +75,9 @@ function createFakeEm(
       return 0
     }),
     findOne: jest.fn(async () => options.membership ?? null),
+    flush: jest.fn(async () => {
+      if (options.flushError) throw options.flushError
+    }),
     fork: () => em,
   }
   return em
@@ -241,10 +250,10 @@ describe('customer group membership CRUD route', () => {
       expect(actorUserIdFromContext(ctxWithAuth({ sub: 'api_key:abc', isApiKey: true }))).toBeNull()
     })
 
-    it('keeps the original attribution when an update only renews the validity window', () => {
+    it('keeps the original attribution when an update only renews the validity window', async () => {
       const entity = makeMembership({ assignedByUserId: ACTOR_ID })
 
-      opts.update!.applyToEntity(
+      await opts.update!.applyToEntity(
         entity,
         { id: MEMBERSHIP_ID, validUntil: null, assignedByUserId: SPOOFED_ID },
         ctxWithAuth({ sub: SPOOFED_ID }),
@@ -253,11 +262,11 @@ describe('customer group membership CRUD route', () => {
       expect(entity.assignedByUserId).toBe(ACTOR_ID)
     })
 
-    it('re-attributes the membership to the session user when it moves to another group', () => {
+    it('re-attributes the membership to the session user when it moves to another group', async () => {
       const entity = makeMembership({ assignedByUserId: ACTOR_ID })
       const mover = '88888888-8888-4888-8888-888888888888'
 
-      opts.update!.applyToEntity(entity, { id: MEMBERSHIP_ID, groupId: OTHER_GROUP_ID }, ctxWithAuth({ sub: mover }))
+      await opts.update!.applyToEntity(entity, { id: MEMBERSHIP_ID, groupId: OTHER_GROUP_ID }, ctxWithAuth({ sub: mover }))
 
       expect(entity.groupId).toBe(OTHER_GROUP_ID)
       expect(entity.assignedByUserId).toBe(mover)
@@ -341,6 +350,68 @@ describe('customer group membership CRUD route', () => {
 
       expect(em.execute).not.toHaveBeenCalled()
     })
+
+    describe('list narrowing', () => {
+      const ORG_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+      async function buildFilters(ctx: CrudCtx, query: Record<string, unknown> = {}) {
+        return opts.list!.buildFilters!({ page: 1, pageSize: 50, ...query }, ctx) as Promise<Record<string, unknown>>
+      }
+
+      it('declares a customer join the scope filter can target', () => {
+        expect(opts.list!.joins).toEqual([
+          { alias: 'scope_customer', table: 'customer_entities', from: { field: 'customer_id' }, to: { field: 'id' }, type: 'inner' },
+        ])
+      })
+
+      it('restricts an unfiltered list through the customer join, bound by organization count only', async () => {
+        const em = createFakeEm()
+
+        const filters = await buildFilters(scopedCtx(em, [ORG_A, ORG_B, ORG_A]))
+
+        expect(filters).toEqual({ 'scope_customer.organization_id': { $in: [ORG_A, ORG_B] } })
+        expect(customerQueryCalls(em)).toHaveLength(0)
+      })
+
+      it('keeps the group and id filters next to the scope restriction', async () => {
+        const em = createFakeEm()
+
+        const filters = await buildFilters(scopedCtx(em, [ORG_A]), { groupId: GROUP_ID, id: MEMBERSHIP_ID })
+
+        expect(filters).toEqual({
+          id: { $eq: MEMBERSHIP_ID },
+          group_id: { $eq: GROUP_ID },
+          'scope_customer.organization_id': { $in: [ORG_A] },
+        })
+      })
+
+      it('does not restrict an unrestricted caller or a list naming a customer', async () => {
+        const em = createFakeEm()
+
+        await expect(buildFilters(scopedCtx(em, null))).resolves.toEqual({})
+        await expect(buildFilters(scopedCtx(em, [ORG_A]), { customerId: CUSTOMER_ID })).resolves.toEqual({
+          customer_id: { $eq: CUSTOMER_ID },
+        })
+        expect(em.execute).not.toHaveBeenCalled()
+      })
+
+      it('lists nothing for a caller with no visible organization', async () => {
+        const em = createFakeEm()
+
+        const filters = await buildFilters(scopedCtx(em, []), { id: MEMBERSHIP_ID })
+
+        expect(filters).toEqual({ id: { $eq: '00000000-0000-0000-0000-000000000000' } })
+        expect(em.execute).not.toHaveBeenCalled()
+      })
+
+      it('lists nothing when the customers table does not exist', async () => {
+        const em = createFakeEm({ customerTablePresent: false })
+
+        const filters = await buildFilters(scopedCtx(em, [ORG_A]))
+
+        expect(filters).toEqual({ id: { $eq: '00000000-0000-0000-0000-000000000000' } })
+      })
+    })
   })
   describe('membership organization follows the customer', () => {
     const CUSTOMER_ORG = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
@@ -401,6 +472,38 @@ describe('customer group membership CRUD route', () => {
         opts.hooks!.beforeCreate!({ groupId: GROUP_ID, customerId: CUSTOMER_ID }, createCtx(em)),
       ).rejects.toMatchObject({ status: 400, body: { error: 'The selected customer does not exist.' } })
       expect(customerQueryCalls(em)).toHaveLength(0)
+    })
+  })
+
+  describe('unique collisions', () => {
+    const MEMBERSHIP_UNIQUE_VIOLATION = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      constraint: 'customer_group_memberships_active_unique',
+    })
+
+    it('flushes inside the update and maps a concurrent duplicate membership to a 409', async () => {
+      const em = createFakeEm({ flushError: MEMBERSHIP_UNIQUE_VIOLATION })
+
+      await expect(
+        opts.update!.applyToEntity(makeMembership(), { id: MEMBERSHIP_ID, groupId: OTHER_GROUP_ID }, createCtx(em)),
+      ).rejects.toMatchObject({ status: 409, body: { error: 'This customer is already a member of this group.' } })
+      expect(em.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it('rethrows an unrelated flush failure unchanged', async () => {
+      const failure = new Error('connection lost')
+      const em = createFakeEm({ flushError: failure })
+
+      await expect(
+        opts.update!.applyToEntity(makeMembership(), { id: MEMBERSHIP_ID, notes: 'x' }, createCtx(em)),
+      ).rejects.toBe(failure)
+    })
+
+    it('maps only the membership index', () => {
+      const translate = (_key: string, fallback?: string) => fallback ?? _key
+      expect(toMembershipUniqueConflict(MEMBERSHIP_UNIQUE_VIOLATION, translate)).toMatchObject({ status: 409 })
+      const other = Object.assign(new Error('dup'), { code: '23505', constraint: 'something_else' })
+      expect(toMembershipUniqueConflict(other, translate)).toBe(other)
     })
   })
 

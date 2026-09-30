@@ -13,6 +13,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerGroup, CustomerGroupTerms } from '../../../../data/entities'
 import { isPriceKindInTenant } from '../../../../lib/priceKindScope'
+import { announceCustomerGroupTermsUpdated } from '../../../../lib/groupEvents'
 import {
   customerGroupTermsCreateSchema,
   customerGroupTermsUpdateSchema,
@@ -225,13 +226,13 @@ export async function PUT(req: Request, context: RouteContext) {
 
     const payload = guarded.modifiedPayload ?? rawInput
 
-    const requestedPriceKindId =
-      typeof payload.priceKindId === 'string' && payload.priceKindId.length > 0 ? payload.priceKindId : null
-    if (
-      requestedPriceKindId
-      && requestedPriceKindId !== existing?.priceKindId
-      && !(await isPriceKindInTenant(em, requestedPriceKindId, scope.tenantId))
-    ) {
+    const scopedPayload = { ...payload, groupId, tenantId: scope.tenantId, organizationId: scope.organizationId }
+
+    // Runs on the validated payload only, so a malformed `priceKindId` is a 400 from
+    // the schema instead of reaching the uuid column as a raw query.
+    const assertPriceKindAllowed = async (priceKindId: string | null | undefined): Promise<void> => {
+      if (!priceKindId || priceKindId === existing?.priceKindId) return
+      if (await isPriceKindInTenant(em, priceKindId, scope.tenantId)) return
       throw badRequest(
         translate('customer_groups.errors.priceKindNotFound', 'The selected price kind does not exist.'),
       )
@@ -248,28 +249,20 @@ export async function PUT(req: Request, context: RouteContext) {
         current: existing.updatedAt,
         request: req,
       })
-      const parsed = customerGroupTermsUpdateSchema.parse({
-        ...payload,
-        id: existing.id,
-        groupId,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      })
+      const parsed = customerGroupTermsUpdateSchema.parse({ ...scopedPayload, id: existing.id })
+      await assertPriceKindAllowed(parsed.priceKindId)
       applyTermsUpdate(existing, parsed)
       terms = existing
     } else {
-      const parsed = customerGroupTermsCreateSchema.parse({
-        ...payload,
-        groupId,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      })
+      const parsed = customerGroupTermsCreateSchema.parse(scopedPayload)
+      await assertPriceKindAllowed(parsed.priceKindId)
       terms = em.create(CustomerGroupTerms, toEntityData(parsed))
       em.persist(terms)
     }
 
     await em.flush()
     await guarded.runAfterSuccess()
+    await announceCustomerGroupTermsUpdated(container, terms)
 
     return NextResponse.json({ terms: serializeTerms(terms) })
   } catch (err) {

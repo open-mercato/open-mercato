@@ -16,6 +16,7 @@ export const metadata = {
   pageTitleKey: 'customer_groups.groups.form.createTitle',
   pageGroup: 'Customers',
   pageGroupKey: 'customers.nav.group',
+  navHidden: true,
   icon: createIcon,
   breadcrumb: [
     { label: 'Customer Groups', labelKey: 'customer_groups.groups.page.title', href: '/backend/customer-groups' },

@@ -123,7 +123,6 @@ export function GroupPickerField({ value, onChange, disabled }: CustomFieldProps
         onChange={(next) => onChange(next || null)}
         disabled={disabled || isLoading}
         allowCustomValues={false}
-        clearable
         placeholder={t('customer_groups.widgets.groupPicker.placeholder', 'Search customer groups…')}
         loadSuggestions={(query) => loadGroups(query, '20', t)}
         resolveLabel={async (id) => {

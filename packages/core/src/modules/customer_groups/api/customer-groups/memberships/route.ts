@@ -1,12 +1,13 @@
 import { z } from 'zod'
+import { withCreateConflictRecheck } from '../../../lib/createConflictRecheck'
 import {
   customerGroupMembershipCrud,
   customerGroupMembershipListQuerySchema,
   customerGroupMembershipRouteMetadata,
 } from './crud'
 import {
-  customerGroupMembershipCreateSchema,
-  customerGroupMembershipUpdateSchema,
+  customerGroupMembershipCreateRequestSchema,
+  customerGroupMembershipUpdateRequestSchema,
 } from '../../../data/validators'
 import { createCustomerGroupsCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
@@ -17,7 +18,7 @@ import { createCustomerGroupsCrudOpenApi, createPagedListResponseSchema, default
 export const metadata = customerGroupMembershipRouteMetadata
 
 export const GET = customerGroupMembershipCrud.GET
-export const POST = customerGroupMembershipCrud.POST
+export const POST = withCreateConflictRecheck(customerGroupMembershipCrud.POST)
 export const PUT = customerGroupMembershipCrud.PUT
 export const DELETE = customerGroupMembershipCrud.DELETE
 
@@ -46,12 +47,13 @@ export const openApi = createCustomerGroupsCrudOpenApi({
   querySchema: customerGroupMembershipListQuerySchema,
   listResponseSchema: createPagedListResponseSchema(customerGroupMembershipListItemSchema),
   create: {
-    schema: customerGroupMembershipCreateSchema,
+    schema: customerGroupMembershipCreateRequestSchema,
     responseSchema: z.object({ id: z.string().uuid().nullable() }),
-    description: 'Adds a customer to a customer group, scoped to the authenticated tenant.',
+    description:
+      'Adds a customer to a customer group, scoped to the authenticated tenant. The tenant, the organization (taken from the customer) and assignedByUserId (the acting user) are set by the server.',
   },
   update: {
-    schema: customerGroupMembershipUpdateSchema,
+    schema: customerGroupMembershipUpdateRequestSchema,
     responseSchema: defaultOkResponseSchema,
     description: 'Updates a customer group membership by id.',
   },

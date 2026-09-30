@@ -1,3 +1,5 @@
+import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { canonicalizeResourceTag, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCustomerGroupsEvent } from '../events'
 
 export type CustomerGroupLifecycleEventId =
@@ -18,5 +20,31 @@ export async function emitCustomerGroupLifecycleEvent(
     eventId,
     { id: group.id, organizationId: null, tenantId: group.tenantId },
     { persistent: true, tenantId: group.tenantId, organizationId: null },
+  )
+}
+
+const CUSTOMER_GROUP_CACHE_RESOURCE = canonicalizeResourceTag('customer_groups.group') ?? 'customer_groups.group'
+const CUSTOMER_GROUP_CACHE_ALIASES = [canonicalizeResourceTag('CustomerGroup') ?? 'customer.group']
+
+// A terms write changes the resolved pricing and terms of every member of the group, so
+// it flushes the owning group's cache tags (the same tags a group update flushes) and
+// announces `customer_groups.terms.updated` for caches keyed on the group or its members.
+// Call it only once the write committed.
+export async function announceCustomerGroupTermsUpdated(
+  container: CrudCtx['container'],
+  terms: { id: string; groupId: string; tenantId: string },
+): Promise<void> {
+  await invalidateCrudCache(
+    container,
+    CUSTOMER_GROUP_CACHE_RESOURCE,
+    { id: terms.groupId, tenantId: terms.tenantId, organizationId: null },
+    terms.tenantId,
+    'updated',
+    CUSTOMER_GROUP_CACHE_ALIASES,
+  )
+  await emitCustomerGroupsEvent(
+    'customer_groups.terms.updated',
+    { id: terms.id, groupId: terms.groupId, organizationId: null, tenantId: terms.tenantId },
+    { persistent: true, tenantId: terms.tenantId, organizationId: null },
   )
 }

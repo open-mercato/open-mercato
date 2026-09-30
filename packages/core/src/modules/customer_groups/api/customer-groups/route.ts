@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withCreateConflictRecheck } from '../../lib/createConflictRecheck'
 import { customerGroupCrud, customerGroupListQuerySchema, customerGroupRouteMetadata } from './crud'
 import { customerGroupCreateSchema, customerGroupUpdateSchema } from '../../data/validators'
 import { createCustomerGroupsCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
@@ -12,7 +13,7 @@ import { createCustomerGroupsCrudOpenApi, createPagedListResponseSchema, default
 export const metadata = customerGroupRouteMetadata
 
 export const GET = customerGroupCrud.GET
-export const POST = customerGroupCrud.POST
+export const POST = withCreateConflictRecheck(customerGroupCrud.POST)
 export const PUT = customerGroupCrud.PUT
 export const DELETE = customerGroupCrud.DELETE
 
@@ -40,8 +41,16 @@ export const openApi = createCustomerGroupsCrudOpenApi({
   listResponseSchema: createPagedListResponseSchema(customerGroupListItemSchema),
   create: {
     schema: customerGroupCreateSchema,
-    responseSchema: z.object({ id: z.string().uuid().nullable() }),
-    description: 'Creates a customer group scoped to the authenticated tenant.',
+    responseSchema: z.object({
+      id: z.string().uuid().nullable(),
+      isDefault: z
+        .boolean()
+        .describe(
+          'Whether the created group is the tenant default. False when isDefault was requested but a concurrent request made another group the default; the group is still created.',
+        ),
+    }),
+    description:
+      'Creates a customer group scoped to the authenticated tenant. A requested default that loses a concurrent promotion still creates the group, as a non-default one (isDefault: false in the response).',
   },
   update: {
     schema: customerGroupUpdateSchema,

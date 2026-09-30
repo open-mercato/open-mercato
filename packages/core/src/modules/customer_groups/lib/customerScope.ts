@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
+import type { QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
 
 // Groups are tenant-scoped, but the customers a membership points at are
 // organization-scoped. Every membership read/write that names a customer — and
@@ -62,38 +63,32 @@ export async function isCustomerInScope(
   return (await findCustomerInScope(em, customerId, scope, options)) !== null
 }
 
-// Membership ids whose customer is visible in the caller's organization scope. Used
-// to narrow membership lists that do not name a customer (by group, by id, or
-// unfiltered) so an organization-restricted caller never sees memberships of
-// customers outside its organizations. Only call it for a restricted caller
-// (`organizationIds` is an array); an empty array yields no ids.
-export async function listMembershipIdsInCustomerScope(
+// Membership lists that do not name a customer (by group, by id, or unfiltered) are
+// narrowed inside the list query itself: the query engine turns a filter on a join
+// alias into a correlated `exists (select 1 from customer_entities ...)` that also
+// carries the query's tenant guard. Its bind parameters grow with the caller's
+// organization count, never with the number of memberships in the tenant.
+export const CUSTOMER_SCOPE_JOIN_ALIAS = 'scope_customer'
+
+export const customerScopeJoin: QueryJoinEdge = {
+  alias: CUSTOMER_SCOPE_JOIN_ALIAS,
+  table: CUSTOMER_TABLE,
+  from: { field: 'customer_id' },
+  to: { field: 'id' },
+  type: 'inner',
+}
+
+// Only call it for a restricted caller (`organizationIds` is an array). Returns null
+// when nothing can be visible — no organization, or no `customers` table to join —
+// so the caller answers with an empty list instead of querying a missing table.
+export async function buildCustomerScopeListFilter(
   em: EntityManager,
-  scope: CustomerScope & { organizationIds: string[] },
-  filters: { groupId?: string | null; membershipId?: string | null } = {},
-): Promise<string[]> {
-  if (scope.organizationIds.length === 0) return []
-  if (!(await isCustomerTablePresent(em))) return []
-  const params: string[] = [scope.tenantId, scope.tenantId]
-  let sql =
-    `select m.id from customer_group_memberships m ` +
-    `join ${CUSTOMER_TABLE} c on c.id = m.customer_id ` +
-    `where m.tenant_id = ? and m.deleted_at is null and c.tenant_id = ?`
-  sql += ` and c.organization_id in (${scope.organizationIds.map(() => '?').join(', ')})`
-  params.push(...scope.organizationIds)
-  if (filters.groupId) {
-    sql += ' and m.group_id = ?'
-    params.push(filters.groupId)
-  }
-  if (filters.membershipId) {
-    sql += ' and m.id = ?'
-    params.push(filters.membershipId)
-  }
-  const rows = await em.getConnection().execute(sql, params)
-  if (!Array.isArray(rows)) return []
-  return rows
-    .map((row) => (row && typeof row === 'object' ? (row as { id?: unknown }).id : null))
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  organizationIds: string[],
+): Promise<Record<string, { $in: string[] }> | null> {
+  const uniqueOrganizationIds = Array.from(new Set(organizationIds))
+  if (uniqueOrganizationIds.length === 0) return null
+  if (!(await isCustomerTablePresent(em))) return null
+  return { [`${CUSTOMER_SCOPE_JOIN_ALIAS}.organization_id`]: { $in: uniqueOrganizationIds } }
 }
 
 // Hand-written routes resolve an `OrganizationScope` themselves; this derives the

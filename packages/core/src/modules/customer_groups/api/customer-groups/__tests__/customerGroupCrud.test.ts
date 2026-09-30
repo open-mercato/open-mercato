@@ -7,13 +7,18 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 const emitMock = jest.fn(async (..._args: unknown[]) => {})
+const invalidateCrudCacheMock = jest.fn(async (..._args: unknown[]) => {})
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  invalidateCrudCache: (...args: unknown[]) => invalidateCrudCacheMock(...args),
+}))
 jest.mock('../../../events', () => ({
   ...jest.requireActual('../../../events'),
   emitCustomerGroupsEvent: (...args: unknown[]) => emitMock(...args),
 }))
 
 import type { CrudCtx, CrudFactoryOptions } from '@open-mercato/shared/lib/crud/factory'
-import { customerGroupCrud, findParentAssignmentIssue, type CustomerGroupNode } from '../crud'
+import { customerGroupCrud, findParentAssignmentIssue, toCustomerGroupUniqueConflict, type CustomerGroupNode } from '../crud'
 import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../../../data/entities'
 import { eventsConfig } from '../../../events'
 
@@ -32,6 +37,8 @@ type FakeEmConfig = {
   groups?: CustomerGroupNode[]
   memberships?: Array<Partial<CustomerGroupMembership>>
   nativeUpdateError?: (where: Record<string, unknown>) => unknown
+  flushError?: unknown
+  transactionError?: unknown
 }
 
 const DEFAULT_UNIQUE_VIOLATION = Object.assign(new Error('duplicate key value violates unique constraint'), {
@@ -58,7 +65,15 @@ function createFakeEm(config: FakeEmConfig = {}) {
       if (error) throw error
       return 1
     }),
-    transactional: jest.fn(async (callback: (tem: unknown) => Promise<unknown>): Promise<unknown> => callback(em)),
+    flush: jest.fn(async () => {
+      calls.push('flush')
+      if (config.flushError) throw config.flushError
+    }),
+    transactional: jest.fn(async (callback: (tem: unknown) => Promise<unknown>): Promise<unknown> => {
+      const result = await callback(em)
+      if (config.transactionError) throw config.transactionError
+      return result
+    }),
     fork: (): unknown => em,
   }
   return { em, calls }
@@ -188,19 +203,24 @@ describe('customer group CRUD route', () => {
       expect(created.isDefault).toBe(true)
     })
 
-    it('maps a concurrent default promotion (partial unique index) to a 409 instead of a raw 500', async () => {
+    it('keeps the committed create when every default promotion loses a concurrent race', async () => {
       const { em } = createFakeEm({
         nativeUpdateError: (where) => (typeof where.id === 'string' ? DEFAULT_UNIQUE_VIOLATION : null),
       })
       const created = makeGroup()
+      emitMock.mockClear()
 
       await expect(
         opts.hooks!.afterCreate!(created, { ...createCtx(em), input: { ...validCreateInput, isDefault: true } }),
-      ).rejects.toMatchObject({
-        status: 409,
-        body: { error: 'Another customer group was made the default at the same time. Reload and try again.' },
-      })
+      ).resolves.toBeUndefined()
+      expect(em.transactional).toHaveBeenCalledTimes(3)
       expect(created.isDefault).toBe(false)
+      expect(emitMock).not.toHaveBeenCalled()
+      expect(opts.create!.response!(created)).toEqual({ id: GROUP_ID, isDefault: false })
+    })
+
+    it('reports the applied default in the create response', () => {
+      expect(opts.create!.response!(makeGroup({ isDefault: true }))).toEqual({ id: GROUP_ID, isDefault: true })
     })
 
     it('rethrows an unrelated promotion failure unchanged', async () => {
@@ -253,7 +273,7 @@ describe('customer group CRUD route', () => {
 
       await opts.update!.applyToEntity(group, { id: GROUP_ID, isDefault: true, code: 'retail-2' }, createCtx(em))
 
-      expect(calls).toEqual(['count', 'find', 'nativeUpdate:others', 'nativeUpdate:self'])
+      expect(calls).toEqual(['count', 'find', 'nativeUpdate:others', 'nativeUpdate:self', 'flush'])
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         CustomerGroup,
         { tenantId: TENANT_ID, isDefault: true, deletedAt: null, id: { $ne: GROUP_ID } },
@@ -342,6 +362,32 @@ describe('customer group CRUD route', () => {
       })
     })
 
+    it('flushes inside the update and maps a concurrent code or priority collision to a 409', async () => {
+      for (const [constraint, message] of [
+        ['customer_groups_tenant_code_unique', 'A customer group with this code already exists.'],
+        ['customer_groups_tenant_priority_unique', 'Another customer group already uses this priority.'],
+      ]) {
+        const flushError = Object.assign(new Error('duplicate key value violates unique constraint'), {
+          code: '23505',
+          constraint,
+        })
+        const { em } = createFakeEm({ flushError })
+
+        await expect(
+          opts.update!.applyToEntity(makeGroup(), { id: GROUP_ID, code: 'retail-2', priority: 30 }, createCtx(em)),
+        ).rejects.toMatchObject({ status: 409, body: { error: message } })
+      }
+    })
+
+    it('rethrows an unrelated flush failure unchanged', async () => {
+      const failure = new Error('connection lost')
+      const { em } = createFakeEm({ flushError: failure })
+
+      await expect(
+        opts.update!.applyToEntity(makeGroup(), { id: GROUP_ID, name: 'Renamed' }, createCtx(em)),
+      ).rejects.toBe(failure)
+    })
+
     it('rejects making a group its own parent with a 400', async () => {
       const { em } = createFakeEm({ groups: [{ id: GROUP_ID, parentId: null }] })
 
@@ -367,6 +413,48 @@ describe('customer group CRUD route', () => {
   describe('delete', () => {
     beforeEach(() => {
       emitMock.mockClear()
+      invalidateCrudCacheMock.mockClear()
+    })
+
+    it('retires terms and memberships in one transaction and flushes the membership cache once', async () => {
+      const memberships = [
+        { id: 'm-1', tenantId: TENANT_ID, organizationId: 'org-1', groupId: GROUP_ID, customerId: 'c-1' },
+        { id: 'm-2', tenantId: TENANT_ID, organizationId: 'org-2', groupId: GROUP_ID, customerId: 'c-2' },
+        { id: 'm-3', tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: 'c-3' },
+      ]
+      const { em } = createFakeEm({ memberships })
+      const ctx = createCtx(em)
+
+      await opts.hooks!.afterDelete!(GROUP_ID, ctx)
+
+      expect(em.transactional).toHaveBeenCalledTimes(1)
+      expect(invalidateCrudCacheMock).toHaveBeenCalledTimes(1)
+      expect(invalidateCrudCacheMock).toHaveBeenCalledWith(
+        ctx.container,
+        'customer.group.membership',
+        { id: null, tenantId: TENANT_ID, organizationId: null },
+        TENANT_ID,
+        'deleted',
+      )
+      expect(emitMock).toHaveBeenCalledTimes(3)
+    })
+
+    it('reverts the group delete and emits nothing when the cascade fails', async () => {
+      const failure = new Error('connection lost')
+      const { em } = createFakeEm({
+        memberships: [{ id: 'm-1', tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: 'c-1' }],
+        transactionError: failure,
+      })
+
+      await expect(opts.hooks!.afterDelete!(GROUP_ID, createCtx(em))).rejects.toBe(failure)
+
+      expect(em.nativeUpdate).toHaveBeenLastCalledWith(
+        CustomerGroup,
+        { id: GROUP_ID, tenantId: TENANT_ID, deletedAt: { $ne: null } },
+        { deletedAt: null },
+      )
+      expect(emitMock).not.toHaveBeenCalled()
+      expect(invalidateCrudCacheMock).not.toHaveBeenCalled()
     })
 
     it('soft-deletes the live memberships of the deleted group and emits membership.removed for each', async () => {
@@ -426,6 +514,16 @@ describe('customer group CRUD route', () => {
         { deletedAt: expect.any(Date), updatedAt: expect.any(Date) },
       )
     })
+  })
+})
+
+describe('toCustomerGroupUniqueConflict', () => {
+  const translate = (_key: string, fallback?: string) => fallback ?? _key
+
+  it('maps the default-group index to the default conflict and leaves other errors alone', () => {
+    expect(toCustomerGroupUniqueConflict(DEFAULT_UNIQUE_VIOLATION, translate)).toMatchObject({ status: 409 })
+    const other = new Error('boom')
+    expect(toCustomerGroupUniqueConflict(other, translate)).toBe(other)
   })
 })
 

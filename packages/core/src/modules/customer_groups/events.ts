@@ -7,6 +7,7 @@ const events = [
   { id: 'customer_groups.membership.added', label: 'Customer Added to Group', entity: 'membership', category: 'crud' },
   { id: 'customer_groups.membership.removed', label: 'Customer Removed from Group', entity: 'membership', category: 'crud' },
   { id: 'customer_groups.membership.expired', label: 'Group Membership Expired', entity: 'membership', category: 'lifecycle' },
+  { id: 'customer_groups.terms.updated', label: 'Customer Group Terms Updated', entity: 'terms', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

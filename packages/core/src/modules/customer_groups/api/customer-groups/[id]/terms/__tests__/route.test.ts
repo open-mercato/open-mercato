@@ -18,6 +18,14 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     translate: (_key: string, fallback?: string) => fallback ?? _key,
   }),
 }))
+const announceTermsUpdatedMock = jest.fn(async (..._args: unknown[]) => {})
+jest.mock('../../../../../lib/groupEvents', () => ({
+  announceCustomerGroupTermsUpdated: (...args: unknown[]) => announceTermsUpdatedMock(...args),
+}))
+const isPriceKindInTenantMock = jest.fn(async (..._args: unknown[]) => true)
+jest.mock('../../../../../lib/priceKindScope', () => ({
+  isPriceKindInTenant: (...args: unknown[]) => isPriceKindInTenantMock(...args),
+}))
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
   runRouteMutationGuards: (...args: unknown[]) => runRouteMutationGuardsMock(...args),
 }))
@@ -305,6 +313,62 @@ describe('PUT /api/customer-groups/[id]/terms', () => {
     const res = await PUT(jsonRequest({ paymentTermsDays: 5 }), routeCtx())
     expect(res).toBe(blockedResponse)
   })
+  it('answers 400 for a non-uuid priceKindId without querying the price kind', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    setupContainer(em)
+
+    const res = await PUT(jsonRequest({ priceKindId: 'abc' }), routeCtx())
+
+    expect(res.status).toBe(400)
+    expect(isPriceKindInTenantMock).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(reportErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 for a price kind outside the tenant after validation', async () => {
+    const PRICE_KIND_ID = '66666666-6666-4666-8666-666666666666'
+    isPriceKindInTenantMock.mockResolvedValueOnce(false)
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    setupContainer(em)
+
+    const res = await PUT(jsonRequest({ priceKindId: PRICE_KIND_ID }), routeCtx())
+
+    expect(res.status).toBe(400)
+    expect(isPriceKindInTenantMock).toHaveBeenCalledWith(em, PRICE_KIND_ID, TENANT_ID)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(announceTermsUpdatedMock).not.toHaveBeenCalled()
+  })
+
+  it('announces the terms change once the write committed', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: { ...existingTerms } })
+    setupContainer(em)
+
+    const res = await PUT(
+      jsonRequest({ paymentTermsDays: 45 }, { [OPTIMISTIC_LOCK_HEADER_NAME]: existingTerms.updatedAt!.toISOString() }),
+      routeCtx(),
+    )
+
+    expect(res.status).toBe(200)
+    expect(announceTermsUpdatedMock).toHaveBeenCalledTimes(1)
+    expect(announceTermsUpdatedMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: TERMS_ID, groupId: GROUP_ID, tenantId: TENANT_ID }),
+    )
+    expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(announceTermsUpdatedMock.mock.invocationCallOrder[0])
+  })
+
+  it('does not announce a write rejected by the optimistic lock', async () => {
+    setupContainer(createFakeEm({ group: existingGroup, terms: { ...existingTerms } }))
+
+    const res = await PUT(
+      jsonRequest({ paymentTermsDays: 45 }, { [OPTIMISTIC_LOCK_HEADER_NAME]: '2020-01-01T00:00:00.000Z' }),
+      routeCtx(),
+    )
+
+    expect(res.status).toBe(409)
+    expect(announceTermsUpdatedMock).not.toHaveBeenCalled()
+  })
+
   it('maps a unique violation from a concurrent first save to a 409 conflict, not a 400/500', async () => {
     const em = createFakeEm({ group: existingGroup, terms: null })
     em.flush.mockRejectedValueOnce(

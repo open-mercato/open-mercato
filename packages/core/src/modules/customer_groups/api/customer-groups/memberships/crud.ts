@@ -2,14 +2,20 @@ import { z } from 'zod'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError, badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, conflict, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
 import { emitCustomerGroupsEvent } from '../../../events'
-import { findCustomerInScope, isCustomerInScope, listMembershipIdsInCustomerScope } from '../../../lib/customerScope'
+import {
+  buildCustomerScopeListFilter,
+  customerScopeJoin,
+  findCustomerInScope,
+  isCustomerInScope,
+} from '../../../lib/customerScope'
 import { isMembershipValidAt } from '../../../services/customerGroupsService'
+import { registerCreateConflictRecheck } from '../../../lib/createConflictRecheck'
 import {
   customerGroupMembershipCreateSchema,
   customerGroupMembershipUpdateSchema,
@@ -191,6 +197,20 @@ async function assertMembershipUnique(
   }
 }
 
+const MEMBERSHIP_ACTIVE_UNIQUE_CONSTRAINT = 'customer_group_memberships_active_unique'
+
+// The pre-check cannot see a concurrent write committing between the check and the
+// flush; the partial unique index then rejects the loser with the same 409.
+export function toMembershipUniqueConflict(
+  err: unknown,
+  translate: (key: string, fallback?: string) => string,
+): unknown {
+  if (!isUniqueViolation(err, MEMBERSHIP_ACTIVE_UNIQUE_CONSTRAINT)) return err
+  return conflict(
+    translate('customer_groups.errors.membershipDuplicate', 'This customer is already a member of this group.'),
+  )
+}
+
 // `groupId` is a plain uuid column (no FK, see data/entities.ts), so nothing else stops
 // a membership pointing at a deleted group or at another tenant's group.
 export async function assertMembershipGroupExists(
@@ -364,6 +384,7 @@ export const customerGroupMembershipCrud = makeCrudRoute<
       validFrom: 'valid_from',
       validUntil: 'valid_until',
     },
+    joins: [customerScopeJoin],
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
@@ -373,13 +394,9 @@ export const customerGroupMembershipCrud = makeCrudRoute<
       // narrowed to memberships whose customer is in the caller's organizations.
       if (!query.customerId && Array.isArray(ctx.organizationIds)) {
         const em = (ctx.container.resolve('em') as EntityManager).fork()
-        const { tenantId } = scopeFromContext(ctx)
-        const visibleIds = await listMembershipIdsInCustomerScope(
-          em,
-          { tenantId, organizationIds: ctx.organizationIds },
-          { groupId: query.groupId ?? null, membershipId: query.id ?? null },
-        )
-        filters.id = visibleIds.length > 0 ? { $in: visibleIds } : { $eq: NO_MATCH_MEMBERSHIP_ID }
+        const scopeFilter = await buildCustomerScopeListFilter(em, ctx.organizationIds)
+        if (scopeFilter) Object.assign(filters, scopeFilter)
+        else filters.id = { $eq: NO_MATCH_MEMBERSHIP_ID }
       }
       const activeOnly = parseBooleanToken(query.activeOnly)
       if (activeOnly === true) {
@@ -400,19 +417,21 @@ export const customerGroupMembershipCrud = makeCrudRoute<
   update: {
     schema: rawBodySchema,
     getId: (input) => (typeof input.id === 'string' ? input.id : ''),
-    applyToEntity: (entity, input, ctx) => {
+    applyToEntity: async (entity, input, ctx) => {
       const membership = entity as CustomerGroupMembership
+      const parsed = parseUpdateInput(input, ctx)
       membershipStateBeforeUpdate.set(membership, {
         groupId: membership.groupId,
         customerId: membership.customerId,
         validAtUpdate: isMembershipValidAt(membership, new Date()),
       })
-      applyCustomerGroupMembershipUpdate(
-        membership,
-        parseUpdateInput(input, ctx),
-        actorUserIdFromContext(ctx),
-        takeCustomerOrganization(ctx),
-      )
+      applyCustomerGroupMembershipUpdate(membership, parsed, actorUserIdFromContext(ctx), takeCustomerOrganization(ctx))
+      try {
+        await (ctx.container.resolve('em') as EntityManager).flush()
+      } catch (err) {
+        const { translate } = await resolveTranslations()
+        throw toMembershipUniqueConflict(err, translate)
+      }
     },
     response: () => ({ ok: true }),
   },
@@ -436,6 +455,16 @@ export const customerGroupMembershipCrud = makeCrudRoute<
       await assertMembershipGroupExists(em, scope, result.data.groupId, translate)
       await assertMembershipUnique(em, scope, result.data.groupId, result.data.customerId, null, translate)
       customerOrganizationByRequest.set(ctx, customerOrganizationId)
+      registerCreateConflictRecheck(ctx.request, () =>
+        assertMembershipUnique(
+          (ctx.container.resolve('em') as EntityManager).fork(),
+          scope,
+          result.data.groupId,
+          result.data.customerId,
+          null,
+          translate,
+        ),
+      )
     },
     afterCreate: async (entity) => {
       await emitMembershipEvent('customer_groups.membership.added', entity as CustomerGroupMembership)
