@@ -82,6 +82,30 @@ function laneSql(stepPlaceholders: string): string {
          and r.tenant_id = ?
          and r.organization_id = ?
          and r.variant_choices ->> ? = ?
+    ),
+    /**
+     * The orders this lane's clicks led to, resolved once.
+     *
+     * DISTINCT on the order rather than on (order, total): the three aggregates below need the currency too,
+     * and a plain distinct over all three columns is the same set as long as an order has one total and one
+     * currency, which it does.
+     */
+    lane_orders as (
+      select distinct o.id, o.grand_total_gross_amount as total, o.currency_code
+        from marketing_message_send_events e
+        join marketing_campaign_runs r on r.id = e.run_id
+        join sales_orders o
+          on o.customer_entity_id = r.subject_entity_id
+         and o.placed_at > e.occurred_at
+         and o.placed_at <= e.occurred_at + make_interval(days => ?)
+       where e.tenant_id = ? and e.organization_id = ?
+         and e.type = 'clicked'
+         and e.run_id in (select id from lane_runs)
+         and e.step_id in (${stepPlaceholders})
+         and r.subject_entity_id is not null
+         and o.deleted_at is null
+         and o.placed_at is not null
+         and (o.status is null or o.status not in ('canceled', 'cancelled'))
     )
     select (select count(*) from lane_runs)::int as runs,
            (select count(*)
@@ -117,57 +141,17 @@ function laneSql(stepPlaceholders: string): string {
             *
             * Attributed exactly as the funnel attributes a conversion — a click on one of THIS lane's steps
             * followed by an order from that recipient inside the window — so the two screens cannot disagree
-            * about who converted. Distinct by order id, because one order must not be counted twice when a
+            * about who converted. Distinct by order, because one order must not be counted twice when a
             * recipient clicked two of the lane's messages before buying.
+            *
+            * All three figures come from ONE pass now. They used to be three correlated subqueries over the
+            * identical events-runs-orders join with identical predicates and the identical window: the most
+            * expensive join on the results screen, executed three times per lane, and again for every lane of
+            * every enabled campaign each time the unattended winner pass runs.
             */
-           (select coalesce(sum(orders.total), 0)::float8
-              from (
-                select distinct o.id, o.grand_total_gross_amount as total
-                  from marketing_message_send_events e
-                  join marketing_campaign_runs r on r.id = e.run_id
-                  join sales_orders o
-                    on o.customer_entity_id = r.subject_entity_id
-                   and o.placed_at > e.occurred_at
-                   and o.placed_at <= e.occurred_at + make_interval(days => ?)
-                 where e.tenant_id = ? and e.organization_id = ?
-                   and e.type = 'clicked'
-                   and e.run_id in (select id from lane_runs)
-                   and e.step_id in (${stepPlaceholders})
-                   and r.subject_entity_id is not null
-                   and o.deleted_at is null
-                   and o.placed_at is not null
-                   and (o.status is null or o.status not in ('canceled', 'cancelled'))
-              ) orders)::float8 as revenue,
-           (select count(distinct o.currency_code)
-              from marketing_message_send_events e
-              join marketing_campaign_runs r on r.id = e.run_id
-              join sales_orders o
-                on o.customer_entity_id = r.subject_entity_id
-               and o.placed_at > e.occurred_at
-               and o.placed_at <= e.occurred_at + make_interval(days => ?)
-             where e.tenant_id = ? and e.organization_id = ?
-               and e.type = 'clicked'
-               and e.run_id in (select id from lane_runs)
-               and e.step_id in (${stepPlaceholders})
-               and r.subject_entity_id is not null
-               and o.deleted_at is null
-               and o.placed_at is not null
-               and (o.status is null or o.status not in ('canceled', 'cancelled')))::int as currencies,
-           (select min(o.currency_code)
-              from marketing_message_send_events e
-              join marketing_campaign_runs r on r.id = e.run_id
-              join sales_orders o
-                on o.customer_entity_id = r.subject_entity_id
-               and o.placed_at > e.occurred_at
-               and o.placed_at <= e.occurred_at + make_interval(days => ?)
-             where e.tenant_id = ? and e.organization_id = ?
-               and e.type = 'clicked'
-               and e.run_id in (select id from lane_runs)
-               and e.step_id in (${stepPlaceholders})
-               and r.subject_entity_id is not null
-               and o.deleted_at is null
-               and o.placed_at is not null
-               and (o.status is null or o.status not in ('canceled', 'cancelled'))) as currency_code
+           (select coalesce(sum(total), 0)::float8 from lane_orders)::float8 as revenue,
+           (select count(distinct currency_code) from lane_orders)::int as currencies,
+           (select min(currency_code) from lane_orders) as currency_code
   `
 }
 
@@ -270,15 +254,17 @@ export async function loadSplitResults(
     // Placeholders, not values: the step ids stay bound parameters.
     const placeholders = lane.stepIds.map(() => '?').join(', ')
     const rows = await em.getConnection().execute<ResultRow[]>(laneSql(placeholders), [
+      // `lane_runs`.
       campaignId, scope.tenantId, scope.organizationId, lane.splitStepId, lane.variant,
-      scope.tenantId, scope.organizationId, ...lane.stepIds,
-      scope.tenantId, scope.organizationId, ...lane.stepIds,
-      scope.tenantId, scope.organizationId, ...lane.stepIds,
-      scope.tenantId, scope.organizationId, ...lane.stepIds,
-      // The three revenue subqueries: each takes the window, then the scope, then the step ids.
+      // `lane_orders`, which now binds BEFORE the select list because a CTE is written first. It used to be
+      // three subqueries at the end, each repeating this; getting the order wrong here binds a step id where
+      // a tenant belongs and the lane silently reports nothing.
       conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
-      conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
-      conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
+      // Then the four counting subqueries, each scope-then-steps.
+      scope.tenantId, scope.organizationId, ...lane.stepIds,
+      scope.tenantId, scope.organizationId, ...lane.stepIds,
+      scope.tenantId, scope.organizationId, ...lane.stepIds,
+      scope.tenantId, scope.organizationId, ...lane.stepIds,
     ])
     const row = rows[0]
     results.push({

@@ -258,13 +258,29 @@ let walked = 0
  * population scan above: each source orders totally, and a row arriving or leaving mid-sweep costs at
  * worst one row seen twice or once late, which the claim already makes harmless.
  */
-for (let offset = 0; offset < MAX_ROWS_PER_TICK; offset += PAGE_SIZE) {
-  const page = await source.collect(deps.em, scope, params, deps.now, PAGE_SIZE, offset)
+/**
+ * A raw-SQL source is read ONCE; only an entity source is paged.
+ *
+ * Both used to page, and for one of them that was expensive in a way an offset hides. `reorderDue` groups
+ * every order line in the shop by customer and sku with a `having` over distinct orders, and `birthdays`
+ * joins custom field values to people: Postgres must compute the whole aggregate before it can skip to any
+ * offset, so twenty-five pages meant twenty-five full aggregations per tick, per campaign, for a result that
+ * does not change between them. Asking for the tick's ceiling in one statement computes it once.
+ *
+ * Entity sources keep paging, for the reason given below — their rows land in the identity map.
+ */
+const pageSize = source.hydratesEntities ? PAGE_SIZE : MAX_ROWS_PER_TICK
+const bulk = source.hydratesEntities
+  ? null
+  : await source.collect(deps.em, scope, params, deps.now, MAX_ROWS_PER_TICK, 0)
+
+for (let offset = 0; offset < MAX_ROWS_PER_TICK; offset += pageSize) {
+  const page = bulk ?? await source.collect(deps.em, scope, params, deps.now, pageSize, offset)
   walked += page.length
   for (const candidate of page) {
     if (await startRowCandidate(campaign, source, candidate, policy, deps, scope, projection)) started += 1
   }
-  if (page.length < PAGE_SIZE) break
+  if (page.length < pageSize) break
   /**
    * Release the page before fetching the next one, exactly as both population scans do.
    *
@@ -274,7 +290,7 @@ for (let offset = 0; offset < MAX_ROWS_PER_TICK; offset += PAGE_SIZE) {
    * inside `startRowCandidate`, so there is nothing pending to lose.
    */
   deps.em.clear()
-  if (offset + PAGE_SIZE >= MAX_ROWS_PER_TICK) {
+  if (offset + pageSize >= MAX_ROWS_PER_TICK) {
     logger.warn('marketing sweep reached its per-tick row ceiling', {
       campaignId: campaign.id,
       source: source.id,

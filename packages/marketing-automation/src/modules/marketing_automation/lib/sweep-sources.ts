@@ -42,6 +42,16 @@ export type RowSweepSource = {
   /** Default for `withinDays` when the author did not set one. */
   defaultWithinDays: number
   /**
+   * True when `collect` hydrates ORM entities rather than returning plain rows.
+   *
+   * It decides how the worker reads the source, and the two answers are opposite. An entity source must be
+   * read a page at a time, because a tick's worth of them sits in the identity map at once. A raw-SQL source
+   * must NOT be: its statement is an aggregate over the shop's whole order history, Postgres has to compute
+   * all of it to answer any offset, and paging therefore runs the same aggregation once per page — twenty-five
+   * times a tick for an answer that does not change between them.
+   */
+  hydratesEntities?: boolean
+  /**
    * One page of candidates, in a STABLE order.
    *
    * The order has to be total and deterministic, because the worker pages with an offset: without it the
@@ -79,6 +89,9 @@ const expiringQuotes: RowSweepSource = {
   triggerEventId: 'marketing_automation.quote.expiring',
   contextKeys: ['trigger.quoteId', 'trigger.quoteNumber', 'trigger.quoteTotal', 'trigger.daysUntilExpiry'],
   defaultWithinDays: 7,
+  // The only source that loads entities: it pages off an indexed date range cheaply, and reading a whole
+  // tick's worth in one go would put them all in the identity map together.
+  hydratesEntities: true,
   async collect(em, scope, params, now, limit, offset = 0) {
     const withinDays = params.withinDays ?? this.defaultWithinDays
     const horizon = new Date(now.getTime() + withinDays * MS_PER_DAY)

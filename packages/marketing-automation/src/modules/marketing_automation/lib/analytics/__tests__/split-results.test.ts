@@ -71,17 +71,27 @@ describe('loadSplitResults', () => {
     // Engagement is per RUN, so a mail client re-fetching a pixel cannot inflate a lane.
     expect(sql).toContain('count(distinct e.run_id)')
     // Every step id travels as a bound parameter.
+    /**
+     * Revenue, currency count and currency code come from ONE pass over the orders now.
+     *
+     * They were three correlated subqueries over the identical events-runs-orders join — the most expensive
+     * join on this screen, run three times per lane. The `lane_orders` CTE that replaced them binds FIRST,
+     * because a CTE is written before the select list; the order below is the only thing standing between a
+     * step id landing where a tenant belongs and a lane silently reporting nothing.
+     */
+    expect(sql).toContain('lane_orders as (')
+    expect(sql).toContain('from lane_orders')
     expect(params).toEqual([
+      // lane_runs
       'camp-1', 't1', 'o1', 'sp1', 'a',
-      't1', 'o1', 'a1', 'a2',
-      't1', 'o1', 'a1', 'a2',
-      't1', 'o1', 'a1', 'a2',
-      't1', 'o1', 'a1', 'a2',
-      // The three revenue subqueries, each taking the conversion window before its scope and step ids — the
-      // same window the funnel and the revenue attribution use, so the three cannot disagree.
+      // lane_orders: the conversion window first, then the scope and the lane's steps. The same window the
+      // funnel and the revenue attribution use, so the three cannot disagree.
       7, 't1', 'o1', 'a1', 'a2',
-      7, 't1', 'o1', 'a1', 'a2',
-      7, 't1', 'o1', 'a1', 'a2',
+      // The four counting subqueries.
+      't1', 'o1', 'a1', 'a2',
+      't1', 'o1', 'a1', 'a2',
+      't1', 'o1', 'a1', 'a2',
+      't1', 'o1', 'a1', 'a2',
     ])
   })
 

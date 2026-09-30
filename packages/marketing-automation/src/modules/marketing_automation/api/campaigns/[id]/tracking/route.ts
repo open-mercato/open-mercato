@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { MarketingCampaign, MarketingMessageSend, MarketingMessageSendEvent } from '../../../../data/entities.js'
+import { MarketingCampaign, MarketingMessageSend } from '../../../../data/entities.js'
 import { campaignDefinitionSchema } from '../../../../data/validators.js'
 import { describeLanes } from '../../../../lib/engine/split.js'
 import type { CampaignStep } from '../../../../lib/engine/types.js'
@@ -72,19 +72,39 @@ export async function GET(req: Request) {
     em.count(MarketingMessageSend, { ...scope, campaignId: campaign.id, status: 'suppressed' }),
   ])
 
+  /**
+   * Every event count in one statement.
+   *
+   * This was a loop: per event type, one `count` and one `count(distinct run_id)` — eight sequential scans of
+   * the same index range, on the largest table in the module, to answer one screen. A `group by type` walks
+   * that range once and returns all of it.
+   *
+   * Distinct runs, because a mail client re-fetching the pixel is not a second person reading it — reporting
+   * only the raw total would overstate every campaign's reach.
+   *
+   * A type nobody has recorded yet is absent from the result rather than zero, so the maps are seeded first:
+   * a missing key would render as a blank cell where the honest answer is "nought".
+   */
   const counts = {} as Record<EventType, number>
   const unique = {} as Record<EventType, number>
   for (const type of EVENT_TYPES) {
-    counts[type] = await em.count(MarketingMessageSendEvent, { ...scope, campaignId: campaign.id, type })
-    // Distinct runs, because a mail client re-fetching the pixel is not a second person reading it —
-    // reporting only the raw total would overstate every campaign's reach.
-    const rows = await em.getConnection().execute<{ count: string }[]>(
-      `select count(distinct run_id)::text as count
-         from marketing_message_send_events
-        where tenant_id = ? and organization_id = ? and campaign_id = ? and type = ?`,
-      [scope.tenantId, scope.organizationId, campaign.id, type],
-    )
-    unique[type] = Number.parseInt(rows[0]?.count ?? '0', 10) || 0
+    counts[type] = 0
+    unique[type] = 0
+  }
+  const eventRows = await em.getConnection().execute<Array<{ type: string; total: string; unique_runs: string }>>(
+    `select type, count(*)::text as total, count(distinct run_id)::text as unique_runs
+       from marketing_message_send_events
+      where tenant_id = ? and organization_id = ? and campaign_id = ?
+      group by type`,
+    [scope.tenantId, scope.organizationId, campaign.id],
+  )
+  for (const row of eventRows) {
+    // A type this module does not report — one added by a later version, read by an older one — is ignored
+    // rather than widening the record with a key nothing expects.
+    if (!(EVENT_TYPES as readonly string[]).includes(row.type)) continue
+    const type = row.type as EventType
+    counts[type] = Number.parseInt(row.total ?? '0', 10) || 0
+    unique[type] = Number.parseInt(row.unique_runs ?? '0', 10) || 0
   }
 
   const url = new URL(req.url)
@@ -108,49 +128,62 @@ export async function GET(req: Request) {
    * the window the author can change with `?windowDays=`, so a revenue verdict never comes from a period the
    * screen is not showing.
    */
-  const splits = await loadSplitResults(em, campaign.id, scope, lanes, windowDays)
   const seriesFrom = new Date(Date.now() - (DEFAULT_REPORT_DAYS - 1) * 86_400_000)
-  const daily = await loadDailySeries(em, campaign.id, scope, { from: seriesFrom, to: new Date() })
-  const attribution = await loadAttribution(em, scope, {
-    windowDays,
-    since: new Date(Date.now() - DEFAULT_REPORT_DAYS * 86_400_000),
-    campaignId: campaign.id,
-  })
 
   /**
-   * The funnel, over the SAME conversion window as the revenue attribution.
+   * Seven readers, none of which needs another's answer, so they wait together rather than in a queue.
    *
-   * One window, one definition of "converted", one place the two numbers can be reconciled — a screen whose
-   * funnel and whose revenue disagree about who converted is a screen nobody quotes twice.
+   * They used to be seven sequential awaits: the page took the sum of every one of them, and the slowest —
+   * the split revenue join — was serialised behind blocks that had nothing to do with it. The comments below
+   * say what each one is FOR; the reason they are in one call is only that none of them reads another.
    */
-  const funnel = await loadCampaignFunnel(em, campaign.id, scope, { conversionWindowDays: windowDays })
-
-  /**
-   * What they clicked, not just that they clicked.
-   *
-   * No window: a click is dated by the event and this is a ranking of the campaign's whole life, which is the
-   * question an author asks about a link ("does this offer work") rather than about a period.
-   */
-  const links = await loadLinkReport(em, campaign.id, scope)
-
-  /**
-   * Where people fall out INSIDE the journey, read from the step log every run already carries.
-   *
-   * Empty when the definition could not be parsed, because the order is the whole value of this block: counts
-   * without the authored sequence would be a list of step ids sorted by volume, which is not a funnel.
-   */
-  const stepFunnel = definition.success
-    ? await loadStepFunnel(em, campaign.id, scope, definition.data.steps as CampaignStep[])
-    : []
-
-  /**
-   * On the metric the TENANT chose, which is the same one the unattended promotion uses.
-   *
-   * A variant that collects clicks and sells less is the classic A/B trap, and this screen could not see it
-   * until revenue was attributable per lane. The suggestion and the automation read one setting on purpose: being
-   * shown a click winner while a revenue winner is applied behind your back is worse than either alone.
-   */
-  const winnerMetric = await loadWinnerMetric(container, scope)
+  const [splits, daily, attribution, funnel, links, stepFunnel, winnerMetric] = await Promise.all([
+    /**
+     * The lanes' revenue is attributed over the SAME window as the attribution block and the funnel.
+     *
+     * One window, one definition of "converted", one place the three numbers can be reconciled — and it is
+     * also the window the author can change with `?windowDays=`, so a revenue verdict never comes from a
+     * period the screen is not showing.
+     */
+    loadSplitResults(em, campaign.id, scope, lanes, windowDays),
+    loadDailySeries(em, campaign.id, scope, { from: seriesFrom, to: new Date() }),
+    loadAttribution(em, scope, {
+      windowDays,
+      since: new Date(Date.now() - DEFAULT_REPORT_DAYS * 86_400_000),
+      campaignId: campaign.id,
+    }),
+    /**
+     * The funnel, over the SAME conversion window as the revenue attribution.
+     *
+     * One window, one definition of "converted", one place the two numbers can be reconciled — a screen whose
+     * funnel and whose revenue disagree about who converted is a screen nobody quotes twice.
+     */
+    loadCampaignFunnel(em, campaign.id, scope, { conversionWindowDays: windowDays }),
+    /**
+     * What they clicked, not just that they clicked.
+     *
+     * No window: a click is dated by the event and this is a ranking of the campaign's whole life, which is
+     * the question an author asks about a link ("does this offer work") rather than about a period.
+     */
+    loadLinkReport(em, campaign.id, scope),
+    /**
+     * Where people fall out INSIDE the journey, read from the step log every run already carries.
+     *
+     * Empty when the definition could not be parsed, because the order is the whole value of this block:
+     * counts without the authored sequence would be a list of step ids sorted by volume, not a funnel.
+     */
+    definition.success
+      ? loadStepFunnel(em, campaign.id, scope, definition.data.steps as CampaignStep[])
+      : Promise.resolve([]),
+    /**
+     * On the metric the TENANT chose, which is the same one the unattended promotion uses.
+     *
+     * A variant that collects clicks and sells less is the classic A/B trap, and this screen could not see it
+     * until revenue was attributable per lane. The suggestion and the automation read one setting on purpose:
+     * being shown a click winner while a revenue winner is applied behind your back is worse than either.
+     */
+    loadWinnerMetric(container, scope),
+  ])
 
   // One winner per split, or none — the rules live in `pickSplitWinner`, which refuses to answer
   // until every lane has a sample, refuses a tie, and refuses a revenue verdict it cannot compare.

@@ -28,4 +28,23 @@ describe('sweep paging', () => {
     const rowLoop = source.slice(source.indexOf('async function sweepRows'))
     expect(rowLoop.includes('.clear()')).toBe(true)
   })
+
+  /**
+   * And it only PAGES a source that hydrates entities.
+   *
+   * Paging protects the identity map, which is a problem only an entity source has. A raw-SQL source pays for
+   * it instead: `reorderDue` groups the shop's whole order-line history and `birthdays` joins custom field
+   * values to people, and Postgres has to compute the entire aggregate before it can skip to any offset — so
+   * paging ran the same aggregation twenty-five times a tick for a result that does not change between pages.
+   *
+   * A static guard for the same reason as the one above: nothing observable changes if somebody deletes the
+   * branch, except that the sweep quietly costs twenty-five times as much.
+   */
+  test('a raw-SQL source is collected once rather than paged', () => {
+    const rowLoop = source.slice(source.indexOf('async function sweepRows'))
+    expect(rowLoop).toContain('source.hydratesEntities ? PAGE_SIZE : MAX_ROWS_PER_TICK')
+    // The single bulk read, and the loop reusing it rather than fetching again.
+    expect(rowLoop).toMatch(/bulk\s*=\s*source\.hydratesEntities/)
+    expect(rowLoop).toContain('bulk ?? await source.collect(')
+  })
 })

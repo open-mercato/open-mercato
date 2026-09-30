@@ -163,6 +163,19 @@ const SQL_COMPARISON: Record<ComparisonOp, string> = {
 const MS_PER_DAY = 86_400_000
 
 /** The real source: two statements, both scoped, both parameterised. */
+/**
+ * The row ceiling every statement below carries.
+ *
+ * The cap on a candidate set was enforced in JavaScript, AFTER the rows arrived: a tag matching five million
+ * customers was fetched in full, turned into five million strings, and then thrown away for exceeding the
+ * limit. Asking for one row MORE than the cap keeps the existing overflow check exact — `rows.length > maxSet`
+ * is still the test, and it is still true at the boundary — while bounding what crosses the wire.
+ *
+ * Abandoning a narrowing is safe in the direction that matters: the resolver then walks the population and
+ * `matchesAudience` decides membership, so a set that overflows can only ever cost time, never correctness.
+ */
+export const CANDIDATE_ROW_CEILING = MAX_CANDIDATE_SET + 1
+
 export function createSqlCandidateSource(
   em: EntityManager,
   scope: SubjectScope,
@@ -180,8 +193,9 @@ export function createSqlCandidateSource(
         `select distinct a.entity_id
            from customer_tag_assignments a
            join customer_tags t on t.id = a.tag_id
-          where a.tenant_id = ? and a.organization_id = ? ${slugClause}`,
-        params,
+          where a.tenant_id = ? and a.organization_id = ? ${slugClause}
+              limit ?`,
+        [...params, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.entity_id).filter(Boolean)
     },
@@ -218,8 +232,9 @@ export function createSqlCandidateSource(
           where ${PLACED_ORDER_FILTER_SQL}
             and customer_entity_id is not null
           group by customer_entity_id
-         having ${having}`,
-        params,
+         having ${having}
+             limit ?`,
+        [...params, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
     },
@@ -234,8 +249,9 @@ export function createSqlCandidateSource(
             and coalesce(
                   l.catalog_snapshot -> 'product' ->> 'sku',
                   l.catalog_snapshot -> 'variant' ->> 'sku'
-                ) = ?`,
-        [scope.tenantId, scope.organizationId, sku],
+                ) = ?
+                    limit ?`,
+        [scope.tenantId, scope.organizationId, sku, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
     },
@@ -255,8 +271,9 @@ export function createSqlCandidateSource(
            join catalog_product_categories c on c.id = a.category_id and c.deleted_at is null
           where ${PLACED_ORDER_FILTER_SQL_ALIASED}
             and o.customer_entity_id is not null
-            and c.slug = ?`,
-        [scope.tenantId, scope.organizationId, slug],
+            and c.slug = ?
+                limit ?`,
+        [scope.tenantId, scope.organizationId, slug, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
     },
@@ -268,8 +285,9 @@ export function createSqlCandidateSource(
            join sales_channels c on c.id = o.channel_id
           where ${PLACED_ORDER_FILTER_SQL_ALIASED}
             and o.customer_entity_id is not null
-            and c.code = ?`,
-        [scope.tenantId, scope.organizationId, code],
+            and c.code = ?
+                limit ?`,
+        [scope.tenantId, scope.organizationId, code, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
     },
@@ -282,8 +300,9 @@ export function createSqlCandidateSource(
            join marketing_campaign_runs r on r.id = e.run_id
           where e.tenant_id = ? and e.organization_id = ?
             and e.type = ?
-            and r.subject_entity_id is not null`,
-        [scope.tenantId, scope.organizationId, type],
+            and r.subject_entity_id is not null
+                limit ?`,
+        [scope.tenantId, scope.organizationId, type, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.subject_entity_id).filter(Boolean)
     },
@@ -317,8 +336,9 @@ export function createSqlCandidateSource(
          select s.subject_entity_id
            from sends s
            left join engaged g on g.subject_entity_id = s.subject_entity_id
-          where coalesce(g.last_engaged_at, s.first_sent_at) <= now() - make_interval(days => ?)`,
-        [scope.tenantId, scope.organizationId, scope.tenantId, scope.organizationId, days],
+          where coalesce(g.last_engaged_at, s.first_sent_at) <= now() - make_interval(days => ?)
+              limit ?`,
+        [scope.tenantId, scope.organizationId, scope.tenantId, scope.organizationId, days, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.subject_entity_id).filter(Boolean)
     },
@@ -341,8 +361,9 @@ export function createSqlCandidateSource(
                 and score is not null
               order by subject_entity_id, answered_at desc nulls last
            ) latest
-          where latest.score ${SQL_COMPARISON[op]} ?`,
-        [scope.tenantId, scope.organizationId, value],
+          where latest.score ${SQL_COMPARISON[op]} ?
+              limit ?`,
+        [scope.tenantId, scope.organizationId, value, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.subject_entity_id).filter(Boolean)
     },
@@ -353,8 +374,9 @@ export function createSqlCandidateSource(
            from marketing_customer_score_entries
           where tenant_id = ? and organization_id = ?
           group by subject_entity_id
-         having coalesce(sum(points), 0) ${SQL_COMPARISON[op]} ?`,
-        [scope.tenantId, scope.organizationId, value],
+         having coalesce(sum(points), 0) ${SQL_COMPARISON[op]} ?
+             limit ?`,
+        [scope.tenantId, scope.organizationId, value, CANDIDATE_ROW_CEILING],
       )
       return rows.map((row) => row.subject_entity_id).filter(Boolean)
     },

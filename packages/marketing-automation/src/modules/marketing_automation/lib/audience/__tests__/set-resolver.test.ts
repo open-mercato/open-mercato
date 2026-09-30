@@ -1,4 +1,4 @@
-import { createSqlCandidateSource, MAX_CANDIDATE_SET, resolveCandidates } from '../set-resolver'
+import { createSqlCandidateSource, MAX_CANDIDATE_SET, resolveCandidates, CANDIDATE_ROW_CEILING } from '../set-resolver'
 import type { CandidateSource } from '../set-resolver'
 import { planNarrowing } from '../../engine/narrowing'
 import type { ComparisonOp, OrderMetric } from '../../engine/narrowing'
@@ -204,15 +204,24 @@ describe('createSqlCandidateSource', () => {
     const { em, executed } = fakeEm([{ entity_id: 'c1' }])
     const source = createSqlCandidateSource(em, scope, now)
     expect(await source.tagMembers('vip')).toEqual(['c1'])
-    expect(executed[0].params).toEqual(['t1', 'o1', 'vip'])
+    expect(executed[0].params).toEqual(['t1', 'o1', 'vip', CANDIDATE_ROW_CEILING])
     expect(executed[0].sql).toContain('a.tenant_id = ?')
     expect(executed[0].sql).toContain('t.slug = ?')
+    /**
+     * Bounded in SQL, not in JavaScript.
+     *
+     * The cap used to be checked on the array AFTER it arrived, so a tag matching five million customers was
+     * fetched in full and then discarded for being too large. One row more than the cap is fetched so the
+     * existing `rows.length > maxSet` overflow test stays exact at the boundary.
+     */
+    expect(executed[0].sql).toContain('limit ?')
+    expect(executed[0].params.at(-1)).toBe(CANDIDATE_ROW_CEILING)
   })
 
   test('asking for any tag omits the slug clause rather than binding a wildcard', async () => {
     const { em, executed } = fakeEm([])
     await createSqlCandidateSource(em, scope, now).tagMembers(null)
-    expect(executed[0].params).toEqual(['t1', 'o1'])
+    expect(executed[0].params).toEqual(['t1', 'o1', CANDIDATE_ROW_CEILING])
     expect(executed[0].sql).not.toContain('t.slug')
   })
 
@@ -225,14 +234,14 @@ describe('createSqlCandidateSource', () => {
     expect(sql).toContain('placed_at is not null')
     expect(sql).toContain('group by customer_entity_id')
     expect(sql).toContain('having count(*) >= ?')
-    expect(params).toEqual(['t1', 'o1', 2])
+    expect(params).toEqual(['t1', 'o1', 2, CANDIDATE_ROW_CEILING])
   })
 
   test('money comparisons sum the gross total', async () => {
     const { em, executed } = fakeEm([])
     await createSqlCandidateSource(em, scope, now).orderMetricMembers('totalGross', '>', 99.5)
     expect(executed[0].sql).toContain('coalesce(sum(grand_total_gross_amount), 0) > ?')
-    expect(executed[0].params).toEqual(['t1', 'o1', 99.5])
+    expect(executed[0].params).toEqual(['t1', 'o1', 99.5, CANDIDATE_ROW_CEILING])
   })
 
   test('an NPS comparison reads only each subject LATEST answer', async () => {
@@ -244,7 +253,7 @@ describe('createSqlCandidateSource', () => {
     expect(sql).toContain('distinct on (subject_entity_id)')
     expect(sql).toContain('order by subject_entity_id, answered_at desc')
     expect(sql).toContain('score is not null')
-    expect(params).toEqual(['t1', 'o1', 6])
+    expect(params).toEqual(['t1', 'o1', 6, CANDIDATE_ROW_CEILING])
   })
 
   test('a purchased channel joins orders to channels, scoped, with the code bound', async () => {
@@ -253,7 +262,7 @@ describe('createSqlCandidateSource', () => {
     const { sql, params } = executed[0]
     expect(sql).toContain('sales_channels')
     // The CODE, not an id: an audience is authored against something a person can read and recognise.
-    expect(params).toEqual(['t1', 'o1', 'web'])
+    expect(params).toEqual(['t1', 'o1', 'web', CANDIDATE_ROW_CEILING])
   })
 
   test('a purchased SKU reads the catalogue snapshot, scoped, with the sku bound', async () => {
@@ -264,7 +273,7 @@ describe('createSqlCandidateSource', () => {
     expect(sql).toContain("catalog_snapshot -> 'product' ->> 'sku'")
     expect(sql).toContain("catalog_snapshot -> 'variant' ->> 'sku'")
     expect(sql).toContain("o.status not in ('canceled', 'cancelled')")
-    expect(params).toEqual(['t1', 'o1', 'ATLAS-RUNNER'])
+    expect(params).toEqual(['t1', 'o1', 'ATLAS-RUNNER', CANDIDATE_ROW_CEILING])
   })
 
   test('a score comparison sums the ledger, scoped, with the operator from the fixed table', async () => {
@@ -274,7 +283,7 @@ describe('createSqlCandidateSource', () => {
     expect(sql).toContain('from marketing_customer_score_entries')
     expect(sql).toContain('group by subject_entity_id')
     expect(sql).toContain('having coalesce(sum(points), 0) >= ?')
-    expect(params).toEqual(['t1', 'o1', 100])
+    expect(params).toEqual(['t1', 'o1', 100, CANDIDATE_ROW_CEILING])
   })
 
   test('recency becomes a widened bound on the newest order', async () => {
@@ -290,7 +299,9 @@ describe('createSqlCandidateSource', () => {
     await createSqlCandidateSource(em, scope, now).orderMetricMembers('daysSinceLast', '=', 45)
     expect(executed[0].sql).toContain('max(placed_at) <= ?')
     expect(executed[0].sql).toContain('max(placed_at) >= ?')
-    expect(executed[0].params).toHaveLength(4)
+    // Four binds for the window, plus the row ceiling every candidate statement carries.
+    expect(executed[0].params).toHaveLength(5)
+    expect(executed[0].params.at(-1)).toBe(CANDIDATE_ROW_CEILING)
   })
 
   // The operator cannot be a bound parameter, so it must come from a fixed table.
