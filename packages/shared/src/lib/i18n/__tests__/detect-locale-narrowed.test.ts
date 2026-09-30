@@ -1,24 +1,39 @@
 import type { Locale } from '../config'
 
-// `detectLocale` reaches for `next/headers` through a dynamic import, so the
-// mock has to be in place before the module under test is loaded.
+/**
+ * `detectLocale` reaches for `next/headers` through a dynamic import, so the mock has to be in place before
+ * the module under test is loaded.
+ *
+ * NOT `{ virtual: true }`, and that flag is this file's whole history. `next/headers` is a real, resolvable
+ * file (`node_modules/next/headers.js`); `virtual` is for modules that do NOT exist, and registering a mock
+ * that way under a name jest can also resolve normally let the dynamic import reach the real module instead.
+ * Outside a request context the real `cookies()` throws, `detectLocale` swallows that by design, and detection
+ * falls through to `supported[0]` — so four tests failed with a plausible-looking wrong locale (`pl` for `de`,
+ * `en` for `es`) in roughly one folder run in forty, and passed every time the file ran alone.
+ */
 const cookieStore = { value: undefined as string | undefined }
 const headerStore = { acceptLanguage: '' }
+/** Proof that the mock is what was consulted — see the assertion in `afterEach`. */
+const mockCalls = { cookies: 0, headers: 0 }
+/** Cleared by the one case that returns before `detectLocale` ever looks at a request. */
+let expectsRequestAccess = true
 
-jest.mock(
-  'next/headers',
-  () => ({
-    cookies: async () => ({
+jest.mock('next/headers', () => ({
+  cookies: async () => {
+    mockCalls.cookies += 1
+    return {
       get: (name: string) =>
         name === 'locale' && cookieStore.value ? { value: cookieStore.value } : undefined,
-    }),
-    headers: async () => ({
+    }
+  },
+  headers: async () => {
+    mockCalls.headers += 1
+    return {
       get: (name: string) =>
         name.toLowerCase() === 'accept-language' ? headerStore.acceptLanguage : null,
-    }),
-  }),
-  { virtual: true },
-)
+    }
+  },
+}))
 
 import { detectLocale } from '../server'
 import { clearRegisteredLocales, registerLocales } from '../locale-registry'
@@ -30,14 +45,20 @@ describe('detectLocale with a narrowed supported set', () => {
     cookieStore.value = undefined
     headerStore.acceptLanguage = ''
     delete process.env.OM_FORCE_LOCALE
-    // Cleared going IN as well as coming out. The registry is process-wide and several suites in this folder
-    // register into it, so a worker that ran one of them first left `de` outside the supported set here — the
-    // cookie was then ignored and detection fell through to the narrowed set's first entry. The suite passed
-    // alone and failed inside the package, which is the signature of depending on what ran before it.
+    mockCalls.cookies = 0
+    mockCalls.headers = 0
+    expectsRequestAccess = true
+    // Cleared going in as well as coming out: the registry is process-wide and other suites in this folder
+    // write to it.
     clearRegisteredLocales()
   })
 
   afterEach(() => {
+    /**
+     * Every case but one reaches `next/headers`. If neither accessor was called, the mock was not what
+     * `detectLocale` loaded — and this says so, instead of leaving a wrong-looking locale to be explained.
+     */
+    if (expectsRequestAccess) expect(mockCalls.cookies + mockCalls.headers).toBeGreaterThan(0)
     clearRegisteredLocales()
   })
 
@@ -96,6 +117,8 @@ describe('detectLocale with a narrowed supported set', () => {
   })
 
   it('still lets OM_FORCE_LOCALE win over the narrowed set', async () => {
+    // The one case that returns before the request is consulted at all, which is the point of it.
+    expectsRequestAccess = false
     process.env.OM_FORCE_LOCALE = 'ko'
 
     try {
