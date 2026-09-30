@@ -17,7 +17,7 @@ Source repo: `open-mercato/official-modules@d694a75`, `packages/forms/src/module
 | 1 | 1.6 | Declare the module's injection hosts (`extension-points.ts`) so `assertNoUnresolvedExtensionTargets` resolves them; drop the dangling `forms:embed` mapping | inline | done | 21ee6c533 |
 | 1 | 1.7 | Regenerate `packages/ui`'s committed lucide registry for the 12 Form Studio palette icons | inline | done | ad2ba4b48 |
 | 1 | 1.8 | Spec + this run folder | inline | done | 80bdc5945 |
-| 2 | 2.1 | Apply the MUST items from the host-wiring audit (migrations/snapshot validity, `api/public/**` auth gating, build/exports/jest accommodations) | dispatch | todo | |
+| 2 | 2.1 | Apply the MUST/SHOULD items from the host-wiring audit + the test-plan findings (command registration, cross-tenant read, subject-route URL, nav-group key, ZodError 400, embed docs) | inline | done | 3cd1d19be |
 | 2 | 2.2 | Apply the Critical/High items from the security review of the anonymous surface | inline | todo | |
 | 2 | 2.3 | Apply the MUST-fix items from the design-system / UI-reuse review | dispatch | todo | |
 | 3 | 3.1 | Author the P0 forms integration suite from the test plan and make it green | dispatch | todo | |

@@ -292,6 +292,25 @@ root `AGENTS.md` forbids — so the follow-up should either extend the proxy wit
 module-declared response-header contract, or accept a documented exception with the same justification
 as `next.config.ts`'s existing `/api/attachments/file/:path*` block.
 
+### The module implements no optimistic locking (follow-up)
+
+Root `AGENTS.md` requires optimistic locking on every new user-editable entity and edit/delete form,
+default ON. Forms does not have it: the entities carry `updated_at`, but every write route is
+hand-written rather than built with `makeCrudRoute`, so the framework's default-on path
+(`OM_OPTIMISTIC_LOCK`) never reaches them, and no route reads
+`buildOptimisticLockHeader` / `enforceCommandOptimisticLock`. A concurrent edit of a form
+definition, distribution or invitation therefore silently last-writes-wins.
+
+Not fixed here. Retrofitting it means touching ~15 write routes plus their commands and the
+corresponding UI surfaces, each needing its own 409 path and conflict bar — a change comparable in
+size to the rest of this migration, and one that alters observable behaviour on every admin write.
+It belongs in its own PR with its own tests.
+
+Two things bound the risk in the meantime. The highest-churn surface — submission autosave — already
+has a domain-specific equivalent: `base_revision_id` is checked server-side and a stale base is
+rejected with `STALE_BASE` 409. And form *definitions* are edited by designers one at a time rather
+than concurrently, which is why the gap survived unnoticed upstream.
+
 ## Open Questions
 
 1. ~~**Are the copied migrations and `.snapshot-open-mercato.json` valid here?**~~ **Resolved:
