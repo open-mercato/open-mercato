@@ -3,12 +3,18 @@
  *
  * Returns the `frame-ancestors` CSP directive authorizing which third-party
  * origins may frame the `/embed/:slug` host page (forms render-surfaces spec
- * `2026-05-21-forms-render-surfaces.md`, S4 / D6 / R-RS-1). Consumed server-side
- * by the app `/embed` middleware to set a dynamic, per-distribution framing
- * header. Unauthenticated by design — the value it returns is the same
- * allowlist the browser enforces and exposes to the framing site anyway.
+ * `2026-05-21-forms-render-surfaces.md`, S4 / D6 / R-RS-1). Unauthenticated by
+ * design — the value it returns is the same allowlist the browser enforces and
+ * exposes to the framing site anyway.
  *
  * Fails closed: a non-embeddable / unknown slug yields `frame-ancestors 'none'`.
+ *
+ * NOTE: this endpoint is currently unconsumed. It is designed to be read
+ * server-side by an app-level `/embed` proxy branch that sets the per-request
+ * framing header, and that branch does not exist in this repo — see
+ * `frontend/embed/[slug]/page.meta.ts` for why and what it would take. Until it
+ * lands, the app's global `frame-ancestors 'self'` blocks cross-origin framing
+ * of `/embed/:slug` outright, so the surface is safe but inert.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'

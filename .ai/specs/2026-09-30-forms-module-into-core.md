@@ -250,20 +250,73 @@ and download headers, embed/CSP policy, the JSONLogic evaluator and Ajv configur
 and log redaction, anonymisation completeness, and module-wide tenant scoping. Findings and their
 disposition live in [`.ai/analysis/forms-security-review.md`](../analysis/forms-security-review.md).
 
+## Known limitations
+
+### The `/embed/:slug` surface is inert (follow-up, not a regression)
+
+The module's embed surface needs a per-distribution
+`Content-Security-Policy: frame-ancestors <allowedDomains>` response header on `/embed/:slug`, and
+needs the app's global frame protection to carve `/embed/` out so that header is the sole authority.
+Neither exists here: `apps/mercato/next.config.ts` applies `frame-ancestors 'self'` plus
+`X-Frame-Options: SAMEORIGIN` to `/:path*`, and `apps/mercato/src/proxy.ts` never calls the
+module's `GET /api/forms/public/distributions/:slug/embed-policy`.
+
+This is **not** something the migration dropped. The source repository's own sandbox app declares no
+`headers()` block at all, so `/embed/:slug` was framable there by default rather than by policy — the
+plumbing the module's doc comments describe has never been implemented anywhere. Those comments have
+been corrected in `frontend/embed/[slug]/page.meta.ts` and on the `embed-policy` route so they no
+longer assert a mechanism that does not exist.
+
+Current behaviour is **fail-closed**: this repo's global policy blocks cross-origin framing of
+`/embed/:slug` outright. The surface is therefore safe and inert. Everything beneath the header is
+complete and unit-tested — availability/cap/CAPTCHA enforcement, theme application, the origin
+normalizer in `lib/embed-frame-policy.ts`, the `embed-policy` endpoint.
+
+Deliberately deferred rather than fixed here, for three reasons:
+
+1. **It is new feature work.** Nothing regressed; a capability that never worked would start working.
+   A behaviour-preserving migration is the wrong PR to introduce it in.
+2. **Both halves are load-bearing and the failure mode is clickjacking.** A `next.config.ts` carve-out
+   without the dynamic header would leave the page framable by *anyone* — strictly worse than blocked.
+   Shipping only the easy half is not an option.
+3. **It cannot be verified without a browser.** It depends on Next.js's precedence between
+   `next.config.ts` `headers()` and proxy-set response headers, and on whether a present
+   `frame-ancestors` reliably supersedes `X-Frame-Options` across target browsers. That needs a real
+   framing page against a real distribution, i.e. its own QA pass.
+
+It also cannot use the page-middleware convention (`frontend/middleware.ts`): that executor is invoked
+from inside React Server Components (`app/(frontend)/[...slug]/page.tsx`), which cannot set response
+headers, and its `PageMiddlewareResult` supports only `continue` and `redirect`. A per-request header
+has to come from the proxy. That in turn means module-specific code under `apps/mercato/src/`, which
+root `AGENTS.md` forbids — so the follow-up should either extend the proxy with a *generic*
+module-declared response-header contract, or accept a documented exception with the same justification
+as `next.config.ts`'s existing `/api/attachments/file/:path*` block.
+
 ## Open Questions
 
-1. **Are the copied migrations and `.snapshot-open-mercato.json` valid here?** The module ships six
-   migration files and a per-module snapshot authored in another repository. The snapshot is
-   module-scoped, which suggests it transfers, but that needs proving rather than assuming — and
-   the forms tables need checking for collisions against every other module's schema.
-2. **Are the `api/public/**` routes actually left unauthenticated by this repo's middleware?** The
-   source repo's app shell is not this one. Each public route needs confirming as reachable
-   anonymously *and* each non-public route as still gated.
-3. **Should a module-level `packages/core/src/modules/forms/AGENTS.md` ship?** The source package
-   has one. `yarn agents:check-budget` already rejects a one-line addition to
-   `packages/core/AGENTS.md`'s module table, because the `packages/core/src/modules/sales` chain is
-   ~44 KB over the 32 KB agent budget and an over-budget chain may only shrink. Whether a *new*
-   chain under `forms` is admissible is the open part.
+1. ~~**Are the copied migrations and `.snapshot-open-mercato.json` valid here?**~~ **Resolved:
+   yes.** MikroORM tracks migration state in a per-module table (`mikro_orm_migrations_forms`), and
+   32 other in-repo module snapshots share this one's exact shape — a snapshot containing only its
+   own module's tables. None of forms' six migration class names or timestamps collides with any of
+   the 339 migration files in the repo, and all eleven `forms_*` tables grep to zero hits outside
+   `modules/forms/`. One thing remains unproven: `yarn db:generate` needs a live Postgres, so the
+   snapshot has not been diffed against the entities by the generator. Structurally it should emit
+   nothing. Run it once before merge; never run `yarn db:migrate`.
+2. ~~**Are the `api/public/**` routes actually left unauthenticated by this repo's middleware?**~~
+   **Resolved.** Auth is per-route metadata, not middleware, and every `api/public/**` route
+   declares `requireAuth: false` explicitly, as do the `/f/:slug`, `/i/:token` and `/embed/:slug`
+   page metas. The two routes that declared it *wrongly* — `api/[id]/run/context` and
+   `api/[id]/run/submissions`, unauthenticated and unscoped by tenant — were found and fixed; see
+   the commit "close the unauthenticated cross-tenant read on the in-app runner".
+3. **Should a module-level `packages/core/src/modules/forms/AGENTS.md` ship?** Recommendation from
+   the wiring audit: **no.** The `packages/core` instruction chain is already ~39.8 KB over the
+   32 KB agent budget, so every byte of a new module file at the tail would be truncated before an
+   agent read it — and the budget baseline would not even flag the regression. Adding a single
+   ~89-byte Task Router row to root `AGENTS.md` already fails the check (31295 / 31232). Routing
+   agents to this spec is the cheaper answer until the chain is trimmed.
+4. **Should the six `forms.*` ACL features be granted beyond `admin`?** `setup.ts` grants all six to
+   `admin` only; most core modules also give `employee` a read subset. Left as the module authored
+   it — widening access is a policy decision, not a migration fix.
 
 ## Changelog
 
