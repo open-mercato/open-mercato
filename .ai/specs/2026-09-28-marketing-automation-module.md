@@ -459,7 +459,7 @@ every bound so those comparisons stay false for the unranked. Tier predicates ar
 pushed to the database — the tier is derived, and pushing it would duplicate the threshold logic in SQL
 where it could drift.
 
-The score change is emitted as `marketing_automation.customer.score_changed` and is itself a trigger,
+The score change is emitted as `marketing_automation.score.changed` and is itself a trigger,
 carrying the PREVIOUS total as well as the new one. That is what lets an audience say "reached 100
 points" — `trigger.previousPoints < 100 AND score.points >= 100` — rather than "is above 100 points",
 which would fire again on every later change while the customer stayed above the line. No threshold
