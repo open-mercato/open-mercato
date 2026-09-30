@@ -157,13 +157,17 @@ test.describe('TC-MA-043 campaign results and runs screens', () => {
       await openRuns(page, campaignId)
 
       await expect(page.getByText(name, { exact: true })).toBeVisible()
-      const row = page.getByRole('row').filter({ hasText: personId.slice(0, 8) })
+      // By name, not by a uuid prefix: the column shows who the run is about, and the assertion says so.
+      const row = page.getByRole('row').filter({ hasText: marker })
       await expect(row).toHaveCount(1)
       await expect(row).toContainText('Waiting')
-      await expect(row).toContainText('customers.tag.assigned')
+      // The trigger reads as a sentence. The event id stays in the title attribute for whoever is
+      // debugging, and this asserts the thing an operator actually sees.
+      await expect(row).toContainText('Tag added to a customer')
+      await expect(row.getByTitle('customers.tag.assigned')).toHaveCount(1)
       await expect(row).toContainText(/\d+ done, 0 skipped/)
       await expect(row.getByRole('cell').nth(5)).not.toHaveText('—')
-      const profileLink = row.getByRole('link', { name: personId.slice(0, 8) })
+      const profileLink = row.getByRole('link', { name: marker })
       await expect(profileLink).toHaveAttribute('href', `/backend/marketing/customers/${personId}`)
       await expect(profileLink).toHaveAttribute('title', 'Open the customer profile')
 
@@ -263,11 +267,11 @@ test.describe('TC-MA-043 campaign results and runs screens', () => {
 
       await login(page, 'admin')
       await openRuns(page, campaignId)
-      const row = page.getByRole('row').filter({ hasText: personId.slice(0, 8) })
+      const row = page.getByRole('row').filter({ hasText: marker })
       await expect(row).toContainText('Completed')
       await expect(row).toContainText('1 done, 0 skipped')
 
-      await row.getByRole('link', { name: personId.slice(0, 8) }).click()
+      await row.getByRole('link', { name: marker }).click()
       await expect(page).toHaveURL(new RegExp(`/backend/marketing/customers/${personId}$`))
       await expect(page.getByText('Recent campaign runs')).toBeVisible({ timeout: 20_000 })
 

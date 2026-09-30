@@ -2,8 +2,11 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { MarketingCampaign, MarketingCampaignRun } from '../../../../data/entities.js'
 import type { StepOutcome } from '../../../../lib/engine/types.js'
+import { findTrigger } from '../../../../lib/trigger-catalog.js'
 import { readPathUuid } from '../../../shared.js'
 
 /**
@@ -60,6 +63,26 @@ export async function GET(req: Request) {
     { orderBy: { startedAt: 'DESC' }, limit: pageSize, offset: (page - 1) * pageSize },
   )
 
+  /**
+   * Who these runs are ABOUT, by name.
+   *
+   * The screen used to print the first eight characters of a subject id, which answers a question nobody
+   * asks: an operator looking at this list wants to know which customer is waiting, and `a3fa18cb` is not a
+   * customer. One decrypting query for the page — `display_name` is encrypted at rest, so a plain find hands
+   * back ciphertext, and a column of ciphertext reads as a column of broken names.
+   */
+  const subjectIds = [...new Set(runs.map((run) => run.subjectEntityId).filter((id): id is string => !!id))]
+  const subjects = subjectIds.length > 0
+    ? (await findWithDecryption(
+        em,
+        CustomerEntity,
+        { id: { $in: subjectIds }, ...scope, deletedAt: null },
+        undefined,
+        scope,
+      )) as Array<{ id: string; displayName?: string | null; primaryEmail?: string | null }>
+    : []
+  const subjectById = new Map(subjects.map((row) => [row.id, row]))
+
   return NextResponse.json({
     campaign: { id: campaign.id, name: campaign.name, isEnabled: campaign.isEnabled },
     // A curated shape, not the stored row. The context blob holds whatever scalars a trigger
@@ -69,7 +92,20 @@ export async function GET(req: Request) {
       return {
         id: run.id,
         subjectEntityId: run.subjectEntityId ?? null,
+        /**
+         * Null when the customer is gone — erased under GDPR, or deleted — and the screen says so rather
+         * than falling back to the id. A run outliving its subject is a real state, not a lookup failure.
+         */
+        subjectName: run.subjectEntityId ? subjectById.get(run.subjectEntityId)?.displayName ?? null : null,
+        subjectEmail: run.subjectEntityId ? subjectById.get(run.subjectEntityId)?.primaryEmail ?? null : null,
         triggerEventId: run.triggerEventId,
+        /**
+         * Resolved HERE rather than on the screen: the catalogue imports ORM entities, so pulling it into a
+         * client component would drag the sales entities into the browser bundle. Null for an id the
+         * catalogue does not know — a campaign saved before a trigger was renamed — and the screen then
+         * shows the raw id, which is the only honest thing left to show.
+         */
+        triggerLabelKey: findTrigger(run.triggerEventId)?.labelKey ?? null,
         status: run.status,
         currentStepIndex: run.currentStepIndex,
         attempts: run.attempts,

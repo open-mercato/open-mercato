@@ -18,7 +18,10 @@ type StepEntry = { stepId: string; type: string; status: string; at: string; det
 type RunRow = {
   id: string
   subjectEntityId: string | null
+  subjectName: string | null
+  subjectEmail: string | null
   triggerEventId: string
+  triggerLabelKey: string | null
   status: string
   currentStepIndex: number
   attempts: number
@@ -113,24 +116,53 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
     {
       accessorKey: 'subjectEntityId',
       header: t('marketing_automation.runs.columns.subject', 'Customer'),
-      // Links to the profile: the run list is where somebody asks "who is this and why are we
-      // messaging them", and the answer is one screen away rather than a uuid to copy.
-      cell: ({ row }) => row.original.subjectEntityId
-        ? (
+      meta: { truncate: false },
+      /**
+       * Their name, and their email under it.
+       *
+       * This column used to print the first eight characters of the subject id. That is an answer to a
+       * question nobody asks — somebody reading this list wants to know WHO is waiting, and two customers
+       * called Nowak are told apart by the address, not by a uuid prefix. The link still goes to the
+       * profile, so the id is never something anybody has to copy.
+       */
+      cell: ({ row }) => {
+        const { subjectEntityId, subjectName, subjectEmail } = row.original
+        if (!subjectEntityId) return '—'
+        return (
           <a
-            className="font-mono text-xs underline"
-            href={`/backend/marketing/customers/${row.original.subjectEntityId}`}
+            className="block leading-tight underline"
+            href={`/backend/marketing/customers/${subjectEntityId}`}
             title={t('marketing_automation.runs.openProfile', 'Open the customer profile')}
           >
-            {row.original.subjectEntityId.slice(0, 8)}
+            <span className="text-sm">
+              {/* A run outlives its subject when the customer is erased or deleted, and the screen says
+                  which of the two states it is rather than falling back to the id. */}
+              {subjectName ?? t('marketing_automation.runs.subjectGone', 'Customer no longer on file')}
+            </span>
+            {subjectEmail ? <span className="block text-xs text-muted-foreground">{subjectEmail}</span> : null}
           </a>
         )
-        : '—',
+      },
     },
     {
       accessorKey: 'triggerEventId',
       header: t('marketing_automation.runs.columns.trigger', 'Trigger'),
-      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.triggerEventId}</span>,
+      meta: { truncate: false },
+      /**
+       * "Customer registered", not `customers.person.created`.
+       *
+       * The event id is the engine's vocabulary and it stays in the title attribute for whoever is
+       * debugging, which is a different person from whoever is reading this list. An id the catalogue does
+       * not know falls back to itself — a campaign saved before a trigger was renamed should not render a
+       * blank cell.
+       */
+      cell: ({ row }) => (
+        <span className="text-sm" title={row.original.triggerEventId}>
+          {row.original.triggerLabelKey
+            ? t(row.original.triggerLabelKey, row.original.triggerEventId)
+            : row.original.triggerEventId}
+        </span>
+      ),
     },
     {
       accessorKey: 'stepsDone',
@@ -141,11 +173,13 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
     },
     {
       accessorKey: 'startedAt',
+      meta: { truncate: false },
       header: t('marketing_automation.runs.columns.startedAt', 'Started'),
       cell: ({ row }) => formatDateTime(row.original.startedAt),
     },
     {
       accessorKey: 'resumeAt',
+      meta: { truncate: false },
       header: t('marketing_automation.runs.columns.resumeAt', 'Resumes'),
       cell: ({ row }) => (row.original.resumeAt ? formatDateTime(row.original.resumeAt) : '—'),
     },

@@ -6,6 +6,8 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingCampaign, MarketingCampaignTrigger } from '../../data/entities.js'
 import { campaignDefinitionSchema } from '../../data/validators.js'
+import { findTrigger } from '../../lib/trigger-catalog.js'
+import { sweepSourceCatalog } from '../../lib/sweep-sources.js'
 import { buildRequestCommandContext, commandErrorResponse } from '../shared.js'
 
 const routeMetadata = {
@@ -46,6 +48,7 @@ export async function GET(req: Request) {
   const triggers = campaigns.length
     ? await em.find(MarketingCampaignTrigger, { campaignId: { $in: campaigns.map((c) => c.id) }, ...scope })
     : []
+  const sweepLabels = new Map(sweepSourceCatalog().map((source) => [source.id, source.labelKey]))
   const triggersByCampaign = new Map<string, MarketingCampaignTrigger[]>()
   for (const trigger of triggers) {
     const list = triggersByCampaign.get(trigger.campaignId) ?? []
@@ -62,10 +65,22 @@ export async function GET(req: Request) {
         description: campaign.description ?? null,
         isEnabled: campaign.isEnabled,
         stepCount: definition.success ? definition.data.steps.length : 0,
+        /**
+         * Each trigger with the key that names it in words.
+         *
+         * The list used to print `customers.person.created` and `1d`, which is the engine talking to
+         * itself. Resolved here rather than on the screen because both catalogues import ORM entities and
+         * would drag them into the browser bundle; `labelKey` is null for anything they do not know, and
+         * the screen then falls back to the raw value rather than rendering a blank.
+         */
         triggers: (triggersByCampaign.get(campaign.id) ?? []).map((trigger) => ({
           kind: trigger.kind,
           eventId: trigger.eventId ?? null,
           scheduleValue: trigger.scheduleValue ?? null,
+          sweepSource: trigger.sweepSource ?? null,
+          labelKey: trigger.kind === 'schedule'
+            ? sweepLabels.get(trigger.sweepSource ?? '') ?? null
+            : findTrigger(trigger.eventId ?? '')?.labelKey ?? null,
         })),
         // Required in every response: the canvas sends it back as the optimistic lock.
         updatedAt: campaign.updatedAt.toISOString(),

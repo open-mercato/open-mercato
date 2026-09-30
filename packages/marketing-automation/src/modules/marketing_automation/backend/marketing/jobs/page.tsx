@@ -68,6 +68,7 @@ export default function MarketingJobsPage() {
     {
       accessorKey: 'startedAt',
       header: t('marketing_automation.jobs.columns.startedAt', 'Started'),
+      meta: { truncate: false },
       cell: ({ row }) => formatDateTime(row.original.startedAt),
     },
     {
@@ -82,6 +83,14 @@ export default function MarketingJobsPage() {
     {
       id: 'counters',
       header: t('marketing_automation.jobs.columns.counters', 'Result'),
+      /**
+       * The counters are the job's own vocabulary, so the labels carry the whole explanation.
+       *
+       * They used to read `checked: 8` — a key from the result blob with a number beside it, which is a
+       * developer reading their own log. The counters themselves did not change; what they are CALLED did,
+       * so the same row now reads "customers checked: 8" and needs no one to interpret it.
+       */
+      meta: { truncate: false },
       cell: ({ row }) => {
         const counters = row.original.counters ?? {}
         const entries = Object.entries(counters)

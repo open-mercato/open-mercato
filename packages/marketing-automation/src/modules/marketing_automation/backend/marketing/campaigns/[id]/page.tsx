@@ -863,12 +863,22 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                   <Button
                     key={trigger.eventId}
                     variant="outline"
+                    /**
+                     * `truncate` on the label, not on the button.
+                     *
+                     * `Button` sets `whitespace-nowrap`, so inside a fixed-width column a long name like
+                     * "Watched product price dropped" simply painted past its own border. Truncating the
+                     * span keeps the button's shape and the full name stays in the tooltip — which is
+                     * where a blocked trigger already explains itself.
+                     */
                     className="w-full justify-start"
                     disabled={!trigger.available}
-                    title={trigger.blockedReasonKey ? t(trigger.blockedReasonKey, '') : undefined}
+                    title={trigger.blockedReasonKey
+                      ? t(trigger.blockedReasonKey, '')
+                      : t(trigger.labelKey, trigger.eventId)}
                     onClick={() => addTrigger(trigger.eventId)}
                   >
-                    {t(trigger.labelKey, trigger.eventId)}
+                    <span className="truncate">{t(trigger.labelKey, trigger.eventId)}</span>
                   </Button>
                 ))}
               </div>
@@ -884,10 +894,12 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     variant="outline"
                     className="w-full justify-start"
                     disabled={!source.available}
-                    title={source.blockedReasonKey ? t(source.blockedReasonKey, '') : undefined}
+                    title={source.blockedReasonKey
+                      ? t(source.blockedReasonKey, '')
+                      : t(source.labelKey, source.id)}
                     onClick={() => addScheduleTrigger(source)}
                   >
-                    {t(source.labelKey, source.id)}
+                    <span className="truncate">{t(source.labelKey, source.id)}</span>
                   </Button>
                 ))}
               </div>
@@ -909,7 +921,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     className="w-full justify-start"
                     onClick={() => addStep(step.type)}
                   >
-                    {t(step.labelKey, step.type)}
+                    <span className="truncate">{t(step.labelKey, step.type)}</span>
                   </Button>
                 ))}
               </div>

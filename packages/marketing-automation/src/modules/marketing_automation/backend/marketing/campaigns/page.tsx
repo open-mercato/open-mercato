@@ -51,7 +51,7 @@ type CampaignsResponse = {
     name?: unknown
     isEnabled?: unknown
     stepCount?: unknown
-    triggers?: Array<{ kind?: unknown; eventId?: unknown; scheduleValue?: unknown }>
+    triggers?: Array<{ kind?: unknown; eventId?: unknown; scheduleValue?: unknown; labelKey?: unknown }>
     updatedAt?: unknown
   }>
   total?: number
@@ -81,10 +81,21 @@ export default function CampaignsListPage() {
         name: item.name,
         isEnabled: item.isEnabled === true,
         stepCount: typeof item.stepCount === 'number' ? item.stepCount : 0,
+        /**
+         * What starts this campaign, in words.
+         *
+         * This column used to read `customers.person.created` and `1d` — the engine's own vocabulary, on
+         * the first screen anybody opens. The API now resolves a label key per trigger; an unknown one
+         * falls back to the raw value, because a campaign saved before a trigger was renamed should still
+         * say something rather than nothing.
+         */
         triggerSummary: triggers
-          .map((trigger) => (trigger.kind === 'schedule'
-            ? String(trigger.scheduleValue ?? '')
-            : String(trigger.eventId ?? '')))
+          .map((trigger) => {
+            const raw = trigger.kind === 'schedule'
+              ? String(trigger.scheduleValue ?? '')
+              : String(trigger.eventId ?? '')
+            return typeof trigger.labelKey === 'string' && trigger.labelKey ? t(trigger.labelKey, raw) : raw
+          })
           .filter(Boolean)
           .join(', '),
         updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : '',
@@ -97,7 +108,9 @@ export default function CampaignsListPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+    // `t` is a dependency now that the rows are built with it: without it a language change would leave
+    // the trigger column in the previous language until something else refetched the list.
+  }, [t])
 
   React.useEffect(() => { void load() }, [load, scopeVersion])
 
@@ -219,6 +232,7 @@ export default function CampaignsListPage() {
     {
       accessorKey: 'triggerSummary',
       header: t('marketing_automation.list.columns.triggers', 'Triggers'),
+      meta: { truncate: false },
     },
     {
       accessorKey: 'stepCount',
@@ -227,6 +241,7 @@ export default function CampaignsListPage() {
     {
       accessorKey: 'updatedAt',
       header: t('marketing_automation.list.columns.updatedAt', 'Updated'),
+      meta: { truncate: false },
       cell: ({ row }) => (row.original.updatedAt ? formatDateTime(row.original.updatedAt) : '—'),
     },
     {

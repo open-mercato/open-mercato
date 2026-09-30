@@ -53,10 +53,17 @@ export function TriggerNode({ data, selected }: { data: TriggerNodeData; selecte
   const title = trigger.kind === 'event'
     ? t(data.labelKey ?? `marketing_automation.trigger.${trigger.eventId}.label`, trigger.eventId)
     : t(data.sourceLabelKey ?? 'marketing_automation.trigger.schedule.label', 'On a schedule')
-  // A schedule says WHAT it iterates and HOW OFTEN; either alone is ambiguous on a canvas with
-  // several scheduled triggers.
+  /**
+   * A schedule says WHAT it iterates and HOW OFTEN; either alone is ambiguous on a canvas with several
+   * scheduled triggers. An event says WHEN, which is the one thing the title does not already say.
+   *
+   * It used to print the event id — `customers.person.created` under "Customer registered", which tells
+   * the author nothing they cannot already read and tells a non-technical one that they are looking at
+   * something they were not meant to touch. The contrast that does carry information is the one between
+   * the two kinds: an event fires as it happens, a sweep comes round every so often.
+   */
   const subtitle = trigger.kind === 'event'
-    ? trigger.eventId
+    ? t('marketing_automation.trigger.event.immediate', 'as it happens')
     : t('marketing_automation.trigger.schedule.every', 'every {interval}').replace('{interval}', trigger.scheduleValue)
 
   return <NodeShell title={title} subtitle={subtitle} selected={selected} hasTarget={false} />
