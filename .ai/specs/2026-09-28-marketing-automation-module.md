@@ -887,6 +887,45 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-30** — **erasure never completed.** A subject-access erase hung for forty seconds and answered
+  nothing for any customer holding a consent record: the two raw statements inside the erasure transaction
+  went through `em.getConnection().execute`, which takes a fresh connection from the pool, so they ran
+  OUTSIDE the transaction and waited for locks the same request was holding. `em.execute` uses the current
+  transaction context; the same call now takes 162ms and is idempotent on a second press. Two things had
+  hidden it: the only integration test that erased anything passed a uuid belonging to nobody, so no row was
+  ever locked, and the unit-test fake implemented `getConnection()` happily — thirteen tests certifying the
+  defect. The fake now throws from it, and the integration test creates its own customer, gives them a
+  consent record and erases them. Found by driving the module's own screens rather than by reading it.
+
+- **2026-09-30** — five integration specs were asserting things that were no longer true, all five green in
+  CI only because CI had never run this far. `TC-MA-029` and `TC-MA-047` still expected seven readiness
+  checks after the eighth (`schedules`) was added. `TC-MA-016` expected an erasure of a stranger to answer
+  with zeros, which it deliberately stopped doing — a report of "we erased everything" about somebody who is
+  not your customer is both false and an existence oracle. `TC-MA-045` typed into a "Campaign id" box that
+  the UX pass had replaced with a list of campaign names, and its unexplainable case is now reached the way
+  it actually happens: the campaign the page listed was deleted meanwhile. And `TC-MA-048` sent
+  `om_selected_org` with an ordinary admin's token — a cookie only a super-admin's context honours — so the
+  spec that existed to prove organization isolation was scoping nothing at all; it runs as the super-admin
+  now, asserts the owning organization CAN still read everything the foreign one cannot, and a second test
+  pins the cookie's super-admin-only nature so the mechanism cannot quietly become the thing under test.
+  `TC-MA-039` and `TC-MA-041` were given realistic timeouts: both wait on a worker for up to 30 seconds
+  inside Playwright's 20-second default, so a slow queue reported a timeout instead of the assertion.
+
+- **2026-09-30** — the three actions nothing can undo now ask first, and the last untested files got tests.
+  A suppression import ran the moment a file was chosen — it unsubscribes everybody it matches and no import
+  puts them back, so it is `destructive` and names the file; restoring a version reloaded the page immediately
+  afterwards, so there was nothing to read after the fact; promoting an A/B winner rewrites the campaign and
+  ends the test that was collecting the evidence. Each question says the current shape is kept as a version,
+  which is what makes it a decision somebody is willing to take. Held by TC-MA-049 in a browser on the
+  negative half — saying no sends no request at all — and by a source guard over all three handlers, whose
+  positive control includes the two near misses that would otherwise pass: asking without awaiting, and
+  awaiting without checking the answer. Tests added for `lib/revisions.ts` (history is the one write allowed
+  to fail: a committed save must not be reported as failed because its version row could not be written), and
+  for the last two untested step handlers, `nps_survey` and `assign_owner`. 85 suites, 1177 unit tests.
+  Also fixed, in `packages/ui` and extracted as its own upstream PR: `CrudForm.transformData` read a field
+  value once after the submitted payload arrived and failed two runs in three under the repo gate's 1GB heap
+  cap — a red `@open-mercato/ui#test` with nothing wrong in the product code.
+
 - **2026-09-29** — the repo-wide gate, which this module had never been held to. Running `yarn test` for the
   whole repository rather than for this package alone, plus a real CI pipeline, surfaced nine failures no
   module-scoped run could see: four sort sites without comparators (one of them a live bug — sorted keys feed
