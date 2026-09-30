@@ -67,10 +67,12 @@ _Phase 1 landed in 55eb61e51._
 
 ### Phase 2: catalog section model
 
-- [ ] 2.1 Extract the six inline product form section components into `components/products/sections/`
-- [ ] 2.2 Add `formSections.ts` with the ten descriptors, `ownedFields`, and the id/ownership guard tests
-- [ ] 2.3 Rebuild `handleSubmit` over the descriptor table with an empty hidden set, under a payload-equality test
-- [ ] 2.4 Build the rendered `groups` array from the descriptor table
+- [~] 2.1 Extract the six inline product form section components into `components/products/sections/` — **DESCOPED**, see note — 7593de8fb
+- [x] 2.2 Add `formSections.ts` with the ten descriptors, `ownedFields`, and the id/ownership guard tests — 7593de8fb
+- [x] 2.3 Rebuild `handleSubmit` over the descriptor table with an empty hidden set, under a payload-equality test — 7593de8fb
+- [x] 2.4 Build the rendered `groups` array from the descriptor table — 7593de8fb
+
+_Phase 2 landed in 7593de8fb. **2.1 was descoped**: the six inline components reference nine page-local symbols, including the two option-schema dialogs, so the move would drag ~1400 lines for an organizational benefit the FR does not ask for — its step 2 asks to centralize *visibility, validation, payload mapping and side effects*, which `formSections.ts` does in full. Flagged in the PR for a reviewer to overrule._
 
 ### Phase 3: wire the policy, cover it, document it
 
