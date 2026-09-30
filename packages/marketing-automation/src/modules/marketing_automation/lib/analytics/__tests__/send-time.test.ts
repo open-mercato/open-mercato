@@ -82,7 +82,15 @@ describe('loadPreferredSendHour', () => {
     expect(await loadPreferredSendHour(em, 'c1', scope, 'Europe/Warsaw')).toBe(9)
     expect(executed[0].sql).toContain('at time zone ?')
     expect(executed[0].sql).toContain("e.type = 'opened'")
-    expect(executed[0].params).toEqual(['Europe/Warsaw', 't1', 'o1', 'c1'])
+    /**
+     * The scope is bound TWICE, once per table.
+     *
+     * The join already ties the run to a tenant-scoped event, so the second pair changes no result — it
+     * exists so the planner can reach the index that leads with (tenant, org, subject_entity_id). Asserted
+     * because it is invisible in the output and would be the first thing an unwitting cleanup removed.
+     */
+    expect(executed[0].sql).toContain('r.tenant_id = ?')
+    expect(executed[0].params).toEqual(['Europe/Warsaw', 't1', 'o1', 't1', 'o1', 'c1'])
   })
 
   /**

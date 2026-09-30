@@ -184,6 +184,15 @@ export class MarketingCampaignTrigger {
 @Index({ name: 'mkt_runs_due_idx', properties: ['resumeAt', 'status'] })
 @Index({ name: 'mkt_runs_entry_idx', properties: ['campaignId', 'subjectEntityId', 'status'] })
 @Index({ name: 'mkt_runs_scope_idx', properties: ['tenantId', 'organizationId', 'status'] })
+/**
+ * Runs BY SUBJECT, which no existing index answers.
+ *
+ * `mkt_runs_entry_idx` leads with `campaign_id`, so the three queries that ask about a person across all
+ * campaigns cannot use it: the dispatch-depth budget (`countRunsStartedSince`, run once per candidate on every
+ * sweep), the engagement aggregate in the subject document, and the send-hour histogram. `EXPLAIN` on the first
+ * showed a sequential scan of the whole table.
+ */
+@Index({ name: 'mkt_runs_subject_window_idx', properties: ['tenantId', 'organizationId', 'subjectEntityId', 'startedAt'] })
 export class MarketingCampaignRun {
   [OptionalProps]?: 'currentStepIndex' | 'stepLog' | 'status' | 'attempts' | 'startedAt' | 'createdAt' | 'updatedAt'
 
@@ -326,6 +335,16 @@ export class MarketingDispatchDeadLetter {
 @Entity({ tableName: 'marketing_message_sends' })
 @Index({ name: 'mkt_sends_subject_window_idx', properties: ['tenantId', 'organizationId', 'subjectEntityId', 'sentAt'] })
 @Index({ name: 'mkt_sends_campaign_idx', properties: ['campaignId', 'sentAt'] })
+/**
+ * The index the highest-QPS path in this module needs.
+ *
+ * Every open and every click looks this row up by `(run_id, step_id)` — the tracking token carries those and
+ * nothing else. Neither existing index leads with `run_id`, so `EXPLAIN` showed the lookup taking the
+ * `(tenant_id, organization_id)` prefix of the subject index and leaving `run_id` as a FILTER: a scan of the
+ * tenant's entire send history per pixel fetch. Tracking tokens never expire, by design — they have to keep
+ * working from a mail archive — so opens keep arriving indefinitely and this path only gets busier.
+ */
+@Index({ name: 'mkt_sends_run_step_idx', properties: ['runId', 'stepId'] })
 export class MarketingMessageSend {
   [OptionalProps]?: 'status' | 'sentAt' | 'createdAt' | 'updatedAt'
 

@@ -680,6 +680,19 @@
           "keyName": "mkt_runs_scope_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "subject_entity_id",
+            "started_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "mkt_runs_subject_window_idx",
+          "primary": false,
+          "unique": false
         }
       ],
       "checks": [],
@@ -3423,6 +3436,17 @@
           "composite": true,
           "constraint": false,
           "keyName": "mkt_sends_campaign_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "run_id",
+            "step_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "mkt_sends_run_step_idx",
           "primary": false,
           "unique": false
         },

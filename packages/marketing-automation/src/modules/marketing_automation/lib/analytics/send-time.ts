@@ -57,6 +57,10 @@ const HOURLY_OPENS_SQL = `
    where e.type = 'opened'
      and e.tenant_id = ?
      and e.organization_id = ?
+     -- Scope repeated on the run for the planner, as in loadEngagement: the join already constrains it, but
+     -- without this the (tenant, org, subject) index on runs cannot be used.
+     and r.tenant_id = ?
+     and r.organization_id = ?
      and r.subject_entity_id = ?
    group by 1
    order by 1
@@ -80,7 +84,7 @@ export async function loadPreferredSendHour(
     HOURLY_OPENS_SQL,
     // A name Postgres does not know raises rather than injecting — it is a bound parameter — so one typo in
     // one customer's profile used to fail the step. Same UTC fallback as the quiet-hours code.
-    [usableTimeZone(timeZone), scope.tenantId, scope.organizationId, subjectEntityId],
+    [usableTimeZone(timeZone), scope.tenantId, scope.organizationId, scope.tenantId, scope.organizationId, subjectEntityId],
   )
   return pickPreferredHour(rows.map((row) => ({ hour: row.hour, opens: row.opens })), minimumOpens)
 }

@@ -257,13 +257,19 @@ export async function loadEngagement(
               max(e.occurred_at) filter (where e.type in ('opened', 'clicked')) as last_engaged_at
          from marketing_message_send_events e
          join marketing_campaign_runs r on r.id = e.run_id
-        where e.tenant_id = ? and e.organization_id = ? and r.subject_entity_id = ?
+        -- The scope is repeated on the run for the PLANNER, not for correctness: joining on r.id = e.run_id
+        -- already ties the run to a row this query has scoped. Without the predicate the index that leads
+        -- with (tenant, org, subject) is unreachable, and this runs once per candidate in every sweep.
+        -- No backticks in here: this is inside a template literal and one would end the string.
+        where e.tenant_id = ? and e.organization_id = ?
+          and r.tenant_id = ? and r.organization_id = ? and r.subject_entity_id = ?
      )
      select sends.sent, sends.first_sent_at, sends.last_sent_at,
             events.opened, events.clicked, events.last_engaged_at
        from sends, events`,
     [
       scope.tenantId, scope.organizationId, subjectEntityId,
+      scope.tenantId, scope.organizationId,
       scope.tenantId, scope.organizationId, subjectEntityId,
     ],
   )
