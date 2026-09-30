@@ -195,6 +195,18 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
     return <Page><PageBody><ErrorMessage label={t('marketing_automation.results.loadFailed', 'Could not load the results.')} /></PageBody></Page>
   }
 
+  /**
+   * A step's label from its id, read off the funnel the same response carried.
+   *
+   * The link report only knows step ids, and the funnel is the one place in this payload that says what each
+   * step IS. Falls back to the id for a step the funnel does not list — a campaign edited since the clicks
+   * were recorded — because there is nothing else true to print.
+   */
+  const stepLabel = (stepId: string): string => {
+    const step = results.stepFunnel.find((entry) => entry.stepId === stepId)
+    return step ? t(`marketing_automation.step.${step.type}.label`, step.type) : stepId
+  }
+
   const splitSteps = [...new Set(results.splits.map((result) => result.stepId))]
   const winnerFor = (stepId: string) => results.winners.find((winner) => winner.stepId === stepId) ?? null
 
@@ -382,9 +394,14 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                     <TableCell>
                       {/* Indented and labelled, because a flat list hides that two of these rows are alternatives
                           somebody's audience was split between rather than steps everybody took. */}
-                      <span className={step.variantKey ? 'ml-4' : undefined}>
-                        <span className="font-mono text-xs">{step.stepId}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{step.type}</span>
+                      {/* Named, not identified. The step id led this cell in monospace — it is the engine's
+                          key, it means nothing to whoever reads a funnel, and the step's own label is the
+                          thing they recognise from the canvas. The id stays in the tooltip, where support
+                          can still find it. */}
+                      <span className={step.variantKey ? 'ml-4' : undefined} title={step.stepId}>
+                        <span className="text-sm">
+                          {t(`marketing_automation.step.${step.type}.label`, step.type)}
+                        </span>
                         {step.variantKey ? (
                           <span className="ml-2 text-xs text-muted-foreground">
                             {t('marketing_automation.results.inLane', 'in lane {key}').replace('{key}', step.variantKey)}
@@ -439,7 +456,12 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                     {/* Clicks above people is the interesting case: a link somebody came back to. */}
                     <TableCell className="tabular-nums text-muted-foreground">{link.clicks}</TableCell>
                     <TableCell className="tabular-nums text-muted-foreground">{formatRate(link.shareOfClickers)}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{link.stepIds.join(', ')}</TableCell>
+                    {/* Which messages carried the link, by their labels rather than their ids — the same
+                        reason as in the funnel above. A step whose type the funnel does not know (a campaign
+                        edited since) falls back to its id, which is then the only honest thing left. */}
+                    <TableCell className="text-xs text-muted-foreground">
+                      {link.stepIds.map((stepId) => stepLabel(stepId)).join(', ')}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

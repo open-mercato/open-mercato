@@ -220,7 +220,13 @@ test.describe('TC-MA-043 campaign results and runs screens', () => {
 
       await expect(page.getByText('Step by step', { exact: true })).toBeVisible()
       await expect(page.getByRole('columnheader', { name: 'Of the first step' })).toBeVisible()
-      const laneRows = page.getByRole('row').filter({ hasText: /pts-(a|b)\s*add_points\s*in lane (a|b)/ })
+      /**
+       * Matched on the step's LABEL and its lane, not on its id.
+       *
+       * The funnel used to lead each row with the engine's step id in monospace; it now prints the step's own
+       * name — the one an author recognises from the canvas — and keeps the id in the cell's tooltip.
+       */
+      const laneRows = page.getByRole('row').filter({ hasText: /Add score points\s*in lane (a|b)/ })
       await expect(laneRows).toHaveCount(2)
       const walkedLane = laneRows.filter({ has: page.getByRole('cell', { name: '1', exact: true }) })
       await expect(walkedLane).toHaveCount(1)
