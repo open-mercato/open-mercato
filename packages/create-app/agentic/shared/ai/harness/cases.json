@@ -21628,8 +21628,7 @@
         "AGENTS.md",
         ".ai/guides/extensions.md",
         ".ai/guides/customers-calendar.md",
-        ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/modules/customers/index.md"
+        ".ai/skills/om-system-extension/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -21645,13 +21644,12 @@
           "allowedCapabilityIds": [
             "umes.customers.calendar-event-types"
           ],
-          "maxFiles": 11,
-          "maxBytes": 131072
+          "maxFiles": 14,
+          "maxBytes": 262144
         }
       ],
       "sourceReferenceIds": [
         "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
-        "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
         "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts"
       ]
     },
