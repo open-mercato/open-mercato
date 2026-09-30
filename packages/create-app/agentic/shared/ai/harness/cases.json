@@ -21429,5 +21429,105 @@
       "OMH-194",
       "OMH-195"
     ]
+  },
+  {
+    "id": "OMH-238",
+    "title": "Hide a built-in catalog product edit section from an app module without losing stored data",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "A standalone app must remove the PL/EU compliance card and the unit-of-measure card from the installed catalog product edit page at /backend/catalog/products/[id], keeping every other card and the page itself untouched. Choose the supported app-level mechanism and resolve its exact key and section IDs from the generated framework/module facts rather than from card titles or CSS selectors. State precisely what hiding must do to the section's client validation, to its slice of the product update payload, and to the secondary writes it owns, and what must happen to the values already stored for those sections when the user saves an unrelated field. Explain why merely hiding the card would be unsafe on this particular form. Say how an injected widget's card would instead be removed together with its save-time handlers. Keep installed framework packages read-only, preserve tenant and organization scoping, and identify the smallest relevant validation.",
+    "tags": [
+      "umes",
+      "unified-overrides",
+      "forms-sections",
+      "crud-form",
+      "data-preservation"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/unified-overrides.md",
+      "ruleIds": [
+        "BC-02",
+        "BC-03",
+        "BC-04",
+        "BC-09",
+        "BC-13"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes"
+      ],
+      "allowedExtra": [
+        "architecture",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-system-extension"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/unified-overrides.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/framework-extension-points.md",
+        ".ai/guides/modules/catalog/index.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "forms-sections-override",
+      "stable-override-key",
+      "facts-first-override-resolution",
+      "stable-section-ids-not-titles",
+      "hidden-section-validation-suppressed",
+      "hidden-section-payload-omitted",
+      "hidden-section-writes-skipped",
+      "stored-data-preserved",
+      "omission-not-null",
+      "widget-disable-not-card-hide",
+      "no-installed-file-edits",
+      "standalone-boundary",
+      "security-preservation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:copy|replace|fork).{0,30}(?:installed|upstream).{0,20}page",
+      "(?:display\\s*:\\s*none|visibility\\s*:\\s*hidden).{0,40}(?:hide|card|section)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:weaken|remove).{0,30}(?:auth|scope|guard|lock)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 131072,
+    "relatedCases": [
+      "OMH-089"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-09-30-catalog-product-form-section-policy.md",
+        ".ai/specs/2026-09-04-crudform-group-visibility.md"
+      ]
+    }
   }
 ]

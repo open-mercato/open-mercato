@@ -3219,7 +3219,7 @@
       "referenceId": "om-system-extension/unified-overrides:src/modules.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/unified-overrides.md",
-      "heading": "Rules",
+      "heading": "`forms.sections` — hiding built-in form sections",
       "href": "../../../../src/modules.ts",
       "targetKind": "local-owner",
       "readStatus": "readable",

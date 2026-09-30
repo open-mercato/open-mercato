@@ -5591,7 +5591,7 @@
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/unified-overrides.md",
       "originAuthoringPath": "agentic/shared/ai/skills/om-system-extension/references/unified-overrides.md",
-      "heading": "Rules",
+      "heading": "`forms.sections` — hiding built-in form sections",
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": "src/modules.ts",
@@ -5604,7 +5604,8 @@
         "src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"
       ],
       "affectedCaseIds": [
-        "OMH-089"
+        "OMH-089",
+        "OMH-238"
       ],
       "replacesBaselineBlockIds": [
         "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:28",
@@ -5729,7 +5730,8 @@
         "OMH-193",
         "OMH-203",
         "OMH-208",
-        "OMH-220"
+        "OMH-220",
+        "OMH-238"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -7007,7 +7009,8 @@
         "OMH-234",
         "OMH-235",
         "OMH-236",
-        "OMH-237"
+        "OMH-237",
+        "OMH-238"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -7266,7 +7269,8 @@
         "OMH-234",
         "OMH-235",
         "OMH-236",
-        "OMH-237"
+        "OMH-237",
+        "OMH-238"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
