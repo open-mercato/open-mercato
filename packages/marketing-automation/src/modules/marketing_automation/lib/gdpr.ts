@@ -270,7 +270,20 @@ async function eraseWithin(
    * Nulling the column and leaving the jsonb would be erasure in name only — the id would still be there,
    * one key deeper, which is exactly where nobody looks.
    */
-  await em.getConnection().execute(
+  /**
+   * `em.execute`, never `em.getConnection().execute` — the difference is the whole erasure.
+   *
+   * The connection form takes a fresh connection from the pool, so the statement runs OUTSIDE the transaction
+   * the caller opened. Two things then go wrong and the second one is fatal. The insert below would be
+   * committed on its own, so a failure afterwards would leave a person marked erased whose rows were rolled
+   * back — the opposite of what the transaction is for. And this statement writes the very table the
+   * transaction has already locked two statements earlier, so it waits for a transaction that is waiting for
+   * it: the request hangs until something times out, with no error and nothing erased.
+   *
+   * It was reproducible on any customer at all, took 40 seconds to say nothing, and the erase button on the
+   * customer profile simply never came back. `em.execute` uses the current transaction context.
+   */
+  await em.execute(
     `update marketing_campaign_runs
         set context = jsonb_set(context, '{subjectEntityId}', 'null'::jsonb)
       where tenant_id = ? and organization_id = ?
@@ -328,7 +341,9 @@ async function eraseWithin(
    * which derive points from the customer record, would start a new ledger for them on the next pass. Idempotent,
    * because a second erasure of the same person is a legitimate request and must not fail on the first one's row.
    */
-  await em.getConnection().execute(
+  // `em.execute` for the reason given above: on the pool this row would commit on its own, and a failure
+  // after it would leave somebody recorded as erased with every other change rolled back.
+  await em.execute(
     `insert into marketing_subject_erasures (tenant_id, organization_id, subject_entity_id, erased_at)
      values (?, ?, ?, ?)
      on conflict (tenant_id, organization_id, subject_entity_id) do nothing`,

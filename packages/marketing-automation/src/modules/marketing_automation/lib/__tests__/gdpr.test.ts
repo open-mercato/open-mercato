@@ -31,12 +31,22 @@ function fakeEm(rowsByEntity: Record<string, unknown[]> = {}) {
       deletes.push({ entity: nameOf(entity), where })
       return (rowsByEntity[nameOf(entity)] ?? []).length
     },
-    getConnection: () => ({
-      execute: async (sql: string, params: unknown[]) => {
-        executed.push({ sql, params })
-        return []
-      },
-    }),
+    /**
+     * The transaction-aware raw executor, and the ONLY one this fake offers.
+     *
+     * `em.execute` uses the current transaction context; `em.getConnection().execute` takes a fresh connection
+     * from the pool and runs outside it. The erasure used the second one, and the earlier version of this fake
+     * implemented it happily — so the unit tests passed while the real endpoint hung for forty seconds on any
+     * customer, waiting for locks its own open transaction was holding. A fake that answers a call the code
+     * must not make is a test that certifies the defect.
+     */
+    execute: async (sql: string, params: unknown[]) => {
+      executed.push({ sql, params })
+      return []
+    },
+    getConnection: () => {
+      throw new Error('[internal] getConnection() escapes the transaction; use em.execute()')
+    },
     /**
      * Erasure runs inside one transaction, so the fake has to offer one.
      *

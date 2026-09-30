@@ -105,6 +105,13 @@ already at parity. Items A5–A7 change `sales` — ask before building them.
   somebody keeps as the answer to a legal request; a failure halfway leaves the person erased from the runs and
   still named in the survey answers, with no report to say how far it got — and the next attempt reports smaller
   numbers than it changed, because the first statements have nothing left to do.
+- Never run raw SQL inside a transaction through `em.getConnection().execute`. It takes a fresh connection from
+  the pool, so the statement runs OUTSIDE the transaction: it commits on its own, and if it touches a table the
+  transaction has already written it waits for locks the same request is holding. Erasure did exactly that and
+  hung for forty seconds on any customer with a consent record — no error, nothing erased, the button never came
+  back. `em.execute(sql, params)` uses the current transaction context. The fake in `lib/__tests__/gdpr.test.ts`
+  now throws from `getConnection()` for this reason: it used to implement the call, so thirteen unit tests
+  certified the defect.
 - Never snap a deferred send to the top of the UTC hour. India is +05:30 and South Australia +09:30, so a
   "deferred until 08:00" send landed at 08:30 on the recipient's clock while every screen that printed the local
   hour agreed with itself. Snap to the top of THEIR hour.
