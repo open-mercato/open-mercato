@@ -159,6 +159,7 @@
   "forms.errors.invalid_payload": "Die übermittelten Daten sind ungültig.",
   "forms.errors.locales_empty": "Ein Formular muss mindestens eine Sprache unterstützen.",
   "forms.errors.no_op_publish": "Keine Änderungen zum Veröffentlichen — das Schema entspricht der aktuell veröffentlichten Version.",
+  "forms.errors.redirect_url_scheme": "Die Weiterleitungs-URL muss eine http://- oder https://-Adresse sein.",
   "forms.errors.schema_invalid": "Das Formularschema ist ungültig.",
   "forms.errors.snapshot_missing": "Snapshot-Eintrag nicht gefunden.",
   "forms.errors.snapshot_pending": "PDF-Snapshot wird erstellt.",

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { normalizeEmbedOrigin } from '../lib/embed-frame-policy'
+import { isNavigableUrl } from '../lib/navigable-url'
 
 /**
  * Forms module shared Zod primitives + Phase 1b/1c command/API schemas.
@@ -315,7 +316,22 @@ export type FormDistributionStatus = z.infer<typeof distributionStatusSchema>
 
 const isoDateTimeSchema = z.string().datetime({ offset: true })
 
-const optionalRedirectUrl = z.string().url().max(2000).optional().nullable()
+/**
+ * Post-submission redirect target. `z.string().url()` alone is not enough: it
+ * only asks whether `new URL(...)` parses, so `javascript:`, `data:` and
+ * `vbscript:` all pass it — and this value is assigned to `window.location` by
+ * the anonymous public runner, in the app's own origin, under a CSP that allows
+ * `'unsafe-inline'`. The scheme check is what makes it safe.
+ */
+const optionalRedirectUrl = z
+  .string()
+  .url()
+  .max(2000)
+  .refine((value) => isNavigableUrl(value), {
+    message: 'forms.errors.redirect_url_scheme',
+  })
+  .optional()
+  .nullable()
 
 /**
  * A single embed allowlist origin. Validated to the strict origin shape

@@ -159,6 +159,7 @@
   "forms.errors.invalid_payload": "The submitted data is not valid.",
   "forms.errors.locales_empty": "A form must support at least one locale.",
   "forms.errors.no_op_publish": "No changes to publish — the schema matches the current published version.",
+  "forms.errors.redirect_url_scheme": "The redirect URL must be an http:// or https:// address.",
   "forms.errors.schema_invalid": "The form schema is invalid.",
   "forms.errors.snapshot_missing": "Snapshot record not found.",
   "forms.errors.snapshot_pending": "PDF snapshot is being generated.",

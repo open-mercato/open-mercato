@@ -541,6 +541,41 @@ describe('SubmissionService', () => {
     void em
   })
 
+  it('refuses submit when the user has no active actor row (403 NO_ACTOR)', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0 })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+
+    // `submit()` checked status and stale-base but never the actor, so a caller
+    // who may not EDIT a submission could still freeze someone else's draft by
+    // submitting it — twelve lines from where `save()` refuses the same caller.
+    const otherUser = randomUUID()
+    await expect(service.submit({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      submittedBy: otherUser,
+    })).rejects.toMatchObject({ code: 'NO_ACTOR', httpStatus: 403 })
+
+    // The starter, who does hold an actor row, still submits.
+    const submitted = await service.submit({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      submittedBy: patient,
+    })
+    expect(submitted.status).toBe('submitted')
+  })
+
   it('refuses cross-tenant access by returning 404 NOT_FOUND', async () => {
     const { service } = createTestSetup({ autosaveIntervalMs: 0 })
     const patient = randomUUID()

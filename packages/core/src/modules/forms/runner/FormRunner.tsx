@@ -20,6 +20,7 @@ import { DatePicker } from '@open-mercato/ui/backend/inputs/DatePicker'
 import { DateTimePicker } from '@open-mercato/ui/backend/inputs/DateTimePicker'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { normalizeNavigableUrl } from '../lib/navigable-url'
 import { evaluateFormLogic, type LogicState, type JumpTarget } from '../services/form-logic-evaluator'
 import { partitionPages } from '../services/form-version-compiler'
 import {
@@ -123,8 +124,11 @@ export function FormRunner({
       setSubmitted(true)
       if (claimedEndingKey) {
         const endingSection = sections.find((entry) => entry.key === claimedEndingKey && entry.kind === 'ending')
-        const redirectUrl = endingSection?.['x-om-redirect-url']
-        if (typeof redirectUrl === 'string' && redirectUrl.length > 0 && typeof window !== 'undefined') {
+        // Scheme-checked at the sink: `x-om-redirect-url` is free-form schema
+        // content, and a `javascript:`/`data:` target assigned to
+        // `window.location` would execute in the app's own origin.
+        const redirectUrl = normalizeNavigableUrl(endingSection?.['x-om-redirect-url'])
+        if (redirectUrl && typeof window !== 'undefined') {
           window.location.assign(redirectUrl)
         }
       }

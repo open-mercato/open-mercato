@@ -5,6 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { normalizeNavigableUrl } from '../../lib/navigable-url'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useFormRunner } from './state/useFormRunner'
 import { LogoHeader } from './style/LogoHeader'
@@ -162,7 +163,11 @@ export function FormRunner(props: FormRunnerProps) {
     return set
   }, [sections, validateSection])
 
-  const redirectTarget = props.redirectUrl?.trim() ? props.redirectUrl.trim() : null
+  // Re-checked at the sink, not just in the Zod layer: this runs anonymously in
+  // the app's own origin under a CSP that allows 'unsafe-inline', and rows
+  // written before the validator was hardened are still in the database. A
+  // non-http(s) target is dropped rather than navigated to.
+  const redirectTarget = normalizeNavigableUrl(props.redirectUrl)
   React.useEffect(() => {
     if (stage === 'completed' && redirectTarget && typeof window !== 'undefined') {
       window.location.href = redirectTarget

@@ -159,6 +159,7 @@
   "forms.errors.invalid_payload": "Przesłane dane są nieprawidłowe.",
   "forms.errors.locales_empty": "Formularz musi obsługiwać co najmniej jeden język.",
   "forms.errors.no_op_publish": "Brak zmian do opublikowania — schemat odpowiada bieżącej opublikowanej wersji.",
+  "forms.errors.redirect_url_scheme": "Adres przekierowania musi być adresem http:// lub https://.",
   "forms.errors.schema_invalid": "Schemat formularza jest nieprawidłowy.",
   "forms.errors.snapshot_missing": "Nie znaleziono rekordu migawki.",
   "forms.errors.snapshot_pending": "Migawka PDF jest generowana.",
