@@ -1139,6 +1139,7 @@
   "sales.documents.list.table.unassigned": "Nicht zugewiesen",
   "sales.documents.payments.add": "Zahlung hinzufügen",
   "sales.documents.payments.amount": "Betrag",
+  "sales.documents.payments.amountInvalid": "Geben Sie den Betrag als Zahl ein.",
   "sales.documents.payments.amountRequired": "Geben Sie einen positiven Betrag ein.",
   "sales.documents.payments.created": "Zahlung erfasst.",
   "sales.documents.payments.createdAt": "Erstellt",
@@ -1490,5 +1491,6 @@
   "sales.widgets.newQuotes.settings.last24h": "Letzte 24 Stunden",
   "sales.widgets.newQuotes.settings.last30d": "Letzte 30 Tage",
   "sales.widgets.newQuotes.settings.last7d": "Letzte 7 Tage",
-  "sales.widgets.newQuotes.settings.pageSize": "Anzahl der Angebote"
+  "sales.widgets.newQuotes.settings.pageSize": "Anzahl der Angebote",
+  "sales.workflows.commands.orders.update": "Verkaufsauftrag aktualisieren"
 }

@@ -258,7 +258,9 @@ test.describe('TC-LOCK-OSS-043: webhooks + inbox settings + data-sync schedule o
       // can land AFTER the PUT and refresh the in-page row token to the new value,
       // so the subsequent DELETE carries a fresh token and succeeds (200) instead of
       // 409ing — the historic flake (the list ended up empty, no conflict surfaced).
-      await page.waitForLoadState('networkidle')
+      // Bounded on purpose: the SSE event stream stays open for the whole session, so the
+      // network never goes fully idle. This is a settle window, not a completion signal.
+      await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {})
 
       // Advance updated_at out-of-band → the in-page row token is now stale.
       // NOTE: bump description (not name) so the row locator stays valid even if

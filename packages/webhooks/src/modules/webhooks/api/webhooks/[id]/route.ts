@@ -6,6 +6,7 @@ import { findScopedWebhook, json, resolveWebhookRequestScope, serializeWebhookDe
 import { webhookUpdateSchema } from '../../../data/validators'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateWebhookSubscriptionCacheFor } from '../../../lib/subscription-cache'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['webhooks.view'] },
@@ -106,6 +107,8 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
 
   await em.flush()
 
+  await invalidateWebhookSubscriptionCacheFor(scope.container, webhook.tenantId)
+
   await emitWebhooksEvent('webhooks.webhook.updated', {
     webhookId: webhook.id,
     organizationId: webhook.organizationId,
@@ -142,6 +145,8 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
 
   webhook.deletedAt = new Date()
   await em.flush()
+
+  await invalidateWebhookSubscriptionCacheFor(scope.container, webhook.tenantId)
 
   await emitWebhooksEvent('webhooks.webhook.deleted', {
     webhookId: webhook.id,

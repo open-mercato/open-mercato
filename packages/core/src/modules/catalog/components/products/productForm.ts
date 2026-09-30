@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { slugify } from "@open-mercato/shared/lib/slugify";
 import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
+import { parseLocaleNumber } from "@open-mercato/shared/lib/number";
 import type { ReferenceUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import {
   CATALOG_CONFIGURABLE_PRODUCT_TYPES,
@@ -347,6 +348,58 @@ export const productFormSchema = z
       new Date(data.availableUntil) >= new Date(data.availableFrom),
     { message: 'catalog.products.validation.availabilityDateRange', path: ['availableUntil'] }
   );
+
+// The UoM fields below stay raw locale-typed text while the user is editing them
+// (`ProductUomSection`, issue #5828), so `z.coerce.number()` — which only accepts a dot
+// decimal separator — cannot parse them directly. Convert to a canonical dot-decimal string
+// right before validation; an unparseable value is left as-is so the schema's own "expected
+// number" error still fires.
+function toCanonicalDecimalString(raw: string, locale?: string): string {
+  if (!raw.trim()) return raw;
+  const parsed = parseLocaleNumber(raw, locale);
+  return parsed === null ? raw : String(parsed);
+}
+
+export function withCanonicalUomFields(
+  values: ProductFormValues,
+  locale?: string,
+): ProductFormValues {
+  return {
+    ...values,
+    defaultSalesUnitQuantity:
+      typeof values.defaultSalesUnitQuantity === "string"
+        ? toCanonicalDecimalString(values.defaultSalesUnitQuantity, locale)
+        : values.defaultSalesUnitQuantity,
+    unitPriceBaseQuantity:
+      typeof values.unitPriceBaseQuantity === "string"
+        ? toCanonicalDecimalString(values.unitPriceBaseQuantity, locale)
+        : values.unitPriceBaseQuantity,
+    unitConversions: Array.isArray(values.unitConversions)
+      ? values.unitConversions.map((conversion) => ({
+          ...conversion,
+          toBaseFactor:
+            typeof conversion?.toBaseFactor === "string"
+              ? toCanonicalDecimalString(conversion.toBaseFactor, locale)
+              : conversion?.toBaseFactor,
+        }))
+      : values.unitConversions,
+  };
+}
+
+// `CrudForm`'s `schema` prop runs validation internally, before `onSubmit` — so a page that
+// passes `productFormSchema` there directly (rather than calling `.safeParse` by hand inside
+// `onSubmit`, as the edit page does) needs the UoM canonicalization baked into the schema
+// itself. `locale` is only known at render time, so this builds the wrapped schema per-locale
+// rather than exporting a single module-level constant.
+export function buildLocaleAwareProductFormSchema(locale?: string): z.ZodType<ProductFormValues> {
+  return z.preprocess(
+    (raw) =>
+      raw && typeof raw === "object"
+        ? withCanonicalUomFields(raw as ProductFormValues, locale)
+        : raw,
+    productFormSchema,
+  ) as unknown as z.ZodType<ProductFormValues>;
+}
 
 export const PRODUCT_FORM_STEPS = [
   "general",

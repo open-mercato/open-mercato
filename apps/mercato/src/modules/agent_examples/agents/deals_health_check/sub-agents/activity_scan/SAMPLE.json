@@ -1,0 +1,15 @@
+{
+  "deal": {
+    "id": "demo-deal-1",
+    "name": "Acme Corp — Enterprise plan",
+    "stage": "Proposal",
+    "value": 48000,
+    "probability": 0.65,
+    "daysInStage": 12,
+    "activities": [
+      { "type": "email", "at": "2026-06-18", "summary": "Sent revised pricing proposal." },
+      { "type": "call", "at": "2026-06-20", "summary": "Procurement asked about volume discounts." },
+      { "type": "meeting", "at": "2026-06-23", "summary": "Demo with the security team." }
+    ]
+  }
+}

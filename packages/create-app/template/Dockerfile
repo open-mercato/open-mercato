@@ -57,8 +57,10 @@ COPY . .
 
 COPY docker/scripts/dev-entrypoint.sh /app/docker/scripts/dev-entrypoint.sh
 COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
+COPY docker/scripts/mcp-entrypoint.sh /app/docker/scripts/mcp-entrypoint.sh
 RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
+RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 
 EXPOSE 3000 4101
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
@@ -111,7 +113,10 @@ COPY --from=builder /app/components.json ./components.json
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/scripts ./scripts
 COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
+# Used by the optional `mcp` service (compose profile `agents`).
+COPY docker/scripts/mcp-entrypoint.sh /app/docker/scripts/mcp-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
+RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 
 RUN adduser -D -u 1001 omuser \
  && chown -R omuser:omuser /app

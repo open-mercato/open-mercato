@@ -13,6 +13,7 @@ import {
 } from '../guards'
 import { GET, PUT } from '../[id]/credentials/route'
 import { MASKED_SECRET_VALUE } from '../../lib/credentials-masking'
+import { CredentialsEncryptionUnavailableError } from '../../lib/credentials-service'
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
@@ -235,5 +236,86 @@ describe('integrations credentials route — secret masking (issue #2253)', () =
       { clientSecret: '' },
       { organizationId: 'o1', tenantId: 't1' },
     )
+  })
+})
+
+/**
+ * Credentials sealed while `TENANT_DATA_ENCRYPTION` was on, read back after it was switched off.
+ * No key can open that blob, and no command unseals it — `mercato entities decrypt-database`
+ * decrypts the columns an encryption map covers, while this envelope sits inside the decrypted
+ * value. Re-entering the credentials is the only remedy, so both halves of the admin round-trip
+ * have to survive the error: a 503 on the read and a 503 on the save would leave the integration
+ * unfixable from the UI forever.
+ *
+ * A KMS that is merely unreachable is the opposite case and must keep failing closed.
+ */
+describe('integrations credentials route — credentials sealed before the encryption toggle flipped', () => {
+  const saveMock = jest.fn()
+  const resolveMock = jest.fn()
+
+  function sealedWhileDisabled(): CredentialsEncryptionUnavailableError {
+    return new CredentialsEncryptionUnavailableError('t1', 'sealed-while-disabled')
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    saveMock.mockReset()
+    resolveMock.mockReset()
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: 't1', orgId: 'o1', sub: 'u1' })
+    ;(getIntegration as jest.Mock).mockReturnValue({ id: 'sync_akeneo', title: 'Akeneo PIM' })
+    ;(runIntegrationMutationGuards as jest.Mock).mockResolvedValue({ ok: true })
+    ;(createRequestContainer as jest.Mock).mockResolvedValue({
+      resolve: (key: string) => {
+        if (key === 'integrationCredentialsService') {
+          return { getSchema: () => secretSchema, save: saveMock, resolve: resolveMock, resolveUpdatedAt: jest.fn().mockResolvedValue(null) }
+        }
+        throw new Error(`unexpected resolve(${key})`)
+      },
+    })
+  })
+
+  it('GET loads the form as unconfigured instead of failing the page', async () => {
+    resolveMock.mockRejectedValue(sealedWhileDisabled())
+    const response = await GET(
+      new Request('http://localhost/api/integrations/sync_akeneo/credentials'),
+      { params: { id: 'sync_akeneo' } },
+    )
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.credentials).toEqual({})
+    expect(body.secretFieldsConfigured).toEqual({ clientSecret: false })
+  })
+
+  it('PUT stores the re-entered credentials rather than 503-ing on the merge read', async () => {
+    resolveMock.mockRejectedValue(sealedWhileDisabled())
+    const response = await PUT(
+      buildRequest({ apiUrl: 'https://akeneo.example', clientSecret: 'freshly-typed' }),
+      { params: { id: 'sync_akeneo' } },
+    )
+    expect(response.status).toBe(200)
+    expect(saveMock).toHaveBeenCalledWith(
+      'sync_akeneo',
+      { apiUrl: 'https://akeneo.example', clientSecret: 'freshly-typed' },
+      { organizationId: 'o1', tenantId: 't1' },
+    )
+  })
+
+  it('GET still fails closed when encryption is on and the KMS is unreachable', async () => {
+    resolveMock.mockRejectedValue(new CredentialsEncryptionUnavailableError('t1', 'no-dek'))
+    const response = await GET(
+      new Request('http://localhost/api/integrations/sync_akeneo/credentials'),
+      { params: { id: 'sync_akeneo' } },
+    )
+    expect(response.status).toBe(503)
+  })
+
+  it('PUT still fails closed when encryption is on and the KMS is unreachable', async () => {
+    resolveMock.mockRejectedValue(new CredentialsEncryptionUnavailableError('t1', 'no-dek'))
+    const response = await PUT(
+      buildRequest({ apiUrl: 'https://akeneo.example', clientSecret: 'freshly-typed' }),
+      { params: { id: 'sync_akeneo' } },
+    )
+    expect(response.status).toBe(503)
+    expect(saveMock).not.toHaveBeenCalled()
   })
 })

@@ -744,5 +744,8 @@
   "eudr.supplierPanel.viewSubmissions": "View submissions",
   "eudr.supplierPanel.warnings": "With warnings",
   "eudr.warnings.harvestBeforeCutoff": "Harvest before EUDR cutoff",
-  "eudr.warnings.speciesMissing": "A linked wood mapping is missing a scientific or common species name"
+  "eudr.warnings.speciesMissing": "A linked wood mapping is missing a scientific or common species name",
+  "search.entityType.eudr.eudr_due_diligence_statement": "DDS statement",
+  "search.entityType.eudr.eudr_evidence_submission": "Evidence submission",
+  "search.entityType.eudr.eudr_plot": "Plot"
 }

@@ -34,7 +34,10 @@ Customer-facing identity and portal authentication with a two-tier RBAC model. T
 yarn db:generate
 yarn generate
 yarn workspace @open-mercato/core build
+yarn workspace @open-mercato/core test --testPathPatterns='customer_accounts'
 ```
+
+Runbook command (idempotent, safe to re-run): `yarn mercato customer_accounts sync-customer-role-acls [--tenant <tenantId>]` — see § Cross-Module Feature Merging.
 
 ## Data Model
 
@@ -155,6 +158,14 @@ Treat `portal.*` and `*` as first-class stored ACL grants. Server authorization 
 ### Cross-Module Feature Merging
 
 Other modules can declare `defaultCustomerRoleFeatures` in their `setup.ts`. During `seedDefaults`, the customer_accounts module collects these from all enabled modules and merges them into the corresponding `CustomerRoleAcl` records.
+
+`seedDefaults` reaches **new** tenants only. Existing tenants replay the identical merge with:
+
+```bash
+yarn mercato customer_accounts sync-customer-role-acls [--tenant <tenantId>]
+```
+
+Both paths call the single helper `lib/customerRoleAclSync.ts` → `syncDefaultCustomerRoleAcls`. MUST route any new customer-role grant flow through that helper rather than writing `CustomerRoleAcl` rows directly, so the contract stays one implementation: additive only (never revokes a hand-added feature), wildcard-aware via `hasFeature` (a role holding `portal.*` gains no redundant concrete grant), never creates a `CustomerRole` or `CustomerRoleAcl`, tenant-scoped on every query, and idempotent. Run it after adding portal features to any module's `acl.ts` + `defaultCustomerRoleFeatures`, the same way `auth sync-role-acls` follows a `defaultRoleFeatures` change. Note `CustomerRbacService` caches ACLs for five minutes, so a fresh grant is not instantly visible to a signed-in portal user.
 
 ### Server-Side Auth Helpers
 
@@ -309,7 +320,7 @@ Both link to `/backend/customer_accounts/{sourceEntityId}` for staff review.
 | `customers.person` | `account-status` | Alias for hosts requesting the bare `customers.person` entity spot |
 | `crud-form:customers.person` | `account-status` | Shows portal account status on the person v2 detail page (`people-v2/[id]`) |
 | `customers.company` | `company-users` | Alias for hosts requesting the bare `customers.company` entity spot |
-| `crud-form:customers.company` | `company-users` | Shows portal users on the company v2 detail page (`companies-v2/[id]`) |
+| `crud-form:customers.company` | `company-users` | Shows portal users on every company surface that publishes the host — the company v2 detail page (`companies-v2/[id]`), the company create page (`companies/create`), and the sales document "Create company" quick dialog — where it has no `recordId` and renders its empty state |
 
 Both inject as column 2 groups with priority 200, gated by `customer_accounts.view` feature.
 
