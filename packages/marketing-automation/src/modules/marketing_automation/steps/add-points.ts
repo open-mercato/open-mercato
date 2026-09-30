@@ -47,7 +47,7 @@ export const addPointsStep: StepHandler<StepDeps> = {
     // Carries the PREVIOUS total as well as the new one, which is what lets an audience express
     // "reached 100 points" (`trigger.previousPoints < 100 AND score.points >= 100`) instead of
     // "is above 100 points" — the difference between firing once and firing on every later change.
-    await emitMarketingAutomationEvent('marketing_automation.customer.score_changed', {
+    await emitMarketingAutomationEvent('marketing_automation.score.changed', {
       entityId: ctx.subjectEntityId,
       tenantId: deps.scope.tenantId,
       organizationId: deps.scope.organizationId,

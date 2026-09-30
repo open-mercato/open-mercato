@@ -38,7 +38,7 @@ test.describe('TC-MA-009 scoring and customer profile', () => {
     const token = await getAuthToken(request, 'admin')
     const response = await apiRequest(request, 'GET', PALETTE_PATH, { token })
     const body = await readJsonSafe<{ triggers?: Array<{ eventId?: string; available?: boolean }> }>(response)
-    const trigger = (body?.triggers ?? []).find((entry) => entry.eventId === 'marketing_automation.customer.score_changed')
+    const trigger = (body?.triggers ?? []).find((entry) => entry.eventId === 'marketing_automation.score.changed')
     expect(trigger?.available).toBe(true)
   })
 
@@ -58,7 +58,7 @@ test.describe('TC-MA-009 scoring and customer profile', () => {
         data: {
           updatedAt,
           name: 'QA score cascade',
-          triggers: [{ kind: 'event', eventId: 'marketing_automation.customer.score_changed' }],
+          triggers: [{ kind: 'event', eventId: 'marketing_automation.score.changed' }],
           definition: {
             version: 1,
             audience: null,

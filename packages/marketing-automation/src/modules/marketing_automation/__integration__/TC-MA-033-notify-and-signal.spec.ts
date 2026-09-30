@@ -108,6 +108,6 @@ test.describe('TC-MA-033 notify and signal steps', () => {
     }
     const body = await readJsonSafe<{ data?: Array<{ id?: string }> }>(response)
     const ids = (body?.data ?? []).map((entry) => entry.id)
-    expect(ids).toContain('marketing_automation.campaign.signal')
+    expect(ids).toContain('marketing_automation.campaign.signalled')
   })
 })

@@ -9,7 +9,7 @@ import type { SubscriberContext } from '../lib/subscriber-forward.js'
  * by `add_points`, so the save-time cycle check is what stops a campaign driving itself through it.
  */
 export const metadata = {
-  event: 'marketing_automation.customer.score_changed',
+  event: 'marketing_automation.score.changed',
   persistent: true,
   id: 'marketing_automation:score-changed',
 }
@@ -18,5 +18,5 @@ export default async function handle(
   payload: Record<string, unknown>,
   ctx: SubscriberContext,
 ): Promise<void> {
-  await forwardEventToCampaigns('marketing_automation.customer.score_changed', payload, ctx)
+  await forwardEventToCampaigns('marketing_automation.score.changed', payload, ctx)
 }

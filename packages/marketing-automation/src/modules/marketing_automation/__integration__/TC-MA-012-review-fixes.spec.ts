@@ -109,7 +109,7 @@ test.describe('TC-MA-012 regressions found by review', () => {
     const response = await apiRequest(request, 'GET', '/api/marketing_automation/palette', { token })
     const body = await readJsonSafe<{ triggers?: Array<{ eventId?: string; available?: boolean }> }>(response)
     const offered = (body?.triggers ?? []).filter((entry) => entry.available).map((entry) => entry.eventId)
-    expect(offered).toContain('marketing_automation.customer.score_changed')
+    expect(offered).toContain('marketing_automation.score.changed')
   })
 
   test('a negative page size is refused rather than reaching the database', async ({ request }) => {

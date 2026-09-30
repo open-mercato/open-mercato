@@ -183,7 +183,7 @@ test.describe('TC-MA-039 score rules, applied automatically', () => {
       const saved = await saveGraph(request, token, campaignId, {
         updatedAt: detail.updatedAt,
         name: detail.name,
-        triggers: [{ kind: 'event', eventId: 'marketing_automation.customer.score_changed' }],
+        triggers: [{ kind: 'event', eventId: 'marketing_automation.score.changed' }],
         definition: {
           version: 1,
           // "Reached 100", not "is above 100" — and only this test's customer, so no other spec's points start it.

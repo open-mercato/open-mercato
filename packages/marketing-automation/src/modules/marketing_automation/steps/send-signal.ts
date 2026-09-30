@@ -15,7 +15,7 @@ import type { StepDeps } from './deps.js'
  * did its own HTTP would be a second, worse delivery mechanism sitting inside a worker — which that module's own
  * guidance forbids in as many words.
  *
- * What an operator does: subscribe an endpoint to `marketing_automation.campaign.signal` and filter on `topic`.
+ * What an operator does: subscribe an endpoint to `marketing_automation.campaign.signalled` and filter on `topic`.
  * What an author does: name the topic and add whatever fields the receiver needs.
  */
 /**
@@ -93,7 +93,7 @@ export const sendSignalStep: StepHandler<StepDeps> = {
     }
 
     await emitMarketingAutomationEvent(
-      'marketing_automation.campaign.signal',
+      'marketing_automation.campaign.signalled',
       {
         topic: params.topic,
         campaignId: ctx.campaignId ?? null,

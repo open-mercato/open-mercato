@@ -135,11 +135,11 @@ const expiringQuote: TriggerCatalogEntry = {
  * `trigger.previousPoints < 100 AND score.points >= 100` — which fires once, needs no configuration,
  * and lets one installation have as many thresholds as it likes.
  */
-export const SCORE_CHANGED_TRIGGER_ID = 'marketing_automation.customer.score_changed'
+export const SCORE_CHANGED_TRIGGER_ID = 'marketing_automation.score.changed'
 
 const scoreChanged: TriggerCatalogEntry = {
   eventId: SCORE_CHANGED_TRIGGER_ID,
-  labelKey: 'marketing_automation.trigger.marketing_automation.customer.score_changed.label',
+  labelKey: 'marketing_automation.trigger.marketing_automation.score.changed.label',
   available: true,
   contextKeys: ['trigger.points', 'trigger.previousPoints', 'trigger.delta'],
   async build(payload) {

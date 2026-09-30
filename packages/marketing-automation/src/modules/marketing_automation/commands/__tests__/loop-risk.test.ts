@@ -29,13 +29,13 @@ describe('collectEmittedEvents', () => {
   test('finds one nested two splits deep', () => {
     const inner = split('sp2', { x: [step('x1', 'add_points')] })
     const steps = [split('sp1', { a: [inner] })]
-    expect([...collectEmittedEvents(steps as never)]).toEqual(['marketing_automation.customer.score_changed'])
+    expect([...collectEmittedEvents(steps as never)]).toEqual(['marketing_automation.score.changed'])
   })
 
   test('collects from every lane, not just the first', () => {
     const steps = [split('sp1', { a: [step('a1', 'add_tag')], b: [step('b1', 'add_points')] })]
     expect([...collectEmittedEvents(steps as never)].sort())
-      .toEqual(['customers.tag.assigned', 'marketing_automation.customer.score_changed'])
+      .toEqual(['customers.tag.assigned', 'marketing_automation.score.changed'])
   })
 
   test('a step that emits nothing contributes nothing', () => {
@@ -56,7 +56,7 @@ describe('assertNoLoopRisk', () => {
 
   test('refuses a score campaign that awards points from inside a lane', () => {
     const steps = [split('sp1', { a: [step('a1', 'add_points')] })]
-    expect(() => assertNoLoopRisk(steps as never, ['marketing_automation.customer.score_changed'])).toThrow()
+    expect(() => assertNoLoopRisk(steps as never, ['marketing_automation.score.changed'])).toThrow()
   })
 
   test('allows a campaign that emits an event it does not react to', () => {

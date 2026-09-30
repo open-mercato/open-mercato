@@ -152,7 +152,7 @@ describe('applyRuleScore', () => {
       reason: 'B2B +20, Big spender +15',
     }))
     expect(mockedEmit).toHaveBeenCalledWith(
-      'marketing_automation.customer.score_changed',
+      'marketing_automation.score.changed',
       expect.objectContaining({ entityId: 'c1', points: 105, previousPoints: 90, delta: 15, source: 'rule' }),
       { persistent: true },
     )

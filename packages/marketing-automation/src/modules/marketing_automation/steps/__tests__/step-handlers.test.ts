@@ -76,7 +76,7 @@ describe('add_points', () => {
   it('carries the PREVIOUS total on the event, which is what makes "reached 100" expressible', async () => {
     await addPointsStep.execute(ctx(), { points: 7 }, deps)
     const [eventId, payload] = emitMarketingAutomationEvent.mock.calls[0]
-    expect(eventId).toBe('marketing_automation.customer.score_changed')
+    expect(eventId).toBe('marketing_automation.score.changed')
     /**
      * Without `previousPoints` an audience can only say "is above 100", which is true on every later change.
      * With it, "crossed 100" is expressible — and that fires once.

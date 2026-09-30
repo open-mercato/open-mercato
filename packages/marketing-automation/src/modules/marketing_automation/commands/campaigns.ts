@@ -95,7 +95,7 @@ function invalidGraph(code: string, error: string, detail?: string): CrudHttpErr
  */
 const STEP_EMITTED_EVENTS: Record<string, string[]> = {
   add_tag: ['customers.tag.assigned'],
-  add_points: ['marketing_automation.customer.score_changed'],
+  add_points: ['marketing_automation.score.changed'],
   /**
    * `send_signal` emits its own event, which nothing triggers on TODAY.
    *
@@ -103,7 +103,7 @@ const STEP_EMITTED_EVENTS: Record<string, string[]> = {
    * drives itself the day somebody adds `campaign.signal` to the trigger catalog — and that day, nothing would
    * connect the two changes.
    */
-  send_signal: ['marketing_automation.campaign.signal'],
+  send_signal: ['marketing_automation.campaign.signalled'],
 }
 
 /**
@@ -506,7 +506,7 @@ const applySplitWinnerCommand: CommandHandler<
       },
     )
 
-    await emitMarketingAutomationEvent('marketing_automation.campaign.saved', {
+    await emitMarketingAutomationEvent('marketing_automation.campaign.updated', {
       id: campaign.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -615,7 +615,7 @@ const saveCampaignGraphCommand: CommandHandler<
 
     // Emitted only after the whole write is committed, so no subscriber can observe a campaign
     // that does not exist in the shape the event announces.
-    await emitMarketingAutomationEvent('marketing_automation.campaign.saved', {
+    await emitMarketingAutomationEvent('marketing_automation.campaign.updated', {
       id: campaign.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,

@@ -179,7 +179,7 @@ export async function applyRuleScore(
     return { applied: false, previousPoints: result.previousPoints, points: result.points, delta: 0, matched: match.matched }
   }
 
-  await emitMarketingAutomationEvent('marketing_automation.customer.score_changed', {
+  await emitMarketingAutomationEvent('marketing_automation.score.changed', {
     entityId: subjectEntityId,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,

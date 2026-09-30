@@ -5,12 +5,11 @@ const events = [
   { id: 'marketing_automation.campaign.created', label: 'Campaign Created', entity: 'campaign', category: 'crud' },
   { id: 'marketing_automation.campaign.updated', label: 'Campaign Updated', entity: 'campaign', category: 'crud' },
   { id: 'marketing_automation.campaign.deleted', label: 'Campaign Deleted', entity: 'campaign', category: 'crud' },
-  { id: 'marketing_automation.campaign.saved', label: 'Campaign Graph Saved', entity: 'campaign', category: 'crud' },
   { id: 'marketing_automation.campaign.enabled', label: 'Campaign Enabled', entity: 'campaign', category: 'lifecycle' },
   { id: 'marketing_automation.campaign.disabled', label: 'Campaign Disabled', entity: 'campaign', category: 'lifecycle' },
 
   // Customer state the module itself maintains, and which a campaign may react to
-  { id: 'marketing_automation.customer.score_changed', label: 'Customer Score Changed', entity: 'customer_score', category: 'lifecycle' },
+  { id: 'marketing_automation.score.changed', label: 'Customer Score Changed', entity: 'customer_score', category: 'lifecycle' },
 
   // A product a customer is waiting for got cheaper
   { id: 'marketing_automation.product.price_dropped', label: 'Watched Product Price Dropped', entity: 'product_watch', category: 'lifecycle' },
@@ -34,7 +33,7 @@ const events = [
    * the payload is not decoration either — the outbound dispatcher reads the scope from the payload and silently
    * drops anything without it.
    */
-  { id: 'marketing_automation.campaign.signal', label: 'Campaign Signal (outbound webhook)', entity: 'campaign', category: 'lifecycle' },
+  { id: 'marketing_automation.campaign.signalled', label: 'Campaign Signal (outbound webhook)', entity: 'campaign', category: 'lifecycle' },
 
   // Dispatch lifecycle
   { id: 'marketing_automation.dispatch.skipped', label: 'Dispatch Skipped', entity: 'campaign', category: 'lifecycle' },
