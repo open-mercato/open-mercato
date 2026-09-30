@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 
-test.describe('TC-CRM-088: Phone country picker supports type-to-find', () => {
+test.describe('TC-CRM-089: Phone country picker supports type-to-find', () => {
   test('typing a country name prefix jumps to and selects the matching country', async ({ page }) => {
     await login(page, 'admin')
     await page.goto('/backend/customers/people/create')
