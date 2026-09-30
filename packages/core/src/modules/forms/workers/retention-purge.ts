@@ -129,7 +129,10 @@ export default async function handle(
         now,
       })
       if (!decision.eligible) continue
-      const result = await anonymizeService.anonymize(submission.id)
+      const result = await anonymizeService.anonymize(submission.id, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
       purged += 1
       revisionsAnonymized += result.revisionsAnonymized
       await emitFormsEvent('forms.submission.anonymized', { submissionId: submission.id })

@@ -763,13 +763,54 @@ describe('SubmissionService', () => {
     )
     expect(decoded).toEqual({ has_condition: false, details: 'hidden secret' })
 
-    // An unsliced read (no viewerRole) still returns the full persisted payload.
-    const adminView = await service.getCurrent({
+    // ...and a reader who names the role the form grants still sees it sliced.
+    const patientView = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      viewerRole: 'patient',
+    })
+    expect(patientView.decodedData).toEqual({ has_condition: false })
+  })
+
+  it('returns nothing from getCurrent when the reader names no role', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0, schema: visibilitySchema() })
+    const patient = randomUUID()
+    const view = await service.start({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      formKey: FORM_KEY,
+      subjectType: 'patient',
+      subjectId: randomUUID(),
+      startedBy: patient,
+    })
+    await service.save({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: view.revision.id,
+      patch: { has_condition: true, details: 'hidden secret' },
+      savedBy: patient,
+    })
+
+    // An absent viewerRole used to SKIP slicing and hand back the full
+    // decrypted payload, so a portal customer with no actor row on the
+    // submission read everything. It must now deny instead.
+    const noRoleView = await service.getCurrent({
       submissionId: view.submission.id,
       organizationId: ORG_ID,
       tenantId: TENANT_ID,
     })
-    expect(adminView.decodedData).toEqual({ has_condition: false, details: 'hidden secret' })
+    expect(noRoleView.decodedData).toEqual({})
+
+    // An unknown role is denied on the same path, not silently unrestricted.
+    const strangerView = await service.getCurrent({
+      submissionId: view.submission.id,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      viewerRole: 'not-a-declared-role',
+    })
+    expect(strangerView.decodedData).toEqual({})
   })
 
   it('leaves forms without any x-om-visibility-if unchanged under getCurrent slicing', async () => {

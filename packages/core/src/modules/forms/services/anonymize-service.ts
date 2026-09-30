@@ -26,6 +26,16 @@ export type AnonymizeServiceOptions = {
 }
 
 /**
+ * Tenant/organization the caller is acting within. Required, not optional: this
+ * operation is irreversible, so every call site must state its scope and the
+ * compiler must reject any that does not.
+ */
+export type AnonymizeScope = {
+  tenantId: string
+  organizationId: string
+}
+
+/**
  * Phase 2b — `submission.anonymize` flow.
  *
  * Walks every revision of a submission, decrypts the payload, replaces the
@@ -43,12 +53,16 @@ export type AnonymizeServiceOptions = {
 export class AnonymizeService {
   constructor(private readonly options: AnonymizeServiceOptions) {}
 
-  async anonymize(submissionId: string): Promise<{
+  async anonymize(submissionId: string, scope: AnonymizeScope): Promise<{
     revisionsAnonymized: number
     submissionAnonymizedAt: Date
   }> {
     const em = this.options.em
-    const submission = await em.findOne(FormSubmission, { id: submissionId })
+    const submission = await em.findOne(FormSubmission, {
+      id: submissionId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
     if (!submission) {
       throw new AnonymizeServiceError('SUBMISSION_NOT_FOUND', 'Submission not found.')
     }

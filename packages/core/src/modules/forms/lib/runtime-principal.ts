@@ -14,7 +14,7 @@
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
-import { FormSubmission } from '../data/entities'
+import { FormSubmission, FormSubmissionActor } from '../data/entities'
 import { verifyAccessToken } from '../services/distribution-token'
 
 export type RuntimePrincipal = {
@@ -72,10 +72,25 @@ export async function resolveRuntimePrincipal(
 
   const auth = await getCustomerAuthFromRequest(req)
   if (auth) {
+    // A portal session authenticates the customer; it does not by itself
+    // authorize them on THIS submission. Authorization is the active actor row,
+    // exactly as `SubmissionService.save()` requires — and the actor's role is
+    // what the read-slice is computed from. Without this lookup the branch
+    // returned `role: null`, which `getCurrent` used to read as "do not slice",
+    // so any portal customer could read any submission in their own
+    // organization fully decrypted and unsliced.
+    const actor = await em.findOne(FormSubmissionActor, {
+      submissionId,
+      organizationId: auth.orgId,
+      userId: auth.sub,
+      revokedAt: null,
+      deletedAt: null,
+    })
+    if (!actor) return null
     return {
       source: 'customer',
       principal: auth.sub,
-      role: null,
+      role: actor.role,
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
       submissionId,

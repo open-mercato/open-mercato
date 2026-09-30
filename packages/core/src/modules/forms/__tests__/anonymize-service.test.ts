@@ -66,6 +66,7 @@ class StubEntityManager {
 const ORG_ID = '00000000-0000-0000-0000-000000000001'
 const TENANT_ID = '00000000-0000-0000-0000-000000000002'
 const SUBMISSION_ID = '00000000-0000-0000-0000-000000000010'
+const SCOPE = { tenantId: TENANT_ID, organizationId: ORG_ID }
 const FORM_VERSION_ID = '00000000-0000-0000-0000-000000000011'
 
 function buildCompiledForm() {
@@ -184,7 +185,7 @@ describe('AnonymizeService', () => {
       compiler: harness.compiler,
       encryption: harness.encryption,
     })
-    const result = await service.anonymize(SUBMISSION_ID)
+    const result = await service.anonymize(SUBMISSION_ID, SCOPE)
     expect(result.revisionsAnonymized).toBe(2)
     for (const rev of harness.revisions) {
       const decoded = JSON.parse((await harness.encryption.decrypt(ORG_ID, rev.data)).toString('utf-8'))
@@ -205,9 +206,9 @@ describe('AnonymizeService', () => {
       compiler: harness.compiler,
       encryption: harness.encryption,
     })
-    const first = await service.anonymize(SUBMISSION_ID)
+    const first = await service.anonymize(SUBMISSION_ID, SCOPE)
     expect(first.revisionsAnonymized).toBe(2)
-    const second = await service.anonymize(SUBMISSION_ID)
+    const second = await service.anonymize(SUBMISSION_ID, SCOPE)
     expect(second.revisionsAnonymized).toBe(0)
     expect(second.submissionAnonymizedAt).toEqual(harness.submission.anonymizedAt)
   })
@@ -219,6 +220,31 @@ describe('AnonymizeService', () => {
       compiler: harness.compiler,
       encryption: harness.encryption,
     })
-    await expect(service.anonymize('does-not-exist')).rejects.toBeInstanceOf(AnonymizeServiceError)
+    await expect(service.anonymize('does-not-exist', SCOPE)).rejects.toBeInstanceOf(AnonymizeServiceError)
+  })
+
+  it('refuses a submission outside the caller scope and leaves it intact', async () => {
+    const harness = await buildHarness()
+    const service = new AnonymizeService({
+      em: harness.em as never,
+      compiler: harness.compiler,
+      encryption: harness.encryption,
+    })
+
+    // Anonymize is irreversible, and the route used to validate the caller's
+    // tenant/org and then drop them — so any holder of forms.submissions
+    // .anonymize could tombstone another tenant's submission by UUID.
+    const otherTenant = { tenantId: '00000000-0000-0000-0000-0000000000ff', organizationId: ORG_ID }
+    await expect(service.anonymize(SUBMISSION_ID, otherTenant)).rejects.toBeInstanceOf(AnonymizeServiceError)
+
+    const otherOrg = { tenantId: TENANT_ID, organizationId: '00000000-0000-0000-0000-0000000000fe' }
+    await expect(service.anonymize(SUBMISSION_ID, otherOrg)).rejects.toBeInstanceOf(AnonymizeServiceError)
+
+    expect(harness.submission.anonymizedAt).toBeFalsy()
+    for (const rev of harness.revisions) {
+      expect(rev.anonymizedAt).toBeFalsy()
+      const decoded = JSON.parse((await harness.encryption.decrypt(ORG_ID, rev.data)).toString('utf-8'))
+      expect(decoded.ssn).not.toBe(ANONYMIZED_FIELD_TOKEN)
+    }
   })
 })

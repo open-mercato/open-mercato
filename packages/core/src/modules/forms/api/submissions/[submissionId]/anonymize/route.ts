@@ -80,7 +80,10 @@ export async function POST(
   const em = container.resolve('em') as Parameters<AccessAuditLogger['log']>[0]
 
   try {
-    const result = await service.anonymize(submissionId)
+    const result = await service.anonymize(submissionId, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
     await auditor.log(em, {
       organizationId: auth.orgId,
       submissionId,
