@@ -85,6 +85,20 @@ describe('Visit calendar bookings', () => {
       .toEqual(new Set([`staff:${USER_ID}`, `resource:${RESOURCE_ID}`]))
   })
 
+  it.each(['2026-09-28T08:00:00Z', input.startAt, input.endAt])('allows a zero-duration event outside or touching the interval at %s', async (scheduledAt) => {
+    expect(await check([{ ...booking, scheduled_at: scheduledAt, duration_minutes: 0 }]).result).toEqual(new Set())
+  })
+
+  it('matches Customers conflict semantics for an instant strictly inside the interval', async () => {
+    expect(await check([{ ...booking, duration_minutes: 0 }]).result)
+      .toEqual(new Set([`staff:${USER_ID}`, `resource:${RESOURCE_ID}`]))
+  })
+
+  it('keeps a zero-duration all-day event occupied for its mapped calendar date', async () => {
+    expect(await check([{ ...booking, duration_minutes: 0, all_day: true }]).result)
+      .toEqual(new Set([`staff:${USER_ID}`, `resource:${RESOURCE_ID}`]))
+  })
+
   it('fails closed for a bounded daily rule restricted by weekday instead of missing its second Monday', async () => {
     const proposed = { ...input, startAt: '2026-10-05T07:15:00Z', endAt: '2026-10-05T08:00:00Z' }
     await expect(check([{ ...booking, scheduled_at: '2026-09-28T07:00:00Z', duration_minutes: 60,

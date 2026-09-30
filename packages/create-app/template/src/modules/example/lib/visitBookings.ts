@@ -78,7 +78,7 @@ export async function bookedVisitSubjects(args: {
       }
       if (payload.recurrenceEnd && Number.isNaN(new Date(payload.recurrenceEnd).getTime())) throw new Error('[internal] Invalid booking recurrence end')
       const item = mapInteractionToCalendarItem(payload, {})
-      if (!item || item.end <= item.start) throw new Error('[internal] Invalid booking interval')
+      if (!item || item.end < item.start) throw new Error('[internal] Invalid booking interval')
       if (payload.recurrenceRule && (end.getTime() - item.start.getTime()) / 86400000 > MAX_SERIES_DAYS) throw new Error('[internal] Booking recurrence limit')
       const occurrences = expandOccurrences(item, { from: start, to: end })
       if (occurrences.some((occurrence) => occurrence.start < end && occurrence.end > start)) {
