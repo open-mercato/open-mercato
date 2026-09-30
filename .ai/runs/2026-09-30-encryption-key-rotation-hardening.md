@@ -48,4 +48,5 @@ Harden fallback encryption logging and the entities key-rotation/decryption oper
 ### Phase 2: Coverage and release readiness
 
 - [x] 2.1 Add regression tests and update operator documentation — b674b8ff9
+- [x] Post-review fix: compare persisted generator mtimes to avoid filesystem precision failures — 09cdeeed8
 - [ ] 2.2 Run the configured validation gate and complete automated code review
