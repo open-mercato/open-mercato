@@ -133,6 +133,10 @@ type InteractionUndoPayload = {
   after?: InteractionSnapshot | null
 }
 
+const INTERACTION_UNDO_DATE_OPTIONS = {
+  datePaths: ['before.interaction.scheduledAt', 'before.interaction.occurredAt', 'before.interaction.recurrenceEnd'],
+}
+
 async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<InteractionSnapshot | null> {
   const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
   if (!interaction) return null
@@ -741,7 +745,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
+    const { interaction, projections } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
@@ -848,12 +852,27 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         }
       }
 
+      // Re-link to a different person/company (#5938). Resolved before any scalar
+      // mutation below so the lookup never lands between a mutation and `trx.flush()`
+      // (packages/core/AGENTS.md → Entity Update Safety). `requireTimelineParentEntity`
+      // applies the same tenant/organization scoping and person-or-company check the
+      // create path uses, so a cross-tenant or deal id cannot be attached here.
+      const previousEntityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
+      const nextEntity =
+        parsed.entityId !== undefined && parsed.entityId !== previousEntityId
+          ? await requireTimelineParentEntity(trx, parsed.entityId, {
+              tenantId: interaction.tenantId,
+              organizationId: interaction.organizationId,
+            })
+          : null
+
       if (parsed.dealId !== undefined) {
         if (parsed.dealId) {
           await requireDealInScope(trx, parsed.dealId, interaction.tenantId, interaction.organizationId)
         }
         interaction.dealId = parsed.dealId ?? null
       }
+      if (nextEntity) interaction.entity = nextEntity
       if (parsed.interactionType !== undefined) interaction.interactionType = parsed.interactionType
       if (parsed.title !== undefined) interaction.title = parsed.title ?? null
       if (parsed.body !== undefined) interaction.body = parsed.body ?? null
@@ -900,8 +919,18 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       )
 
       const projection = await recomputeNextInteraction(trx, entityId)
+      const projections: InteractionProjectionMutation[] = [
+        { entityId, nextInteractionId: projection.nextInteractionId },
+      ]
+      // A re-link changes which timeline the interaction belongs to, so the record it
+      // just left needs its own "next interaction" recomputed too — otherwise the old
+      // person/company keeps pointing at an activity that is no longer theirs (#5938).
+      if (previousEntityId !== entityId) {
+        const previousProjection = await recomputeNextInteraction(trx, previousEntityId)
+        projections.push({ entityId: previousEntityId, nextInteractionId: previousProjection.nextInteractionId })
+      }
 
-      return { interaction, entityId, nextInteractionId: projection.nextInteractionId }
+      return { interaction, projections }
     })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -918,11 +947,13 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
-    await emitNextInteractionUpdatedEvent(ctx, { entityId, nextInteractionId }, {
-      id: interaction.id,
-      organizationId: interaction.organizationId,
-      tenantId: interaction.tenantId,
-    })
+    for (const projection of projections) {
+      await emitNextInteractionUpdatedEvent(ctx, projection, {
+        id: interaction.id,
+        organizationId: interaction.organizationId,
+        tenantId: interaction.tenantId,
+      })
+    }
 
     return { interactionId: interaction.id }
   },
@@ -954,11 +985,11 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry, INTERACTION_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
+    const { interaction, projections } = await runInTransaction(em, async (trx) => {
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
 
@@ -1024,6 +1055,16 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
 
       await trx.flush()
       const projection = await recomputeNextInteraction(trx, before.interaction.entityId)
+      const projections: InteractionProjectionMutation[] = [
+        { entityId: before.interaction.entityId, nextInteractionId: projection.nextInteractionId },
+      ]
+      // Undoing a re-link (#5938) moves the interaction back off the entity the update
+      // attached it to, so that entity's projection is stale until it is recomputed too.
+      const reattachedEntityId = payload?.after?.interaction.entityId
+      if (reattachedEntityId && reattachedEntityId !== before.interaction.entityId) {
+        const reattachedProjection = await recomputeNextInteraction(trx, reattachedEntityId)
+        projections.push({ entityId: reattachedEntityId, nextInteractionId: reattachedProjection.nextInteractionId })
+      }
 
       const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
       if (Object.keys(resetValues).length) {
@@ -1040,7 +1081,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
 
       return {
         interaction,
-        nextInteractionId: projection.nextInteractionId,
+        projections,
       }
     })
 
@@ -1058,14 +1099,13 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
-    await emitNextInteractionUpdatedEvent(ctx, {
-      entityId: before.interaction.entityId,
-      nextInteractionId,
-    }, {
-      id: interaction.id,
-      organizationId: interaction.organizationId,
-      tenantId: interaction.tenantId,
-    })
+    for (const projection of projections) {
+      await emitNextInteractionUpdatedEvent(ctx, projection, {
+        id: interaction.id,
+        organizationId: interaction.organizationId,
+        tenantId: interaction.tenantId,
+      })
+    }
   },
 }
 
@@ -1163,7 +1203,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry, INTERACTION_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1301,7 +1341,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry, INTERACTION_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1426,7 +1466,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+      const payload = extractUndoPayload<InteractionUndoPayload>(logEntry, INTERACTION_UNDO_DATE_OPTIONS)
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()

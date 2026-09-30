@@ -32,6 +32,19 @@ Customers now exposes the scoped `GET /api/customers/activity-types` catalog and
 
 The optional `example` module demonstrates a fixed-behavior `visit` type. Its Meeting label patch and Note tombstone require `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`; defaults preserve Note selection. Missing Staff, Resources, or Planner modules show a warning and skip only the absent integration checks. An empty custom-fieldset configuration preserves existing interaction custom-field writes. See the [calendar event-type guide](apps/docs/docs/framework/modules/calendar-event-types.mdx) and the [source specification PR](https://github.com/open-mercato/open-mercato/pull/6687).
 
+### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
+
+`reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
+`reviveSnapshotDates` helper and throws `[internal] Invalid <field> snapshot date` for a date
+field holding an unparsable string, instead of seeding an `Invalid Date` that failed later on
+flush. Valid ISO strings, `null` and `Date` values behave as before.
+
+`extractUndoPayload(logEntry, options?)` gained an optional second argument. Undo snapshots
+round-trip through `jsonb`, so `Date` fields come back as ISO strings; pass
+`{ datePaths: ['before.<entity>.<field>'] }` (exact paths) or `{ dateFields: ['<field>'] }`
+(key name at any depth) before assigning snapshot dates to entities. Without options the
+payload is returned unchanged.
+
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 
 `loadDictionary` (`@open-mercato/shared/lib/i18n/server`) used to merge the host app's dictionary
@@ -58,6 +71,27 @@ them in place would have flipped several translated strings to outdated text the
 precedence change landed. If you maintain a fork with its own `apps/<host>/src/i18n/*.json`, audit
 it the same way before upgrading: a key that duplicates a module key with a different value now
 silently wins, for better or for worse.
+
+### `ChannelAdapter.fetchHistory` receives `scope.organizationId: null` for a channel with no organization (#6331)
+
+The `communication_channels` poll worker used to hand `adapter.fetchHistory` a scope in which a
+channel's missing organization (`communication_channels.organization_id IS NULL` — tenant-wide
+channels and channels created before organization scoping) was replaced by the tenant id. An
+adapter that scoped its own storage or provider queries by `input.scope.organizationId` therefore
+looked in a bucket that does not exist.
+
+`FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
+(`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
+own organization — `null` when it has none. The Gmail push path (`gmail-history-sync` →
+`applyPushNotification`, which forwards its scope into `fetchHistory`) still substitutes the tenant
+id and is tracked in #6634, so adapters should keep handling both shapes for now. `TenantScope` and every other adapter input are unchanged,
+and the hub still resolves channel credentials under the key they are written with (the tenant id
+for an organization-less channel).
+
+**Action for adapter authors:** if your `fetchHistory` reads `input.scope.organizationId`, handle
+`null` (a tenant-wide channel). TypeScript now flags code that passes it where a `string` is
+required. If you previously worked around the substitution by resolving the channel's real
+organization yourself, that workaround keeps working and can be dropped.
 
 ### `customers` now requires `progress` to be enabled (#6302)
 
@@ -86,6 +120,28 @@ Module dependency check failed:
 and the `create-app` template already enable `progress`, so this repo's own apps and freshly
 scaffolded `classic`/`crm` apps are unaffected; the `wms` starter preset has been updated to add
 `progress` alongside `customers` for the same reason.
+
+### `ai_assistant` now ships its own encryption map (#6332)
+
+`@open-mercato/ai-assistant` previously declared no `encryption.ts`, so AI chat messages
+(`content`, `ui_parts`, `files_metadata`, `metadata`), conversation titles and pending-action
+payloads (`normalized_input`, `field_diff`, `records`) were stored in plaintext even with tenant
+data encryption enabled. The module now exports `defaultEncryptionMaps` for
+`ai_assistant:ai_chat_message`, `ai_assistant:ai_chat_conversation` and
+`ai_assistant:ai_pending_action`.
+
+`getDefaultEncryptionMaps` rejects two modules declaring a map for the same entity id, and the
+app bootstrap rethrows that error when encryption is enabled. An app that worked around the gap by
+declaring these maps in one of its own modules' `encryption.ts` will now fail to start with
+`Duplicate default encryption map for "ai_assistant:…"`.
+
+**Action for app authors:** delete any app-side `defaultEncryptionMaps` entries for the three
+`ai_assistant:*` entity ids. To keep a different field set, replace the shipped map through
+`overrides.encryption.maps['ai_assistant:ai_chat_message']` (and the other two ids) on a
+`src/modules.ts` entry instead of redeclaring it. Existing tenants pick the new maps up with
+`yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`; rows written
+before that stay plaintext (still readable) until rewritten, or until
+`yarn mercato entities rotate-encryption-key --tenant <tenantId>` encrypts them.
 
 ### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
 
