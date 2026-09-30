@@ -24,6 +24,7 @@ const retryLastMutationMock = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
   withScopedApiRequestHeaders: (_headers: unknown, fn: () => unknown) => fn(),
+  apiCallOrThrow: (...args: unknown[]) => apiCallMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => apiCallMock(...args),
 }))
 
@@ -87,6 +88,7 @@ describe('sales config writes route through useGuardedMutation (#3293)', () => {
     expect(apiCallMock).toHaveBeenCalledWith(
       '/api/sales/settings/document-numbers',
       expect.objectContaining({ method: 'PUT' }),
+      expect.anything(),
     )
   })
 
