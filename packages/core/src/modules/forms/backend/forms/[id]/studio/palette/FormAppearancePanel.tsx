@@ -88,7 +88,8 @@ function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize)
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    const keys = Object.keys(value as Record<string, unknown>)
+    for (const key of keys.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
       out[key] = canonicalize((value as Record<string, unknown>)[key])
     }
     return out

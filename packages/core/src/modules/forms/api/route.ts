@@ -5,6 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { Form, FormVersion } from '../data/entities'
 import {
   formCreateRequestSchema,
@@ -163,6 +164,10 @@ export async function GET(req: Request) {
       totalPages: Math.ceil(total / pageSize),
     })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('forms.GET', error)
   }
 }
@@ -197,6 +202,10 @@ export async function POST(req: Request) {
       },
     })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('forms.POST', error)
   }
 }

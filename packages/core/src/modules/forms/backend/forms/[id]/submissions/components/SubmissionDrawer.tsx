@@ -178,6 +178,11 @@ export function SubmissionDrawer({
         variant: 'destructive',
       })
       if (!ok) return
+      // optimistic-lock-exempt: assignment row. `forms_form_submission_actor` is
+      // a junction between a submission and a user; revoking stamps `revoked_at`
+      // and is idempotent, so there is no user-editable field two actors can
+      // clobber. Junction/assignment tables are exempt from the `updated_at`
+      // requirement per packages/core/AGENTS.md § Database Entities.
       const resp = await apiCall(
         `/api/forms/submissions/${encodeURIComponent(detail.submission.id)}/actors/${encodeURIComponent(actor.id)}`,
         { method: 'DELETE' },

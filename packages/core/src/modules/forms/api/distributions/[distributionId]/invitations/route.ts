@@ -5,6 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { FormDistribution, FormInvitation } from '../../../../data/entities'
 import {
   invitationCreateCommandSchema,
@@ -130,6 +131,10 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ items, total: items.length })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('invitations.GET', error)
   }
 }
@@ -171,6 +176,10 @@ export async function POST(req: Request) {
       },
     })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('invitations.POST', error)
   }
 }

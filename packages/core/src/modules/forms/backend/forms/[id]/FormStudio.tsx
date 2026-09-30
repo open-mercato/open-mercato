@@ -419,6 +419,15 @@ export function FormStudio({ formId }: { formId: string }) {
     void reload()
   }, [reload])
 
+  // optimistic-lock-exempt: debounced autosave editor. Every mutating call in
+  // this file is an autosave write — the draft schema, the form name/description,
+  // and the locale set — fired on a debounce while the designer types. A
+  // per-write expected-version header is the wrong mechanism for that shape: the
+  // version moves on every batch, and a 409 raised mid-typing has no sensible
+  // recovery. The draft's concurrency signal is instead the server-refreshed
+  // `schemaHash` read back from each response below. End-to-end locking for the
+  // forms admin surface is tracked in
+  // .ai/specs/2026-09-30-forms-module-into-core.md § Known limitations.
   const persistDraftRaw = React.useCallback(async (next: FormSchema) => {
     if (!draftVersionId) return
     setAutosaveState('saving')

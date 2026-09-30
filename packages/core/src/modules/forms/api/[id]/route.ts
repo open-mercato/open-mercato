@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { Form, FormVersion } from '../../data/entities'
 import {
   formArchiveCommandSchema,
@@ -114,6 +115,10 @@ export async function GET(req: Request) {
       })),
     })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('forms[id].GET', error)
   }
 }
@@ -152,6 +157,10 @@ export async function PATCH(req: Request) {
       },
     })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('forms[id].PATCH', error)
   }
 }
@@ -188,6 +197,10 @@ export async function DELETE(req: Request) {
       },
     })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('forms[id].DELETE', error)
   }
 }

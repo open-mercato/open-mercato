@@ -805,7 +805,10 @@ export class FieldTypeRegistry {
   }
 
   keys(): string[] {
-    return Array.from(this.entries.keys()).sort()
+    // Canonical internal keys, and `registryVersion` hashes this order — the
+    // code-unit comparator reproduces the previous bare `sort()` exactly, so
+    // already-compiled form versions keep their hash.
+    return Array.from(this.entries.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   }
 
   /**

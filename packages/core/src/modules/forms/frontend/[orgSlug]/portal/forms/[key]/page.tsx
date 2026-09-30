@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useParams } from 'next/navigation'
 import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
 import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
+import { navigateWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
 import { EmbeddedForm } from '../../../../../ui/public'
 
 export default function PortalFormRunnerPage() {
@@ -26,7 +27,7 @@ export default function PortalFormRunnerPage() {
           source={{ kind: 'portal', formKey, subjectType, subjectId }}
           onReturnHome={() => {
             if (typeof window !== 'undefined') {
-              window.location.href = `/${orgSlug}/portal`
+              navigateWithPageReload(`/${orgSlug}/portal`)
             }
           }}
         />

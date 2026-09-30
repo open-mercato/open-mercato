@@ -135,6 +135,14 @@ export default function FormsListPage() {
       variant: 'destructive',
     })
     if (!ok) return
+    // optimistic-lock-exempt: idempotent state transition. DELETE here runs the
+    // `forms.form.archive` command, which stamps `archived_at` and no-ops on an
+    // already-archived form; it edits no field a concurrent designer could be
+    // holding, and `forms.form.restore` reverses it. The module's write routes
+    // are hand-rolled rather than `makeCrudRoute`, so no server side reads a
+    // version header yet — sending one from here would be theatre. Real
+    // end-to-end locking for the forms admin surface is tracked in
+    // .ai/specs/2026-09-30-forms-module-into-core.md § Known limitations.
     const call = await apiCall(`/api/forms/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
     if (!call.ok) {
       const errPayload = call.result as { error?: string } | undefined

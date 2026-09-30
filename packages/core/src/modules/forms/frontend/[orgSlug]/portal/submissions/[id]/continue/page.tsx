@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
 import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
+import { navigateWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
 import { FormRunner } from '../../../../../../ui/public'
 
 export default function PortalSubmissionContinuePage() {
@@ -32,7 +33,7 @@ export default function PortalSubmissionContinuePage() {
             initialSubmissionId={submissionId}
             onReturnHome={() => {
               if (typeof window !== 'undefined') {
-                window.location.href = `/${orgSlug}/portal`
+                navigateWithPageReload(`/${orgSlug}/portal`)
               }
             }}
           />

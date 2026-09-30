@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { FormDistribution } from '../../../data/entities'
 import {
   distributionCloseCommandSchema,
@@ -108,6 +109,10 @@ export async function GET(req: Request) {
 
     return NextResponse.json(serializeDistribution(distribution))
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('distributions.detail.GET', error)
   }
 }
@@ -171,6 +176,10 @@ export async function PATCH(req: Request) {
       },
     })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return handleRouteError('distributions.detail.PATCH', error)
   }
 }
