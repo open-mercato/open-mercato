@@ -51,10 +51,22 @@ test.describe('TC-MA-041 erasure stays erased', () => {
     const stamp = Date.now()
     const marker = `QA Erased Event ${stamp}`
     let personId: string | null = null
+    /**
+     * The positive control, and the reason this test means anything.
+     *
+     * Every assertion below is that NOTHING happened, and nothing is exactly what a broken dispatch pipeline
+     * produces: kill the worker and this test goes green. So a second person walks the identical path — same
+     * campaign, same audience, same tag, same quiet period — and is NOT erased. If the run appears for them
+     * and not for the erased one, erasure is what made the difference. If it appears for neither, the test
+     * fails, which is the honest answer.
+     */
+    let controlId: string | null = null
     let tagId: string | null = null
     let campaignId: string | null = null
     try {
       personId = await createPersonFixture(request, token, { firstName: 'QA', lastName: 'ErasedEvent', displayName: marker })
+      // The same display name, because the campaign's audience matches on it: one campaign covers both.
+      controlId = await createPersonFixture(request, token, { firstName: 'QA', lastName: 'ControlEvent', displayName: marker })
       tagId = await createTag(request, token, `qa-erased-${stamp}`)
 
       campaignId = await createCampaign(request, token, `TC-MA-041 event ${stamp}`)
@@ -75,16 +87,24 @@ test.describe('TC-MA-041 erasure stays erased', () => {
 
       await erase(request, token, personId)
 
-      const assigned = await apiRequest(request, 'POST', '/api/customers/tags/assign', { token, data: { tagId, entityId: personId } })
-      expect(assigned.status()).toBeLessThan(400)
+      // Both get the tag, in the same way, within the same second.
+      for (const entityId of [personId, controlId]) {
+        const assigned = await apiRequest(request, 'POST', '/api/customers/tags/assign', { token, data: { tagId, entityId } })
+        expect(assigned.status()).toBeLessThan(400)
+      }
 
       await new Promise((resolve) => setTimeout(resolve, QUIET_PERIOD_MS))
       const body = await readJsonSafe<{ items?: Array<{ subjectEntityId?: string | null }> }>(await listRuns(request, token, campaignId))
-      expect((body?.items ?? []).filter((run) => run.subjectEntityId === personId)).toHaveLength(0)
+      const runs = body?.items ?? []
+
+      // The control first: if this is zero, the pipeline is not running and the assertion below proves nothing.
+      expect(runs.filter((run) => run.subjectEntityId === controlId).length, 'the control was enrolled').toBeGreaterThan(0)
+      expect(runs.filter((run) => run.subjectEntityId === personId), 'the erased person was not').toHaveLength(0)
       expect(await scoreOf(request, token, personId)).toBe(0)
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', controlId)
       await deleteEntityIfExists(request, token, '/api/customers/tags', tagId)
     }
   })
