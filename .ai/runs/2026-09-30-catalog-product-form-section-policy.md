@@ -56,12 +56,14 @@ Consume the policy, add diagnostics, ship unit + integration coverage, docs, har
 
 ### Phase 1: forms.sections override domain
 
-- [ ] 1.1 Declare `FormSectionPolicy` / `FormsOverridesShape`, add `forms` to `ModuleOverrides`, `ModuleOverrideDomain` and `DOMAIN_KEYS`
-- [ ] 1.2 Add globalThis-backed state, normaliser, applier and the multi-module warning
-- [ ] 1.3 Export `applyFormSectionPolicyOverrides` / `getFormSectionPolicy` / `subscribeToFormSectionPolicies`; clear state in the test reset hook
-- [ ] 1.4 Add `forms` to `CLIENT_OVERRIDE_DOMAINS` in both mirrored ClientBootstrap copies and both tests; run template sync
-- [ ] 1.5 Add the `useFormSectionPolicy` React reader in `packages/ui`
-- [ ] 1.6 Document the domain (overrides.mdx, shared AGENTS.md, umbrella spec status row, BACKWARD_COMPATIBILITY.md)
+- [x] 1.1 Declare `FormSectionPolicy` / `FormsOverridesShape`, add `forms` to `ModuleOverrides`, `ModuleOverrideDomain` and `DOMAIN_KEYS` — 55eb61e51
+- [x] 1.2 Add globalThis-backed state, normaliser, applier and the multi-module warning — 55eb61e51
+- [x] 1.3 Export `applyFormSectionPolicyOverrides` / `getFormSectionPolicy` / `subscribeToFormSectionPolicies`; clear state in the test reset hook — 55eb61e51
+- [x] 1.4 Add `forms` to `CLIENT_OVERRIDE_DOMAINS` in both mirrored ClientBootstrap copies and both tests; run template sync — 55eb61e51
+- [x] 1.5 Add the `useFormSectionPolicy` React reader in `packages/ui` — 55eb61e51
+- [x] 1.6 Document the domain (overrides.mdx, shared AGENTS.md, umbrella spec status row, BACKWARD_COMPATIBILITY.md) — 55eb61e51
+
+_Phase 1 landed in 55eb61e51._
 
 ### Phase 2: catalog section model
 
