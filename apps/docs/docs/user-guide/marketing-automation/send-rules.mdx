@@ -1,0 +1,135 @@
+---
+title: Send rules
+description: Quiet hours in the recipient's own time zone, a fixed or a learned send hour, a frequency cap counted across every campaign, what the customer asked for themselves — and the screen that tells you which one held a message back.
+sidebar_label: Send rules
+---
+
+# Send rules
+
+Between "the campaign says to message this person" and an actual email there is a row of checks. **Send rules** on the canvas is where you configure the ones that belong to the campaign; the others come from the customer.
+
+Two kinds of outcome, and the difference matters:
+
+- **Dropped** — this particular message does not go out, ever. Recorded as held back so you can see it in the reporting.
+- **Deferred** — the message is held and goes out later. The customer resumes **at the same step**, so nothing is skipped.
+
+## The order they are asked in
+
+This order is not arbitrary. Read it as: permission first, then scheduling, then volume.
+
+| # | Check | Whose | Outcome |
+|---|---|---|---|
+| 1 | **Audience** | The campaign's | Drops — they are not in this campaign |
+| 2 | **Consent** | The customer's | **Drops** |
+| 3 | **Customer pause** | The customer's | Defers |
+| 4 | **Their own weekly limit** | The customer's | Drops |
+| 5 | **Fixed send hour** | The campaign's | Defers |
+| 6 | **Quiet hours** | The campaign's | Defers |
+| 7 | **Campaign frequency cap** | The campaign's | Drops |
+
+:::warning Consent is checked before any timing rule, and it drops rather than defers
+"Unsubscribed" and "it is 3 a.m. for them" can both be true of the same customer, and only one of them is the answer. Consent is *permission*; everything after it is *scheduling*. Delaying a message somebody asked not to receive would only send it later, so a refused message is dropped and recorded as suppressed.
+:::
+
+## Quiet hours
+
+**Do not send during quiet hours**, with a **From (hour)** and a **To (hour)**.
+
+The hours are in **the recipient's own local time**, not yours and not the server's. Quiet hours of 22 to 8 mean nobody is woken at 3 a.m. wherever they are.
+
+A window may cross midnight: 22 → 8 is perfectly normal and handled as such. Setting both hours to the same value means "never quiet".
+
+A deferred message lands at the **top of the recipient's hour** — 08:00 on their clock, not 08:37 because that is the minute the campaign happened to fire. That holds for time zones that are not a whole number of hours from UTC, such as India at +05:30 or South Australia at +09:30.
+
+## Fixed send hour
+
+**Send at a fixed hour, in the recipient's local time**, then an **Hour (0–23)**.
+
+A message that comes due later than the hour you chose waits until that hour comes round again. That suits a scheduled campaign — a daily birthday pass that should always arrive at nine in the morning — rather than a reaction to something a customer just did, which they are expecting straight away.
+
+:::warning An hour inside your own quiet hours is refused when you save
+*"This send hour falls inside the campaign's own quiet hours, so the message could never go out at it."* At run time quiet hours have the final say, so the campaign would still work — and do something other than what its own screen says, forever, with nothing to tell you. Being refused at the moment you save it is the only point at which anybody finds out.
+:::
+
+## Learned send hour
+
+**Send at the hour each customer usually opens email.**
+
+Instead of one hour for everybody, each customer's message is held until the hour *they* usually open email, learned from their own opens rather than a population average. "Nine in the morning is best" is a statement about a crowd, and the whole point of per-customer timing is that the night-shift worker is not the crowd.
+
+Two safeguards:
+
+- **It needs at least five opens at one particular hour before it will act.** Two opens at 3 a.m. would otherwise schedule every future message for 3 a.m. — a confident optimisation that is worse than none. Until then, the message goes out immediately.
+- **Quiet hours always win.** If the learned hour falls inside your quiet window, the guess is discarded and the message goes at the first hour the customer allows. The optimisation proposes; quiet hours dispose.
+
+:::note A fixed hour and a learned hour are not additive
+If you set a fixed hour, the learned one is not consulted at all, and the editor says so: *"Ignored while a fixed hour is set above."* They are two answers to the same question, and a decision outranks a guess. Showing them as two settings that look like they combine would be the confusing option.
+:::
+
+## Frequency cap
+
+**Limit how many messages one customer receives**, with **At most** and **Per (hours)**.
+
+:::warning The cap counts messages from every campaign, not just this one
+Five campaigns each politely sending one message still buries the customer. So the count is across all of them.
+
+This does mean a cap you set on one campaign is affected by what your other campaigns are doing. That is the point.
+:::
+
+When the cap is reached, the message is **dropped**, not deferred. The purpose of a cap is that the customer does not receive this message; deferring would only move the flood later. The drop is recorded, so it shows up in the reporting as held back rather than simply never appearing.
+
+## What the customer asked for themselves
+
+Separate from anything you configure, a customer can set their own terms in the preference centre. Two of them affect sending.
+
+### Their own weekly limit
+
+"At most 3 a week", chosen by the customer. Evaluated as a *second* cap alongside yours, never merged into it — "three a week" and your "two a day" each have an exact answer only when both are checked as written. A customer's limit can only ever make things quieter, never louder: there is no way for somebody to opt into more mail than your own cap allows.
+
+Reaching their limit **drops** the message, like yours.
+
+### A pause
+
+"Not until March", chosen by the customer. A pause **defers**, because it is "not now" rather than "no" — which is the whole reason for offering it. A preference centre that lets somebody choose "less often" or "pause for a while" is the cheapest unsubscribe prevention there is.
+
+A pause of more than a year is not stored as a pause; beyond that, it is an unsubscribe with extra steps.
+
+If a pause ends *inside* your quiet hours, the message waits for the later of the two. Both are promises.
+
+See [Consent and personal data](./consent-and-privacy) for the whole preference centre.
+
+## Why didn't this customer get it?
+
+The question support is actually asked. **Explain** on a customer's marketing profile answers it for one campaign and one person.
+
+It asks every gate the engine asks, **in the order the engine asks them**, and names the one that decided:
+
+> They would not receive it right now — **Quiet hours** decided.
+
+Each row shows **passes**, **refuses**, or **later, not never**, with the relevant detail beside it: the cap and the count, the quiet window and their current local hour, the date their pause ends. The gate that actually decided is marked, so you are not left comparing seven rows of equal weight.
+
+The order is the point. If it reported the gates in any other order, it would send you off to fix the wrong thing.
+
+## Where the held-back messages show up
+
+- **Results** — *"142 held back by send rules"* beside the campaign's figures.
+- **Runs** — the step log on each customer's run says which rule skipped which step: *unsubscribed*, *frequency cap*, *recipient frequency preference*.
+- **Runs**, status **Waiting** — with the moment it resumes, so a deferred message is visible as deferred rather than missing.
+
+## The deliverability guardrail
+
+If too many of a campaign's messages are being **refused by your email provider**, the campaign is switched off automatically and whoever can manage campaigns gets a notification:
+
+> *"38% of the last 64 attempts failed, so the campaign was unpublished to protect the sending domain. Fix the cause, then publish it again."*
+
+A sending domain's reputation is the one thing good copy cannot repair, and the usual way it is lost is a campaign sending into a wall — a broken provider credential, a mailbox provider refusing everything, a list of addresses that do not exist.
+
+Two things to know about it:
+
+- **It will not trip on a small sample.** Below twenty attempts a rate is not a rate: three failures out of three is a bad afternoon, not a trend. A guardrail that pauses working campaigns gets switched off, and then it is not a guardrail.
+- **It watches refusals, not bounces or spam complaints.** Those require feedback from your email provider that the platform has no contract for yet. So it catches "the provider is rejecting everything"; it will not catch a campaign that delivers perfectly to people who then mark it as spam.
+
+## Where to go next
+
+- [**Consent and personal data**](./consent-and-privacy) — unsubscribes, the preference centre, exports and erasure
+- [**Results and A/B tests**](./results) — what the campaign earned

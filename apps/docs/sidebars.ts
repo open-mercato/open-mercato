@@ -154,6 +154,20 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "category",
+          label: "Marketing Automation",
+          items: [
+            "user-guide/marketing-automation/index",
+            "user-guide/marketing-automation/getting-started",
+            "user-guide/marketing-automation/triggers",
+            "user-guide/marketing-automation/audiences",
+            "user-guide/marketing-automation/steps",
+            "user-guide/marketing-automation/send-rules",
+            "user-guide/marketing-automation/results",
+            "user-guide/marketing-automation/consent-and-privacy",
+          ],
+        },
+        {
+          type: "category",
           label: "Business Rules",
           items: [
             "user-guide/business-rules/index",

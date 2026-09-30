@@ -1,0 +1,175 @@
+---
+title: Audiences and segments
+description: The twenty-eight things you can ask about a customer, the three that are easy to misread, and how to name an audience once and reuse it everywhere.
+sidebar_label: Audiences and segments
+---
+
+# Audiences and segments
+
+The audience decides which of the customers a trigger produces the campaign actually applies to. An empty audience means *"everyone the trigger produces"* — so an audience is how you narrow, not how you select.
+
+Click the **Audience** box on the canvas to open the editor, then **Add a condition**. Each condition is a field, an operator and a value. At the top, **Match** chooses whether **all of these** or **any of these** must hold, and conditions can be grouped so you can build "all of these, and any one of those".
+
+## The twenty-eight things you can ask about
+
+Fields are grouped the way you think about a customer, not the way the data is stored.
+
+### Lists they are on
+
+| Field | Operators | Notes |
+|---|---|---|
+| **Saved segment** | is one of / is not one of | Picked from your saved segments |
+| **Tag** | is one of / is not one of | Picked from your customer tags |
+
+### Orders
+
+| Field | Operators | Notes |
+|---|---|---|
+| **Number of orders** | at least / at most / exactly | |
+| **Lifetime spend** | at least / at most | |
+| **Average order value** | at least / at most | |
+| **Days since last order** | at least / at most | **See the warning below** |
+| **Category bought from** | is one of / is not one of | Picked from your catalogue categories |
+| **Product bought** | includes / does not include | Typed, not picked — a shop has too many product codes for a dropdown. Use the code exactly as it appears on the order |
+| **Bought through channel** | is one of / is not one of | Picked from your sales channels |
+
+**Product bought** and **Category bought from** are answered differently on purpose. The product code comes from what was recorded on the order at the time, so a product that has since been renamed, re-coded or deleted still counts as the thing this customer bought. The category comes from your catalogue as it stands today, because a category is a classification you change, not a historical fact about a purchase.
+
+**Bought through channel** means "has ever bought through this channel". There is no "belongs to this store" field on a customer to target instead — inventing one would be a second source of truth for something your orders already record.
+
+### Value
+
+| Field | Operators | Notes |
+|---|---|---|
+| **RFM — how recently (1–5)** | at least / at most / exactly | See below |
+| **RFM — how often (1–5)** | at least / at most / exactly | |
+| **RFM — how much (1–5)** | at least / at most / exactly | |
+| **Projected yearly value** | at least / at most | |
+| **Spend percentile** | at least / at most | 0–100. "Top 10% of buyers" is a percentile of 90 or more |
+
+### Loyalty
+
+| Field | Operators | Notes |
+|---|---|---|
+| **Lead score** | at least / at most / exactly | The running total of points a customer has been awarded |
+| **Loyalty tier** | is / is not | Picked from your configured tiers |
+| **Tier, at least** | at least / at most | Position on the ladder, so the second tier up is 1 — the way to say "silver or better" without naming every tier above it |
+
+A tier is simply the highest rung of the ladder the lead score has reached. It is worked out when it is asked for, never stored, so it cannot be out of date. The default ladder is Bronze from 0 points, Silver from 100, Gold from 500; change it under **Marketing settings → Loyalty tiers**.
+
+### Engagement
+
+| Field | Operators | Notes |
+|---|---|---|
+| **Messages sent to them** | at least / at most / exactly | |
+| **Messages they opened** | at least / at most / exactly | |
+| **Messages they clicked** | at least / at most / exactly | |
+| **Days since any sign of life** | at least / at most | **See the warning below** |
+
+Opens and clicks count *occasions*, not raw events: a mail client re-fetching the same tracking pixel five times is one open, not five.
+
+### Location
+
+| Field | Operators |
+|---|---|
+| **Country** | is / is not |
+| **City** | is / is not |
+| **Postcode** | is / is not |
+
+### Survey
+
+| Field | Operators | Notes |
+|---|---|---|
+| **Latest NPS answer** | at least / at most | 0 to 10. NPS — Net Promoter Score — is the "how likely are you to recommend us" question. Answers of 6 and below are detractors, 7–8 passive, 9–10 promoters |
+
+### Customer
+
+| Field | Operators | Notes |
+|---|---|---|
+| **Language** | is / is not | The customer's own choice in the preference centre — never guessed from their address |
+| **Email address** | is / is not / includes | |
+| **Name** | is / is not / includes | |
+
+## The three that are easy to misread
+
+:::warning "Days since last order" does not include people who never ordered
+Somebody who has never bought anything has no "last order", so **there is no number of days** — and this condition never matches them, whatever you compare it against.
+
+This is what you want, and it is worth being explicit about, because the intuitive reading is the dangerous one. "Days since last order **at least** 90" reads as though it should include a customer who has never bought at all (infinitely many days, surely?). If it did, a win-back campaign would mail every person who has never been a customer.
+
+If you *want* people who have never ordered, say **Number of orders is exactly 0**.
+:::
+
+:::warning RFM digits are ranks against your own buyers, not fixed day counts
+RFM stands for Recency, Frequency, Monetary — the classic way of scoring a customer on how recently they bought, how often, and how much. Each is scored 1 to 5.
+
+**A 5 does not mean "bought within 30 days".** It means "in the top fifth of *this shop's* buyers". Thirty days is excellent for a coffee subscription and meaningless for a mattress shop, so a fixed number would be wrong for every shop but one. The boundaries are recalculated once a day from your own order history.
+
+Two consequences:
+
+- **A shop with fewer than twenty buyers gets no RFM scores at all.** Below that, quintiles are noise: the boundaries move every day and a customer's "score" changes without the customer doing anything. Those conditions simply match nobody until you have enough buyers.
+- **Somebody who has never bought scores nothing, not 1-1-1.** A 1-1-1 would read as "our very worst customer" and sweep every never-buyer into every win-back audience.
+:::
+
+:::warning "Days since any sign of life" starts from the first message, for somebody who has never reacted
+For a customer who has opened or clicked something, this counts from their last open or click — as you would expect.
+
+For a customer who has never opened or clicked anything, it counts **from the first message you ever sent them**. So a customer you first mailed 200 days ago and who has ignored every one reads as 200 days of silence, which is the useful answer for a re-engagement campaign.
+
+For a customer you have never messaged at all there is no number, and the condition does not match them. There is no silence to measure, and a zero would make every sunset campaign true for somebody nobody has ever written to.
+:::
+
+## Projected yearly value
+
+"Projected yearly value" is arithmetic you can check by hand, not a model: average order value multiplied by how often this customer buys, at their own observed pace.
+
+Two rules shape it:
+
+- **It needs a second order.** One purchase is not a rate, and projecting from it would rank a one-off big spender above somebody who buys steadily every month.
+- **The pace is measured from the first order to *now*, not to the last one.** Otherwise two orders in one week followed by two years of silence would read as a hundred orders a year, forever.
+
+**Marketing settings → Projection horizon** controls how far ahead the figure shown on a customer profile looks. A shorter horizon suits a shop selling something people replace rarely.
+
+## The advanced editor
+
+Most conditions can be built in the guided editor. A few cannot — an unusual operator, or a field that is not on the list above. **Advanced editor** lets you write those directly.
+
+A campaign that contains such a condition still works normally. The guided editor shows the rule read-only, labelled *"Written in the advanced editor"*, rather than quietly rewriting it into something it can display — silently changing somebody's audience is worse than admitting one rule needs the other view.
+
+## Saved segments
+
+A **segment** is an audience you name once and target from any campaign. **Marketing → Segments**.
+
+Each segment has a **reference** — a short name derived from its title when you create it — and that is what a campaign audience points at, with **Saved segment is one of …**.
+
+:::note A segment's reference never changes, even when you rename it
+Campaign audiences point at the reference. If renaming a segment changed its reference, every campaign that targeted it would quietly stop matching anybody, with nothing to tell you. So the name is yours to change and the reference is fixed.
+:::
+
+### What you can do with a segment
+
+- **Members** — who is in it right now. When every candidate could be checked the screen says so. When it could not, it says that too — *"A sample: … candidates were checked, and the rest is decided per customer"* — because a truncated count somebody quotes as a total is worse than no count at all.
+- **Overlap with** — pick a second segment and see how many of one are also in the other. An overlap of two samples is itself a sample, and is labelled as one.
+- **Export CSV** — download the members as a spreadsheet file (CSV: comma-separated values, which Excel and Google Sheets both open).
+- **Award 10 points to members** — a bulk action, run in the background with a progress bar at the top of the screen. It resolves who is in the segment *when the job runs*, not when you pressed the button, so it never applies to people who have since left.
+- **Size over time** — the segment's membership recorded once a day, so a trend appears from tomorrow.
+
+### A segment cannot be defined in terms of another segment
+
+The editor refuses it: *"A segment cannot be defined in terms of other segments."* Membership is worked out from the facts about a customer, and a segment referring to a segment would be asking a question about an answer still being calculated.
+
+Campaign audiences can of course combine several segments freely — that restriction applies only to the definition of a segment itself.
+
+## Score rules
+
+**Marketing → Score rules** awards loyalty points for *who a customer is*, independently of any campaign: where they live, which tags they carry, how much they have spent.
+
+A rule is a condition — anything a campaign audience can use, except the lead score itself and segments — and a number of points, positive or negative. With no condition at all, everybody gets the points. The rule's name appears in the customer's score history as the reason for the points, so name it for a reader.
+
+Saving a rule recalculates scores in the background; the screen says so.
+
+## Where to go next
+
+- [**Campaign steps**](./steps) — what happens to the customers who get in
+- [**Triggers**](./triggers) — what produces them in the first place
+- [**Results and A/B tests**](./results) — whether it worked
