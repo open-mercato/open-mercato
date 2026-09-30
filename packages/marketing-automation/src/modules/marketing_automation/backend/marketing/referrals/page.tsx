@@ -13,6 +13,8 @@ import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 type ReferralRow = {
   customerId: string
+  /** Null when the caller may not read customer names, which is a permission rather than a missing person. */
+  customerName: string | null
   code: string
   url: string | null
   claimed: number
@@ -58,9 +60,17 @@ export default function ReferralsPage() {
     {
       id: 'customer',
       header: t('marketing_automation.referrals.columns.customer', 'Referrer'),
+      /**
+       * The person's name, not the words "Open profile" on every row.
+       *
+       * A column whose every cell reads the same cannot answer the question the screen is for — who brings
+       * customers in — and the only way to find out used to be opening each row in turn. The generic label
+       * stays as the fallback for a caller who may not read customer names, where it is the honest thing to
+       * show.
+       */
       cell: ({ row }) => (
         <a className="underline" href={`/backend/marketing/customers/${row.original.customerId}`}>
-          {t('marketing_automation.referrals.openProfile', 'Open profile')}
+          {row.original.customerName ?? t('marketing_automation.referrals.openProfile', 'Open profile')}
         </a>
       ),
     },

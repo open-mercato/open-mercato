@@ -336,7 +336,14 @@ test.describe('TC-MA-046 hooks, jobs, lead routing and referrals screens', () =>
 
       const row = page.getByRole('row').filter({ hasText: code })
       await expect(row).toHaveCount(1, { timeout: 20_000 })
-      await expect(row.getByRole('link', { name: 'Open profile' })).toHaveAttribute('href', `/backend/marketing/customers/${referrerId}`)
+      /**
+       * The referrer is named, not labelled.
+       *
+       * Every cell in this column used to read "Open profile", so the column could not answer the question the
+       * screen exists for — who brings customers in — without opening each row in turn.
+       */
+      await expect(row.getByRole('link', { name: `QA UI Referrer ${stamp}` }))
+        .toHaveAttribute('href', `/backend/marketing/customers/${referrerId}`)
       const cells = row.getByRole('cell')
       await expect(cells.nth(0)).toHaveText(code)
       await expect(cells.nth(2)).toHaveText('1')

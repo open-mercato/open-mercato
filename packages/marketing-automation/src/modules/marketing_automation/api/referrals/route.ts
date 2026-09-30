@@ -3,7 +3,9 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { MarketingReferralCode } from '../../data/entities.js'
 import { ensureReferralCode, loadReferralUrlTemplate } from '../../lib/referrals.js'
 import { referralUrlFor } from '../../lib/engine/referral-code.js'
@@ -81,12 +83,38 @@ export async function GET(req: Request) {
   )
   const countsById = new Map(counts.map((row) => [row.referrer_entity_id, row]))
 
+  /**
+   * The referrer's NAME, which is what makes this a list rather than fifty identical links.
+   *
+   * Gated on `customers.people.view` and decrypted only with the grant, exactly as the runs list is: a name is
+   * personal data, and a marketing-only principal has no business reading it. Without the grant the field is
+   * null and the screen falls back to a plain link, which is what it showed everybody before.
+   */
+  const referrerIds = [...new Set(codes.map((code) => code.referrerEntityId).filter((id): id is string => !!id))]
+  const rbac = container.resolve<RbacService>('rbacService')
+  const mayReadNames = referrerIds.length > 0 && await rbac.userHasAllFeatures(
+    auth.sub,
+    ['customers.people.view'],
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+  )
+  const referrers = mayReadNames
+    ? (await findWithDecryption(
+        em,
+        CustomerEntity,
+        { id: { $in: referrerIds }, ...scope, deletedAt: null },
+        undefined,
+        scope,
+      )) as Array<{ id: string; displayName?: string | null }>
+    : []
+  const nameById = new Map(referrers.map((row) => [row.id, row.displayName ?? null]))
+
   const template = await loadReferralUrlTemplate(container, scope)
   const items = codes.flatMap((code) => {
     if (!code.referrerEntityId) return []
     const row = countsById.get(code.referrerEntityId)
     return [{
       customerId: code.referrerEntityId,
+      customerName: nameById.get(code.referrerEntityId) ?? null,
       code: code.code,
       url: referralUrlFor(template, code.code),
       claimed: Number.parseInt(row?.claimed ?? '0', 10) || 0,

@@ -65,10 +65,15 @@ test.describe('TC-MA-023 referrals', () => {
       expect(second.status()).toBe(409)
       expect((await readJsonSafe<{ code?: string }>(second))?.code).toBe('marketing_automation.referral.already_referred')
 
-      const listed = await readJsonSafe<{ items?: Array<{ customerId?: string; claimed?: number; converted?: number }> }>(
+      const listed = await readJsonSafe<{ items?: Array<{ customerId?: string; customerName?: string | null; claimed?: number; converted?: number }> }>(
         await apiRequest(request, 'GET', `${REFERRALS_PATH}?limit=100`, { token }),
       )
       const row = (listed?.items ?? []).find((item) => item.customerId === referrerId)
+      // The name comes back for a caller who may read customer data, which is what lets the screen list people
+      // rather than fifty identical links. It is decrypted, so this also proves the read went through the
+      // decrypting finder.
+      expect(typeof row?.customerName).toBe('string')
+      expect(row?.customerName?.length).toBeGreaterThan(0)
       expect(row?.claimed).toBe(1)
       // Nothing was bought, so nothing converted — the two numbers are deliberately different questions.
       expect(row?.converted).toBe(0)
