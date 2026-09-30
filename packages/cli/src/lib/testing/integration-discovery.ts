@@ -16,6 +16,7 @@ const DISCOVERY_IGNORED_DIRS = new Set([
   'node_modules',
   '.git',
   '.next',
+  '.mercato',
   'dist',
   '.turbo',
   'coverage',
@@ -41,6 +42,19 @@ function normalizeModuleId(moduleId: string): string {
   return moduleId.trim().toLowerCase()
 }
 
+export function filterIntegrationSpecsByModules(
+  specs: readonly IntegrationSpecDiscoveryItem[],
+  moduleIds: readonly string[],
+): IntegrationSpecDiscoveryItem[] {
+  const affectedModules = new Set(moduleIds.map(normalizeModuleId).filter(Boolean))
+  if (affectedModules.size === 0) return [...specs]
+  return specs.filter((spec) => {
+    if (spec.moduleName === null) return true
+    if (affectedModules.has(normalizeModuleId(spec.moduleName))) return true
+    return spec.requiredModules.some((moduleId) => affectedModules.has(normalizeModuleId(moduleId)))
+  })
+}
+
 function isEnterpriseModulesEnabled(): boolean {
   const rawValue = process.env.OM_ENABLE_ENTERPRISE_MODULES?.trim().toLowerCase()
   return rawValue === 'true' || rawValue === '1' || rawValue === 'yes' || rawValue === 'on'
@@ -56,6 +70,7 @@ function collectNamedDirectories(rootPath: string, directoryName: string): strin
 
   const collected: string[] = []
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue
     if (!entry.isDirectory()) continue
     if (DISCOVERY_IGNORED_DIRS.has(entry.name)) continue
     const absolutePath = path.join(rootPath, entry.name)
@@ -77,6 +92,7 @@ function collectSpecFilesFromDirectory(directoryPath: string): string[] {
 
   const collected: string[] = []
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue
     const absolutePath = path.join(directoryPath, entry.name)
     if (entry.isDirectory()) {
       collected.push(...collectSpecFilesFromDirectory(absolutePath))

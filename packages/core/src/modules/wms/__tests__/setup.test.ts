@@ -26,6 +26,18 @@ const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<t
 
 const ACL_FEATURE_IDS = features.map((feature) => feature.id)
 
+function createMockEntityManager(): EntityManager {
+  const em = {
+    persist: jest.fn(),
+    create: jest.fn(),
+    flush: jest.fn().mockResolvedValue(undefined),
+    transactional: jest.fn(),
+  }
+  em.transactional.mockImplementation(async (callback: (transaction: EntityManager) => Promise<unknown>) =>
+    callback(em as unknown as EntityManager))
+  return em as unknown as EntityManager
+}
+
 describe('wms setup seedDefaults', () => {
   beforeEach(() => {
     mockEnsureRoles.mockClear()
@@ -34,11 +46,7 @@ describe('wms setup seedDefaults', () => {
   })
 
   it('calls ensureRoles with operator and supervisor for the tenant', async () => {
-    const em = {
-      persist: jest.fn(),
-      create: jest.fn(),
-      flush: jest.fn().mockResolvedValue(undefined),
-    } as unknown as EntityManager
+    const em = createMockEntityManager()
     const tenantId = 'tenant-abc'
 
     await setup.seedDefaults?.({ em, tenantId, organizationId: 'org-1', container: {} as never })
@@ -52,11 +60,7 @@ describe('wms setup seedDefaults', () => {
   })
 
   it('re-invokes ensureRoles on each seedDefaults run (ensureRoles handles idempotency)', async () => {
-    const em = {
-      persist: jest.fn(),
-      create: jest.fn(),
-      flush: jest.fn().mockResolvedValue(undefined),
-    } as unknown as EntityManager
+    const em = createMockEntityManager()
     const tenantId = 'tenant-repeat'
     const ctx = { em, tenantId, organizationId: 'org-1', container: {} as never }
 
@@ -76,6 +80,7 @@ describe('wms setup role mappings', () => {
     expect(ACL_FEATURE_IDS).toEqual([
       'wms.view',
       'wms.manage_warehouses',
+      'wms.manage_sites',
       'wms.manage_zones',
       'wms.manage_locations',
       'wms.manage_inventory',

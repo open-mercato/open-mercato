@@ -24,6 +24,12 @@ function loadInvalidationPatterns(): SubscriberMetadata[] {
  * The events deliberately excluded below do not change any enriched field.
  */
 const EVENTS_WITHOUT_ENRICHED_DATA = new Set([
+  // Site identity and warehouse-role assignments are not read by the inventory enrichers.
+  'wms.site.created',
+  'wms.site.updated',
+  'wms.site_warehouse_role.created',
+  'wms.site_warehouse_role.updated',
+  'wms.site_warehouse_role.deleted',
   // Zones and locations sit below a warehouse; no enriched field reads them.
   'wms.zone.created',
   'wms.zone.updated',

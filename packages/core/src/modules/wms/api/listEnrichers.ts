@@ -85,13 +85,18 @@ function decorateOnce(item: Record<string, unknown>, key: string, value: unknown
 // Warehouses
 // ---------------------------------------------------------------------------
 
-type WarehouseRow = LookupRow & { name?: string | null; code?: string | null }
+type WarehouseRow = LookupRow & {
+  name?: string | null
+  code?: string | null
+  is_active?: boolean | null
+}
 
-const WAREHOUSE_FIELDS = ['id', 'name', 'code']
+const WAREHOUSE_FIELDS = ['id', 'name', 'code', 'is_active']
 
 /**
- * Decorate list items with `warehouse_name` and `warehouse_code` when they
- * carry a `warehouse_id` column. Mutates `payload.items` in place.
+ * Decorate list items with `warehouse_name`, `warehouse_code`, and
+ * `warehouse_is_active` when they carry a `warehouse_id` column. Mutates
+ * `payload.items` in place.
  */
 export async function attachWarehouseLabelsToListItems(
   payload: AnyListPayload,
@@ -116,6 +121,7 @@ export async function attachWarehouseLabelsToListItems(
     if (!row) continue
     decorateOnce(item, 'warehouse_name', row.name ?? null)
     decorateOnce(item, 'warehouse_code', row.code ?? null)
+    decorateOnce(item, 'warehouse_is_active', row.is_active === true)
   }
 }
 

@@ -1,7 +1,11 @@
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import { discoverIntegrationSpecFiles } from '../integration-discovery'
+import {
+  discoverIntegrationSpecFiles,
+  filterIntegrationSpecsByModules,
+  type IntegrationSpecDiscoveryItem,
+} from '../integration-discovery'
 
 async function writeTestFile(projectRoot: string, relativePath: string, content = 'export {}\n'): Promise<void> {
   const absolutePath = path.join(projectRoot, relativePath)
@@ -19,6 +23,27 @@ describe('integration discovery', () => {
     'OM_TEST_APP_ROOT',
   ] as const
   const previousTestEnvValues = new Map<string, string | undefined>()
+
+  it('filters discovered specs by their module or required modules', () => {
+    const base = {
+      isOverlay: false,
+      requiredEnvVars: [],
+      requiredAnyEnvVars: [],
+    }
+    const specs: IntegrationSpecDiscoveryItem[] = [
+      { ...base, path: 'wms.spec.ts', moduleName: 'wms', requiredModules: [] },
+      { ...base, path: 'sales.spec.ts', moduleName: 'sales', requiredModules: ['wms'] },
+      { ...base, path: 'auth.spec.ts', moduleName: 'auth', requiredModules: [] },
+      { ...base, path: 'global.spec.ts', moduleName: null, requiredModules: [] },
+    ]
+
+    expect(filterIntegrationSpecsByModules(specs, ['WMS']).map((spec) => spec.path)).toEqual([
+      'wms.spec.ts',
+      'sales.spec.ts',
+      'global.spec.ts',
+    ])
+    expect(filterIntegrationSpecsByModules(specs, [])).toEqual(specs)
+  })
 
   beforeEach(async () => {
     tempRoot = await mkdtemp(path.join(os.tmpdir(), 'om-integration-discovery-'))

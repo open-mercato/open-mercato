@@ -1,6 +1,7 @@
 export const features = [
   { id: 'wms.view', title: 'View WMS data', module: 'wms' },
   { id: 'wms.manage_warehouses', title: 'Manage warehouses', module: 'wms' },
+  { id: 'wms.manage_sites', title: 'Manage sites and warehouse roles', module: 'wms' },
   { id: 'wms.manage_zones', title: 'Manage warehouse zones', module: 'wms' },
   { id: 'wms.manage_locations', title: 'Manage warehouse locations', module: 'wms' },
   { id: 'wms.manage_inventory', title: 'Manage inventory profiles and stock state', module: 'wms' },
