@@ -29,7 +29,7 @@ Resolved at the Open Questions gate on 2026-09-24.
 | **D4** | Detail uses the **`PUT` path**; list uses the **queued bulk path** | Single-record edits belong on the synchronous form contract that already enforces locking; multi-record edits keep the progress-tracked worker that already exists. No new endpoint either way. |
 | **D5** | **Clearing an owner is supported** on the single-record forms (deal detail and both create paths) | Reversed after review. The backend clears owners *deliberately*, not incidentally: `data/validators.ts:180-183` made `ownerUserId` nullable specifically "so the bulk owner-update worker passes `null` to clear ownership", and `TC-CRM-069` has a dedicated `clears ownership when ownerUserId is null` test. Unowned is also a normal state — every deal created via the API, an import, or the New deal page starts that way — so a UI that can display it but never return to it is a one-way door (e.g. an owner leaves and the deal awaits redistribution). `DealOwnerSelect` therefore uses `LookupSelect` unchanged and a cleared picker sends `ownerUserId: null` through the existing `PUT`. **The bulk dialog still requires a target user**, matching the existing Kanban dialog; bulk unassignment stays out of scope. The Kanban `ChangeOwnerDialog` is untouched. |
 | **D6** | Reuse `customers.deals.manage` | Settled from code, not assumption: `PUT /api/customers/deals` and `POST /api/customers/deals/bulk-update-owner` both already require it. Introducing a new feature id would add an ACL contract surface for no behavioural gain. |
-| **D7** | `DealForm` exposes owner in **both** create and edit modes | Product decision: the form must behave consistently wherever it appears. `dealCreateSchema` already accepts `ownerUserId` (`:98`), so the create path works unchanged. Side benefit: deals created from a person/company detail page (`DealsSection`, `mode="create"`) can start owned, narrowing the unowned-deal problem in Problem Statement §1. |
+| **D7** | `DealForm` exposes owner in **both** create and edit modes | Product decision: the form must behave consistently wherever it appears. `dealCreateSchema` already accepts `ownerUserId` — and accepts `null` for it (`validators.ts:183`) — so the create path works unchanged, clearing included. Side benefit: deals created from a person/company detail page (`DealsSection`, `mode="create"`) can start owned, narrowing the unowned-deal problem in Problem Statement §1. |
 | **D11** | The standalone **New deal** page gets the owner field too | Product decision. `/backend/customers/deals/create` renders `CreateDealForm` → `DealDetailsFields`, a component tree separate from `DealForm` that borrows only `dealFormSchema`, so **D7** does not reach it. Without this the product's primary creation page would be the only deal form without an owner — a worse inconsistency than the one D7 fixed. |
 | **D10** | Create forms **default the owner to the current user** | Product decision, consistent with `QuickDealDialog:346`, which already self-assigns. Uses the existing `useCurrentUserId()` hook (as `backend/customers/deals/page.tsx:639` does). Directly narrows the unowned-deal problem in Problem Statement §1: the default creation path now produces owned deals. Applies to create mode only — edit mode always seeds from the stored `ownerUserId`. |
 | **D9** | **No assignment notification**, on any surface | Product decision: match the existing Kanban bulk assignment. Verified in code — the module defines exactly two notification types, `customers.deal.won` and `customers.deal.lost` (`notifications.ts:5,26`), with subscribers bound only to those events (`subscribers/deal-{closure,lost}-notification.ts:7`). Nothing fires on owner change today, so the new surfaces stay silent too and the product remains uniform. |
@@ -68,7 +68,7 @@ Established by direct code trace; this is the baseline the design must respect.
 
 **Write path.** `commands/deals.ts` — create writes `parsed.ownerUserId ?? null` (:591); update uses `if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null` (:862), so an absent key leaves the value untouched while an explicit `null` clears it. The field is carried in the before/after snapshot (:282, :357, :1041), so **undo restores the previous owner**, and it is published on the deal event payload (`events.ts:19`).
 
-**Validation.** `dealCreateSchema.ownerUserId: uuid().optional()`; `dealUpdateSchema` widens to `.optional().nullable()`; `dealsBulkUpdateOwnerSchema.ownerUserId: uuid().nullable()` with `ids` capped at 10 000 (`data/validators.ts:98, 183, 203`).
+**Validation.** `dealCreateSchema` (`data/validators.ts:169`) declares `ownerUserId: uuid().optional().nullable()` (`:183`) — nullable at creation, not only on update. `dealUpdateSchema` (`:193`) inherits that through `.merge(dealCreateSchema.partial())` rather than widening it. `dealsBulkUpdateOwnerSchema.ownerUserId: uuid().nullable()` with `ids` capped at 10 000 (`:203`). Note `:98` is the people/companies `baseEntitySchema`, a different field of the same name.
 
 **Name resolution.** The uuid is meaningless alone. The list resolves it with a **single** call to `fetchAssignableStaffMembers` (`pageSize: 100`), building a `userId → displayName` map shared by the Owner column, the filter options and the KPI strip — commented explicitly as "No per-row fetch" (`backend/customers/deals/page.tsx:644-662`). That roster belongs to the **optional `staff` module**; `lib/assignableStaff.ts:33-45` treats its 404 as an empty page, so with `staff` disabled the CRM still renders but every owner shows as "unknown owner".
 
@@ -125,7 +125,7 @@ Per **D7** the field is *not* gated on `mode`, so it also appears in the create-
 - `DealDetailsFields.tsx` — add a `DealFormField` wrapping `DealOwnerSelect`, positioned with the other half-width attributes.
 - `CreateDealForm.tsx` — seed the initial value from `useCurrentUserId()` per **D10**.
 
-Both create surfaces (this page and `DealsSection`) default the owner to the current user and submit through the unchanged `POST /api/customers/deals`. Where that user is absent from the assignable roster, the picker labels the seeded id using the same fallback the list already applies (`ensureCurrentUserFilterOption`).
+Both create surfaces (this page and `DealsSection`) default the owner to the current user and submit through the unchanged `POST /api/customers/deals`. Where that user is absent from the assignable roster, `DealOwnerSelect` seeds the id through its own `initialOption` with a "Current user" fallback label, so it still renders as a name rather than "unknown owner" (the list's `ensureCurrentUserFilterOption` is not reusable here — see Edge Cases).
 
 Flow: `DealForm` → `updateCrud('customers/deals', body)` under `withScopedApiRequestHeaders(buildOptimisticLockHeader(data.deal.updatedAt), …)` → `PUT /api/customers/deals` → `dealUpdateSchema` → `commands/deals.ts:862`. Optimistic locking, the undo snapshot and the deal event payload all apply unchanged.
 
@@ -158,7 +158,7 @@ No new cross-module coupling. The only dependency on the optional `staff` module
 | `/api/customers/deals` | `PUT` | `customers.deals.manage` | `{ id, ownerUserId, …other form fields }` — `dealUpdateSchema` | Detail view (via `updateCrud`) |
 | `/api/customers/deals/bulk-update-owner` | `POST` | `customers.deals.manage` | `{ ids: string[], ownerUserId: string }` — `dealsBulkUpdateOwnerSchema` | List view bulk action |
 
-Per **D5**, a cleared picker on the single-record forms sends `ownerUserId: null`, which `dealUpdateSchema` (`.optional().nullable()`) already accepts and the update command already applies (`commands/deals.ts:862` — an explicit `null` clears, an absent key leaves the value untouched). No contract changes. The bulk endpoint also accepts `null`, but the list dialog does not offer it (see **D5**).
+Per **D5**, a cleared picker on the single-record forms sends `ownerUserId: null`. Both write paths already accept it: `dealUpdateSchema` inherits `uuid().optional().nullable()` from `dealCreateSchema` (`validators.ts:183`), so `POST /api/customers/deals` accepts a null owner as well as `PUT` — which is what makes D5's "both create paths" clearing work — and `createDealCommand` maps it to `null` (`commands/deals.ts:591`) exactly as the update command does (`:862`, where an explicit `null` clears and an absent key leaves the value untouched). No contract changes. The bulk endpoint also accepts `null`, but the list dialog does not offer it (see **D5**).
 
 Optimistic locking on the `PUT` path is unchanged and already covered: a concurrent edit yields the standard 409, surfaced by the form's existing conflict bar.
 
@@ -186,7 +186,7 @@ Optimistic locking on the `PUT` path is unchanged and already covered: a concurr
 
 ## Risks & Impact Review
 
-**Blast radius — low, and confined to the `customers` module.** No schema, no endpoint, no ACL change, and with **D8** withdrawn, nothing outside `customers`. Two UI files plus one new component.
+**Blast radius — low, and confined to the `customers` module.** No schema, no endpoint, no ACL change, and with **D8** withdrawn, nothing outside `customers`. Six modified files (`DealForm.tsx`, the deal detail page, `create/dealFormTypes.ts`, `create/DealDetailsFields.tsx`, `create/CreateDealForm.tsx`, the deals list page), two new components (`DealOwnerSelect`, `ReassignOwnerDialog`) and five locale files.
 
 **Correction (review finding).** An earlier revision justified the `packages/ui` change by claiming its only callers were `RoleAssignmentRow`, `AssignRoleDialog` and `ParticipantsField`. That was wrong on both counts: `AssignRoleDialog` and `schedule/ParticipantsField` do not import `LookupSelect` at all (they use the `assignableStaff` helper), and its real consumers span five modules — `sales` (`SalesDocumentForm`, `PaymentDialog`, `ShipmentDialog`, `LineItemDialog`, documents `[id]/page`), `staff` (`TeamMemberForm`, `LeaveRequestForm`, time-tracking `CustomerPicker`, projects `[id]/page`), `eudr` (`OrderSelectField`, `PlotMultiSelectField`, `formConfig`), `notifications` (`NotificationUserPreferencesAdminPageClient`), `warranty_claims` (`productLookup`), plus customers' `RoleAssignmentRow`. Verified by grep at review time. The understated blast radius was itself an argument against D8; withdrawing it removes the question entirely.
 
@@ -194,7 +194,7 @@ Optimistic locking on the `PUT` path is unchanged and already covered: a concurr
 
 **Compatibility.** No contract surface from `BACKWARD_COMPATIBILITY.md` is broken: no auto-discovery file, event id, widget spot id, API route, DB column, DI key, ACL feature, notification id or CLI command changes. One **additive optional prop** is introduced, `DealForm.initialOwnerOption`, on a module-internal component. No exported primitive changes.
 
-**Rollback.** Remove the `bulkActions` entry and the `baseFields` entry; the new component becomes dead code. The `LookupSelect` prop can stay (inert, defaulted) or be reverted independently. No data written by this feature needs undoing — owner changes are ordinary deal updates already covered by the command-layer undo snapshot.
+**Rollback.** Remove the `bulkActions` entry and the `baseFields` entry; the new components become dead code. No data written by this feature needs undoing — owner changes are ordinary deal updates already covered by the command-layer undo snapshot.
 
 ### Risk Register
 
@@ -229,20 +229,20 @@ Each phase is independently shippable and leaves the application working.
 4. **Default create-mode owner to the current user (D10)** in `DealForm` as well, so both create surfaces behave identically. Unit test: create mode seeds the current user; edit mode still seeds the stored owner.
 5. **Pass `initialOwnerOption` from the detail page** using the already-resolved `data.owner`. No other wiring needed — `initialValues` and the submit spread already carry the field. Test: submitting after an owner change sends `ownerUserId` in the `updateCrud` body with the optimistic-lock header intact.
 6. **Add i18n keys** to `i18n/en.json` + the four other locales; run `yarn i18n:check-hardcoded`.
-7. **Integration test `TC-CRM-6442`** — detail view: load a deal, change the owner, save, assert persistence via `GET /api/customers/deals/[id]` and that a concurrent stale save still yields 409. Self-contained fixtures created and torn down in the test (`helpers/integration/crmFixtures.ts`).
-8. **Integration test `TC-CRM-6442`** — create paths (**D7**, **D11**): create a deal with an owner selected from both the standalone New deal page and a person/company detail page, asserting `POST /api/customers/deals` persists `ownerUserId` in each case, and that an untouched form persists the **D10** current-user default.
+7. **Integration test `TC-CRM-6442-detail`** — detail view: load a deal, change the owner, save, assert persistence via `GET /api/customers/deals/[id]`; **clear the owner, save, assert `ownerUserId` comes back `null`** (**D5**); assert an omitted key leaves the stored owner untouched; and assert a concurrent stale save still yields 409. Self-contained fixtures created and torn down in the test (`helpers/integration/crmFixtures.ts`).
+8. **Integration test `TC-CRM-6442-create`** — create paths (**D7**, **D11**): create a deal with an owner selected from both the standalone New deal page and a person/company detail page, asserting `POST /api/customers/deals` persists `ownerUserId` in each case, and that an untouched form persists the **D10** current-user default.
 
 ### Phase 2 — List-view bulk reassignment
 
-10. **Add `ReassignOwnerDialog`** to the deals list (thin wrapper over `DealOwnerSelect`), with `Cmd/Ctrl+Enter` submit and `Escape` cancel.
-11. **Add the `reassign-owner` bulk action** to `bulkActions`, ordered before Delete, with `handleBulkReassignOwner` posting to `bulk-update-owner` inside the page's guarded-mutation context and returning `{ ok, progressJobId }`. Unit test: the action posts the selected ids and the chosen user, and surfaces the progress job id.
-12. **Clear selection and refresh** on success; flash the count. Test: selection resets after a successful enqueue.
-13. **Add i18n keys** for the new action, dialog and flashes across all five locales.
-14. **Integration test `TC-CRM-6442`** — list view: select multiple deals, reassign, await the queued job, assert every selected deal carries the new owner and that a caller lacking `customers.deals.manage` receives 403.
+9. **Add `ReassignOwnerDialog`** to the deals list (thin wrapper over `DealOwnerSelect`), with `Cmd/Ctrl+Enter` submit and `Escape` cancel.
+10. **Add the `reassign-owner` bulk action** to `bulkActions`, ordered before Delete, with `handleBulkReassignOwner` posting to `bulk-update-owner` inside the page's guarded-mutation context and returning `{ ok, progressJobId }`. Unit test: the action posts the selected ids and the chosen user, and surfaces the progress job id.
+11. **Clear selection and refresh** on success; flash the count. Test: selection resets after a successful enqueue.
+12. **Add i18n keys** for the new action, dialog and flashes across all five locales.
+13. **Integration test `TC-CRM-6442-list`** — list view: select multiple deals, reassign, await the queued job, assert every selected deal carries the new owner and that a caller lacking `customers.deals.manage` receives 403.
 
 ### Validation
 
-`yarn generate` is **not** required (no auto-discovery files change). `yarn build:packages` **is** required before the app picks up the `LookupSelect` change, since `packages/ui` is consumed from `dist`. Gate: `yarn build:packages`, `yarn typecheck`, `yarn lint`, `yarn test`, then the three integration specs.
+`yarn generate` is **not** required (no auto-discovery files change). `yarn build:packages` is still run because the app consumes `@open-mercato/core` from `dist`, so the new component and the changed forms only reach a running app after a package build — nothing in `packages/ui` changes. Gate: `yarn build:packages`, `yarn typecheck`, `yarn lint`, `yarn test`, then the three integration specs.
 
 ## Test Coverage
 
@@ -258,7 +258,7 @@ Each phase is independently shippable and leaves the application working.
 | Deals list → select → Reassign owner → confirm | Integration (UI) | 2 |
 | Clearing the picker propagates `null` (**D5**) | Unit | 1 |
 | `PUT /api/customers/deals` with `ownerUserId: null` clears the owner (**D5**) | Integration | 1 |
-| `DealOwnerSelect` rendering, seeding, empty roster, cannot emit `null` | Unit | 1 |
+| `DealOwnerSelect` rendering, seeding and empty roster | Unit | 1 |
 | `DealForm` owner field in edit **and** create mode; dirty-tracking and payload | Unit | 1 |
 | Bulk action payload and progress-id passthrough | Unit | 2 |
 
@@ -292,4 +292,5 @@ Each phase is independently shippable and leaves the application working.
 | 2026-09-24 | **D9** resolved: no assignment notification, matching the Kanban bulk path (verified — only `customers.deal.won` / `customers.deal.lost` notification types exist). |
 | 2026-09-24 | **D10** resolved: create forms default the owner to the current user via `useCurrentUserId()`, matching `QuickDealDialog`. |
 | 2026-09-24 | **D11** resolved: the standalone New deal page gains the field via its own component tree. All Open Questions closed; gate removed. Spec complete. |
+| 2026-09-28 | Second review round on PR #6441 applied (minor findings only; direction confirmed). Carried the D5 reversal through the sections it had missed: the Test Coverage row still asserting the picker "cannot emit `null`", the Validation note attributing `build:packages` to a `LookupSelect` change that no longer exists, and the Rollback sentence about the withdrawn prop. Repointed the standalone-create-page fallback at `initialOption`, which the Edge Cases row already said. Gave the D5 clearing assertion an owning implementation step (step 7), which Test Coverage promised but no step produced. Corrected the validator citations — `:98` is the people/companies `baseEntitySchema`; `dealCreateSchema` is at `:169` and its `ownerUserId` is already `.optional().nullable()` at `:183` — and used that to close the API Contracts gap, since `POST` accepting null is what "both create paths" clearing depends on. Fixed the skipped step 9, corrected the understated file count in Blast radius, and gave the three integration specs distinct `-detail` / `-create` / `-list` ids. |
 | 2026-09-25 | Review feedback on PR #6441 applied. **D5 reversed** — clearing an owner is now supported on the single-record forms, since the backend clears deliberately (`validators.ts:180-183`, `TC-CRM-069`) and unowned is a normal state a UI should be able to return to. **D8 withdrawn** as a consequence: `LookupSelect` is used unchanged and the plan no longer touches `packages/ui`. Corrected the `LookupSelect` consumer list, which was wrong in both directions and understated the blast radius of the item it was justifying. Reworded the optimistic-locking compliance row (the bulk path is last-write-wins, not per-record locks). Replaced the `ensureCurrentUserFilterOption` reference, which returns `FilterOption[]` and is not reusable for the picker. Added the Non-goals section covering existing unowned deals. Fixed a malformed Edge Cases row and replaced the `TC-CRM-<issue>` placeholders with `TC-CRM-6442`. |
