@@ -39,71 +39,94 @@ export const integrationMeta = {
 const ACCESS_REQUEST_ENDPOINT = '/api/staff/timesheets/access-requests'
 
 test.describe('TC-TT-017: No access to a project', () => {
-  test('shows the guard state without leaking the customer or project, and the request-access action works', async ({ page, request }) => {
-    test.setTimeout(120_000)
+  for (const scenario of [
+    { name: 'detail', delayedScope: false },
+    { name: 'detail during organization bootstrap', delayedScope: true },
+  ]) {
+    test(`shows the guard state without leaking the customer or project, and the request-access action works (${scenario.name})`, async ({ page, request }) => {
+      test.setTimeout(120_000)
 
-    const stamp = String(Date.now()).slice(-9)
-    const customerName = `QATT17 Customer ${stamp}`
-    const projectName = `QATT17 Project ${stamp}`
+      const stamp = String(Date.now()).slice(-9)
+      const customerName = `QATT17 Customer ${stamp}`
+      const projectName = `QATT17 Project ${stamp}`
 
-    const adminToken = await getAuthToken(request, 'admin')
-    let customer: TestCustomerFixture | null = null
-    let project: TestTimeProjectFixture | null = null
+      const adminToken = await getAuthToken(request, 'admin')
+      let customer: TestCustomerFixture | null = null
+      let project: TestTimeProjectFixture | null = null
+      let releaseScope!: () => void
+      const scopeGate = new Promise<void>((resolve) => { releaseScope = resolve })
 
-    try {
-      // A project the Team Member is deliberately never assigned to.
-      customer = await createTestCustomer(request, adminToken, { displayName: customerName })
-      project = await createTestTimeProject(request, adminToken, {
-        name: projectName,
-        code: `QT17-${stamp}`,
-        customer,
-      })
+      try {
+        // A project the Team Member is deliberately never assigned to.
+        customer = await createTestCustomer(request, adminToken, { displayName: customerName })
+        project = await createTestTimeProject(request, adminToken, {
+          name: projectName,
+          code: `QT17-${stamp}`,
+          customer,
+        })
 
-      await login(page, 'employee')
-      await page.goto(`/backend/staff/time-tracking/projects/${project.id}`)
+        await login(page, 'employee')
+        if (scenario.delayedScope) {
+          await page.route('**/api/directory/organization-switcher*', async (route) => {
+            await scopeGate
+            await route.continue()
+          })
+        }
+        await page.goto(`/backend/staff/time-tracking/projects/${project.id}`, { waitUntil: 'domcontentloaded' })
 
-      // Screen 17 — a readable state, not a raw failure.
-      await expect(page.getByText('You do not have access to this project')).toBeVisible({ timeout: 30_000 })
-      await expect(
-        page.getByText(
-          'Project access is granted one project at a time by a Team Leader. If you had access before, it may have been revoked — your earlier time entries stay saved.',
-        ),
-      ).toBeVisible()
+        // Screen 17 — a readable state, not a raw failure.
+        await expect(page.getByText('You do not have access to this project')).toBeVisible({ timeout: 30_000 })
+        await expect(
+          page.getByText(
+            'Project access is granted one project at a time by a Team Leader. If you had access before, it may have been revoked — your earlier time entries stay saved.',
+          ),
+        ).toBeVisible()
 
-      // Not a 403 dump and not a stack trace.
-      const body = page.locator('body')
-      await expect(body).not.toContainText('403')
-      await expect(body).not.toContainText('Forbidden')
-      await expect(body).not.toContainText(/at .*\(.*:\d+:\d+\)/)
-      await expect(body).not.toContainText('Application error')
+        // Not a 403 dump and not a stack trace.
+        const body = page.locator('body')
+        await expect(body).not.toContainText('403')
+        await expect(body).not.toContainText('Forbidden')
+        await expect(body).not.toContainText(/at .*\(.*:\d+:\d+\)/)
+        await expect(body).not.toContainText('Application error')
 
-      // Screen 17 note 1 — the UI must not confirm what it is refusing to show.
-      await expect(body).not.toContainText(projectName)
-      await expect(body).not.toContainText(customerName)
+        // Screen 17 note 1 — the UI must not confirm what it is refusing to show.
+        await expect(body).not.toContainText(projectName)
+        await expect(body).not.toContainText(customerName)
 
-      // …and a way back plus a way forward.
-      await expect(page.getByRole('link', { name: /back to .?my work.?/i })).toBeVisible()
+        // …and a way back plus a way forward.
+        await expect(page.getByRole('link', { name: /back to .?my work.?/i })).toBeVisible()
 
-      // D-6 — using the action succeeds; the request reaches the endpoint and the button
-      // acknowledges it rather than erroring.
-      const requestButton = page.getByRole('button', { name: 'Request access' })
-      await expect(requestButton).toBeVisible()
+        // D-6 — using the action succeeds; the request reaches the endpoint and the button
+        // acknowledges it rather than erroring.
+        const requestButton = page.getByRole('button', { name: 'Request access' })
+        await expect(requestButton).toBeVisible()
 
-      const [accessRequest] = await Promise.all([
-        page.waitForResponse(
-          (response) => response.url().includes(ACCESS_REQUEST_ENDPOINT) && response.request().method() === 'POST',
-          { timeout: 30_000 },
-        ),
-        requestButton.click(),
-      ])
-      expect(accessRequest.ok(), `POST ${ACCESS_REQUEST_ENDPOINT} should succeed: ${accessRequest.status()}`).toBeTruthy()
+        const [accessRequest] = await Promise.all([
+          page.waitForResponse(
+            (response) => response.url().includes(ACCESS_REQUEST_ENDPOINT) && response.request().method() === 'POST',
+            { timeout: 30_000 },
+          ),
+          requestButton.click(),
+        ])
+        expect(accessRequest.ok(), `POST ${ACCESS_REQUEST_ENDPOINT} should succeed: ${accessRequest.status()}`).toBeTruthy()
 
-      await expect(page.getByText('Your request has been sent to the Team Leaders.')).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled()
-      await expect(page.getByText('Could not send the access request.')).toHaveCount(0)
-    } finally {
-      if (project) await project.cleanup()
-      if (customer) await customer.cleanup()
-    }
-  })
+        await expect(page.getByText('Your request has been sent to the Team Leaders.')).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled()
+        if (scenario.delayedScope) {
+          const reloadedProject = page.waitForResponse((response) =>
+            response.url().includes('/api/staff/timesheets/time-projects?')
+            && response.url().includes(project!.id),
+          )
+          releaseScope()
+          expect((await reloadedProject).status()).toBe(404)
+          await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled()
+        }
+        await expect(page.getByText('Could not send the access request.')).toHaveCount(0)
+      } finally {
+        releaseScope()
+        if (project) await project.cleanup()
+        if (customer) await customer.cleanup()
+      }
+    })
+  }
 })
