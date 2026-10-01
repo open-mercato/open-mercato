@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import ts from 'typescript'
 import type { PackageResolver, ModuleEntry } from '../../resolver'
 import { generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } from '../module-registry'
 
@@ -175,6 +176,76 @@ afterEach(() => {
 })
 
 describe('generateModuleRegistry with module subsets', () => {
+  describe.each([
+    ['full', generateModuleRegistry],
+    ['app', generateModuleRegistryApp],
+    ['CLI', generateModuleRegistryCli],
+  ] as const)('Catalog dependencies in the %s registry', (_name, generate) => {
+    const minimalModules = ['auth', 'directory', 'configs', 'audit_logs', 'catalog']
+    const catalogDependencies = ['attachments', 'currencies', 'dictionaries', 'entities']
+
+    function catalogResolver(moduleIds: string[]): PackageResolver {
+      for (const moduleId of moduleIds) {
+        const moduleRoot = path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', moduleId)
+        if (moduleId === 'catalog' || moduleId === 'entities') {
+          const sourceRoot = path.resolve(__dirname, '../../../../../core/src/modules', moduleId)
+          for (const fileName of ['index', 'acl']) {
+            const sourcePath = path.join(sourceRoot, `${fileName}.ts`)
+            if (!fs.existsSync(sourcePath)) continue
+            const compiled = ts.transpileModule(fs.readFileSync(sourcePath, 'utf8'), {
+              compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+            })
+            touchFile(path.join(moduleRoot, `${fileName}.js`), compiled.outputText)
+          }
+        } else {
+          touchFile(path.join(moduleRoot, 'index.js'), `exports.metadata = ${JSON.stringify({ name: moduleId })}\n`)
+        }
+      }
+      return createStandaloneMockResolver(tmpDir, moduleIds.map((id) => ({ id, from: '@open-mercato/core' })))
+    }
+
+    it('rejects the minimal Catalog selection before writing a broken registry', async () => {
+      const resolver = catalogResolver(minimalModules)
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('[internal] Module dependency validation exited')
+      })
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        await expect(generate({ resolver, quiet: true })).rejects.toThrow('Module dependency validation exited')
+        expect(exitSpy).toHaveBeenCalledWith(1)
+        const diagnostics = errorSpy.mock.calls.flat().join('\n')
+        expect(diagnostics).toContain('Module "catalog" requires:')
+        for (const dependency of catalogDependencies) expect(diagnostics).toContain(dependency)
+        expect(fs.readdirSync(resolver.getOutputDir())).toEqual([])
+      } finally {
+        exitSpy.mockRestore()
+        errorSpy.mockRestore()
+      }
+    })
+
+    it('rejects a missing transitive Query Index dependency', async () => {
+      const resolver = catalogResolver([...minimalModules, ...catalogDependencies])
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('[internal] Module dependency validation exited')
+      })
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        await expect(generate({ resolver, quiet: true })).rejects.toThrow('Module dependency validation exited')
+        expect(errorSpy.mock.calls.flat().join('\n')).toContain('Module "entities" requires: query_index')
+      } finally {
+        exitSpy.mockRestore()
+        errorSpy.mockRestore()
+      }
+    })
+
+    it('generates successfully with the dependency closure and Sales disabled', async () => {
+      const resolver = catalogResolver([...minimalModules, ...catalogDependencies, 'query_index'])
+      const result = await generate({ resolver, quiet: true })
+      expect(result.errors).toEqual([])
+      expect(result.filesWritten.length).toBeGreaterThan(0)
+    })
+  })
+
   it('generates valid output with zero modules enabled', async () => {
     const resolver = createMockResolver(tmpDir, [])
     const result = await generateModuleRegistry({ resolver, quiet: true })
