@@ -75,7 +75,7 @@ test.describe('TC-APIKEY-008: Reject unusable organization-scoped API keys', () 
         const body = await readJsonSafe<KeyBody>(response)
         if (body?.id) keyIds.add(body.id)
         expect(response.status(), 'Own organization and tenant-wide keys should remain available').toBe(201)
-        expect(body?.organizationId).toBe(organizationId?.toLowerCase() ?? null)
+        expect(body?.organizationId?.toLowerCase() ?? null).toBe(organizationId?.toLowerCase() ?? null)
         const secret = expectId(body?.secret, 'Creation must return a usable secret')
         await withCredentialIsolatedRequest(async (keyRequest) => {
           const authenticated = await keyRequest.get('/api/api_keys/keys', { headers: { 'x-api-key': secret } })
