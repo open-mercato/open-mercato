@@ -58,9 +58,20 @@ type AddressSnapshot = {
   isPrimary: boolean
 }
 
+type DemotedPrimaryAddress = {
+  id: string
+  entityId: string
+}
+
 type AddressUndoPayload = {
   before?: AddressSnapshot | null
   after?: AddressSnapshot | null
+  demotedPrimaryAddresses?: DemotedPrimaryAddress[]
+}
+
+type AddressCommandResult = {
+  addressId: string
+  demotedPrimaryAddresses?: DemotedPrimaryAddress[]
 }
 
 async function loadAddressSnapshot(em: EntityManager, id: string): Promise<AddressSnapshot | null> {
@@ -93,15 +104,66 @@ async function loadAddressSnapshot(em: EntityManager, id: string): Promise<Addre
   }
 }
 
-async function enforcePrimaryAddress(em: EntityManager, entityId: string, addressId: string): Promise<void> {
+async function enforcePrimaryAddress(
+  em: EntityManager,
+  entityId: string,
+  addressId: string,
+): Promise<DemotedPrimaryAddress[]> {
+  const otherPrimaries = { entity: entityId, id: { $ne: addressId }, isPrimary: true }
+  const siblings = await em.find(CustomerAddress, otherPrimaries, { fields: ['id', 'tenantId', 'organizationId'] })
+  await em.nativeUpdate(CustomerAddress, otherPrimaries, { isPrimary: false })
+  return siblings.map((sibling) => ({ id: sibling.id, entityId }))
+}
+
+function resolveAddressEntityId(address: CustomerAddress): string {
+  return typeof address.entity === 'string' ? address.entity : address.entity.id
+}
+
+const ADDRESS_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function readDemotedPrimaryAddressIds(demoted: unknown, entityId: string): string[] {
+  if (!Array.isArray(demoted)) return []
+  const ids: string[] = []
+  for (const entry of demoted) {
+    if (!entry || typeof entry !== 'object') continue
+    const candidate = entry as Partial<DemotedPrimaryAddress>
+    if (typeof candidate.id !== 'string' || !ADDRESS_ID_PATTERN.test(candidate.id)) continue
+    if (candidate.entityId !== entityId) continue
+    ids.push(candidate.id)
+  }
+  return ids
+}
+
+/**
+ * Hands the primary flag back to the addresses an undone create/update demoted. Callers only
+ * invoke it when the undone address still held the flag, and it is a no-op as soon as the
+ * customer has a primary address again, so a choice made after the operation is never replaced.
+ * The write is native on purpose: the demotion was native too and left the sibling's
+ * `updated_at` (its optimistic-lock version) untouched.
+ */
+async function restoreDemotedPrimaryAddresses(
+  em: EntityManager,
+  demoted: unknown,
+  scope: { entityId: string; tenantId: string; organizationId: string },
+): Promise<void> {
+  const ids = readDemotedPrimaryAddressIds(demoted, scope.entityId)
+  if (!ids.length) return
+  const primaryCount = await em.count(CustomerAddress, { entity: scope.entityId, isPrimary: true })
+  if (primaryCount > 0) return
   await em.nativeUpdate(
     CustomerAddress,
-    { entity: entityId, id: { $ne: addressId }, isPrimary: true },
-    { isPrimary: false }
+    {
+      id: { $in: ids },
+      entity: scope.entityId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      isPrimary: false,
+    },
+    { isPrimary: true },
   )
 }
 
-const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: string }> = {
+const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandResult> = {
   id: 'customers.addresses.create',
   async execute(rawInput, ctx) {
     const parsed = addressCreateSchema.parse(rawInput)
@@ -133,12 +195,13 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+    let demotedPrimaryAddresses: DemotedPrimaryAddress[] = []
     await withAtomicFlush(em, [
       async () => {
         em.persist(address)
         await em.flush()
         if (address.isPrimary) {
-          await enforcePrimaryAddress(em, entity.id, address.id)
+          demotedPrimaryAddresses = await enforcePrimaryAddress(em, entity.id, address.id)
         }
       },
     ], { transaction: true })
@@ -157,7 +220,10 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       events: addressCrudEvents,
     })
 
-    return { addressId: address.id }
+    return {
+      addressId: address.id,
+      ...(demotedPrimaryAddresses.length ? { demotedPrimaryAddresses } : {}),
+    }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -178,6 +244,9 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       payload: {
         undo: {
           after: snapshot ?? null,
+          ...(result.demotedPrimaryAddresses?.length
+            ? { demotedPrimaryAddresses: result.demotedPrimaryAddresses }
+            : {}),
         } satisfies AddressUndoPayload,
       },
     }
@@ -187,10 +256,24 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
     if (!addressId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const address = await em.findOne(CustomerAddress, { id: addressId })
-    if (address) {
-      em.remove(address)
-      await em.flush()
+    if (!address) return
+    const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
+    const heldPrimary = address.isPrimary === true
+    const scope = {
+      entityId: resolveAddressEntityId(address),
+      tenantId: address.tenantId,
+      organizationId: address.organizationId,
     }
+    await withAtomicFlush(em, [
+      () => {
+        em.remove(address)
+      },
+      async () => {
+        if (heldPrimary) {
+          await restoreDemotedPrimaryAddresses(em, payload?.demotedPrimaryAddresses, scope)
+        }
+      },
+    ], { transaction: true })
   },
   redo: async ({ logEntry, ctx }) => {
     const after = resolveRedoSnapshot<AddressSnapshot>(logEntry)
@@ -248,12 +331,13 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       address.isPrimary = after.isPrimary
     }
     const restoredAddress = address
+    let demotedPrimaryAddresses: DemotedPrimaryAddress[] = []
     await withAtomicFlush(em, [
       async () => {
         em.persist(restoredAddress)
         await em.flush()
         if (after.isPrimary) {
-          await enforcePrimaryAddress(em, after.entityId, after.id)
+          demotedPrimaryAddresses = await enforcePrimaryAddress(em, after.entityId, after.id)
         }
       },
     ], { transaction: true })
@@ -272,11 +356,14 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       events: addressCrudEvents,
     })
 
-    return { addressId: restoredAddress.id }
+    return {
+      addressId: restoredAddress.id,
+      ...(demotedPrimaryAddresses.length ? { demotedPrimaryAddresses } : {}),
+    }
   },
 }
 
-const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: string }> = {
+const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandResult> = {
   id: 'customers.addresses.update',
   async prepare(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
@@ -298,6 +385,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       address.entity = entity
     }
 
+    let demotedPrimaryAddresses: DemotedPrimaryAddress[] = []
     await withAtomicFlush(em, [
       () => {
         if (parsed.name !== undefined) address.name = parsed.name ?? null
@@ -317,7 +405,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       },
       async () => {
         if (address.isPrimary) {
-          await enforcePrimaryAddress(em, typeof address.entity === 'string' ? address.entity : address.entity.id, address.id)
+          demotedPrimaryAddresses = await enforcePrimaryAddress(em, resolveAddressEntityId(address), address.id)
         }
       },
     ], { transaction: true })
@@ -336,13 +424,16 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       events: addressCrudEvents,
     })
 
-    return { addressId: address.id }
+    return {
+      addressId: address.id,
+      ...(demotedPrimaryAddresses.length ? { demotedPrimaryAddresses } : {}),
+    }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadAddressSnapshot(em, result.addressId)
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as AddressSnapshot | undefined
     if (!before) return null
@@ -386,6 +477,9 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         undo: {
           before,
           after: afterSnapshot ?? null,
+          ...(result.demotedPrimaryAddresses?.length
+            ? { demotedPrimaryAddresses: result.demotedPrimaryAddresses }
+            : {}),
         } satisfies AddressUndoPayload,
       },
     }
@@ -396,6 +490,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let address = await em.findOne(CustomerAddress, { id: before.id })
+    const primaryHeldForEntityId = address?.isPrimary === true ? resolveAddressEntityId(address) : null
     const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
     if (!address) {
       address = em.create(CustomerAddress, {
@@ -444,6 +539,13 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         await em.flush()
         if (before.isPrimary) {
           await enforcePrimaryAddress(em, before.entityId, before.id)
+        }
+        if (primaryHeldForEntityId) {
+          await restoreDemotedPrimaryAddresses(em, payload?.demotedPrimaryAddresses, {
+            entityId: primaryHeldForEntityId,
+            tenantId: before.tenantId,
+            organizationId: before.organizationId,
+          })
         }
       },
     ], { transaction: true })
