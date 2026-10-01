@@ -5,8 +5,12 @@ import { calendarEventTypes } from '../../../../calendar-event-types'
 import type { ScopedCalendarEventType } from '../../../../lib/calendar/eventTypeResolver'
 
 const readApiResultOrThrowMock = jest.fn()
+const reportErrorMock = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+}))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
 
 import { eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from '../useEventTypeCatalog'
@@ -30,7 +34,10 @@ function scopedType(key: string, order: number, selectable = true): ScopedCalend
 }
 
 describe('calendar editor scoped type catalog', () => {
-  beforeEach(() => readApiResultOrThrowMock.mockReset())
+  beforeEach(() => {
+    readApiResultOrThrowMock.mockReset()
+    reportErrorMock.mockReset()
+  })
 
   it('orders selectable types and keeps an unavailable historical selection out of later choices', () => {
     const items = [scopedType('late', 20), scopedType('early', 10), scopedType('hidden', 0, false)]
@@ -73,11 +80,17 @@ describe('calendar editor scoped type catalog', () => {
   })
 
   it('loads once per open and retries after a catalog failure', async () => {
-    readApiResultOrThrowMock.mockRejectedValueOnce(new Error('unavailable'))
+    const error = new Error('unavailable')
+    readApiResultOrThrowMock.mockRejectedValueOnce(error)
       .mockResolvedValueOnce({ items: [scopedType('visit', 10)], fallbackKey: 'meeting' })
     const { result, rerender } = renderHook(({ open }) => useEventTypeCatalog(open), { initialProps: { open: true } })
     await waitFor(() => expect(result.current.status).toBe('error'))
     expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledWith(error, {
+      module: 'customers',
+      code: 'customers.activity_type_catalog_load_failed',
+    })
     await act(async () => { result.current.retry() })
     await waitFor(() => expect(result.current.status).toBe('ready'))
     expect(result.current.items[0]?.key).toBe('visit')

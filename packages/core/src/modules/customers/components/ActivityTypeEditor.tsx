@@ -6,6 +6,7 @@ import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
@@ -71,6 +72,10 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
       setStatus('ready')
     } catch (err) {
       logger.error('customers.activity_types.settings.load failed', { err })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'customers',
+        code: 'customers.activity_type_settings_load_failed',
+      })
       setStatus('error')
     }
   }, [])
@@ -88,6 +93,10 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
       setFieldsetsStatus('ready')
     }).catch((err) => {
       logger.error('customers.activity_types.fieldsets.load failed', { err })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'customers',
+        code: 'customers.activity_type_fieldsets_load_failed',
+      })
       if (active) setFieldsetsStatus('error')
     })
     return () => { active = false }
@@ -113,6 +122,10 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
       await load()
     } catch (err) {
       logger.error('customers.activity_types.settings.remove failed', { err })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'customers',
+        code: 'customers.activity_type_settings_remove_failed',
+      })
       if (!surfaceRecordConflict(err, t, { onRefresh: () => { void load() } })) {
         flash(t('customers.config.activityTypes.saveFailed', 'Failed to save activity type.'), 'error')
       }

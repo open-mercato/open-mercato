@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { calendarEventTypes, type EffectiveCalendarEventType } from '../../../calendar-event-types'
 import type { CalendarEventTypeCatalog, ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
@@ -26,8 +27,13 @@ export function useEventTypeCatalog(open: boolean) {
         if (!Array.isArray(catalog.items)) throw new Error('[internal] Invalid activity type catalog')
         if (active) setState({ status: 'ready', items: catalog.items })
       })
-      .catch(() => {
-        if (active) setState({ status: 'error', items: [] })
+      .catch((error) => {
+        if (!active) return
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'customers',
+          code: 'customers.activity_type_catalog_load_failed',
+        })
+        setState({ status: 'error', items: [] })
       })
     return () => { active = false }
   }, [open, attempt])
