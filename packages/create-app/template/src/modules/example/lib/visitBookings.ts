@@ -8,6 +8,7 @@ import type { VisitAvailabilityInput, VisitAvailabilitySubject } from './visitAv
 type Row = Record<string, unknown>
 const MAX_BOOKING_RECORDS = 1000
 const MAX_SERIES_DAYS = 36600
+const MAX_SHORT_BOOKING_MINUTES = 2 * 24 * 60
 const fields = ['id', 'tenant_id', 'organization_id', 'deleted_at', 'status', 'interaction_type', 'scheduled_at', 'occurred_at', 'duration_minutes', 'timezone', 'all_day', 'participants', 'owner_user_id', 'linked_entities', 'recurrence_rule', 'recurrence_end']
 
 function value(row: Row, camel: string, snake: string): unknown {
@@ -43,6 +44,7 @@ export async function bookedVisitSubjects(args: {
   const { queryEngine, scope, input, subjects } = args
   const start = new Date(input.startAt)
   const end = new Date(input.endAt)
+  const shortBookingLowerBound = new Date(start.getTime() - MAX_SHORT_BOOKING_MINUTES * 60000).toISOString()
   const allDayUpperBound = new Date(end.getTime() + 2 * 86400000).toISOString()
   const booked = new Set<string>()
   let scanned = 0
@@ -50,8 +52,20 @@ export async function bookedVisitSubjects(args: {
     const result = await queryEngine.query<Row>('customers:customer_interaction', {
       tenantId: scope.tenantId, organizationId: scope.organizationId,
       filters: { deleted_at: null, status: { $ne: 'canceled' },
-        $or: [{ scheduled_at: { $lt: input.endAt } }, { occurred_at: { $lt: input.endAt } },
-          { all_day: true, scheduled_at: { $lt: allDayUpperBound } }, { all_day: true, occurred_at: { $lt: allDayUpperBound } }],
+        $or: [
+          { $and: [
+            { recurrence_rule: null },
+            { $or: [{ duration_minutes: null }, { duration_minutes: { $lte: MAX_SHORT_BOOKING_MINUTES } }] },
+            { $or: [
+              { scheduled_at: { $gte: shortBookingLowerBound, $lt: allDayUpperBound } },
+              { occurred_at: { $gte: shortBookingLowerBound, $lt: allDayUpperBound } },
+            ] },
+          ] },
+          { $and: [
+            { $or: [{ recurrence_rule: { $ne: null } }, { duration_minutes: { $gt: MAX_SHORT_BOOKING_MINUTES } }] },
+            { $or: [{ scheduled_at: { $lt: allDayUpperBound } }, { occurred_at: { $lt: allDayUpperBound } }] },
+          ] },
+        ],
         ...(input.excludeInteractionId ? { id: { $ne: input.excludeInteractionId } } : {}),
       },
       fields, sort: [{ field: 'id' }], page: { page, pageSize: 100 },

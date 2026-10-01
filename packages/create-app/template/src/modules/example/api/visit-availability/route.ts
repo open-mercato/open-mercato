@@ -4,8 +4,10 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { evaluateVisitAvailability, visitAvailabilityInputSchema, visitAvailabilityWarnings } from '../../lib/visitAvailability'
+import { evaluateVisitAvailability, resolveVisitService, visitAvailabilityInputSchema, visitAvailabilityWarnings } from '../../lib/visitAvailability'
 
 const querySchema = z.object({
   startAt: z.string(),
@@ -33,8 +35,42 @@ export async function GET(request: Request) {
     if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const container = await createRequestContainer()
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    if (scope?.selectionRejected || (scope?.tenantId && scope.tenantId !== auth.tenantId)) {
+      return NextResponse.json({ error: 'example.calendar.visitAvailability.missingScope' }, { status: 403 })
+    }
+    const allowedOrganizationIds = scope?.allowedIds !== undefined
+      ? scope.allowedIds
+      : scope?.selectedId
+        ? [scope.selectedId]
+        : auth.orgId
+          ? [auth.orgId]
+          : []
+    let organizationId = scope?.selectedId ?? auth.orgId ?? null
+    if (input.excludeInteractionId) {
+      const queryEngine = resolveVisitService<QueryEngine>(container, 'queryEngine')
+      if (!queryEngine) return NextResponse.json({ error: 'example.calendar.visitAvailability.retry' }, { status: 503 })
+      const result = await queryEngine.query<Record<string, unknown>>('customers:customer_interaction', {
+        tenantId: auth.tenantId,
+        ...(allowedOrganizationIds === null || auth.isSuperAdmin ? {} : { organizationIds: allowedOrganizationIds }),
+        filters: { id: input.excludeInteractionId, deleted_at: null },
+        fields: ['id', 'organization_id'],
+        page: { page: 1, pageSize: 1 },
+      })
+      if (!result.items.length) return NextResponse.json({ error: 'example.calendar.visitAvailability.missingScope' }, { status: 404 })
+      const recordOrganizationId = result.items[0]?.organizationId ?? result.items[0]?.organization_id
+      if (typeof recordOrganizationId !== 'string' || !isOrganizationAccessAllowed({
+        isSuperAdmin: auth.isSuperAdmin === true,
+        allowedOrganizationIds,
+        targetOrganizationId: recordOrganizationId,
+      })) return NextResponse.json({ error: 'example.calendar.visitAvailability.missingScope' }, { status: 403 })
+      organizationId = recordOrganizationId
+    }
     if (!organizationId) return NextResponse.json({ error: 'example.calendar.visitAvailability.missingScope' }, { status: 403 })
+    if (!isOrganizationAccessAllowed({
+      isSuperAdmin: auth.isSuperAdmin === true,
+      allowedOrganizationIds,
+      targetOrganizationId: organizationId,
+    })) return NextResponse.json({ error: 'example.calendar.visitAvailability.missingScope' }, { status: 403 })
     const actorUserId = auth.sub ?? auth.userId ?? auth.keyId
     if (!actorUserId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const rbac = container.hasRegistration('rbacService')
@@ -72,6 +108,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid interval or subject IDs', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Insufficient access', schema: z.object({ error: z.string() }) },
+        { status: 404, description: 'Interaction unavailable in the allowed scope', schema: z.object({ error: z.string() }) },
         { status: 503, description: 'Availability source failed', schema: z.object({ error: z.string() }) },
       ],
     },

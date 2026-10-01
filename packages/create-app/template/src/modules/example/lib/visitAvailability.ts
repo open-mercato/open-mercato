@@ -83,6 +83,26 @@ async function list(queryEngine: QueryEngine, entity: `${string}:${string}`, sco
   return result.items
 }
 
+async function listAll(queryEngine: QueryEngine, entity: `${string}:${string}`, scope: { tenantId: string; organizationId: string }, filters: Record<string, unknown>, fields: string[]): Promise<Row[]> {
+  const rows: Row[] = []
+  for (let page = 1; ; page += 1) {
+    const result = await queryEngine.query<Row>(entity, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      filters,
+      fields,
+      sort: [{ field: 'id' }],
+      page: { page, pageSize: 100 },
+    })
+    if (!Number.isFinite(result.total) || result.total < 0 || result.items.length > 100) {
+      throw new Error('visit_availability_result_limit')
+    }
+    rows.push(...result.items)
+    if (rows.length >= result.total) return rows
+    if (!result.items.length) throw new Error('visit_availability_incomplete_page')
+  }
+}
+
 export async function evaluateVisitAvailability(args: {
   container: AwilixContainer
   actorUserId: string
@@ -144,7 +164,7 @@ export async function evaluateVisitAvailability(args: {
           { subject_type: type === 'staff' ? 'member' : 'resource', subject_id: memberId },
           ...(activeRuleSet ? [{ subject_type: 'ruleset', subject_id: ruleSetId }] : []),
         ] }
-        const rules = await list(queryEngine, 'planner:planner_availability_rule', scope, ruleFilters, ['id', 'rrule', 'exdates', 'kind', 'timezone'])
+        const rules = await listAll(queryEngine, 'planner:planner_availability_rule', scope, ruleFilters, ['id', 'rrule', 'exdates', 'kind', 'timezone'])
         if (rules.some((row) => !isValidTimezone(value(row, 'timezone', 'timezone')))) {
           subject.reasonKey = 'example.calendar.visitAvailability.retry'
           continue

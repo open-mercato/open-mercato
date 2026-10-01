@@ -125,6 +125,41 @@ describe('Visit calendar bookings', () => {
     expect(query).toHaveBeenCalledTimes(2)
   })
 
+  it('bounds more than 1,000 unrelated historical rows while retaining old recurring coverage', async () => {
+    const historical = Array.from({ length: 1001 }, (_, index) => ({
+      ...booking,
+      id: `historical-${index}`,
+      scheduled_at: '2020-01-01T08:00:00Z',
+      participants: [],
+      linked_entities: [],
+    }))
+    const recurring = {
+      ...booking,
+      scheduled_at: '2026-09-22T08:00:00Z',
+      recurrence_rule: 'FREQ=WEEKLY;BYDAY=TU',
+    }
+    const query = jest.fn(async (_entity: string, options: { filters: Record<string, unknown> }) => {
+      expect(historical).toHaveLength(1001)
+      expect(options.filters).toMatchObject({
+        $or: expect.arrayContaining([
+          expect.objectContaining({ $and: expect.arrayContaining([
+            { recurrence_rule: null },
+            expect.objectContaining({ $or: expect.arrayContaining([
+              expect.objectContaining({ scheduled_at: expect.objectContaining({ $gte: expect.any(String) }) }),
+            ]) }),
+          ]) }),
+          expect.objectContaining({ $and: expect.arrayContaining([
+            expect.objectContaining({ $or: expect.arrayContaining([{ recurrence_rule: { $ne: null } }]) }),
+            expect.objectContaining({ $or: expect.arrayContaining([{ scheduled_at: { $lt: '2026-10-01T10:00:00.000Z' } }]) }),
+          ]) }),
+        ]),
+      })
+      return { items: [recurring], total: 1 }
+    })
+    expect(await bookedVisitSubjects({ queryEngine: { query } as never, scope, input, subjects }))
+      .toEqual(new Set([`staff:${USER_ID}`, `resource:${RESOURCE_ID}`]))
+  })
+
   it.each([1001, Number.NaN])('fails closed on unsafe totals %s', async (total) => {
     const query = jest.fn(async () => ({ items: [], total }))
     await expect(bookedVisitSubjects({ queryEngine: { query } as never, scope, input, subjects })).rejects.toThrow()
