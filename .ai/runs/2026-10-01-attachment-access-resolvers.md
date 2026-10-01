@@ -3,7 +3,7 @@
 Source doc: .ai/specs/2026-10-01-attachment-access-resolvers.md (design PR https://github.com/open-mercato/open-mercato/pull/6828; materialized for implementation, not duplicated in this branch)
 Issue: https://github.com/open-mercato/open-mercato/issues/6726
 Engine: om-auto-create-pr (steps: 9, --loop: no)
-Status: in-progress
+Status: implementation complete; formal review and merge gates pending
 
 ## Goal
 
@@ -52,7 +52,7 @@ PR: #6829
 ### Phase 1: Contract and durable protection
 
 - [x] 1.1 Add types, registry, matching and generator discovery — b5e9c9f6b5
-- [x] 1.2 Persist and backfill required owner policies — 874011d963 (native migration proof pending Phase 3)
+- [x] 1.2 Persist and backfill required owner policies — 874011d963 (native migration SQL proof passed in Phase 3)
 - [x] 1.3 Implement fail-closed runner and subject projection — 242f277351
 
 ### Phase 2: Host and real adopter
@@ -63,11 +63,12 @@ PR: #6829
 
 ### Phase 3: Validation and handoff
 
-- [ ] 3.1 Add live path coverage and browser evidence
+- [x] 3.1 Add live path coverage and browser evidence — 6c5b7a52f3; managed TC-ATT-016–023 passed 8/8, desktop/mobile shared-recipient and unshared-actor browser evidence passed
 - [x] 3.2 Complete configured validation and supplementary checks — cc96cbeeb8; local ordered gate with scoped core/create-app remediation, app build, test:scripts and template checks passed
-- [ ] 3.3 Review and publish evidence with release handoff
+- [ ] 3.3 Review and publish evidence with release handoff — supporting source/fixture reviews complete and evidence published; formal review remains INCOMPLETE because installed renderer/schema is absent and required exact-head CI is pending. Named human BC acknowledgment and independent QA remain merge gates.
 
 ### Final verification checkpoint
 
 - Native TC-ATT-016–023 cover migration/backfill, private/public bytes and derived images, exact authorized metadata pagination/facets, atomic mutations, live features/API keys/role membership, blocked generic exports and a real two-connection ownership race. Direct iteration: eight passed; independent fixture reviews resolved before publication.
-- Final managed CLI and browser evidence follow on the committed test head. Runtime secrets and exploration state remain ignored; the separate design spec is not duplicated here.
+- Final managed CLI reused a cold/warm verified environment at test head 6c5b7a52f3146d1ac169ccf4cc7b434166c9bea5: eight tests passed in 18.6s, first attempt. The browser verified recipient preview/download with private,no-store and unshared empty metadata/404 at desktop and 390px. Temporary fixtures were removed and the owned environment stopped. Runtime secrets are excluded; the separate design spec is not duplicated here.
+- This final checkpoint updates only the run plan; production and test files match the verified head. PR comments/body own the full evidence and merge-overlap guidance. The claim is released for parent CI/review handoff; no automated approval is asserted.
