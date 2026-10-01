@@ -279,6 +279,15 @@ export async function softDeleteGroupMemberships(
 // no hook inside its delete), so terms and memberships are retired together in one
 // transaction and, if that transaction fails, the group delete is reverted: the request
 // fails with the group, its terms and its memberships all still live, never half-deleted.
+// The organizations the caller's role may reach (`null` = unrestricted). This is the
+// permission boundary, not the header selection: an unrestricted admin working in one
+// organization may still delete a shared group.
+function permittedOrganizationIds(ctx: CrudCtx): string[] | null {
+  if (!ctx.organizationScope) return ctx.organizationIds
+  const allowedIds = ctx.organizationScope.allowedIds
+  return Array.isArray(allowedIds) ? Array.from(new Set(allowedIds)) : null
+}
+
 // A caller restricted to some organizations may only delete a group whose live
 // members are all customers of those organizations: the cascade retires every
 // membership of the group, and the membership routes refuse that same caller each
@@ -593,14 +602,14 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { tenantId } = scopeFromContext(ctx)
       const { translate } = await resolveTranslations()
-      await assertGroupMembershipsInScope(em, tenantId, id, ctx.organizationIds, translate)
+      await assertGroupMembershipsInScope(em, tenantId, id, permittedOrganizationIds(ctx), translate)
     },
     afterDelete: async (id, ctx) => {
       const em = ctx.container.resolve('em') as EntityManager
       const { tenantId } = scopeFromContext(ctx)
       const { translate } = await resolveTranslations()
       const removedMemberships = await cascadeGroupDelete(em, tenantId, id, (tem) =>
-        assertGroupMembershipsInScope(tem, tenantId, id, ctx.organizationIds, translate),
+        assertGroupMembershipsInScope(tem, tenantId, id, permittedOrganizationIds(ctx), translate),
       )
       if (!removedMemberships.length) return
       await invalidateCrudCache(

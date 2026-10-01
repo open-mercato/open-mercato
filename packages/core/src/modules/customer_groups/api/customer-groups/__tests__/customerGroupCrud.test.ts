@@ -86,11 +86,17 @@ function createFakeEm(config: FakeEmConfig = {}) {
   return { em, calls }
 }
 
-function createCtx(em: unknown, organizationIds: string[] | null = null): CrudCtx {
+function createCtx(
+  em: unknown,
+  organizationIds: string[] | null = null,
+  organizationScope: { allowedIds: string[] | null; filterIds: string[] | null } | null = null,
+): CrudCtx {
   return {
     container: { resolve: (name: string) => (name === 'em' ? em : undefined) },
     auth: { tenantId: TENANT_ID, sub: 'user-1', orgId: null },
-    organizationScope: null,
+    organizationScope: organizationScope
+      ? { selectedId: null, tenantId: TENANT_ID, ...organizationScope }
+      : null,
     selectedOrganizationId: null,
     organizationIds,
   } as unknown as CrudCtx
@@ -554,6 +560,28 @@ describe('customer group CRUD route', () => {
         expect(countQuery?.sql).toContain('m.deleted_at is null')
         expect(countQuery?.sql).toContain('not exists')
         expect(countQuery?.params).toEqual([TENANT_ID, GROUP_ID, ORG_A])
+      })
+
+      it('checks the role boundary, not the header selection, when a scope is resolved', async () => {
+        const executed: Array<{ sql: string; params: unknown[] }> = []
+        const { em } = createFakeEm({
+          execute: (sql, params) => {
+            executed.push({ sql, params })
+            return outsideScopeCount(1)(sql)
+          },
+        })
+        const ORG_B = '88888888-8888-4888-8888-888888888888'
+
+        await expect(
+          opts.hooks!.beforeDelete!(GROUP_ID, createCtx(em, [ORG_A], { allowedIds: null, filterIds: [ORG_A] })),
+        ).resolves.toBeUndefined()
+        expect(executed).toHaveLength(0)
+
+        await expect(
+          opts.hooks!.beforeDelete!(GROUP_ID, createCtx(em, [ORG_A], { allowedIds: [ORG_A, ORG_B], filterIds: [ORG_A] })),
+        ).rejects.toMatchObject({ status: 409 })
+        const countQuery = executed.find((entry) => entry.sql.includes('customer_group_memberships'))
+        expect(countQuery?.params).toEqual([TENANT_ID, GROUP_ID, ORG_A, ORG_B])
       })
 
       it('refuses any member for a caller who sees no organization', async () => {
