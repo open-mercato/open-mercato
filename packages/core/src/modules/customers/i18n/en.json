@@ -852,7 +852,6 @@
   "customers.config.activityTypes.fields.resources": "Resources",
   "customers.config.activityTypes.fields.selectable": "Available for new events",
   "customers.config.activityTypes.fields.value": "Stable key",
-  "customers.config.activityTypes.fieldsets": "Custom-field fieldsets",
   "customers.config.activityTypes.fieldsetsUnavailable": "Fieldsets are unavailable. Retry loading before saving.",
   "customers.config.activityTypes.inactiveHint": "A module currently prevents this override from taking effect.",
   "customers.config.activityTypes.inherited": "Inherited",

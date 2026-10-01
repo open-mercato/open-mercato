@@ -852,7 +852,6 @@
   "customers.config.activityTypes.fields.resources": "Zasoby",
   "customers.config.activityTypes.fields.selectable": "Dostępny dla nowych wydarzeń",
   "customers.config.activityTypes.fields.value": "Stały klucz",
-  "customers.config.activityTypes.fieldsets": "Zestawy pól niestandardowych",
   "customers.config.activityTypes.fieldsetsUnavailable": "Zestawy pól są niedostępne. Wczytaj je ponownie przed zapisem.",
   "customers.config.activityTypes.inactiveHint": "Moduł obecnie uniemożliwia zastosowanie tego nadpisania.",
   "customers.config.activityTypes.inherited": "Dziedziczony",

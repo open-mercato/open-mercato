@@ -852,7 +852,6 @@
   "customers.config.activityTypes.fields.resources": "Ressourcen",
   "customers.config.activityTypes.fields.selectable": "Für neue Ereignisse verfügbar",
   "customers.config.activityTypes.fields.value": "Stabiler Schlüssel",
-  "customers.config.activityTypes.fieldsets": "Feldgruppen benutzerdefinierter Felder",
   "customers.config.activityTypes.fieldsetsUnavailable": "Feldgruppen sind nicht verfügbar. Laden Sie sie erneut, bevor Sie speichern.",
   "customers.config.activityTypes.inactiveHint": "Ein Modul verhindert derzeit, dass diese Überschreibung wirksam wird.",
   "customers.config.activityTypes.inherited": "Geerbt",

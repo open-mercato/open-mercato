@@ -155,7 +155,7 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
   const groups: CrudFormGroup[] = [
     { id: 'appearance', title: t('customers.config.activityTypes.appearance', 'Appearance'), fields: ['value', 'label', 'icon', 'color', 'order'] },
     { id: 'behavior', title: t('customers.config.activityTypes.behavior', 'Form behavior'), fields: ['baseKind', 'selectable', 'endTime', 'allDay', 'recurrence', 'location', 'people', 'priority', 'resources'] },
-    { id: 'fieldsets', title: t('customers.config.activityTypes.fieldsets', 'Custom-field fieldsets'), fields: ['customFieldsetIds'] },
+    ...(fieldsets.length || selected?.behavior.customFieldsetIds.length ? [{ id: 'fieldsets', fields: ['customFieldsetIds'] }] : []),
   ]
   const save = async (values: FormValues) => {
     const key = String(values.value ?? '').trim()

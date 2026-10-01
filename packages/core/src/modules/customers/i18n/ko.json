@@ -852,7 +852,6 @@
   "customers.config.activityTypes.fields.resources": "리소스",
   "customers.config.activityTypes.fields.selectable": "새 이벤트에 사용 가능",
   "customers.config.activityTypes.fields.value": "고정 키",
-  "customers.config.activityTypes.fieldsets": "사용자 지정 필드셋",
   "customers.config.activityTypes.fieldsetsUnavailable": "필드셋을 사용할 수 없습니다. 저장하기 전에 다시 불러오세요.",
   "customers.config.activityTypes.inactiveHint": "현재 모듈이 이 재정의의 적용을 막고 있습니다.",
   "customers.config.activityTypes.inherited": "상속됨",

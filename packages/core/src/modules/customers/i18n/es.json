@@ -852,7 +852,6 @@
   "customers.config.activityTypes.fields.resources": "Recursos",
   "customers.config.activityTypes.fields.selectable": "Disponible para eventos nuevos",
   "customers.config.activityTypes.fields.value": "Clave estable",
-  "customers.config.activityTypes.fieldsets": "Grupos de campos personalizados",
   "customers.config.activityTypes.fieldsetsUnavailable": "Los grupos de campos no están disponibles. Vuelve a cargarlos antes de guardar.",
   "customers.config.activityTypes.inactiveHint": "Un módulo impide que esta configuración surta efecto.",
   "customers.config.activityTypes.inherited": "Heredado",
