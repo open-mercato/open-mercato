@@ -1,3 +1,5 @@
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { assertAttachmentStoragePartitionExists } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { NextRequest, NextResponse } from 'next/server'
 import sharp, { type ResizeOptions } from 'sharp'
 import { z } from 'zod'
@@ -35,7 +37,7 @@ export const metadata = {
   GET: { requireAuth: false },
 }
 
-export async function GET(
+async function readAttachmentImage(
   req: NextRequest,
   context: { params: Promise<{ id: string; slug?: string[] | undefined }> }
 ) {
@@ -73,6 +75,7 @@ export async function GET(
     return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
   }
   const partition = await em.findOne(AttachmentPartition, { code: attachment.partitionCode })
+  assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json({ error: 'Partition misconfigured' }, { status: 500 })
   }
@@ -144,6 +147,8 @@ export async function GET(
   }
 }
 
+export const GET = withAttachmentStorageErrors(readAttachmentImage)
+
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
   summary: 'Serve resized images',
@@ -159,6 +164,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Invalid parameters, missing ID, or non-image attachment', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized - authentication required for private partitions', schema: attachmentErrorSchema },
         { status: 403, description: 'Forbidden - insufficient permissions', schema: attachmentErrorSchema },
