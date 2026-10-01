@@ -293,7 +293,7 @@ describe('entities decrypt-database CLI', () => {
     expect(updateCalls).toHaveLength(0)
   })
 
-  it('MALFORMED_PAYLOAD: warns, increments counter, skips field without aborting run', async () => {
+  it('MALFORMED_PAYLOAD: reports the incomplete run and leaves encryption maps active', async () => {
     setupDefaultMapFind()
     setupScopesAndRows([{ id: 'row-1', resource_id: 'bad:b64:!!:v1', email_hash: null }])
     mockDecrypt.mockImplementationOnce(() => {
@@ -302,13 +302,19 @@ describe('entities decrypt-database CLI', () => {
 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
     const logSpy = jest.spyOn(console, 'log').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps']),
+    ).rejects.toThrow('ciphertext was malformed')
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MALFORMED_PAYLOAD'))
     const summaryText = warnSpy.mock.calls.map((c) => String(c[0])).join('\n')
     expect(summaryText).toContain('1 field value(s) returned MALFORMED_PAYLOAD')
     const updateCalls = execute.mock.calls.filter((c) => String(c[0]).startsWith('UPDATE'))
     expect(updateCalls).toHaveLength(0)
+    const deactivateCalls = execute.mock.calls.filter((c) =>
+      String(c[0]).includes('UPDATE encryption_maps'),
+    )
+    expect(deactivateCalls).toHaveLength(0)
     warnSpy.mockRestore()
     logSpy.mockRestore()
   })

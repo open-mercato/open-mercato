@@ -157,6 +157,8 @@ After a successful run:
 
 The `--confirm <tenantUuid>` flag is a required safety gate — it must exactly match `--tenant` to prevent accidental cross-tenant runs. See the [decrypt-database CLI reference](../cli/entities-decrypt-database) for the full option list, error codes, and troubleshooting.
 
+Malformed ciphertext makes the command exit non-zero. When `--deactivate-maps` is present, the maps remain active until every selected field decrypts successfully; investigate the reported rows and re-run before disabling encryption.
+
 ## Debugging
 
 - Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.

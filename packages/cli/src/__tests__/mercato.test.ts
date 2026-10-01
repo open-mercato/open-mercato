@@ -187,6 +187,47 @@ describe('padByCodePointWidth', () => {
   })
 })
 
+describe('module command argument logging', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('redacts legacy encryption keys before logging module command arguments', async () => {
+    const rotateEncryptionKey = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      {
+        id: 'entities',
+        cli: [{ command: 'rotate-encryption-key', run: rotateEncryptionKey }],
+      } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run([
+      'node',
+      'mercato',
+      'entities',
+      'rotate-encryption-key',
+      '--old-key',
+      'argument-secret',
+    ])).toBe(0)
+    expect(await run([
+      'node',
+      'mercato',
+      'entities',
+      'rotate-encryption-key',
+      '--oldKey=inline-secret',
+    ])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('argument-secret')
+    expect(output).not.toContain('inline-secret')
+    expect(output).toContain('--old-key ****')
+    expect(output).toContain('--oldKey=****')
+    expect(rotateEncryptionKey).toHaveBeenCalledTimes(2)
+    consoleLogSpy.mockRestore()
+  })
+})
+
 describe('db command failure output', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL
 

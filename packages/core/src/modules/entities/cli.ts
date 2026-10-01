@@ -1079,28 +1079,6 @@ const decryptDatabase: ModuleCli = {
       }
     }
 
-    if (deactivateMaps && !dryRun) {
-      let deactivateSql = `UPDATE encryption_maps SET is_active = false, deleted_at = now() WHERE tenant_id = ? AND deleted_at IS NULL`
-      const deactivateParams: unknown[] = [tenantIdArg]
-      if (organizationIdArg) {
-        deactivateSql += ` AND (organization_id = ? OR organization_id IS NULL)`
-        deactivateParams.push(organizationIdArg)
-      }
-      if (entityIdArg) {
-        deactivateSql += ` AND entity_id = ?`
-        deactivateParams.push(entityIdArg)
-      }
-      await conn.execute(deactivateSql, deactivateParams)
-      console.warn('⚠ Restart all application replicas — in-process map caches may still be active.')
-      if (isTenantDataEncryptionEnabled()) {
-        console.warn('⚠ Env TENANT_DATA_ENCRYPTION is still true — new writes will be re-encrypted until env is updated and replicas restarted.')
-      }
-    }
-
-    if (deactivateMaps && dryRun) {
-      console.log(`[dry-run] Would deactivate ${maps.length} EncryptionMap record(s).`)
-    }
-
     const prefix = dryRun ? '[dry-run] ' : ''
     console.log(`\n${prefix}Decryption summary:`)
     console.log(`  Rows fetched:        ${totalRowsFetched}`)
@@ -1123,6 +1101,31 @@ const decryptDatabase: ModuleCli = {
           console.log(`    ${loc}: ${count}`)
         }
       }
+      failCli(
+        `${totalMalformedPayloadCount} field value(s) could not be decrypted because their ciphertext was malformed. Encryption maps were left active.`,
+      )
+    }
+
+    if (deactivateMaps && !dryRun) {
+      let deactivateSql = `UPDATE encryption_maps SET is_active = false, deleted_at = now() WHERE tenant_id = ? AND deleted_at IS NULL`
+      const deactivateParams: unknown[] = [tenantIdArg]
+      if (organizationIdArg) {
+        deactivateSql += ` AND (organization_id = ? OR organization_id IS NULL)`
+        deactivateParams.push(organizationIdArg)
+      }
+      if (entityIdArg) {
+        deactivateSql += ` AND entity_id = ?`
+        deactivateParams.push(entityIdArg)
+      }
+      await conn.execute(deactivateSql, deactivateParams)
+      console.warn('⚠ Restart all application replicas — in-process map caches may still be active.')
+      if (isTenantDataEncryptionEnabled()) {
+        console.warn('⚠ Env TENANT_DATA_ENCRYPTION is still true — new writes will be re-encrypted until env is updated and replicas restarted.')
+      }
+    }
+
+    if (deactivateMaps && dryRun) {
+      console.log(`[dry-run] Would deactivate ${maps.length} EncryptionMap record(s).`)
     }
 
     if (!dryRun) {
