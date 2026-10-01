@@ -387,7 +387,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       setLoading(true)
       setError(null)
       setIsNotFound(false)
-      setAccessDenied(false)
       try {
         const queryParams = new URLSearchParams({ page: '1', pageSize: '1', ids: projectId! })
         const call = await apiCall<ProjectResponse>(
@@ -399,6 +398,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
           if (!cancelled) setAccessDenied(true)
           return
         }
+        if (!cancelled) setAccessDenied(false)
         if (!call.ok) {
           throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
@@ -649,6 +649,17 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   }, [handleAddEmployee])
 
   // --- Render ---
+  // Screen 17 — the caller may not open this project. The guard state names
+  // neither the customer nor the project (note 1), and the surrounding shell
+  // (sidebar, topbar) is untouched because the caller still has other projects
+  // (note 3). It is checked before `loading` and only cleared by a response that
+  // grants access, so a background reload (e.g. the organization scope
+  // resolving late) keeps the guard mounted instead of resetting a request the
+  // user has just sent.
+  if (accessDenied) {
+    return <NoProjectAccess timeProjectId={projectId} />
+  }
+
   if (loading) {
     return (
       <Page>
@@ -657,14 +668,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         </PageBody>
       </Page>
     )
-  }
-
-  // Screen 17 — the caller may not open this project. The guard state names
-  // neither the customer nor the project (note 1), and the surrounding shell
-  // (sidebar, topbar) is untouched because the caller still has other projects
-  // (note 3).
-  if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
   }
 
   if (isNotFound) {
