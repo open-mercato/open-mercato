@@ -35,3 +35,5 @@ export type {
 } from './lib/access-types'
 export { registerAttachmentAccessResolvers } from './lib/access-registry'
 export { syncAttachmentAccessProtection } from './lib/access-protection'
+export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
+export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'

@@ -3,6 +3,7 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { Migration20261001120000_attachments } from '../migrations/Migration20261001120000_attachments'
 
 test('owner policy migration protects historical Documents references without importing Documents', async () => {
+  if (!process.env.DATABASE_URL?.trim()) throw new Error('[internal] Managed integration DATABASE_URL is required')
   await withClient(async (client) => {
     await client.query('begin')
     try {
