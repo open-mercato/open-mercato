@@ -3,6 +3,7 @@
   "customer_groups.errors.codeDuplicate": "이 코드를 사용하는 고객 그룹이 이미 있습니다.",
   "customer_groups.errors.customerNotFound": "고객을 찾을 수 없습니다.",
   "customer_groups.errors.defaultConflict": "동시에 다른 고객 그룹이 기본값으로 지정되었습니다. 새로 고친 후 다시 시도하세요.",
+  "customer_groups.errors.deleteMembersOutsideScope": "이 그룹에는 접근 권한이 없는 조직의 구성원이 있어 삭제할 수 없습니다.",
   "customer_groups.errors.group_not_found": "고객 그룹을 찾을 수 없습니다",
   "customer_groups.errors.invalid_input": "잘못된 입력입니다",
   "customer_groups.errors.load_failed": "거래 조건을 불러오지 못했습니다",

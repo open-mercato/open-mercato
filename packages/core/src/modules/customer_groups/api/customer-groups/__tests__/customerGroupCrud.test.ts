@@ -39,6 +39,7 @@ type FakeEmConfig = {
   nativeUpdateError?: (where: Record<string, unknown>) => unknown
   flushError?: unknown
   transactionError?: unknown
+  execute?: (sql: string, params: unknown[]) => unknown[]
 }
 
 const DEFAULT_UNIQUE_VIOLATION = Object.assign(new Error('duplicate key value violates unique constraint'), {
@@ -75,17 +76,23 @@ function createFakeEm(config: FakeEmConfig = {}) {
       return result
     }),
     fork: (): unknown => em,
+    getConnection: () => ({
+      execute: jest.fn(async (sql: string, params: unknown[]) => {
+        calls.push('execute')
+        return config.execute ? config.execute(sql, params) : []
+      }),
+    }),
   }
   return { em, calls }
 }
 
-function createCtx(em: unknown): CrudCtx {
+function createCtx(em: unknown, organizationIds: string[] | null = null): CrudCtx {
   return {
     container: { resolve: (name: string) => (name === 'em' ? em : undefined) },
     auth: { tenantId: TENANT_ID, sub: 'user-1', orgId: null },
     organizationScope: null,
     selectedOrganizationId: null,
-    organizationIds: null,
+    organizationIds,
   } as unknown as CrudCtx
 }
 
@@ -501,6 +508,83 @@ describe('customer group CRUD route', () => {
 
       expect(em.nativeUpdate).not.toHaveBeenCalledWith(CustomerGroupMembership, expect.anything(), expect.anything())
       expect(emitMock).not.toHaveBeenCalled()
+    })
+
+    describe('caller restricted to some organizations', () => {
+      const ORG_A = '77777777-7777-4777-8777-777777777777'
+
+      function outsideScopeCount(total: number) {
+        return (sql: string) => {
+          if (sql.includes('to_regclass')) return [{ present: true }]
+          return [{ total: String(total) }]
+        }
+      }
+
+      it('lets an unrestricted caller delete without querying customer scope', async () => {
+        const { em, calls } = createFakeEm()
+
+        await expect(opts.hooks!.beforeDelete!(GROUP_ID, createCtx(em, null))).resolves.toBeUndefined()
+
+        expect(calls).not.toContain('execute')
+      })
+
+      it('refuses the delete with a 409 when the group has members outside the caller organizations', async () => {
+        const { em } = createFakeEm({ execute: outsideScopeCount(1) })
+
+        await expect(opts.hooks!.beforeDelete!(GROUP_ID, createCtx(em, [ORG_A]))).rejects.toMatchObject({
+          status: 409,
+          body: {
+            error: 'This group has members in organizations you cannot access, so you cannot delete it.',
+          },
+        })
+      })
+
+      it('counts only live memberships of the group whose customer is outside the caller organizations', async () => {
+        const executed: Array<{ sql: string; params: unknown[] }> = []
+        const { em } = createFakeEm({
+          execute: (sql, params) => {
+            executed.push({ sql, params })
+            return outsideScopeCount(0)(sql)
+          },
+        })
+
+        await expect(opts.hooks!.beforeDelete!(GROUP_ID, createCtx(em, [ORG_A]))).resolves.toBeUndefined()
+
+        const countQuery = executed.find((entry) => entry.sql.includes('customer_group_memberships'))
+        expect(countQuery?.sql).toContain('m.deleted_at is null')
+        expect(countQuery?.sql).toContain('not exists')
+        expect(countQuery?.params).toEqual([TENANT_ID, GROUP_ID, ORG_A])
+      })
+
+      it('refuses any member for a caller who sees no organization', async () => {
+        const { em } = createFakeEm({ execute: () => [{ total: '2' }] })
+
+        await expect(opts.hooks!.beforeDelete!(GROUP_ID, createCtx(em, []))).rejects.toMatchObject({ status: 409 })
+      })
+
+      it('re-checks inside the cascade and reverts the group delete when an out-of-scope member appeared', async () => {
+        const memberships = [{ id: 'm-1', tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: 'c-1' }]
+        const { em } = createFakeEm({ memberships, execute: outsideScopeCount(1) })
+
+        await expect(opts.hooks!.afterDelete!(GROUP_ID, createCtx(em, [ORG_A]))).rejects.toMatchObject({ status: 409 })
+
+        expect(em.nativeUpdate).not.toHaveBeenCalledWith(CustomerGroupMembership, expect.anything(), expect.anything())
+        expect(em.nativeUpdate).toHaveBeenLastCalledWith(
+          CustomerGroup,
+          { id: GROUP_ID, tenantId: TENANT_ID, deletedAt: { $ne: null } },
+          { deletedAt: null },
+        )
+        expect(emitMock).not.toHaveBeenCalled()
+      })
+
+      it('retires the memberships when every member is inside the caller organizations', async () => {
+        const memberships = [{ id: 'm-1', tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: 'c-1' }]
+        const { em } = createFakeEm({ memberships, execute: outsideScopeCount(0) })
+
+        await opts.hooks!.afterDelete!(GROUP_ID, createCtx(em, [ORG_A]))
+
+        expect(emitMock).toHaveBeenCalledTimes(1)
+      })
     })
 
     it('soft-deletes the deleted group terms, scoped to the caller tenant', async () => {

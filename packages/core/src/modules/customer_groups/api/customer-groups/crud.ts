@@ -18,6 +18,7 @@ import {
 } from '../../data/validators'
 import { emitCustomerGroupLifecycleEvent } from '../../lib/groupEvents'
 import { clearCreateConflictRecheck, registerCreateConflictRecheck } from '../../lib/createConflictRecheck'
+import { countGroupMembershipsOutsideScope } from '../../lib/customerScope'
 import { emitMembershipEvent } from './memberships/crud'
 
 // Shared (non-route) module: `route.ts` delegates to this single `makeCrudRoute`
@@ -278,13 +279,35 @@ export async function softDeleteGroupMemberships(
 // no hook inside its delete), so terms and memberships are retired together in one
 // transaction and, if that transaction fails, the group delete is reverted: the request
 // fails with the group, its terms and its memberships all still live, never half-deleted.
+// A caller restricted to some organizations may only delete a group whose live
+// members are all customers of those organizations: the cascade retires every
+// membership of the group, and the membership routes refuse that same caller each
+// out-of-scope membership one by one (see `lib/customerScope.ts`).
+export async function assertGroupMembershipsInScope(
+  em: EntityManager,
+  tenantId: string,
+  groupId: string,
+  organizationIds: string[] | null,
+  translate: Translate,
+): Promise<void> {
+  if ((await countGroupMembershipsOutsideScope(em, groupId, { tenantId, organizationIds })) === 0) return
+  throw conflict(
+    translate(
+      'customer_groups.errors.deleteMembersOutsideScope',
+      'This group has members in organizations you cannot access, so you cannot delete it.',
+    ),
+  )
+}
+
 export async function cascadeGroupDelete(
   em: EntityManager,
   tenantId: string,
   groupId: string,
+  assertInScope?: (tem: EntityManager) => Promise<void>,
 ): Promise<CustomerGroupMembership[]> {
   try {
     return await em.transactional(async (tem) => {
+      if (assertInScope) await assertInScope(tem)
       await softDeleteGroupTerms(tem, tenantId, groupId)
       return softDeleteGroupMemberships(tem, tenantId, groupId)
     })
@@ -566,10 +589,19 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       clearedDefaultGroupsByUpdate.delete(group)
       await announceClearedDefaultGroups(ctx.container, group.tenantId, cleared)
     },
+    beforeDelete: async (id, ctx) => {
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const { tenantId } = scopeFromContext(ctx)
+      const { translate } = await resolveTranslations()
+      await assertGroupMembershipsInScope(em, tenantId, id, ctx.organizationIds, translate)
+    },
     afterDelete: async (id, ctx) => {
       const em = ctx.container.resolve('em') as EntityManager
       const { tenantId } = scopeFromContext(ctx)
-      const removedMemberships = await cascadeGroupDelete(em, tenantId, id)
+      const { translate } = await resolveTranslations()
+      const removedMemberships = await cascadeGroupDelete(em, tenantId, id, (tem) =>
+        assertGroupMembershipsInScope(tem, tenantId, id, ctx.organizationIds, translate),
+      )
       if (!removedMemberships.length) return
       await invalidateCrudCache(
         ctx.container,

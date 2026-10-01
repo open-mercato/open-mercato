@@ -3,6 +3,7 @@
   "customer_groups.errors.codeDuplicate": "A customer group with this code already exists.",
   "customer_groups.errors.customerNotFound": "Customer not found.",
   "customer_groups.errors.defaultConflict": "Another customer group was made the default at the same time. Reload and try again.",
+  "customer_groups.errors.deleteMembersOutsideScope": "This group has members in organizations you cannot access, so you cannot delete it.",
   "customer_groups.errors.group_not_found": "Customer group not found",
   "customer_groups.errors.invalid_input": "Invalid input",
   "customer_groups.errors.load_failed": "Failed to load commercial terms",

@@ -3,6 +3,7 @@
   "customer_groups.errors.codeDuplicate": "Ya existe un grupo de clientes con este código.",
   "customer_groups.errors.customerNotFound": "Cliente no encontrado.",
   "customer_groups.errors.defaultConflict": "Al mismo tiempo se estableció otro grupo de clientes como predeterminado. Recarga e inténtalo de nuevo.",
+  "customer_groups.errors.deleteMembersOutsideScope": "Este grupo tiene miembros en organizaciones a las que no tienes acceso, por lo que no puedes eliminarlo.",
   "customer_groups.errors.group_not_found": "Grupo de clientes no encontrado",
   "customer_groups.errors.invalid_input": "Entrada no válida",
   "customer_groups.errors.load_failed": "No se pudieron cargar las condiciones comerciales",

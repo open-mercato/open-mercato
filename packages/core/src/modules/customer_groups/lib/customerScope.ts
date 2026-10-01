@@ -63,6 +63,35 @@ export async function isCustomerInScope(
   return (await findCustomerInScope(em, customerId, scope, options)) !== null
 }
 
+const MEMBERSHIP_TABLE = 'customer_group_memberships'
+
+// A group write that retires memberships in bulk (the group delete cascade) must not
+// reach a membership the caller could not remove one by one. Counts the group's live
+// memberships whose customer is outside the caller's organizations; an unrestricted
+// caller (`organizationIds: null`) never has any. A customer soft-deleted inside the
+// caller's organizations still counts as in scope, exactly like the membership routes'
+// `includeDeleted` lookup. Without a `customers` table no membership can be checked,
+// and none can have been created through the membership routes, so nothing counts.
+export async function countGroupMembershipsOutsideScope(
+  em: EntityManager,
+  groupId: string,
+  scope: CustomerScope,
+): Promise<number> {
+  const organizationIds = scope.organizationIds
+  if (organizationIds === null) return 0
+  const params: string[] = [scope.tenantId, groupId]
+  let sql = `select count(*) as total from ${MEMBERSHIP_TABLE} m where m.tenant_id = ? and m.group_id = ? and m.deleted_at is null`
+  if (organizationIds.length > 0) {
+    if (!(await isCustomerTablePresent(em))) return 0
+    sql += ` and not exists (select 1 from ${CUSTOMER_TABLE} c where c.id = m.customer_id and c.tenant_id = m.tenant_id`
+    sql += ` and c.organization_id in (${organizationIds.map(() => '?').join(', ')}))`
+    params.push(...organizationIds)
+  }
+  const rows = await em.getConnection().execute(sql, params)
+  const total = Array.isArray(rows) ? Number((rows[0] as { total?: unknown } | undefined)?.total ?? 0) : 0
+  return Number.isFinite(total) ? total : 0
+}
+
 // Membership lists that do not name a customer (by group, by id, or unfiltered) are
 // narrowed inside the list query itself: the query engine turns a filter on a join
 // alias into a correlated `exists (select 1 from customer_entities ...)` that also
