@@ -183,7 +183,7 @@ for (const schedule of scheduleCases) {
       })
       expect(rejected.status(), await rejected.text()).toBe(422)
       expect(await rejected.json()).toMatchObject({ fieldErrors: {
-        [schedule.kind === 'staff' ? 'participants' : 'linkedEntities']: 'example.calendar.visitAvailability.noSchedule',
+        [schedule.kind === 'staff' ? 'participants' : 'linkedEntities']: 'example.calendar.visitAvailability.unavailable',
       } })
       const stored = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}&limit=100`, { token })
       expect(stored.status(), await stored.text()).toBe(200)
@@ -197,7 +197,7 @@ for (const schedule of scheduleCases) {
       })
       expect(rejectedCreate.status(), await rejectedCreate.text()).toBe(422)
       expect(await rejectedCreate.json()).toMatchObject({ fieldErrors: {
-        [schedule.kind === 'staff' ? 'participants' : 'linkedEntities']: 'example.calendar.visitAvailability.noSchedule',
+        [schedule.kind === 'staff' ? 'participants' : 'linkedEntities']: 'example.calendar.visitAvailability.unavailable',
       } })
       await deleteEntityIfExists(request, token, '/api/planner/availability', ruleId)
       const titleOnly = await apiRequest(request, 'PUT', '/api/customers/interactions', {
