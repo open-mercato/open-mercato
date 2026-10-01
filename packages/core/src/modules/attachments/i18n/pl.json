@@ -1,4 +1,8 @@
 {
+  "attachments.access.forbidden": "Brak dostępu",
+  "attachments.access.notFound": "Nie znaleziono załącznika.",
+  "attachments.access.timeout": "Przekroczono czas sprawdzania dostępu do załącznika. Spróbuj ponownie.",
+  "attachments.access.unauthorized": "Brak autoryzacji",
   "attachments.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
   "attachments.errors.dangerousExecutable": "Pliki wykonywalne nie są dozwolone jako załączniki.",
   "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
@@ -181,9 +185,5 @@
   "attachments.partitions.table.title": "Tytuł",
   "attachments.partitions.table.visibility": "Widoczność",
   "attachments.partitions.title": "Partycje załączników",
-  "attachments.storage.nav.title": "Magazyn",
-  "attachments.access.unauthorized": "Brak autoryzacji",
-  "attachments.access.forbidden": "Brak dostępu",
-  "attachments.access.notFound": "Nie znaleziono załącznika.",
-  "attachments.access.timeout": "Przekroczono czas sprawdzania dostępu do załącznika. Spróbuj ponownie."
+  "attachments.storage.nav.title": "Magazyn"
 }

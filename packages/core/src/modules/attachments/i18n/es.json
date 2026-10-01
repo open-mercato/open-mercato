@@ -1,4 +1,8 @@
 {
+  "attachments.access.forbidden": "Acceso denegado",
+  "attachments.access.notFound": "No se encontró el archivo adjunto.",
+  "attachments.access.timeout": "Se agotó el tiempo de comprobación de acceso al archivo adjunto. Inténtalo de nuevo.",
+  "attachments.access.unauthorized": "No autorizado",
   "attachments.errors.activeContentBlocked": "No se permite la carga de contenido activo.",
   "attachments.errors.dangerousExecutable": "No se permiten archivos ejecutables como adjuntos.",
   "attachments.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
@@ -181,9 +185,5 @@
   "attachments.partitions.table.title": "Título",
   "attachments.partitions.table.visibility": "Visibilidad",
   "attachments.partitions.title": "Particiones de archivos adjuntos",
-  "attachments.storage.nav.title": "Almacenamiento",
-  "attachments.access.unauthorized": "No autorizado",
-  "attachments.access.forbidden": "Acceso denegado",
-  "attachments.access.notFound": "No se encontró el archivo adjunto.",
-  "attachments.access.timeout": "Se agotó el tiempo de comprobación de acceso al archivo adjunto. Inténtalo de nuevo."
+  "attachments.storage.nav.title": "Almacenamiento"
 }

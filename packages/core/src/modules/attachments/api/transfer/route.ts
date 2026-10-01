@@ -46,39 +46,53 @@ async function transferAttachments(req: Request) {
   const guard = await prepareAttachmentMutation({ container, req, auth, operation: 'update', payload: parsed.data })
   const effective = transferSchema.safeParse(guard.modifiedPayload ?? parsed.data)
   if (!effective.success) return throwAttachmentAccessError(403)
-  const { attachmentIds, entityId, fromRecordId, toRecordId } = effective.data
+  const { attachmentIds, entityId, fromRecordId } = effective.data
   const filters: Record<string, unknown> = {
     id: { $in: [...new Set(attachmentIds)].sort() }, entityId,
     tenantId: auth.tenantId, organizationId: auth.orgId,
     ...(fromRecordId ? { recordId: fromRecordId } : {}),
   }
   const accessContext = createAttachmentAccessContext(container)
-  const updated = await em.transactional(async (tx) => {
+  const outcome = await em.transactional(async (tx) => {
     const records = await findWithDecryption(tx, Attachment, filters, {
       orderBy: { id: 'asc' }, lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
     }, { tenantId: auth.tenantId, organizationId: auth.orgId })
     if (records.length !== new Set(attachmentIds).size) return throwAttachmentAccessError(404)
     const changes = []
     for (const record of records) {
+      const recordPayload = { ...effective.data, attachmentIds: [record.id] }
+      const recordGuard = await prepareAttachmentMutation({
+        container, req, auth, recordId: record.id, operation: 'update', payload: recordPayload,
+      })
+      const recordEffective = transferSchema.safeParse(recordGuard.modifiedPayload ?? recordPayload)
+      if (!recordEffective.success
+        || recordEffective.data.attachmentIds.length !== 1
+        || recordEffective.data.attachmentIds[0] !== record.id
+        || recordEffective.data.entityId !== record.entityId
+        || (recordEffective.data.fromRecordId && recordEffective.data.fromRecordId !== record.recordId)) {
+        return throwAttachmentAccessError(403)
+      }
+      const destinationId = recordEffective.data.toRecordId
       const metadata = readAttachmentMetadata(record.storageMetadata)
       const assignments = metadata.assignments?.map((assignment) => (
         assignment.type === entityId && assignment.id === (fromRecordId ?? record.recordId)
-          ? { ...assignment, id: toRecordId } : assignment
+          ? { ...assignment, id: destinationId } : assignment
       )) ?? []
       const storageMetadata = mergeAttachmentMetadata(record.storageMetadata, { assignments })
       await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: record, action: 'reassign', persistProtection: true })
-      await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: { ...record, recordId: toRecordId, storageMetadata }, action: 'reassign' })
-      changes.push({ record, storageMetadata })
+      await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: { ...record, recordId: destinationId, storageMetadata }, action: 'reassign' })
+      changes.push({ record, storageMetadata, destinationId, guard: recordGuard })
     }
-    for (const { record, storageMetadata } of changes) {
-      record.recordId = toRecordId
+    for (const { record, storageMetadata, destinationId } of changes) {
+      record.recordId = destinationId
       record.storageMetadata = storageMetadata
     }
     await tx.flush()
-    return records.length
+    return { updated: records.length, guards: changes.map((change) => change.guard) }
   })
   await guard.runAfterSuccess()
-  return NextResponse.json({ ok: true, updated })
+  for (const recordGuard of outcome.guards) await recordGuard.runAfterSuccess()
+  return NextResponse.json({ ok: true, updated: outcome.updated })
 }
 
 export const POST = withAttachmentAccessErrors(transferAttachments)

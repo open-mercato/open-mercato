@@ -10,7 +10,13 @@ const firstId = '10000000-0000-4000-8000-000000000001'
 const secondId = '10000000-0000-4000-8000-000000000002'
 const mockAfterSuccess = jest.fn(async () => undefined)
 let mockModifiedPayload: Record<string, unknown> | undefined
-const mockGuard = jest.fn(async () => ({ ok: true, modifiedPayload: mockModifiedPayload, runAfterSuccess: mockAfterSuccess }))
+let mockDeniedRecord: string | undefined
+let mockRecordDestination: string | undefined
+const mockGuard = jest.fn(async (input: { input: { resourceId?: string; mutationPayload?: Record<string, unknown> } }) => {
+  if (input.input.resourceId && input.input.resourceId === mockDeniedRecord) return { ok: false, errorStatus: 409, errorBody: { error: 'guard_blocked' } }
+  return { ok: true, modifiedPayload: input.input.resourceId && mockRecordDestination
+    ? { ...input.input.mutationPayload, toRecordId: mockRecordDestination } : mockModifiedPayload, runAfterSuccess: mockAfterSuccess }
+})
 const mockDelete = jest.fn(async () => undefined)
 const mockResolveDriver = jest.fn(async () => ({ delete: mockDelete }))
 const mockSetCustomFields = jest.fn(async () => undefined)
@@ -44,7 +50,7 @@ const request = (body: unknown, method = 'PATCH') => new Request('http://localho
 const params = { params: Promise.resolve({ id: firstId }) }
 
 beforeEach(() => {
-  jest.clearAllMocks(); mockModifiedPayload = undefined; mockRecords = [makeRecord()]
+  jest.clearAllMocks(); mockModifiedPayload = undefined; mockDeniedRecord = undefined; mockRecordDestination = undefined; mockRecords = [makeRecord()]
   jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => entity.name === 'AttachmentPartition'
     ? mockPartition as never : mockRecords.find((record) => record.id === (where as { id: string }).id) as never)
   jest.mocked(findWithDecryption).mockImplementation(async () => mockRecords as never)
@@ -111,4 +117,32 @@ it('resolves an authorized deletion driver before commit and deletes bytes only 
   expect(response.status).toBe(200)
   expect(mockResolveDriver.mock.invocationCallOrder[0]).toBeLessThan(mockTx.remove.mock.invocationCallOrder[0])
   expect(mockTx.flush.mock.invocationCallOrder[0]).toBeLessThan(mockDelete.mock.invocationCallOrder[0])
+})
+
+it('runs a per-record guard on every locked row and rolls back a rejection of only the second row', async () => {
+  mockRecords = [makeRecord(), makeRecord(secondId)]
+  mockDeniedRecord = secondId
+  const response = await transfer(request({ entityId: 'documents:document', attachmentIds: [firstId, secondId], toRecordId: 'destination' }, 'POST'))
+  expect(response.status).toBe(409)
+  expect(mockGuard.mock.calls.map(([entry]) => entry.input.resourceId)).toEqual([undefined, firstId, secondId])
+  expect(mockRecords.map((record) => record.recordId)).toEqual(['editable', 'editable'])
+  expect(mockTx.flush).not.toHaveBeenCalled()
+  expect(mockAfterSuccess).not.toHaveBeenCalled()
+})
+
+it('authorizes the destination modified by the per-record guard', async () => {
+  mockRecordDestination = 'hidden'
+  const response = await transfer(request({ entityId: 'documents:document', attachmentIds: [firstId], toRecordId: 'destination' }, 'POST'))
+  expect(response.status).toBe(404)
+  expect(mockRecords[0].recordId).toBe('editable')
+  expect(mockTx.flush).not.toHaveBeenCalled()
+})
+
+it('runs afterSuccess for each committed record in an allowed bulk transfer', async () => {
+  mockRecords = [makeRecord(), makeRecord(secondId)]
+  const response = await transfer(request({ entityId: 'documents:document', attachmentIds: [firstId, secondId], toRecordId: 'destination' }, 'POST'))
+  expect(response.status).toBe(200)
+  expect(mockRecords.map((record) => record.recordId)).toEqual(['destination', 'destination'])
+  expect(mockAfterSuccess).toHaveBeenCalledTimes(3)
+  expect(mockTx.flush.mock.invocationCallOrder[0]).toBeLessThan(mockAfterSuccess.mock.invocationCallOrder[0])
 })

@@ -1,4 +1,8 @@
 {
+  "attachments.access.forbidden": "접근이 거부되었습니다",
+  "attachments.access.notFound": "첨부 파일을 찾을 수 없습니다.",
+  "attachments.access.timeout": "첨부 파일 접근 권한 확인 시간이 초과되었습니다. 다시 시도해 주세요.",
+  "attachments.access.unauthorized": "인증이 필요합니다",
   "attachments.errors.activeContentBlocked": "활성 콘텐츠 업로드는 허용되지 않습니다.",
   "attachments.errors.dangerousExecutable": "실행 파일 형식은 첨부 파일로 허용되지 않습니다.",
   "attachments.errors.maxUploadSize": "첨부 파일이 최대 업로드 크기를 초과합니다.",
@@ -181,9 +185,5 @@
   "attachments.partitions.table.title": "제목",
   "attachments.partitions.table.visibility": "공개 범위",
   "attachments.partitions.title": "첨부 파일 파티션",
-  "attachments.storage.nav.title": "저장소",
-  "attachments.access.unauthorized": "인증이 필요합니다",
-  "attachments.access.forbidden": "접근이 거부되었습니다",
-  "attachments.access.notFound": "첨부 파일을 찾을 수 없습니다.",
-  "attachments.access.timeout": "첨부 파일 접근 권한 확인 시간이 초과되었습니다. 다시 시도해 주세요."
+  "attachments.storage.nav.title": "저장소"
 }

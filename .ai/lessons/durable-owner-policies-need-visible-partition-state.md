@@ -19,3 +19,8 @@ target unless the caller's partition already carries every required marker for t
 commit. Keep full scans in trusted setup/upgrade. Preserve concurrent requirements under a row
 lock, never overwrite them with a stale caller snapshot, and test both transaction-visibility
 cases plus repeat-safe union and disabled-provider behavior.
+
+**Mutation review follow-up**: A bulk guard without a record ID cannot enforce record-specific
+restrictions. Keep batch transformations, then guard every locked record and validate its final
+prospective owner before changing any attachment. Exercise a guard that rejects only the second
+row and a guard that changes the destination.
