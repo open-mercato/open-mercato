@@ -13,6 +13,7 @@ import {
   OAuthStateError,
   verifyOAuthState,
 } from '../../../../../lib/oauth-state'
+import { OAUTH_RESULT_QUERY_PARAM } from '../../../../../lib/oauth-result'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('communication_channels').child({ component: 'oauth-callback' })
@@ -49,7 +50,7 @@ function redirectWithFlash(
     normalizeOAuthReturnUrl(returnUrl, DEFAULT_OAUTH_RETURN_URL),
     getAppBaseUrl(req),
   )
-  base.searchParams.set('flash', flash.type)
+  base.searchParams.set(OAUTH_RESULT_QUERY_PARAM, flash.type)
   if (flash.code) base.searchParams.set('code', flash.code)
   if (flash.provider) base.searchParams.set('provider', flash.provider)
   if (flash.channelId) base.searchParams.set('channelId', flash.channelId)
