@@ -3,9 +3,9 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 30,
-    "recordCount": 138,
-    "sourceRequiredCount": 113,
-    "readableCount": 138,
+    "recordCount": 143,
+    "sourceRequiredCount": 118,
+    "readableCount": 143,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -1791,6 +1791,99 @@
       ]
     },
     {
+      "referenceId": "om-data-model-design/sensitive-data:api/todos/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "href": "../../../../src/modules/example/api/todos/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/todos/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-query-engine-custom-fields",
+        "search.encrypted-column-list-filter"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/sensitive-data:encryption.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "href": "../../../../src/modules/example/encryption.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/encryption.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/sensitive-data:node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "href": "../../../../node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/query/engine.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/sensitive-data:search.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "href": "../../../../src/modules/example/search.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/search.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "search.module-config"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
       "referenceId": "om-data-model-design:references/surface-map.md",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-data-model-design/SKILL.md",
@@ -2055,6 +2148,27 @@
       "capabilityIds": [
         "integrations.mock-adapters"
       ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:.ai/skills/om-data-model-design/references/sensitive-data.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "API and Domain Writes",
+      "href": "../../om-data-model-design/references/sensitive-data.md#encrypted-list-search",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": [],
       "presets": [
         "classic",
         "crm",

@@ -7,8 +7,9 @@ the authority for this layer's import paths and carries MUST rules that are easy
 by writing something that merely compiles — in particular: use the `badRequest` / `forbidden`
 / `notFound` / `conflict` / `assertFound` helpers from
 `@open-mercato/shared/lib/crud/errors` rather than hand-rolling `new CrudHttpError(404, …)`;
-read encrypted columns through `@open-mercato/shared/lib/encryption/find`; and never `$ilike`
-a column an encryption map covers — use `@open-mercato/shared/lib/search/tokenLookup`.
+read direct ORM results through `@open-mercato/shared/lib/encryption/find`; and follow
+[encrypted list search](../../om-data-model-design/references/sensitive-data.md#encrypted-list-search)
+for the QueryEngine `$ilike` versus raw ORM token-lookup distinction and its populated-index precondition.
 
 There is no `@open-mercato/shared/lib/http/types`. A hand-written route handler takes the
 platform `Request` (`export async function GET(request: Request)`) and returns a platform
