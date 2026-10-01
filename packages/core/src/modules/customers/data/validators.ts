@@ -516,6 +516,7 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   id: z.string().uuid().optional(),
   entityId: z.string().uuid(),
   interactionType: z.string().trim().min(1).max(100),
+  enforceSelectableType: z.boolean().optional(),
   title: z.string().trim().max(500).optional().nullable(),
   body: z.string().trim().max(10000).optional().nullable(),
   // Lenient like `deal_status` (status: z.string().max(50)). The `interaction-statuses`
@@ -600,6 +601,7 @@ const interactionUpdateBaseSchema = z
         // state to express — that depends on #5935 making the column nullable first.
         entityId: z.string().uuid().optional(),
         interactionType: z.string().trim().min(1).max(100).optional(),
+        enforceSelectableType: z.boolean().optional(),
         confirmDiscardInapplicableValues: z.boolean().optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),

@@ -485,15 +485,16 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
       }
 
+      const enforceSelectableType = requestsSelectableTypeEnforcement(rawInput)
       const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
-        ctx, trx, entity.tenantId, entity.organizationId, parsed.interactionType, false, requestsSelectableTypeEnforcement(rawInput),
+        ctx, trx, entity.tenantId, entity.organizationId, parsed.interactionType, false, enforceSelectableType,
       )
       const inapplicableCore = findInapplicableCoreFields(behavior, parsed)
       const customKeys = Object.keys(custom).length
         ? await loadApplicableCustomFieldKeys(trx, entity.tenantId, organizationIds, behavior)
         : null
       const inapplicableCustom = customKeys ? inapplicableCustomFieldKeys(custom, customKeys) : []
-      if (inapplicableCore.length || inapplicableCustom.length) {
+      if (enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length)) {
         const { translate } = await resolveTranslations()
         throw inapplicableFieldError(
           [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
@@ -775,8 +776,9 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
 
       const nextType = parsed.interactionType ?? interaction.interactionType
       const changingType = nextType !== interaction.interactionType
+      const enforceSelectableType = requestsSelectableTypeEnforcement(rawInput)
       const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
-        ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType, requestsSelectableTypeEnforcement(rawInput),
+        ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType, enforceSelectableType,
       )
       const currentCoreValues = {
         durationMinutes: interaction.durationMinutes,
@@ -804,7 +806,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         ? await loadApplicableCustomFieldKeys(trx, interaction.tenantId, organizationIds, behavior)
         : null
       const inapplicableCustom = customKeys ? inapplicableCustomFieldKeys(customValues, customKeys) : []
-      if (!changingType && (inapplicableCore.length || inapplicableCustom.length)) {
+      if (!changingType && enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length)) {
         const { translate } = await resolveTranslations()
         throw inapplicableFieldError(
           [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],

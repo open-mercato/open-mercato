@@ -227,7 +227,7 @@ Logs identify source tier, module/widget ID, type key, operation, and outcome. T
 ## Security and module safety
 
 - Only trusted enabled module code may define widget payloads or use the DI API; tenant dictionary configuration stays declarative and bounded.
-- Metadata and programmatic calls are zod-validated before registry changes; the server enforces scope, ACL, core applicability, and guards on every direct write.
+- Metadata and programmatic calls are zod-validated before registry changes; the server enforces scope and ACL on every write, the calendar picker opts into core applicability enforcement, and contributed types keep authoritative server guards for their own invariants.
 - Customers never imports an optional contributor, creates cross-module ORM relations, or unconditionally resolves its service.
 - Generic widget gates and the selected-type filter use the enabled-module set and wildcard-aware feature checks. Client-side widget visibility does not authorize an API write.
 
@@ -363,6 +363,10 @@ Approved for review as a widget-based extension contract over the customers cale
 ### 2026-09-30 — Preserve shipped calendar types
 
 - Example adds Visit and optionally patches Meeting without removing or disabling any built-in type, regardless of the demo flag. Generic app-owned removal instructions and Customers tombstone support remain available.
+
+### 2026-10-01 — Strict picker enforcement without public-route regression
+
+- Made `enforceSelectableType` an explicit calendar-picker signal instead of injecting it into every public interaction write. Existing integrations keep accepting their established keys and same-type payloads, while contributed types continue to enforce authoritative server rules.
 
 ### 2026-09-30 — Named availability and calendar booking conflicts
 

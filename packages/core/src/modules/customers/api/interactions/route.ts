@@ -96,7 +96,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return { ...parseScopedCommandInput(interactionCreateSchema, raw ?? {}, ctx, translate), enforceSelectableType: true }
+        return parseScopedCommandInput(interactionCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }) => ({ id: result?.interactionId ?? result?.id ?? null }),
       status: 201,
@@ -131,7 +131,7 @@ const crud = makeCrudRoute({
             logger.warn('Legacy interaction bridge failed', { component: 'interactions.put', id: parsed.id, err })
           }
         }
-        return { ...parsed, enforceSelectableType: true }
+        return parsed
       },
       response: () => ({ ok: true }),
     },

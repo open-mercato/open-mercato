@@ -25,12 +25,14 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
 
 import { resolveScopedCalendarEventTypes } from '../eventTypeResolver'
 import {
+  getCalendarEventTypeDiagnostics,
   resetCalendarEventTypeRegistryForTests,
   type CalendarEventTypeWidget,
 } from '../../../calendar-event-types'
 
 const GLOBAL_INJECTION_WIDGETS_KEY = '__openMercatoCoreInjectionWidgetEntries__'
 const WIDGET_ID = 'example.injection.calendar-visit'
+const MALFORMED_WIDGET_ID = 'example.injection.malformed-calendar-type'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
@@ -73,6 +75,17 @@ const widgetEntries: ModuleInjectionWidgetEntry[] = [{
   loader: async () => visitWidget,
 }]
 
+const malformedWidgetEntries: ModuleInjectionWidgetEntry[] = [{
+  moduleId: 'example',
+  key: 'example:malformed-calendar-type:widget',
+  source: 'app',
+  widgetId: MALFORMED_WIDGET_ID,
+  loader: async () => ({
+    metadata: { id: MALFORMED_WIDGET_ID, title: 'Malformed calendar type', requiredModules: ['customers'] },
+    Widget: () => null,
+  }),
+}]
+
 function clearRegistry() {
   delete (globalThis as Record<string, unknown>)[GLOBAL_INJECTION_WIDGETS_KEY]
 }
@@ -105,5 +118,27 @@ describe('calendar catalog under the API-only bootstrap partition', () => {
     })
 
     expect(catalog.items.map((item) => item.key)).toContain('visit')
+  })
+
+  it('skips a widget without an eventTypes payload and records an invalid-source diagnostic', async () => {
+    registerCoreInjectionTables([{
+      moduleId: 'example',
+      table: { 'calendar:customers.event-types': MALFORMED_WIDGET_ID },
+    }], malformedWidgetEntries)
+    registerCoreInjectionWidgets(malformedWidgetEntries, { mode: 'merge' })
+
+    const catalog = await resolveScopedCalendarEventTypes({
+      em: {} as never,
+      tenantId,
+      organizationId,
+      readableOrganizationIds: [organizationId],
+    })
+
+    expect(catalog.items.map((item) => item.key)).toContain('meeting')
+    expect(getCalendarEventTypeDiagnostics()).toContainEqual({
+      code: 'invalid-source',
+      moduleId: 'example',
+      widgetId: MALFORMED_WIDGET_ID,
+    })
   })
 })

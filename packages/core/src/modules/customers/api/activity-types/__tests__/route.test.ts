@@ -138,4 +138,14 @@ describe('activity type catalog route', () => {
       }),
     )
   })
+
+  test('returns 500 when an unexpected permission dependency failure escapes setup', async () => {
+    userHasAllFeaturesMock.mockRejectedValueOnce(new Error('rbac unavailable'))
+    const response = await GET(new Request('http://localhost/api/customers/activity-types'))
+    expect(response.status).toBe(500)
+    expect(reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: 'customers.activity_type_catalog_request_failed' }),
+    )
+  })
 })

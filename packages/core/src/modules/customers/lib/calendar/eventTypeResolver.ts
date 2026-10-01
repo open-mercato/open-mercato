@@ -99,14 +99,11 @@ async function ensureCalendarEventTypeWidgetsLoaded(): Promise<void> {
   const pending = (async () => {
     const widgets = await loadInjectionWidgetsForSpot(extensionPoints.hosts.calendarEventTypes.spotId)
     registerWidgetCalendarEventTypeContributions(widgets.map((widget) => {
-      if (!('eventTypes' in widget)) {
-        throw new Error(`[internal] Calendar event type widget ${widget.metadata.id} has no eventTypes payload`)
-      }
       return {
         moduleId: widget.moduleId,
         widgetId: widget.metadata.id,
         priority: typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0,
-        definitions: widget.eventTypes,
+        definitions: 'eventTypes' in widget ? widget.eventTypes : null,
         overrides: 'eventTypeOverrides' in widget ? widget.eventTypeOverrides : undefined,
         patches: 'eventTypePatches' in widget ? widget.eventTypePatches : undefined,
       }

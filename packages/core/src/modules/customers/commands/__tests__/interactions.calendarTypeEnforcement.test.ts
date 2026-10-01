@@ -197,12 +197,27 @@ describe('interaction calendar-type command enforcement', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
-  it('rejects an inapplicable create field before persisting', async () => {
+  it('rejects an inapplicable calendar-picker create field before persisting', async () => {
     const { em, context } = makeContext()
     const command = registeredCommands.get('customers.interactions.create')!
-    await expect(command.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'note', location: 'Office' }, context))
+    await expect(command.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'note', location: 'Office', enforceSelectableType: true }, context))
       .rejects.toMatchObject({ status: 400, body: { code: 'activity_type_field_not_applicable', fields: ['location'] } })
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('preserves public API compatibility unless the calendar picker requests strict enforcement', async () => {
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: [{ key: 'note', selectable: false, behavior: noteBehavior }] })
+    const { interaction, em, context } = makeContext()
+    const create = registeredCommands.get('customers.interactions.create')!
+    await expect(create.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'note', location: 'Office' }, context))
+      .resolves.toMatchObject({ interactionId: INTERACTION })
+    expect(em.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ interactionType: 'note', location: 'Office' }))
+
+    interaction.interactionType = 'note'
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    const update = registeredCommands.get('customers.interactions.update')!
+    await expect(update.execute({ id: INTERACTION, durationMinutes: 45 }, context)).resolves.toBeDefined()
+    expect(interaction.durationMinutes).toBe(45)
   })
 
   it('checks the optimistic lock before exposing discard fields', async () => {

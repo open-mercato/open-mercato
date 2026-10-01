@@ -28,7 +28,7 @@ import {
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import type { CalendarEventTypeBehavior } from '../calendar-event-types'
+import { calendarEventTypeBehaviorSchema, type CalendarEventTypeBehavior } from '../calendar-event-types'
 
 const logger = createLogger('customers')
 
@@ -48,6 +48,18 @@ type CustomerDictionaryEntrySnapshot = {
 type CustomerDictionaryEntryUndoPayload = {
   before?: CustomerDictionaryEntrySnapshot | null
   after?: CustomerDictionaryEntrySnapshot | null
+}
+
+const nullableCalendarEventTypeBehaviorSchema = calendarEventTypeBehaviorSchema.nullable()
+
+function calendarEventTypeBehaviorsEqual(
+  left: CalendarEventTypeBehavior | null,
+  right: CalendarEventTypeBehavior | null,
+): boolean {
+  const parsedLeft = nullableCalendarEventTypeBehaviorSchema.safeParse(left)
+  const parsedRight = nullableCalendarEventTypeBehaviorSchema.safeParse(right)
+  if (parsedLeft.success && parsedRight.success) return isDeepStrictEqual(parsedLeft.data, parsedRight.data)
+  return isDeepStrictEqual(left, right)
 }
 
 function buildRoleTypeInUseError(usageCount: number, ownerAssignments: number, relationshipAssignments: number) {
@@ -93,6 +105,23 @@ function toSnapshot(entry: CustomerDictionaryEntry): CustomerDictionaryEntrySnap
     icon: entry.icon ?? null,
     behavior: entry.activityTypeBehavior ?? null,
   }
+}
+
+function buildDictionaryChanges(
+  before: CustomerDictionaryEntrySnapshot,
+  after: CustomerDictionaryEntrySnapshot,
+  keys: readonly (keyof CustomerDictionaryEntrySnapshot)[],
+): Record<string, { from: unknown; to: unknown }> {
+  const scalarKeys = keys.filter((key) => key !== 'behavior')
+  const changes = buildChanges(
+    before as unknown as Record<string, unknown>,
+    after as unknown as Record<string, unknown>,
+    scalarKeys,
+  )
+  if (keys.includes('behavior') && !calendarEventTypeBehaviorsEqual(before.behavior, after.behavior)) {
+    changes.behavior = { from: before.behavior, to: after.behavior }
+  }
+  return changes
 }
 
 async function loadSnapshot(
@@ -274,9 +303,9 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     if (result.mode === 'updated') {
       const before = result.before ?? null
       if (!before) return null
-      const changes = buildChanges(
-        before as unknown as Record<string, unknown>,
-        after as unknown as Record<string, unknown>,
+      const changes = buildDictionaryChanges(
+        before,
+        after,
         ['label', 'color', 'icon', 'behavior']
       )
       if (!changes || Object.keys(changes).length === 0) return null
@@ -560,9 +589,9 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     const before = snapshots.before as CustomerDictionaryEntrySnapshot | undefined
     const after = snapshots.after as CustomerDictionaryEntrySnapshot | undefined
     if (!before || !after || !result.changed) return null
-    const changes = buildChanges(
-      before as unknown as Record<string, unknown>,
-      after as unknown as Record<string, unknown>,
+    const changes = buildDictionaryChanges(
+      before,
+      after,
       ['value', 'label', 'color', 'icon', 'behavior']
     )
     if (!changes || Object.keys(changes).length === 0) return null

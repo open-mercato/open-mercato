@@ -218,6 +218,8 @@ Structured logs include tenant/organization IDs, type key, resolver source count
 
 - Nullable JSONB and optional API fields are additive.
 - Existing routes, methods, custom-field spots, and stored interaction type values remain unchanged.
+- Calendar-picker writes explicitly request strict selectability/applicability enforcement. Existing public interaction clients that do not opt in retain legacy acceptance for hidden/arbitrary keys and same-type fields; destructive type changes still require the typed confirmation handshake.
+- Activity-type dictionary reads intentionally narrow from every readable organization to the selected organization plus its ancestors, preventing sibling configuration disclosure; callers select another organization explicitly when needed.
 - The deprecated resolver bridge and `UPGRADE_NOTES.md` entry remain for at least one minor version.
 - The canonical schema, six definitions, fallback, resolver, and read route come from the prerequisite foundation; scoped dictionary overlays remain above widget/programmatic sources and cannot execute React.
 - Old application code ignores the nullable column and continues using current fallbacks.
@@ -235,10 +237,10 @@ Structured logs include tenant/organization IDs, type key, resolver source count
 
 ### Phase B — Server enforcement
 
-4. Enforce field applicability in interaction create/update commands.
+4. Enforce field applicability for calendar-picker create/update commands while preserving legacy public/internal writers unless they opt into strict enforcement.
 5. Add destructive-switch analysis, typed confirmation conflict, atomic core/custom snapshots, undo, and side-effect ordering tests.
 
-*Exit:* direct clients cannot bypass behavior and confirmed clearing is reversible.
+*Exit:* calendar-picker writes cannot bypass behavior, legacy clients remain compatible, and confirmed type-change clearing is reversible.
 
 ### Phase C — Administrator and calendar UI
 
@@ -336,6 +338,11 @@ Approved for review. The original combined brief was split by capability with th
 ### 2026-09-30 — Preserve shipped calendar types
 
 - Example adds Visit and optionally patches Meeting without removing or disabling any built-in type, regardless of the demo flag. Generic app-owned removal instructions and Customers tombstone support remain available.
+
+### 2026-10-01 — Public interaction compatibility and dictionary scope
+
+- Limited strict selectability and same-type applicable-field enforcement to callers that send `enforceSelectableType: true`; the calendar editor sends the flag, while existing public schedule/composer clients keep their prior behavior.
+- Documented that activity-type dictionary reads expose only the selected organization and its ancestors, never readable siblings.
 
 ### 2026-09-30 — Named availability and calendar booking conflicts
 

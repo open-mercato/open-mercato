@@ -131,7 +131,7 @@ export async function GET(req: Request) {
     const { translate } = await resolveTranslations()
     return NextResponse.json({
       error: translate('customers.calendar.activityTypes.errors.loadFailed', 'Failed to load activity types'),
-    }, { status: 400 })
+    }, { status: err instanceof z.ZodError ? 400 : 500 })
   }
 }
 
@@ -147,6 +147,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Organization scope is required', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+        { status: 500, description: 'Unexpected server error', schema: z.object({ error: z.string() }) },
       ],
     },
   },

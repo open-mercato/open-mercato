@@ -5,7 +5,13 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
 
-type Catalog = { fallbackKey: string; items: Array<{ key: string; selectable: boolean; behavior: { baseKind: string }; source: string }> }
+type CatalogItem = {
+  key: string
+  selectable: boolean
+  behavior: { baseKind: string; fields: Record<string, unknown>; [key: string]: unknown }
+  source: string
+}
+type Catalog = { fallbackKey: string; items: CatalogItem[] }
 
 test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', () => {
   test('links calendar settings to the authoritative activity type manager', async ({ page }) => {
@@ -38,7 +44,7 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       })
       const rejected = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token,
-        data: { entityId: personId, interactionType: 'qa_unregistered_type', title: 'Should be rejected' },
+        data: { entityId: personId, interactionType: 'qa_unregistered_type', title: 'Should be rejected', enforceSelectableType: true },
       })
       expect(rejected.status()).toBe(400)
       expect(await rejected.json()).toMatchObject({ code: 'activity_type_unavailable' })
@@ -190,7 +196,7 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       expect(created.status(), await created.text()).toBe(201)
       interactionId = (await created.json() as { id: string }).id
       const inapplicable = await apiRequest(request, 'PUT', '/api/customers/interactions', {
-        token, data: { id: interactionId, durationMinutes: 45 },
+        token, data: { id: interactionId, durationMinutes: 45, enforceSelectableType: true },
       })
       expect(inapplicable.status(), await inapplicable.text()).toBe(400)
       expect(await inapplicable.json()).toMatchObject({ code: 'activity_type_field_not_applicable', fields: ['durationMinutes'] })
@@ -201,7 +207,7 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       expect(hidden.status(), await hidden.text()).toBe(200)
       updatedAt = (await hidden.json() as { updatedAt: string }).updatedAt
       const unavailable = await apiRequest(request, 'POST', '/api/customers/interactions', {
-        token, data: { entityId: personId, interactionType: key, title: 'Hidden type is not selectable' },
+        token, data: { entityId: personId, interactionType: key, title: 'Hidden type is not selectable', enforceSelectableType: true },
       })
       expect(unavailable.status(), await unavailable.text()).toBe(400)
       expect(await unavailable.json()).toMatchObject({ code: 'activity_type_unavailable' })
@@ -240,12 +246,36 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
   })
 
   for (const activityType of ['call', 'task'] as const) {
-    test(`creates and edits ${activityType} duration from the company schedule dialog`, async ({ page, request }) => {
+    test(`creates and edits ${activityType} from the company schedule dialog after its built-in fields change`, async ({ page, request }) => {
       const token = await getAuthToken(request, 'admin')
       const title = `QA schedule ${activityType} ${Date.now()}`
       let companyId: string | null = null
       let interactionId: string | null = null
+      let dictionaryEntryId: string | null = null
+      let dictionaryUpdatedAt: string | null = null
+      let originalBehavior: CatalogItem['behavior'] | null = null
       try {
+        const catalogResponse = await apiRequest(request, 'GET', '/api/customers/activity-types', { token })
+        expect(catalogResponse.status(), await catalogResponse.text()).toBe(200)
+        const definition = (await catalogResponse.json() as Catalog).items.find((item) => item.key === activityType)!
+        expect(definition).toBeTruthy()
+        const dictionaryResponse = await apiRequest(request, 'GET', '/api/customers/dictionaries/activity-types', { token })
+        expect(dictionaryResponse.status(), await dictionaryResponse.text()).toBe(200)
+        const dictionaryEntry = (await dictionaryResponse.json() as {
+          items?: Array<{ id: string; value: string; behavior: CatalogItem['behavior'] | null; updatedAt: string }>
+        }).items?.find((item) => item.value === activityType)
+        expect(dictionaryEntry).toBeTruthy()
+        dictionaryEntryId = dictionaryEntry!.id
+        dictionaryUpdatedAt = dictionaryEntry!.updatedAt
+        originalBehavior = dictionaryEntry!.behavior
+        const configured = await apiRequest(request, 'PATCH', `/api/customers/dictionaries/activity-types/${dictionaryEntryId}`, {
+          token,
+          headers: { 'x-om-ext-optimistic-lock-expected-updated-at': dictionaryUpdatedAt },
+          data: { behavior: { ...definition.behavior, fields: { ...definition.behavior.fields, endTime: false, priority: false } } },
+        })
+        expect(configured.status(), await configured.text()).toBe(200)
+        dictionaryUpdatedAt = (await configured.json() as { updatedAt: string }).updatedAt
+
         companyId = await createCompanyFixture(request, token, `Company for ${title}`)
         await login(page, 'admin')
         await page.goto(`/backend/customers/companies-v2/${companyId}`)
@@ -283,6 +313,13 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       } finally {
         await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
         await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+        if (dictionaryEntryId && dictionaryUpdatedAt) {
+          await apiRequest(request, 'PATCH', `/api/customers/dictionaries/activity-types/${dictionaryEntryId}`, {
+            token,
+            headers: { 'x-om-ext-optimistic-lock-expected-updated-at': dictionaryUpdatedAt },
+            data: { behavior: originalBehavior },
+          })
+        }
       }
     })
   }
