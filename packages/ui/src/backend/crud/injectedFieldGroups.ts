@@ -27,6 +27,8 @@ function entryId(entry: NonNullable<CrudFormGroup['fields']>[number]): string {
  *   gets its own card built from the injection-table `groupLabel`/`groupDescription`/`column`.
  * - Any other field falls back to the last group that renders plain fields — never into a
  *   `customFields` or `bare` group, which do not render `group.fields` and would drop it.
+ *   A field that explicitly names a `customFields` or `bare` group is still placed there and,
+ *   like any non-field entry of such a group, is not rendered.
  */
 export function placeInjectedFieldsInGroups(
   groups: CrudFormGroup[],

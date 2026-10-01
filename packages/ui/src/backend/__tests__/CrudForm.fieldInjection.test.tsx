@@ -213,6 +213,12 @@ describe('CrudForm group field injection (#3047)', () => {
     await waitFor(() => {
       expect(capturedEventWidgets.map((widget) => widget.widgetId)).toEqual(['wms.injection.catalog-inventory-profile'])
     })
-    expect(capturedEventWidgets[0].module.eventHandlers?.onBeforeSave).toBe(onBeforeSave)
+    const handlers = capturedEventWidgets[0].module.eventHandlers as Record<string, (...args: unknown[]) => unknown>
+    expect(handlers.onBeforeSave).toBe(onBeforeSave)
+    for (const deleteEvent of ['onBeforeDelete', 'onDelete', 'onAfterDelete']) {
+      expect(typeof handlers[deleteEvent]).toBe('function')
+      await handlers[deleteEvent]({})
+    }
+    expect(onBeforeSave).not.toHaveBeenCalled()
   })
 })

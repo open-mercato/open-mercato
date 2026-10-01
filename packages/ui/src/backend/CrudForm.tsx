@@ -502,13 +502,29 @@ export type CrudFormGroup = {
   bare?: boolean
 }
 
-// Appends `legacy` entries not already present in `primary` (by `keyOf`), so a
-// `legacyInjectionSpotId` bridge never renders the same widget twice when it is
-// registered on both the primary and the legacy spot.
 function renderNoInjectedFieldWidget(): null {
   return null
 }
 
+async function skipInjectedFieldDeleteEvent(): Promise<void> {}
+
+// Field widgets persist values of the record being edited, so a delete must not fall
+// back to their save handlers the way it does for component widgets.
+const INJECTED_FIELD_DELETE_EVENT_DEFAULTS = {
+  onBeforeDelete: skipInjectedFieldDeleteEvent,
+  onDelete: skipInjectedFieldDeleteEvent,
+  onAfterDelete: skipInjectedFieldDeleteEvent,
+}
+
+function injectionWidgetPriority(widget: LoadedInjectionSpotWidget): number {
+  const placementPriority = widget.placement?.priority
+  if (typeof placementPriority === 'number') return placementPriority
+  return typeof widget.module.metadata.priority === 'number' ? widget.module.metadata.priority : 0
+}
+
+// Appends `legacy` entries not already present in `primary` (by `keyOf`), so a
+// `legacyInjectionSpotId` bridge never renders the same widget twice when it is
+// registered on both the primary and the legacy spot.
 function mergeByKey<T>(primary: T[], legacy: T[], keyOf: (item: T) => string): T[] {
   if (!legacy.length) return primary
   const seen = new Set(primary.map(keyOf))
@@ -1240,13 +1256,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!('fields' in widget) || !widget.eventHandlers) continue
       fieldEventWidgets.push({
         widgetId: widget.metadata.id,
-        module: { metadata: widget.metadata, eventHandlers: widget.eventHandlers, Widget: renderNoInjectedFieldWidget },
+        module: {
+          metadata: widget.metadata,
+          eventHandlers: { ...INJECTED_FIELD_DELETE_EVENT_DEFAULTS, ...widget.eventHandlers },
+          Widget: renderNoInjectedFieldWidget,
+        },
         moduleId: widget.moduleId,
         key: widget.key,
         placement: widget.placement,
       })
     }
+    if (!fieldEventWidgets.length) return injectionWidgets
     return mergeByKey(injectionWidgets, fieldEventWidgets, (widget) => widget.widgetId)
+      .map((widget, index) => ({ widget, index }))
+      .sort((left, right) => injectionWidgetPriority(right.widget) - injectionWidgetPriority(left.widget) || left.index - right.index)
+      .map((entry) => entry.widget)
   }, [injectionWidgets, injectedFieldWidgets])
 
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionEventWidgets)
