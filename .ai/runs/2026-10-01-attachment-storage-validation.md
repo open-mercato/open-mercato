@@ -28,6 +28,6 @@ PR: #6820
 
 ### Phase 2: Consumers and verification
 
-- [ ] 2.1 Register provider-owned validation and preserve compatible S3 configurations.
+- [x] 2.1 Register provider-owned validation and preserve compatible S3 configurations. — 58ad53083f; 19 targeted S3/DI assertions pass.
 - [ ] 2.2 Integrate HTTP/CLI failures and deletion ordering; add consumer and native API regressions.
 - [ ] 2.3 Publish public guidance and complete validation, independent inspection and handoff evidence.
