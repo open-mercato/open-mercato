@@ -107,7 +107,7 @@
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
     "test:create-app": "tsx scripts/test-create-app.ts",
     "test:create-app:integration": "tsx scripts/test-create-app-integration.ts",
-    "test:scripts": "node --test scripts/__tests__/*.test.mjs apps/mercato/scripts/__tests__/*.test.mjs packages/starter/src/__tests__/*.test.mjs",
+    "test:scripts": "node --test scripts/__tests__/*.test.mjs scripts/__tests__/*.test.ts apps/mercato/scripts/__tests__/*.test.mjs packages/starter/src/__tests__/*.test.mjs",
     "test:repo-wide-guards": "node scripts/repo-wide-guards.mjs",
     "official-modules": "node scripts/official-modules.mjs",
     "postinstall": "node scripts/official-modules-setup.mjs",
