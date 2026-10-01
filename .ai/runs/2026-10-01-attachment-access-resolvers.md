@@ -45,11 +45,13 @@ Add validated resolver discovery, baseline-first deny-wins evaluation, durable n
 
 ## Progress
 
+PR: #6829
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Contract and durable protection
 
-- [ ] 1.1 Add types, registry, matching and generator discovery
+- [x] 1.1 Add types, registry, matching and generator discovery — b5e9c9f6b5
 - [ ] 1.2 Persist and backfill required owner policies
 - [ ] 1.3 Implement fail-closed runner and subject projection
 
