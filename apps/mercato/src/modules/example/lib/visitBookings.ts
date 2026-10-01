@@ -51,7 +51,7 @@ export async function bookedVisitSubjects(args: {
   let cursor: string | null = null
   let relevantRecords = 0
   while (true) {
-    const result = await queryEngine.query<Row>('customers:customer_interaction', {
+    const result: { items: Row[]; total: number } = await queryEngine.query<Row>('customers:customer_interaction', {
       tenantId: scope.tenantId, organizationId: scope.organizationId,
       filters: { deleted_at: null, status: { $ne: 'canceled' },
         $or: [
@@ -114,7 +114,7 @@ export async function bookedVisitSubjects(args: {
       throw new Error('[internal] Incomplete booking page')
     }
     if (result.items.length < BOOKING_PAGE_SIZE) return booked
-    const nextCursor = result.items[result.items.length - 1]?.id
+    const nextCursor: unknown = result.items[result.items.length - 1]?.id
     if (typeof nextCursor !== 'string' || (cursor !== null && nextCursor <= cursor)) {
       throw new Error('[internal] Incomplete booking page')
     }
