@@ -33,6 +33,7 @@
   "availability.policies.edit.title": "Verfügbarkeitsrichtlinie bearbeiten",
   "availability.policies.errors.backorderRequiresLeadTime": "Die Lieferzeit bei Nachbestellung (Tage) ist erforderlich, wenn Nachbestellungen erlaubt sind",
   "availability.policies.errors.duplicateTarget": "Für diese Kombination aus Shop, Produkt und Variante existiert bereits eine Richtlinie.",
+  "availability.policies.errors.integerTooLarge": "Dieser Wert ist zu groß. Geben Sie eine Zahl bis höchstens 2147483647 ein.",
   "availability.policies.errors.maxBelowMin": "Die maximale Bestellmenge darf nicht kleiner als die minimale Bestellmenge sein",
   "availability.policies.errors.variantRequiresProduct": "Eine Richtlinie auf Variantenebene erfordert ein Produkt",
   "availability.policies.flash.created": "Verfügbarkeitsrichtlinie erstellt",

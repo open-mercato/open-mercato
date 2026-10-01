@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
+import { organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPolicyResolutionService } from '../../../lib/policyResolution'
+import { resolveAvailabilityOrganizationId } from '../../../lib/organizationScope'
 
 /**
  * `GET /api/availability/policies/resolve-preview` — the currently PERSISTED
@@ -51,7 +52,8 @@ export async function GET(req: Request) {
   if (!auth || !auth.tenantId) {
     return NextResponse.json({ error: translate('availability.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
-  const organizationId = resolveActiveOrganizationId(auth)
+  const container = await createRequestContainer()
+  const organizationId = await resolveAvailabilityOrganizationId(container, auth, req)
   if (!organizationId) return organizationScopeRequiredResponse()
 
   const url = new URL(req.url)
@@ -67,7 +69,6 @@ export async function GET(req: Request) {
     )
   }
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const service = createPolicyResolutionService(container)
   const trace = await service.resolve(em, {

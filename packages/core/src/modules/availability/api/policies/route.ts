@@ -5,11 +5,12 @@ import { AvailabilityPolicy } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
+import { organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { availabilityPolicyCreateSchema, availabilityPolicyUpdateSchema } from '../../data/validators'
+import { resolveAvailabilityOrganizationId } from '../../lib/organizationScope'
 import {
   createAvailabilityCrudOpenApi,
   createPagedListResponseSchema,
@@ -128,7 +129,8 @@ export async function GET(req: Request) {
   if (!auth || !auth.tenantId) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
   }
-  const organizationId = resolveActiveOrganizationId(auth)
+  const container = await createRequestContainer()
+  const organizationId = await resolveAvailabilityOrganizationId(container, auth, req)
   // A superadmin with no organization selected legitimately sees every
   // organization in the tenant (om_selected_org=__all__); anyone else with
   // an unresolved scope gets the standard 400, never a 401 (that reads as an
@@ -152,7 +154,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
 
   const { id, page, pageSize, storeId, productId, variantId, isActive, sortField, sortDir } = parsed.data

@@ -18,6 +18,11 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   }
 })
 
+const findCatalogTargetIssueMock = jest.fn(async (..._args: unknown[]): Promise<string | null> => null)
+jest.mock('../../lib/catalogTarget', () => ({
+  findCatalogTargetIssue: (...args: unknown[]) => findCatalogTargetIssueMock(...args),
+}))
+
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
@@ -144,6 +149,73 @@ describe('availability.policies.create — isStockManaged inherits unless set (�
     const { ctx } = makeCtx()
     await createPolicyCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, isStockManaged: false }, ctx)
     expect(createdRecord().isStockManaged).toBe(false)
+  })
+})
+
+describe('availability.policies — catalog target (#6805)', () => {
+  it('rejects creating a policy for a variant of another product with a 400 and writes nothing', async () => {
+    findCatalogTargetIssueMock.mockResolvedValueOnce('variantProductMismatch')
+    const { ctx } = makeCtx()
+
+    await expect(
+      createPolicyCommand.execute(
+        { tenantId: TENANT_ID, organizationId: ORG_ID, productId: PRODUCT_ID, variantId: VARIANT_ID },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 400, body: { error: 'The variant does not belong to the selected product' } })
+    expect(runCrudCommandWrite).not.toHaveBeenCalled()
+    expect(findCatalogTargetIssueMock).toHaveBeenCalledWith(
+      expect.anything(),
+      ctx.container,
+      { tenantId: TENANT_ID, organizationId: ORG_ID, productId: PRODUCT_ID, variantId: VARIANT_ID },
+      { checkProduct: false },
+    )
+  })
+
+  it('rejects an unknown variant on update, checked against the merged product', async () => {
+    findCatalogTargetIssueMock.mockResolvedValueOnce('variantNotFound')
+    const { ctx } = makeCtx({ policyRecord: makePolicyRecord() })
+
+    await expect(
+      updatePolicyCommand.execute({ id: POLICY_ID, variantId: VARIANT_ID }, ctx),
+    ).rejects.toMatchObject({ status: 400, body: { error: 'No such variant' } })
+    expect(findCatalogTargetIssueMock).toHaveBeenCalledWith(
+      expect.anything(),
+      ctx.container,
+      { tenantId: TENANT_ID, organizationId: ORG_ID, productId: PRODUCT_ID, variantId: VARIANT_ID },
+      { checkProduct: false },
+    )
+    expect(runCrudCommandWrite).not.toHaveBeenCalled()
+  })
+
+  it('skips the catalog lookup on an update that leaves the target unchanged', async () => {
+    const { ctx } = makeCtx({ policyRecord: makePolicyRecord() })
+    ;(runCrudCommandWrite as jest.Mock).mockResolvedValueOnce(undefined)
+
+    await updatePolicyCommand.execute({ id: POLICY_ID, lowStockThreshold: 4 }, ctx)
+
+    expect(findCatalogTargetIssueMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('availability.policies — malformed id (#6808)', () => {
+  it('does not query the database with a non-UUID id when preparing an update or delete', async () => {
+    const { ctx, findOne } = makeCtx({ policyRecord: makePolicyRecord() })
+
+    await expect(updatePolicyCommand.prepare!({ id: 'abc' } as never, ctx)).resolves.toEqual({ before: null })
+    await expect(
+      deletePolicyCommand.prepare!({ id: 'abc', organizationId: ORG_ID, tenantId: TENANT_ID }, ctx),
+    ).resolves.toEqual({ before: null })
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
+  it('rejects the non-UUID id at validation, never reaching the database', async () => {
+    const { ctx, findOne } = makeCtx({ policyRecord: makePolicyRecord() })
+
+    await expect(updatePolicyCommand.execute({ id: 'abc', lowStockThreshold: 1 } as never, ctx)).rejects.toBeInstanceOf(
+      Error,
+    )
+    expect(findOne).not.toHaveBeenCalled()
   })
 })
 

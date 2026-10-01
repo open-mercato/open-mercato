@@ -7,8 +7,15 @@ const scopedSchema = z.object({
   tenantId: uuid(),
 })
 
-const nonNegativeInt = () => z.number().int().min(0)
-const positiveInt = () => z.number().int().min(1)
+// The policy integer columns are Postgres `integer`; a larger value would reach the
+// database and fail there as a 500 instead of a field error.
+export const AVAILABILITY_POLICY_INTEGER_MAX = 2147483647
+export const AVAILABILITY_POLICY_INTEGER_TOO_LARGE_MESSAGE_KEY = 'availability.policies.errors.integerTooLarge'
+
+const boundedInt = (min: number) =>
+  z.number().int().min(min).max(AVAILABILITY_POLICY_INTEGER_MAX, { message: AVAILABILITY_POLICY_INTEGER_TOO_LARGE_MESSAGE_KEY })
+const nonNegativeInt = () => boundedInt(0)
+const positiveInt = () => boundedInt(1)
 
 const policyFieldsSchema = z.object({
   storeId: uuid().nullable().optional(),

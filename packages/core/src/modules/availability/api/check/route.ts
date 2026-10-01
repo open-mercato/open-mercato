@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { EntityName } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
+import { organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveAvailability, availabilityItemKey } from '@open-mercato/shared/lib/availability'
 import type { AvailabilityModuleConfigReader, AvailabilityQuery } from '@open-mercato/shared/lib/availability'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { tryResolve } from '../../lib/tryResolve'
+import { findCatalogTargetIssue } from '../../lib/catalogTarget'
+import { resolveAvailabilityOrganizationId } from '../../lib/organizationScope'
 import type { PolicyResolutionService } from '../../lib/policyResolution'
 
 /**
@@ -23,17 +23,6 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
-
-// The `catalog` columns this route filters on through a soft-resolved entity class,
-// so `availability` never imports `catalog`.
-type CatalogRecordRow = {
-  id: string
-  organizationId: string
-  tenantId: string
-  deletedAt: Date | null
-}
-
-type CatalogVariantRow = CatalogRecordRow & { product: { id: string } }
 
 const checkSchema = z.object({
   productId: z.uuid(),
@@ -77,7 +66,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: translate('availability.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
-  const organizationId = resolveActiveOrganizationId(auth)
+  const container = await createRequestContainer()
+  const organizationId = await resolveAvailabilityOrganizationId(container, auth, req)
   if (!organizationId) return organizationScopeRequiredResponse()
 
   const body = await req.json().catch(() => ({}))
@@ -91,55 +81,33 @@ export async function POST(req: Request) {
   const { productId, variantId, quantity, storeId } = parsed.data
   const tenantId = auth.tenantId
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
 
   // Soft-resolved product/variant existence check — degrades gracefully when
   // `catalog` is ejected (Phase 1 gate: coherent behaviour without it).
-  const CatalogProduct = tryResolve<EntityName<CatalogRecordRow>>(container, 'CatalogProduct')
-  if (CatalogProduct) {
-    const product = await findOneWithDecryption(
-      em,
-      CatalogProduct,
-      { id: productId, organizationId, tenantId, deletedAt: null },
-      undefined,
-      { tenantId, organizationId },
+  const targetIssue = await findCatalogTargetIssue(em, container, { tenantId, organizationId, productId, variantId })
+  if (targetIssue === 'productNotFound') {
+    return NextResponse.json(
+      { error: translate('availability.errors.productNotFound', 'No such product') },
+      { status: 404 },
     )
-    if (!product) {
-      return NextResponse.json(
-        { error: translate('availability.errors.productNotFound', 'No such product') },
-        { status: 404 },
-      )
-    }
-    if (variantId) {
-      const CatalogProductVariant = tryResolve<EntityName<CatalogVariantRow>>(container, 'CatalogProductVariant')
-      if (CatalogProductVariant) {
-        const variant = await findOneWithDecryption(
-          em,
-          CatalogProductVariant,
-          { id: variantId, organizationId, tenantId, deletedAt: null },
-          undefined,
-          { tenantId, organizationId },
-        )
-        if (!variant) {
-          return NextResponse.json(
-            { error: translate('availability.errors.variantNotFound', 'No such variant') },
-            { status: 404 },
-          )
-        }
-        if (variant.product.id !== productId) {
-          return NextResponse.json(
-            {
-              error: translate(
-                'availability.check.errors.variantProductMismatch',
-                'The variant does not belong to the selected product',
-              ),
-            },
-            { status: 400 },
-          )
-        }
-      }
-    }
+  }
+  if (targetIssue === 'variantNotFound') {
+    return NextResponse.json(
+      { error: translate('availability.errors.variantNotFound', 'No such variant') },
+      { status: 404 },
+    )
+  }
+  if (targetIssue === 'variantProductMismatch') {
+    return NextResponse.json(
+      {
+        error: translate(
+          'availability.check.errors.variantProductMismatch',
+          'The variant does not belong to the selected product',
+        ),
+      },
+      { status: 400 },
+    )
   }
 
   const query: AvailabilityQuery = {

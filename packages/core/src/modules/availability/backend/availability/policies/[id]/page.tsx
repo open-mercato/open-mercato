@@ -13,7 +13,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { ScopeFields, type PolicyScope } from '../ScopeFields'
 import { ResolutionPreviewPanel } from '../ResolutionPreviewPanel'
 import { buildPolicyFieldGroups } from '../formGroups'
-import { toIsoDateTimeOrNull } from '../policyPayload'
+import { findIntegerFieldAboveMax, toIsoDateTimeOrNull } from '../policyPayload'
 import { fromStockManagedChoice, toStockManagedChoice } from '../StockManagedField'
 
 type PolicyRecord = {
@@ -157,6 +157,19 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
         }
         const min = toNullableInt(values.minOrderQuantity)
         const max = toNullableInt(values.maxOrderQuantity)
+        const integerFieldAboveMax = findIntegerFieldAboveMax({
+          backorderLeadTimeDays: toNullableInt(values.backorderLeadTimeDays),
+          lowStockThreshold: toNullableInt(values.lowStockThreshold),
+          minOrderQuantity: min,
+          maxOrderQuantity: max,
+          quantityIncrement: toNullableInt(values.quantityIncrement),
+        })
+        if (integerFieldAboveMax) {
+          throw createCrudFormError(
+            t('availability.policies.errors.integerTooLarge'),
+            { [integerFieldAboveMax]: t('availability.policies.errors.integerTooLarge') },
+          )
+        }
         if (min != null && max != null && max < min) {
           throw createCrudFormError(
             t('availability.policies.errors.maxBelowMin'),

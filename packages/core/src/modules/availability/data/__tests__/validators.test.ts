@@ -4,6 +4,9 @@ import {
   AVAILABILITY_POLICY_VARIANT_REQUIRES_PRODUCT_MESSAGE_KEY,
   AVAILABILITY_POLICY_BACKORDER_REQUIRES_LEAD_TIME_MESSAGE_KEY,
   AVAILABILITY_POLICY_MAX_BELOW_MIN_MESSAGE_KEY,
+  AVAILABILITY_POLICY_INTEGER_MAX,
+  AVAILABILITY_POLICY_INTEGER_TOO_LARGE_MESSAGE_KEY,
+  availabilityPolicyUpdateSchema,
 } from '../validators'
 
 const baseInput = {
@@ -113,5 +116,38 @@ describe('availabilityPolicyMergedConstraintsSchema', () => {
       maxOrderQuantity: 10,
     })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('policy integer bounds (#6808)', () => {
+  const integerFields = [
+    'backorderLeadTimeDays',
+    'lowStockThreshold',
+    'minOrderQuantity',
+    'maxOrderQuantity',
+    'quantityIncrement',
+  ] as const
+
+  it.each(integerFields)('rejects %s above the Postgres integer range with a field error', (field) => {
+    const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, [field]: AVAILABILITY_POLICY_INTEGER_MAX + 1 })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual([field])
+      expect(result.error.issues[0].message).toBe(AVAILABILITY_POLICY_INTEGER_TOO_LARGE_MESSAGE_KEY)
+    }
+  })
+
+  it('accepts the largest Postgres integer', () => {
+    expect(
+      availabilityPolicyCreateSchema.safeParse({ ...baseInput, maxOrderQuantity: AVAILABILITY_POLICY_INTEGER_MAX }).success,
+    ).toBe(true)
+  })
+
+  it('applies the same bound on update', () => {
+    const result = availabilityPolicyUpdateSchema.safeParse({
+      id: '55555555-5555-4555-8555-555555555555',
+      lowStockThreshold: AVAILABILITY_POLICY_INTEGER_MAX + 1,
+    })
+    expect(result.success).toBe(false)
   })
 })
