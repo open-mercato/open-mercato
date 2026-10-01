@@ -36,6 +36,7 @@ import {
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
+  CUSTOMER_ENTITY_UNDO_DATE_OPTIONS,
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
@@ -1103,7 +1104,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
+    const payload = extractUndoPayload<PersonUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1363,7 +1364,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
+      const payload = extractUndoPayload<PersonUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
