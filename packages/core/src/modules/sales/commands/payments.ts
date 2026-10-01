@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -218,7 +219,7 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
       tenantId: entity.tenantId,
       values:
         snapshot.customFields && typeof snapshot.customFields === 'object'
-          ? (snapshot.customFields as Record<string, unknown>)
+          ? normalizeCustomFieldResponse(snapshot.customFields as Record<string, unknown>) ?? {}
           : {},
     })
   }
