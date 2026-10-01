@@ -351,10 +351,11 @@ function createTransactionalDataEngine(ctx: CommandRuntimeContext, em: EntityMan
 async function runInTransaction<TResult>(
   em: EntityManager,
   operation: (trx: EntityManager) => Promise<TResult>,
-  beforeWrite?: (trx: EntityManager) => Promise<void>,
+  beforeWrite?: (trx: EntityManager, input?: unknown) => Promise<void>,
+  input?: unknown,
 ): Promise<TResult> {
   if (typeof em.isInTransaction === 'function' && em.isInTransaction()) {
-    await beforeWrite?.(em)
+    await beforeWrite?.(em, input)
     return operation(em)
   }
   // Mirrors the SPEC-018 fix applied to withAtomicFlush: use explicit begin/commit/rollback
@@ -371,7 +372,7 @@ async function runInTransaction<TResult>(
   }
   await em.begin()
   try {
-    await beforeWrite?.(em)
+    await beforeWrite?.(em, input)
     const result = await operation(em)
     await em.commit()
     return result
@@ -559,7 +560,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         entityId: entity.id,
         nextInteractionId: projection.nextInteractionId,
       }
-    }, ctx.beforeTransactionalWrite)
+    }, ctx.beforeTransactionalWrite, rawInput)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -956,7 +957,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       }
 
       return { interaction, projections }
-    }, ctx.beforeTransactionalWrite)
+    }, ctx.beforeTransactionalWrite, rawInput)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({

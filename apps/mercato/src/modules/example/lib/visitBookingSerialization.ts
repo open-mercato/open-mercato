@@ -202,14 +202,17 @@ export function createVisitBookingSerializingCommandBus(args: {
     if (!options.input || typeof options.input !== 'object') {
       return commandBus.execute<TInput, TResult>(commandId, options)
     }
-    const input = options.input as Row
-    const tenantId = options.ctx.auth?.tenantId ?? value(input, 'tenantId', 'tenant_id')
-    if (typeof tenantId !== 'string') return commandBus.execute<TInput, TResult>(commandId, options)
+    const originalInput = options.input as Row
 
     const writeEm = options.ctx.transactionalEm ?? em
     const previousBeforeWrite = options.ctx.beforeTransactionalWrite
-    const beforeTransactionalWrite = async (lockEm: EntityManager) => {
-      await previousBeforeWrite?.(lockEm)
+    const beforeTransactionalWrite = async (lockEm: EntityManager, effectiveInput?: unknown) => {
+      await previousBeforeWrite?.(lockEm, effectiveInput)
+      const input = effectiveInput && typeof effectiveInput === 'object'
+        ? effectiveInput as Row
+        : originalInput
+      const tenantId = options.ctx.auth?.tenantId ?? value(input, 'tenantId', 'tenant_id')
+      if (typeof tenantId !== 'string') return
       let existing: Row | null = null
       if (commandId === 'customers.interactions.update') {
         const interactionId = input.id

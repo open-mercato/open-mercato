@@ -1,3 +1,5 @@
+import { CommandBus, commandRegistry, registerCommand } from '@open-mercato/shared/lib/commands'
+import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
 import { createVisitBookingSerializingCommandBus } from '../visitBookingSerialization'
 
 const mockBookedVisitSubjects = jest.fn()
@@ -7,6 +9,7 @@ jest.mock('../visitBookings', () => ({
 }))
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
+const MODIFIED_USER_ID = '55555555-5555-4555-8555-555555555555'
 const ENTITY_ID = '22222222-2222-4222-8222-222222222222'
 const TENANT_ID = '33333333-3333-4333-8333-333333333333'
 const ORGANIZATION_ID = '44444444-4444-4444-8444-444444444444'
@@ -90,6 +93,12 @@ function createContendingCommandBus(state: { bookings: number }, transactionCont
 }
 
 describe('Visit booking command serialization', () => {
+  afterEach(() => {
+    commandRegistry.unregister('customers.interactions.create')
+    registerCommandInterceptors([])
+    jest.clearAllMocks()
+  })
+
   it('serializes two concurrent request containers so exactly one overlapping Visit wins', async () => {
     const manager = new AdvisoryLockManager()
     const acquiredKeys: string[] = []
@@ -145,5 +154,100 @@ describe('Visit booking command serialization', () => {
     expect((transactionContexts[0] as { fork: jest.Mock }).fork).not.toHaveBeenCalled()
     expect((transactionContexts[1] as { fork: jest.Mock }).fork).not.toHaveBeenCalled()
     expect(sideEffectStates).toEqual([false])
+  })
+
+  it('locks and rechecks the final assignment and time from the real modifier interceptor pipeline', async () => {
+    const manager = new AdvisoryLockManager()
+    const acquiredKeys: string[] = []
+    const statements: string[] = []
+    const handlerInputs: Array<Record<string, unknown>> = []
+    const persistedInputs: Array<Record<string, unknown>> = []
+    const transactionEm = lockingEntityManager(manager, acquiredKeys, statements)
+    registerCommand({
+      id: 'customers.interactions.create',
+      execute: async (input: Record<string, unknown>, ctx) => {
+        handlerInputs.push(input)
+        const writeEm = ctx.transactionalEm as typeof transactionEm
+        await writeEm.begin()
+        try {
+          await ctx.beforeTransactionalWrite?.(writeEm as never, input)
+          persistedInputs.push(input)
+          await writeEm.commit()
+        } catch (error) {
+          await writeEm.rollback()
+          throw error
+        }
+        return { interactionId: 'visit-modified' }
+      },
+    })
+    const modifiedScheduledAt = new Date('2026-10-01T14:30:00.000Z')
+    registerCommandInterceptors([{
+      moduleId: 'test-modifier',
+      interceptors: [{
+        id: 'test.modify-visit-booking',
+        targetCommand: 'customers.interactions.create',
+        priority: 90,
+        async beforeExecute() {
+          return {
+            ok: true,
+            modifiedInput: {
+              scheduledAt: modifiedScheduledAt,
+              durationMinutes: 30,
+              participants: [{ userId: MODIFIED_USER_ID }],
+            },
+          }
+        },
+      }],
+    }])
+    mockBookedVisitSubjects.mockImplementation(async ({ input, subjects }: {
+      input: { startAt: string; endAt: string }
+      subjects: Array<{ type: string; id: string }>
+    }) => {
+      expect(input).toEqual(expect.objectContaining({
+        startAt: '2026-10-01T14:30:00.000Z',
+        endAt: '2026-10-01T15:00:00.000Z',
+      }))
+      return new Set(subjects.map((subject) => `${subject.type}:${subject.id}`))
+    })
+    const bus = createVisitBookingSerializingCommandBus({
+      commandBus: new CommandBus(),
+      em: transactionEm as never,
+    })
+    const input = {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      entityId: ENTITY_ID,
+      interactionType: 'visit',
+      scheduledAt: new Date('2026-10-01T09:00:00.000Z'),
+      durationMinutes: 60,
+      participants: [{ userId: USER_ID }],
+    }
+
+    await expect(bus.execute('customers.interactions.create', {
+      input,
+      ctx: {
+        auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID },
+        selectedOrganizationId: ORGANIZATION_ID,
+        organizationIds: [ORGANIZATION_ID],
+        organizationScope: null,
+        container: { resolve: () => undefined },
+      } as never,
+    })).rejects.toMatchObject({
+      status: 422,
+      body: { code: 'visit_availability_unavailable' },
+    })
+
+    expect(handlerInputs).toEqual([expect.objectContaining({
+      scheduledAt: modifiedScheduledAt,
+      durationMinutes: 30,
+      participants: [{ userId: MODIFIED_USER_ID }],
+    })])
+    expect(persistedInputs).toEqual([])
+    expect(acquiredKeys).toEqual([
+      `example:visit-booking:${TENANT_ID}:${ORGANIZATION_ID}:staff:${MODIFIED_USER_ID}`,
+    ])
+    expect(mockBookedVisitSubjects).toHaveBeenCalledWith(expect.objectContaining({
+      subjects: [{ type: 'staff', id: MODIFIED_USER_ID, status: 'available', reasonKey: null }],
+    }))
   })
 })

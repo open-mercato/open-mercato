@@ -218,6 +218,7 @@ describe('customers.interactions.update locked snapshots', () => {
     )
 
     const logs: LoggedAction[] = []
+    const guardInputs: unknown[] = []
     const actionLogService = {
       log: jest.fn(async (input: Record<string, unknown>) => {
         const log = {
@@ -253,7 +254,10 @@ describe('customers.interactions.update locked snapshots', () => {
         organizationScope: null,
         selectedOrganizationId: ORGANIZATION_ID,
         organizationIds: [ORGANIZATION_ID],
-        beforeTransactionalWrite: async (transactionalEm) => acquireLock(transactionalEm as TestEntityManager),
+        beforeTransactionalWrite: async (transactionalEm, input) => {
+          guardInputs.push(input)
+          await acquireLock(transactionalEm as TestEntityManager)
+        },
       } as unknown as CommandRuntimeContext
     }
 
@@ -283,6 +287,10 @@ describe('customers.interactions.update locked snapshots', () => {
     expect(logs[0].snapshotAfter).toMatchObject({ interaction: { title: 'B' } })
     expect(logs[1].snapshotBefore).toMatchObject({ interaction: { title: 'B' } })
     expect(logs[1].snapshotAfter).toMatchObject({ interaction: { title: 'C' } })
+    expect(guardInputs).toEqual([
+      { id: INTERACTION_ID, title: 'B' },
+      { id: INTERACTION_ID, title: 'C' },
+    ])
     expect(interaction.title).toBe('C')
 
     const update = commandRegistry.get('customers.interactions.update') as CommandHandler

@@ -281,8 +281,8 @@ export class CommandBus {
       let transactionalCtx: CommandRuntimeContext
       transactionalCtx = {
         ...originalCtx,
-        beforeTransactionalWrite: async (em) => {
-          await originalBeforeTransactionalWrite?.(em)
+        beforeTransactionalWrite: async (em, input) => {
+          await originalBeforeTransactionalWrite?.(em, input)
           if (prepared) return
           Object.assign(
             snapshots,
