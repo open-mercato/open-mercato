@@ -1,4 +1,5 @@
 import { expandOccurrences } from '../recurrence'
+import * as timezone from '../timezone'
 import { makeCalendarItem, makePayload } from './fixtures'
 import type { CalendarItem, CalendarRange } from '../../../components/calendar/types'
 
@@ -21,9 +22,33 @@ function windowOf(from: Date, to: Date): CalendarRange {
   return { from, to }
 }
 
+function makeOldZonedAllDayItem(rule: string): CalendarItem {
+  const timezoneName = 'America/New_York'
+  const start = timezone.calendarDayStartInstant('1900-01-01', timezoneName)
+  const end = timezone.calendarDayEndInstant('1900-01-01', timezoneName)
+  if (!start || !end) throw new Error('[internal] Expected a valid all-day calendar fixture')
+  return makeCalendarItem({
+    id: 'old-zoned-series',
+    start,
+    end,
+    allDay: true,
+    raw: makePayload({
+      id: 'old-zoned-series',
+      scheduledAt: start.toISOString(),
+      timezone: timezoneName,
+      allDay: true,
+      recurrenceRule: rule,
+    }),
+  })
+}
+
 const twoWeekWindow = windowOf(new Date(2026, 5, 1, 0, 0, 0), new Date(2026, 5, 14, 23, 59, 59))
 
 describe('expandOccurrences', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
   it('returns the item unchanged when no recurrence rule is set', () => {
     const item = makeRecurringItem(null)
     const occurrences = expandOccurrences(item, twoWeekWindow)
@@ -116,6 +141,42 @@ describe('expandOccurrences', () => {
     const midSeriesWindow = windowOf(new Date(2026, 5, 8, 0, 0, 0), new Date(2026, 5, 8, 23, 59, 59))
     const occurrences = expandOccurrences(item, midSeriesWindow)
     expect(occurrences.map((occurrence) => occurrence.id)).toEqual(['series-base:1'])
+  })
+
+  it('fast-forwards an old zoned all-day daily series across a DST boundary', () => {
+    const item = makeOldZonedAllDayItem('FREQ=DAILY')
+    const dayStartSpy = jest.spyOn(timezone, 'calendarDayStartInstant')
+    const occurrences = expandOccurrences(
+      item,
+      windowOf(new Date('2026-03-08T05:00:00.000Z'), new Date('2026-03-09T03:59:59.999Z')),
+    )
+
+    expect(
+      occurrences.map((occurrence) => [
+        occurrence.id,
+        occurrence.start.toISOString(),
+        occurrence.end.toISOString(),
+      ]),
+    ).toEqual([['old-zoned-series:46087', '2026-03-08T05:00:00.000Z', '2026-03-09T03:59:59.999Z']])
+    expect(dayStartSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('fast-forwards an old zoned all-day weekly series without changing its occurrence index', () => {
+    const item = makeOldZonedAllDayItem('FREQ=WEEKLY;BYDAY=SU,TU,TH;COUNT=19752')
+    const dayStartSpy = jest.spyOn(timezone, 'calendarDayStartInstant')
+    const occurrences = expandOccurrences(
+      item,
+      windowOf(new Date('2026-03-08T05:00:00.000Z'), new Date('2026-03-09T03:59:59.999Z')),
+    )
+
+    expect(
+      occurrences.map((occurrence) => [
+        occurrence.id,
+        occurrence.start.toISOString(),
+        occurrence.end.toISOString(),
+      ]),
+    ).toEqual([['old-zoned-series:19751', '2026-03-08T05:00:00.000Z', '2026-03-09T03:59:59.999Z']])
+    expect(dayStartSpy).toHaveBeenCalledTimes(2)
   })
 
   it('caps expansion at 100 occurrences per window', () => {
