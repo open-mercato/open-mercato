@@ -11,8 +11,13 @@ const writeMock = jest.fn()
 const confirmMock = jest.fn()
 const runMutationMock = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
 const headerMock = jest.fn(() => ({}))
+const reportErrorMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({ useOrganizationScopeVersion: () => 0 }))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({ surfaceRecordConflict: () => false }))
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readMock(...args),
   apiCallOrThrow: (...args: unknown[]) => writeMock(...args),
@@ -98,5 +103,62 @@ describe('ActivityTypeEditor', () => {
       dict: { 'example.calendar.customerMeeting': 'Customer meeting' },
     })
     expect(await screen.findByText('Customer meeting')).toBeInTheDocument()
+  })
+
+  it('reports catalog load failures to telemetry once', async () => {
+    const error = new Error('catalog unavailable')
+    readMock.mockImplementation(async (path: string) => {
+      if (path === '/api/customers/activity-types') throw error
+      if (path === '/api/customers/dictionaries/activity-types') return { items: [] }
+      throw new Error(path)
+    })
+
+    renderWithProviders(<ActivityTypeEditor title="Activity types" description="Manage activity types" />)
+
+    expect(await screen.findByText('Failed to load activity types.')).toBeInTheDocument()
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledWith(error, {
+      module: 'customers',
+      code: 'customers.activity_type_settings_load_failed',
+    })
+  })
+
+  it('reports fieldset load failures to telemetry once', async () => {
+    const error = new Error('fieldsets unavailable')
+    readMock.mockImplementation(async (path: string) => {
+      if (path === '/api/customers/activity-types') return { items: [inherited] }
+      if (path === '/api/customers/dictionaries/activity-types') return { items: [] }
+      if (path.startsWith('/api/entities/definitions?')) throw error
+      throw new Error(path)
+    })
+
+    renderWithProviders(<ActivityTypeEditor title="Activity types" description="Manage activity types" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'edit' }))
+
+    expect(await screen.findByText('Fieldsets are unavailable. Retry loading before saving.')).toBeInTheDocument()
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledWith(error, {
+      module: 'customers',
+      code: 'customers.activity_type_fieldsets_load_failed',
+    })
+  })
+
+  it('reports delete mutation failures to telemetry once', async () => {
+    const error = new Error('delete unavailable')
+    readMock.mockImplementation(async (path: string) => {
+      if (path === '/api/customers/activity-types') return { items: [{ ...inherited, isInherited: false, isLocalOverride: true }] }
+      if (path === '/api/customers/dictionaries/activity-types') return { items: [{ id: 'local-id', value: 'meeting', isInherited: false, updatedAt: inherited.updatedAt }] }
+      return { fieldsetsByEntity: {} }
+    })
+    writeMock.mockRejectedValueOnce(error)
+
+    renderWithProviders(<ActivityTypeEditor title="Activity types" description="Manage activity types" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'delete' }))
+
+    await waitFor(() => expect(reportErrorMock).toHaveBeenCalledTimes(1))
+    expect(reportErrorMock).toHaveBeenCalledWith(error, {
+      module: 'customers',
+      code: 'customers.activity_type_settings_remove_failed',
+    })
   })
 })
