@@ -44,7 +44,7 @@ PR: #6825
 ### Phase 1: Grouped matrix and regression coverage
 
 - [x] 1.1 Add grouped table bodies, fallback translations, and component regressions. — 3caf855c1b
-- [ ] 1.2 Extend integration coverage and the existing spec.
+- [x] 1.2 Extend integration coverage and the existing spec. — 8e6bda63ef
 
 ### Phase 2: Validation
 
