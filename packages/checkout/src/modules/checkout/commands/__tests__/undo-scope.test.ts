@@ -52,7 +52,7 @@ const mockEm = {
   flush: jest.fn(async () => undefined),
 }
 
-function makeContext(): CommandRuntimeContext {
+function makeContext(allowedIds: string[] | null = [ORG_ID]): CommandRuntimeContext {
   return {
     container: {
       resolve: (token: string) => {
@@ -65,7 +65,7 @@ function makeContext(): CommandRuntimeContext {
     organizationScope: {
       selectedId: ORG_ID,
       filterIds: [ORG_ID],
-      allowedIds: [ORG_ID],
+      allowedIds,
       tenantId: TENANT_ID,
     },
     selectedOrganizationId: ORG_ID,
@@ -94,15 +94,20 @@ const CASES: Case[] = [
   { commandId: 'checkout.template.delete', mode: 'undo', key: 'before', lookup: 'em' },
 ]
 
-async function runHandler(testCase: Case, logEntry: CommandUndoLogEntry) {
+async function runHandler(testCase: Case, logEntry: CommandUndoLogEntry, ctx: CommandRuntimeContext = makeContext()) {
   const handler = commandRegistry.get(testCase.commandId)
   const run = testCase.mode === 'undo' ? handler?.undo : handler?.redo
   if (!run) throw new Error(`[internal] ${testCase.commandId} has no ${testCase.mode} handler`)
-  return run({ input: {}, ctx: makeContext(), logEntry } as never)
+  return run({ input: {}, ctx, logEntry } as never)
 }
 
 function lookupMock(testCase: Case) {
   return testCase.lookup === 'em' ? mockEm.findOne : mockFindOneWithDecryption
+}
+
+function lookupWhere(testCase: Case): Record<string, unknown> {
+  const calls = lookupMock(testCase).mock.calls as unknown[][]
+  return calls[0][testCase.lookup === 'em' ? 1 : 2] as Record<string, unknown>
 }
 
 describe('checkout undo/redo tenant scoping (#3831)', () => {
@@ -117,10 +122,16 @@ describe('checkout undo/redo tenant scoping (#3831)', () => {
     it('scopes the record lookup to the snapshot organization and tenant', async () => {
       await expect(runHandler(testCase, logEntryFor(testCase.key, ORG_ID, TENANT_ID))).rejects.toThrow(LOOKUP_SENTINEL)
 
-      const lookup = lookupMock(testCase)
-      expect(lookup).toHaveBeenCalledTimes(1)
-      const where = (testCase.lookup === 'em' ? lookup.mock.calls[0][1] : lookup.mock.calls[0][2]) as Record<string, unknown>
-      expect(where).toMatchObject({ id: RECORD_ID, organizationId: ORG_ID, tenantId: TENANT_ID })
+      expect(lookupMock(testCase)).toHaveBeenCalledTimes(1)
+      expect(lookupWhere(testCase)).toMatchObject({ id: RECORD_ID, organizationId: ORG_ID, tenantId: TENANT_ID })
+    })
+
+    it('lets a caller with unrestricted organization visibility act on another organization of the same tenant', async () => {
+      await expect(
+        runHandler(testCase, logEntryFor(testCase.key, FOREIGN_ORG_ID, TENANT_ID), makeContext(null)),
+      ).rejects.toThrow(LOOKUP_SENTINEL)
+
+      expect(lookupWhere(testCase)).toMatchObject({ id: RECORD_ID, organizationId: FOREIGN_ORG_ID, tenantId: TENANT_ID })
     })
 
     it('rejects a snapshot from another tenant before touching any record', async () => {
