@@ -75,11 +75,10 @@ function toSortValue(value: string): number {
 
 function formatPreviewNumber(value: number, locale?: string): string {
   if (!Number.isFinite(value)) return "0";
-  const rounded = Math.round(value * 1_000_000) / 1_000_000;
   return new Intl.NumberFormat(locale, {
     maximumFractionDigits: 6,
     useGrouping: false,
-  }).format(rounded);
+  }).format(value);
 }
 
 function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
