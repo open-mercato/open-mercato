@@ -130,6 +130,29 @@ describe('/api/directory/organization-branding', () => {
     })
   })
 
+  it.each(['GET', 'PUT'])('rejects %s in all-organizations scope even when the account has an organization', async (method) => {
+    resolveOrganizationScopeForRequestMock.mockResolvedValue({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId,
+    })
+
+    const request = new Request('http://localhost/api/directory/organization-branding', {
+      method,
+      ...(method === 'PUT' ? { body: JSON.stringify({ logoUrl: 'https://example.com/logo.svg' }) } : {}),
+    })
+    const response = await (method === 'GET' ? GET(request) : PUT(request))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Select a single organization before changing sidebar branding.',
+    })
+    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
+    expect(commandBusExecute).not.toHaveBeenCalled()
+    expect(validateMutation).not.toHaveBeenCalled()
+  })
+
   it('updates branding through the organization command and invalidates sidebar cache tags', async () => {
     const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
       method: 'PUT',
