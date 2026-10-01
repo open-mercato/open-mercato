@@ -106,6 +106,24 @@ type EditorBodyProps = {
   onSelectedTypeChange(key: string): void
 }
 
+function CatalogStatusAlert({ error, onRetry }: { error: boolean; onRetry(): void }) {
+  const t = useT()
+  return (
+    <Alert status={error ? 'error' : 'information'} className="rounded-lg lg:col-span-2">
+      <AlertDescription>
+        {error
+          ? t('customers.calendar.editor.catalogLoadFailed')
+          : t('customers.calendar.editor.catalogLoading')}
+      </AlertDescription>
+      {error ? (
+        <Button type="button" variant="outline" onClick={onRetry}>
+          {t('customers.calendar.errors.retry')}
+        </Button>
+      ) : null}
+    </Alert>
+  )
+}
+
 function EditorBody({
   ctx,
   open,
@@ -176,18 +194,7 @@ function EditorBody({
         </Alert>
       ) : null}
       {!catalogReady ? (
-        <Alert status={catalogError ? 'error' : 'information'} className="rounded-lg lg:col-span-2">
-          <AlertDescription>
-            {catalogError
-              ? t('customers.calendar.editor.catalogLoadFailed')
-              : t('customers.calendar.editor.catalogLoading')}
-          </AlertDescription>
-          {catalogError ? (
-            <Button type="button" variant="outline" onClick={onRetryCatalog}>
-              {t('customers.calendar.errors.retry')}
-            </Button>
-          ) : null}
-        </Alert>
+        <CatalogStatusAlert error={catalogError} onRetry={onRetryCatalog} />
       ) : null}
       {catalogReady && (definition.historical || catalogItems.some((item) => item.key === selectedType && !item.selectable)) ? (
         <Alert status="warning" className="rounded-lg lg:col-span-2">
@@ -328,6 +335,7 @@ export function CalendarEventEditor({
   const customFields = useCalendarCustomFields(open, E.customers.customer_interaction, selectedDefinition.behavior.customFieldsetIds)
   const injectionWidgets = useInjectionWidgets(INTERACTION_INJECTION_SPOT)
   const canCreateType = isSelectableEventType(catalog.items, selectedTypeKey)
+  const formReady = isEdit || catalog.status === 'ready'
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -561,20 +569,24 @@ export function CalendarEventEditor({
           }}
         >
           <div className="px-4 py-4 sm:px-6 sm:py-5">
-            <CrudForm<Record<string, unknown>>
-              key={formKey}
-              formId={FORM_ID}
-              embedded
-              trackDirtyWhenEmbedded
-              onDirtyChange={(dirty) => { dirtyRef.current = dirty }}
-              hideFooterActions
-              customFieldsManageMode="page"
-              fields={customFields.fields}
-              groups={groups}
-              initialValues={initialValues}
-              injectionSpotId={INTERACTION_INJECTION_SPOT}
-              onSubmit={handleSubmit}
-            />
+            {formReady ? (
+              <CrudForm<Record<string, unknown>>
+                key={formKey}
+                formId={FORM_ID}
+                embedded
+                trackDirtyWhenEmbedded
+                onDirtyChange={(dirty) => { dirtyRef.current = dirty }}
+                hideFooterActions
+                customFieldsManageMode="page"
+                fields={customFields.fields}
+                groups={groups}
+                initialValues={initialValues}
+                injectionSpotId={INTERACTION_INJECTION_SPOT}
+                onSubmit={handleSubmit}
+              />
+            ) : (
+              <CatalogStatusAlert error={catalog.status === 'error'} onRetry={catalog.retry} />
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border bg-background px-5 py-4">

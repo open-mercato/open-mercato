@@ -65,7 +65,7 @@ const meetingType: ScopedCalendarEventType = {
   label: 'Meeting',
   behavior: { ...visitType.behavior, customFieldsetIds: ['meeting_details'] },
 }
-let catalogState: { status: 'ready' | 'error'; items: readonly ScopedCalendarEventType[] } = {
+let catalogState: { status: 'loading' | 'ready' | 'error'; items: readonly ScopedCalendarEventType[] } = {
   status: 'ready', items: [visitType],
 }
 
@@ -159,6 +159,39 @@ describe('CalendarEventEditor catalog host', () => {
     expect(groupSetValueMock).not.toHaveBeenCalled()
   })
 
+  it('waits for the create catalog before exposing a form when meeting is disabled', async () => {
+    catalogState = { status: 'loading', items: [] }
+    const view = renderWithProviders(
+      <CalendarEventEditor
+        open
+        mode="create"
+        typeLabels={{}}
+        onOpenChange={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+    await act(async () => {})
+
+    expect(crudPropsMock).not.toHaveBeenCalled()
+    expect(document.getElementById('customers-calendar-event-editor')).not.toBeInTheDocument()
+
+    catalogState = { status: 'ready', items: [visitType] }
+    view.rerender(
+      <CalendarEventEditor
+        open
+        mode="create"
+        typeLabels={{}}
+        onOpenChange={() => {}}
+        onSaved={() => {}}
+      />,
+    )
+
+    await waitFor(() => {
+      const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+      expect(props.initialValues).toMatchObject({ category: 'visit', kind: visitType.behavior.baseKind })
+    })
+  })
+
   it('saves the chosen timezone and rejects a DST gap without sending a write', async () => {
     catalogState = { status: 'ready', items: [meetingType] }
     renderWithProviders(<CalendarEventEditor open mode="edit" item={buildCalendarItem({ raw: { id: 'item-1', interactionType: 'meeting', status: 'planned', timezone: 'Europe/Warsaw' } })} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)
@@ -174,7 +207,7 @@ describe('CalendarEventEditor catalog host', () => {
     expect(apiCallOrThrowMock).not.toHaveBeenCalled()
   })
 
-  it('keeps saving disabled when the authoritative catalog is unavailable', async () => {
+  it('keeps the create form unavailable when the authoritative catalog is unavailable', async () => {
     catalogState = { status: 'error', items: [] }
     renderWithProviders(
       <CalendarEventEditor
@@ -186,7 +219,8 @@ describe('CalendarEventEditor catalog host', () => {
       />,
     )
     expect(screen.getByRole('button', { name: 'Save event' })).toBeDisabled()
-    expect(crudPropsMock).toHaveBeenCalled()
+    expect(crudPropsMock).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'customers.calendar.errors.retry' })).toBeInTheDocument()
     await act(async () => {})
   })
 
