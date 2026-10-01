@@ -82,6 +82,19 @@ export function ActionsDropdown({
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null)
   const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
   const [direction, setDirection] = React.useState<'down' | 'up'>('down')
+  /**
+   * Whether this open should pull focus into the menu. Only a deliberate open
+   * does — a click, or Enter/Space on the trigger, which the browser reports as
+   * a click. A hover open must not steal focus from wherever the user is typing.
+   * Same contract as RowActions (#6771).
+   */
+  const focusOnOpenRef = React.useRef(false)
+
+  /** The menu's enabled items in DOM order, as focusable elements. */
+  const getFocusableItems = React.useCallback((): HTMLElement[] => {
+    if (!menuRef.current) return []
+    return Array.from(menuRef.current.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)'))
+  }, [])
 
   const resolvedLabel = label ?? t('ui.actions.actions', 'Actions')
   const resolvedAriaLabel = ariaLabel ?? resolvedLabel
@@ -108,10 +121,50 @@ export function ActionsDropdown({
       }
     }
     function onKey(event: KeyboardEvent) {
+      // The menu also opens on hover, so keys are only handled while focus is in
+      // the menu or on its trigger — otherwise a hover-opened menu would swallow
+      // the arrows of someone typing elsewhere on the page.
+      const active = document.activeElement
+      const focusWithin = Boolean(
+        (menuRef.current && active && menuRef.current.contains(active)) || (active && active === btnRef.current),
+      )
       if (event.key === 'Escape') {
         setOpen(false)
-        btnRef.current?.focus()
+        if (focusWithin) btnRef.current?.focus()
+        return
       }
+      if (!focusWithin) return
+      // The menu is portaled to the end of `document.body`, so without this the
+      // only way into it was tabbing through the rest of the page first (#6445).
+      const focusables = getFocusableItems()
+      if (!focusables.length) return
+      const activeIndex = focusables.indexOf(active as HTMLElement)
+      let nextIndex: number
+      switch (event.key) {
+        case 'ArrowDown':
+          nextIndex = activeIndex < 0 ? 0 : (activeIndex + 1) % focusables.length
+          break
+        case 'ArrowUp':
+          nextIndex = activeIndex < 0
+            ? focusables.length - 1
+            : (activeIndex - 1 + focusables.length) % focusables.length
+          break
+        case 'Home':
+          nextIndex = 0
+          break
+        case 'End':
+          nextIndex = focusables.length - 1
+          break
+        case 'Tab':
+          nextIndex = event.shiftKey
+            ? (activeIndex <= 0 ? focusables.length - 1 : activeIndex - 1)
+            : (activeIndex < 0 || activeIndex === focusables.length - 1 ? 0 : activeIndex + 1)
+          break
+        default:
+          return
+      }
+      event.preventDefault()
+      focusables[nextIndex]?.focus()
     }
     function onScrollOrResize() {
       updatePosition()
@@ -126,7 +179,20 @@ export function ActionsDropdown({
       window.removeEventListener('scroll', onScrollOrResize, true)
       window.removeEventListener('resize', onScrollOrResize)
     }
-  }, [open, updatePosition])
+  }, [open, updatePosition, getFocusableItems])
+
+  // Keyed on `anchorRect`: the panel only renders once the trigger has been
+  // measured, so the first item exists only after that second render.
+  React.useEffect(() => {
+    if (!open) {
+      focusOnOpenRef.current = false
+      return
+    }
+    if (!anchorRect || !focusOnOpenRef.current) return
+    focusOnOpenRef.current = false
+    const [first] = getFocusableItems()
+    first?.focus()
+  }, [open, anchorRect, getFocusableItems])
 
   React.useEffect(() => {
     return () => {
@@ -172,6 +238,7 @@ export function ActionsDropdown({
         aria-expanded={open}
         aria-label={resolvedAriaLabel}
         onClick={() => {
+          focusOnOpenRef.current = true
           setOpen((prev) => !prev)
           requestAnimationFrame(updatePosition)
         }}
