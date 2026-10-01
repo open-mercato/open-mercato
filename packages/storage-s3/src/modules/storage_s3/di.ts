@@ -3,6 +3,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   registerExternalStorageDriver,
   registerStorageDriverValidator,
+  getAttachmentStoragePolicy,
   registerExternalCredentialEnhancer,
 } from '@open-mercato/core/modules/attachments/lib/drivers'
 import { validateS3StorageConfiguration } from './lib/storage-validation'
@@ -65,6 +66,7 @@ export function register(container: AppContainer) {
         sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
       }
     } catch (err) {
+      if (getAttachmentStoragePolicy() === 'strict') throw err
       logger.warn('Credential enhancer failed, using scoped partition config', { err })
       return scopedConfig
     }

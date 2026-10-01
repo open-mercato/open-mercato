@@ -5,6 +5,7 @@ const mockRegisterExternalCredentialEnhancer = jest.fn()
 
 jest.mock('@open-mercato/core/modules/attachments/lib/drivers', () => ({
   registerStorageDriverValidator: jest.fn(),
+  getAttachmentStoragePolicy: () => process.env.OM_ATTACHMENT_STORAGE_POLICY ?? 'legacy',
   registerExternalStorageDriver: (...args: unknown[]) => mockRegisterExternalStorageDriver(...args),
   registerExternalCredentialEnhancer: (...args: unknown[]) => mockRegisterExternalCredentialEnhancer(...args),
 }))

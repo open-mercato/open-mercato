@@ -29,5 +29,5 @@ PR: #6820
 ### Phase 2: Consumers and verification
 
 - [x] 2.1 Register provider-owned validation and preserve compatible S3 configurations. — 58ad53083f; 19 targeted S3/DI assertions pass.
-- [ ] 2.2 Integrate HTTP/CLI failures and deletion ordering; add consumer and native API regressions.
-- [ ] 2.3 Publish public guidance and complete validation, independent inspection and handoff evidence.
+- [ ] 2.2 Integrate HTTP/CLI failures and deletion ordering; add consumer and native API regressions. — HTTP/CLI/worker/helper regressions implemented; 132 focused core and 146 S3 assertions pass. Native API run pending.
+- [ ] 2.3 Publish public guidance and complete validation, independent inspection and handoff evidence. — Public/upgrade guidance written; independent source inspection found no actionable issues. Full gate and live evidence pending.

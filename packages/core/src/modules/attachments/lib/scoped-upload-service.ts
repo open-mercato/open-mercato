@@ -7,6 +7,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
 import type { StorageDriverFactory } from './drivers'
+import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from './drivers/storageValidation'
 import { buildAttachmentFileUrl } from './imageUrls'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from './partitions'
 import { extractAttachmentContent } from './textExtraction'
@@ -128,7 +129,7 @@ export class ScopedAttachmentUploadService {
     }
 
     const { em, storageDriverFactory, attachmentQuotaService, attachmentQuotaRecoveryScheduler } = this.deps
-    await ensureDefaultPartitions(em)
+    if (getAttachmentStoragePolicy() === 'legacy') await ensureDefaultPartitions(em)
     const partitionCode = input.partitionCode ?? resolveDefaultPartitionCode(input.entityId)
     const partition = await em.findOne(AttachmentPartition, {
       code: partitionCode,
@@ -137,6 +138,7 @@ export class ScopedAttachmentUploadService {
         { tenantId: input.tenantId, organizationId: input.organizationId },
       ],
     })
+    assertAttachmentStoragePartitionExists(Boolean(partition))
     if (!partition) throw new ScopedAttachmentUploadError('partition_unavailable', 400)
     if (input.requirePrivatePartition && partition.isPublic) {
       throw new ScopedAttachmentUploadError('partition_unavailable', 403)

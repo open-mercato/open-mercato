@@ -21,6 +21,38 @@ export RECORD_ID="<entity record id you want to attach files to>"
 - Required features: `attachments.view` for read-only endpoints, `attachments.manage` for uploads, updates, transfers, partitions, and deletes.
 - Custom fields can be written with either `cf_<slug>` keys or a `customFields` object. Multipart uploads accept a JSON string for `customFields`.
 
+## Storage configuration policy
+
+`OM_ATTACHMENT_STORAGE_POLICY=legacy` is the default and retains the existing local fallback for absent partitions, null drivers and unregistered driver keys. Set `OM_ATTACHMENT_STORAGE_POLICY=strict` in **every web, worker and CLI process** to reject those configurations before selecting or constructing storage. Invalid policy values also fail closed. No schema migration is required.
+
+Strict policy is checked on every factory resolution, including direct and late `new StorageDriverFactory(em)` construction and cache hits. Explicit `local` and `legacyPublic` drivers remain supported; a null configuration on an explicitly selected local driver means an empty object. Provider drivers require a synchronous validator registered before work starts:
+
+```typescript
+import {
+  registerExternalStorageDriver,
+  registerStorageDriverValidator,
+} from '@open-mercato/core/modules/attachments/lib/drivers'
+
+registerStorageDriverValidator('custom_storage', ({ config, stage, scope }) => {
+  if (typeof config.bucket !== 'string' || !config.bucket.trim()) return false
+  if (stage === 'resolved' && scope && config.tenantId !== scope.tenantId) return false
+  return true
+})
+registerExternalStorageDriver('custom_storage', (config) => createCustomStorageDriver(config))
+```
+
+`createCustomStorageDriver` above is supplied by the provider. Validators return exactly `true` to accept and must be synchronous, side-effect free, and avoid logging configuration. They receive the driver key, configuration, optional partition code, optional tenant/organization scope and stage (`configured` before credential enhancement; `resolved` afterward or immediately before construction). Generic object/scope validation also runs after enhancement. Rejected/throwing validators, missing validators and enhancement failures never fall back to local storage; diagnostics discard provider exception messages and causes.
+
+The registration returns a disposer for lifecycle cleanup. Policy helpers, the validator/context types, `AttachmentStorageConfigurationError` and `isAttachmentStorageConfigurationError` are also exported from `@open-mercato/core/modules/attachments`. Use the discriminator across bundled module boundaries, not `instanceof`. The stable code is `ATTACHMENT_STORAGE_CONFIGURATION_INVALID`; reasons are `invalid_policy`, `partition_missing`, `driver_missing`, `unknown_driver`, `invalid_config`, `invalid_scope`, `validator_missing`, `validator_rejected` and `enhancement_failed`. Errors contain no configuration, credentials, partition names or scope IDs.
+
+Attachment upload, file/image retrieval and deletion routes return HTTP **503** with a localized `error`, the stable `code`, and `reason`. Configuration rejection happens before thumbnail or attachment metadata removal. Worker and CLI paths preserve the typed error; CLI deletion rejects instead of reporting success. Authentication and owning-record authorization remain separate checks.
+
+The S3 provider registers its own validator. Strict mode supports explicit ambient credentials and the existing default credential chain when no credential fields are supplied; it rejects partial/conflicting keys and incomplete environment-prefix credentials. Endpoint validation uses the existing endpoint-safety policy, including supported HTTP MinIO and the explicit `OM_STORAGE_S3_ALLOW_INTERNAL_ENDPOINTS` choice. Core introduces no S3-specific preconfiguration.
+
+Before enabling strict mode, inventory partitions and register every external driver's validator in all process bootstraps. Ensure initialization has created the intended partitions; strict uploads do not manufacture missing defaults or substitute another partition. To roll back, restore `legacy` and restart all processes; no data is moved or deleted.
+
+Use `attachmentService` for cross-module business operations. Explicit low-level driver construction, standalone S3 APIs and deprecated filesystem helpers do not select a partition driver and are outside this policy. Applications requiring this validation should migrate those callers to the service/factory. The policy is not a filesystem sandbox.
+
 ## OCR / text extraction
 
 Open Mercato supports two text-extraction methods for attachments:
