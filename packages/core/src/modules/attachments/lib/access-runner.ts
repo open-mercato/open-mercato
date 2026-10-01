@@ -3,7 +3,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { Attachment, AttachmentPartition } from '../data/entities'
-import { attachmentAccessDecisionSchema, attachmentAccessRequirementsSchema } from '../data/validators'
+import { attachmentAccessDecisionSchema, attachmentAccessRequirementsSchema, attachmentAccessSubjectFeaturesSchema } from '../data/validators'
 import { checkAttachmentAccess } from './access'
 import {
   collectAttachmentAccessTargets,
@@ -73,8 +73,8 @@ async function projectSubject(
     pending = (async () => {
       const rbac = context.container.resolve<RbacProjectionService>('rbacService')
       const acl = await rbac.loadAcl(auth.sub, scope)
-      const userFeatures = await rbac.getEffectiveFeatures(auth.sub, scope)
-      if (typeof acl.isSuperAdmin !== 'boolean' || !Array.isArray(userFeatures) || userFeatures.some((feature) => typeof feature !== 'string')) {
+      const userFeatures = attachmentAccessSubjectFeaturesSchema.parse(await rbac.getEffectiveFeatures(auth.sub, scope))
+      if (typeof acl.isSuperAdmin !== 'boolean') {
         throw new Error('[internal] Invalid attachment subject projection')
       }
       if (!acl.isSuperAdmin && acl.organizations && scope.organizationId

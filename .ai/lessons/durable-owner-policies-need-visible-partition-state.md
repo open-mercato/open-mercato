@@ -24,3 +24,11 @@ cases plus repeat-safe union and disabled-provider behavior.
 restrictions. Keep batch transformations, then guard every locked record and validate its final
 prospective owner before changing any attachment. Exercise a guard that rejects only the second
 row and a guard that changes the destination.
+
+**Validation and integration follow-up**: Use explicit code-point comparators for canonical
+keys and schema validation for feature snapshot shape, keeping live permission decisions in
+RBAC. When combining access and storage changes, storage configuration errors inherit the
+CRUD error type: access-error handling must wrap storage-error handling so the narrower
+localized storage response wins. Preserve strict storage's missing-partition delete status
+when integrating both changes, and verify real service boundaries and protected public
+cache-hit responses instead of relying only on route prechecks. Helpers imported by DI\nservices must remain loadable under native Node ESM; standard Web Responses avoid pulling\nNext.js-only module resolution into service startup. Verify the built service entrypoints\nin Node as well as the Next.js build, and update the catalog's declared count with new lessons.

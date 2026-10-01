@@ -74,7 +74,7 @@ export async function scanAuthorizedAttachments(input: {
       }
       if (batch.length < 100) break
     }
-    return { records, total, tags: [...tags].sort() }
+    return { records, total, tags: [...tags].sort((left, right) => left < right ? -1 : left > right ? 1 : 0) }
   }
   try {
     return await Promise.race([scan(), new Promise<never>((_resolve, reject) => {

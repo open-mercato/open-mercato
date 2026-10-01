@@ -120,3 +120,41 @@ it('returns a bounded 504 without storage access on a stalled owner resolver', a
   expect((await pending).status).toBe(504)
   expect(mockRead).not.toHaveBeenCalled()
 })
+
+describe('protected public response caching', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockPartition.isPublic = true
+    mockAttachment.entityId = 'documents:document'
+    mockAttachment.recordId = 'document-1'
+    mockAttachment.storageMetadata = {}
+    mockAttachment.mimeType = 'image/png'
+    registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [{
+      id: 'documents.document-attachments', targetPartition: '*', targetEntity: 'documents:document',
+      resolve: async () => ({ ok: true }),
+    }] }])
+  })
+  afterEach(() => {
+    mockPartition.isPublic = false
+    mockAttachment.mimeType = 'text/plain'
+  })
+
+  it('overrides public file caching after the owning policy allows', async () => {
+    const response = await requestFile()
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+    expect(await response.text()).toBe('private document text')
+    expect(mockRead).toHaveBeenCalledTimes(1)
+  })
+
+  it('overrides public image caching even when the thumbnail cache is warm', async () => {
+    const response = await GET_IMAGE(new Request('http://localhost/api/attachments/image/attachment-1?width=200') as Parameters<typeof GET_IMAGE>[0], {
+      params: Promise.resolve({ id: mockAttachment.id }),
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+    expect(await response.text()).toBe('cached secret')
+    expect(mockReadThumbnail).toHaveBeenCalledTimes(1)
+    expect(mockRead).not.toHaveBeenCalled()
+  })
+})

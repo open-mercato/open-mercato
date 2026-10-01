@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { AttachmentAccessDecision } from './access-types'
@@ -9,8 +8,8 @@ export async function attachmentAccessErrorBody(status: number): Promise<{ error
   return { error: t(`attachments.access.${key}`) }
 }
 
-export async function attachmentAccessErrorResponse(decision: Extract<AttachmentAccessDecision, { ok: false }>): Promise<NextResponse> {
-  return NextResponse.json(await attachmentAccessErrorBody(decision.status), {
+export async function attachmentAccessErrorResponse(decision: Extract<AttachmentAccessDecision, { ok: false }>): Promise<Response> {
+  return Response.json(await attachmentAccessErrorBody(decision.status), {
     status: decision.status, headers: { 'Cache-Control': 'private, no-store' },
   })
 }
@@ -25,7 +24,7 @@ export function withAttachmentAccessErrors<Arguments extends unknown[]>(handler:
       return await handler(...args)
     } catch (error) {
       if (isCrudHttpError(error)) {
-        return NextResponse.json(error.body, { status: error.status, headers: { 'Cache-Control': 'private, no-store' } })
+        return Response.json(error.body, { status: error.status, headers: { 'Cache-Control': 'private, no-store' } })
       }
       throw error
     }

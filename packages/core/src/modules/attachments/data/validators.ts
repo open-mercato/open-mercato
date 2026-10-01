@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AttachmentAccessResolver } from '../lib/access-types'
 
 export const attachmentAccessActionSchema = z.enum(['read', 'render', 'metadata', 'reassign', 'delete', 'export'])
+export const attachmentAccessSubjectFeaturesSchema = z.array(z.string())
 export const attachmentAccessSelectorSchema = z.string().min(1).max(200).regex(/^(?:\*|[^*\s]+(?:\.\*)?)$/)
 const resolverIdSchema = z.string().min(3).max(200).regex(/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_.-]+$/)
 

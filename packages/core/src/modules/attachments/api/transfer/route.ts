@@ -48,7 +48,7 @@ async function transferAttachments(req: Request) {
   if (!effective.success) return throwAttachmentAccessError(403)
   const { attachmentIds, entityId, fromRecordId } = effective.data
   const filters: Record<string, unknown> = {
-    id: { $in: [...new Set(attachmentIds)].sort() }, entityId,
+    id: { $in: [...new Set(attachmentIds)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0) }, entityId,
     tenantId: auth.tenantId, organizationId: auth.orgId,
     ...(fromRecordId ? { recordId: fromRecordId } : {}),
   }
