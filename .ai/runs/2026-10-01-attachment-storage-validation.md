@@ -18,11 +18,13 @@ Opt-in strict deployments must register validators and repair legacy implicit co
 
 ## Progress
 
+PR: #6820
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Policy and factory
 
-- [ ] 1.1 Add typed policy/validator/error contracts and enforce all factory resolutions.
+- [x] 1.1 Add typed policy/validator/error contracts and enforce all factory resolutions. — 2826f7eea0; 7 baseline failures, 32 focused factory/policy assertions pass.
 
 ### Phase 2: Consumers and verification
 
