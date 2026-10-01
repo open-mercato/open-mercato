@@ -36,6 +36,14 @@ import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'commands' })
 
+const PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD = Symbol.for(
+  'open-mercato.commands.prepare-snapshot-after-transaction-guard',
+)
+
+type TransactionGuardedSnapshotPrepare = NonNullable<CommandHandler['prepare']> & {
+  [PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD]?: true
+}
+
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
   'audit_logs.action',
@@ -259,7 +267,34 @@ export class CommandBus {
       }
     }
 
-    const snapshots = await this.prepareSnapshots(handler, effectiveOptions)
+    const snapshots: { before?: unknown } = {}
+    const prepareAfterTransactionGuard = Boolean(
+      (handler.prepare as TransactionGuardedSnapshotPrepare | undefined)?.[
+        PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD
+      ],
+    )
+    if (prepareAfterTransactionGuard && handler.prepare) {
+      const prepare = handler.prepare
+      const originalCtx = effectiveOptions.ctx
+      const originalBeforeTransactionalWrite = originalCtx.beforeTransactionalWrite
+      let prepared = false
+      let transactionalCtx: CommandRuntimeContext
+      transactionalCtx = {
+        ...originalCtx,
+        beforeTransactionalWrite: async (em) => {
+          await originalBeforeTransactionalWrite?.(em)
+          if (prepared) return
+          Object.assign(
+            snapshots,
+            (await prepare(effectiveOptions.input, { ...transactionalCtx, transactionalEm: em })) ?? {},
+          )
+          prepared = true
+        },
+      }
+      effectiveOptions = { ...effectiveOptions, ctx: transactionalCtx }
+    } else {
+      Object.assign(snapshots, await this.prepareSnapshots(handler, effectiveOptions))
+    }
     const redoLogEntry = effectiveOptions.redoLogEntry ?? null
     const result =
       redoLogEntry && typeof handler.redo === 'function'

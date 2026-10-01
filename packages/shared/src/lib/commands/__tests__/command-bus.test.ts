@@ -121,6 +121,61 @@ describe('CommandBus', () => {
     )
   })
 
+  it('defers marked before snapshots until after the transactional write guard', async () => {
+    const calls: string[] = []
+    const transactionalEm = { id: 'transaction-em' }
+    const buildLogMock = jest.fn(() => ({
+      actionLabel: 'Transaction snapshot',
+      resourceKind: 'test',
+      resourceId: 'transactional',
+    }))
+    const prepare = Object.assign(
+      jest.fn(async (_input, ctx) => {
+        calls.push('prepare')
+        expect(ctx.transactionalEm).toBe(transactionalEm)
+        return { before: { state: 'locked-before' } }
+      }),
+      {
+        [Symbol.for('open-mercato.commands.prepare-snapshot-after-transaction-guard')]: true as const,
+      },
+    )
+
+    registerCommand({
+      id: 'test.command.transactional-snapshot',
+      prepare,
+      execute: jest.fn(async (_input, ctx) => {
+        calls.push('execute')
+        await ctx.beforeTransactionalWrite?.(transactionalEm as never)
+        calls.push('mutate')
+        return { ok: true }
+      }),
+      buildLog: buildLogMock,
+    })
+
+    const logMock = jest.fn(async () => ({ id: 'transaction-log' }))
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-transaction', tenantId: 'tenant-transaction', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+      beforeTransactionalWrite: jest.fn(async () => {
+        calls.push('lock')
+      }),
+    }
+
+    await bus.execute('test.command.transactional-snapshot', { input: {}, ctx })
+
+    expect(calls).toEqual(['execute', 'lock', 'prepare', 'mutate'])
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(buildLogMock).toHaveBeenCalledWith(expect.objectContaining({
+      snapshots: { before: { state: 'locked-before' }, after: undefined },
+    }))
+  })
+
   it('loads a command file lazily before execution', async () => {
     const execute = jest.fn(async () => ({ ok: true }))
     registerCommandLoaders([

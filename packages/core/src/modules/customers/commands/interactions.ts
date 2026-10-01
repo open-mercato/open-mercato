@@ -59,6 +59,9 @@ import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-
 const logger = createLogger('customers')
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
+const PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD = Symbol.for(
+  'open-mercato.commands.prepare-snapshot-after-transaction-guard',
+)
 const interactionCrudIndexer: CrudIndexerConfig<CustomerInteraction> = {
   entityType: 'customers:customer_interaction' as const,
 }
@@ -748,14 +751,19 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 
 // ─── Update ─────────────────────────────────────────────────────────
 
-const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interactionId: string }> = {
-  id: 'customers.interactions.update',
-  async prepare(rawInput, ctx) {
+const prepareUpdateInteractionSnapshot = Object.assign(
+  async (rawInput: InteractionUpdateInput, ctx: CommandRuntimeContext) => {
     const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadInteractionSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
+  { [PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD]: true as const },
+)
+
+const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interactionId: string }> = {
+  id: 'customers.interactions.update',
+  prepare: prepareUpdateInteractionSnapshot,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
