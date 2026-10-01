@@ -115,12 +115,12 @@ export async function loginViaApi(
   return await response.json() as LoginSuccessResponse
 }
 
-export async function setAuthCookie(target: BrowserContext | Page, token: string): Promise<void> {
+export async function setAuthCookie(target: BrowserContext | Page, token: string, baseUrl = BASE_URL): Promise<void> {
   const context = 'context' in target ? target.context() : target
   await context.addCookies([{
     name: AUTH_COOKIE_NAME,
     value: token,
-    url: BASE_URL,
+    url: baseUrl,
     sameSite: 'Lax',
     httpOnly: true,
   }])
@@ -142,9 +142,9 @@ export async function fetchJson<T>(
   request: APIRequestContext,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
-  options: { token: string; data?: unknown; headers?: Record<string, string> },
+  options: { token: string; data?: unknown; headers?: Record<string, string>; baseUrl?: string },
 ): Promise<{ status: number; body: T }> {
-  const response = await request.fetch(`${BASE_URL}${path}`, {
+  const response = await request.fetch(`${options.baseUrl ?? BASE_URL}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${options.token}`,
@@ -249,12 +249,14 @@ export async function enrollPasskey(
   page: Page,
   label = 'QA Passkey',
 ): Promise<PasskeyEnrollmentResult> {
+  const baseUrl = new URL(page.url()).origin
   const setup = await fetchJson<{
     setupId: string
     clientData: PublicKeyCredentialCreationOptionsJSON
   }>(request, 'POST', '/api/security/mfa/provider/passkey', {
     token,
     data: { label },
+    baseUrl,
   })
   expect(setup.status).toBe(200)
   const response = await page.evaluate(async (options) => {
@@ -269,6 +271,7 @@ export async function enrollPasskey(
   const confirm = await fetchJson<{ ok: true }>(request, 'PUT', '/api/security/mfa/provider/passkey', {
     token,
     data: { setupId: setup.body.setupId, payload: { response, label } },
+    baseUrl,
   })
   expect(confirm.status).toBe(200)
   return {
@@ -284,10 +287,14 @@ export async function verifyPasskeyChallenge(
   challengeId: string,
   credentialPages: ReadonlyMap<string, Page>,
 ): Promise<{ status: number; body: { ok?: boolean; token?: string }; credentialId: string }> {
+  const firstPage = credentialPages.values().next().value
+  if (!firstPage) throw new Error('Passkey verification requires an enrolled virtual authenticator')
+  const baseUrl = new URL(firstPage.url()).origin
   const prepared = await fetchJson<{ clientData: PublicKeyCredentialRequestOptionsJSON }>(
     request, 'POST', '/api/security/mfa/prepare', {
       token: pendingToken,
       data: { challengeId, methodType: 'passkey' },
+      baseUrl,
     },
   )
   expect(prepared.status).toBe(200)
@@ -307,6 +314,7 @@ export async function verifyPasskeyChallenge(
   const verified = await fetchJson<{ ok?: boolean; token?: string }>(request, 'POST', '/api/security/mfa/verify', {
     token: pendingToken,
     data: { challengeId, methodType: 'passkey', payload: { response } },
+    baseUrl,
   })
   return { ...verified, credentialId: response.id }
 }

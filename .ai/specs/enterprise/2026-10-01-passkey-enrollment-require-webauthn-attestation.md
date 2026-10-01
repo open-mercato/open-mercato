@@ -62,7 +62,7 @@ Existing stored passkeys are not deleted, migrated or automatically invalidated.
 
 ## Integration Coverage
 
-`TC-SEC-004` owns its user fixture and virtual authenticator, cleans up both, and exercises the passkey UI, POST setup, PUT confirmation, GET methods, password login, POST prepare and POST verify. It rejects the legacy confirmation shape with the genuine current setup challenge, confirms no new active method, enrolls two genuine credentials with distinct labels, rejects MFA-pending enrollment and unsigned verification, then completes a real signed challenge. No demo entity or fake public-key persistence is required.
+`TC-SEC-004` owns its user fixture and virtual authenticator, cleans up both, and exercises the passkey UI, POST setup, PUT confirmation, GET methods, password login, POST prepare and POST verify. It rejects the legacy confirmation shape with the genuine current setup challenge, confirms no new active method, enrolls two genuine credentials with distinct labels, rejects MFA-pending enrollment and unsigned verification, then completes a real signed challenge. No demo entity or fake public-key persistence is required. The ephemeral CLI exposes a loopback IP; the passkey test uses the same server through `localhost` for browser and registration/assertion requests because Chromium rejects IP-address RP IDs. Remote environments retain their configured hostname and the server verifies the corresponding origin normally.
 
 ## Implementation and Validation
 
@@ -78,3 +78,4 @@ The change is limited to the enterprise security module, its tests, and required
 - 2026-10-01: Completed code-path and compatibility review; retained existing method-ID binding and specified real authenticator coverage without changing credential selection policy.
 - 2026-10-01: Implemented the response-only confirmation and localized validation boundary; added real route regressions, two-authenticator integration coverage, and migration disclosures. Independent scope review completed; human waiver remains pending.
 - 2026-10-01: Self-review found an invocation-time validation edge case; reproduced it, switched to `try/catch`, and verified synchronous and asynchronous provider failures with no activation. Final focused tests: 52 passed.
+- 2026-10-01: Live Chromium rejected the ephemeral loopback IP as a WebAuthn RP domain. The passkey test now uses the same server through `localhost` for browser and ceremony API requests; production origin checks are unchanged.

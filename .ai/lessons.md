@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 145 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 146 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -19,6 +19,8 @@ This catalog indexes 145 focused lessons. Route the task first, then read only r
 ## Catalog
 
 ### architecture
+
+- [Real WebAuthn tests need a valid relying-party hostname](lessons/real-webauthn-tests-need-valid-rp-hostname.md) — area:testing,integration; module:security; topic:webauthn,testing
 
 - [Provider validation boundaries must catch synchronous errors](lessons/provider-validation-boundaries-must-catch-synchronous-errors.md) — area:architecture,testing; module:security; topic:validation-errors,provider-lifecycle
 

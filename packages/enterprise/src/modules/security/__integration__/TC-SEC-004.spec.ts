@@ -36,11 +36,13 @@ test.describe('TC-SEC-004: Passkey enrollment and MFA login', () => {
     const firstLogin = await loginViaApi(request, userEmail, userPassword)
     const userToken = firstLogin.token
 
-    await setAuthCookie(page, userToken)
-    await page.goto('/backend/profile/security/mfa')
+    const webauthnBaseUrl = new URL(process.env.BASE_URL || 'http://localhost:3000')
+    if (webauthnBaseUrl.hostname === '127.0.0.1') webauthnBaseUrl.hostname = 'localhost'
+    await setAuthCookie(page, userToken, webauthnBaseUrl.origin)
+    await page.goto(new URL('/backend/profile/security/mfa', webauthnBaseUrl).href)
     await expect(page.getByRole('button', { name: /Security keys/ })).toBeVisible()
 
-    await page.goto('/backend/profile/security/mfa/passkey')
+    await page.goto(new URL('/backend/profile/security/mfa/passkey', webauthnBaseUrl).href)
     const browserHasWebAuthn = await page.evaluate(() => typeof window.PublicKeyCredential !== 'undefined')
     expect(browserHasWebAuthn, 'Chromium must support the WebAuthn registration ceremony').toBe(true)
 
