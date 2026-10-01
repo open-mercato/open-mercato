@@ -53,6 +53,7 @@ jest.mock('../../../../lib/test-seed', () => ({
 
 import { z } from 'zod'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST } from '../route'
 
 const CALLER_USER = 'caller-user-id'
@@ -225,6 +226,17 @@ describe('POST /api/communication_channels/test-seed — ingest-inbound failures
 
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ error: 'Conflict' })
+  })
+
+  it('passes a command interceptor rejection status and body through', async () => {
+    mockCommandExecute.mockRejectedValue(
+      new CommandInterceptorError('Blocked', { status: 403, body: { error: 'Blocked by policy' } }),
+    )
+
+    const response = await POST(ingestRequest())
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'Blocked by policy' })
   })
 
   it('answers a non-empty 500 for an unexpected command failure', async () => {
