@@ -88,15 +88,18 @@ yarn mercato auth rotate-encryption-key --tenant <tenantId> --org <organizationI
 
 All entities with encryption maps:
 ```bash
+# Encrypt existing plaintext rows:
 yarn mercato entities rotate-encryption-key
-yarn mercato entities rotate-encryption-key --old-key <previous_fallback_key>
+
+# Rotate from a previous key after your secret manager injects TENANT_DATA_ENCRYPTION_OLD_KEY:
 yarn mercato entities rotate-encryption-key --tenant <tenantId> --org <organizationId>
 ```
 
 Notes:
 - These commands are potentially destructive; run a backup first and prefer `--dry-run`.
-- Without `--old-key`, commands only encrypt plaintext values and skip already encrypted fields.
-- With `--old-key`, rotation only updates fields that can be decrypted with that key; mismatched rows are skipped and logged.
+- Without a previous key, commands only encrypt plaintext values and skip already encrypted fields.
+- For entity rotation, provide the previous key through `TENANT_DATA_ENCRYPTION_OLD_KEY`; do not put key material in command arguments. The legacy `--old-key` form remains accepted for compatibility but warns because shell history and process listings can expose it.
+- Rotation only updates fields that can be decrypted with the previous key; mismatched rows are left untouched and make the command fail so automation cannot mistake a partial rotation for success.
 - Always pass `--tenant` (and `--org` when possible) during rotation to avoid accidental cross-tenant use.
 - Rotation always re-encrypts with the current KMS/fallback key. Ensure the new key is already active (Vault configured or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` set) before running these commands.
 - These commands are tenant-scoped. They skip entities whose map is system-scoped (see the next section) and say so, because a tenant key cannot open system-scoped ciphertext.
@@ -153,6 +156,8 @@ After a successful run:
 4. Run `--check` again to confirm no encrypted values remain.
 
 The `--confirm <tenantUuid>` flag is a required safety gate — it must exactly match `--tenant` to prevent accidental cross-tenant runs. See the [decrypt-database CLI reference](../cli/entities-decrypt-database) for the full option list, error codes, and troubleshooting.
+
+Malformed ciphertext makes the command exit non-zero. When `--deactivate-maps` is present, the maps remain active until every selected field decrypts successfully; investigate the reported rows and re-run before disabling encryption.
 
 ## Debugging
 

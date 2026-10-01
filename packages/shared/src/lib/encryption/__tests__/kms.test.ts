@@ -1,4 +1,3 @@
-import crypto from 'node:crypto'
 import { buildDerivedKeyFallbackBannerLines, createKmsService, HashicorpVaultKmsService } from '../kms'
 
 const originalEnv = { ...process.env }
@@ -74,7 +73,7 @@ describe('kms timeout handling', () => {
     expect(dek).toBeNull()
   })
 
-  it('never prints the explicit fallback secret verbatim in the banner, regardless of NODE_ENV', () => {
+  it('prints no secret-derived identifier for the explicit fallback key, regardless of NODE_ENV', () => {
     const secret = 'super-secret-tenant-encryption-key'
     for (const nodeEnv of ['development', 'staging', 'preview', 'PRODUCTION', 'production', undefined]) {
       if (nodeEnv === undefined) delete process.env.NODE_ENV
@@ -89,8 +88,7 @@ describe('kms timeout handling', () => {
 
       expect(rendered).not.toContain(secret)
       expect(rendered).toContain('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
-      const expectedFingerprint = crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
-      expect(rendered).toContain(`Secret fingerprint (sha256, truncated): ${expectedFingerprint}`)
+      expect(rendered.toLowerCase()).not.toContain('fingerprint')
     }
   })
 

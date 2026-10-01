@@ -231,6 +231,20 @@ function formatCliFailureMessage(modName: string, cmdName: string, error: unknow
   return fallbackMessage
 }
 
+const SENSITIVE_MODULE_CLI_OPTIONS = new Set(['--old-key', '--oldKey'])
+
+function redactSensitiveModuleCliArgs(args: string[]): string[] {
+  return args.map((argument, index) => {
+    const separatorIndex = argument.indexOf('=')
+    if (separatorIndex > 0) {
+      const option = argument.slice(0, separatorIndex)
+      if (SENSITIVE_MODULE_CLI_OPTIONS.has(option)) return `${option}=****`
+    }
+    if (index > 0 && SENSITIVE_MODULE_CLI_OPTIONS.has(args[index - 1]!)) return '****'
+    return argument
+  })
+}
+
 function formatInitFailureMessage(error: unknown): string {
   const fallbackMessage = getFallbackErrorMessage(error)
   const databaseIssue = detectDatabaseConnectionIssue(error)
@@ -2697,9 +2711,10 @@ export async function run(argv = process.argv) {
 
   console.log('')
   const started = Date.now()
-  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
+  const commandArgs = modName === 'deploy' && cmdName === 'railway'
     ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
     : rest
+  const loggedArgs = redactSensitiveModuleCliArgs(commandArgs)
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
     await cmd.run(rest)
