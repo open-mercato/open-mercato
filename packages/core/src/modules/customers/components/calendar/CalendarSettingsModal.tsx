@@ -16,7 +16,8 @@ import { SegmentGroup } from './editor/SegmentGroup'
 export type CalendarSettingsModalProps = {
   open: boolean
   preferences: CalendarPreferences
-  seedActivityTypes: string[]
+  /** @deprecated Activity types are loaded from the scoped catalog. */
+  seedActivityTypes?: string[]
   onOpenChange(open: boolean): void
   onSave(next: CalendarPreferences): void
 }
