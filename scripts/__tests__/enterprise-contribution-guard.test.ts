@@ -25,7 +25,7 @@ function fakeDeps({ files, commits, commitFiles }: {
 test('isAllowedLogin is case-insensitive and rejects non-string logins', () => {
   assert.equal(isAllowedLogin('PKarw', ALLOWED_LOGINS), true)
   assert.equal(isAllowedLogin('pkarw', ALLOWED_LOGINS), true)
-  assert.equal(isAllowedLogin('bernard', ALLOWED_LOGINS), false)
+  assert.equal(isAllowedLogin('octocat', ALLOWED_LOGINS), false)
   assert.equal(isAllowedLogin(null, ALLOWED_LOGINS), false)
   assert.equal(isAllowedLogin(undefined, ALLOWED_LOGINS), false)
 })
@@ -33,7 +33,7 @@ test('isAllowedLogin is case-insensitive and rejects non-string logins', () => {
 test('passes a PR that never touches packages/enterprise/', async () => {
   const result = await evaluate(fakeDeps({
     files: ['packages/core/src/modules/customers/index.ts'],
-    commits: [{ sha: 'a1', authorLogin: 'bernard', authorType: 'User', authorEmail: null }],
+    commits: [{ sha: 'a1', authorLogin: 'octocat', authorType: 'User', authorEmail: null }],
     commitFiles: {},
   }))
   assert.equal(result.touchesEnterprise, false)
@@ -57,12 +57,12 @@ test('passes when every commit touching packages/enterprise/ is by an allowliste
 })
 
 test('fails when a non-allowlisted author pushes a commit to an allowlisted author\'s PR', async () => {
-  // pkarw opens the PR; bernard pushes a follow-up commit touching enterprise/.
+  // pkarw opens the PR; octocat pushes a follow-up commit touching enterprise/.
   const result = await evaluate(fakeDeps({
     files: ['packages/enterprise/src/modules/sso/index.ts'],
     commits: [
       { sha: 'a1', authorLogin: 'pkarw', authorType: 'User', authorEmail: null },
-      { sha: 'a2', authorLogin: 'bernard', authorType: 'User', authorEmail: null },
+      { sha: 'a2', authorLogin: 'octocat', authorType: 'User', authorEmail: null },
     ],
     commitFiles: {
       a1: ['packages/core/src/modules/customers/index.ts'],
@@ -72,7 +72,7 @@ test('fails when a non-allowlisted author pushes a commit to an allowlisted auth
   assert.equal(result.touchesEnterprise, true)
   assert.equal(result.violations.length, 1)
   assert.equal(result.violations[0].sha, 'a2')
-  assert.equal(result.violations[0].identity, '@bernard')
+  assert.equal(result.violations[0].identity, '@octocat')
   assert.deepEqual(result.violations[0].files, ['packages/enterprise/src/modules/sso/index.ts'])
 })
 
@@ -107,7 +107,7 @@ test('falls back to "unknown author" when neither login nor email is available',
 test('ignores a commit that touches unrelated files even if the overall diff touches enterprise/', async () => {
   const result = await evaluate(fakeDeps({
     files: ['packages/enterprise/src/modules/sso/index.ts', 'packages/core/src/modules/customers/index.ts'],
-    commits: [{ sha: 'a1', authorLogin: 'bernard', authorType: 'User', authorEmail: null }],
+    commits: [{ sha: 'a1', authorLogin: 'octocat', authorType: 'User', authorEmail: null }],
     commitFiles: { a1: ['packages/core/src/modules/customers/index.ts'] },
   }))
   assert.deepEqual(result.violations, [])
@@ -115,9 +115,9 @@ test('ignores a commit that touches unrelated files even if the overall diff tou
 
 test('formatSummaryMarkdown lists every violation with a short sha and its files', () => {
   const markdown = formatSummaryMarkdown([
-    { sha: 'abcdef1234567', identity: '@bernard', files: ['packages/enterprise/a.ts', 'packages/enterprise/b.ts'] },
+    { sha: 'abcdef1234567', identity: '@octocat', files: ['packages/enterprise/a.ts', 'packages/enterprise/b.ts'] },
   ])
-  assert.match(markdown, /abcdef1 by @bernard/)
+  assert.match(markdown, /abcdef1 by @octocat/)
   assert.match(markdown, /`packages\/enterprise\/a\.ts`, `packages\/enterprise\/b\.ts`/)
   assert.match(markdown, /CONTRIBUTING\.md/)
 })
