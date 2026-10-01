@@ -170,6 +170,9 @@ const widget: InjectionFieldWidget = {
       if (!source) return data
       return buildDisplayState(source) as typeof data
     },
+    async onBeforeDelete() {
+      return { ok: true }
+    },
     async onBeforeSave(data) {
       const source = asRecord(data)
       if (!source) return { ok: true }

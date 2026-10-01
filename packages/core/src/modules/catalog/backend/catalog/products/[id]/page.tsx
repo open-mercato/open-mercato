@@ -120,6 +120,7 @@ import {
   toPositiveNumberOrNull,
   toIntegerInRangeOrDefault,
   normalizeProductConversionInputs,
+  pickEnrichmentNamespaces,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 import {
@@ -773,7 +774,11 @@ export default function EditCatalogProductPage({
                 : null,
         };
         if (!cancelled) {
-          setInitialValues({ ...initial, ...customValues });
+          setInitialValues({
+            ...initial,
+            ...customValues,
+            ...pickEnrichmentNamespaces(record),
+          });
           setCategorizeOptions({
             categories: categoryOptions,
             channels: channelOptionEntries,
@@ -1412,6 +1417,7 @@ export default function EditCatalogProductPage({
           ? {
               ...prev,
               ...values,
+              ...pickEnrichmentNamespaces(refreshedRecord),
               updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
             }
           : prev,
