@@ -52,7 +52,7 @@
     "@aws-sdk/client-sesv2": "^3.946.0",
     "@open-mercato/core": "workspace:*",
     "@types/nodemailer": "^8.0.1",
-    "nodemailer": "^9.0.6"
+    "nodemailer": "^10.0.13"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
