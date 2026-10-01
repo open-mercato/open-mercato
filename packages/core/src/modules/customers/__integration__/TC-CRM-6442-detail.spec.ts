@@ -48,7 +48,9 @@ test.describe('CRM deal owner assignment — detail form', () => {
       : '';
 
     ownerUserId = rosterUserIds[0] ?? currentUserId;
-    otherUserId = rosterUserIds[1] ?? currentUserId;
+    // Must differ: if both resolve to the same id, "changes the owner" would assert the owner
+    // equals what the fixture already set and would pass even if PUT ignored ownerUserId.
+    otherUserId = rosterUserIds.find((id) => id !== ownerUserId) ?? '';
     expect(ownerUserId, 'No assignable user id available for the owner tests').toBeTruthy();
   });
 
@@ -59,6 +61,7 @@ test.describe('CRM deal owner assignment — detail form', () => {
   });
 
   test('changes the owner through the detail form PUT and persists it', async ({ request }) => {
+    test.skip(!otherUserId, 'Needs two distinct assignable users to prove the owner actually changed');
     const dealId = await createDealFixture(request, token, {
       title: `TC-CRM-6442-detail reassign ${Date.now()}`,
       ownerUserId,
@@ -81,6 +84,7 @@ test.describe('CRM deal owner assignment — detail form', () => {
   });
 
   test('rejects a stale owner update with 409 so the form surfaces the conflict', async ({ request }) => {
+    test.skip(!otherUserId, 'Needs two distinct assignable users');
     const dealId = await createDealFixture(request, token, {
       title: `TC-CRM-6442-detail stale ${Date.now()}`,
       ownerUserId,

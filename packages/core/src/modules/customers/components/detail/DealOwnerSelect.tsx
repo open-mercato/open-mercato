@@ -21,6 +21,8 @@ export type DealOwnerOption = {
 export type DealOwnerSelectProps = {
   value: string | null
   onChange: (next: string | null) => void
+  /** Aborts an in-flight roster fetch, matching the other assignable-staff callers. */
+  signal?: AbortSignal
   /**
    * The already-known owner, so the picker shows a name immediately instead of waiting for
    * the roster — and keeps showing one when that owner falls outside the fetched page or has
@@ -54,6 +56,7 @@ export function DealOwnerSelect({
   onChange,
   initialOption,
   disabled = false,
+  signal,
 }: DealOwnerSelectProps): React.ReactElement {
   const t = useT()
   // Scopes the roster to the active organization. Without it the staff-module-absent
@@ -72,7 +75,11 @@ export function DealOwnerSelect({
       // The assignable roster belongs to the optional `staff` module; when it is disabled the
       // helper turns the 404 into an empty page, so this resolves to "no candidates" rather
       // than an error state.
-      const members = await fetchAssignableStaffMembers(query, { pageSize: ROSTER_PAGE_SIZE, activeOrgId })
+      const members = await fetchAssignableStaffMembers(query, {
+        pageSize: ROSTER_PAGE_SIZE,
+        activeOrgId,
+        ...(signal ? { signal } : {}),
+      })
       items = members.map((member) => toLookupItem(member.userId, member.displayName, member.email))
     } catch (error) {
       logger.error('customers.deals.searchOwners failed', { err: error })
@@ -89,7 +96,7 @@ export function DealOwnerSelect({
       return [seeded, ...items]
     }
     return items
-  }, [activeOrgId, seededOptions, value])
+  }, [activeOrgId, seededOptions, signal, value])
 
   return (
     <LookupSelect

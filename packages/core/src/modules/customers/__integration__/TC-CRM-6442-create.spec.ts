@@ -18,7 +18,6 @@ test.describe('CRM deal owner assignment — create paths', () => {
   const createdDealIds: string[] = [];
   let token = '';
   let ownerUserId = '';
-  let otherUserId = '';
 
   test.beforeAll(async ({ request }) => {
     token = await getAuthToken(request, 'admin');
@@ -45,7 +44,6 @@ test.describe('CRM deal owner assignment — create paths', () => {
       : '';
 
     ownerUserId = rosterUserIds[0] ?? currentUserId;
-    otherUserId = rosterUserIds[1] ?? currentUserId;
     expect(ownerUserId, 'No assignable user id available for the owner tests').toBeTruthy();
   });
 
@@ -66,6 +64,24 @@ test.describe('CRM deal owner assignment — create paths', () => {
     expect(detail.ok()).toBeTruthy();
     const payload = await readJsonSafe(detail);
     expect((payload as { deal?: { ownerUserId?: string } })?.deal?.ownerUserId).toBe(ownerUserId);
+  });
+
+  // Both create forms send an explicit `null` for an empty picker rather than omitting the key
+  // (D5). `dealCreateSchema.ownerUserId` is `.optional().nullable()` and `createDealCommand`
+  // maps it, so this asserts the create contract the UI actually relies on.
+  test('accepts an explicit null owner, creating a deliberately unowned deal', async ({ request }) => {
+    const response = await apiRequest(request, 'POST', '/api/customers/deals', {
+      token,
+      data: { title: `TC-CRM-6442-create null owner ${Date.now()}`, ownerUserId: null },
+    });
+    expect(response.ok(), `Create with a null owner failed: ${response.status()}`).toBeTruthy();
+    const created = await readJsonSafe(response);
+    const dealId = (created as { id?: string })?.id ?? '';
+    expect(dealId).toBeTruthy();
+    createdDealIds.push(dealId);
+
+    const detail = await readJsonSafe(await apiRequest(request, 'GET', `/api/customers/deals/${dealId}`, { token }));
+    expect((detail as { deal?: { ownerUserId?: string | null } })?.deal?.ownerUserId ?? null).toBeNull();
   });
 
 });

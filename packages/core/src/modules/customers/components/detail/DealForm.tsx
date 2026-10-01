@@ -57,7 +57,12 @@ function DealOwnerFieldControl({
   return (
     <DealOwnerSelect
       value={value && value.length ? value : null}
-      onChange={(next) => setValue(next ?? '')}
+      onChange={(next) => {
+        // The current-user id resolves asynchronously. Burn the one-shot here too, so a user
+        // who clears the picker before it arrives is not silently re-assigned by the effect.
+        seeded.current = true
+        setValue(next ?? '')
+      }}
       initialOption={initialOption}
       disabled={disabled}
     />

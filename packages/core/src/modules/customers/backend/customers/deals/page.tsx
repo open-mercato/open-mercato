@@ -573,13 +573,16 @@ export default function CustomersDealsPage() {
   const handleBulkReassignOwner = React.useCallback(
     async (selectedRows: DealRow[]): Promise<BulkActionExecuteResult | false> => {
       if (!selectedRows.length) return false
+      // A second invocation (double-click) would otherwise overwrite the parked resolver and
+      // leave the first `onExecute` awaiting forever.
+      settleReassignOwner(false)
       setReassignOwnerRows(selectedRows)
       setReassignOwnerOpen(true)
       return new Promise<BulkActionExecuteResult | false>((resolve) => {
         reassignOwnerResolver.current = resolve
       })
     },
-    [],
+    [settleReassignOwner],
   )
 
   const handleReassignOwnerCancel = React.useCallback(() => {
@@ -620,14 +623,16 @@ export default function CustomersDealsPage() {
         logger.error('customers.deals.list bulk owner update failed', { err: error })
         setIsReassigningOwner(false)
         setReassignOwnerOpen(false)
-        settleReassignOwner({
-          ok: false,
-          message: t('customers.deals.list.bulkReassignOwner.error', 'Failed to start bulk owner update.'),
-        })
+        // `runBulkMutation` already surfaced the failure. Returning a message here would make
+        // DataTable flash a second error toast for the same event, so settle silently.
+        settleReassignOwner({ ok: false })
         return
       }
       setIsReassigningOwner(false)
       setReassignOwnerOpen(false)
+      // DataTable returns right after clearing the selection when a progressJobId is present,
+      // so it never calls the refresh hook — reload the rows here instead.
+      handleRefresh()
       settleReassignOwner(buildReassignOwnerSuccess({
         ids,
         progressJobId,
@@ -636,7 +641,7 @@ export default function CustomersDealsPage() {
         }),
       }))
     },
-    [bulkMutationContextId, reassignOwnerRows, retryBulkMutation, runBulkMutation, settleReassignOwner, t],
+    [bulkMutationContextId, handleRefresh, reassignOwnerRows, retryBulkMutation, runBulkMutation, settleReassignOwner, t],
   )
 
   const handleBulkDelete = React.useCallback(async (selectedRows: DealRow[]) => {

@@ -13,7 +13,7 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { DealOwnerSelect } from '../../../../components/detail/DealOwnerSelect'
+import { DealOwnerSelect } from '@open-mercato/core/modules/customers/components/detail/DealOwnerSelect'
 
 export type ReassignOwnerDialogProps = {
   open: boolean
@@ -81,11 +81,18 @@ export function ReassignOwnerDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <DealOwnerSelect
-          value={selectedUserId}
-          onChange={(next) => setSelectedUserId(next)}
-          disabled={isSubmitting}
-        />
+        {/* LookupSelect renders a bare combobox with only a placeholder, and unlike the form
+            surfaces this dialog has no field label — so name it explicitly. */}
+        <label className="flex flex-col gap-1.5">
+          <span className="sr-only">
+            {translateWithFallback(t, 'customers.deals.fields.owner', 'Owner')}
+          </span>
+          <DealOwnerSelect
+            value={selectedUserId}
+            onChange={(next) => setSelectedUserId(next)}
+            disabled={isSubmitting}
+          />
+        </label>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} type="button" disabled={isSubmitting}>

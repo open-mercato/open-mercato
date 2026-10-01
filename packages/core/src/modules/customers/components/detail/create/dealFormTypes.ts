@@ -9,7 +9,8 @@ export type BaseValues = {
   valueCurrency: string
   probability: string
   expectedCloseAt: string
-  ownerUserId: string
+  /** Optional so out-of-tree code constructing a BaseValues literal keeps compiling. */
+  ownerUserId?: string
   description: string
   personIds: string[]
   companyIds: string[]

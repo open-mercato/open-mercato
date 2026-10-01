@@ -95,6 +95,9 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   )
 
   const patch = React.useCallback((partial: Partial<BaseValues>) => {
+    // A user touching the owner before useCurrentUserId resolves must not be overridden by
+    // the seeding effect below.
+    if ('ownerUserId' in partial) ownerSeeded.current = true
     setValues((current) => ({ ...current, ...partial }))
   }, [])
 
