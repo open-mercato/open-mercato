@@ -64,5 +64,10 @@ PR: #6829
 ### Phase 3: Validation and handoff
 
 - [ ] 3.1 Add live path coverage and browser evidence
-- [ ] 3.2 Complete configured validation and supplementary checks
+- [x] 3.2 Complete configured validation and supplementary checks — cc96cbeeb8; local ordered gate with scoped core/create-app remediation, app build, test:scripts and template checks passed
 - [ ] 3.3 Review and publish evidence with release handoff
+
+### Final verification checkpoint
+
+- Native TC-ATT-016–023 cover migration/backfill, private/public bytes and derived images, exact authorized metadata pagination/facets, atomic mutations, live features/API keys/role membership, blocked generic exports and a real two-connection ownership race. Direct iteration: eight passed; independent fixture reviews resolved before publication.
+- Final managed CLI and browser evidence follow on the committed test head. Runtime secrets and exploration state remain ignored; the separate design spec is not duplicated here.
