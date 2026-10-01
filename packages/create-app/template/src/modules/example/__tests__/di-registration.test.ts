@@ -48,6 +48,23 @@ function buildContainer(counts: { total: number; done: number }) {
 }
 
 describe('example module DI registration', () => {
+  it('decorates the request command bus with Visit booking serialization', async () => {
+    const execute = jest.fn(async (_commandId: string, _options: unknown) => ({ result: { ok: true }, logEntry: null }))
+    const originalCommandBus = { execute }
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      commandBus: asValue(originalCommandBus),
+      em: asValue({}),
+      queryEngine: asValue({ query: jest.fn() }),
+    })
+
+    register(container as unknown as AppContainer)
+    const decorated = container.resolve<{ execute: typeof execute }>('commandBus')
+    expect(decorated).not.toBe(originalCommandBus)
+    await decorated.execute('example.todos.update', { input: {}, ctx: {} })
+    expect(execute).toHaveBeenCalledWith('example.todos.update', { input: {}, ctx: {} })
+  })
+
   it('registers the todo summary service as a scoped Awilix function provider', () => {
     const { container } = buildContainer({ total: 0, done: 0 })
     const registration = container.registrations[EXAMPLE_TODO_SUMMARY_SERVICE]
