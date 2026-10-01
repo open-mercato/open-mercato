@@ -623,6 +623,7 @@ describe('attachments API', () => {
       isSuperAdmin: true,
     }))
     mockEm.findOne.mockImplementation(async (entity: any) => {
+      if (entity?.name === 'AttachmentPartition') return partitions[0]
       if (entity?.name === 'Attachment') {
         return {
           id: 'att-1',
@@ -641,6 +642,7 @@ describe('attachments API', () => {
     expect(mockEm.findOne).toHaveBeenCalledWith(
       expect.any(Function),
       { id: 'att-1', tenantId: 't1' },
+      expect.objectContaining({ refresh: true }),
     )
     expect(mockEm.remove).toHaveBeenCalled()
   })
