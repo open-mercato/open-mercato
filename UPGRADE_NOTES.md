@@ -75,9 +75,9 @@ looked in a bucket that does not exist.
 `FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
 (`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
 own organization — `null` when it has none. The Gmail push path and the reaction adapter inputs
-follow in the same release — see the next entry (#6634). `TenantScope` and the remaining adapter inputs are unchanged,
-and the hub still resolves channel credentials under the key they are written with (the tenant id
-for an organization-less channel).
+follow in the same release — see the next entry (#6634). `TenantScope` and the remaining adapter
+inputs are unchanged, and the hub still resolves channel credentials under the key they are written
+with (the tenant id for an organization-less channel).
 
 **Action for adapter authors:** if your `fetchHistory` reads `input.scope.organizationId`, handle
 `null` (a tenant-wide channel). TypeScript now flags code that passes it where a `string` is
@@ -94,8 +94,9 @@ because `applyPushNotification` forwards its scope there.
 
 `ApplyPushNotificationInput.scope`, `SendReactionInput.scope` and `RemoveReactionInput.scope` are
 now typed as `ChannelScope` (`{ tenantId: string; organizationId: string | null }`), and both
-workers pass the channel's own organization — `null` when it has none. Channel credentials are still resolved under the key they are written with (the tenant id for an
-organization-less channel), so existing credential rows keep working.
+workers pass the channel's own organization — `null` when it has none. Channel credentials are
+still resolved under the key they are written with (the tenant id for an organization-less
+channel), so existing credential rows keep working.
 
 **Action for adapter authors:** if your `applyPushNotification`, `sendReaction` or
 `removeReaction` reads `input.scope.organizationId`, handle `null` (a tenant-wide channel).
