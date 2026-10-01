@@ -12,6 +12,10 @@ Make Catalog's existing runtime dependencies explicit so generation rejects inco
 | Sales dependency? | Keep optional. | Sales already requires Catalog; the reverse edge would create a cycle. Its demo data is conditional. |
 | Split delivery? | One dependency-correctness fix. | Metadata and optional-demo handling together make Catalog's supported module closure accurate. |
 
+## 📝 Overview
+
+This repair makes the existing Catalog module selection contract enforceable at registry generation, with the normal application preset preserved. It uses the current dependency validator and keeps Sales optional.
+
 ## 📝 Proposed Solution
 
 Declare Attachments, Currencies, Dictionaries and Entities. Entities brings Query Index transitively. Verify all three registry generators reject missing direct and transitive dependencies and accept the complete selection without Sales.
@@ -40,6 +44,10 @@ Catalog's examples create Sales channels and select Sales tax rates. If Sales en
 
 The price-kind currency selector still uses the Customers currency hook on this baseline. Issue #6691 and active PR #6696 separately remove that incorrect UI coupling. This change declares the actual Currencies dependency used by price-scope controls and does not absorb that selector repair or claim every Catalog UI path is standalone-ready before it lands.
 
+## 📝 Data Models
+
+No entity, database schema, migration, API payload or persisted data is changed. Only module-selection metadata and the optional demo entry guard change.
+
 ## Migration & Backward Compatibility
 
 A previously incomplete Catalog module selection now fails at generation with the existing actionable dependency diagnostic. Enable `attachments`, `currencies`, `dictionaries`, `entities` and `query_index` in `src/modules.ts`, then generate and follow the normal operator-controlled initialization/migration workflow. This change does not apply migrations automatically.
@@ -59,6 +67,10 @@ Use the real Catalog and Entities metadata, compiled into disposable standalone 
 1. Capture the missing-generation-error regression.
 2. Declare dependencies and guard Sales-dependent examples.
 3. Verify generation, optional-peer behavior and the configured validation gate.
+
+## Final Compliance Report
+
+Independent final diff review found no actionable correctness or compatibility findings. The latest develop CI-only update was merged; its 13 guard tests and the 70 generator / 1 seed regressions passed on the merged head. All application/package source is identical to the fully validated version. Formal automated review remains incomplete because the repository-local override requires schemas and a renderer absent from the installed shared skill; no approval or deployment is claimed.
 
 ## Changelog
 
