@@ -52,7 +52,8 @@ export interface CalendarEventEditorProps {
   item?: CalendarItem | null
   defaultDate?: Date
   defaultRange?: { start: Date; end: Date } | null
-  typeLabels: Record<string, string>
+  /** @deprecated Event-type labels are loaded from the scoped catalog. */
+  typeLabels?: Record<string, string>
   typeIcons?: Record<string, string | null>
   conflictScope?: ConflictScope
   currentUserId?: string | null
@@ -385,6 +386,7 @@ export function CalendarEventEditor({
           resourcesEnabled: resourcesEnabled === true,
           staffEnabled: staffEnabled !== false,
         })
+        payload.enforceSelectableType = true
         const applicable = definition.behavior.fields
         const time = form.allDay && applicable.allDay ? '00:00' : form.startTime
         payload.time = time

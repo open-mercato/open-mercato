@@ -94,14 +94,14 @@ function parseRecurrenceEndTime(rawRecurrenceEnd: string | null | undefined): nu
 
 function occursOn(date: Date, rule: ParsedRecurrenceRule, seriesStartWeekday: number): boolean {
   if (rule.freq === 'DAILY') return true
-  const allowedWeekdays = rule.byDay ?? [seriesStartWeekday]
+  const allowedWeekdays = [...new Set(rule.byDay ?? [seriesStartWeekday])]
   return allowedWeekdays.includes(date.getDay())
 }
 
 function countMatchingDays(startDay: number, endDay: number, rule: ParsedRecurrenceRule, seriesStartWeekday: number): number {
   const dayCount = Math.max(0, endDay - startDay)
   if (rule.freq === 'DAILY') return dayCount
-  const allowedWeekdays = rule.byDay ?? [seriesStartWeekday]
+  const allowedWeekdays = [...new Set(rule.byDay ?? [seriesStartWeekday])]
   const fullWeeks = Math.floor(dayCount / 7)
   let matches = fullWeeks * allowedWeekdays.length
   const remainder = dayCount % 7

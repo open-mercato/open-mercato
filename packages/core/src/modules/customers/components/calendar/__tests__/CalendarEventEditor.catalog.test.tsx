@@ -126,6 +126,7 @@ describe('CalendarEventEditor catalog host', () => {
     })
     const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0]?.[1].body) as Record<string, unknown>
     expect(payload.interactionType).toBe('Site Visit')
+    expect(payload.enforceSelectableType).toBe(true)
     expect(payload.durationMinutes).toBeNull()
     expect(payload.location).toBeNull()
   })

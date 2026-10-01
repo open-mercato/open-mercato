@@ -111,6 +111,13 @@ describe('expandOccurrences', () => {
     expect(occurrences.map((occurrence) => occurrence.id)).toEqual(['series-base:2', 'series-base:3'])
   })
 
+  it('counts duplicate BYDAY tokens once when fast-forwarding', () => {
+    const item = makeRecurringItem('FREQ=WEEKLY;BYDAY=MO,MO')
+    const midSeriesWindow = windowOf(new Date(2026, 5, 8, 0, 0, 0), new Date(2026, 5, 8, 23, 59, 59))
+    const occurrences = expandOccurrences(item, midSeriesWindow)
+    expect(occurrences.map((occurrence) => occurrence.id)).toEqual(['series-base:1'])
+  })
+
   it('caps expansion at 100 occurrences per window', () => {
     const item = makeRecurringItem('FREQ=DAILY')
     const yearWindow = windowOf(new Date(2026, 5, 1, 0, 0, 0), new Date(2027, 5, 1, 0, 0, 0))
