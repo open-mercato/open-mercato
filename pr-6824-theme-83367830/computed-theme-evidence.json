@@ -1,0 +1,1316 @@
+{
+  "head": "8336783015819487f5a2511c09a17b2af398eee4",
+  "baseUrl": "http://localhost:51210",
+  "observations": [
+    {
+      "theme": "light",
+      "navigationToInteractiveMs": 434
+    },
+    {
+      "theme": "light",
+      "viewport": "desktop",
+      "status": "empty",
+      "screenshot": "step-01-light-desktop-empty.png",
+      "storedTheme": "light",
+      "rootClass": "",
+      "prefersDark": false,
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "tokenValues": {
+        "--background": "lab(100% 0 0)",
+        "--card": "lab(100% 0 0)",
+        "--foreground": "lab(2.75381% 0 0)",
+        "--muted-foreground": "lab(47.22% 0 0)",
+        "--border": "lab(90.952% 0 -.0000119209)",
+        "--input": "lab(90.952% 0 -.0000119209)",
+        "--destructive": "lab(48.4493% 77.4328 61.5452)"
+      },
+      "body": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "panelLuminance": 1,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(47.22 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(47.22 0 0)",
+      "button": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 361,
+          "y": 252,
+          "width": 953.609375,
+          "height": 40,
+          "right": 1314.609375,
+          "bottom": 292
+        },
+        "button": {
+          "x": 1322.609375,
+          "y": 252,
+          "width": 76.390625,
+          "height": 40,
+          "right": 1399,
+          "bottom": 292
+        },
+        "panel": {
+          "x": 344,
+          "y": 167,
+          "width": 1072,
+          "height": 142,
+          "right": 1416,
+          "bottom": 309
+        },
+        "disabled": false
+      },
+      "contrast": {
+        "heading": 19.8,
+        "description": 4.95,
+        "input": 19.8,
+        "placeholder": 4.95,
+        "button": 19.8
+      },
+      "configured": null
+    },
+    {
+      "theme": "light",
+      "viewport": "mobile",
+      "status": "empty",
+      "screenshot": "step-02-light-mobile-empty.png",
+      "storedTheme": "light",
+      "rootClass": "",
+      "prefersDark": false,
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "tokenValues": {
+        "--background": "lab(100% 0 0)",
+        "--card": "lab(100% 0 0)",
+        "--foreground": "lab(2.75381% 0 0)",
+        "--muted-foreground": "lab(47.22% 0 0)",
+        "--border": "lab(90.952% 0 -.0000119209)",
+        "--input": "lab(90.952% 0 -.0000119209)",
+        "--destructive": "lab(48.4493% 77.4328 61.5452)"
+      },
+      "body": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "panelLuminance": 1,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(47.22 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(47.22 0 0)",
+      "button": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 33,
+          "y": 250.5,
+          "width": 239.609375,
+          "height": 40,
+          "right": 272.609375,
+          "bottom": 290.5
+        },
+        "button": {
+          "x": 280.609375,
+          "y": 250.5,
+          "width": 76.390625,
+          "height": 40,
+          "right": 357,
+          "bottom": 290.5
+        },
+        "panel": {
+          "x": 16,
+          "y": 145.5,
+          "width": 358,
+          "height": 162,
+          "right": 374,
+          "bottom": 307.5
+        },
+        "disabled": false
+      },
+      "contrast": {
+        "heading": 19.8,
+        "description": 4.95,
+        "input": 19.8,
+        "placeholder": 4.95,
+        "button": 19.8
+      },
+      "configured": null
+    },
+    {
+      "theme": "light",
+      "viewport": "desktop",
+      "status": "loading",
+      "screenshot": "step-03-light-desktop-loading.png",
+      "storedTheme": "light",
+      "rootClass": "",
+      "prefersDark": false,
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "tokenValues": {
+        "--background": "lab(100% 0 0)",
+        "--card": "lab(100% 0 0)",
+        "--foreground": "lab(2.75381% 0 0)",
+        "--muted-foreground": "lab(47.22% 0 0)",
+        "--border": "lab(90.952% 0 -.0000119209)",
+        "--input": "lab(90.952% 0 -.0000119209)",
+        "--destructive": "lab(48.4493% 77.4328 61.5452)"
+      },
+      "body": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "panelLuminance": 1,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(47.22 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(47.22 0 0)",
+      "button": {
+        "background": "oklab(0.999738 -0.00000921072 0.0000233824)",
+        "color": "oklab(0.152806 -9.96096e-7 0.00000355632)",
+        "border": "oklab(0.922195 -0.00000852342 0.000021547)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 361,
+          "y": 252,
+          "width": 921.796875,
+          "height": 40,
+          "right": 1282.796875,
+          "bottom": 292
+        },
+        "button": {
+          "x": 1290.796875,
+          "y": 252,
+          "width": 108.203125,
+          "height": 40,
+          "right": 1399,
+          "bottom": 292
+        },
+        "panel": {
+          "x": 344,
+          "y": 167,
+          "width": 1072,
+          "height": 142,
+          "right": 1416,
+          "bottom": 309
+        },
+        "disabled": true
+      },
+      "contrast": {
+        "heading": 19.8,
+        "description": 4.95,
+        "input": 19.8,
+        "placeholder": 4.95,
+        "button": 19.56
+      },
+      "configured": null
+    },
+    {
+      "theme": "light",
+      "viewport": "desktop",
+      "status": "configured",
+      "screenshot": "step-04-light-desktop-configured.png",
+      "storedTheme": "light",
+      "rootClass": "",
+      "prefersDark": false,
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "tokenValues": {
+        "--background": "lab(100% 0 0)",
+        "--card": "lab(100% 0 0)",
+        "--foreground": "lab(2.75381% 0 0)",
+        "--muted-foreground": "lab(47.22% 0 0)",
+        "--border": "lab(90.952% 0 -.0000119209)",
+        "--input": "lab(90.952% 0 -.0000119209)",
+        "--destructive": "lab(48.4493% 77.4328 61.5452)"
+      },
+      "body": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "panelLuminance": 1,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(47.22 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(47.22 0 0)",
+      "button": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 361,
+          "y": 304,
+          "width": 953.609375,
+          "height": 40,
+          "right": 1314.609375,
+          "bottom": 344
+        },
+        "button": {
+          "x": 1322.609375,
+          "y": 304,
+          "width": 76.390625,
+          "height": 40,
+          "right": 1399,
+          "bottom": 344
+        },
+        "panel": {
+          "x": 344,
+          "y": 167,
+          "width": 1072,
+          "height": 194,
+          "right": 1416,
+          "bottom": 361
+        },
+        "disabled": false
+      },
+      "contrast": {
+        "heading": 19.8,
+        "description": 4.95,
+        "input": 19.8,
+        "placeholder": 4.95,
+        "button": 19.8
+      },
+      "configured": {
+        "label": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(2.75381 0 0)",
+          "border": "lab(90.952 0 -0.0000119209)",
+          "fontSize": "14px",
+          "lineHeight": "20px"
+        },
+        "timestamp": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(47.22 0 0)",
+          "border": "lab(90.952 0 -0.0000119209)",
+          "fontSize": "12px",
+          "lineHeight": "16px"
+        },
+        "deleteIcon": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(48.4493 77.4328 61.5452)",
+          "border": "lab(90.952 0 -0.0000119209)",
+          "fontSize": "16px",
+          "lineHeight": "24px"
+        },
+        "labelGeometry": {
+          "x": 361,
+          "y": 252,
+          "width": 330.71875,
+          "height": 20,
+          "right": 691.71875,
+          "bottom": 272
+        },
+        "labelBlockGeometry": {
+          "x": 361,
+          "y": 252,
+          "width": 330.71875,
+          "height": 36,
+          "right": 691.71875,
+          "bottom": 288
+        },
+        "rowGeometry": {
+          "x": 361,
+          "y": 252,
+          "width": 1038,
+          "height": 36,
+          "right": 1399,
+          "bottom": 288
+        },
+        "deleteGeometry": {
+          "x": 1371,
+          "y": 252,
+          "width": 28,
+          "height": 28,
+          "right": 1399,
+          "bottom": 280
+        },
+        "deleteFlexShrink": "0",
+        "labelScrollWidth": 331
+      }
+    },
+    {
+      "theme": "light",
+      "viewport": "mobile",
+      "status": "configured",
+      "screenshot": "step-05-light-mobile-configured.png",
+      "storedTheme": "light",
+      "rootClass": "",
+      "prefersDark": false,
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "tokenValues": {
+        "--background": "lab(100% 0 0)",
+        "--card": "lab(100% 0 0)",
+        "--foreground": "lab(2.75381% 0 0)",
+        "--muted-foreground": "lab(47.22% 0 0)",
+        "--border": "lab(90.952% 0 -.0000119209)",
+        "--input": "lab(90.952% 0 -.0000119209)",
+        "--destructive": "lab(48.4493% 77.4328 61.5452)"
+      },
+      "body": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "panelLuminance": 1,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(47.22 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(47.22 0 0)",
+      "button": {
+        "background": "lab(100 0 0)",
+        "color": "lab(2.75381 0 0)",
+        "border": "lab(90.952 0 -0.0000119209)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 33,
+          "y": 302.5,
+          "width": 239.609375,
+          "height": 40,
+          "right": 272.609375,
+          "bottom": 342.5
+        },
+        "button": {
+          "x": 280.609375,
+          "y": 302.5,
+          "width": 76.390625,
+          "height": 40,
+          "right": 357,
+          "bottom": 342.5
+        },
+        "panel": {
+          "x": 16,
+          "y": 145.5,
+          "width": 358,
+          "height": 214,
+          "right": 374,
+          "bottom": 359.5
+        },
+        "disabled": false
+      },
+      "contrast": {
+        "heading": 19.8,
+        "description": 4.95,
+        "input": 19.8,
+        "placeholder": 4.95,
+        "button": 19.8
+      },
+      "configured": {
+        "label": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(2.75381 0 0)",
+          "border": "lab(90.952 0 -0.0000119209)",
+          "fontSize": "14px",
+          "lineHeight": "20px"
+        },
+        "timestamp": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(47.22 0 0)",
+          "border": "lab(90.952 0 -0.0000119209)",
+          "fontSize": "12px",
+          "lineHeight": "16px"
+        },
+        "deleteIcon": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(48.4493 77.4328 61.5452)",
+          "border": "lab(90.952 0 -0.0000119209)",
+          "fontSize": "16px",
+          "lineHeight": "24px"
+        },
+        "labelGeometry": {
+          "x": 33,
+          "y": 250.5,
+          "width": 284,
+          "height": 20,
+          "right": 317,
+          "bottom": 270.5
+        },
+        "labelBlockGeometry": {
+          "x": 33,
+          "y": 250.5,
+          "width": 284,
+          "height": 36,
+          "right": 317,
+          "bottom": 286.5
+        },
+        "rowGeometry": {
+          "x": 33,
+          "y": 250.5,
+          "width": 324,
+          "height": 36,
+          "right": 357,
+          "bottom": 286.5
+        },
+        "deleteGeometry": {
+          "x": 329,
+          "y": 250.5,
+          "width": 28,
+          "height": 28,
+          "right": 357,
+          "bottom": 278.5
+        },
+        "deleteFlexShrink": "0",
+        "labelScrollWidth": 284
+      }
+    },
+    {
+      "theme": "dark",
+      "navigationToInteractiveMs": 457
+    },
+    {
+      "theme": "dark",
+      "viewport": "desktop",
+      "status": "empty",
+      "screenshot": "step-06-dark-desktop-empty.png",
+      "storedTheme": "dark",
+      "rootClass": "dark",
+      "prefersDark": true,
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "tokenValues": {
+        "--background": "lab(2.75381% 0 0)",
+        "--card": "lab(7.78201% -.0000149012 0)",
+        "--foreground": "lab(98.26% 0 0)",
+        "--muted-foreground": "lab(66.128% -.0000298023 .0000119209)",
+        "--border": "lab(100% 0 0 / .1)",
+        "--input": "lab(100% 0 0 / .15)",
+        "--destructive": "lab(63.7053% 60.745 31.3109)"
+      },
+      "body": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(7.78201 -0.0000149012 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        23,
+        23,
+        23,
+        255
+      ],
+      "panelLuminance": 0.008568125618069307,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(66.128 -0.0000298023 0.0000119209)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(66.128 -0.0000298023 0.0000119209)",
+      "button": {
+        "background": "oklab(0.999998 -0.00000980496 0.0000234246 / 0.045)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 361,
+          "y": 252,
+          "width": 953.609375,
+          "height": 40,
+          "right": 1314.609375,
+          "bottom": 292
+        },
+        "button": {
+          "x": 1322.609375,
+          "y": 252,
+          "width": 76.390625,
+          "height": 40,
+          "right": 1399,
+          "bottom": 292
+        },
+        "panel": {
+          "x": 344,
+          "y": 167,
+          "width": 1072,
+          "height": 142,
+          "right": 1416,
+          "bottom": 309
+        },
+        "disabled": false
+      },
+      "contrast": {
+        "heading": 17.18,
+        "description": 6.94,
+        "input": 18.97,
+        "placeholder": 7.66,
+        "button": 15.43
+      },
+      "configured": null
+    },
+    {
+      "theme": "dark",
+      "viewport": "mobile",
+      "status": "empty",
+      "screenshot": "step-07-dark-mobile-empty.png",
+      "storedTheme": "dark",
+      "rootClass": "dark",
+      "prefersDark": true,
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "tokenValues": {
+        "--background": "lab(2.75381% 0 0)",
+        "--card": "lab(7.78201% -.0000149012 0)",
+        "--foreground": "lab(98.26% 0 0)",
+        "--muted-foreground": "lab(66.128% -.0000298023 .0000119209)",
+        "--border": "lab(100% 0 0 / .1)",
+        "--input": "lab(100% 0 0 / .15)",
+        "--destructive": "lab(63.7053% 60.745 31.3109)"
+      },
+      "body": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(7.78201 -0.0000149012 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        23,
+        23,
+        23,
+        255
+      ],
+      "panelLuminance": 0.008568125618069307,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(66.128 -0.0000298023 0.0000119209)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(66.128 -0.0000298023 0.0000119209)",
+      "button": {
+        "background": "oklab(0.999998 -0.00000980496 0.0000234246 / 0.045)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 33,
+          "y": 250.5,
+          "width": 239.609375,
+          "height": 40,
+          "right": 272.609375,
+          "bottom": 290.5
+        },
+        "button": {
+          "x": 280.609375,
+          "y": 250.5,
+          "width": 76.390625,
+          "height": 40,
+          "right": 357,
+          "bottom": 290.5
+        },
+        "panel": {
+          "x": 16,
+          "y": 145.5,
+          "width": 358,
+          "height": 162,
+          "right": 374,
+          "bottom": 307.5
+        },
+        "disabled": false
+      },
+      "contrast": {
+        "heading": 17.18,
+        "description": 6.94,
+        "input": 18.97,
+        "placeholder": 7.66,
+        "button": 15.43
+      },
+      "configured": null
+    },
+    {
+      "theme": "dark",
+      "viewport": "mobile",
+      "status": "loading",
+      "screenshot": "step-08-dark-mobile-loading.png",
+      "storedTheme": "dark",
+      "rootClass": "dark",
+      "prefersDark": true,
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "tokenValues": {
+        "--background": "lab(2.75381% 0 0)",
+        "--card": "lab(7.78201% -.0000149012 0)",
+        "--foreground": "lab(98.26% 0 0)",
+        "--muted-foreground": "lab(66.128% -.0000298023 .0000119209)",
+        "--border": "lab(100% 0 0 / .1)",
+        "--input": "lab(100% 0 0 / .15)",
+        "--destructive": "lab(63.7053% 60.745 31.3109)"
+      },
+      "body": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(7.78201 -0.0000149012 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        23,
+        23,
+        23,
+        255
+      ],
+      "panelLuminance": 0.008568125618069307,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(66.128 -0.0000298023 0.0000119209)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "oklab(0.999328 -0.00000979431 0.000023406 / 0.155923)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(66.128 -0.0000298023 0.0000119209)",
+      "button": {
+        "background": "oklab(0.999998 -0.00000980496 0.0000234246 / 0.045)",
+        "color": "oklab(0.984998 -0.00000956655 0.0000230074)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 33,
+          "y": 250.5,
+          "width": 207.609375,
+          "height": 40,
+          "right": 240.609375,
+          "bottom": 290.5
+        },
+        "button": {
+          "x": 248.609375,
+          "y": 250.5,
+          "width": 108.390625,
+          "height": 40,
+          "right": 357,
+          "bottom": 290.5
+        },
+        "panel": {
+          "x": 16,
+          "y": 145.5,
+          "width": 358,
+          "height": 162,
+          "right": 374,
+          "bottom": 307.5
+        },
+        "disabled": true
+      },
+      "contrast": {
+        "heading": 17.18,
+        "description": 6.94,
+        "input": 18.97,
+        "placeholder": 7.66,
+        "button": 15.43
+      },
+      "configured": null
+    },
+    {
+      "theme": "dark",
+      "viewport": "desktop",
+      "status": "configured",
+      "screenshot": "step-09-dark-desktop-configured.png",
+      "storedTheme": "dark",
+      "rootClass": "dark",
+      "prefersDark": true,
+      "viewportWidth": 1440,
+      "documentWidth": 1440,
+      "tokenValues": {
+        "--background": "lab(2.75381% 0 0)",
+        "--card": "lab(7.78201% -.0000149012 0)",
+        "--foreground": "lab(98.26% 0 0)",
+        "--muted-foreground": "lab(66.128% -.0000298023 .0000119209)",
+        "--border": "lab(100% 0 0 / .1)",
+        "--input": "lab(100% 0 0 / .15)",
+        "--destructive": "lab(63.7053% 60.745 31.3109)"
+      },
+      "body": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(7.78201 -0.0000149012 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        23,
+        23,
+        23,
+        255
+      ],
+      "panelLuminance": 0.008568125618069307,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(66.128 -0.0000298023 0.0000119209)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(66.128 -0.0000298023 0.0000119209)",
+      "button": {
+        "background": "oklab(0.999998 -0.00000980496 0.0000234246 / 0.045)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 361,
+          "y": 304,
+          "width": 953.609375,
+          "height": 40,
+          "right": 1314.609375,
+          "bottom": 344
+        },
+        "button": {
+          "x": 1322.609375,
+          "y": 304,
+          "width": 76.390625,
+          "height": 40,
+          "right": 1399,
+          "bottom": 344
+        },
+        "panel": {
+          "x": 344,
+          "y": 167,
+          "width": 1072,
+          "height": 194,
+          "right": 1416,
+          "bottom": 361
+        },
+        "disabled": false
+      },
+      "contrast": {
+        "heading": 17.18,
+        "description": 6.94,
+        "input": 18.97,
+        "placeholder": 7.66,
+        "button": 15.43
+      },
+      "configured": {
+        "label": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(98.26 0 0)",
+          "border": "lab(100 0 0 / 0.1)",
+          "fontSize": "14px",
+          "lineHeight": "20px"
+        },
+        "timestamp": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(66.128 -0.0000298023 0.0000119209)",
+          "border": "lab(100 0 0 / 0.1)",
+          "fontSize": "12px",
+          "lineHeight": "16px"
+        },
+        "deleteIcon": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(63.7053 60.745 31.3109)",
+          "border": "lab(100 0 0 / 0.1)",
+          "fontSize": "16px",
+          "lineHeight": "24px"
+        },
+        "labelGeometry": {
+          "x": 361,
+          "y": 252,
+          "width": 587.765625,
+          "height": 20,
+          "right": 948.765625,
+          "bottom": 272
+        },
+        "labelBlockGeometry": {
+          "x": 361,
+          "y": 252,
+          "width": 587.765625,
+          "height": 36,
+          "right": 948.765625,
+          "bottom": 288
+        },
+        "rowGeometry": {
+          "x": 361,
+          "y": 252,
+          "width": 1038,
+          "height": 36,
+          "right": 1399,
+          "bottom": 288
+        },
+        "deleteGeometry": {
+          "x": 1371,
+          "y": 252,
+          "width": 28,
+          "height": 28,
+          "right": 1399,
+          "bottom": 280
+        },
+        "deleteFlexShrink": "0",
+        "labelScrollWidth": 588
+      }
+    },
+    {
+      "theme": "dark",
+      "viewport": "mobile",
+      "status": "configured",
+      "screenshot": "step-10-dark-mobile-configured.png",
+      "storedTheme": "dark",
+      "rootClass": "dark",
+      "prefersDark": true,
+      "viewportWidth": 390,
+      "documentWidth": 390,
+      "tokenValues": {
+        "--background": "lab(2.75381% 0 0)",
+        "--card": "lab(7.78201% -.0000149012 0)",
+        "--foreground": "lab(98.26% 0 0)",
+        "--muted-foreground": "lab(66.128% -.0000298023 .0000119209)",
+        "--border": "lab(100% 0 0 / .1)",
+        "--input": "lab(100% 0 0 / .15)",
+        "--destructive": "lab(63.7053% 60.745 31.3109)"
+      },
+      "body": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panel": {
+        "background": "lab(7.78201 -0.0000149012 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "panelRgb": [
+        23,
+        23,
+        23,
+        255
+      ],
+      "panelLuminance": 0.008568125618069307,
+      "description": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(66.128 -0.0000298023 0.0000119209)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "input": {
+        "background": "rgba(0, 0, 0, 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.1)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "inputWrapper": {
+        "background": "lab(2.75381 0 0)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "16px",
+        "lineHeight": "24px"
+      },
+      "placeholder": "lab(66.128 -0.0000298023 0.0000119209)",
+      "button": {
+        "background": "oklab(0.999998 -0.00000980496 0.0000234246 / 0.045)",
+        "color": "lab(98.26 0 0)",
+        "border": "lab(100 0 0 / 0.15)",
+        "fontSize": "14px",
+        "lineHeight": "20px"
+      },
+      "controls": {
+        "input": {
+          "x": 33,
+          "y": 302.5,
+          "width": 239.609375,
+          "height": 40,
+          "right": 272.609375,
+          "bottom": 342.5
+        },
+        "button": {
+          "x": 280.609375,
+          "y": 302.5,
+          "width": 76.390625,
+          "height": 40,
+          "right": 357,
+          "bottom": 342.5
+        },
+        "panel": {
+          "x": 16,
+          "y": 145.5,
+          "width": 358,
+          "height": 214,
+          "right": 374,
+          "bottom": 359.5
+        },
+        "disabled": false
+      },
+      "contrast": {
+        "heading": 17.18,
+        "description": 6.94,
+        "input": 18.97,
+        "placeholder": 7.66,
+        "button": 15.43
+      },
+      "configured": {
+        "label": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(98.26 0 0)",
+          "border": "lab(100 0 0 / 0.1)",
+          "fontSize": "14px",
+          "lineHeight": "20px"
+        },
+        "timestamp": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(66.128 -0.0000298023 0.0000119209)",
+          "border": "lab(100 0 0 / 0.1)",
+          "fontSize": "12px",
+          "lineHeight": "16px"
+        },
+        "deleteIcon": {
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "lab(63.7053 60.745 31.3109)",
+          "border": "lab(100 0 0 / 0.1)",
+          "fontSize": "16px",
+          "lineHeight": "24px"
+        },
+        "labelGeometry": {
+          "x": 33,
+          "y": 250.5,
+          "width": 284,
+          "height": 20,
+          "right": 317,
+          "bottom": 270.5
+        },
+        "labelBlockGeometry": {
+          "x": 33,
+          "y": 250.5,
+          "width": 284,
+          "height": 36,
+          "right": 317,
+          "bottom": 286.5
+        },
+        "rowGeometry": {
+          "x": 33,
+          "y": 250.5,
+          "width": 324,
+          "height": 36,
+          "right": 357,
+          "bottom": 286.5
+        },
+        "deleteGeometry": {
+          "x": 329,
+          "y": 250.5,
+          "width": 28,
+          "height": 28,
+          "right": 357,
+          "bottom": 278.5
+        },
+        "deleteFlexShrink": "0",
+        "labelScrollWidth": 588
+      }
+    }
+  ],
+  "enrollments": [
+    {
+      "theme": "light",
+      "viewport": "desktop",
+      "label": "Light desktop security key",
+      "responseStatuses": [
+        200,
+        200
+      ],
+      "elapsedIncludingLoadingCaptureMs": 342,
+      "genuineWebAuthn": true,
+      "loadingObservation": "Real POST temporarily held before forwarding, no mocked response or payload."
+    },
+    {
+      "theme": "dark",
+      "viewport": "mobile",
+      "label": "Dark mobile security key with a long recognizable nickname for narrow-screen truncation",
+      "responseStatuses": [
+        200,
+        200
+      ],
+      "elapsedIncludingLoadingCaptureMs": 317,
+      "genuineWebAuthn": true,
+      "loadingObservation": "Real POST temporarily held before forwarding, no mocked response or payload."
+    }
+  ],
+  "browserErrors": [],
+  "result": "PASS"
+}
