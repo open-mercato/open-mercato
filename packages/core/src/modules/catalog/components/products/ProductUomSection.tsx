@@ -73,10 +73,13 @@ function toSortValue(value: string): number {
   return Number.isFinite(numeric) ? numeric : Number.MAX_SAFE_INTEGER;
 }
 
-function formatPreviewNumber(value: number): string {
+function formatPreviewNumber(value: number, locale?: string): string {
   if (!Number.isFinite(value)) return "0";
   const rounded = Math.round(value * 1_000_000) / 1_000_000;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 6,
+    useGrouping: false,
+  }).format(rounded);
 }
 
 function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
@@ -269,23 +272,6 @@ export function ProductUomSection({
       : null;
   const unitPriceBaseQuantityNumber = toPositiveNumber(unitPriceBaseQuantity, locale);
 
-  const validConversions = conversions.filter(
-    (entry) =>
-      toTrimmedOrNull(entry.unitCode) && toTrimmedOrNull(entry.toBaseFactor),
-  );
-  const conversionPreviewItems = validConversions
-    .slice(0, 3)
-    .map((entry) => {
-      const label = findUnitLabel(entry.unitCode) ?? entry.unitCode;
-      const baseLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
-      const factor = toTrimmedOrNull(entry.toBaseFactor) ?? "1";
-      return `1 ${label} = ${factor} ${baseLabel || t("catalog.products.uom.baseUnit", "base unit")}`;
-    });
-  const conversionPreview =
-    validConversions.length > 3
-      ? `${conversionPreviewItems.join(" • ")} (+${validConversions.length - 3})`
-      : conversionPreviewItems.join(" • ");
-
   return (
     <div
       className={
@@ -399,10 +385,11 @@ export function ProductUomSection({
                     "catalog.products.uom.defaultSalesQuantityPreviewWithNormalization",
                     "Default line: {{quantity}} {{salesUnit}} (= {{normalized}} {{baseUnit}}).",
                     {
-                      quantity: formatPreviewNumber(defaultSalesQuantityNumber),
+                      quantity: formatPreviewNumber(defaultSalesQuantityNumber, locale),
                       salesUnit: salesUnitLabel,
                       normalized: formatPreviewNumber(
                         defaultSalesQuantityNormalized,
+                        locale,
                       ),
                       baseUnit: baseUnitLabel,
                     },
@@ -411,7 +398,7 @@ export function ProductUomSection({
                     "catalog.products.uom.defaultSalesQuantityPreview",
                     "Default line: {{quantity}} {{salesUnit}}.",
                     {
-                      quantity: formatPreviewNumber(defaultSalesQuantityNumber),
+                      quantity: formatPreviewNumber(defaultSalesQuantityNumber, locale),
                       salesUnit: salesUnitLabel,
                     },
                   )}
@@ -546,7 +533,7 @@ export function ProductUomSection({
                   "catalog.products.unitPrice.hintWithPreview",
                   "Show calculated price per {{quantity}} {{unit}}. For most products use 1 (for example: 1 kg, 1 l, 1 m²).",
                   {
-                    quantity: formatPreviewNumber(unitPriceBaseQuantityNumber),
+                    quantity: formatPreviewNumber(unitPriceBaseQuantityNumber, locale),
                     unit: unitPriceReferenceUnit,
                   },
                 )
@@ -593,7 +580,7 @@ export function ProductUomSection({
                       "1 {{fromUnit}} = {{factor}} {{baseUnit}}",
                       {
                         fromUnit: findUnitLabel(entry.unitCode) ?? entry.unitCode,
-                        factor: formatPreviewNumber(conversionFactor),
+                        factor: formatPreviewNumber(conversionFactor, locale),
                         baseUnit:
                           findUnitLabel(defaultUnit) ??
                           defaultUnit ??
@@ -730,10 +717,6 @@ export function ProductUomSection({
               "Use arrows to reorder conversion priority.",
             )}
           </p>
-        ) : null}
-
-        {conversionPreview ? (
-          <p className="text-xs text-muted-foreground">{conversionPreview}</p>
         ) : null}
       </div>
     </div>
