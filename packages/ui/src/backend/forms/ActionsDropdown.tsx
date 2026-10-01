@@ -86,7 +86,8 @@ export function ActionsDropdown({
    * Whether this open should pull focus into the menu. Only a deliberate open
    * does — a click, or Enter/Space on the trigger, which the browser reports as
    * a click. A hover open must not steal focus from wherever the user is typing.
-   * Same contract as RowActions (#6771).
+   * Consumed once `anchorRect` is measured, because the panel and its first item
+   * only render after that. Same contract as RowActions (#6771).
    */
   const focusOnOpenRef = React.useRef(false)
   /**
@@ -127,9 +128,6 @@ export function ActionsDropdown({
       }
     }
     function onKey(event: KeyboardEvent) {
-      // The menu also opens on hover, so keys are only handled while focus is in
-      // the menu or on its trigger — otherwise a hover-opened menu would swallow
-      // the arrows of someone typing elsewhere on the page.
       const active = document.activeElement
       const focusWithin = Boolean(
         (menuRef.current && active && menuRef.current.contains(active)) || (active && active === btnRef.current && deliberateOpenRef.current),
@@ -140,8 +138,6 @@ export function ActionsDropdown({
         return
       }
       if (!focusWithin) return
-      // The menu is portaled to the end of `document.body`, so without this the
-      // only way into it was tabbing through the rest of the page first (#6445).
       const focusables = getFocusableItems()
       if (!focusables.length) return
       const activeIndex = focusables.indexOf(active as HTMLElement)
@@ -187,8 +183,6 @@ export function ActionsDropdown({
     }
   }, [open, updatePosition, getFocusableItems])
 
-  // Keyed on `anchorRect`: the panel only renders once the trigger has been
-  // measured, so the first item exists only after that second render.
   React.useEffect(() => {
     if (!open) {
       focusOnOpenRef.current = false
