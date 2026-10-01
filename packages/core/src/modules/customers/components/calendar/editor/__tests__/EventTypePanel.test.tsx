@@ -9,7 +9,10 @@ import { createDefaultFormState } from '../../../../lib/calendar/editorPayload'
 jest.mock('../ScheduleSection', () => ({
   ScheduleSection: ({ dateLabel, hasEnd, hasAllDay, startError, disabled, onDateChange }: {
     dateLabel: string; hasEnd: boolean; hasAllDay: boolean; startError?: string; disabled?: boolean; onDateChange: (date: string) => void
-  }) => <button type="button" disabled={disabled} data-testid="schedule" data-label={dateLabel} data-end={String(hasEnd)} data-all-day={String(hasAllDay)} data-start-error={startError} onClick={() => onDateChange('2026-10-04')}>Schedule</button>,
+  }) => {
+    const selectedDate = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+    return <button type="button" disabled={disabled} data-testid="schedule" data-label={dateLabel} data-end={String(hasEnd)} data-all-day={String(hasAllDay)} data-start-error={startError} data-selected-date={selectedDate} onClick={() => onDateChange(selectedDate)}>Schedule</button>
+  },
 }))
 jest.mock('../RepeatField', () => ({ RepeatField: ({ untilError }: { untilError?: string }) => <div data-testid="repeat" data-until-error={untilError} /> }))
 jest.mock('../PeopleField', () => ({ PeopleField: ({ mode, ariaLabel }: { mode: string; ariaLabel: string }) => <div data-testid="people" data-mode={mode} data-label={ariaLabel} /> }))
@@ -55,8 +58,9 @@ describe('DefaultEventTypePanel', () => {
   it('writes schedule changes through the host form setter', () => {
     const setValue = jest.fn()
     renderWithProviders(<DefaultEventTypePanel {...panelProps('meeting', setValue)} />)
-    fireEvent.click(screen.getByTestId('schedule'))
-    expect(setValue).toHaveBeenCalledWith('date', '2026-10-04')
+    const schedule = screen.getByTestId('schedule')
+    fireEvent.click(schedule)
+    expect(setValue).toHaveBeenCalledWith('date', schedule.getAttribute('data-selected-date'))
   })
 
   it('disables every built-in panel control while saving', () => {
