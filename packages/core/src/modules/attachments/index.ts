@@ -19,3 +19,18 @@ export {
   type ReadScopedAttachmentResult,
   type ReleaseScopedAttachmentInput,
 } from './lib/attachment-service'
+
+export type {
+  AttachmentAccessAction,
+  AttachmentAccessDecision,
+  AttachmentAccessInput,
+  AttachmentAccessPartition,
+  AttachmentAccessRecord,
+  AttachmentAccessRequirement,
+  AttachmentAccessResolver,
+  AttachmentAccessResolverEntry,
+  AttachmentAccessSubject,
+  AttachmentAccessTarget,
+  ProtectedAttachmentTarget,
+} from './lib/access-types'
+export { registerAttachmentAccessResolvers } from './lib/access-registry'
