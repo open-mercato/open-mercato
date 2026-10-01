@@ -1805,6 +1805,45 @@ describe('module-scoped column-existence cache (#5605)', () => {
 })
 
 describe('BasicQueryEngine encrypted-search response diagnostics', () => {
+  test.each(['development', 'production'])('reports joined encrypted-field diagnostics only outside production (%s)', async (environment) => {
+    const originalEnvironment = process.env.NODE_ENV
+    process.env.NODE_ENV = environment
+    const fakeDb = createFakeKysely({ roles: [], users: [], search_tokens: [] })
+    const service = { getEncryptedFieldNames: async (entity: string) => entity === 'auth:user' ? ['email'] : [] }
+    const engine = new BasicQueryEngine(
+      {} as ConstructorParameters<typeof BasicQueryEngine>[0],
+      () => fakeDb as unknown as ReturnType<NonNullable<ConstructorParameters<typeof BasicQueryEngine>[1]>>,
+      () => service as unknown as ReturnType<NonNullable<ConstructorParameters<typeof BasicQueryEngine>[2]>>,
+    )
+    const organizationId = 'private-joined-org'
+    const searchTerm = 'private-joined-search'
+    try {
+      for (const tenantId of ['private-joined-tenant-a', 'private-joined-tenant-b']) {
+        const result = await engine.query('auth:role', {
+          tenantId, organizationId, fields: ['id'],
+          joins: [{
+            alias: 'member', table: 'users', entityId: 'auth:user',
+            from: { field: 'id' }, to: { field: 'role_id' },
+          }],
+          filters: { 'member.email': { $ilike: `%${searchTerm}%` } },
+        })
+        if (environment === 'production') {
+          expect(result.meta?.ciphertextSearchWarnings).toBeUndefined()
+        } else {
+          expect(result.meta?.ciphertextSearchWarnings).toEqual([{
+            entity: 'auth:user', field: 'email', reason: 'no-search-tokens',
+            hint: expect.stringContaining('query_index'),
+          }])
+          for (const privateValue of [searchTerm, tenantId, organizationId]) {
+            expect(JSON.stringify(result.meta)).not.toContain(privateValue)
+          }
+        }
+      }
+    } finally {
+      process.env.NODE_ENV = originalEnvironment
+    }
+  })
+
   test.each(['development', 'production'])('reports missing scoped tokens only outside production (%s)', async (environment) => {
     const originalEnvironment = process.env.NODE_ENV
     process.env.NODE_ENV = environment
