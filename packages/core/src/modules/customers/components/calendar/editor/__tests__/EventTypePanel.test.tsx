@@ -6,18 +6,21 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { calendarEventTypes, type CalendarEventTypePanelProps } from '../../../../calendar-event-types'
 import { createDefaultFormState } from '../../../../lib/calendar/editorPayload'
 
+const mockFieldRender = jest.fn()
+
 jest.mock('../ScheduleSection', () => ({
   ScheduleSection: ({ dateLabel, hasEnd, hasAllDay, startError, disabled, onDateChange }: {
     dateLabel: string; hasEnd: boolean; hasAllDay: boolean; startError?: string; disabled?: boolean; onDateChange: (date: string) => void
   }) => {
+    mockFieldRender('schedule')
     const selectedDate = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
     return <button type="button" disabled={disabled} data-testid="schedule" data-label={dateLabel} data-end={String(hasEnd)} data-all-day={String(hasAllDay)} data-start-error={startError} data-selected-date={selectedDate} onClick={() => onDateChange(selectedDate)}>Schedule</button>
   },
 }))
-jest.mock('../RepeatField', () => ({ RepeatField: ({ untilError }: { untilError?: string }) => <div data-testid="repeat" data-until-error={untilError} /> }))
-jest.mock('../PeopleField', () => ({ PeopleField: ({ mode, ariaLabel }: { mode: string; ariaLabel: string }) => <div data-testid="people" data-mode={mode} data-label={ariaLabel} /> }))
-jest.mock('../LocationField', () => ({ LocationField: ({ variant }: { variant: string }) => <div data-testid="location" data-variant={variant} /> }))
-jest.mock('../ResourcesField', () => ({ ResourcesField: () => <div data-testid="resources" /> }))
+jest.mock('../RepeatField', () => ({ RepeatField: ({ untilError }: { untilError?: string }) => mockFieldRender('repeat') ?? <div data-testid="repeat" data-until-error={untilError} /> }))
+jest.mock('../PeopleField', () => ({ PeopleField: ({ mode, ariaLabel }: { mode: string; ariaLabel: string }) => mockFieldRender('people') ?? <div data-testid="people" data-mode={mode} data-label={ariaLabel} /> }))
+jest.mock('../LocationField', () => ({ LocationField: ({ variant }: { variant: string }) => mockFieldRender('location') ?? <div data-testid="location" data-variant={variant} /> }))
+jest.mock('../ResourcesField', () => ({ ResourcesField: () => mockFieldRender('resources') ?? <div data-testid="resources" /> }))
 jest.mock('../PriorityField', () => ({ PriorityField: () => <div data-testid="priority" /> }))
 
 import { DefaultEventTypePanel } from '../EventTypePanel'
@@ -61,6 +64,17 @@ describe('DefaultEventTypePanel', () => {
     const schedule = screen.getByTestId('schedule')
     fireEvent.click(schedule)
     expect(setValue).toHaveBeenCalledWith('date', schedule.getAttribute('data-selected-date'))
+  })
+
+  it('re-renders only the fields whose own draft values changed', () => {
+    const props = panelProps('meeting')
+    const { rerender } = renderWithProviders(<DefaultEventTypePanel {...props} />)
+    mockFieldRender.mockClear()
+    const typed = { ...props.values, title: 'Planning', description: 'Bring the notes' }
+    rerender(<DefaultEventTypePanel {...props} values={typed} />)
+    expect(mockFieldRender).not.toHaveBeenCalled()
+    rerender(<DefaultEventTypePanel {...props} values={{ ...typed, startTime: '11:00' }} />)
+    expect(mockFieldRender.mock.calls).toEqual([['schedule']])
   })
 
   it('disables every built-in panel control while saving', () => {

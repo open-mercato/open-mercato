@@ -147,8 +147,13 @@ const TIME_OPTIONS: string[] = Array.from({ length: 48 }, (_, index) => {
 export function TimeControl({ value, onChange, ariaLabel, disabled }: { value: string; onChange(next: string): void; ariaLabel: string; disabled?: boolean }) {
   const [open, setOpen] = React.useState(false)
   useCloseOnEditorScroll(setOpen)
-  // Keep an off-grid value (e.g. an imported 22:15) selectable.
-  const options = value && !TIME_OPTIONS.includes(value) ? [value, ...TIME_OPTIONS] : TIME_OPTIONS
+  // Radix renders every item even while the list is closed, so a closed picker
+  // mounts only the selected time and the full grid is built on open. An
+  // off-grid value (e.g. an imported 22:15) stays selectable.
+  const options = React.useMemo(() => {
+    if (!open) return value ? [value] : []
+    return value && !TIME_OPTIONS.includes(value) ? [value, ...TIME_OPTIONS] : TIME_OPTIONS
+  }, [open, value])
   return (
     <Select value={value} onValueChange={onChange} open={open} onOpenChange={setOpen} disabled={disabled}>
       <SelectTrigger aria-label={ariaLabel} className="h-9 w-32 shrink-0">

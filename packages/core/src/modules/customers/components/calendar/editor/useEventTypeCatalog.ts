@@ -38,7 +38,9 @@ export function useEventTypeCatalog(open: boolean) {
     return () => { active = false }
   }, [open, attempt])
 
-  return { ...state, retry: () => setAttempt((value) => value + 1) }
+  const retry = React.useCallback(() => setAttempt((value) => value + 1), [])
+
+  return { ...state, retry }
 }
 
 export function selectedEventType(

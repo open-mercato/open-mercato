@@ -39,26 +39,35 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
 
 beforeEach(() => confirmMock.mockReset())
 
-it.each(['Outside overlay', 'Close', 'Escape'])('protects a changed draft when dismissed through %s', async (action) => {
+it.each(['Outside overlay', 'Close', 'Escape'])('protects a changed draft with the standard unsaved-changes confirmation when dismissed through %s', async (action) => {
   const onOpenChange = jest.fn()
   renderWithProviders(<CalendarEventEditor open mode="create" typeLabels={{}} onOpenChange={onOpenChange} onSaved={() => {}} />)
   fireEvent.change(screen.getByLabelText('Draft title'), { target: { value: 'Unsaved event' } })
   const dismiss = () => action === 'Escape'
     ? fireEvent.keyDown(screen.getAllByRole('dialog')[0]!, { key: 'Escape' })
     : fireEvent.click(screen.getByRole('button', { name: action, exact: true }))
+  confirmMock.mockResolvedValueOnce(false)
   await act(async () => { dismiss() })
-  const keepEditing = screen.getByRole('button', { name: 'Keep editing', exact: true })
-  const discard = screen.getByRole('button', { name: 'Discard changes', exact: true })
-  expect(discard.compareDocumentPosition(keepEditing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(keepEditing).toHaveClass('bg-primary')
-  expect(keepEditing).toHaveFocus()
+  expect(confirmMock).toHaveBeenCalledTimes(1)
+  expect(confirmMock).toHaveBeenCalledWith({ title: 'You have unsaved changes. Are you sure you want to leave?' })
   expect(onOpenChange).not.toHaveBeenCalled()
-  await act(async () => { fireEvent.click(keepEditing) })
-  expect(screen.queryByRole('button', { name: 'Discard changes', exact: true })).not.toBeInTheDocument()
-  expect(onOpenChange).not.toHaveBeenCalled()
+  confirmMock.mockResolvedValueOnce(true)
   await act(async () => { dismiss() })
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Discard changes', exact: true })) })
+  expect(confirmMock).toHaveBeenCalledTimes(2)
   expect(onOpenChange).toHaveBeenCalledWith(false)
+})
+
+it('asks once while an unsaved-changes confirmation is already pending', async () => {
+  const onOpenChange = jest.fn()
+  renderWithProviders(<CalendarEventEditor open mode="create" typeLabels={{}} onOpenChange={onOpenChange} onSaved={() => {}} />)
+  fireEvent.change(screen.getByLabelText('Draft title'), { target: { value: 'Unsaved event' } })
+  let resolveConfirm: (confirmed: boolean) => void = () => {}
+  confirmMock.mockReturnValueOnce(new Promise<boolean>((resolve) => { resolveConfirm = resolve }))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Outside overlay' })) })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Outside overlay' })) })
+  expect(confirmMock).toHaveBeenCalledTimes(1)
+  await act(async () => { resolveConfirm(true) })
+  expect(onOpenChange).toHaveBeenCalledTimes(1)
 })
 
 it('closes an unchanged draft without a confirmation', async () => {

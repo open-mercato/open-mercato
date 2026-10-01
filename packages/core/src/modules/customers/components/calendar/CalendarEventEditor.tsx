@@ -41,7 +41,6 @@ import { EDITOR_SCROLL_EVENT, Field } from './editor/inputs'
 import { SegmentGroup } from './editor/SegmentGroup'
 import { RelatedToField } from './editor/RelatedToField'
 import { useConflictProbe, useEditorLabelResolution } from './editor/hooks'
-import { CalendarDiscardDialog } from './CalendarDiscardDialog'
 import { EventTypePanel } from './editor/EventTypePanel'
 import { eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from './editor/useEventTypeCatalog'
 import type { ScopedCalendarEventType } from '../../lib/calendar/eventTypeResolver'
@@ -89,8 +88,7 @@ function typeChangeDiscardFields(error: unknown): string[] | null {
   return details.fields
 }
 
-type EditorBodyProps = {
-  ctx: CrudFormGroupComponentProps
+type EditorBodyProps = Pick<CrudFormGroupComponentProps, 'values' | 'errors' | 'setValue'> & {
   open: boolean
   isEdit: boolean
   item?: CalendarItem | null
@@ -153,8 +151,16 @@ const TimezoneField = React.memo(function TimezoneField({
   )
 })
 
-function EditorBody({
-  ctx,
+const TypeSwitcher = React.memo(SegmentGroup) as typeof SegmentGroup
+const MemoRelatedToField = React.memo(RelatedToField)
+
+// CrudForm re-invokes the group renderer on every one of its own renders;
+// memoizing on the form state identities skips the ones that change neither
+// the values nor the errors.
+const EditorBody = React.memo(function EditorBody({
+  values,
+  errors,
+  setValue,
   open,
   isEdit,
   item,
@@ -170,8 +176,7 @@ function EditorBody({
   onSelectedTypeChange,
 }: EditorBodyProps) {
   const t = useT()
-  const { setValue, errors } = ctx
-  const form = formStateOfValues(ctx.values)
+  const form = formStateOfValues(values)
   const selectedType = form.category ?? form.kind
   const definition = selectedEventType(catalogItems, selectedType)
   const config = eventTypeConfig(definition)
@@ -184,6 +189,21 @@ function EditorBody({
   )
 
   const updateTimezone = React.useCallback((timezone: string) => setValue('timezone', timezone), [setValue])
+  const selectType = React.useCallback((type: string) => {
+    const nextDefinition = selectedEventType(catalogItems, type)
+    update({ kind: nextDefinition.behavior.baseKind, category: type })
+    onSelectedTypeChange(type)
+  }, [catalogItems, update, onSelectedTypeChange])
+  const updateRelatedTo = React.useCallback((relatedTo: EditorFormState['relatedTo']) => update({ relatedTo }), [update])
+  const updateDeal = React.useCallback(
+    (deal: { id: string; label: string } | null) => update({ dealId: deal?.id ?? null, dealLabel: deal?.label ?? null }),
+    [update],
+  )
+  const deal = React.useMemo(
+    () => form.dealId && form.dealLabel ? { id: form.dealId, label: form.dealLabel } : null,
+    [form.dealId, form.dealLabel],
+  )
+  const capabilities = React.useMemo(() => ({ resourcesEnabled, staffEnabled }), [resourcesEnabled, staffEnabled])
 
   useEditorLabelResolution(open, form, update)
   // Probe against the owner the interaction will actually be SAVED with so the
@@ -233,14 +253,10 @@ function EditorBody({
         </Alert>
       ) : null}
       <div className="w-full lg:col-span-2">
-        <SegmentGroup<string>
+        <TypeSwitcher<string>
           ariaLabel={t('customers.calendar.editor.typeSwitcher', 'Event type')}
           value={selectedType}
-          onChange={(type) => {
-            const nextDefinition = selectedEventType(catalogItems, type)
-            update({ kind: nextDefinition.behavior.baseKind, category: type })
-            onSelectedTypeChange(type)
-          }}
+          onChange={selectType}
           disabled={!catalogReady}
           options={typeSwitcherOptions}
         />
@@ -259,12 +275,12 @@ function EditorBody({
       <TimezoneField value={form.timezone} error={errors.timezone} disabled={saving} onChange={updateTimezone} />
       <div className="lg:col-span-2">
         <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
-          <RelatedToField
+          <MemoRelatedToField
             label={t('customers.calendar.editor.relatedTo', 'Related to')}
             value={form.relatedTo}
-            deal={form.dealId && form.dealLabel ? { id: form.dealId, label: form.dealLabel } : null}
-            onChange={(relatedTo) => update({ relatedTo })}
-            onDealChange={(deal) => update({ dealId: deal?.id ?? null, dealLabel: deal?.label ?? null })}
+            deal={deal}
+            onChange={updateRelatedTo}
+            onDealChange={updateDeal}
             error={errors.relatedTo}
           />
         </Field>
@@ -275,10 +291,10 @@ function EditorBody({
             definition={definition}
             panelKey={definition.panelKey}
             mode={isEdit ? 'edit' : 'create'}
-            values={ctx.values}
+            values={values}
             errors={errors}
             disabled={saving}
-            capabilities={{ resourcesEnabled, staffEnabled }}
+            capabilities={capabilities}
             setValue={setValue}
           />
         </div>
@@ -294,7 +310,7 @@ function EditorBody({
       </Field>
     </div>
   )
-}
+})
 
 export function CalendarEventEditor({
   open,
@@ -313,15 +329,27 @@ export function CalendarEventEditor({
   const [saving, setSaving] = React.useState(false)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const dirtyRef = React.useRef(false)
-  const [discardOpen, setDiscardOpen] = React.useState(false)
-  const requestClose = React.useCallback(() => {
-    if (saving) return
-    if (dirtyRef.current) setDiscardOpen(true)
-    else onOpenChange(false)
-  }, [onOpenChange, saving])
-  React.useEffect(() => { if (!open) { dirtyRef.current = false; setDiscardOpen(false) } }, [open])
+  const closeConfirmPendingRef = React.useRef(false)
+  const requestClose = React.useCallback(async () => {
+    if (saving || closeConfirmPendingRef.current) return
+    if (dirtyRef.current) {
+      closeConfirmPendingRef.current = true
+      try {
+        const confirmed = await confirm({
+          title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+        })
+        if (!confirmed) return
+      } finally {
+        closeConfirmPendingRef.current = false
+      }
+    }
+    onOpenChange(false)
+  }, [confirm, onOpenChange, saving, t])
+  const handleDirtyChange = React.useCallback((dirty: boolean) => { dirtyRef.current = dirty }, [])
+  React.useEffect(() => { if (!open) dirtyRef.current = false }, [open])
   const isEdit = mode === 'edit' && Boolean(item?.id)
   const catalog = useEventTypeCatalog(open)
+  const { items: catalogItems, status: catalogStatus, retry: retryCatalog } = catalog
   const [selectedTypeKey, setSelectedTypeKey] = React.useState(() => isEdit && item ? item.interactionType : 'meeting')
   const autoSelectedCreateType = !isEdit && catalog.status === 'ready' && !isSelectableEventType(catalog.items, 'meeting')
     ? catalog.items.find((entry) => entry.selectable && !entry.historical) ?? null
@@ -366,13 +394,13 @@ export function CalendarEventEditor({
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
       const form = formStateOfValues(values)
-      if (catalog.status !== 'ready' || customFields.status !== 'ready' || injectionWidgets.loading || injectionWidgets.error) {
+      if (catalogStatus !== 'ready' || customFields.status !== 'ready' || injectionWidgets.loading || injectionWidgets.error) {
         throw createCrudFormError(t('customers.calendar.editor.catalogLoadFailed'))
       }
-      const definition = selectedEventType(catalog.items, form.category ?? form.kind)
+      const definition = selectedEventType(catalogItems, form.category ?? form.kind)
       const selectedKey = form.category ?? form.kind
       if ((mode === 'create' || selectedKey !== initialTypeKey) &&
-        !isSelectableEventType(catalog.items, selectedKey)) {
+        !isSelectableEventType(catalogItems, selectedKey)) {
         throw createCrudFormError(t('customers.calendar.editor.typeUnavailable'))
       }
       const config = eventTypeConfig(definition)
@@ -505,7 +533,7 @@ export function CalendarEventEditor({
         setSaving(false)
       }
     },
-    [catalog, customFields, injectionWidgets.loading, injectionWidgets.error, confirm, initialTypeKey, isEdit, item?.id, mode, onOpenChange, onSaved, resourcesEnabled, staffEnabled, t],
+    [catalogItems, catalogStatus, customFields.status, customFields.definitions, customFields.allDefinitions, injectionWidgets.loading, injectionWidgets.error, confirm, initialTypeKey, isEdit, item?.id, mode, onOpenChange, onSaved, resourcesEnabled, staffEnabled, t],
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(
@@ -515,7 +543,9 @@ export function CalendarEventEditor({
         bare: true,
         component: (ctx) => (
           <EditorBody
-            ctx={ctx}
+            values={ctx.values}
+            errors={ctx.errors}
+            setValue={ctx.setValue}
             open={open}
             isEdit={isEdit}
             item={item}
@@ -524,17 +554,17 @@ export function CalendarEventEditor({
             resourcesEnabled={resourcesEnabled === true}
             staffEnabled={staffEnabled !== false}
             saving={saving}
-            catalogItems={catalog.items}
-            catalogReady={catalog.status === 'ready'}
-            catalogError={catalog.status === 'error'}
-            onRetryCatalog={catalog.retry}
+            catalogItems={catalogItems}
+            catalogReady={catalogStatus === 'ready'}
+            catalogError={catalogStatus === 'error'}
+            onRetryCatalog={retryCatalog}
             onSelectedTypeChange={setSelectedTypeKey}
           />
         ),
       },
       ...(customFields.fields.length ? [{ id: 'customFields', title: t('entities.customFields.title'), fields: customFields.fields.map((field) => field.id) }] : []),
     ],
-    [open, isEdit, item, conflictScope, currentUserId, resourcesEnabled, staffEnabled, saving, catalog, customFields.fields, t],
+    [open, isEdit, item, conflictScope, currentUserId, resourcesEnabled, staffEnabled, saving, catalogItems, catalogStatus, retryCatalog, customFields.fields, t],
   )
 
   const handleKeyDown = useDialogKeyHandler({
@@ -557,10 +587,13 @@ export function CalendarEventEditor({
         // DatePicker/Select popover) up to the dialog as an "interact
         // outside" event when it dismisses that popover — without this guard
         // it would tear down the entire editor. Keep it open when the target
-        // is inside the dialog body or inside any portalled popover.
+        // is inside the dialog body or inside any portalled popover. The
+        // shared confirm renders as a native modal `<dialog>` on top of the
+        // editor; answering it is not an outside click either, otherwise it
+        // would re-request the close it is asking about.
         onInteractOutside={(event) => {
           const target = event.detail.originalEvent.target as HTMLElement | null
-          if (target?.closest('[data-dialog-content]') || target?.closest('[data-radix-popper-content-wrapper]')) {
+          if (target?.closest('[data-dialog-content]') || target?.closest('[data-radix-popper-content-wrapper]') || target?.closest('dialog')) {
             event.preventDefault()
           }
         }}
@@ -601,7 +634,7 @@ export function CalendarEventEditor({
                 formId={FORM_ID}
                 embedded
                 trackDirtyWhenEmbedded
-                onDirtyChange={(dirty) => { dirtyRef.current = dirty }}
+                onDirtyChange={handleDirtyChange}
                 hideFooterActions
                 customFieldsManageMode="page"
                 fields={customFields.fields}
@@ -632,10 +665,6 @@ export function CalendarEventEditor({
           </Button>
         </div>
       </DialogContent>
-      <CalendarDiscardDialog open={discardOpen} onKeepEditing={() => setDiscardOpen(false)} onDiscard={() => {
-        setDiscardOpen(false)
-        onOpenChange(false)
-      }} />
       {ConfirmDialogElement}
     </Dialog>
   )
