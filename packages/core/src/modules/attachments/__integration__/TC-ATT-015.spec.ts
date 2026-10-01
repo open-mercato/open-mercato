@@ -46,6 +46,11 @@ test.describe('TC-ATT-015: Stored partition validation preserves attachment data
           fileName: 'storage.png', mimeType: 'image/png', buffer,
         })
         attachmentId = uploaded.id
+        expect(uploaded.partitionCode, 'The upload must use this test partition').toBe(code)
+        const fixtureRows = await withClient((client) => client.query<{ id: string }>(
+          'select id from attachments where id = $1 and partition_code = $2', [attachmentId, code],
+        ))
+        expect(fixtureRows.rows.map((row) => row.id), 'API and DB fixtures must use the same database').toEqual([attachmentId])
         const paths = [
           `/api/attachments/file/${attachmentId}`,
           `/api/attachments/image/${attachmentId}?width=1`,
@@ -115,14 +120,22 @@ test.describe('TC-ATT-015: Stored partition validation preserves attachment data
           "update attachment_partitions set storage_driver = 'local', config_json = '{}'::jsonb where id = $1",
           [partitionId],
         ))
-        try {
-          if (attachmentId) {
-            const removed = await apiRequest(request, 'DELETE', `/api/attachments?id=${attachmentId}`, { token })
-            expect(removed.status(), 'Fixture attachment cleanup').toBe(200)
-          }
-        } finally {
-          await withClient((client) => client.query('delete from attachment_partitions where id = $1', [partitionId]))
+        const fixtureRows = await withClient((client) => client.query<{ id: string }>(
+          'select id from attachments where partition_code = $1', [code],
+        ))
+        const fixtureIds = new Set(fixtureRows.rows.map((row) => row.id))
+        if (attachmentId) fixtureIds.add(attachmentId)
+        const cleanupStatuses: number[] = []
+        for (const fixtureId of fixtureIds) {
+          const removed = await apiRequest(request, 'DELETE', `/api/attachments?id=${fixtureId}`, { token })
+          cleanupStatuses.push(removed.status())
         }
+        const remaining = await withClient((client) => client.query<{ total: number }>(
+          'select count(*)::int as total from attachments where partition_code = $1', [code],
+        ))
+        expect(remaining.rows[0]?.total, 'Keep the partition available if file cleanup fails').toBe(0)
+        await withClient((client) => client.query('delete from attachment_partitions where id = $1', [partitionId]))
+        expect(cleanupStatuses, 'Every fixture attachment should be deleted').toEqual(cleanupStatuses.map(() => 200))
       }
     })
   }
