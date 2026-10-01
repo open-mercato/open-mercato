@@ -181,5 +181,9 @@
   "attachments.partitions.table.title": "Título",
   "attachments.partitions.table.visibility": "Visibilidad",
   "attachments.partitions.title": "Particiones de archivos adjuntos",
-  "attachments.storage.nav.title": "Almacenamiento"
+  "attachments.storage.nav.title": "Almacenamiento",
+  "attachments.access.unauthorized": "No autorizado",
+  "attachments.access.forbidden": "Acceso denegado",
+  "attachments.access.notFound": "No se encontró el archivo adjunto.",
+  "attachments.access.timeout": "Se agotó el tiempo de comprobación de acceso al archivo adjunto. Inténtalo de nuevo."
 }

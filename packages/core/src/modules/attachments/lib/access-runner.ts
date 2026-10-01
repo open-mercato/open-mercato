@@ -106,7 +106,7 @@ export async function evaluateAttachmentAccess(input: {
   requireAuthForPublic?: boolean
 }): Promise<AttachmentAccessResult> {
   const { auth, attachment, partition, action, context } = input
-  const baseline = checkAttachmentAccess(auth, attachment as Attachment, partition as AttachmentPartition, input)
+  const baseline = checkAttachmentAccess(auth, attachment as Attachment, partition as AttachmentPartition, { requireAuthForPublic: input.requireAuthForPublic })
   if (!baseline.ok) return { ok: false, status: baseline.status === 401 ? 401 : 403, reason: 'scope', protected: false }
   const deny = (status: 401 | 403 | 404 | 504, reason: string, resolverId?: string): AttachmentAccessResult => {
     logger.info('Attachment owner access denied', { resolverId, action, attachmentId: attachment.id, reason })
@@ -143,7 +143,7 @@ export async function evaluateAttachmentAccess(input: {
     })
     return deny(error instanceof AccessTimeout ? 504 : 403, 'subject_projection_failed')
   }
-  const liveBaseline = checkAttachmentAccess({ ...auth, roles: [], isSuperAdmin: subject.isSuperAdmin }, attachment as Attachment, partition as AttachmentPartition, input)
+  const liveBaseline = checkAttachmentAccess({ ...auth, roles: [], isSuperAdmin: subject.isSuperAdmin }, attachment as Attachment, partition as AttachmentPartition, { requireAuthForPublic: input.requireAuthForPublic })
   if (!liveBaseline.ok) return deny(403, 'current_scope')
   for (const resolver of resolvers) {
     const controller = new AbortController()

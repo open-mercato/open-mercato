@@ -181,5 +181,9 @@
   "attachments.partitions.table.title": "Title",
   "attachments.partitions.table.visibility": "Visibility",
   "attachments.partitions.title": "Attachment partitions",
-  "attachments.storage.nav.title": "Storage"
+  "attachments.storage.nav.title": "Storage",
+  "attachments.access.unauthorized": "Unauthorized",
+  "attachments.access.forbidden": "Forbidden",
+  "attachments.access.notFound": "Attachment not found.",
+  "attachments.access.timeout": "Attachment authorization timed out. Please try again."
 }

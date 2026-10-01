@@ -181,5 +181,9 @@
   "attachments.partitions.table.title": "Titel",
   "attachments.partitions.table.visibility": "Sichtbarkeit",
   "attachments.partitions.title": "Anhang-Partitionen",
-  "attachments.storage.nav.title": "Speicher"
+  "attachments.storage.nav.title": "Speicher",
+  "attachments.access.unauthorized": "Nicht autorisiert",
+  "attachments.access.forbidden": "Zugriff verweigert",
+  "attachments.access.notFound": "Anhang nicht gefunden.",
+  "attachments.access.timeout": "Zeitüberschreitung bei der Zugriffsprüfung des Anhangs. Bitte versuchen Sie es erneut."
 }
