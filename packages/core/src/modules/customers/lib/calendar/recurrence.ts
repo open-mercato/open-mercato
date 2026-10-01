@@ -129,7 +129,7 @@ function expandZonedOccurrences(item: CalendarItem, range: CalendarRange, rule: 
   const recurrenceEnd = typeof item.raw.recurrenceEnd === 'string' ? new Date(item.raw.recurrenceEnd).getTime() : null
   const occurrences: CalendarItem[] = []
   let occurrenceIndex = 0
-  if (!item.allDay && earliestDay > seriesStartDay) {
+  if (earliestDay > seriesStartDay) {
     occurrenceIndex = countMatchingDays(seriesStartDay, earliestDay, rule, seriesWeekday)
     cursor.setUTCDate(cursor.getUTCDate() + earliestDay - seriesStartDay)
   }
