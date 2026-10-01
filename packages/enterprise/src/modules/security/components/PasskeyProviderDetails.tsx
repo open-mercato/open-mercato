@@ -170,6 +170,7 @@ export default function PasskeyProviderDetails({
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="shrink-0"
                   disabled={saving || loading}
                   aria-label={t('ui.actions.delete', 'Delete')}
                   title={t('ui.actions.delete', 'Delete')}
