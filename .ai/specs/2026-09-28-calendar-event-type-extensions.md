@@ -370,7 +370,7 @@ Approved for review as a widget-based extension contract over the customers cale
 
 ### 2026-10-01 — Atomic Visit booking serialization
 
-- Visit create/update now acquires deterministic PostgreSQL transaction advisory locks for the affected staff and resource subjects, rechecks booking conflicts, writes the Customers interaction, and commits on one transaction-bound EntityManager. Planner availability remains checked immediately before the transaction. Concurrent overlapping requests have one successful writer; command logging and side effects run after commit, so low-pool operation does not require a second connection while locks are held.
+- Visit create/update now acquires deterministic PostgreSQL transaction advisory locks for the affected staff and resource subjects, re-evaluates planner availability and booking conflicts from the final post-interceptor input, writes the Customers interaction, and commits on one transaction-bound EntityManager. Concurrent overlapping requests have one successful writer; command logging and side effects run after commit, so low-pool operation does not require a second connection while locks are held. A real modifier-pipeline regression also proves that moving a no-conflict Visit outside working hours is rejected before persistence.
 
 ### 2026-09-30 — Named availability and calendar booking conflicts
 

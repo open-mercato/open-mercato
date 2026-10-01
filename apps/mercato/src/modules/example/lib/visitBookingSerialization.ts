@@ -6,8 +6,7 @@ import type {
 } from '@open-mercato/shared/lib/commands'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
-import { bookedVisitSubjects } from './visitBookings'
-import { visitAvailabilityInputSchema, type VisitAvailabilitySubject } from './visitAvailability'
+import { evaluateVisitAvailability, visitAvailabilityInputSchema, type VisitAvailabilitySubject } from './visitAvailability'
 
 type Row = Record<string, unknown>
 
@@ -123,12 +122,13 @@ function nextValue(input: Row, existing: Row | null, camel: string, snake: strin
   return camel in input || snake in input ? value(input, camel, snake) : value(existing ?? {}, camel, snake)
 }
 
-async function assertNoOverlappingVisit(
+async function assertVisitAvailable(
   em: EntityManager,
   tenantId: string,
   organizationId: string,
   input: Row,
   existing: Row | null,
+  options: CommandExecutionOptions<unknown>,
 ): Promise<void> {
   const interactionType = value(input, 'interactionType', 'interaction_type')
     ?? value(existing ?? {}, 'interactionType', 'interaction_type')
@@ -155,13 +155,22 @@ async function assertNoOverlappingVisit(
     ...(typeof existing?.id === 'string' ? { excludeInteractionId: existing.id } : {}),
   })
   if (!parsed.success) return
-  let booked: Set<string>
+  const actorUserId = options.ctx.auth?.sub
+  if (!actorUserId) {
+    const reasonKey = 'example.calendar.visitAvailability.retry'
+    throw new CommandInterceptorError(reasonKey, {
+      status: 503,
+      body: { error: reasonKey, code: 'visit_availability_unavailable' },
+    })
+  }
+  let results: VisitAvailabilitySubject[]
   try {
-    booked = await bookedVisitSubjects({
-      queryEngine: new BasicQueryEngine(em),
+    results = await evaluateVisitAvailability({
+      container: options.ctx.container,
+      actorUserId,
       scope: { tenantId, organizationId },
       input: parsed.data,
-      subjects,
+      queryEngine: new BasicQueryEngine(em),
     })
   } catch (cause) {
     const reasonKey = 'example.calendar.visitAvailability.retry'
@@ -171,16 +180,20 @@ async function assertNoOverlappingVisit(
       cause,
     })
   }
-  const conflicts = subjects.filter((subject) => booked.has(`${subject.type}:${subject.id}`))
-  if (!conflicts.length) return
-  const reasonKey = 'example.calendar.visitAvailability.booked'
+  const failure = results.find((subject) => subject.status === 'unknown')
+    ?? results.find((subject) => subject.status === 'unavailable')
+  if (!failure) return
+  const reasonKey = failure.reasonKey ?? 'example.calendar.visitAvailability.retry'
+  const unavailable = results.filter((subject) => subject.status !== 'available')
   throw new CommandInterceptorError(reasonKey, {
-    status: 422,
+    status: reasonKey === 'example.calendar.visitAvailability.missingScope'
+      ? 403
+      : failure.status === 'unknown' ? 503 : 422,
     body: {
       error: reasonKey,
       code: 'visit_availability_unavailable',
-      subjects: conflicts.map((subject) => ({ ...subject, status: 'unavailable', reasonKey })),
-      fieldErrors: Object.fromEntries([...new Set(conflicts.map((subject) => subject.type === 'staff' ? 'participants' : 'linkedEntities'))]
+      subjects: unavailable,
+      fieldErrors: Object.fromEntries([...new Set(unavailable.map((subject) => subject.type === 'staff' ? 'participants' : 'linkedEntities'))]
         .map((field) => [field, reasonKey])),
     },
   })
@@ -225,7 +238,14 @@ export function createVisitBookingSerializingCommandBus(args: {
         ?? options.ctx.auth?.orgId
       if (typeof organizationId !== 'string') return
       await acquireLocks(lockEm, subjectLockKeys({ tenantId, organizationId, input, existing }))
-      await assertNoOverlappingVisit(lockEm, tenantId, organizationId, input, existing)
+      await assertVisitAvailable(
+        lockEm,
+        tenantId,
+        organizationId,
+        input,
+        existing,
+        options as CommandExecutionOptions<unknown>,
+      )
     }
     return commandBus.execute<TInput, TResult>(commandId, {
       ...options,

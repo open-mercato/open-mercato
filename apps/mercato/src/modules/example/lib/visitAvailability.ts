@@ -108,6 +108,7 @@ export async function evaluateVisitAvailability(args: {
   actorUserId: string
   scope: { tenantId: string; organizationId: string }
   input: VisitAvailabilityInput
+  queryEngine?: QueryEngine
 }): Promise<VisitAvailabilitySubject[]> {
   const { container, actorUserId, scope, input } = args
   const enabledModules = hasEnabledModulesRegistry() ? new Set(getEnabledModuleIds()) : null
@@ -117,7 +118,7 @@ export async function evaluateVisitAvailability(args: {
     ...(canCheck('resources') ? input.resourceIds : []).map((id): VisitAvailabilitySubject => ({ type: 'resource', id, status: 'unknown', reasonKey: 'example.calendar.visitAvailability.unknown' })),
   ]
   if (!subjects.length) return subjects
-  const queryEngine = resolveVisitService<QueryEngine>(container, 'queryEngine')
+  const queryEngine = args.queryEngine ?? resolveVisitService<QueryEngine>(container, 'queryEngine')
   const planner = resolveVisitService<PlannerService>(container, 'plannerAvailabilityService')
   const rbac = resolveVisitService<Rbac>(container, 'rbacService')
   if (!queryEngine || !planner || !rbac) return subjects

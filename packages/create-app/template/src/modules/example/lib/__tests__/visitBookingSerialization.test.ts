@@ -2,11 +2,15 @@ import { CommandBus, commandRegistry, registerCommand } from '@open-mercato/shar
 import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
 import { createVisitBookingSerializingCommandBus } from '../visitBookingSerialization'
 
-const mockBookedVisitSubjects = jest.fn()
+const mockEvaluateVisitAvailability = jest.fn()
 
-jest.mock('../visitBookings', () => ({
-  bookedVisitSubjects: (...args: unknown[]) => mockBookedVisitSubjects(...args),
-}))
+jest.mock('../visitAvailability', () => {
+  const actual = jest.requireActual('../visitAvailability')
+  return {
+    ...actual,
+    evaluateVisitAvailability: (...args: unknown[]) => mockEvaluateVisitAvailability(...args),
+  }
+})
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const MODIFIED_USER_ID = '55555555-5555-4555-8555-555555555555'
@@ -106,8 +110,22 @@ describe('Visit booking command serialization', () => {
     const transactionContexts: unknown[] = []
     const sideEffectStates: boolean[] = []
     const state = { bookings: 0 }
-    mockBookedVisitSubjects.mockImplementation(async ({ subjects }: { subjects: Array<{ type: string; id: string }> }) =>
-      new Set(state.bookings > 0 ? subjects.map((subject) => `${subject.type}:${subject.id}`) : []))
+    mockEvaluateVisitAvailability.mockImplementation(async ({ input }: {
+      input: { staffUserIds: string[]; resourceIds: string[] }
+    }) => [
+      ...input.staffUserIds.map((id) => ({
+        type: 'staff',
+        id,
+        status: state.bookings > 0 ? 'unavailable' : 'available',
+        reasonKey: state.bookings > 0 ? 'example.calendar.visitAvailability.booked' : null,
+      })),
+      ...input.resourceIds.map((id) => ({
+        type: 'resource',
+        id,
+        status: state.bookings > 0 ? 'unavailable' : 'available',
+        reasonKey: state.bookings > 0 ? 'example.calendar.visitAvailability.booked' : null,
+      })),
+    ])
     const input = {
       tenantId: TENANT_ID,
       organizationId: ORGANIZATION_ID,
@@ -118,11 +136,11 @@ describe('Visit booking command serialization', () => {
       participants: [{ userId: USER_ID }],
     }
     const context = {
-      auth: { tenantId: TENANT_ID },
+      auth: { sub: USER_ID, tenantId: TENANT_ID },
       selectedOrganizationId: ORGANIZATION_ID,
       organizationIds: [ORGANIZATION_ID],
       organizationScope: null,
-      container: {},
+      container: { resolve: () => undefined },
     }
     const first = createVisitBookingSerializingCommandBus({
       commandBus: createContendingCommandBus(state, transactionContexts, sideEffectStates) as never,
@@ -156,7 +174,7 @@ describe('Visit booking command serialization', () => {
     expect(sideEffectStates).toEqual([false])
   })
 
-  it('locks and rechecks the final assignment and time from the real modifier interceptor pipeline', async () => {
+  it('rejects planner-unavailable final input from the real modifier interceptor pipeline without a booking conflict', async () => {
     const manager = new AdvisoryLockManager()
     const acquiredKeys: string[] = []
     const statements: string[] = []
@@ -199,15 +217,20 @@ describe('Visit booking command serialization', () => {
         },
       }],
     }])
-    mockBookedVisitSubjects.mockImplementation(async ({ input, subjects }: {
-      input: { startAt: string; endAt: string }
-      subjects: Array<{ type: string; id: string }>
+    mockEvaluateVisitAvailability.mockImplementation(async ({ input }: {
+      input: { startAt: string; endAt: string; staffUserIds: string[] }
     }) => {
       expect(input).toEqual(expect.objectContaining({
         startAt: '2026-10-01T14:30:00.000Z',
         endAt: '2026-10-01T15:00:00.000Z',
+        staffUserIds: [MODIFIED_USER_ID],
       }))
-      return new Set(subjects.map((subject) => `${subject.type}:${subject.id}`))
+      return [{
+        type: 'staff',
+        id: MODIFIED_USER_ID,
+        status: 'unavailable',
+        reasonKey: 'example.calendar.visitAvailability.unavailable',
+      }]
     })
     const bus = createVisitBookingSerializingCommandBus({
       commandBus: new CommandBus(),
@@ -246,8 +269,11 @@ describe('Visit booking command serialization', () => {
     expect(acquiredKeys).toEqual([
       `example:visit-booking:${TENANT_ID}:${ORGANIZATION_ID}:staff:${MODIFIED_USER_ID}`,
     ])
-    expect(mockBookedVisitSubjects).toHaveBeenCalledWith(expect.objectContaining({
-      subjects: [{ type: 'staff', id: MODIFIED_USER_ID, status: 'available', reasonKey: null }],
+    expect(mockEvaluateVisitAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: USER_ID,
+      scope: { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      input: expect.objectContaining({ staffUserIds: [MODIFIED_USER_ID] }),
+      queryEngine: expect.anything(),
     }))
   })
 })
