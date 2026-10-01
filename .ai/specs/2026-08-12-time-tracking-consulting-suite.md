@@ -342,7 +342,7 @@ Unique `(report_id, time_entry_id)`. This table is also what makes D-5 enforceab
 
 `started_at` / `ended_at` are full timestamps, so an entry that crosses midnight simply has `ended_at` on the next calendar day (D-8). `date` always records the day the work *started* — it is what the timesheet, the grid and the per-day totals bucket on.
 
-`locked_report_id` / `locked_at` are a denormalized fast path so list queries need no join. `staff_time_report_entries` remains authoritative; the close and unlock commands maintain both inside one `withAtomicFlush` transaction.
+`locked_report_id` / `locked_at` are a denormalized fast path so list queries need no join. `staff_time_report_entries` remains authoritative; the close and unlock commands maintain both inside one `withAtomicFlush` transaction. When the D-5 opt-in puts one entry into several closed reports, the lock belongs to the one that closed first, and unlocking that report hands the lock to the next closed report still quoting the entry — it is cleared only when no closed report quotes the entry any more.
 
 Index additions: `(organization_id, task_id)`, `(organization_id, staff_member_id, date, started_at)` for overlap detection, `(organization_id, locked_report_id)`.
 
@@ -409,7 +409,7 @@ All write paths return `409 time_entry_locked` when the target entry has `locked
 | `GET/POST` | `/api/staff/timesheets/reports` | `reports.view` / `reports.manage` | |
 | `GET` | `/api/staff/timesheets/reports/[id]` | `reports.view` | |
 | `POST` | `/api/staff/timesheets/reports/[id]/close` | `timesheets.lock` | Writes `staff_time_report_entries` snapshots, sets `locked_*` on entries, freezes totals, appends a `closed` report event — one `withAtomicFlush` transaction |
-| `POST` | `/api/staff/timesheets/reports/[id]/unlock` | `reports.unlock` | Body requires `reason` (non-empty); clears `locked_*`, appends an `unlocked` event with the reason and actor |
+| `POST` | `/api/staff/timesheets/reports/[id]/unlock` | `reports.unlock` | Body requires `reason` (non-empty); clears `locked_*` on the entries no other closed report quotes (an entry another closed report re-included keeps its lock, now owned by that report), appends an `unlocked` event with the reason and actor |
 | `GET` | `/api/staff/timesheets/reports/[id]/export?format=pdf\|csv\|xlsx` | `reports.view` | Honours current grouping, filters, rounding and currency; appends an `exported` event. **Export alone never locks** (screen 14 note 5). |
 
 ### Settings and aggregates
@@ -598,6 +598,7 @@ Each phase is one PR, independently shippable, with its integration tests in the
 | TC-TT-020 | 6, 7 | **Rollup**: hours logged on a child appear in the parent's card, its column header and the project total; nesting a subtask under a subtask is rejected |
 | TC-TT-021 | 13, 14 | **No silent double-billing**: an hour frozen in report A is absent from report B's total until the opt-in is ticked, then present with its frozen amount |
 | TC-TT-022 | 8 | **Midnight crossing**: 23:00–01:00 saves as a 2:00 entry dated to the start day, with the hint shown |
+| TC-TT-023 | 14, 15 | **An hour two closed reports quote**: both closed reports keep the hour on their sheet and export, and the entry stays locked — the lock moving to the remaining closed report — until the last report quoting it is unlocked |
 | TC-STAFF-027 | — | existing grid save — must still pass unmodified |
 
 ---
@@ -698,6 +699,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
+| 2026-10-02 | An entry quoted by two closed reports (D-5 opt-in): each closed report now resolves its own freeze record, so neither sheet nor export drops the hour, and unlocking the report that locked the entry first moves `locked_report_id` to the remaining closed report instead of clearing it. Unlock row-locks the entries it quotes so unlocks of overlapping reports serialize. Integration coverage: TC-TT-023. |
 | 2026-08-16 | Demo data added (`seedStaffTimeTrackingExamples`, `mercato staff seed-time-tracking-examples`, wired into `setup.ts seedExamples`), so a fresh tenant lands on a populated portfolio, board, week grid and report list instead of four empty screens. Projects link to real `customer_entities` when the CRM examples are present and degrade to a snapshot name when they are not. Fixed three raw-SQL sites that bound an id array to a single `= ANY(?)` placeholder — MikroORM interpolates rather than binds, so the projects list 500'd for every tenant that had a project, the rounding-impact preview 500'd for org-narrowed callers, and the retro-rounding job selected no candidates while reporting success. Shared helper: `lib/time-tracking/sqlInClause.ts`. |
 | 2026-08-13 | Pre-implementation code review against the live module closed two gaps the spec had assumed away: `staff_time_projects.customer_id` is dormant (no FK, never populated by any UI) and now targets `customers.customer_entities` with a `customer_snapshot` alongside (D-9); the required-and-unique `code` column, absent from screen 4, is now auto-derived from the name with a 20-character cap so task references stay short (D-10). Corrected `indexer.entityType` to the generated `staff:staff_time_task` convention and `currency_code` to `text` per the `sales` precedent. |
 | 2026-08-13 | All 8 open questions resolved (D-1…D-8) and propagated. Structural change: subtasks now carry time, so `staff_time_subtasks` is dropped in favour of a self-referencing `staff_time_tasks.parent_task_id` (one level), with an inclusive-rollup rule (`rollup.ts`) feeding every hours display. Money is rounded at the entry then summed upward, so `frozen_amount` narrows to `numeric(14,2)`. Reports gain `include_already_reported` (default `false`) so a previously billed hour cannot reach a second invoice silently. Added the currency-change and access-request endpoints, the `project_access.requested` event and notification, midnight-crossing handling in `interval`/`overlap`, and test cases TC-TT-020/021/022. |
