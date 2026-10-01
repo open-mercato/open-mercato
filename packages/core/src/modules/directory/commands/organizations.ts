@@ -525,8 +525,10 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const tenantId = await enforceTenantSelection(ctx, parsed.tenantId ?? resolveTenantIdFromEntity(existing))
     if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
 
-    const parentId = parsed.parentId ?? null
-    if (parentId) {
+    const parentProvided = parsed.parentId !== undefined
+    const childrenProvided = parsed.childIds !== undefined
+    const parentId = parentProvided ? parsed.parentId ?? null : existing.parentId ?? null
+    if (parentProvided && parentId) {
       if (parentId === parsed.id) throw new CrudHttpError(400, { error: 'Organization cannot be its own parent' })
       if (Array.isArray(existing.descendantIds) && existing.descendantIds.includes(parentId)) {
         throw new CrudHttpError(400, { error: 'Cannot assign descendant as parent' })
@@ -534,7 +536,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       await ensureParentExists(em, tenantId, parentId)
     }
 
-    const normalizedChildIds = normalizeChildIds(parsed.childIds ?? [], [parsed.id, parentId ?? ''])
+    const normalizedChildIds = normalizeChildIds(parsed.childIds ?? [], [parsed.id, parentProvided ? parentId ?? '' : ''])
     if (normalizedChildIds.some((id) => id === parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
     if (Array.isArray(existing.ancestorIds) && normalizedChildIds.some((id) => existing.ancestorIds.includes(id))) {
       throw new CrudHttpError(400, { error: 'Cannot assign ancestor as child' })
@@ -579,7 +581,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
             if (parsed.logoUrl !== undefined) entity.logoUrl = parsed.logoUrl ?? null
             if (parsed.logoPreserveAspectRatio !== undefined) entity.logoPreserveAspectRatio = parsed.logoPreserveAspectRatio
             if (parsed.isActive !== undefined) entity.isActive = parsed.isActive
-            entity.parentId = parentId
+            if (parentProvided) entity.parentId = parentId
           },
         })
         if (!organization) throw new CrudHttpError(404, { error: 'Not found' })
@@ -587,8 +589,10 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
         const recordId = String(organization.id)
         const desiredChildIds = new Set(normalizedChildIds.filter((id) => id !== recordId))
-        await clearRemovedChildren(em, tenantId, recordId, desiredChildIds)
-        await assignChildren(em, tenantId, recordId, desiredChildIds)
+        if (childrenProvided) {
+          await clearRemovedChildren(em, tenantId, recordId, desiredChildIds)
+          await assignChildren(em, tenantId, recordId, desiredChildIds)
+        }
         const childParentsAfter = await loadChildParentSnapshots(em, tenantId, combinedChildIds)
         setUndoMeta(organization, { childParentsBefore, childParentsAfter })
 
