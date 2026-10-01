@@ -59,6 +59,14 @@ export type CommandRuntimeContext = {
    */
   transactionalEm?: EntityManager
   /**
+   * Optional server-side guard that supported command handlers invoke after
+   * opening their write transaction and before reading or mutating records.
+   * The guard receives that same transaction-bound EntityManager so callers
+   * can compose advisory locks and authoritative checks with the write without
+   * keeping the transaction open across command logging or other side effects.
+   */
+  beforeTransactionalWrite?: (em: EntityManager) => Promise<void>
+  /**
    * On-behalf-of attribution for non-human principals (Agent Identity &
    * On-Behalf-Of, Wave 4 P2). When an agent runs on behalf of a human, the
    * orchestrator's `runAs` wrapper sets this so every `ActionLog` the command

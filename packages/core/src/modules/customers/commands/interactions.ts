@@ -348,7 +348,12 @@ function createTransactionalDataEngine(ctx: CommandRuntimeContext, em: EntityMan
 async function runInTransaction<TResult>(
   em: EntityManager,
   operation: (trx: EntityManager) => Promise<TResult>,
+  beforeWrite?: (trx: EntityManager) => Promise<void>,
 ): Promise<TResult> {
+  if (typeof em.isInTransaction === 'function' && em.isInTransaction()) {
+    await beforeWrite?.(em)
+    return operation(em)
+  }
   // Mirrors the SPEC-018 fix applied to withAtomicFlush: use explicit begin/commit/rollback
   // so the outer EntityManager stays bound to the transaction, and closures over `em` inside
   // `operation` participate in the same transaction. This avoids the em.transactional(cb)
@@ -363,6 +368,7 @@ async function runInTransaction<TResult>(
   }
   await em.begin()
   try {
+    await beforeWrite?.(em)
     const result = await operation(em)
     await em.commit()
     return result
@@ -474,7 +480,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionCreateSchema, rawInput)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const entity = await requireTimelineParentEntity(trx, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
@@ -550,7 +556,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         entityId: entity.id,
         nextInteractionId: projection.nextInteractionId,
       }
-    })
+    }, ctx.beforeTransactionalWrite)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -575,7 +581,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     return { interactionId: interaction.id, entityId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     return await loadInteractionSnapshot(em, result.interactionId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -746,13 +752,13 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   id: 'customers.interactions.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadInteractionSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, projections } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) {
@@ -942,7 +948,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       }
 
       return { interaction, projections }
-    })
+    }, ctx.beforeTransactionalWrite)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -969,7 +975,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     return { interactionId: interaction.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     return await loadInteractionSnapshot(em, result.interactionId)
   },
   buildLog: async ({ snapshots }) => {

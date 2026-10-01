@@ -90,7 +90,7 @@ function makeContext() {
     recurrenceEnd: null,
     allDay: null,
   }
-  const em = { fork: () => em, flush: jest.fn(async () => {}), create: jest.fn((_entity: unknown, values: Record<string, unknown>) => ({ ...values, id: INTERACTION })), persist: jest.fn(), getReference: jest.fn((_entity: unknown, id: string) => ({ id })) }
+  const em = { fork: jest.fn(() => em), flush: jest.fn(async () => {}), create: jest.fn((_entity: unknown, values: Record<string, unknown>) => ({ ...values, id: INTERACTION })), persist: jest.fn(), getReference: jest.fn((_entity: unknown, id: string) => ({ id })) }
   const context = {
     container: {
       resolve: (token: string) => {
@@ -120,6 +120,32 @@ beforeEach(() => {
 })
 
 describe('interaction calendar-type command enforcement', () => {
+  it('reuses a caller transaction without opening or committing a second transaction', async () => {
+    const { em, context } = makeContext()
+    const transactionalEm = Object.assign(em, {
+      isInTransaction: jest.fn(() => true),
+      begin: jest.fn(async () => { throw new Error('nested transaction') }),
+      commit: jest.fn(async () => { throw new Error('caller owns commit') }),
+      rollback: jest.fn(async () => { throw new Error('caller owns rollback') }),
+    })
+    const beforeTransactionalWrite = jest.fn(async (guardEm: unknown) => {
+      expect(guardEm).toBe(transactionalEm)
+      expect(transactionalEm.isInTransaction()).toBe(true)
+    })
+    await registeredCommands.get('customers.interactions.create')!.execute({
+      tenantId: TENANT,
+      organizationId: ORG,
+      entityId: ENTITY,
+      interactionType: 'meeting',
+    }, { ...context, transactionalEm, beforeTransactionalWrite })
+    expect(em.fork).not.toHaveBeenCalled()
+    expect(beforeTransactionalWrite).toHaveBeenCalledTimes(1)
+    expect(transactionalEm.begin).not.toHaveBeenCalled()
+    expect(transactionalEm.commit).not.toHaveBeenCalled()
+    expect(transactionalEm.rollback).not.toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
   it('persists the first instant of an all-day civil date across midnight DST', async () => {
     const { em, context } = makeContext()
     await registeredCommands.get('customers.interactions.create')!.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'meeting', date: '2026-09-06', allDay: true, timezone: 'America/Santiago' }, context)

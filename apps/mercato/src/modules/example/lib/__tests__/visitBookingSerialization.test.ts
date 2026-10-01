@@ -1,5 +1,11 @@
 import { createVisitBookingSerializingCommandBus } from '../visitBookingSerialization'
 
+const mockBookedVisitSubjects = jest.fn()
+
+jest.mock('../visitBookings', () => ({
+  bookedVisitSubjects: (...args: unknown[]) => mockBookedVisitSubjects(...args),
+}))
+
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const ENTITY_ID = '22222222-2222-4222-8222-222222222222'
 const TENANT_ID = '33333333-3333-4333-8333-333333333333'
@@ -23,43 +29,61 @@ class AdvisoryLockManager {
 }
 
 function lockingEntityManager(manager: AdvisoryLockManager, acquiredKeys: string[], statements: string[]) {
+  let inTransaction = false
+  let releases: Array<() => void> = []
   const em = {
-    fork: () => em,
-    isInTransaction: () => false,
-    execute: async () => {
-      throw new Error('Lock query executed outside a transaction')
+    fork: jest.fn(() => em),
+    isInTransaction: () => inTransaction,
+    begin: async () => {
+      if (inTransaction) throw new Error('Nested transaction')
+      inTransaction = true
+    },
+    execute: async (_sql: string, params: string[]) => {
+      if (!inTransaction) throw new Error('Lock query executed outside a transaction')
+      statements.push(_sql)
+      acquiredKeys.push(params[0]!)
+      releases.push(await manager.acquire(params[0]!))
     },
     getConnection: () => {
       throw new Error('Bare connection must not execute transaction-scoped locks')
     },
-    transactional: async <T>(run: (tx: typeof em) => Promise<T>) => {
-      const releases: Array<() => void> = []
-      const tx = {
-        ...em,
-        isInTransaction: () => true,
-        execute: async (_sql: string, params: string[]) => {
-          statements.push(_sql)
-          acquiredKeys.push(params[0]!)
-          releases.push(await manager.acquire(params[0]!))
-        },
-      }
-      try {
-        return await run(tx)
-      } finally {
-        releases.reverse().forEach((release) => release())
-      }
+    commit: async () => {
+      if (!inTransaction) throw new Error('Missing transaction')
+      inTransaction = false
+      releases.reverse().forEach((release) => release())
+      releases = []
+    },
+    rollback: async () => {
+      inTransaction = false
+      releases.reverse().forEach((release) => release())
+      releases = []
     },
   }
   return em
 }
 
-function createContendingCommandBus(state: { bookings: number }) {
+function createContendingCommandBus(state: { bookings: number }, transactionContexts: unknown[], sideEffectStates: boolean[]) {
   return {
-    execute: jest.fn(async () => {
-      const available = state.bookings === 0
-      await new Promise<void>((resolve) => setTimeout(resolve, 5))
-      if (!available) throw new Error('example.calendar.visitAvailability.booked')
-      state.bookings += 1
+    execute: jest.fn(async (_commandId: string, options: { ctx: { transactionalEm?: unknown; beforeTransactionalWrite?: (em: never) => Promise<void> } }) => {
+      transactionContexts.push(options.ctx.transactionalEm)
+      const transactionEm = options.ctx.transactionalEm as {
+        begin: () => Promise<void>
+        commit: () => Promise<void>
+        rollback: () => Promise<void>
+        isInTransaction: () => boolean
+      }
+      await transactionEm.begin()
+      try {
+        await options.ctx.beforeTransactionalWrite?.(transactionEm as never)
+        expect(transactionEm.isInTransaction()).toBe(true)
+        await new Promise<void>((resolve) => setTimeout(resolve, 5))
+        state.bookings += 1
+        await transactionEm.commit()
+      } catch (error) {
+        await transactionEm.rollback()
+        throw error
+      }
+      sideEffectStates.push(transactionEm.isInTransaction())
       return { result: { interactionId: `visit-${state.bookings}` }, logEntry: null }
     }),
   }
@@ -70,7 +94,11 @@ describe('Visit booking command serialization', () => {
     const manager = new AdvisoryLockManager()
     const acquiredKeys: string[] = []
     const statements: string[] = []
+    const transactionContexts: unknown[] = []
+    const sideEffectStates: boolean[] = []
     const state = { bookings: 0 }
+    mockBookedVisitSubjects.mockImplementation(async ({ subjects }: { subjects: Array<{ type: string; id: string }> }) =>
+      new Set(state.bookings > 0 ? subjects.map((subject) => `${subject.type}:${subject.id}`) : []))
     const input = {
       tenantId: TENANT_ID,
       organizationId: ORGANIZATION_ID,
@@ -88,14 +116,12 @@ describe('Visit booking command serialization', () => {
       container: {},
     }
     const first = createVisitBookingSerializingCommandBus({
-      commandBus: createContendingCommandBus(state) as never,
+      commandBus: createContendingCommandBus(state, transactionContexts, sideEffectStates) as never,
       em: lockingEntityManager(manager, acquiredKeys, statements) as never,
-      queryEngine: { query: jest.fn() } as never,
     })
     const second = createVisitBookingSerializingCommandBus({
-      commandBus: createContendingCommandBus(state) as never,
+      commandBus: createContendingCommandBus(state, transactionContexts, sideEffectStates) as never,
       em: lockingEntityManager(manager, acquiredKeys, statements) as never,
-      queryEngine: { query: jest.fn() } as never,
     })
 
     const outcomes = await Promise.allSettled([
@@ -114,5 +140,10 @@ describe('Visit booking command serialization', () => {
       'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
       'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
     ])
+    expect(transactionContexts).toHaveLength(2)
+    expect(transactionContexts[0]).not.toBe(transactionContexts[1])
+    expect((transactionContexts[0] as { fork: jest.Mock }).fork).not.toHaveBeenCalled()
+    expect((transactionContexts[1] as { fork: jest.Mock }).fork).not.toHaveBeenCalled()
+    expect(sideEffectStates).toEqual([false])
   })
 })
