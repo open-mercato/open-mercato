@@ -63,7 +63,6 @@ function blocked(reasonKey: string, status = 422, fields: string[] = [], subject
     body: {
       error: reasonKey,
       code: 'visit_availability_unavailable',
-      fields,
       ...(subjects ? { subjects } : {}),
       fieldErrors: Object.fromEntries(fields.map((field) => [field, reasonKey])),
     },

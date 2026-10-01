@@ -314,7 +314,8 @@ describe('Visit availability', () => {
     }, { commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
       selectedOrganizationId: scope.organizationId, container: container as never,
     })).toMatchObject({ ok: false, status: 403, body: {
-      error: 'example.calendar.visitAvailability.missingScope', fields: ['participants'],
+      error: 'example.calendar.visitAvailability.missingScope',
+      fieldErrors: { participants: 'example.calendar.visitAvailability.missingScope' },
     } })
   })
 
@@ -512,7 +513,10 @@ describe('Visit availability', () => {
     expect(await create.beforeExecute!({ interactionType: 'visit', entityId: RULE_ID, scheduledAt: input.startAt,
       durationMinutes: 60, participants: [{ userId: USER_ID }], linkedEntities: [{ type: 'resource', id: RESOURCE_ID }],
     }, context)).toMatchObject({ ok: false, status: 422, body: {
-      fields: ['participants', 'linkedEntities'], subjects: [
+      fieldErrors: {
+        participants: 'example.calendar.visitAvailability.booked',
+        linkedEntities: 'example.calendar.visitAvailability.booked',
+      }, subjects: [
         { displayName: 'Alex Chen', reasonKey: 'example.calendar.visitAvailability.booked' },
         { displayName: 'Conference room', reasonKey: 'example.calendar.visitAvailability.booked' },
       ],

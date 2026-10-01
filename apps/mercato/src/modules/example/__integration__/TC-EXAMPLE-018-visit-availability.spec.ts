@@ -65,7 +65,9 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
         token, data: { ...visitInput, linkedEntities: [{ type: 'resource', id: resourceId, label: `Visit QA room ${stamp}` }] },
       })
       expect(rejected.status()).toBe(422)
-      expect(await rejected.json()).toMatchObject({ code: 'visit_availability_unavailable', fields: ['linkedEntities'] })
+      expect(await rejected.json()).toMatchObject({ code: 'visit_availability_unavailable', fieldErrors: {
+        linkedEntities: 'example.calendar.visitAvailability.noSchedule',
+      } })
 
       const accepted = await apiRequest(request, 'POST', '/api/customers/interactions', { token, data: visitInput })
       expect(accepted.status(), await accepted.text()).toBe(201)
@@ -82,7 +84,9 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
         data: { id: visitId, linkedEntities: [{ type: 'resource', id: resourceId, label: `Visit QA room ${stamp}` }] },
       })
       expect(update.status()).toBe(422)
-      expect(await update.json()).toMatchObject({ code: 'visit_availability_unavailable', fields: ['linkedEntities'] })
+      expect(await update.json()).toMatchObject({ code: 'visit_availability_unavailable', fieldErrors: {
+        linkedEntities: 'example.calendar.visitAvailability.noSchedule',
+      } })
 
       const list = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}&from=2026-10-05T00%3A00%3A00Z&to=2026-10-06T00%3A00%3A00Z`, { token })
       expect(list.status(), await list.text()).toBe(200)
@@ -178,7 +182,9 @@ for (const schedule of scheduleCases) {
         token, data: { id: visitId, scheduledAt: schedule.rejectedStartAt, durationMinutes },
       })
       expect(rejected.status(), await rejected.text()).toBe(422)
-      expect(await rejected.json()).toMatchObject({ fields: [schedule.kind === 'staff' ? 'participants' : 'linkedEntities'] })
+      expect(await rejected.json()).toMatchObject({ fieldErrors: {
+        [schedule.kind === 'staff' ? 'participants' : 'linkedEntities']: 'example.calendar.visitAvailability.noSchedule',
+      } })
       const stored = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}&limit=100`, { token })
       expect(stored.status(), await stored.text()).toBe(200)
       const storedItems = await stored.json() as { items: Array<{ id: string; scheduledAt: string; durationMinutes: number }> }
@@ -190,7 +196,9 @@ for (const schedule of scheduleCases) {
           scheduledAt: schedule.rejectedStartAt, durationMinutes, timezone: schedule.timezone, ...selection },
       })
       expect(rejectedCreate.status(), await rejectedCreate.text()).toBe(422)
-      expect(await rejectedCreate.json()).toMatchObject({ fields: [schedule.kind === 'staff' ? 'participants' : 'linkedEntities'] })
+      expect(await rejectedCreate.json()).toMatchObject({ fieldErrors: {
+        [schedule.kind === 'staff' ? 'participants' : 'linkedEntities']: 'example.calendar.visitAvailability.noSchedule',
+      } })
       await deleteEntityIfExists(request, token, '/api/planner/availability', ruleId)
       const titleOnly = await apiRequest(request, 'PUT', '/api/customers/interactions', {
         token, data: { id: visitId, title: `Renamed visit ${stamp}` },
@@ -287,7 +295,8 @@ for (const subjectType of ['staff', 'resource'] as const) {
         })
         expect(rejectedCreate.status(), await rejectedCreate.text()).toBe(422)
         expect(await rejectedCreate.json()).toMatchObject({ code: 'visit_availability_unavailable',
-          fields: [subjectType === 'staff' ? 'participants' : 'linkedEntities'], subjects: [blockedSubject] })
+          fieldErrors: { [subjectType === 'staff' ? 'participants' : 'linkedEntities']: 'example.calendar.visitAvailability.booked' },
+          subjects: [blockedSubject] })
         const rejectedUpdate = await apiRequest(request, 'PUT', '/api/customers/interactions', {
           token, data: { id: visitId, scheduledAt: '2026-10-05T10:00:00Z', durationMinutes: 60 },
         })
