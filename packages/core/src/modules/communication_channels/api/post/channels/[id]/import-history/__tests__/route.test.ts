@@ -35,10 +35,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import type { ZodTypeAny } from 'zod'
+import {
+  IMPORT_HISTORY_MAX_MESSAGES_ENV as MAX_MESSAGES_ENV,
+  IMPORT_HISTORY_MAX_SINCE_DAYS_ENV as MAX_SINCE_DAYS_ENV,
+  IMPORT_HISTORY_MAX_SINCE_DAYS_FALLBACK,
+} from '../../../../../../lib/import-history-limits'
 import { POST, openApi } from '../route'
-
-const MAX_SINCE_DAYS_ENV = 'OM_IMPORT_HISTORY_MAX_SINCE_DAYS'
-const MAX_MESSAGES_ENV = 'OM_IMPORT_HISTORY_MAX_MESSAGES'
 
 function documentedSchema(): ZodTypeAny {
   return openApi.methods.POST.requestBody.schema as ZodTypeAny
@@ -98,8 +100,9 @@ describe('POST /communication_channels/channels/[id]/import-history — document
     delete process.env[MAX_SINCE_DAYS_ENV]
     delete process.env[MAX_MESSAGES_ENV]
 
-    expect(documentedSchema().safeParse({ sinceDays: 3650 }).success).toBe(true)
-    expect(documentedSchema().safeParse({ sinceDays: 3651 }).success).toBe(false)
-    expect((await postImport({ sinceDays: 3651 })).status).toBe(400)
+    const ceiling = IMPORT_HISTORY_MAX_SINCE_DAYS_FALLBACK
+    expect(documentedSchema().safeParse({ sinceDays: ceiling }).success).toBe(true)
+    expect(documentedSchema().safeParse({ sinceDays: ceiling + 1 }).success).toBe(false)
+    expect((await postImport({ sinceDays: ceiling + 1 })).status).toBe(400)
   })
 })

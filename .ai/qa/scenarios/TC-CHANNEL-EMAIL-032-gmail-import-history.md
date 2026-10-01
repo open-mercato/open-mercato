@@ -24,12 +24,12 @@ The route surface reachable without a live Google grant (auth, body validation, 
 
 | Step | Action | Expected Result |
 |---|---|---|
-| 1 | Open `/backend/profile/communication-channels`. | The Gmail channel row offers an enabled `Import history` action. |
-| 2 | Open `Import history`, set `Look back (days)` to `1825`, enter the known sender in `Filter by sender`, and submit with `⌘ + Enter`. | `POST /api/communication_channels/channels/<id>/import-history` returns `202 { ok: true, progressJobId }`; the flash reads "History import queued — track progress in the top bar." |
+| 1 | Open `/backend/profile/communication-channels` and open the Gmail channel's row menu. | The menu offers `Import history` (shown only for an active, connected email channel). |
+| 2 | Open `Import history`, set `Look back (days)` to `1825`, enter the known sender in `Filter by sender`, and submit with `⌘ + Enter`. | `POST /api/communication_channels/channels/<id>/import-history` returns `202 { ok: true, progressJobId, totalCountHint }`; the flash reads "History import queued — track progress in the top bar." |
 | 3 | Watch the `ProgressTopBar`. | A job `Import history: <channel name>` advances and transitions to `completed`. |
 | 4 | Open the Person page for the known sender. | The imported INBOX messages appear on the timeline as email interactions. |
 | 5 | Look for the archived message from the prerequisites. | It is NOT imported — history import is scoped to `INBOX` only. |
-| 6 | Compare `channelState.historyId` on the channel before step 2 and after step 3. | Unchanged — the backlog sweep never moves the incremental-sync cursor. |
+| 6 | Send no new mail and trigger no poll while the import runs; compare `channelState.historyId` in the channel's `channel_state` column before step 2 and after step 3. | Unchanged — the backlog sweep never moves the incremental-sync cursor (incremental sync legitimately advances it when new mail arrives, so keep the mailbox quiet during this check). |
 | 7 | Re-run steps 2–3 with the same parameters. | The job completes; no duplicate timeline entries appear (idempotent ingest on `(channel_id, external_message_id)`). |
 
 ## Pass Criteria
