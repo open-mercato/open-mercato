@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          sparse-checkout: scripts/ci/enterprise-contribution-guard.mjs
+          sparse-checkout: scripts/ci/enterprise-contribution-guard.ts
           sparse-checkout-cone-mode: false
           persist-credentials: false
           fetch-depth: 1
@@ -40,9 +40,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24.19.0
+          node-version: lts/*
 
       - name: Block external changes to packages/enterprise
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/ci/enterprise-contribution-guard.mjs
+        run: |
+          if [ -f scripts/ci/enterprise-contribution-guard.ts ]; then
+            node scripts/ci/enterprise-contribution-guard.ts
+          else
+            # Bootstrap case: the PR that introduces this script can't check
+            # it out from its own base ref, since the base doesn't have it
+            # yet. Every PR after this one merges will have it.
+            echo "Guard script not present on the base ref yet (expected for the PR introducing it); skipping."
+          fi

@@ -6,13 +6,18 @@ import {
   evaluate,
   formatSummaryMarkdown,
   isAllowedLogin,
-} from '../ci/enterprise-contribution-guard.mjs'
+  type CommitInfo,
+} from '../ci/enterprise-contribution-guard.ts'
 
-function fakeDeps({ files, commits, commitFiles }) {
+function fakeDeps({ files, commits, commitFiles }: {
+  files: string[]
+  commits: CommitInfo[]
+  commitFiles: Record<string, string[]>
+}) {
   return {
     listFiles: async () => files,
     listCommits: async () => commits,
-    getCommitFiles: async (sha) => commitFiles[sha] || [],
+    getCommitFiles: async (sha: string) => commitFiles[sha] || [],
     allowedLogins: ALLOWED_LOGINS,
   }
 }
