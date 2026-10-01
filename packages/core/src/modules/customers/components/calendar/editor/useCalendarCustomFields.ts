@@ -45,5 +45,5 @@ export function useCalendarCustomFields(open: boolean, entityId: string, fieldse
   }, [open, entityId])
   const definitions = React.useMemo(() => selectCalendarCustomFields(state.definitions, fieldsetIds), [state.definitions, fieldsetIds])
   const fields = React.useMemo(() => buildFormFieldsFromCustomFields(definitions), [definitions])
-  return { definitions, fields, status: state.status }
+  return { definitions, allDefinitions: state.definitions, fields, status: state.status }
 }

@@ -23,7 +23,7 @@ const PEOPLE_FIELD_TEXT = {
   to: { labelKey: 'customers.calendar.editor.to', label: 'To', placeholderKey: 'customers.calendar.editor.addRecipientPlaceholder', placeholder: 'Add recipient…' },
 } as const
 
-export function DefaultEventTypePanel({ definition, values, errors, capabilities, setValue }: CalendarEventTypePanelProps) {
+export function DefaultEventTypePanel({ definition, values, errors, disabled, capabilities, setValue }: CalendarEventTypePanelProps) {
   const t = useT()
   const form = values as unknown as EditorFormState
   const config = eventTypeConfig(definition)
@@ -37,7 +37,7 @@ export function DefaultEventTypePanel({ definition, values, errors, capabilities
   }
 
   return (
-    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-x-6">
+    <fieldset disabled={disabled} className="grid min-w-0 grid-cols-1 items-start gap-4 border-0 p-0 lg:grid-cols-2 lg:gap-x-6">
       <div className="flex w-full flex-col gap-4">
         <ScheduleSection
           dateLabel={config.dateLabel}
@@ -48,7 +48,9 @@ export function DefaultEventTypePanel({ definition, values, errors, capabilities
           startTime={form.startTime}
           endDate={form.endDate}
           endTime={form.endTime}
+          startError={errors.startTime ?? errors.date}
           endsError={errors.ends}
+          disabled={disabled}
           onAllDayChange={(allDay) => update({ allDay })}
           onDateChange={(date) => {
             const untouchedDefault = JSON.stringify(form.repeatDays) === JSON.stringify(defaultRepeatDaysForDateInput(form.date))
@@ -65,6 +67,8 @@ export function DefaultEventTypePanel({ definition, values, errors, capabilities
             endType={form.repeatEndType}
             count={form.repeatCount}
             untilDate={form.repeatUntilDate}
+            untilError={errors.repeatUntilDate}
+            disabled={disabled}
             onFreqChange={(repeatFreq) => update(repeatFreq === 'weekly'
               ? { repeatFreq, repeatDays: defaultRepeatDaysForDateInput(form.date) }
               : { repeatFreq })}
@@ -84,6 +88,7 @@ export function DefaultEventTypePanel({ definition, values, errors, capabilities
               ariaLabel={t(PEOPLE_FIELD_TEXT[config.people].labelKey, PEOPLE_FIELD_TEXT[config.people].label)}
               value={form.participants}
               onChange={(participants) => update({ participants })}
+              disabled={disabled}
             />
           </Field>
         ) : null}
@@ -102,6 +107,7 @@ export function DefaultEventTypePanel({ definition, values, errors, capabilities
                 const next = entries[entries.length - 1] ?? null
                 update({ assigneeUserId: next?.userId ?? null, assigneeName: next?.name ?? null })
               }}
+              disabled={disabled}
             />
           </Field>
         ) : null}
@@ -113,6 +119,7 @@ export function DefaultEventTypePanel({ definition, values, errors, capabilities
             value={form.location}
             onChange={(location) => update({ location })}
             phoneContactIds={Array.from(new Set(phoneContactIds))}
+            disabled={disabled}
           />
         ) : null}
         {capabilities.resourcesEnabled && definition.behavior.fields.resources ? (
@@ -122,6 +129,7 @@ export function DefaultEventTypePanel({ definition, values, errors, capabilities
               ariaLabel={t('customers.calendar.editor.resources', 'Resources')}
               value={form.resources}
               onChange={(resources) => update({ resources })}
+              disabled={disabled}
             />
           </Field>
         ) : null}
@@ -136,11 +144,12 @@ export function DefaultEventTypePanel({ definition, values, errors, capabilities
                 high: t('customers.calendar.editor.priority.high', 'High'),
               }}
               onChange={(priority) => update({ priority })}
+              disabled={disabled}
             />
           </Field>
         ) : null}
       </div>
-    </div>
+    </fieldset>
   )
 }
 

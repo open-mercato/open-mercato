@@ -10,6 +10,7 @@ import { buildCalendarItem } from './fixtures'
 const crudPropsMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const confirmMock = jest.fn()
+const groupSetValueMock = jest.fn()
 let renderGroups = false
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -24,6 +25,7 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({
   ...jest.requireActual('@open-mercato/ui/backend/utils/customFieldForms'),
   fetchCustomFieldFormStructure: async () => ({ definitions: [
     { key: 'visit_notes', kind: 'text', label: 'Visit notes', fieldset: 'visit_details' },
+    { key: 'meeting_notes', kind: 'text', label: 'Meeting notes', fieldset: 'meeting_details' },
     { key: 'internal_notes', kind: 'text', label: 'Internal notes', fieldset: 'internal' },
   ] }),
 }))
@@ -36,7 +38,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: (props: Record<string, unknown>) => {
     crudPropsMock(props)
     const groups = props.groups as Array<{ id: string; component?: (ctx: { values: Record<string, unknown>; errors: Record<string, string>; setValue: (key: string, value: unknown) => void }) => React.ReactNode }>
-    return <form id={props.formId as string}>{renderGroups ? groups.map((group) => <React.Fragment key={group.id}>{group.component?.({ values: props.initialValues as Record<string, unknown>, errors: {}, setValue: jest.fn() })}</React.Fragment>) : null}</form>
+    return <form id={props.formId as string}>{renderGroups ? groups.map((group) => <React.Fragment key={group.id}>{group.component?.({ values: props.initialValues as Record<string, unknown>, errors: {}, setValue: groupSetValueMock })}</React.Fragment>) : null}</form>
   },
 }))
 
@@ -61,7 +63,7 @@ const meetingType: ScopedCalendarEventType = {
   ...visitType,
   key: 'meeting',
   label: 'Meeting',
-  behavior: { ...visitType.behavior, customFieldsetIds: [] },
+  behavior: { ...visitType.behavior, customFieldsetIds: ['meeting_details'] },
 }
 let catalogState: { status: 'ready' | 'error'; items: readonly ScopedCalendarEventType[] } = {
   status: 'ready', items: [visitType],
@@ -80,6 +82,7 @@ describe('CalendarEventEditor catalog host', () => {
     crudPropsMock.mockClear()
     apiCallOrThrowMock.mockReset()
     confirmMock.mockReset()
+    groupSetValueMock.mockReset()
     catalogState = { status: 'ready', items: [visitType] }
   })
 
@@ -137,6 +140,24 @@ describe('CalendarEventEditor catalog host', () => {
     expect(screen.getByTestId('type-panel')).toBeInTheDocument()
   })
 
+  it('renders a stored valid timezone alias that is absent from the canonical option list', async () => {
+    renderGroups = true
+    catalogState = { status: 'ready', items: [meetingType] }
+    renderWithProviders(<CalendarEventEditor open mode="edit" item={buildCalendarItem({ raw: { id: 'item-1', interactionType: 'meeting', status: 'planned', timezone: 'US/Eastern' } })} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Time zone' })).toHaveTextContent('US/Eastern'))
+  })
+
+  it('seeds the first selectable type without mutating an untouched new form', async () => {
+    renderGroups = true
+    catalogState = { status: 'ready', items: [visitType] }
+    renderWithProviders(<CalendarEventEditor open mode="create" typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)
+    await waitFor(() => {
+      const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+      expect(props.initialValues).toMatchObject({ category: 'visit', kind: visitType.behavior.baseKind })
+    })
+    expect(groupSetValueMock).not.toHaveBeenCalled()
+  })
+
   it('saves the chosen timezone and rejects a DST gap without sending a write', async () => {
     catalogState = { status: 'ready', items: [meetingType] }
     renderWithProviders(<CalendarEventEditor open mode="edit" item={buildCalendarItem({ raw: { id: 'item-1', interactionType: 'meeting', status: 'planned', timezone: 'Europe/Warsaw' } })} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)
@@ -147,7 +168,8 @@ describe('CalendarEventEditor catalog host', () => {
     await act(async () => { await submit(values) })
     expect(JSON.parse(apiCallOrThrowMock.mock.calls[0]?.[1].body)).toMatchObject({ timezone: 'Europe/Warsaw', scheduledAt: '2026-09-29T07:15:00.000Z', durationMinutes: 165 })
     apiCallOrThrowMock.mockClear()
-    await act(async () => { await expect(submit({ ...values, date: '2026-03-29', startTime: '02:30' })).rejects.toMatchObject({ fieldErrors: { timezone: 'This local time does not exist in the selected time zone' } }) })
+    await act(async () => { await expect(submit({ ...values, date: '2026-03-29', startTime: '02:30' })).rejects.toMatchObject({ fieldErrors: { startTime: 'This local time does not exist in the selected time zone' } }) })
+    await act(async () => { await expect(submit({ ...values, timezone: 'Pacific/Apia', date: '2011-12-29', startTime: '10:00', endDate: '2011-12-29', endTime: '11:00', repeatFreq: 'daily', repeatEndType: 'date', repeatUntilDate: '2011-12-30' })).rejects.toMatchObject({ fieldErrors: { repeatUntilDate: 'This local time does not exist in the selected time zone' } }) })
     expect(apiCallOrThrowMock).not.toHaveBeenCalled()
   })
 
