@@ -48,4 +48,12 @@ PR: #6825
 
 ### Phase 2: Validation
 
-- [ ] 2.1 Complete the configured validation gate and final diff review.
+- [x] 2.1 Complete the configured validation gate and final diff review. — validated 4fd6cd35ff
+
+## Validation evidence
+
+Runner: local (neither probed compose configuration had a running app). Package build, generation, package build, translation sync, translation usage, type checking and app build completed in order. The first translation-sync attempt caught unsorted new keys; native formatting fixed only those five locale entries and the gate restarted.
+
+The ordinary full unit run passed 46 of 47 package tasks; create-app alone hit the known Homebrew Node libuv sandbox restriction (812 passed, 80 failed, 5 skipped). Its sequential rerun using the self-contained bundled Node passed 892 tests with 5 existing skips; no sandbox policy or source bypass was used. Core passed 2,009 suites / 18,202 assertions, including all 7 component cases for this change.
+
+Additional checks: test:scripts 997 passed / 1 existing skip; scoped design-system lint passed; template parity passed; client-boundary audit completed with existing advisory output. The final production diff review found no actionable correctness or compatibility issue. Native integration, browser evidence and remote CI are reported on PR #6825 separately; this plan does not assert their completion.
