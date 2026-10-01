@@ -1,0 +1,122 @@
+{
+  "runId": "6800-theme-83367830",
+  "mode": "pr",
+  "target": {
+    "prNumber": 6824,
+    "title": "Require verified passkey enrollment; correct passkey panel theme",
+    "branch": "codex/fix-6800-passkey-attestation",
+    "headSha": "8336783015819487f5a2511c09a17b2af398eee4"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://localhost:51210",
+    "role": "isolated user with security.profile.view/manage and security.mfa.manage",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 light, desktop, empty",
+      "expected": "Themed empty panel and 0 keys; readable text and no horizontal overflow.",
+      "observed": "Actual theme light; root dark=false; panel RGB 255/255/255; Input/Add height 40/40px; description contrast 4.95:1. Fresh isolated user has no methods.",
+      "result": "PASS",
+      "screenshot": "step-01-light-desktop-empty.png"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 light, mobile, empty",
+      "expected": "Themed empty panel and 0 keys; readable text and no horizontal overflow.",
+      "observed": "Actual theme light; root dark=false; panel RGB 255/255/255; Input/Add height 40/40px; description contrast 4.95:1. Fresh isolated user has no methods.",
+      "result": "PASS",
+      "screenshot": "step-02-light-mobile-empty.png"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 light, desktop, loading",
+      "expected": "Disabled Add with spinner; themed controls stay aligned and inside panel.",
+      "observed": "Actual theme light; root dark=false; panel RGB 255/255/255; Input/Add height 40/40px; description contrast 4.95:1. Real POST paused before forwarding to expose loading; no response or payload mocked.",
+      "result": "PASS",
+      "screenshot": "step-03-light-desktop-loading.png"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 light, desktop, configured",
+      "expected": "Themed persisted configured key and 1 key; readable text and no horizontal overflow.",
+      "observed": "Actual theme light; root dark=false; panel RGB 255/255/255; Input/Add height 40/40px; description contrast 4.95:1. Genuine WebAuthn registration succeeded and key remains after reload.",
+      "result": "PASS",
+      "screenshot": "step-04-light-desktop-configured.png"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 light, mobile, configured",
+      "expected": "Themed persisted configured key and 1 key; readable text and no horizontal overflow.",
+      "observed": "Actual theme light; root dark=false; panel RGB 255/255/255; Input/Add height 40/40px; description contrast 4.95:1. Genuine WebAuthn registration succeeded and key remains after reload.",
+      "result": "PASS",
+      "screenshot": "step-05-light-mobile-configured.png"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 dark, desktop, empty",
+      "expected": "Themed empty panel and 0 keys; readable text and no horizontal overflow.",
+      "observed": "Actual theme dark; root dark=true; panel RGB 23/23/23; Input/Add height 40/40px; description contrast 6.94:1. Fresh isolated user has no methods.",
+      "result": "PASS",
+      "screenshot": "step-06-dark-desktop-empty.png"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 dark, mobile, empty",
+      "expected": "Themed empty panel and 0 keys; readable text and no horizontal overflow.",
+      "observed": "Actual theme dark; root dark=true; panel RGB 23/23/23; Input/Add height 40/40px; description contrast 6.94:1. Fresh isolated user has no methods.",
+      "result": "PASS",
+      "screenshot": "step-07-dark-mobile-empty.png"
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 dark, mobile, loading",
+      "expected": "Disabled Add with spinner; themed controls stay aligned and inside panel.",
+      "observed": "Actual theme dark; root dark=true; panel RGB 23/23/23; Input/Add height 40/40px; description contrast 6.94:1. Real POST paused before forwarding to expose loading; no response or payload mocked.",
+      "result": "PASS",
+      "screenshot": "step-08-dark-mobile-loading.png"
+    },
+    {
+      "step": 9,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 dark, desktop, configured",
+      "expected": "Themed persisted configured key and 1 key; readable text and no horizontal overflow.",
+      "observed": "Actual theme dark; root dark=true; panel RGB 23/23/23; Input/Add height 40/40px; description contrast 6.94:1. Genuine WebAuthn registration succeeded and key remains after reload.",
+      "result": "PASS",
+      "screenshot": "step-09-dark-desktop-configured.png"
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "action": "/backend/profile/security/mfa/passkey \u2014 dark, mobile, configured",
+      "expected": "Themed persisted configured key and 1 key; readable text and no horizontal overflow.",
+      "observed": "Actual theme dark; root dark=true; panel RGB 23/23/23; Input/Add height 40/40px; description contrast 6.94:1. Genuine WebAuthn registration succeeded and key remains after reload.",
+      "result": "PASS",
+      "screenshot": "step-10-dark-mobile-configured.png"
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "Functional PASS and visual PASS for this bounded theme correction. Evidence only, no QA approval or security waiver.",
+    "Supersedes historical QA visual FAIL in issuecomment-5936084492. Its original functional PASS remains valid; pre-fix screenshots were re-inspected, not re-executed in this run.",
+    "Initial/final design-health checks passed; generated health report retained only as local evidence, not committed. Touched component semantic colors and shared control sizes passed targeted DS lint.",
+    "Fresh enterprise package/app builds, enterprise typecheck, targeted DS lint, 28 passkey tests and managed TC-SEC-004 (1/1) passed at final 83367830. Full yarn build and lessons check also passed immediately before the final one-line Delete geometry correction. Cold/warm reuse was verified at the final head.",
+    "Desktop1440x1000 and mobile390x844. Explicit context color scheme and persisted om-theme matched actual root class. Light description contrast4.95:1; dark6.94:1. Add/Input40px; mobile widths76.4/239.6px, loading108.4/207.6px; no horizontal document overflow.",
+    "Two real UI Add ceremonies used separate Chromium virtual authenticators: light desktop and dark mobile. POST/PUT returned200/200 in both; clear nickname input, configured badge and persisted named key verified. Dark nickname deliberately long to inspect truncation.",
+    "No browser page errors. Cold route navigation to Add visible 434ms light and 457ms dark in this environment; no performance benchmark claim. Loading captured with real POST paused before forwarding, then genuine ceremony completed.",
+    "Not exercised in this visual correction: Safari/Firefox/physical authenticators; permission-denied, unsupported-browser and server-error visual flows; deletion confirmation and MFA settings outside this component. Security API rejection and real signed multi-passkey authentication covered separately by existing TC-SEC-004.",
+    "No committed automated test covers the explicit light/dark visual matrix or UI Add interaction. Existing TC-SEC-004 opens this page and covers real WebAuthn through API/browser helpers. Ready-to-implement follow-up included in report.",
+    "Final fixture cleanup returned HTTP200 for both users and the dedicated role. Owned runtime stopped; only test-generated tracked email capture was restored. Worktree is clean."
+  ]
+}
