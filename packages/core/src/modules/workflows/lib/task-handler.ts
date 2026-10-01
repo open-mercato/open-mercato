@@ -27,6 +27,7 @@ import {
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
 import { readRequiredFormFields } from './task-form-schema'
+import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -174,6 +175,28 @@ export async function completeUserTask(
     )
   }
 
+  // Load the run BEFORE anything is mutated: a task outlives its run (a FAILED
+  // run keeps its open task for a retry, and rows left open by a run that ended
+  // some other way are still listed), and completing one would write form data
+  // into a closed run's context and drive it onward. Refusing here leaves the
+  // task, the context, the step instance and the cursor exactly as they were.
+  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  if (!instance) {
+    throw new UserTaskError(
+      'Workflow instance not found',
+      'INSTANCE_NOT_FOUND',
+      { workflowInstanceId: task.workflowInstanceId }
+    )
+  }
+
+  if (isRunClosedToUserTasks(instance.status)) {
+    throw new UserTaskError(
+      'Workflow is no longer active',
+      'WORKFLOW_NOT_ACTIVE',
+      { taskId, workflowInstanceId: instance.id, status: instance.status }
+    )
+  }
+
   // The chosen decision rides along inside the completion payload the task
   // already persists — no new column, and downstream route conditions can read
   // it once the payload is merged into the run context.
@@ -189,16 +212,6 @@ export async function completeUserTask(
   task.updatedAt = now
 
   await em.flush()
-
-  // Fetch workflow instance
-  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
-  if (!instance) {
-    throw new UserTaskError(
-      'Workflow instance not found',
-      'INSTANCE_NOT_FOUND',
-      { workflowInstanceId: task.workflowInstanceId }
-    )
-  }
 
   // Branch-scoped completion: when the task belongs to a parallel branch,
   // merge form data into the branch namespace and resume just that branch.
@@ -357,8 +370,9 @@ export async function completeUserTask(
   // Resume from the paused wait BEFORE executing the transition, exactly as
   // `sendSignal` does. Without it the executor's defense-in-depth PAUSED check
   // stops the run at the first step the completion traverses, so the instance
-  // sits there as PAUSED and never reaches END. Guarded on PAUSED so completing
-  // a stale task can never resurrect a CANCELLED or terminal run.
+  // sits there as PAUSED and never reaches END. Guarded on PAUSED so a RUNNING
+  // or FORKED run keeps its status; a closed run never gets this far — it is
+  // refused with WORKFLOW_NOT_ACTIVE before the task is touched.
   if (instance.status === 'PAUSED') {
     instance.status = 'RUNNING'
     await em.flush()
