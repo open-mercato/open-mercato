@@ -58,8 +58,10 @@ const myAdapter: GatewayAdapter = {
     return { eventType: 'payment.captured', eventId: '...', data: {}, idempotencyKey: '...', timestamp: new Date() }
   },
 
-  mapStatus(providerStatus) {
-    // Map provider-specific status to unified status
+  mapStatus(providerStatus, eventType, eventData) {
+    // Map provider-specific status to unified status.
+    // Webhook processing also passes the event type and payload (both optional),
+    // e.g. to tell a partial refund from a full one.
     return 'captured'
   },
 }
@@ -290,7 +292,7 @@ The status endpoint returns both:
 - `status`: the unified Open Mercato payment status
 - `gatewayStatus`: the provider-specific status stored from Stripe
 
-Without webhooks, you can still poll this endpoint, but webhooks are the correct mechanism for keeping authorizations, captures, refunds, failures, and disputes synchronized.
+Without webhooks, you can still poll this endpoint, but webhooks are the correct mechanism for keeping authorizations, captures, refunds, and failures synchronized. Stripe refunds arrive as `charge.refunded`: when the Charge shows refunded captured funds, the transaction moves to `partially_refunded` or `refunded` (the payment state machine allows this from `captured` and `partially_captured`; from `partially_refunded` only the move to `refunded`); `charge.refund.updated` and dispute events are recorded without changing the unified `status`.
 
 ### 5. Capture, refund, or cancel
 

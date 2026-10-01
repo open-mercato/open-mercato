@@ -37,8 +37,12 @@ export interface GatewayAdapter {
   /** Verify and parse an inbound webhook event */
   verifyWebhook(input: VerifyWebhookInput): Promise<WebhookEvent>
 
-  /** Map provider status to unified status */
-  mapStatus(providerStatus: string, eventType?: string): UnifiedPaymentStatus
+  /**
+   * Map provider status to unified status. The core webhook processor also passes the verified
+   * event's type and payload, so an adapter can tell apart events that share a type or a provider status
+   * (for example a partial and a full refund). Both extra arguments are optional.
+   */
+  mapStatus(providerStatus: string, eventType?: string, eventData?: Record<string, unknown>): UnifiedPaymentStatus
 }
 
 export type PaymentGatewayDescriptorFieldType =

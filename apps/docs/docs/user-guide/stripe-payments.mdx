@@ -109,7 +109,7 @@ The description field references the Open Mercato origin, making it easy to cros
 
 ## Step 4 — Set up webhooks
 
-Webhooks allow Stripe to push status updates (captures, refunds, disputes) to Open Mercato in real time, instead of relying on polling. This is strongly recommended for production.
+Webhooks allow Stripe to push status updates (captures, refunds) and dispute notifications to Open Mercato in real time, instead of relying on polling. This is strongly recommended for production.
 
 ### Configure the endpoint in Stripe
 
@@ -133,6 +133,8 @@ charge.refund.updated
 charge.dispute.created
 charge.dispute.closed
 ```
+
+A refund issued outside Open Mercato (for example from the Stripe dashboard) arrives as `charge.refunded`. When the charge shows refunded captured funds, a captured or partially captured gateway transaction moves to `partially_refunded` or `refunded`, depending on whether the charge is fully refunded, and a partially refunded one moves to `refunded` once the charge is fully refunded. `charge.refund.updated` and the dispute events are received and recorded in the integration log; they do not change the transaction's unified status.
 
 5. After creating the endpoint, reveal the **Signing secret** (starts with `whsec_`).
 6. Paste it into the **Webhook Signing Secret** field in Open Mercato's Stripe credentials (see [Step 1](#step-1--enter-stripe-credentials)) and save.

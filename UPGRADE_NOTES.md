@@ -71,6 +71,38 @@ and its provider-executed tools such as `web_search`.
 uses Chat Completions. If its backend implements the Responses API and you rely on it, add
 `apiMode: 'responses'` to the preset.
 
+### Stripe `charge.*` webhooks are now accepted; `GatewayAdapter.mapStatus` gained an optional third argument
+
+`POST /api/payment_gateways/webhook/stripe` used to answer every event whose `data.object` is not a
+PaymentIntent (for example `charge.refunded`, `charge.refund.updated`, `charge.dispute.created`,
+`charge.dispute.closed`) with `401`, because the transaction was looked up by the Charge, Refund or
+Dispute id instead of the PaymentIntent the object references. Non-PaymentIntent events whose
+object references a PaymentIntent are now routed to that PaymentIntent's transaction; those without
+such a reference are still answered with `401`. What changes on an existing installation:
+
+- A refund made outside Open Mercato (for example in the Stripe dashboard) arrives as
+  `charge.refunded`. When the Charge payload shows refunded captured funds, it now moves a `captured`
+  or `partially_captured` gateway transaction to `partially_refunded` or `refunded`, and a
+  `partially_refunded` one to `refunded` once the charge is fully refunded. The move to `refunded`
+  emits `payment_gateways.payment.refunded`, so subscribers of that event start receiving it for
+  such refunds. The payment state machine still refuses the move from any other status.
+- `charge.refund.updated`, the dispute events and any other non-PaymentIntent event that references
+  a known PaymentIntent are accepted and never change the transaction's `unifiedStatus`. With the
+  default inline processing they are recorded on the transaction like any webhook that causes no
+  transition: `gatewayStatus` becomes the event type, the event object is merged into
+  `gatewayMetadata`, an entry is appended to `webhookLog`, `lastWebhookAt` is updated, and
+  integration log lines are written (the "no status transition" one at warn level). With
+  `QUEUE_STRATEGY=async` the Stripe worker records nothing on the transaction for them; it writes
+  only an integration log line.
+- Signature verification and tenant resolution are unchanged: an event is accepted only when the
+  credentials of a stored transaction for that PaymentIntent verify its signature.
+
+`GatewayAdapter.mapStatus(providerStatus, eventType?, eventData?)`
+(`@open-mercato/shared/modules/payment_gateways/types`) gained the optional `eventData` argument;
+the webhook processor passes the verified event payload. Adapters that declare one or two
+parameters need no change. The Stripe adapters use the payload when it is passed and keep the
+event-type table (`mapWebhookEventToStatus`) for calls without it.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
