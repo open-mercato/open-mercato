@@ -20,6 +20,6 @@ test('encrypted list-search guidance distinguishes engine rewrites from raw ORM 
 test('ordinary encrypted search briefs route to query-index knowledge and the reference entrypoint', () => {
   const root = read('../../agentic/shared/AGENTS.md.template')
   assert.match(root, /encrypted[^;\n]*search box[^;\n]*filter by name[^;\n]*query_index/)
-  const example = read('../../../../apps/mercato/src/modules/example/README.md')
+  const example = read('../../template/src/modules/example/README.md')
   assert.match(example, /search[^\n]*encrypted[^\n]*surface-map\.md/i)
 })
