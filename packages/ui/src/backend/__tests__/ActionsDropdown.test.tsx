@@ -152,4 +152,18 @@ describe('ActionsDropdown — keyboard navigation (#6445)', () => {
     }
     field.remove()
   })
+
+  it('leaves Tab alone when a hover reopens the menu while the trigger still has focus', () => {
+    renderDropdown(ITEMS)
+    trigger().focus()
+
+    fireEvent.mouseEnter(trigger())
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    for (const key of ['Tab', 'ArrowDown']) {
+      const notPrevented = fireEvent.keyDown(document, { key })
+      expect(notPrevented).toBe(true)
+      expect(trigger()).toHaveFocus()
+    }
+  })
 })

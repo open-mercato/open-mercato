@@ -89,6 +89,12 @@ export function ActionsDropdown({
    * Same contract as RowActions (#6771).
    */
   const focusOnOpenRef = React.useRef(false)
+  /**
+   * Whether the current open was deliberate. A focused trigger only routes keys
+   * into the menu for such an open — a hover reopen while the trigger still
+   * holds focus from an earlier click must leave Tab and the arrows alone.
+   */
+  const deliberateOpenRef = React.useRef(false)
 
   /** The menu's enabled items in DOM order, as focusable elements. */
   const getFocusableItems = React.useCallback((): HTMLElement[] => {
@@ -126,7 +132,7 @@ export function ActionsDropdown({
       // the arrows of someone typing elsewhere on the page.
       const active = document.activeElement
       const focusWithin = Boolean(
-        (menuRef.current && active && menuRef.current.contains(active)) || (active && active === btnRef.current),
+        (menuRef.current && active && menuRef.current.contains(active)) || (active && active === btnRef.current && deliberateOpenRef.current),
       )
       if (event.key === 'Escape') {
         setOpen(false)
@@ -186,6 +192,7 @@ export function ActionsDropdown({
   React.useEffect(() => {
     if (!open) {
       focusOnOpenRef.current = false
+      deliberateOpenRef.current = false
       return
     }
     if (!anchorRect || !focusOnOpenRef.current) return
@@ -239,6 +246,7 @@ export function ActionsDropdown({
         aria-label={resolvedAriaLabel}
         onClick={() => {
           focusOnOpenRef.current = true
+          deliberateOpenRef.current = true
           setOpen((prev) => !prev)
           requestAnimationFrame(updatePosition)
         }}
