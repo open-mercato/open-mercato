@@ -77,6 +77,7 @@
   "notifications.settings.saving": "Saving...",
   "notifications.settings.types.description": "Delivery channels per notification type. Turning a channel off disables it completely for that type in your tenant — it never delivers and users cannot enable it in their preferences. Turning it on lets users opt in or out per type; required (non-opt-out) types always deliver on enabled channels. Your setting overrides the module default.",
   "notifications.settings.types.empty": "No notification types are registered yet.",
+  "notifications.settings.types.uncategorized": "Other notifications",
   "notifications.settings.types.lastChannelRestored": "A notification type must keep at least one channel, so the module default was restored.",
   "notifications.settings.types.loadError": "Failed to load notification types",
   "notifications.settings.types.requiredColumn": "Required",
