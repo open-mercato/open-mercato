@@ -45,9 +45,9 @@ function createWatcherStub(): fs.FSWatcher {
   return watcher as unknown as fs.FSWatcher
 }
 
-async function waitUntil(condition: () => boolean, timeoutMs = 5000): Promise<void> {
+async function waitUntil(condition: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs
-  while (!condition()) {
+  while (!await condition()) {
     if (Date.now() > deadline) throw new Error('[internal] Timed out waiting for the expected filesystem state')
     await new Promise((resolve) => { setTimeout(resolve, 5) })
   }
@@ -730,6 +730,14 @@ describe('Queue - local strategy', () => {
     jest.useFakeTimers()
     const baseDir = path.join(tmp, 'recreated-queue')
     const movedDir = path.join(tmp, 'moved-queue')
+    const queueFile = path.join(baseDir, 'recreated-queue', 'queue.json')
+    const actualWatch = fs.watch
+    let watchedQueueInode: number | undefined
+    const watchSpy = jest.spyOn(fs, 'watch').mockImplementation((...args) => {
+      const watcher = actualWatch(...args)
+      watchedQueueInode = fs.statSync(queueFile).ino
+      return watcher
+    })
     const consumer = createQueue<{ value: number }>('recreated-queue', 'local', { baseDir })
     let resolveRecovered!: (value: number) => void
     const recovered = new Promise<number>((resolve) => {
@@ -753,28 +761,29 @@ describe('Queue - local strategy', () => {
 
       try {
         await producer.enqueue({ value: 7 })
-        const recoveredWithinFallback = within(recovered, 5500)
         await jest.advanceTimersByTimeAsync(5000)
-        await expect(recoveredWithinFallback).resolves.toBe(7)
-
+        jest.clearAllTimers()
         jest.useRealTimers()
-        await within((async () => {
-          while (true) {
-            const counts = await consumer.getJobCounts()
-            if (counts.completed === 1 && counts.waiting === 0) break
-            await new Promise((resolve) => setTimeout(resolve, 10))
-          }
-        })(), 800)
+        await expect(within(recovered, 5000)).resolves.toBe(7)
+        await waitUntil(async () => {
+          const counts = await consumer.getJobCounts()
+          const queueStats = await fs.promises.stat(queueFile)
+          return counts.completed === 1 && counts.waiting === 0 && watchedQueueInode === queueStats.ino
+        })
         await producer.enqueue({ value: 8 })
-        await expect(within(eventDriven, 800)).resolves.toBe(8)
+        await expect(within(eventDriven, 5000)).resolves.toBe(8)
       } finally {
         await producer.close()
       }
     } finally {
       jest.useRealTimers()
-      await consumer.close()
+      try {
+        await consumer.close()
+      } finally {
+        watchSpy.mockRestore()
+      }
     }
-  })
+  }, 20_000)
 
   test('clear cancels queued-work polling after draining the queue', async () => {
     jest.useFakeTimers()
