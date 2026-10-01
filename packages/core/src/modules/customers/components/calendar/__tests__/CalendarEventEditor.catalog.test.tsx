@@ -2,10 +2,11 @@
 
 import * as React from 'react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { calendarEventTypes } from '../../../calendar-event-types'
 import type { ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
 import { buildCalendarItem } from './fixtures'
+import * as timezoneHelpers from '../../../lib/calendar/timezone'
 
 const crudPropsMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
@@ -37,8 +38,13 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: (props: Record<string, unknown>) => {
     crudPropsMock(props)
+    const [values, setValues] = React.useState(props.initialValues as Record<string, unknown>)
+    const setValue = React.useCallback((key: string, value: unknown) => {
+      groupSetValueMock(key, value)
+      setValues((previous) => ({ ...previous, [key]: value }))
+    }, [])
     const groups = props.groups as Array<{ id: string; component?: (ctx: { values: Record<string, unknown>; errors: Record<string, string>; setValue: (key: string, value: unknown) => void }) => React.ReactNode }>
-    return <form id={props.formId as string}>{renderGroups ? groups.map((group) => <React.Fragment key={group.id}>{group.component?.({ values: props.initialValues as Record<string, unknown>, errors: {}, setValue: groupSetValueMock })}</React.Fragment>) : null}</form>
+    return <form id={props.formId as string}>{renderGroups ? groups.map((group) => <React.Fragment key={group.id}>{group.component?.({ values, errors: {}, setValue })}</React.Fragment>) : null}</form>
   },
 }))
 
@@ -146,6 +152,36 @@ describe('CalendarEventEditor catalog host', () => {
     catalogState = { status: 'ready', items: [meetingType] }
     renderWithProviders(<CalendarEventEditor open mode="edit" item={buildCalendarItem({ raw: { id: 'item-1', interactionType: 'meeting', status: 'planned', timezone: 'US/Eastern' } })} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Time zone' })).toHaveTextContent('US/Eastern'))
+  })
+
+  it('keeps the full timezone list unmounted while typing and hovering over event types', async () => {
+    renderGroups = true
+    catalogState = { status: 'ready', items: [meetingType, visitType] }
+    const optionsSpy = jest.spyOn(timezoneHelpers, 'calendarTimezoneOptions')
+    const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: jest.fn() })
+    try {
+      renderWithProviders(<CalendarEventEditor open mode="create" onOpenChange={() => {}} onSaved={() => {}} />)
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Save event' })).not.toBeDisabled())
+      expect(optionsSpy).not.toHaveBeenCalled()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Planning' } })
+      fireEvent.pointerMove(screen.getByRole('button', { name: 'Visit', exact: true }))
+      expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('Planning')
+      expect(optionsSpy).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Visit', exact: true }))
+      expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('Planning')
+      expect(optionsSpy).not.toHaveBeenCalled()
+      fireEvent.keyDown(screen.getByRole('combobox', { name: 'Time zone' }), { key: 'ArrowDown' })
+      await waitFor(() => expect(screen.getByRole('option', { name: 'UTC', exact: true })).toBeInTheDocument())
+      expect(optionsSpy).toHaveBeenCalledTimes(1)
+      fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+      expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('Planning')
+    } finally {
+      optionsSpy.mockRestore()
+      if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor)
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+    }
   })
 
   it('seeds the first selectable type without mutating an untouched new form', async () => {

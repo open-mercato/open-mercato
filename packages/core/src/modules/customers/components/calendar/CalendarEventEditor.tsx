@@ -124,6 +124,35 @@ function CatalogStatusAlert({ error, onRetry }: { error: boolean; onRetry(): voi
   )
 }
 
+const TimezoneField = React.memo(function TimezoneField({
+  value,
+  error,
+  disabled,
+  onChange,
+}: {
+  value: string | null | undefined
+  error?: string
+  disabled: boolean
+  onChange(timezone: string): void
+}) {
+  const t = useT()
+  const [open, setOpen] = React.useState(false)
+  const timezone = value ?? defaultCalendarTimezone()
+  const options = React.useMemo(() => open ? calendarTimezoneOptions(timezone) : [timezone], [open, timezone])
+  const items = React.useMemo(
+    () => options.map((timezone) => <SelectItem key={timezone} value={timezone}>{timezone}</SelectItem>),
+    [options],
+  )
+  return (
+    <Field label={t('customers.calendar.editor.timezone', 'Time zone')} error={error}>
+      <Select value={timezone} onValueChange={onChange} disabled={disabled} open={open} onOpenChange={setOpen}>
+        <SelectTrigger aria-label={t('customers.calendar.editor.timezone', 'Time zone')}><SelectValue /></SelectTrigger>
+        <SelectContent>{items}</SelectContent>
+      </Select>
+    </Field>
+  )
+})
+
 function EditorBody({
   ctx,
   open,
@@ -153,6 +182,8 @@ function EditorBody({
     },
     [setValue],
   )
+
+  const updateTimezone = React.useCallback((timezone: string) => setValue('timezone', timezone), [setValue])
 
   useEditorLabelResolution(open, form, update)
   // Probe against the owner the interaction will actually be SAVED with so the
@@ -225,12 +256,7 @@ function EditorBody({
           size="lg"
         />
       </Field>
-      <Field label={t('customers.calendar.editor.timezone', 'Time zone')} error={errors.timezone}>
-        <Select value={form.timezone ?? defaultCalendarTimezone()} onValueChange={(timezone) => update({ timezone })} disabled={saving}>
-          <SelectTrigger aria-label={t('customers.calendar.editor.timezone', 'Time zone')}><SelectValue /></SelectTrigger>
-          <SelectContent>{calendarTimezoneOptions(form.timezone).map((timezone) => <SelectItem key={timezone} value={timezone}>{timezone}</SelectItem>)}</SelectContent>
-        </Select>
-      </Field>
+      <TimezoneField value={form.timezone} error={errors.timezone} disabled={saving} onChange={updateTimezone} />
       <div className="lg:col-span-2">
         <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
           <RelatedToField
