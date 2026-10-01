@@ -24,6 +24,24 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `CrudForm` now dispatches the event handlers of `crud-form:<entityId>:fields` widgets (#6142)
+
+Field widgets (`InjectionFieldWidget`, a `fields` array plus optional `eventHandlers`) declared
+`eventHandlers` that `CrudForm` never invoked. They now run alongside component widgets, in
+priority order: `onBeforeSave` (validation and `requestHeaders`), `onSave`, `onAfterSave`,
+`transformFormData`, `transformDisplayData` and the other lifecycle events, as SPEC-041g specifies.
+Delete events do **not** fall back to a field widget's save handlers; declare
+`onBeforeDelete` / `onDelete` / `onAfterDelete` explicitly if your field widget needs them.
+
+Injected fields that target a group the host form does not declare are also placed differently.
+When the injection-table entry maps the widget with `kind: 'group'`, they render as their own card
+built from `groupLabel` / `groupDescription` / `column`. Otherwise they are appended to the last
+group that renders plain fields, never to a `kind: 'customFields'` or `bare` group, which used to
+drop them silently.
+
+**Action for module authors:** if your field widget declared `eventHandlers` that were never
+called, review them before upgrading: they now run on every save of the host form.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new

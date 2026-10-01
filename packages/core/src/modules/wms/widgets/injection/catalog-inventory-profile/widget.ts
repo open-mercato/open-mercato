@@ -47,6 +47,10 @@ function buildIntent(data: RecordLike): CatalogInventoryProfileIntent {
   }
 }
 
+function hasLoadedInventoryProfile(data: RecordLike): boolean {
+  return Boolean(asRecord(asRecord(data._wms)?.inventoryProfile))
+}
+
 function buildDisplayState(data: RecordLike): RecordLike {
   const wms = asRecord(data._wms)
   const inventoryProfile = asRecord(wms?.inventoryProfile)
@@ -176,6 +180,9 @@ const widget: InjectionFieldWidget = {
 
       const intent = buildIntent(source)
       if (!intent.manageInventory) {
+        if (source['wms.manageInventory'] !== false || !hasLoadedInventoryProfile(source)) {
+          return { ok: true }
+        }
         return {
           ok: true,
           requestHeaders: {
