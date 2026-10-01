@@ -150,14 +150,6 @@ function EditorBody({
     () => eventTypeOptions(catalogItems, selectedType, t),
     [catalogItems, selectedType, t],
   )
-  React.useEffect(() => {
-    if (isEdit || !catalogReady) return
-    if (isSelectableEventType(catalogItems, selectedType)) return
-    const firstSelectable = catalogItems.find((item) => item.selectable && !item.historical)
-    if (!firstSelectable) return
-    update({ kind: firstSelectable.behavior.baseKind, category: firstSelectable.key })
-    onSelectedTypeChange(firstSelectable.key)
-  }, [catalogItems, catalogReady, isEdit, onSelectedTypeChange, selectedType, update])
   const typeSwitcherOptions = React.useMemo(
     () =>
       typeOptions.map((option) => ({
@@ -228,7 +220,7 @@ function EditorBody({
       <Field label={t('customers.calendar.editor.timezone', 'Time zone')} error={errors.timezone}>
         <Select value={form.timezone ?? defaultCalendarTimezone()} onValueChange={(timezone) => update({ timezone })} disabled={saving}>
           <SelectTrigger aria-label={t('customers.calendar.editor.timezone', 'Time zone')}><SelectValue /></SelectTrigger>
-          <SelectContent>{calendarTimezoneOptions().map((timezone) => <SelectItem key={timezone} value={timezone}>{timezone}</SelectItem>)}</SelectContent>
+          <SelectContent>{calendarTimezoneOptions(form.timezone).map((timezone) => <SelectItem key={timezone} value={timezone}>{timezone}</SelectItem>)}</SelectContent>
         </Select>
       </Field>
       <div className="lg:col-span-2">
@@ -297,6 +289,9 @@ export function CalendarEventEditor({
   const isEdit = mode === 'edit' && Boolean(item?.id)
   const catalog = useEventTypeCatalog(open)
   const [selectedTypeKey, setSelectedTypeKey] = React.useState(() => isEdit && item ? item.interactionType : 'meeting')
+  const autoSelectedCreateType = !isEdit && catalog.status === 'ready' && !isSelectableEventType(catalog.items, 'meeting')
+    ? catalog.items.find((entry) => entry.selectable && !entry.historical) ?? null
+    : null
 
   // CrudForm reads initialValues once, so every dialog open gets a fresh form
   // instance keyed by the open sequence + edited record.
@@ -306,7 +301,7 @@ export function CalendarEventEditor({
     if (open && !wasOpenRef.current) setOpenSeq((seq) => seq + 1)
     wasOpenRef.current = open
   }, [open])
-  const formKey = `${mode}:${item?.id ?? 'new'}:${openSeq}`
+  const formKey = `${mode}:${item?.id ?? 'new'}:${openSeq}:${autoSelectedCreateType?.key ?? 'default'}`
 
   const initialValues = React.useMemo<Record<string, unknown>>(() => {
     if (isEdit && item) {
@@ -317,9 +312,15 @@ export function CalendarEventEditor({
         updatedAt: item.updatedAt ?? undefined,
       }
     }
-    return { ...createDefaultFormState(defaultDate ?? null, undefined, defaultRange ?? null) }
+    const defaults = createDefaultFormState(defaultDate ?? null, undefined, defaultRange ?? null)
+    if (!autoSelectedCreateType) return { ...defaults }
+    return {
+      ...defaults,
+      kind: autoSelectedCreateType.behavior.baseKind,
+      category: autoSelectedCreateType.key,
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openSeq re-seeds defaults per dialog open
-  }, [isEdit, item, defaultDate, defaultRange, openSeq])
+  }, [isEdit, item, defaultDate, defaultRange, openSeq, autoSelectedCreateType])
   const initialTypeKey = String(initialValues.category ?? initialValues.kind ?? 'meeting')
   React.useEffect(() => { setSelectedTypeKey(initialTypeKey) }, [initialTypeKey, formKey])
   const selectedDefinition = selectedEventType(catalog.items, selectedTypeKey)
@@ -344,12 +345,14 @@ export function CalendarEventEditor({
       const timezone = form.timezone ?? defaultCalendarTimezone()
       const startTime = form.allDay && config.hasAllDay ? '00:00' : form.startTime
       if (!isCalendarTimezone(timezone)) fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneInvalid', 'Choose a valid time zone')
-      else if (!(form.allDay && config.hasAllDay ? calendarDayStartInstant(form.date, timezone) : calendarWallTimeToInstant(form.date, startTime, timezone))) fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
+      else if (!(form.allDay && config.hasAllDay ? calendarDayStartInstant(form.date, timezone) : calendarWallTimeToInstant(form.date, startTime, timezone))) {
+        fieldErrors[form.allDay && config.hasAllDay ? 'date' : 'startTime'] = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
+      }
       if (config.hasEnd && !form.allDay && isCalendarTimezone(timezone) && !calendarWallTimeToInstant(form.endDate, form.endTime, timezone)) {
         fieldErrors.ends = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
       }
       if (config.hasRepeat && form.repeatFreq !== 'none' && isCalendarTimezone(timezone) && form.repeatEndType === 'date' && form.repeatUntilDate && !calendarDayEndInstant(form.repeatUntilDate, timezone)) {
-        fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
+        fieldErrors.repeatUntilDate = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
       }
       if (!form.title.trim()) {
         fieldErrors.title = t('customers.calendar.editor.validation.titleRequired', 'Title is required')
@@ -357,7 +360,7 @@ export function CalendarEventEditor({
       if (!form.relatedTo) {
         fieldErrors.relatedTo = t('customers.calendar.editor.validation.relatedToRequired', 'Select a person or company to link this event')
       }
-      if (!fieldErrors.ends && config.hasEnd && !form.allDay && computeDurationMinutes(form) === null) {
+      if (!fieldErrors.ends && !fieldErrors.startTime && !fieldErrors.date && config.hasEnd && !form.allDay && computeDurationMinutes(form) === null) {
         fieldErrors.ends = t('customers.calendar.editor.validation.endsBeforeStarts', 'End must be after start')
       }
       // A task must be assigned to a team member — surface the requirement inline
@@ -429,7 +432,7 @@ export function CalendarEventEditor({
           const approved = await confirm({
             title: t('customers.calendar.editor.discardTitle'),
             text: `${t('customers.calendar.editor.discardDescription')} ${t('customers.calendar.editor.discardFields')} ${fields.map((field) => {
-              const definition = customFields.definitions.find((entry) => `cf_${entry.key}` === field)
+              const definition = customFields.allDefinitions.find((entry) => `cf_${entry.key}` === field)
               if (definition?.label) return definition.label
               const labelKeys: Record<string, string> = {
                 location: 'customers.calendar.editor.location',

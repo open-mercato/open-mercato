@@ -1,4 +1,5 @@
-import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from '../timezone'
+import * as timezone from '../timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarTimezoneOptions, calendarWallTimeToInstant, isCalendarTimezone } from '../timezone'
 import { buildInteractionPayload, computeDurationMinutes, createDefaultFormState, parseItemToFormState } from '../editorPayload'
 import { mapInteractionToCalendarItem } from '../mapItem'
 import { expandOccurrences } from '../recurrence'
@@ -16,6 +17,11 @@ describe('calendar selected time zone', () => {
     expect(calendarWallTimeToInstant('2026-03-29', '02:30', 'Europe/Warsaw')).toBeNull()
     expect(calendarWallTimeToInstant('2026-10-25', '02:30', 'Europe/Warsaw')?.toISOString()).toBe('2026-10-25T00:30:00.000Z')
     expect(calendarWallTimeToInstant('2026-02-30', '10:00', 'UTC')).toBeNull()
+  })
+
+  it('keeps a valid stored timezone alias selectable even when Intl omits it from the canonical list', () => {
+    expect(isCalendarTimezone('US/Eastern')).toBe(true)
+    expect(calendarTimezoneOptions('US/Eastern')).toContain('US/Eastern')
   })
 
   it('round trips a saved timezone and calculates elapsed duration across DST', () => {
@@ -70,5 +76,25 @@ describe('calendar selected time zone', () => {
   it('keeps recurring event wall times fixed when the chosen zone crosses DST', () => {
     const item = mapInteractionToCalendarItem(makePayload({ timezone: 'Europe/Warsaw', scheduledAt: '2026-03-28T08:00:00Z', durationMinutes: 60, recurrenceRule: 'FREQ=DAILY;COUNT=3' }), {})!
     expect(expandOccurrences(item, { from: new Date('2026-03-28T00:00:00Z'), to: new Date('2026-03-31T00:00:00Z') }).map((entry) => entry.start.toISOString())).toEqual(['2026-03-28T08:00:00.000Z', '2026-03-29T07:00:00.000Z', '2026-03-30T07:00:00.000Z'])
+  })
+
+  it('uses the pre-gap offset for recurring wall times instead of dropping the RFC occurrence', () => {
+    const item = mapInteractionToCalendarItem(makePayload({ timezone: 'Europe/Warsaw', scheduledAt: '2026-03-28T01:30:00Z', durationMinutes: 60, recurrenceRule: 'FREQ=DAILY;COUNT=3' }), {})!
+    const occurrences = expandOccurrences(item, { from: new Date('2026-03-28T00:00:00Z'), to: new Date('2026-03-31T00:00:00Z') })
+    expect(occurrences.map((entry) => [entry.id, entry.start.toISOString()])).toEqual([
+      [`${item.id}:0`, '2026-03-28T01:30:00.000Z'],
+      [`${item.id}:1`, '2026-03-29T01:30:00.000Z'],
+      [`${item.id}:2`, '2026-03-30T00:30:00.000Z'],
+    ])
+  })
+
+  it('fast-forwards an old timed series to the visible window', () => {
+    const recurrenceWallSpy = jest.spyOn(timezone, 'calendarRecurrenceWallTimeToInstant')
+    const item = mapInteractionToCalendarItem(makePayload({ timezone: 'UTC', scheduledAt: '1900-01-01T10:00:00Z', durationMinutes: 60, recurrenceRule: 'FREQ=DAILY' }), {})!
+    const occurrences = expandOccurrences(item, { from: new Date('2026-09-29T00:00:00Z'), to: new Date('2026-09-29T23:59:59Z') })
+    const elapsedDays = Math.floor((Date.UTC(2026, 8, 29) - Date.UTC(1900, 0, 1)) / 86_400_000)
+    expect(occurrences.map((entry) => entry.id)).toEqual([`${item.id}:${elapsedDays}`])
+    expect(recurrenceWallSpy.mock.calls.length).toBeLessThanOrEqual(2)
+    recurrenceWallSpy.mockRestore()
   })
 })

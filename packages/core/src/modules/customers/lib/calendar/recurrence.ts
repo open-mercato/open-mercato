@@ -1,8 +1,9 @@
 import { addDays } from 'date-fns/addDays'
-import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from './timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarRecurrenceWallTimeToInstant, isCalendarTimezone } from './timezone'
 import type { CalendarItem, CalendarRange } from '../../components/calendar/types'
 
 const MAX_OCCURRENCES_PER_WINDOW = 100
+const DAY_MS = 24 * 60 * 60 * 1000
 
 const WEEKDAY_TOKENS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const
 
@@ -97,18 +98,44 @@ function occursOn(date: Date, rule: ParsedRecurrenceRule, seriesStartWeekday: nu
   return allowedWeekdays.includes(date.getDay())
 }
 
+function countMatchingDays(startDay: number, endDay: number, rule: ParsedRecurrenceRule, seriesStartWeekday: number): number {
+  const dayCount = Math.max(0, endDay - startDay)
+  if (rule.freq === 'DAILY') return dayCount
+  const allowedWeekdays = rule.byDay ?? [seriesStartWeekday]
+  const fullWeeks = Math.floor(dayCount / 7)
+  let matches = fullWeeks * allowedWeekdays.length
+  const remainder = dayCount % 7
+  const startWeekday = new Date(startDay * DAY_MS).getUTCDay()
+  for (let offset = 0; offset < remainder; offset += 1) {
+    if (allowedWeekdays.includes((startWeekday + offset) % 7)) matches += 1
+  }
+  return matches
+}
+
+function utcDay(date: Date): number {
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS)
+}
+
 function expandZonedOccurrences(item: CalendarItem, range: CalendarRange, rule: ParsedRecurrenceRule, timezone: string): CalendarItem[] {
   const startWall = calendarInstantToWallTime(item.start, timezone)
   const cursor = new Date(`${startWall.date}T00:00:00Z`)
+  const seriesStartDay = Math.floor(cursor.getTime() / DAY_MS)
+  const earliestRelevant = new Date(range.from.getTime() - Math.max(0, item.end.getTime() - item.start.getTime()))
+  const earliestWallDate = calendarInstantToWallTime(earliestRelevant, timezone).date
+  const earliestDay = Math.floor(new Date(`${earliestWallDate}T00:00:00Z`).getTime() / DAY_MS)
   const finalDate = calendarInstantToWallTime(range.to, timezone).date
   const seriesWeekday = cursor.getUTCDay()
   const duration = item.end.getTime() - item.start.getTime()
   const recurrenceEnd = typeof item.raw.recurrenceEnd === 'string' ? new Date(item.raw.recurrenceEnd).getTime() : null
   const occurrences: CalendarItem[] = []
   let occurrenceIndex = 0
+  if (!item.allDay && earliestDay > seriesStartDay) {
+    occurrenceIndex = countMatchingDays(seriesStartDay, earliestDay, rule, seriesWeekday)
+    cursor.setUTCDate(cursor.getUTCDate() + earliestDay - seriesStartDay)
+  }
   while (cursor.toISOString().slice(0, 10) <= finalDate) {
     const date = cursor.toISOString().slice(0, 10)
-    const start = item.allDay ? calendarDayStartInstant(date, timezone) : calendarWallTimeToInstant(date, startWall.time, timezone)
+    const start = item.allDay ? calendarDayStartInstant(date, timezone) : calendarRecurrenceWallTimeToInstant(date, startWall.time, timezone)
     if (start && ((rule.until && start > rule.until) || (recurrenceEnd !== null && start.getTime() > recurrenceEnd))) break
     const matches = rule.freq === 'DAILY' || (rule.byDay ?? [seriesWeekday]).includes(cursor.getUTCDay())
     if (start && matches) {
@@ -140,6 +167,13 @@ export function expandOccurrences(item: CalendarItem, range: CalendarRange): Cal
   const occurrences: CalendarItem[] = []
   let occurrenceIndex = 0
   let cursor = new Date(item.start)
+  const seriesStartDay = utcDay(cursor)
+  const earliestRelevant = new Date(range.from.getTime() - Math.max(0, durationMs))
+  const earliestDay = utcDay(earliestRelevant)
+  if (earliestDay > seriesStartDay) {
+    occurrenceIndex = countMatchingDays(seriesStartDay, earliestDay, rule, seriesStartWeekday)
+    cursor = addDays(cursor, earliestDay - seriesStartDay)
+  }
 
   while (cursor.getTime() <= range.to.getTime()) {
     if (untilTime !== null && cursor.getTime() > untilTime) break

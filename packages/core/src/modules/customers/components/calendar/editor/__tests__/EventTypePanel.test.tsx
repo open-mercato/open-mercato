@@ -7,11 +7,11 @@ import { calendarEventTypes, type CalendarEventTypePanelProps } from '../../../.
 import { createDefaultFormState } from '../../../../lib/calendar/editorPayload'
 
 jest.mock('../ScheduleSection', () => ({
-  ScheduleSection: ({ dateLabel, hasEnd, hasAllDay, onDateChange }: {
-    dateLabel: string; hasEnd: boolean; hasAllDay: boolean; onDateChange: (date: string) => void
-  }) => <button type="button" data-testid="schedule" data-label={dateLabel} data-end={String(hasEnd)} data-all-day={String(hasAllDay)} onClick={() => onDateChange('2026-10-04')}>Schedule</button>,
+  ScheduleSection: ({ dateLabel, hasEnd, hasAllDay, startError, disabled, onDateChange }: {
+    dateLabel: string; hasEnd: boolean; hasAllDay: boolean; startError?: string; disabled?: boolean; onDateChange: (date: string) => void
+  }) => <button type="button" disabled={disabled} data-testid="schedule" data-label={dateLabel} data-end={String(hasEnd)} data-all-day={String(hasAllDay)} data-start-error={startError} onClick={() => onDateChange('2026-10-04')}>Schedule</button>,
 }))
-jest.mock('../RepeatField', () => ({ RepeatField: () => <div data-testid="repeat" /> }))
+jest.mock('../RepeatField', () => ({ RepeatField: ({ untilError }: { untilError?: string }) => <div data-testid="repeat" data-until-error={untilError} /> }))
 jest.mock('../PeopleField', () => ({ PeopleField: ({ mode, ariaLabel }: { mode: string; ariaLabel: string }) => <div data-testid="people" data-mode={mode} data-label={ariaLabel} /> }))
 jest.mock('../LocationField', () => ({ LocationField: ({ variant }: { variant: string }) => <div data-testid="location" data-variant={variant} /> }))
 jest.mock('../ResourcesField', () => ({ ResourcesField: () => <div data-testid="resources" /> }))
@@ -57,5 +57,20 @@ describe('DefaultEventTypePanel', () => {
     renderWithProviders(<DefaultEventTypePanel {...panelProps('meeting', setValue)} />)
     fireEvent.click(screen.getByTestId('schedule'))
     expect(setValue).toHaveBeenCalledWith('date', '2026-10-04')
+  })
+
+  it('disables every built-in panel control while saving', () => {
+    const setValue = jest.fn()
+    renderWithProviders(<DefaultEventTypePanel {...panelProps('meeting', setValue)} disabled />)
+    expect(screen.getByTestId('schedule')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('schedule'))
+    expect(setValue).not.toHaveBeenCalled()
+  })
+
+  it('routes start and until validation to their causal controls', () => {
+    const props = panelProps('meeting')
+    renderWithProviders(<DefaultEventTypePanel {...props} errors={{ startTime: 'Invalid start', repeatUntilDate: 'Invalid until' }} />)
+    expect(screen.getByTestId('schedule')).toHaveAttribute('data-start-error', 'Invalid start')
+    expect(screen.getByTestId('repeat')).toHaveAttribute('data-until-error', 'Invalid until')
   })
 })
