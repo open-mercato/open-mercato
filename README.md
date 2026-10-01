@@ -405,6 +405,7 @@ Browse the full documentation at [docs.openmercato.com](https://docs.openmercato
 - [API Reference](https://docs.openmercato.com/api/overview)
 - [CLI Reference](https://docs.openmercato.com/cli/overview)
 - [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
+- [Upstream Architecture Specs (MySpec)](https://myspec.dev?utm_source=github&utm_medium=referral&utm_campaign=open-mercato)
 
 ## Join us on Discord
 
