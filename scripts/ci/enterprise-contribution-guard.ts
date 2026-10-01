@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Blocks pull requests containing a commit under packages/enterprise/
-// authored by someone outside ALLOWED_LOGINS — see .github/workflows/
+// Blocks pull requests touching packages/enterprise/ that were opened by, or
+// contain a commit authored by, someone outside ALLOWED_LOGINS — see .github/workflows/
 // enterprise-contribution-guard.yml for how this is wired into CI, and
 // CONTRIBUTING.md § Enterprise Module Contributions for the policy this
 // enforces. Pure decision logic lives in `evaluate()`; `main()` is the only
@@ -40,7 +40,13 @@ export interface Violation {
   files: string[]
 }
 
+export interface PrAuthor {
+  login: string | null
+  type: string | null
+}
+
 export interface EvaluateDeps {
+  prAuthor: PrAuthor
   listFiles: () => Promise<string[]>
   listCommits: () => Promise<CommitInfo[]>
   getCommitFiles: (sha: string) => Promise<string[]>
@@ -49,6 +55,7 @@ export interface EvaluateDeps {
 
 export interface EvaluateResult {
   touchesEnterprise: boolean
+  prAuthorViolation: string | null
   violations: Violation[]
 }
 
@@ -56,11 +63,17 @@ export function isAllowedLogin(login: string | null | undefined, allowedLogins: 
   return typeof login === 'string' && allowedLogins.has(login.toLowerCase())
 }
 
-export async function evaluate({ listFiles, listCommits, getCommitFiles, allowedLogins }: EvaluateDeps): Promise<EvaluateResult> {
+export async function evaluate({ prAuthor, listFiles, listCommits, getCommitFiles, allowedLogins }: EvaluateDeps): Promise<EvaluateResult> {
   const files = await listFiles()
   if (!files.some((f) => f.startsWith(ENTERPRISE_PREFIX))) {
-    return { touchesEnterprise: false, violations: [] }
+    return { touchesEnterprise: false, prAuthorViolation: null, violations: [] }
   }
+
+  // Commit author identity is resolved from the commit email, which anyone can
+  // set to an allowlisted maintainer's (or a bot's) address, so the PR opener —
+  // the authenticated account behind the PR — must be allowlisted as well.
+  const prAuthorAllowed = prAuthor.type === 'Bot' || isAllowedLogin(prAuthor.login, allowedLogins)
+  const prAuthorViolation = prAuthorAllowed ? null : prAuthor.login ? `@${prAuthor.login}` : 'unknown author'
 
   const commits = await listCommits()
   const violations: Violation[] = []
@@ -79,19 +92,26 @@ export async function evaluate({ listFiles, listCommits, getCommitFiles, allowed
     })
   }
 
-  return { touchesEnterprise: true, violations }
+  return { touchesEnterprise: true, prAuthorViolation, violations }
 }
 
-export function formatSummaryMarkdown(violations: Violation[]): string {
+export function formatSummaryMarkdown(violations: Violation[], prAuthorViolation: string | null = null): string {
   const lines = [
     '## Enterprise Contribution Guard',
     '',
     '`packages/enterprise/` is commercial, proprietary software — only specific allowlisted accounts may author commits that touch it (see [CONTRIBUTING.md § Enterprise Module Contributions](https://github.com/open-mercato/open-mercato/blob/main/CONTRIBUTING.md#enterprise-module-contributions)).',
     '',
-    'These commits need to be dropped from this PR; open a separate issue describing the change instead:',
-    '',
-    ...violations.map((v) => `- ${v.sha.slice(0, 7)} by ${v.identity}: ${v.files.map((f) => `\`${f}\``).join(', ')}`),
-    '',
+    ...(prAuthorViolation
+      ? [`This PR was opened by ${prAuthorViolation}, who is not allowlisted for \`packages/enterprise/\` — revert those changes or open a separate issue describing the change instead.`, '']
+      : []),
+    ...(violations.length > 0
+      ? [
+          'These commits need to be dropped from this PR; open a separate issue describing the change instead:',
+          '',
+          ...violations.map((v) => `- ${v.sha.slice(0, 7)} by ${v.identity}: ${v.files.map((f) => `\`${f}\``).join(', ')}`),
+          '',
+        ]
+      : []),
   ]
   return lines.join('\n')
 }
@@ -173,7 +193,8 @@ export async function main({ env = process.env }: { env?: NodeJS.ProcessEnv } = 
     throw new Error('This script must run on a pull_request event.')
   }
 
-  const { touchesEnterprise, violations } = await evaluate({
+  const { touchesEnterprise, prAuthorViolation, violations } = await evaluate({
+    prAuthor: { login: event.pull_request.user?.login ?? null, type: event.pull_request.user?.type ?? null },
     ...buildGithubDeps({ owner, repo, prNumber, token, apiUrl }),
     allowedLogins: ALLOWED_LOGINS,
   })
@@ -182,19 +203,24 @@ export async function main({ env = process.env }: { env?: NodeJS.ProcessEnv } = 
     console.log('No packages/enterprise/ files changed; nothing to do.')
     return 0
   }
-  if (violations.length === 0) {
-    console.log('All commits touching packages/enterprise/ are from allowlisted authors.')
+  if (!prAuthorViolation && violations.length === 0) {
+    console.log('The PR author and all commits touching packages/enterprise/ are allowlisted.')
     return 0
   }
 
-  const summary = formatSummaryMarkdown(violations)
+  const summary = formatSummaryMarkdown(violations, prAuthorViolation)
   if (env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `${summary}\n`)
+  }
+  if (prAuthorViolation) {
+    console.log(`::error::PR opened by ${prAuthorViolation}, who is not allowlisted, touches packages/enterprise/.`)
   }
   for (const v of violations) {
     console.log(`::error::Commit ${v.sha.slice(0, 7)} by ${v.identity} touches packages/enterprise/: ${v.files.join(', ')}`)
   }
-  console.log(`::error::${violations.length} commit(s) by non-allowlisted authors touch packages/enterprise/. See the job summary.`)
+  if (violations.length > 0) {
+    console.log(`::error::${violations.length} commit(s) by non-allowlisted authors touch packages/enterprise/. See the job summary.`)
+  }
   return 1
 }
 

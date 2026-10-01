@@ -6,9 +6,9 @@ name: Enterprise Contribution Guard
 # it needs only the default read-only `pull_request` token (no write scope,
 # safe to run untrusted fork code against) and re-evaluates on every push
 # with no extra state to manage: dropping the offending commits makes the
-# next run pass on its own. Checked per commit author, not the PR opener —
-# an allowlisted author opening the PR does not clear commits someone else
-# pushes to the same branch afterward.
+# next run pass on its own. Checks both the PR opener (commit author emails
+# are spoofable) and every commit author — an allowlisted author opening the
+# PR does not clear commits someone else pushes to the same branch afterward.
 permissions:
   contents: read
   pull-requests: read
@@ -40,7 +40,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: lts/*
+          node-version: 24.19.0
 
       - name: Block external changes to packages/enterprise
         env:
