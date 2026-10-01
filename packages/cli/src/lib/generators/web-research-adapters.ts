@@ -84,8 +84,10 @@ async function loadAdapterEntry(
   try {
     return { packageName, module: await load() }
   } catch (error) {
-    const code = (error as { code?: unknown } | null)?.code
-    if (typeof code === 'string' && MISSING_MODULE_CODES.has(code)) return null
+    const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown }
+    const isMissingCode = typeof code === 'string' && MISSING_MODULE_CODES.has(code)
+    const namesThisPackage = typeof message === 'string' && message.includes(\`'\${packageName}'\`)
+    if (isMissingCode && namesThisPackage) return null
     throw error
   }
 }

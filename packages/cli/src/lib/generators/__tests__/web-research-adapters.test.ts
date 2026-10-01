@@ -115,4 +115,27 @@ describe('generateWebResearchAdapters', () => {
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('adapter exploded')
   })
+
+  it('still surfaces an installed adapter whose own dependency is missing', async () => {
+    writeInstalledAdapter(
+      '@acme/web-research-needs-dep',
+      'needs-dep',
+      "import '@acme/missing-adapter-dependency'\nexport const id = 'needs-dep'\n",
+    )
+
+    const result = runGeneratedRegistry(await generate())
+
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('@acme/missing-adapter-dependency')
+  })
+
+  it('still surfaces an installed adapter whose entry file is missing', async () => {
+    writeInstalledAdapter('@acme/web-research-unbuilt', 'unbuilt')
+    fs.rmSync(path.join(tmpRoot, 'node_modules', '@acme', 'web-research-unbuilt', 'index.js'))
+
+    const result = runGeneratedRegistry(await generate())
+
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toMatch(/Cannot find module/)
+  })
 })
