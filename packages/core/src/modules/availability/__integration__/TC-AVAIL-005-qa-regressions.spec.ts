@@ -13,7 +13,7 @@ import { deleteGeneralEntityIfExists, expectId, getTokenContext, readJsonSafe } 
  *
  * - #6805: the check tool and policy writes validate the variant against the product.
  * - #6806: an inactive policy with a future preorder date keeps an untracked item unpurchasable.
- * - #6807: list, resolve-preview and check read the organization selected in the header.
+ * - #6807: list and resolve-preview read the organization selected in the header (check shares the resolver).
  * - #6808: a non-UUID id or an integer above the Postgres range is a 400, never a 500.
  */
 
@@ -36,6 +36,7 @@ test.describe('TC-AVAIL-005: availability QA regressions', () => {
 
     let productAId: string | null = null
     let productBId: string | null = null
+    let foreignPolicyId: string | null = null
     try {
       const createA = await apiRequest(request, 'POST', CATALOG_PRODUCTS_API_BASE, {
         token,
@@ -77,8 +78,12 @@ test.describe('TC-AVAIL-005: availability QA regressions', () => {
         token,
         data: { tenantId, organizationId, productId: productAId, variantId: variantBId },
       })
+      if (foreignPolicy.status() < 300) {
+        foreignPolicyId = (await readJsonSafe<{ id?: string }>(foreignPolicy))?.id ?? null
+      }
       expect(foreignPolicy.status(), 'a policy for a variant of another product must be a 400').toBe(400)
     } finally {
+      await deleteGeneralEntityIfExists(request, token, POLICIES_API_BASE, foreignPolicyId)
       await deleteCatalogProductIfExists(request, token, productAId)
       await deleteCatalogProductIfExists(request, token, productBId)
     }

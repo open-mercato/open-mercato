@@ -275,10 +275,6 @@ export async function softDeleteGroupMemberships(
   return memberships
 }
 
-// The delete cascade runs after `makeCrudRoute` soft-deleted the group (the factory has
-// no hook inside its delete), so terms and memberships are retired together in one
-// transaction and, if that transaction fails, the group delete is reverted: the request
-// fails with the group, its terms and its memberships all still live, never half-deleted.
 // The organizations the caller's role may reach (`null` = unrestricted). This is the
 // permission boundary, not the header selection: an unrestricted admin working in one
 // organization may still delete a shared group.
@@ -308,6 +304,10 @@ export async function assertGroupMembershipsInScope(
   )
 }
 
+// The delete cascade runs after `makeCrudRoute` soft-deleted the group (the factory has
+// no hook inside its delete), so terms and memberships are retired together in one
+// transaction and, if that transaction fails, the group delete is reverted: the request
+// fails with the group, its terms and its memberships all still live, never half-deleted.
 export async function cascadeGroupDelete(
   em: EntityManager,
   tenantId: string,
