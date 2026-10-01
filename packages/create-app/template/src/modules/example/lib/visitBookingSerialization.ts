@@ -81,8 +81,11 @@ function subjectLockKeys(args: {
 }
 
 async function acquireLocks(em: EntityManager, keys: string[]): Promise<void> {
+  if (!em.isInTransaction()) {
+    throw new Error('[internal] Visit booking locks require an active transaction')
+  }
   for (const key of keys) {
-    await em.getConnection().execute(
+    await em.execute(
       'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
       [key],
     )

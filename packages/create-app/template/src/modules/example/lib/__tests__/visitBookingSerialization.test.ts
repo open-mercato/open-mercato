@@ -25,17 +25,23 @@ class AdvisoryLockManager {
 function lockingEntityManager(manager: AdvisoryLockManager, acquiredKeys: string[], statements: string[]) {
   const em = {
     fork: () => em,
+    isInTransaction: () => false,
+    execute: async () => {
+      throw new Error('Lock query executed outside a transaction')
+    },
+    getConnection: () => {
+      throw new Error('Bare connection must not execute transaction-scoped locks')
+    },
     transactional: async <T>(run: (tx: typeof em) => Promise<T>) => {
       const releases: Array<() => void> = []
       const tx = {
         ...em,
-        getConnection: () => ({
-          execute: async (_sql: string, params: string[]) => {
-            statements.push(_sql)
-            acquiredKeys.push(params[0]!)
-            releases.push(await manager.acquire(params[0]!))
-          },
-        }),
+        isInTransaction: () => true,
+        execute: async (_sql: string, params: string[]) => {
+          statements.push(_sql)
+          acquiredKeys.push(params[0]!)
+          releases.push(await manager.acquire(params[0]!))
+        },
       }
       try {
         return await run(tx)
