@@ -7,7 +7,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { isCommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   ChannelThreadMapping,
@@ -210,9 +210,6 @@ function ingestFailureResponse(err: unknown): Response {
   }
   if (isCrudHttpError(err)) {
     return NextResponse.json(err.body, { status: err.status })
-  }
-  if (isCommandInterceptorError(err) && err.status !== undefined) {
-    return NextResponse.json(err.body ?? { error: err.message }, { status: err.status })
   }
   logger.error('ingest-inbound failed', { err })
   return NextResponse.json(
@@ -539,6 +536,10 @@ export async function POST(req: Request): Promise<Response> {
       })
       result = execution.result
     } catch (err) {
+      const interceptorRejection = getCommandInterceptorHttpRejection(err)
+      if (interceptorRejection) {
+        return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+      }
       return ingestFailureResponse(err)
     }
 
