@@ -1,3 +1,12 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Attachment } from '../../data/entities'
+import { createAttachmentAccessContext } from '../../lib/access-runner'
+import { assertAttachmentOwnerAccess } from '../../lib/access-query'
+import { withAttachmentAccessErrors, throwAttachmentAccessError } from '../../lib/access-errors'
+import { prepareAttachmentMutation } from '../../lib/access-mutation'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -22,59 +31,57 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['attachments.manage'] },
 }
 
-export async function POST(req: Request) {
+async function transferAttachments(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const json = await req.json().catch(() => null)
+  const json = await readJsonSafe(req, null)
   const parsed = transferSchema.safeParse(json)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }
-  const { attachmentIds, entityId, fromRecordId, toRecordId } = parsed.data
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  let AttachmentEntity: any
-  try {
-    const mod = await import('@open-mercato/core/modules/attachments/data/entities')
-    AttachmentEntity = mod.Attachment
-  } catch {
-    return NextResponse.json({ error: 'Attachment model missing' }, { status: 500 })
-  }
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
+  const guard = await prepareAttachmentMutation({ container, req, auth, operation: 'update', payload: parsed.data })
+  const effective = transferSchema.safeParse(guard.modifiedPayload ?? parsed.data)
+  if (!effective.success) return throwAttachmentAccessError(403)
+  const { attachmentIds, entityId, fromRecordId, toRecordId } = effective.data
   const filters: Record<string, unknown> = {
-    id: { $in: attachmentIds },
-    entityId,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    id: { $in: [...new Set(attachmentIds)].sort() }, entityId,
+    tenantId: auth.tenantId, organizationId: auth.orgId,
+    ...(fromRecordId ? { recordId: fromRecordId } : {}),
   }
-  if (fromRecordId) {
-    filters.recordId = fromRecordId
-  }
-  const records = await em.find(AttachmentEntity, filters)
-  if (!records.length) {
-    return NextResponse.json({ error: 'Attachments not found' }, { status: 404 })
-  }
-  for (const record of records) {
-    const previousRecordId = record.recordId
-    record.recordId = toRecordId
-    const metadata = readAttachmentMetadata(record.storageMetadata)
-    const nextAssignments =
-      metadata.assignments?.map((assignment) => {
-        const matchesType = assignment.type === entityId
-        const matchesRecord = fromRecordId
-          ? assignment.id === fromRecordId
-          : assignment.id === previousRecordId
-        if (matchesType && matchesRecord) {
-          return { ...assignment, id: toRecordId }
-        }
-        return assignment
-      }) ?? []
-    record.storageMetadata = mergeAttachmentMetadata(record.storageMetadata, { assignments: nextAssignments })
-  }
-  await em.persist(records).flush()
-  return NextResponse.json({ ok: true, updated: records.length })
+  const accessContext = createAttachmentAccessContext(container)
+  const updated = await em.transactional(async (tx) => {
+    const records = await findWithDecryption(tx, Attachment, filters, {
+      orderBy: { id: 'asc' }, lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
+    }, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (records.length !== new Set(attachmentIds).size) return throwAttachmentAccessError(404)
+    const changes = []
+    for (const record of records) {
+      const metadata = readAttachmentMetadata(record.storageMetadata)
+      const assignments = metadata.assignments?.map((assignment) => (
+        assignment.type === entityId && assignment.id === (fromRecordId ?? record.recordId)
+          ? { ...assignment, id: toRecordId } : assignment
+      )) ?? []
+      const storageMetadata = mergeAttachmentMetadata(record.storageMetadata, { assignments })
+      await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: record, action: 'reassign', persistProtection: true })
+      await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: { ...record, recordId: toRecordId, storageMetadata }, action: 'reassign' })
+      changes.push({ record, storageMetadata })
+    }
+    for (const { record, storageMetadata } of changes) {
+      record.recordId = toRecordId
+      record.storageMetadata = storageMetadata
+    }
+    await tx.flush()
+    return records.length
+  })
+  await guard.runAfterSuccess()
+  return NextResponse.json({ ok: true, updated })
 }
+
+export const POST = withAttachmentAccessErrors(transferAttachments)
 
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
@@ -95,6 +102,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
         { status: 404, description: 'Attachments not found', schema: attachmentErrorSchema },
         { status: 500, description: 'Attachment model missing', schema: attachmentErrorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: attachmentErrorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },

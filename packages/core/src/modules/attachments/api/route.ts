@@ -1,3 +1,10 @@
+import { LockMode } from '@mikro-orm/core'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { prepareAttachmentMutation } from '../lib/access-mutation'
+import { throwAttachmentAccessError } from '../lib/access-errors'
+import { createAttachmentAccessContext } from '../lib/access-runner'
+import { assertAttachmentOwnerAccess, requiresAttachmentAccessScan, scanAuthorizedAttachments } from '../lib/access-query'
+import { withAttachmentAccessErrors } from '../lib/access-errors'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -188,7 +195,7 @@ function parseFormAssignments(value: FormDataEntryValue | null): AttachmentAssig
   }
 }
 
-export async function GET(req: Request) {
+async function listRecordAttachments(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
@@ -208,31 +215,31 @@ export async function GET(req: Request) {
   const orgId = await resolveAttachmentOrganizationId(container, auth, req)
   const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
   if (orgId) filter.organizationId = orgId
-  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC' }
+  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC', id: 'ASC' }
   const usePaging = typeof page === 'number' && typeof pageSize === 'number'
-  const total = usePaging ? await em.count(Attachment, filter) : null
   const currentPage = usePaging ? Math.max(1, page) : null
   const currentPageSize = usePaging ? pageSize : null
-  const totalPages = usePaging && total !== null ? Math.max(1, Math.ceil(total / currentPageSize!)) : null
   const pageOffset = usePaging ? (currentPage! - 1) * currentPageSize! : undefined
-  const items = await findWithDecryption(
-    em,
-    Attachment,
-    filter,
-    {
-      orderBy,
-      ...(usePaging
-        ? {
-            limit: currentPageSize!,
-            offset: pageOffset,
-          }
-        : {}),
-    },
-    {
-      tenantId: auth.tenantId ?? null,
-      organizationId: orgId ?? null,
-    },
-  )
+  const partitions = await em.find(AttachmentPartition, {})
+  const protectedScan = requiresAttachmentAccessScan(partitions)
+  const scope = { tenantId: auth.tenantId ?? null, organizationId: orgId ?? null }
+  let items: Attachment[]
+  let total: number | null
+  if (protectedScan) {
+    const scanned = await scanAuthorizedAttachments({
+      auth: { ...auth, orgId }, context: createAttachmentAccessContext(container), partitions,
+      offset: pageOffset, limit: currentPageSize ?? undefined,
+      loadBatch: (offset, limit) => findWithDecryption(em, Attachment, filter, { orderBy, offset, limit }, scope),
+    })
+    items = scanned.records
+    total = usePaging ? scanned.total : null
+  } else {
+    total = usePaging ? await em.count(Attachment, filter) : null
+    items = await findWithDecryption(em, Attachment, filter, {
+      orderBy, ...(usePaging ? { limit: currentPageSize!, offset: pageOffset } : {}),
+    }, scope)
+  }
+  const totalPages = usePaging && total !== null ? Math.max(1, Math.ceil(total / currentPageSize!)) : null
   return NextResponse.json({
     items: items.map((a: any) => {
       const metadata = readAttachmentMetadata(a.storageMetadata)
@@ -262,8 +269,10 @@ export async function GET(req: Request) {
           totalPages,
         }
       : {}),
-  })
+  }, { headers: protectedScan ? { 'Cache-Control': 'private, no-store' } : undefined })
 }
+
+export const GET = withAttachmentAccessErrors(listRecordAttachments)
 
 export async function POST(req: Request) {
   const { t } = await resolveTranslations()
@@ -665,7 +674,7 @@ async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: strin
   }
 }
 
-export async function DELETE(req: Request) {
+async function deleteAttachment(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
@@ -684,19 +693,27 @@ export async function DELETE(req: Request) {
   const orgId = await resolveAttachmentOrganizationId(container, auth, req)
   const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId! }
   if (orgId) deleteFilter.organizationId = orgId
-  const record = await em.findOne(Attachment, deleteFilter)
-  if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  await em.remove(record).flush()
+  const scopedAuth = { ...auth, orgId }
+  const outcome = await em.transactional(async (tx) => {
+    const record = await findOneWithDecryption(tx, Attachment, deleteFilter, {
+      lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
+    }, { tenantId: auth.tenantId, organizationId: orgId })
+    if (!record) return throwAttachmentAccessError(404)
+    const guard = await prepareAttachmentMutation({ container, req, auth: scopedAuth, recordId: record.id, operation: 'delete' })
+    await assertAttachmentOwnerAccess({ em: tx, context: createAttachmentAccessContext(container), auth: scopedAuth, attachment: record, action: 'delete' })
+    const driver = record.storagePath ? await storageDriverFactory.resolveForPartition(record.partitionCode, {
+      tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? orgId ?? '',
+    }) : null
+    tx.remove(record)
+    await tx.flush()
+    return { record, driver, guard }
+  })
+  const { record } = outcome
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
-  if (record.storagePath) {
-    const delDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
-      tenantId: record.tenantId ?? auth.tenantId!,
-      organizationId: record.organizationId ?? orgId ?? '',
-    })
-    await delDriver.delete(record.partitionCode, record.storagePath)
-  }
+  if (outcome.driver) await outcome.driver.delete(record.partitionCode, record.storagePath)
+  await outcome.guard.runAfterSuccess()
   if (dataEngine) {
     await emitCrudSideEffects({
       dataEngine,
@@ -715,6 +732,8 @@ export async function DELETE(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
+export const DELETE = withAttachmentAccessErrors(deleteAttachment)
+
 export const openApi: OpenApiRouteDoc = {
   summary: 'Manage entity attachments',
   description: 'Upload and list attachments associated with module entities and records.',
@@ -729,6 +748,9 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing entity or record identifiers', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: errorSchema },
+        { status: 404, description: 'Attachment or owner is unavailable', schema: errorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: errorSchema },
       ],
     },
     POST: {
@@ -758,6 +780,9 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing attachment identifier', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: errorSchema },
+        { status: 404, description: 'Attachment or owner is unavailable', schema: errorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: errorSchema },
       ],
     },
   },

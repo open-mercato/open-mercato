@@ -165,6 +165,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Forbidden - insufficient permissions', schema: attachmentErrorSchema },
         { status: 404, description: 'Image not found', schema: attachmentErrorSchema },
         { status: 500, description: 'Partition misconfigured or image rendering failed', schema: attachmentErrorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },

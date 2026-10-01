@@ -11,6 +11,11 @@ jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   AttachmentPartition: class AttachmentPartition {},
 }))
 
+const mockReadThumbnail = jest.fn(async () => Buffer.from('cached secret'))
+jest.mock('@open-mercato/core/modules/attachments/lib/thumbnailCache', () => ({
+  buildThumbnailCacheKey: () => 'thumb', readThumbnailCache: (...args: unknown[]) => mockReadThumbnail(...args), writeThumbnailCache: jest.fn(),
+}))
+
 const mockRead = jest.fn(async () => ({ buffer: Buffer.from('private document text') }))
 const mockResolveDriver = jest.fn(async () => ({ read: mockRead }))
 const mockAttachment = {
@@ -30,7 +35,7 @@ const mockEm = {
 }
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
-    resolve: (key: string) => key === 'em' ? mockEm : key === 'storageDriverFactory' ? { resolveForPartition: mockResolveDriver } : null,
+    resolve: (key: string) => key === 'em' ? mockEm : key === 'storageDriverFactory' ? { resolveForPartition: mockResolveDriver } : key === 'rbacService' ? { loadAcl: async () => ({ isSuperAdmin: false, organizations: null }), getEffectiveFeatures: async () => ['documents.view'] } : null,
   })),
 }))
 jest.mock('@open-mercato/core/modules/attachments/lib/drivers', () => ({
@@ -38,6 +43,8 @@ jest.mock('@open-mercato/core/modules/attachments/lib/drivers', () => ({
 }))
 
 import { GET } from '../file/[id]/route'
+import { GET as GET_IMAGE } from '../image/[id]/[[...slug]]/route'
+import { registerAttachmentAccessResolvers } from '../../lib/access-registry'
 
 function requestFile() {
   return GET(
@@ -46,9 +53,13 @@ function requestFile() {
   )
 }
 
+afterEach(() => { registerAttachmentAccessResolvers([]); jest.useRealTimers() })
+
 describe('host file access with an unavailable owning-module resolver', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    registerAttachmentAccessResolvers([])
+    mockAttachment.mimeType = 'text/plain'
     mockAttachment.entityId = 'documents:document'
     mockAttachment.recordId = 'document-1'
     mockAttachment.storageMetadata = {}
@@ -73,4 +84,39 @@ describe('host file access with an unavailable owning-module resolver', () => {
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('private document text')
   })
+})
+
+it('rejects image access before checking the thumbnail cache or reading bytes', async () => {
+  mockAttachment.entityId = 'documents:document'
+  mockAttachment.storageMetadata = {}
+  mockRead.mockClear()
+  const response = await GET_IMAGE(new Request('http://localhost/api/attachments/image/attachment-1?width=200') as Parameters<typeof GET_IMAGE>[0], {
+    params: Promise.resolve({ id: mockAttachment.id }),
+  })
+  expect(response.status).toBe(403)
+  expect(mockReadThumbnail).not.toHaveBeenCalled()
+  expect(mockRead).not.toHaveBeenCalled()
+})
+
+it('never caches a protected successful byte response', async () => {
+  registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [{
+    id: 'documents.document-attachments', targetPartition: '*', targetEntity: 'documents:document', resolve: async () => ({ ok: true }),
+  }] }])
+  mockAttachment.entityId = 'documents:document'
+  const response = await requestFile()
+  expect(response.status).toBe(200)
+  expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+})
+
+it('returns a bounded 504 without storage access on a stalled owner resolver', async () => {
+  jest.useFakeTimers()
+  registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [{
+    id: 'documents.document-attachments', targetPartition: '*', timeoutMs: 10, resolve: () => new Promise(() => undefined),
+  }] }])
+  mockAttachment.entityId = 'documents:document'
+  mockRead.mockClear()
+  const pending = requestFile()
+  await jest.advanceTimersByTimeAsync(20)
+  expect((await pending).status).toBe(504)
+  expect(mockRead).not.toHaveBeenCalled()
 })

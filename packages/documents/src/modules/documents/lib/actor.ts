@@ -37,4 +37,3 @@ export function resolveActorUserId(auth: NonNullable<AuthContext>): string {
   if (actorUserId && claimedUserId === actorUserId) return actorUserId
   throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
 }
-

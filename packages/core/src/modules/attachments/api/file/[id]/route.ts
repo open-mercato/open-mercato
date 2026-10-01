@@ -152,6 +152,7 @@ export const openApi: OpenApiRouteDoc = {
           description: "Partition misconfigured",
           schema: attachmentErrorSchema,
         },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },
