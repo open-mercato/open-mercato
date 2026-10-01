@@ -88,6 +88,9 @@ jest.mock('@open-mercato/ui/primitives/input', () => ({
 // events to `onValueChange`; this mock exposes the same path so a test can replay the
 // empty emission Radix produces on mount.
 jest.mock('@open-mercato/ui/primitives/select', () => {
+  const ReactLib = require('react') as typeof import('react')
+  type SelectState = { value: string; onValueChange?: (value: string) => void }
+  const SelectContext = ReactLib.createContext<SelectState>({ value: '' })
   type SelectProps = ChildrenProps & {
     value?: string
     onValueChange?: (value: string) => void
@@ -95,17 +98,9 @@ jest.mock('@open-mercato/ui/primitives/select', () => {
   return {
     __esModule: true,
     Select: ({ children, value, onValueChange }: SelectProps) => (
-      <div>
-        <select
-          data-testid="native-select"
-          value={value ?? ''}
-          onChange={(event) => onValueChange?.(event.target.value)}
-        >
-          <option value="" />
-          {value ? <option value={value}>{value}</option> : null}
-        </select>
-        {children}
-      </div>
+      <SelectContext.Provider value={{ value: value ?? '', onValueChange }}>
+        <div>{children}</div>
+      </SelectContext.Provider>
     ),
     SelectTrigger: ({ children }: ChildrenProps) => (
       <div data-testid="select-trigger">{children}</div>
@@ -116,8 +111,22 @@ jest.mock('@open-mercato/ui/primitives/select', () => {
     }: ChildrenProps & { placeholder?: React.ReactNode }) => (
       <span>{children ?? placeholder ?? ''}</span>
     ),
-    SelectContent: () => null,
-    SelectItem: () => null,
+    SelectContent: ({ children }: ChildrenProps) => {
+      const { value, onValueChange } = ReactLib.useContext(SelectContext)
+      return (
+        <select
+          data-testid="native-select"
+          value={value}
+          onChange={(event) => onValueChange?.(event.target.value)}
+        >
+          <option value="" />
+          {children}
+        </select>
+      )
+    },
+    SelectItem: ({ children, value }: ChildrenProps & { value: string }) => (
+      <option value={value}>{ReactLib.Children.toArray(children).join('')}</option>
+    ),
   }
 })
 
@@ -249,6 +258,7 @@ const renderDialog = (initialLine: SalesLineRecord | null) => (
 )
 
 const taxField = () => screen.getByTestId('field-taxRateId')
+const taxDisplay = () => taxField().querySelector('[data-testid="select-trigger"]')?.textContent ?? ''
 
 const replayEmptyRadixEmission = () => {
   const nativeSelect = taxField().querySelector('select')
@@ -281,18 +291,18 @@ describe('LineItemDialog keeps the stored tax rate of an API-created line (issue
 
   it('shows the class matching the stored rate even after an empty select emission', async () => {
     render(renderDialog(buildApiLine()))
-    await waitFor(() => expect(taxField().textContent).toContain(STANDARD_LABEL))
+    await waitFor(() => expect(taxDisplay()).toContain(STANDARD_LABEL))
 
     act(() => replayEmptyRadixEmission())
 
-    expect(taxField().textContent).toContain(STANDARD_LABEL)
-    expect(taxField().textContent).not.toContain(ZERO_LABEL)
+    expect(taxDisplay()).toContain(STANDARD_LABEL)
+    expect(taxDisplay()).not.toContain(ZERO_LABEL)
     expect(formValues.taxRate).toBe(23)
   })
 
   it('saves a quantity-only edit with the stored rate and net price', async () => {
     render(renderDialog(buildApiLine()))
-    await waitFor(() => expect(taxField().textContent).toContain(STANDARD_LABEL))
+    await waitFor(() => expect(taxDisplay()).toContain(STANDARD_LABEL))
     act(() => replayEmptyRadixEmission())
 
     const payload = await submitWithQuantity('5')
@@ -308,9 +318,26 @@ describe('LineItemDialog keeps the stored tax rate of an API-created line (issue
     expect(payload.totalNetAmount).toBeCloseTo(250, 6)
   })
 
+  it('still applies a tax class the user picks explicitly', async () => {
+    render(renderDialog(buildApiLine()))
+    await waitFor(() => expect(taxDisplay()).toContain(STANDARD_LABEL))
+
+    const nativeSelect = taxField().querySelector('select')
+    if (!nativeSelect) throw new Error('[internal] tax class select not rendered')
+    act(() => {
+      fireEvent.change(nativeSelect, { target: { value: 'rate-0' } })
+    })
+
+    expect(formValues.taxRateId).toBe('rate-0')
+    expect(formValues.taxRate).toBe(0)
+    const payload = await submitWithQuantity('4')
+    expect(payload.taxRate).toBe(0)
+    expect(payload.metadata).toMatchObject({ taxRateId: 'rate-0' })
+  })
+
   it('does not preselect the default class for a stored rate that matches no class', async () => {
     const view = render(renderDialog(null))
-    await waitFor(() => expect(taxField().textContent).toContain('No tax class selected'))
+    await waitFor(() => expect(taxDisplay()).toContain('No tax class selected'))
 
     view.rerender(
       renderDialog(
@@ -320,7 +347,7 @@ describe('LineItemDialog keeps the stored tax rate of an API-created line (issue
     await waitFor(() => expect(formValues.taxRate).toBe(7))
 
     expect(formValues.taxRateId).toBeNull()
-    expect(taxField().textContent).not.toContain(STANDARD_LABEL)
+    expect(taxDisplay()).not.toContain(STANDARD_LABEL)
 
     const payload = await submitWithQuantity('2')
     expect(payload.taxRate).toBe(7)
