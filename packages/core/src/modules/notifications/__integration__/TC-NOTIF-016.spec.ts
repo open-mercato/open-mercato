@@ -295,7 +295,7 @@ test.describe('TC-NOTIF-016: Notification type catalogue + channel preferences',
       await page.context().addCookies([
         { name: 'om_selected_tenant', value: tenantId, url: baseUrl },
         { name: 'om_selected_org', value: organizationId, url: baseUrl },
-        { name: 'om_locale', value: 'en', url: baseUrl },
+        { name: 'locale', value: 'en', url: baseUrl },
         { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl },
         { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl },
         { name: 'om_feedback_suppress', value: '1', url: baseUrl },
