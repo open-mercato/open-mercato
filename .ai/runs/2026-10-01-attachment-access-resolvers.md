@@ -52,14 +52,14 @@ PR: #6829
 ### Phase 1: Contract and durable protection
 
 - [x] 1.1 Add types, registry, matching and generator discovery — b5e9c9f6b5
-- [ ] 1.2 Persist and backfill required owner policies
-- [ ] 1.3 Implement fail-closed runner and subject projection
+- [x] 1.2 Persist and backfill required owner policies — 874011d963 (native migration proof pending Phase 3)
+- [x] 1.3 Implement fail-closed runner and subject projection — 242f277351
 
 ### Phase 2: Host and real adopter
 
-- [ ] 2.1 Enforce byte routes and public read/link services
-- [ ] 2.2 Enforce metadata and atomic mutation authorization
-- [ ] 2.3 Adopt Documents permissions through the resolver
+- [x] 2.1 Enforce byte routes and public read/link services — 401610b0b8
+- [x] 2.2 Enforce metadata and atomic mutation authorization — a99e416a28
+- [x] 2.3 Adopt Documents permissions through the resolver — 84af89116e
 
 ### Phase 3: Validation and handoff
 

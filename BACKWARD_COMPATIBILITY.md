@@ -484,3 +484,35 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
 
 **Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
+
+
+## Attachment Owner Authorization and Documents Adoption (2026-10-01)
+
+Issue #6726 and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828)
+(`2026-10-01-attachment-access-resolvers.md`) add an owner-policy extension and apply existing
+Documents ACLs at host attachment boundaries.
+
+| Surface | Change | Classification |
+| --- | --- | --- |
+| Discovery, types and exports | New `data/attachment-access.ts` convention, generator plugin, structural contracts, registry/runner/context and trusted synchronization exports | ADDITIVE; no existing convention, export, BootstrapData shape or identifier is removed |
+| Function/service signatures | Synchronous `checkAttachmentAccess` and public service method inputs remain unchanged; constructors gain optional lazy policy context | ADDITIVE; protected service calls without context deny |
+| Database | Nullable JSONB partition requirements, generated snapshot and repeat-safe historical Documents ownership backfill | ADDITIVE; no attachment/provider data is deleted |
+| HTTP/service behavior | Protected byte/metadata access and mutations now require owner policy in addition to scope; hidden rows do not contribute to counts/facets; protected responses are not cacheable; bounded evaluation can return 504 | **BREAKING tightening of STABLE behavior**, requested under the Emergency Security Exception |
+| Events, routes, methods, successful response fields, ACL/DI keys, CLI, widget/notification IDs | Existing surfaces retained | No removal |
+
+**Qualifying condition:** retaining organization-wide host access lets a caller bypass an
+owning document's sharing restriction and read bytes or extracted content. A compatibility
+flag or permissive bridge would retain that bypass. The narrow restriction covers declared
+or durably marked owners; unrelated owners in the same partition retain their behavior.
+Documents supplies its own permission resolver, active role projection and feature checks;
+core does not import Documents runtime entities or introduce an ORM relationship.
+
+**Migration:** apply the additive migration, regenerate/build registration, synchronize active
+adopter declarations, and purge predeployment protected-file caches. The historical
+`documents:document` backfill works with Documents disabled. Required provider removal fails
+closed; a trusted migration is needed to retire protection deliberately. Upgrade and emergency
+rollback instructions are in `UPGRADE_NOTES.md`.
+
+**Human waiver: PENDING.** This PR must not merge until a named human maintainer explicitly
+acknowledges this Emergency Security Exception and migration. Automated tests, agent review
+and the `security` label do not supply that acknowledgment.
