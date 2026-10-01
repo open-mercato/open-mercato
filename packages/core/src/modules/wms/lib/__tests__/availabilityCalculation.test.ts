@@ -205,7 +205,7 @@ describe('computeAvailability — not_tracked', () => {
     const future = new Date(Date.now() + 86_400_000)
     const { em } = makeEm()
     const resolveMany = jest.fn().mockResolvedValue([{
-      ...overlay({ isStockManaged: false, isActive: false, policySourceId: 'policy-store' }),
+      ...overlay({ isStockManaged: false, policySourceId: 'policy-store' }),
       preorderReleaseAt: { value: future, policySourceId: 'policy-product' },
     }])
     const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
@@ -215,6 +215,22 @@ describe('computeAvailability — not_tracked', () => {
     expect(result.byItem['p1:v1'].canFulfil).toBe(true)
     expect(result.byItem['p1:v1'].releaseAt).toBe(future.toISOString())
     expect(result.byItem['p1:v1'].availableQuantity).toBeNull()
+    expect(result.byItem['p1:v1'].policySourceId).toBe('policy-product')
+  })
+
+  it('reports out_of_stock for an inactive untracked item even with a future release date (#6806)', async () => {
+    const { em } = makeEm()
+    const resolveMany = jest.fn().mockResolvedValue([{
+      ...overlay({ isStockManaged: false, policySourceId: 'policy-store' }),
+      isActive: { value: false, policySourceId: 'policy-product' },
+      preorderReleaseAt: { value: new Date(Date.now() + 7 * 86_400_000), policySourceId: 'policy-product' },
+    }])
+    const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 },
+    ]))
+    expect(result.byItem['p1:v1'].state).toBe('out_of_stock')
+    expect(result.byItem['p1:v1'].canFulfil).toBe(false)
+    expect(result.byItem['p1:v1'].releaseAt).toBeNull()
     expect(result.byItem['p1:v1'].policySourceId).toBe('policy-product')
   })
 

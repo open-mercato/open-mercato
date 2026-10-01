@@ -71,6 +71,20 @@ describe('catalog-only fallback provider', () => {
     expect(item.canFulfil).toBe(false)
   })
 
+  it('keeps an inactive policy row out_of_stock even with a future preorder date (#6806)', async () => {
+    const future = new Date(Date.now() + 7 * 86_400_000).toISOString()
+    setCatalogOnlyPolicyLookup(async () => ({
+      'product-1:variant-1': { isActive: false, preorderReleaseAt: future, policySourceId: 'policy-4' },
+    }))
+    const provider = availabilityProviderRegistry.get(AVAILABILITY_CATALOG_ONLY_PROVIDER_ID)!
+    const result = await provider.getAvailability(makeQuery())
+    const item = result.byItem['product-1:variant-1']
+    expect(item.state).toBe('out_of_stock')
+    expect(item.canFulfil).toBe(false)
+    expect(item.releaseAt).toBeNull()
+    expect(item.policySourceId).toBe('policy-4')
+  })
+
   it('treats is_stock_managed true (no real data source) as out_of_stock rather than in_stock', async () => {
     setCatalogOnlyPolicyLookup(async () => ({
       'product-1:variant-1': { isStockManaged: true, policySourceId: 'policy-3' },

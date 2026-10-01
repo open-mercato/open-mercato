@@ -209,8 +209,10 @@ function isWithinOrderQuantityRules(requested: number, policy: ResolvedPolicyOve
 }
 
 /**
- * Mirrors the catalog-only fallback's precedence (preorder → inactive →
- * not_tracked) for an item the policy excludes from stock tracking.
+ * Mirrors the catalog-only fallback's precedence (inactive → preorder →
+ * not_tracked) for an item the policy excludes from stock tracking. An inactive
+ * policy makes the item unpurchasable before any preorder date, exactly as on the
+ * tracked path (`computeState`).
  */
 function computeUntrackedItem(policy: ResolvedPolicyOverlay): AvailabilityItemResult {
   const base: AvailabilityItemResult = {
@@ -222,6 +224,9 @@ function computeUntrackedItem(policy: ResolvedPolicyOverlay): AvailabilityItemRe
     isAuthoritative: true,
     policySourceId: policy.isStockManaged.policySourceId,
   }
+  if (!policy.isActive.value) {
+    return { ...base, state: 'out_of_stock', canFulfil: false, policySourceId: policy.isActive.policySourceId }
+  }
   const preorderReleaseAt = policy.preorderReleaseAt.value
   if (preorderReleaseAt && preorderReleaseAt.getTime() > Date.now()) {
     return {
@@ -230,9 +235,6 @@ function computeUntrackedItem(policy: ResolvedPolicyOverlay): AvailabilityItemRe
       releaseAt: preorderReleaseAt.toISOString(),
       policySourceId: policy.preorderReleaseAt.policySourceId,
     }
-  }
-  if (!policy.isActive.value) {
-    return { ...base, state: 'out_of_stock', canFulfil: false, policySourceId: policy.isActive.policySourceId }
   }
   return base
 }

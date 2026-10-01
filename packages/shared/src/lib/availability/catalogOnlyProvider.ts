@@ -92,6 +92,12 @@ function applyPolicyMatrix(override: CatalogOnlyPolicyOverride | null | undefine
 
   const policySourceId = override.policySourceId ?? null
 
+  // An inactive row makes the item unpurchasable before any preorder date, exactly
+  // like the stock-tracked providers.
+  if (override.isActive === false) {
+    return { ...base, state: 'out_of_stock', canFulfil: false, policySourceId }
+  }
+
   if (override.preorderReleaseAt) {
     const releaseAt = new Date(override.preorderReleaseAt)
     if (!Number.isNaN(releaseAt.getTime()) && releaseAt.getTime() > Date.now()) {
@@ -103,10 +109,6 @@ function applyPolicyMatrix(override: CatalogOnlyPolicyOverride | null | undefine
         policySourceId,
       }
     }
-  }
-
-  if (override.isActive === false) {
-    return { ...base, state: 'out_of_stock', canFulfil: false, policySourceId }
   }
 
   if (override.isStockManaged === true) {
