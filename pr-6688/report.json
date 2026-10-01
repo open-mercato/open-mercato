@@ -5,7 +5,7 @@
     "prNumber": 6688,
     "title": "feat(customers): configure and extend calendar event types",
     "branch": "feat/configurable-calendar-event-types",
-    "headSha": "7c2da640e51011ca99943c0ef319dbf50ecd1d9d"
+    "headSha": "7fd98c5a710bd5f373c41977646691e789dac24c"
   },
   "verdict": "PASS",
   "environment": {

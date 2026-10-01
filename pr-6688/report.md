@@ -2,7 +2,7 @@
 
 **Verdict:** ✅ PASS
 **Environment:** `http://127.0.0.1:5001` · role `admin` · browser `Playwright 1.61.1 / Chromium`
-**Verified:** `feat/configurable-calendar-event-types` @ `7c2da640e`
+**Verified:** `feat/configurable-calendar-event-types` @ `7fd98c5a7`
 
 ### Scenario (P1 — configurable calendar event types)
 
