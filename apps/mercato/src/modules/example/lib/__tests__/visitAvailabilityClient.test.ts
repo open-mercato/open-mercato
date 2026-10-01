@@ -38,6 +38,18 @@ describe('Visit preview interval timezone', () => {
     }
   })
 
+  it('sends the parent person or company so a new Visit resolves subjects in its organization', () => {
+    const entityId = '22222222-2222-4222-8222-222222222222'
+    const fromRelatedTo = new URL(visitAvailabilityRequestUrl({ ...values, relatedTo: { id: entityId, kind: 'person', label: 'Ada' } })!, 'http://localhost')
+    expect(fromRelatedTo.searchParams.get('entityId')).toBe(entityId)
+    const fromEntityId = new URL(visitAvailabilityRequestUrl({ ...values, entityId })!, 'http://localhost')
+    expect(fromEntityId.searchParams.get('entityId')).toBe(entityId)
+    for (const relatedTo of [null, undefined, { id: 'not-a-uuid' }, {}]) {
+      const url = new URL(visitAvailabilityRequestUrl({ ...values, relatedTo })!, 'http://localhost')
+      expect(url.searchParams.has('entityId')).toBe(false)
+    }
+  })
+
   it('uses a localized unnamed label rather than a UUID or exposing the selection id', () => {
     const id = '11111111-1111-4111-8111-111111111111'
     const message = visitAvailabilitySubjectMessage({ type: 'staff', id, displayName: id, status: 'unknown', reasonKey: null },

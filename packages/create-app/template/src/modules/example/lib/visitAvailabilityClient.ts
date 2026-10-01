@@ -21,6 +21,21 @@ function selectedIds(value: unknown, kind: 'staff' | 'resource'): string[] {
   }))]
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_PATTERN.test(value)
+}
+
+function parentEntityId(values: Readonly<Record<string, unknown>>): string | null {
+  if (isUuid(values.entityId)) return values.entityId
+  const relatedTo = values.relatedTo
+  if (relatedTo && typeof relatedTo === 'object' && isUuid((relatedTo as Record<string, unknown>).id)) {
+    return (relatedTo as Record<string, unknown>).id as string
+  }
+  return null
+}
+
 export function visitAvailabilityRequestUrl(values: Readonly<Record<string, unknown>>): string | null {
   const { date, startTime, endDate, endTime } = values
   if ([date, startTime, endDate, endTime].some((value) => typeof value !== 'string' || !value)) return null
@@ -31,7 +46,11 @@ export function visitAvailabilityRequestUrl(values: Readonly<Record<string, unkn
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) return null
   const query = new URLSearchParams({ startAt: start.toISOString(), endAt: end.toISOString() })
   const interactionId = typeof values.id === 'string' ? values.id.split(':')[0] : ''
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(interactionId)) query.set('excludeInteractionId', interactionId)
+  if (isUuid(interactionId)) query.set('excludeInteractionId', interactionId)
+  // The parent person/company owns the organization the subjects must be resolved
+  // in; without it a create preview falls back to the caller's selected one.
+  const entityId = parentEntityId(values)
+  if (entityId) query.set('entityId', entityId)
   const staffUserIds = selectedIds(values.participants, 'staff')
   const resourceIds = selectedIds(values.resources, 'resource')
   if (staffUserIds.length) query.set('staffUserIds', staffUserIds.join(','))
@@ -42,7 +61,7 @@ export function visitAvailabilityRequestUrl(values: Readonly<Record<string, unkn
 function displayLabel(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null
   const label = value.trim()
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(label) ? null : label
+  return UUID_PATTERN.test(label) ? null : label
 }
 
 export function visitAvailabilitySubjectMessage(subject: VisitAvailabilitySubject, values: Readonly<Record<string, unknown>>, translate: TranslateFn): string {

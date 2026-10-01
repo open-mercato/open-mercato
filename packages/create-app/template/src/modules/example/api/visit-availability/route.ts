@@ -15,6 +15,7 @@ const querySchema = z.object({
   staffUserIds: z.string().optional(),
   resourceIds: z.string().optional(),
   excludeInteractionId: z.string().uuid().optional(),
+  entityId: z.string().uuid().optional(),
 })
 
 export const metadata = {
@@ -46,13 +47,23 @@ export async function GET(request: Request) {
           ? [auth.orgId]
           : []
     let organizationId = scope?.selectedId ?? auth.orgId ?? null
-    if (input.excludeInteractionId) {
+    // The parent record owns the organization, not the caller's selection: with
+    // "All organizations" (or another organization) selected, resolving subjects in
+    // the caller's own organization reports them as inactive and blocks a save the
+    // server would accept. The edited event supplies `excludeInteractionId`; a new
+    // one supplies the parent `entityId`.
+    const ownerLookup = input.excludeInteractionId
+      ? { entity: 'customers:customer_interaction' as const, id: input.excludeInteractionId }
+      : query.entityId
+        ? { entity: 'customers:customer_entity' as const, id: query.entityId }
+        : null
+    if (ownerLookup) {
       const queryEngine = resolveVisitService<QueryEngine>(container, 'queryEngine')
       if (!queryEngine) return NextResponse.json({ error: 'example.calendar.visitAvailability.retry' }, { status: 503 })
-      const result = await queryEngine.query<Record<string, unknown>>('customers:customer_interaction', {
+      const result = await queryEngine.query<Record<string, unknown>>(ownerLookup.entity, {
         tenantId: auth.tenantId,
         ...(allowedOrganizationIds === null || auth.isSuperAdmin ? {} : { organizationIds: allowedOrganizationIds }),
-        filters: { id: input.excludeInteractionId, deleted_at: null },
+        filters: { id: ownerLookup.id, deleted_at: null },
         fields: ['id', 'organization_id'],
         page: { page: 1, pageSize: 1 },
       })
@@ -87,7 +98,7 @@ export async function GET(request: Request) {
     })
     return NextResponse.json({ subjects, warnings: visitAvailabilityWarnings() })
   } catch (error) {
-    if (error instanceof z.ZodError) return NextResponse.json({ error: 'Invalid availability query' }, { status: 400 })
+    if (error instanceof z.ZodError) return NextResponse.json({ error: 'example.calendar.visitAvailability.invalidInterval' }, { status: 400 })
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     return NextResponse.json({ error: 'example.calendar.visitAvailability.retry' }, { status: 503 })
   }

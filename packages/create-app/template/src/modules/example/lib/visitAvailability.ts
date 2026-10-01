@@ -79,7 +79,7 @@ async function list(queryEngine: QueryEngine, entity: `${string}:${string}`, sco
     fields,
     page: { page: 1, pageSize: 100 },
   })
-  if (result.total > 100) throw new Error('visit_availability_result_limit')
+  if (result.total > 100) throw new Error('[internal] visit_availability_result_limit')
   return result.items
 }
 
@@ -95,11 +95,11 @@ async function listAll(queryEngine: QueryEngine, entity: `${string}:${string}`, 
       page: { page, pageSize: 100 },
     })
     if (!Number.isFinite(result.total) || result.total < 0 || result.items.length > 100) {
-      throw new Error('visit_availability_result_limit')
+      throw new Error('[internal] visit_availability_result_limit')
     }
     rows.push(...result.items)
     if (rows.length >= result.total) return rows
-    if (!result.items.length) throw new Error('visit_availability_incomplete_page')
+    if (!result.items.length) throw new Error('[internal] visit_availability_incomplete_page')
   }
 }
 

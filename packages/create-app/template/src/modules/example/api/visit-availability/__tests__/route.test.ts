@@ -26,6 +26,7 @@ import { GET } from '../route'
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const RESOURCE_ID = '33333333-3333-4333-8333-333333333333'
 const INTERACTION_ID = '44444444-4444-4444-8444-444444444444'
+const ENTITY_ID = '55555555-5555-4555-8555-555555555555'
 
 describe('GET visit availability', () => {
   beforeEach(() => {
@@ -93,6 +94,45 @@ describe('GET visit availability', () => {
     query.mockResolvedValue({ items: [], total: 0 })
     const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&excludeInteractionId=${INTERACTION_ID}`))
     expect(response.status).toBe(404)
+    expect(evaluateVisitAvailability).not.toHaveBeenCalled()
+  })
+
+  it('evaluates a new Visit in the parent entity organization, not the selected one', async () => {
+    resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: 'organization-a', allowedIds: ['organization-a', 'organization-b'], tenantId: 'tenant' })
+    query.mockResolvedValue({ items: [{ id: ENTITY_ID, organization_id: 'organization-b' }], total: 1 })
+    const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&entityId=${ENTITY_ID}&staffUserIds=${USER_ID}`))
+    expect(response.status).toBe(200)
+    expect(query).toHaveBeenCalledWith('customers:customer_entity', expect.objectContaining({
+      tenantId: 'tenant', organizationIds: ['organization-a', 'organization-b'],
+      filters: { id: ENTITY_ID, deleted_at: null },
+    }))
+    expect(userHasAllFeatures).toHaveBeenCalledWith(USER_ID, ['customers.interactions.manage'], {
+      tenantId: 'tenant', organizationId: 'organization-b',
+    })
+    expect(evaluateVisitAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { tenantId: 'tenant', organizationId: 'organization-b' },
+    }))
+  })
+
+  it('prefers the edited interaction over the parent entity when both are supplied', async () => {
+    query.mockResolvedValue({ items: [{ id: INTERACTION_ID, organization_id: 'organization' }], total: 1 })
+    const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&entityId=${ENTITY_ID}&excludeInteractionId=${INTERACTION_ID}`))
+    expect(response.status).toBe(200)
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(query).toHaveBeenCalledWith('customers:customer_interaction', expect.anything())
+  })
+
+  it('rejects a parent entity outside the allowed organization set', async () => {
+    resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: 'organization-a', allowedIds: ['organization-a'], tenantId: 'tenant' })
+    query.mockResolvedValue({ items: [], total: 0 })
+    const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&entityId=${ENTITY_ID}`))
+    expect(response.status).toBe(404)
+    expect(evaluateVisitAvailability).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed parent entity id', async () => {
+    const response = await GET(new Request('http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&entityId=not-a-uuid'))
+    expect(response.status).toBe(400)
     expect(evaluateVisitAvailability).not.toHaveBeenCalled()
   })
 

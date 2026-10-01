@@ -6,66 +6,50 @@ import type {
 } from '@open-mercato/shared/lib/commands'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
-import { evaluateVisitAvailability, visitAvailabilityInputSchema, type VisitAvailabilitySubject } from './visitAvailability'
+import type { CalendarEventTypeBehavior } from '@open-mercato/core/modules/customers/calendar-event-types'
+import { evaluateVisitAvailability, type VisitAvailabilitySubject } from './visitAvailability'
+import {
+  VISIT_INTERACTION_FIELDS,
+  VISIT_TYPE_PROBE_FIELDS,
+  VisitAvailabilityDataError,
+  buildVisitAvailabilityCheck,
+  hasAvailabilityChange,
+  requiresVisitAvailabilityCheck,
+  resolveVisitBehavior,
+  resourceIds,
+  rowValue,
+  staffUserIds,
+  visitEnabledModules,
+  visitTypeKey,
+  type VisitRow,
+} from './visitAvailabilityDecision'
 
-type Row = Record<string, unknown>
+const RETRY_REASON_KEY = 'example.calendar.visitAvailability.retry'
 
-const INTERACTION_FIELDS = [
-  'id',
-  'tenant_id',
-  'organization_id',
-  'participants',
-  'owner_user_id',
-  'linked_entities',
-]
-
-function value(row: Row, camel: string, snake: string): unknown {
-  return row[camel] ?? row[snake]
-}
-
-function arrayValue(raw: unknown): unknown[] {
-  if (Array.isArray(raw)) return raw
-  if (typeof raw !== 'string') return []
-  const parsed: unknown = JSON.parse(raw)
-  return Array.isArray(parsed) ? parsed : []
-}
-
-function staffUserIds(participants: unknown, ownerUserId: unknown): string[] {
-  const ids = arrayValue(participants).flatMap((item) => {
-    if (!item || typeof item !== 'object') return []
-    const participant = item as Row
-    return participant.isCustomer !== true && participant.status !== 'customer' && typeof participant.userId === 'string'
-      ? [participant.userId]
-      : []
+function retryError(cause?: unknown): CommandInterceptorError {
+  return new CommandInterceptorError(RETRY_REASON_KEY, {
+    status: 503,
+    body: { error: RETRY_REASON_KEY, code: 'visit_availability_unavailable' },
+    ...(cause === undefined ? {} : { cause }),
   })
-  if (typeof ownerUserId === 'string') ids.push(ownerUserId)
-  return [...new Set(ids)]
-}
-
-function resourceIds(links: unknown): string[] {
-  return [...new Set(arrayValue(links).flatMap((item) => {
-    if (!item || typeof item !== 'object') return []
-    const link = item as Row
-    return link.type === 'resource' && typeof link.id === 'string' ? [link.id] : []
-  }))]
 }
 
 function subjectLockKeys(args: {
   tenantId: string
   organizationId: string
-  input: Row
-  existing?: Row | null
+  input: VisitRow
+  existing?: VisitRow | null
 }): string[] {
   const { tenantId, organizationId, input, existing } = args
-  const existingParticipants = value(existing ?? {}, 'participants', 'participants')
-  const existingOwnerUserId = value(existing ?? {}, 'ownerUserId', 'owner_user_id')
-  const existingLinks = value(existing ?? {}, 'linkedEntities', 'linked_entities')
+  const existingParticipants = rowValue(existing ?? {}, 'participants', 'participants')
+  const existingOwnerUserId = rowValue(existing ?? {}, 'ownerUserId', 'owner_user_id')
+  const existingLinks = rowValue(existing ?? {}, 'linkedEntities', 'linked_entities')
   const nextParticipants = 'participants' in input ? input.participants : existingParticipants
   const nextOwnerUserId = 'ownerUserId' in input || 'owner_user_id' in input
-    ? value(input, 'ownerUserId', 'owner_user_id')
+    ? rowValue(input, 'ownerUserId', 'owner_user_id')
     : existingOwnerUserId
   const nextLinks = 'linkedEntities' in input || 'linked_entities' in input
-    ? value(input, 'linkedEntities', 'linked_entities')
+    ? rowValue(input, 'linkedEntities', 'linked_entities')
     : existingLinks
   const prefix = `example:visit-booking:${tenantId}:${organizationId}`
   const staffIds = new Set([
@@ -87,10 +71,14 @@ async function acquireLocks(em: EntityManager, keys: string[]): Promise<void> {
     throw new Error('[internal] Visit booking locks require an active transaction')
   }
   for (const key of keys) {
-    await em.execute(
-      'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
-      [key],
-    )
+    try {
+      await em.execute(
+        'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
+        [key],
+      )
+    } catch (cause) {
+      throw retryError(cause)
+    }
   }
 }
 
@@ -105,85 +93,70 @@ async function loadInteraction(
   tenantId: string,
   id: string,
   options: CommandExecutionOptions<unknown>,
-): Promise<Row | null> {
+  fields: readonly string[],
+): Promise<VisitRow | null> {
   const queryEngine = new BasicQueryEngine(em)
   const organizationIds = scopedOrganizationIds(options)
-  const result = await queryEngine.query<Row>('customers:customer_interaction', {
-    tenantId,
-    ...(organizationIds === null ? {} : { organizationIds }),
-    filters: { id, deleted_at: null },
-    fields: INTERACTION_FIELDS,
-    page: { page: 1, pageSize: 1 },
-  })
-  return result.items[0] ?? null
-}
-
-function nextValue(input: Row, existing: Row | null, camel: string, snake: string): unknown {
-  return camel in input || snake in input ? value(input, camel, snake) : value(existing ?? {}, camel, snake)
+  try {
+    const result = await queryEngine.query<VisitRow>('customers:customer_interaction', {
+      tenantId,
+      ...(organizationIds === null ? {} : { organizationIds }),
+      filters: { id, deleted_at: null },
+      fields: [...fields],
+      page: { page: 1, pageSize: 1 },
+    })
+    return result.items[0] ?? null
+  } catch (cause) {
+    throw retryError(cause)
+  }
 }
 
 async function assertVisitAvailable(
   em: EntityManager,
   tenantId: string,
   organizationId: string,
-  input: Row,
-  existing: Row | null,
+  input: VisitRow,
+  existing: VisitRow | null,
+  behavior: CalendarEventTypeBehavior | null,
   options: CommandExecutionOptions<unknown>,
 ): Promise<void> {
-  const interactionType = value(input, 'interactionType', 'interaction_type')
-    ?? value(existing ?? {}, 'interactionType', 'interaction_type')
-  if (interactionType !== 'visit') return
-  const scheduledAt = nextValue(input, existing, 'scheduledAt', 'scheduled_at')
-  const durationMinutes = nextValue(input, existing, 'durationMinutes', 'duration_minutes')
-  const allDay = nextValue(input, existing, 'allDay', 'all_day')
-  const recurrenceRule = nextValue(input, existing, 'recurrenceRule', 'recurrence_rule')
-  if (allDay === true || recurrenceRule || typeof durationMinutes !== 'number' || !Number.isInteger(durationMinutes) || durationMinutes <= 0) return
-  const start = scheduledAt instanceof Date ? scheduledAt : new Date(typeof scheduledAt === 'string' ? scheduledAt : '')
-  if (Number.isNaN(start.getTime())) return
-  const participants = nextValue(input, existing, 'participants', 'participants')
-  const links = nextValue(input, existing, 'linkedEntities', 'linked_entities')
-  const subjects: VisitAvailabilitySubject[] = [
-    ...staffUserIds(participants, null).map((id): VisitAvailabilitySubject => ({ type: 'staff', id, status: 'available', reasonKey: null })),
-    ...resourceIds(links).map((id): VisitAvailabilitySubject => ({ type: 'resource', id, status: 'available', reasonKey: null })),
-  ]
-  if (!subjects.length) return
-  const parsed = visitAvailabilityInputSchema.safeParse({
-    startAt: start.toISOString(),
-    endAt: new Date(start.getTime() + durationMinutes * 60000).toISOString(),
-    staffUserIds: subjects.filter((subject) => subject.type === 'staff').map((subject) => subject.id),
-    resourceIds: subjects.filter((subject) => subject.type === 'resource').map((subject) => subject.id),
-    ...(typeof existing?.id === 'string' ? { excludeInteractionId: existing.id } : {}),
+  const decision = buildVisitAvailabilityCheck({
+    input,
+    existing,
+    behavior,
+    enabledModules: visitEnabledModules(),
   })
-  if (!parsed.success) return
-  const actorUserId = options.ctx.auth?.sub
-  if (!actorUserId) {
-    const reasonKey = 'example.calendar.visitAvailability.retry'
+  if (decision.kind === 'skip') return
+  if (decision.kind === 'retry') throw retryError()
+  if (decision.kind === 'invalidInterval') {
+    const reasonKey = 'example.calendar.visitAvailability.invalidInterval'
     throw new CommandInterceptorError(reasonKey, {
-      status: 503,
-      body: { error: reasonKey, code: 'visit_availability_unavailable' },
+      status: 422,
+      body: {
+        error: reasonKey,
+        code: 'visit_availability_unavailable',
+        fieldErrors: { scheduledAt: reasonKey, durationMinutes: reasonKey },
+      },
     })
   }
+  const actorUserId = options.ctx.auth?.sub
+  if (!actorUserId) throw retryError()
   let results: VisitAvailabilitySubject[]
   try {
     results = await evaluateVisitAvailability({
       container: options.ctx.container,
       actorUserId,
       scope: { tenantId, organizationId },
-      input: parsed.data,
+      input: decision.input,
       queryEngine: new BasicQueryEngine(em),
     })
   } catch (cause) {
-    const reasonKey = 'example.calendar.visitAvailability.retry'
-    throw new CommandInterceptorError(reasonKey, {
-      status: 503,
-      body: { error: reasonKey, code: 'visit_availability_unavailable' },
-      cause,
-    })
+    throw retryError(cause)
   }
   const failure = results.find((subject) => subject.status === 'unknown')
     ?? results.find((subject) => subject.status === 'unavailable')
   if (!failure) return
-  const reasonKey = failure.reasonKey ?? 'example.calendar.visitAvailability.retry'
+  const reasonKey = failure.reasonKey ?? RETRY_REASON_KEY
   const unavailable = results.filter((subject) => subject.status !== 'available')
   throw new CommandInterceptorError(reasonKey, {
     status: reasonKey === 'example.calendar.visitAvailability.missingScope'
@@ -215,28 +188,52 @@ export function createVisitBookingSerializingCommandBus(args: {
     if (!options.input || typeof options.input !== 'object') {
       return commandBus.execute<TInput, TResult>(commandId, options)
     }
-    const originalInput = options.input as Row
+    const originalInput = options.input as VisitRow
+    const updating = commandId === 'customers.interactions.update'
 
     const writeEm = options.ctx.transactionalEm ?? em
     const previousBeforeWrite = options.ctx.beforeTransactionalWrite
     const beforeTransactionalWrite = async (lockEm: EntityManager, effectiveInput?: unknown) => {
       await previousBeforeWrite?.(lockEm, effectiveInput)
       const input = effectiveInput && typeof effectiveInput === 'object'
-        ? effectiveInput as Row
+        ? effectiveInput as VisitRow
         : originalInput
-      const tenantId = options.ctx.auth?.tenantId ?? value(input, 'tenantId', 'tenant_id')
+      const tenantId = options.ctx.auth?.tenantId ?? rowValue(input, 'tenantId', 'tenant_id')
       if (typeof tenantId !== 'string') return
-      let existing: Row | null = null
-      if (commandId === 'customers.interactions.update') {
+      // Non-Visit writes must not pay for an advisory lock or a record read: every
+      // interaction of every type in every tenant goes through this wrapper.
+      const suppliedType = visitTypeKey(rowValue(input, 'interactionType', 'interaction_type'))
+      if (suppliedType !== null && suppliedType !== 'visit') return
+      if (!updating && suppliedType !== 'visit') return
+      let probe: VisitRow | null = null
+      if (updating) {
         const interactionId = input.id
         if (typeof interactionId !== 'string') return
-        await acquireLocks(lockEm, [`example:visit-booking:${tenantId}:interaction:${interactionId}`])
-        existing = await loadInteraction(lockEm, tenantId, interactionId, options as CommandExecutionOptions<unknown>)
+        if (!hasAvailabilityChange(input)) return
+        probe = await loadInteraction(lockEm, tenantId, interactionId, options as CommandExecutionOptions<unknown>, VISIT_TYPE_PROBE_FIELDS)
+        if (suppliedType !== 'visit' && visitTypeKey(rowValue(probe ?? {}, 'interactionType', 'interaction_type')) !== 'visit') return
       }
-      const organizationId = value(existing ?? input, 'organizationId', 'organization_id')
+      const organizationId = rowValue(probe ?? input, 'organizationId', 'organization_id')
         ?? options.ctx.selectedOrganizationId
         ?? options.ctx.auth?.orgId
       if (typeof organizationId !== 'string') return
+      // Resolved before any advisory lock: the catalog service reads through the
+      // request container's own EntityManager, so doing it under the locks would
+      // hold them while waiting on a second pool connection.
+      let behavior: CalendarEventTypeBehavior | null
+      try {
+        behavior = await resolveVisitBehavior(options.ctx.container, tenantId, organizationId)
+      } catch (cause) {
+        throw retryError(cause)
+      }
+      let existing: VisitRow | null = null
+      if (updating && typeof input.id === 'string') {
+        await acquireLocks(lockEm, [`example:visit-booking:${tenantId}:interaction:${input.id}`])
+        existing = await loadInteraction(lockEm, tenantId, input.id, options as CommandExecutionOptions<unknown>, VISIT_INTERACTION_FIELDS)
+      }
+      const required = requiresVisitAvailabilityCheck({ updating, input, existing })
+      if (required === 'skip') return
+      if (required === 'retry') throw retryError()
       await acquireLocks(lockEm, subjectLockKeys({ tenantId, organizationId, input, existing }))
       await assertVisitAvailable(
         lockEm,
@@ -244,6 +241,7 @@ export function createVisitBookingSerializingCommandBus(args: {
         organizationId,
         input,
         existing,
+        behavior,
         options as CommandExecutionOptions<unknown>,
       )
     }
@@ -252,7 +250,14 @@ export function createVisitBookingSerializingCommandBus(args: {
       ctx: {
         ...options.ctx,
         transactionalEm: writeEm,
-        beforeTransactionalWrite,
+        beforeTransactionalWrite: async (lockEm: EntityManager, effectiveInput?: unknown) => {
+          try {
+            await beforeTransactionalWrite(lockEm, effectiveInput)
+          } catch (error) {
+            if (error instanceof VisitAvailabilityDataError) throw retryError(error)
+            throw error
+          }
+        },
       },
     })
   }

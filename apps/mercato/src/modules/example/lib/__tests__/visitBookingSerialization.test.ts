@@ -3,6 +3,7 @@ import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/c
 import { createVisitBookingSerializingCommandBus } from '../visitBookingSerialization'
 
 const mockEvaluateVisitAvailability = jest.fn()
+const mockQuery = jest.fn()
 
 jest.mock('../visitAvailability', () => {
   const actual = jest.requireActual('../visitAvailability')
@@ -11,6 +12,47 @@ jest.mock('../visitAvailability', () => {
     evaluateVisitAvailability: (...args: unknown[]) => mockEvaluateVisitAvailability(...args),
   }
 })
+
+jest.mock('@open-mercato/shared/security/enabledModulesRegistry', () => ({
+  getEnabledModuleIds: jest.fn(() => ['customers', 'example', 'staff', 'resources', 'planner']),
+  hasEnabledModulesRegistry: jest.fn(() => true),
+}))
+
+jest.mock('@open-mercato/shared/lib/query/engine', () => ({
+  BasicQueryEngine: class {
+    query(...args: unknown[]) {
+      return mockQuery(...args)
+    }
+  },
+}))
+
+const VISIT_BEHAVIOR = {
+  schemaVersion: 1 as const,
+  baseKind: 'event' as const,
+  selectable: true,
+  order: 450,
+  fields: {
+    endTime: true,
+    allDay: false,
+    recurrence: false,
+    location: 'location' as const,
+    people: 'recipients' as const,
+    priority: false,
+    resources: true as const,
+  },
+  customFieldsetIds: [],
+}
+
+function visitContainer() {
+  return {
+    resolve: (token: string) => {
+      if (token === 'calendarEventTypeCatalogService') {
+        return { resolveBehavior: async () => VISIT_BEHAVIOR }
+      }
+      return undefined
+    },
+  }
+}
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const MODIFIED_USER_ID = '55555555-5555-4555-8555-555555555555'
@@ -140,7 +182,7 @@ describe('Visit booking command serialization', () => {
       selectedOrganizationId: ORGANIZATION_ID,
       organizationIds: [ORGANIZATION_ID],
       organizationScope: null,
-      container: { resolve: () => undefined },
+      container: visitContainer(),
     }
     const first = createVisitBookingSerializingCommandBus({
       commandBus: createContendingCommandBus(state, transactionContexts, sideEffectStates) as never,
@@ -253,7 +295,7 @@ describe('Visit booking command serialization', () => {
         selectedOrganizationId: ORGANIZATION_ID,
         organizationIds: [ORGANIZATION_ID],
         organizationScope: null,
-        container: { resolve: () => undefined },
+        container: visitContainer(),
       } as never,
     })).rejects.toMatchObject({
       status: 422,
@@ -275,5 +317,180 @@ describe('Visit booking command serialization', () => {
       input: expect.objectContaining({ staffUserIds: [MODIFIED_USER_ID] }),
       queryEngine: expect.anything(),
     }))
+  })
+
+  describe('update path', () => {
+    const INTERACTION_ID = '66666666-6666-4666-8666-666666666666'
+
+    function storedVisit(overrides: Record<string, unknown> = {}) {
+      return {
+        id: INTERACTION_ID,
+        tenant_id: TENANT_ID,
+        organization_id: ORGANIZATION_ID,
+        interaction_type: 'visit',
+        status: 'planned',
+        scheduled_at: '2026-10-01T09:00:00.000Z',
+        duration_minutes: 60,
+        participants: [{ userId: USER_ID }],
+        linked_entities: [],
+        all_day: false,
+        recurrence_rule: null,
+        owner_user_id: null,
+        updated_at: '2026-09-30T09:00:00.000Z',
+        ...overrides,
+      }
+    }
+
+    function updateContext() {
+      return {
+        auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID },
+        selectedOrganizationId: ORGANIZATION_ID,
+        organizationIds: [ORGANIZATION_ID],
+        organizationScope: null,
+        container: visitContainer(),
+      }
+    }
+
+    afterEach(() => {
+      commandRegistry.unregister('customers.interactions.update')
+    })
+
+    it('re-checks a reschedule that never resends interactionType, so one of two concurrent writers loses', async () => {
+      const manager = new AdvisoryLockManager()
+      const acquiredKeys: string[] = []
+      const statements: string[] = []
+      const state = { bookings: 0 }
+      mockQuery.mockImplementation(async () => ({ items: [storedVisit()], total: 1 }))
+      mockEvaluateVisitAvailability.mockImplementation(async ({ input }: { input: { staffUserIds: string[] } }) =>
+        input.staffUserIds.map((id) => ({
+          type: 'staff',
+          id,
+          status: state.bookings > 0 ? 'unavailable' : 'available',
+          reasonKey: state.bookings > 0 ? 'example.calendar.visitAvailability.booked' : null,
+        })))
+      const input = { id: INTERACTION_ID, scheduledAt: new Date('2026-10-01T11:00:00.000Z'), durationMinutes: 30 }
+      const first = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus(state, [], []) as never,
+        em: lockingEntityManager(manager, acquiredKeys, statements) as never,
+      })
+      const second = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus(state, [], []) as never,
+        em: lockingEntityManager(manager, acquiredKeys, statements) as never,
+      })
+
+      const outcomes = await Promise.allSettled([
+        first.execute('customers.interactions.update', { input, ctx: updateContext() as never }),
+        second.execute('customers.interactions.update', { input, ctx: updateContext() as never }),
+      ])
+
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+      expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1)
+      expect(state.bookings).toBe(1)
+      expect(mockEvaluateVisitAvailability).toHaveBeenCalledTimes(2)
+      // Attempt order across the two request containers is scheduler-dependent;
+      // what matters is that each writer took both the record and the subject lock.
+      expect(acquiredKeys.filter((key) => key === `example:visit-booking:${TENANT_ID}:interaction:${INTERACTION_ID}`)).toHaveLength(2)
+      expect(acquiredKeys.filter((key) => key === `example:visit-booking:${TENANT_ID}:${ORGANIZATION_ID}:staff:${USER_ID}`)).toHaveLength(2)
+      expect(acquiredKeys).toHaveLength(4)
+    })
+
+    it('re-checks a reactivation that only flips status back to planned', async () => {
+      const manager = new AdvisoryLockManager()
+      mockQuery.mockImplementation(async () => ({ items: [storedVisit({ status: 'canceled' })], total: 1 }))
+      mockEvaluateVisitAvailability.mockResolvedValue([
+        { type: 'staff', id: USER_ID, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+      ])
+      const bus = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
+        em: lockingEntityManager(manager, [], []) as never,
+      })
+      await expect(bus.execute('customers.interactions.update', {
+        input: { id: INTERACTION_ID, status: 'planned' },
+        ctx: updateContext() as never,
+      })).rejects.toMatchObject({ status: 422, body: { code: 'visit_availability_unavailable' } })
+      expect(mockEvaluateVisitAvailability).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not re-check a canceled Visit whose payload only changes the title', async () => {
+      const manager = new AdvisoryLockManager()
+      mockQuery.mockImplementation(async () => ({ items: [storedVisit({ status: 'canceled' })], total: 1 }))
+      const bus = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
+        em: lockingEntityManager(manager, [], []) as never,
+      })
+      await expect(bus.execute('customers.interactions.update', {
+        input: {
+          id: INTERACTION_ID,
+          title: 'Renamed',
+          status: 'canceled',
+          scheduledAt: new Date('2026-10-01T09:00:00.000Z'),
+          durationMinutes: 60,
+          participants: [{ userId: USER_ID }],
+        },
+        ctx: updateContext() as never,
+      })).resolves.toBeDefined()
+      expect(mockEvaluateVisitAvailability).not.toHaveBeenCalled()
+    })
+
+    it('takes no lock and reads no record for a non-Visit interaction write', async () => {
+      const manager = new AdvisoryLockManager()
+      const acquiredKeys: string[] = []
+      mockQuery.mockImplementation(async () => ({ items: [storedVisit({ interaction_type: 'task' })], total: 1 }))
+      const bus = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
+        em: lockingEntityManager(manager, acquiredKeys, []) as never,
+      })
+      await expect(bus.execute('customers.interactions.update', {
+        input: { id: INTERACTION_ID, interactionType: 'task', scheduledAt: new Date('2026-10-01T11:00:00.000Z') },
+        ctx: updateContext() as never,
+      })).resolves.toBeDefined()
+      expect(mockQuery).not.toHaveBeenCalled()
+      expect(acquiredKeys).toEqual([])
+      expect(mockEvaluateVisitAvailability).not.toHaveBeenCalled()
+    })
+
+    it('takes no subject lock when the stored row is not a Visit and the payload omits the type', async () => {
+      const manager = new AdvisoryLockManager()
+      const acquiredKeys: string[] = []
+      mockQuery.mockImplementation(async () => ({ items: [storedVisit({ interaction_type: 'task' })], total: 1 }))
+      const bus = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
+        em: lockingEntityManager(manager, acquiredKeys, []) as never,
+      })
+      await expect(bus.execute('customers.interactions.update', {
+        input: { id: INTERACTION_ID, scheduledAt: new Date('2026-10-01T11:00:00.000Z') },
+        ctx: updateContext() as never,
+      })).resolves.toBeDefined()
+      expect(mockQuery).toHaveBeenCalledTimes(1)
+      expect(acquiredKeys).toEqual([])
+      expect(mockEvaluateVisitAvailability).not.toHaveBeenCalled()
+    })
+
+    it('reports a retryable 503 instead of a 500 when the locked record read fails', async () => {
+      const manager = new AdvisoryLockManager()
+      mockQuery.mockRejectedValue(new Error('connection reset'))
+      const bus = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
+        em: lockingEntityManager(manager, [], []) as never,
+      })
+      await expect(bus.execute('customers.interactions.update', {
+        input: { id: INTERACTION_ID, scheduledAt: new Date('2026-10-01T11:00:00.000Z') },
+        ctx: updateContext() as never,
+      })).rejects.toMatchObject({ status: 503, body: { code: 'visit_availability_unavailable' } })
+    })
+
+    it('reports a retryable 503 instead of a 500 when a stored JSON column is corrupt', async () => {
+      const manager = new AdvisoryLockManager()
+      mockQuery.mockImplementation(async () => ({ items: [storedVisit({ participants: '{not json' })], total: 1 }))
+      const bus = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
+        em: lockingEntityManager(manager, [], []) as never,
+      })
+      await expect(bus.execute('customers.interactions.update', {
+        input: { id: INTERACTION_ID, scheduledAt: new Date('2026-10-01T11:00:00.000Z') },
+        ctx: updateContext() as never,
+      })).rejects.toMatchObject({ status: 503, body: { code: 'visit_availability_unavailable' } })
+      expect(mockEvaluateVisitAvailability).not.toHaveBeenCalled()
+    })
   })
 })
