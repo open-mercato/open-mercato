@@ -1,0 +1,80 @@
+{
+  "runId": "20261001-pr-6688",
+  "mode": "pr",
+  "target": {
+    "prNumber": 6688,
+    "title": "feat(customers): configure and extend calendar event types",
+    "branch": "feat/configurable-calendar-event-types",
+    "headSha": "24658c68574d7d655314da063bd017ac67320dad"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "admin",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Open the calendar and launch the new-event editor.",
+      "expected": "All configured built-in and module-provided event types are selectable.",
+      "observed": "Meeting, Call, Email, Note, Event, Visit, and Task were present and selectable.",
+      "result": "PASS",
+      "screenshot": "01-calendar-desktop.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "Select Visit in the event editor.",
+      "expected": "Visit-specific labels and the availability extension render.",
+      "observed": "The To recipient field and live 'Selected staff and resources are available' result rendered.",
+      "result": "PASS",
+      "screenshot": "02-visit-editor-desktop.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "Link a customer, save the Visit, and return to the calendar.",
+      "expected": "The create request succeeds and the Visit appears on the calendar.",
+      "observed": "The create endpoint returned success, the editor closed, and the saved Visit appeared in the calendar.",
+      "result": "PASS",
+      "screenshot": "03-visit-saved-desktop.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "Open Calendar settings and follow Manage activity types.",
+      "expected": "The control links to the organization-scoped activity-type catalog.",
+      "observed": "The link resolved to /backend/config/customers#customer-dictionary-activity-types and loaded the catalog.",
+      "result": "PASS",
+      "screenshot": "04-calendar-settings-desktop.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "Inspect the activity-type catalog and open New activity type.",
+      "expected": "Built-in and module types are listed and the grouped configuration form opens.",
+      "observed": "All seven types, including example-provided Visit, appeared; Appearance, Form behavior, and Custom-field fieldsets groups loaded.",
+      "result": "PASS",
+      "screenshot": "06-new-activity-type-desktop.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Open the Visit editor at a 390x844 viewport.",
+      "expected": "The full-screen mobile editor remains usable with fixed actions.",
+      "observed": "Type controls, scheduling fields, Visit fields, Cancel, and Save event remained reachable without a runtime error.",
+      "result": "PASS",
+      "screenshot": "07-visit-editor-mobile.png"
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "No console errors, page errors, or genuine failed requests occurred during the completed run.",
+    "The real PostgreSQL/HTTP TC-EXAMPLE-018 suite passed all 9 scenarios, including concurrent staff and resource Visit booking races.",
+    "Expected Next.js prefetch cancellations reported as net::ERR_ABORTED during navigation were excluded from failed-request results.",
+    "The PR includes browser-level integration coverage under customers and the example Visit module, so no follow-up test scenario is required."
+  ]
+}
