@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { sql } from 'kysely'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
+import { ensureAttachmentPartitionProtection } from '../lib/access-protection'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { extractAttachmentContent } from '../lib/textExtraction'
@@ -422,6 +423,7 @@ export async function POST(req: Request) {
   if (!partition) {
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
+  await ensureAttachmentPartitionProtection(em, partition)
   const requestedPublicOverride =
     typeof partitionOverride === 'string' &&
     partitionOverride.length > 0 &&

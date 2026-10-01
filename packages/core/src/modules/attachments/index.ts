@@ -34,3 +34,4 @@ export type {
   ProtectedAttachmentTarget,
 } from './lib/access-types'
 export { registerAttachmentAccessResolvers } from './lib/access-registry'
+export { syncAttachmentAccessProtection } from './lib/access-protection'

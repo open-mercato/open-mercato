@@ -7,6 +7,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
 import { resolvePartitionEnvKey } from '../../lib/partitionEnv'
+import { getDeclaredAttachmentAccessRequirements } from '../../lib/access-protection'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveDefaultAttachmentOcrEnabled } from '../../lib/ocrConfig'
 import {
@@ -127,6 +128,7 @@ export async function POST(req: Request) {
   }
   const entry = em.create(AttachmentPartition, {
     code,
+    accessResolverRequirements: getDeclaredAttachmentAccessRequirements(code),
     title: parsed.data.title.trim(),
     description: parsed.data.description?.trim() ?? null,
     storageDriver: parsed.data.storageDriver ?? 'local',
