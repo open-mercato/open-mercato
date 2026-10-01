@@ -267,6 +267,34 @@ for (const subjectType of ['staff', 'resource'] as const) {
         interactionIds.push(id)
         return id
       }
+      const concurrentResponses = await Promise.all([0, 1].map((index) => apiRequest(
+        request,
+        'POST',
+        '/api/customers/interactions',
+        {
+          token: authToken,
+          data: {
+            entityId: personId,
+            interactionType: 'visit',
+            title: `Concurrent Visit ${index} ${stamp}`,
+            scheduledAt: '2026-10-05T11:00:00Z',
+            durationMinutes: 30,
+            timezone: 'UTC',
+            ...selection,
+          },
+        },
+      )))
+      expect(concurrentResponses.map((response) => response.status()).sort((left, right) => left - right)).toEqual([201, 422])
+      let concurrentWinnerId: string | null = null
+      for (const response of concurrentResponses) {
+        const body = await response.json() as { id?: string; code?: string }
+        if (response.status() === 201 && body.id) {
+          concurrentWinnerId = body.id
+          interactionIds.push(body.id)
+        }
+        if (response.status() === 422) expect(body.code).toBe('visit_availability_unavailable')
+      }
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', concurrentWinnerId)
       const preview = async (startAt: string, endAt: string, status: string, reasonKey: string | null, excludeInteractionId?: string) => {
         const query = new URLSearchParams({ startAt, endAt, [subjectType === 'staff' ? 'staffUserIds' : 'resourceIds']: selectedId })
         if (excludeInteractionId) query.set('excludeInteractionId', excludeInteractionId)

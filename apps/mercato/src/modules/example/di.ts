@@ -1,4 +1,7 @@
 import type { CalendarEventTypeRegistry } from '@open-mercato/core/modules/customers/calendar-event-types'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import calendarVisitWidget from './widgets/injection/calendar-visit/widget'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -15,6 +18,7 @@ import { mockWebhookEndpointAdapter } from './lib/mock-webhook-endpoint-adapter'
 import { mockShippingAdapter } from './lib/mock-shipping-adapter'
 import { exampleCurrencyRateProvider } from './lib/mock-currency-rate-provider'
 import { registerCurrencyRateProvider } from '@open-mercato/core/modules/currencies/services/providers/registry'
+import { createVisitBookingSerializingCommandBus } from './lib/visitBookingSerialization'
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
   const data = payload?.data
@@ -39,6 +43,15 @@ export function register(container: AppContainer) {
     for (const definition of calendarVisitWidget.eventTypes) calendarRegistry.upsert('example', definition)
     for (const [key, definition] of Object.entries(calendarVisitWidget.eventTypeOverrides ?? {})) calendarRegistry.replace('example', key, definition)
     for (const patch of calendarVisitWidget.eventTypePatches ?? []) calendarRegistry.patch('example', patch)
+  }
+
+  if (container.hasRegistration('commandBus') && container.hasRegistration('em') && container.hasRegistration('queryEngine')) {
+    const commandBus = container.resolve<CommandBus>('commandBus')
+    const em = container.resolve<EntityManager>('em')
+    const queryEngine = container.resolve<QueryEngine>('queryEngine')
+    container.register({
+      commandBus: asValue(createVisitBookingSerializingCommandBus({ commandBus, em, queryEngine })),
+    })
   }
 
   // The module's own service registration, as opposed to the adapter-registry calls

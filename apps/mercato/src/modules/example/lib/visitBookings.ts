@@ -6,7 +6,8 @@ import { isCalendarTimezone } from '@open-mercato/core/modules/customers/lib/cal
 import type { VisitAvailabilityInput, VisitAvailabilitySubject } from './visitAvailability'
 
 type Row = Record<string, unknown>
-const MAX_BOOKING_RECORDS = 1000
+const MAX_RELEVANT_BOOKING_RECORDS = 1000
+const BOOKING_PAGE_SIZE = 100
 const MAX_SERIES_DAYS = 36600
 const MAX_SHORT_BOOKING_MINUTES = 2 * 24 * 60
 const fields = ['id', 'tenant_id', 'organization_id', 'deleted_at', 'status', 'interaction_type', 'scheduled_at', 'occurred_at', 'duration_minutes', 'timezone', 'all_day', 'participants', 'owner_user_id', 'linked_entities', 'recurrence_rule', 'recurrence_end']
@@ -47,8 +48,9 @@ export async function bookedVisitSubjects(args: {
   const shortBookingLowerBound = new Date(start.getTime() - MAX_SHORT_BOOKING_MINUTES * 60000).toISOString()
   const allDayUpperBound = new Date(end.getTime() + 2 * 86400000).toISOString()
   const booked = new Set<string>()
-  let scanned = 0
-  for (let page = 1; page <= MAX_BOOKING_RECORDS / 100; page += 1) {
+  let cursor: string | null = null
+  let relevantRecords = 0
+  while (true) {
     const result = await queryEngine.query<Row>('customers:customer_interaction', {
       tenantId: scope.tenantId, organizationId: scope.organizationId,
       filters: { deleted_at: null, status: { $ne: 'canceled' },
@@ -66,17 +68,24 @@ export async function bookedVisitSubjects(args: {
             { $or: [{ scheduled_at: { $lt: allDayUpperBound } }, { occurred_at: { $lt: allDayUpperBound } }] },
           ] },
         ],
-        ...(input.excludeInteractionId ? { id: { $ne: input.excludeInteractionId } } : {}),
+        ...((input.excludeInteractionId || cursor) ? { id: {
+          ...(input.excludeInteractionId ? { $ne: input.excludeInteractionId } : {}),
+          ...(cursor ? { $gt: cursor } : {}),
+        } } : {}),
       },
-      fields, sort: [{ field: 'id' }], page: { page, pageSize: 100 },
+      fields, sort: [{ field: 'id' }], page: { page: 1, pageSize: BOOKING_PAGE_SIZE },
     })
-    if (!Number.isFinite(result.total) || result.total > MAX_BOOKING_RECORDS || result.items.length > 100) throw new Error('[internal] Booking result limit')
+    if (!Number.isSafeInteger(result.total) || result.total < 0 || result.items.length > BOOKING_PAGE_SIZE) {
+      throw new Error('[internal] Booking result limit')
+    }
     for (const row of result.items) {
       if (row.id === input.excludeInteractionId || value(row, 'deletedAt', 'deleted_at') || row.status === 'canceled') continue
       if (typeof value(row, 'tenantId', 'tenant_id') === 'string' && value(row, 'tenantId', 'tenant_id') !== scope.tenantId) continue
       if (typeof value(row, 'organizationId', 'organization_id') === 'string' && value(row, 'organizationId', 'organization_id') !== scope.organizationId) continue
       const assigned = subjects.filter((subject) => assignedTo(row, subject))
       if (!assigned.length) continue
+      relevantRecords += 1
+      if (relevantRecords > MAX_RELEVANT_BOOKING_RECORDS) throw new Error('[internal] Booking result limit')
       const payload = calendarInteractionPayloadSchema.parse({
         id: row.id, interactionType: value(row, 'interactionType', 'interaction_type'), status: row.status,
         scheduledAt: dateValue(value(row, 'scheduledAt', 'scheduled_at')),
@@ -99,9 +108,16 @@ export async function bookedVisitSubjects(args: {
         assigned.forEach((subject) => booked.add(`${subject.type}:${subject.id}`))
       } else if (occurrences.length >= 100) throw new Error('[internal] Booking occurrence limit')
     }
-    scanned += result.items.length
-    if (scanned >= result.total) return booked
-    if (result.items.length === 0) throw new Error('[internal] Incomplete booking page')
+    if (booked.size === subjects.length) return booked
+    if (result.items.length === 0) {
+      if (result.total === 0) return booked
+      throw new Error('[internal] Incomplete booking page')
+    }
+    if (result.items.length < BOOKING_PAGE_SIZE) return booked
+    const nextCursor = result.items[result.items.length - 1]?.id
+    if (typeof nextCursor !== 'string' || (cursor !== null && nextCursor <= cursor)) {
+      throw new Error('[internal] Incomplete booking page')
+    }
+    cursor = nextCursor
   }
-  throw new Error('[internal] Booking result limit')
 }

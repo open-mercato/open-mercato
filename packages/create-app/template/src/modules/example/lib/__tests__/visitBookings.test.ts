@@ -114,31 +114,41 @@ describe('Visit calendar bookings', () => {
   })
 
   it('paginates with bounded pages and detects a conflict beyond the first page', async () => {
-    const query = jest.fn(async (_entity: string, options: { page: { page: number; pageSize: number } }) => {
+    const candidates = [
+      ...Array.from({ length: 100 }, (_, index) => ({ ...booking, id: `other-${String(index).padStart(3, '0')}`, participants: [], linked_entities: [] })),
+      { ...booking, id: 'relevant-booking' },
+    ]
+    const query = jest.fn(async (_entity: string, options: { filters: { id?: { $gt?: string } }; page: { page: number; pageSize: number } }) => {
       expect(options.page.pageSize).toBe(100)
-      return options.page.page === 1
-        ? { items: Array.from({ length: 100 }, (_, index) => ({ ...booking, id: `other-${index}`, participants: [], linked_entities: [] })), total: 101 }
-        : { items: [booking], total: 101 }
+      const remaining = candidates.filter((row) => !options.filters.id?.$gt || row.id > options.filters.id.$gt)
+      return { items: remaining.slice(0, options.page.pageSize), total: remaining.length }
     })
     expect(await bookedVisitSubjects({ queryEngine: { query } as never, scope, input, subjects }))
       .toEqual(new Set([`staff:${USER_ID}`, `resource:${RESOURCE_ID}`]))
     expect(query).toHaveBeenCalledTimes(2)
+    expect(query).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      filters: expect.objectContaining({ id: { $gt: 'other-099' } }),
+      page: { page: 1, pageSize: 100 },
+    }))
   })
 
-  it('bounds more than 1,000 unrelated historical rows while retaining old recurring coverage', async () => {
+  it('pages past more than 1,000 unrelated historical recurring rows and retains relevant coverage', async () => {
     const historical = Array.from({ length: 1001 }, (_, index) => ({
       ...booking,
-      id: `historical-${index}`,
+      id: `historical-${String(index).padStart(4, '0')}`,
       scheduled_at: '2020-01-01T08:00:00Z',
+      recurrence_rule: 'FREQ=WEEKLY;BYDAY=WE',
       participants: [],
       linked_entities: [],
     }))
     const recurring = {
       ...booking,
+      id: 'relevant-recurring',
       scheduled_at: '2026-09-22T08:00:00Z',
       recurrence_rule: 'FREQ=WEEKLY;BYDAY=TU',
     }
-    const query = jest.fn(async (_entity: string, options: { filters: Record<string, unknown> }) => {
+    const candidates = [...historical, recurring].sort((left, right) => left.id.localeCompare(right.id))
+    const query = jest.fn(async (_entity: string, options: { filters: Record<string, unknown>; page: { page: number; pageSize: number } }) => {
       expect(historical).toHaveLength(1001)
       expect(options.filters).toMatchObject({
         $or: expect.arrayContaining([
@@ -154,14 +164,42 @@ describe('Visit calendar bookings', () => {
           ]) }),
         ]),
       })
-      return { items: [recurring], total: 1 }
+      const idFilter = options.filters.id as { $gt?: string } | undefined
+      const remaining = candidates.filter((row) => !idFilter?.$gt || row.id > idFilter.$gt)
+      return { items: remaining.slice(0, options.page.pageSize), total: remaining.length }
     })
     expect(await bookedVisitSubjects({ queryEngine: { query } as never, scope, input, subjects }))
       .toEqual(new Set([`staff:${USER_ID}`, `resource:${RESOURCE_ID}`]))
+    expect(query).toHaveBeenCalledTimes(11)
+    expect(query).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      filters: expect.objectContaining({ id: expect.objectContaining({ $gt: 'historical-0999' }) }),
+      page: { page: 1, pageSize: 100 },
+    }))
   })
 
-  it.each([1001, Number.NaN])('fails closed on unsafe totals %s', async (total) => {
-    const query = jest.fn(async () => ({ items: [], total }))
+  it('fails closed after more than 1,000 relevant candidates', async () => {
+    const candidates = Array.from({ length: 1001 }, (_, index) => ({
+      ...booking,
+      id: `relevant-${String(index).padStart(4, '0')}`,
+      scheduled_at: input.endAt,
+    }))
+    const query = jest.fn(async (_entity: string, options: { filters: { id?: { $gt?: string } }; page: { pageSize: number } }) => {
+      const remaining = candidates.filter((row) => !options.filters.id?.$gt || row.id > options.filters.id.$gt)
+      return { items: remaining.slice(0, options.page.pageSize), total: remaining.length }
+    })
+    await expect(bookedVisitSubjects({ queryEngine: { query } as never, scope, input, subjects })).rejects.toThrow()
+  })
+
+  it('fails closed for a relevant unbounded series beyond the safe expansion horizon', async () => {
+    await expect(check([{
+      ...booking,
+      scheduled_at: '1900-01-02T08:00:00Z',
+      recurrence_rule: 'FREQ=WEEKLY;BYDAY=TU',
+    }]).result).rejects.toThrow('[internal] Booking recurrence limit')
+  })
+
+  it('fails closed on an unsafe total', async () => {
+    const query = jest.fn(async () => ({ items: [], total: Number.NaN }))
     await expect(bookedVisitSubjects({ queryEngine: { query } as never, scope, input, subjects })).rejects.toThrow()
   })
 
