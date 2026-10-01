@@ -37,11 +37,13 @@ After the plan is implemented, run the installed PR review and real-browser QA w
 
 ## Progress
 
+PR: #6825
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Grouped matrix and regression coverage
 
-- [ ] 1.1 Add grouped table bodies, fallback translations, and component regressions.
+- [x] 1.1 Add grouped table bodies, fallback translations, and component regressions. — 3caf855c1b
 - [ ] 1.2 Extend integration coverage and the existing spec.
 
 ### Phase 2: Validation
