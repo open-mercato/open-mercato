@@ -43,22 +43,32 @@ function setup(overrides: {
   bookingFailure?: boolean
   subjectNames?: boolean
   inactiveRecords?: boolean
+  ruleCount?: number
+  existingStatus?: string
 } = {}) {
-  const query = jest.fn(async (entity: string, options: { tenantId: string; organizationId?: string; organizationIds?: string[] }) => {
+  const query = jest.fn(async (entity: string, options: { tenantId: string; organizationId?: string; organizationIds?: string[]; fields?: string[]; page?: { page: number; pageSize: number } }) => {
     expect(options.tenantId).toBe(scope.tenantId)
-    if (entity.startsWith('customers:') && options.organizationIds) expect(options.organizationIds).toEqual(overrides.allowedOrganizationIds ?? [scope.organizationId])
-    else expect(options.organizationId).toBe(overrides.recordOrganizationId ?? scope.organizationId)
-    if (entity === 'customers:customer_interaction' && !options.organizationIds) {
+    const typePreflight = entity === 'customers:customer_interaction' && options.fields?.includes('updated_at') && !options.organizationIds
+    if (!typePreflight) {
+      if (entity.startsWith('customers:') && options.organizationIds) expect(options.organizationIds).toEqual(overrides.allowedOrganizationIds ?? [scope.organizationId])
+      else expect(options.organizationId).toBe(overrides.recordOrganizationId ?? scope.organizationId)
+    }
+    if (entity === 'customers:customer_interaction' && options.fields?.includes('scheduled_at') && !options.fields.includes('updated_at') && !options.organizationIds) {
       if (overrides.bookingFailure) throw new Error('booking source failed')
       return { items: overrides.bookings ?? [], total: overrides.bookings?.length ?? 0 }
     }
     if (entity === 'staff:staff_team_member') return { items: overrides.inactive ? [] : [{ id: MEMBER_ID, user_id: USER_ID, is_active: !overrides.inactiveRecords, availability_rule_set_id: RULE_ID, ...(overrides.subjectNames ? { display_name: 'Alex Chen' } : {}) }], total: overrides.inactive ? 0 : 1 }
     if (entity === 'resources:resources_resource') return { items: [{ id: RESOURCE_ID, is_active: !overrides.inactiveRecords, ...(overrides.subjectNames ? { name: 'Conference room' } : {}) }], total: 1 }
     if (entity === 'planner:planner_availability_rule_set') return { items: [{ id: RULE_ID }], total: 1 }
-    if (entity === 'planner:planner_availability_rule') return { items: overrides.noRules ? [] : [{ id: RULE_ID, rrule: 'DTSTART:20261005T090000Z\nRRULE:FREQ=WEEKLY\nDURATION:PT2H', kind: 'availability', timezone: overrides.invalidZone ? 'Mars/Olympus' : overrides.nonUtc ? 'Europe/Warsaw' : 'UTC' }], total: overrides.noRules ? 0 : 1 }
-    if (entity.startsWith('customers:') && (overrides.missingRecord || !options.organizationIds?.includes(overrides.recordOrganizationId ?? scope.organizationId))) return { items: [], total: 0 }
+    if (entity === 'planner:planner_availability_rule') {
+      const count = overrides.noRules ? 0 : overrides.ruleCount ?? 1
+      const rules = Array.from({ length: count }, (_, index) => ({ id: `${RULE_ID}-${index}`, rrule: 'DTSTART:20261005T090000Z\nRRULE:FREQ=WEEKLY\nDURATION:PT2H', kind: 'availability', timezone: overrides.invalidZone ? 'Mars/Olympus' : overrides.nonUtc ? 'Europe/Warsaw' : 'UTC' }))
+      const offset = ((options.page?.page ?? 1) - 1) * (options.page?.pageSize ?? 100)
+      return { items: rules.slice(offset, offset + (options.page?.pageSize ?? 100)), total: count }
+    }
+    if (!typePreflight && entity.startsWith('customers:') && (overrides.missingRecord || !options.organizationIds?.includes(overrides.recordOrganizationId ?? scope.organizationId))) return { items: [], total: 0 }
     if (entity === 'customers:customer_entity') return { items: [{ id: RULE_ID, organization_id: overrides.recordOrganizationId ?? scope.organizationId }], total: 1 }
-    if (entity === 'customers:customer_interaction') return { items: [{ id: RULE_ID, organization_id: overrides.recordOrganizationId ?? scope.organizationId, interaction_type: overrides.existingType ?? 'visit', scheduled_at: input.startAt, duration_minutes: 60, participants: overrides.existingParticipants ?? [{ userId: USER_ID }], linked_entities: overrides.existingLinks ?? [], updated_at: '2026-09-29T12:00:00.000Z' }], total: 1 }
+    if (entity === 'customers:customer_interaction') return { items: [{ id: RULE_ID, organization_id: overrides.recordOrganizationId ?? scope.organizationId, interaction_type: overrides.existingType ?? 'visit', status: overrides.existingStatus ?? 'planned', scheduled_at: input.startAt, duration_minutes: 60, participants: overrides.existingParticipants ?? [{ userId: USER_ID }], linked_entities: overrides.existingLinks ?? [], updated_at: '2026-09-29T12:00:00.000Z' }], total: 1 }
     throw new Error('unexpected entity')
   })
   const planner = { getMergedAvailabilityWindows: jest.fn(() => overrides.gap ? [] : [{ start: new Date('2026-10-05T09:00:00.000Z'), end: new Date('2026-10-05T11:00:00.000Z') }]) }
@@ -81,6 +91,18 @@ describe('Visit availability', () => {
     expect(query).toHaveBeenCalledWith('staff:staff_team_member', expect.objectContaining({ filters: { user_id: { $in: [USER_ID] } } }))
     expect(query).toHaveBeenCalledWith('planner:planner_availability_rule', expect.objectContaining({ filters: { $or: expect.arrayContaining([{ subject_type: 'member', subject_id: MEMBER_ID }, { subject_type: 'ruleset', subject_id: RULE_ID }]) } }))
     expect(planner.getMergedAvailabilityWindows).toHaveBeenCalledWith(expect.objectContaining({ range: { start: new Date(input.startAt), end: new Date(input.endAt) } }))
+  })
+
+  it('pages through more than 100 historical planner rules', async () => {
+    const { container, query, planner } = setup({ ruleCount: 101 })
+    const subjects = await evaluateVisitAvailability({ container: container as never, actorUserId: USER_ID, scope, input })
+    expect(subjects.map((subject) => subject.status)).toEqual(['available', 'available'])
+    expect(query).toHaveBeenCalledWith('planner:planner_availability_rule', expect.objectContaining({
+      page: { page: 2, pageSize: 100 },
+    }))
+    expect(planner.getMergedAvailabilityWindows).toHaveBeenCalledWith(expect.objectContaining({
+      rules: expect.arrayContaining([expect.objectContaining({ id: `${RULE_ID}-100` })]),
+    }))
   })
 
   it('accepts a resolver-only worker container for a non-visit update', async () => {
@@ -221,7 +243,7 @@ describe('Visit availability', () => {
       selectedOrganizationId: scope.organizationId, container: container as never,
     })
     expect(result).toMatchObject({ ok: false, status: 422 })
-    expect(query).toHaveBeenCalledWith('customers:customer_interaction', expect.objectContaining({ tenantId: scope.tenantId, organizationIds: [scope.organizationId] }))
+    expect(query).toHaveBeenCalledWith('customers:customer_interaction', expect.objectContaining({ tenantId: scope.tenantId }))
     expect(catalog.resolveBehavior).toHaveBeenCalledWith({ tenantId: scope.tenantId, organizationId: scope.organizationId, key: 'visit' })
   })
 
@@ -283,7 +305,7 @@ describe('Visit availability', () => {
     expect(query).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps availability failures blocking when an optional module is enabled', async () => {
+  it('classifies permanent staff or planner permission failures as forbidden', async () => {
     jest.mocked(getEnabledModuleIds).mockReturnValue(['customers', 'example', 'staff', 'planner'])
     const { container } = setup({ denied: true })
     const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.create')!
@@ -291,7 +313,9 @@ describe('Visit availability', () => {
       participants: [{ userId: USER_ID }],
     }, { commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
       selectedOrganizationId: scope.organizationId, container: container as never,
-    })).toMatchObject({ ok: false, status: 503, body: { fields: ['participants'] } })
+    })).toMatchObject({ ok: false, status: 403, body: {
+      error: 'example.calendar.visitAvailability.missingScope', fields: ['participants'],
+    } })
   })
 
   it.each(['customers.interactions.create', 'customers.interactions.update'])('checks the record organization for %s from an allowed parent selection', async (commandId) => {
@@ -376,6 +400,31 @@ describe('Visit availability', () => {
     })).toEqual({ ok: true })
     expect(query).toHaveBeenCalledTimes(1)
     expect(planner.getMergedAvailabilityWindows).not.toHaveBeenCalled()
+  })
+
+  it('rechecks availability when a canceled Visit is reactivated', async () => {
+    const { container, planner } = setup({ existingStatus: 'canceled', gap: true })
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.update')!
+    expect(await interceptor.beforeExecute!({ id: RULE_ID, status: 'planned' }, {
+      commandId: 'customers.interactions.update', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: scope.organizationId, container: container as never,
+    })).toMatchObject({ ok: false, status: 422 })
+    expect(planner.getMergedAvailabilityWindows).toHaveBeenCalled()
+  })
+
+  it('checks an omitted persisted type before applying Visit organization scope requirements', async () => {
+    const { container, query } = setup({ existingType: 'meeting' })
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.update')!
+    expect(await interceptor.beforeExecute!({ id: RULE_ID, scheduledAt: input.startAt }, {
+      commandId: 'customers.interactions.update', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: null, organizationScope: { tenantId: scope.tenantId, selectedId: null, allowedIds: [], filterIds: [] },
+      container: container as never,
+    })).toEqual({ ok: true })
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(query).toHaveBeenCalledWith('customers:customer_interaction', expect.objectContaining({
+      tenantId: scope.tenantId,
+      fields: expect.arrayContaining(['id', 'interaction_type', 'organization_id']),
+    }))
   })
 
   it.each(['Visit', ' VISIT '])('does not bypass availability for a normalized %s create', async (interactionType) => {

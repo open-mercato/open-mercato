@@ -3,6 +3,8 @@ const createRequestContainer = jest.fn()
 const resolveOrganizationScopeForRequest = jest.fn()
 const evaluateVisitAvailability = jest.fn()
 const visitAvailabilityWarnings = jest.fn()
+const query = jest.fn()
+const userHasAllFeatures = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => getAuthFromRequest(...args),
@@ -23,14 +25,17 @@ import { GET } from '../route'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const RESOURCE_ID = '33333333-3333-4333-8333-333333333333'
+const INTERACTION_ID = '44444444-4444-4444-8444-444444444444'
 
 describe('GET visit availability', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     visitAvailabilityWarnings.mockReturnValue([])
     getAuthFromRequest.mockResolvedValue({ tenantId: 'tenant', sub: USER_ID })
-    resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: 'organization' })
-    createRequestContainer.mockResolvedValue({ hasRegistration: () => true, resolve: () => ({ userHasAllFeatures: async () => true }) })
+    resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: 'organization', allowedIds: ['organization'], tenantId: 'tenant' })
+    query.mockResolvedValue({ items: [{ id: INTERACTION_ID, organization_id: 'organization' }], total: 1 })
+    userHasAllFeatures.mockResolvedValue(true)
+    createRequestContainer.mockResolvedValue({ hasRegistration: () => true, resolve: (name: string) => name === 'queryEngine' ? { query } : { userHasAllFeatures } })
     evaluateVisitAvailability.mockResolvedValue([{ type: 'resource', id: RESOURCE_ID, status: 'available', reasonKey: null }])
   })
 
@@ -58,16 +63,41 @@ describe('GET visit availability', () => {
   it('accepts a validated edit exclusion and returns named booking failures', async () => {
     evaluateVisitAvailability.mockResolvedValue([{ type: 'resource', id: RESOURCE_ID, displayName: 'Conference room',
       status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' }])
-    const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&excludeInteractionId=${RESOURCE_ID}`))
+    const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&excludeInteractionId=${INTERACTION_ID}`))
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ subjects: [{ displayName: 'Conference room', reasonKey: 'example.calendar.visitAvailability.booked' }] })
-    expect(evaluateVisitAvailability).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ excludeInteractionId: RESOURCE_ID }) }))
+    expect(evaluateVisitAvailability).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ excludeInteractionId: INTERACTION_ID }) }))
     const invalid = await GET(new Request('http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&excludeInteractionId=invalid'))
     expect(invalid.status).toBe(400)
   })
 
+  it('evaluates an edited interaction in its authorized parent organization', async () => {
+    resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: 'organization-a', allowedIds: ['organization-a', 'organization-b'], tenantId: 'tenant' })
+    query.mockResolvedValue({ items: [{ id: INTERACTION_ID, organization_id: 'organization-b' }], total: 1 })
+    const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&excludeInteractionId=${INTERACTION_ID}`))
+    expect(response.status).toBe(200)
+    expect(query).toHaveBeenCalledWith('customers:customer_interaction', expect.objectContaining({
+      tenantId: 'tenant', organizationIds: ['organization-a', 'organization-b'],
+      filters: { id: INTERACTION_ID, deleted_at: null },
+    }))
+    expect(userHasAllFeatures).toHaveBeenCalledWith(USER_ID, ['customers.interactions.manage'], {
+      tenantId: 'tenant', organizationId: 'organization-b',
+    })
+    expect(evaluateVisitAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { tenantId: 'tenant', organizationId: 'organization-b' },
+    }))
+  })
+
+  it('rejects an edited interaction outside the allowed organization set', async () => {
+    resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: 'organization-a', allowedIds: ['organization-a'], tenantId: 'tenant' })
+    query.mockResolvedValue({ items: [], total: 0 })
+    const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&excludeInteractionId=${INTERACTION_ID}`))
+    expect(response.status).toBe(404)
+    expect(evaluateVisitAvailability).not.toHaveBeenCalled()
+  })
+
   it('rejects a user without interaction management access', async () => {
-    createRequestContainer.mockResolvedValue({ hasRegistration: () => true, resolve: () => ({ userHasAllFeatures: async () => false }) })
+    userHasAllFeatures.mockResolvedValue(false)
     const response = await GET(new Request('http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z'))
     expect(response.status).toBe(403)
     expect(evaluateVisitAvailability).not.toHaveBeenCalled()

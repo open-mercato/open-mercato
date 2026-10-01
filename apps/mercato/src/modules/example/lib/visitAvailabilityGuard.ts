@@ -72,7 +72,7 @@ function blocked(reasonKey: string, status = 422, fields: string[] = [], subject
 
 function hasAvailabilityChange(input: Row): boolean {
   return ['interactionType', 'interaction_type', 'scheduledAt', 'scheduled_at', 'durationMinutes', 'duration_minutes',
-    'participants', 'linkedEntities', 'linked_entities', 'allDay', 'all_day', 'recurrenceRule', 'recurrence_rule']
+    'participants', 'linkedEntities', 'linked_entities', 'allDay', 'all_day', 'recurrenceRule', 'recurrence_rule', 'status']
     .some((field) => field in input)
 }
 
@@ -87,6 +87,7 @@ function changedAvailability(input: Row, existing: Row): boolean {
   })
   const equalIds = (left: string[], right: string[]) => left.length === right.length && left.every((id) => right.includes(id))
   return changedScalar
+    || ('status' in input && existing.status === 'canceled' && input.status !== 'canceled')
     || ('participants' in input && !equalIds(userIds(input.participants), userIds(existing.participants)))
     || (('linkedEntities' in input || 'linked_entities' in input) && !equalIds(resourceIds(get(input, 'linkedEntities', 'linked_entities')), resourceIds(get(existing, 'linkedEntities', 'linked_entities'))))
 }
@@ -101,6 +102,28 @@ async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorCo
   if (updating && !hasAvailabilityChange(input)) return { ok: true }
   const tenantId = context.auth?.tenantId
   const organizationScope = context.organizationScope
+  const interactionFields = ['id', 'organization_id', 'interaction_type', 'status', 'scheduled_at', 'duration_minutes', 'participants', 'linked_entities', 'all_day', 'recurrence_rule', 'updated_at']
+  let preflightExisting: Row | null = null
+  if (organizationScope && tenantId && organizationScope.tenantId !== tenantId) {
+    return blocked('example.calendar.visitAvailability.missingScope', 403)
+  }
+  if (updating && suppliedType === null && tenantId) {
+    try {
+      const engine = resolveVisitService<QueryEngine>(context.container, 'queryEngine')
+      const recordId = input.id
+      if (!engine || typeof recordId !== 'string') return { ok: true }
+      const result = await engine.query<Row>('customers:customer_interaction', {
+        tenantId,
+        filters: { id: recordId, deleted_at: null },
+        fields: interactionFields,
+        page: { page: 1, pageSize: 1 },
+      })
+      preflightExisting = result.items[0] ?? null
+      if (typeKey(get(preflightExisting ?? {}, 'interactionType', 'interaction_type')) !== 'visit') return { ok: true }
+    } catch {
+      return blocked('example.calendar.visitAvailability.retry', 503)
+    }
+  }
   const fallbackOrganizationId = context.selectedOrganizationId ?? context.auth?.orgId ?? null
   const allowedIds = organizationScope ? organizationScope.allowedIds : fallbackOrganizationId ? [fallbackOrganizationId] : []
   if (!tenantId || organizationScope?.selectionRejected || (organizationScope && organizationScope.tenantId !== tenantId)) {
@@ -110,21 +133,22 @@ async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorCo
   let existing: Row = {}
   let organizationId: string
   try {
-    const engine = resolveVisitService<QueryEngine>(context.container, 'queryEngine')
-    if (!engine) return blocked('example.calendar.visitAvailability.retry', 503)
-    const recordId = updating ? input.id : input.entityId
-    if (typeof recordId !== 'string') return blocked('example.calendar.visitAvailability.missingScope', 422)
-    const result = await engine.query<Row>(updating ? 'customers:customer_interaction' : 'customers:customer_entity', {
-      tenantId,
-      ...(allowedIds === null || context.auth?.isSuperAdmin ? {} : { organizationIds: allowedIds }),
-      filters: { id: recordId, deleted_at: null },
-      fields: updating
-        ? ['id', 'organization_id', 'interaction_type', 'scheduled_at', 'duration_minutes', 'participants', 'linked_entities', 'all_day', 'recurrence_rule', 'updated_at']
-        : ['id', 'organization_id'],
-      page: { page: 1, pageSize: 1 },
-    })
-    if (!result.items.length) return blocked('example.calendar.visitAvailability.missingScope', 404)
-    const record = result.items[0]
+    let record = preflightExisting
+    if (!record) {
+      const engine = resolveVisitService<QueryEngine>(context.container, 'queryEngine')
+      if (!engine) return blocked('example.calendar.visitAvailability.retry', 503)
+      const recordId = updating ? input.id : input.entityId
+      if (typeof recordId !== 'string') return blocked('example.calendar.visitAvailability.missingScope', 422)
+      const result = await engine.query<Row>(updating ? 'customers:customer_interaction' : 'customers:customer_entity', {
+        tenantId,
+        ...(allowedIds === null || context.auth?.isSuperAdmin ? {} : { organizationIds: allowedIds }),
+        filters: { id: recordId, deleted_at: null },
+        fields: updating ? interactionFields : ['id', 'organization_id'],
+        page: { page: 1, pageSize: 1 },
+      })
+      record = result.items[0] ?? null
+    }
+    if (!record) return blocked('example.calendar.visitAvailability.missingScope', 404)
     const recordOrganizationId = get(record, 'organizationId', 'organization_id')
     if (typeof recordOrganizationId !== 'string' || !isOrganizationAccessAllowed({
       isSuperAdmin: context.auth?.isSuperAdmin === true, allowedOrganizationIds: allowedIds, targetOrganizationId: recordOrganizationId,
@@ -189,7 +213,7 @@ async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorCo
   const failure = results.find((subject) => subject.status === 'unknown') ?? results.find((subject) => subject.status === 'unavailable')
   if (failure) return blocked(
     failure.reasonKey ?? 'example.calendar.visitAvailability.retry',
-    failure.status === 'unknown' ? 503 : 422,
+    failure.reasonKey === 'example.calendar.visitAvailability.missingScope' ? 403 : failure.status === 'unknown' ? 503 : 422,
     [...new Set(results.filter((subject) => subject.status !== 'available').map((subject) => subject.type === 'staff' ? 'participants' : 'linkedEntities'))],
     results.filter((subject) => subject.status !== 'available'),
   )
