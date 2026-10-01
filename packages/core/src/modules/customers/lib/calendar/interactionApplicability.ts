@@ -51,18 +51,27 @@ export function clearInapplicableCoreFields(
   return cleared
 }
 
+/**
+ * `ignoreHiddenClears` belongs to the selectable-type opt-in: only a caller that
+ * declares `enforceSelectableType` has its explicit `null` clears of fields the
+ * type hides dropped. Retaining stored resource links is unconditional — it
+ * protects bookings a partial payload never meant to release.
+ */
 export function preserveHiddenCoreValuesOnSameTypeEdit(
   behavior: CalendarEventTypeBehavior,
   current: InteractionCoreValues,
   patch: InteractionCoreValues,
+  options: { ignoreHiddenClears?: boolean } = { ignoreHiddenClears: true },
 ): Record<string, unknown> {
   const result = { ...patch }
-  for (const [rule, names] of CORE_FIELD_RULES) {
-    if (behavior.fields[rule]) continue
-    for (const name of names) if (result[name] === null) delete result[name]
+  if (options.ignoreHiddenClears !== false) {
+    for (const [rule, names] of CORE_FIELD_RULES) {
+      if (behavior.fields[rule]) continue
+      for (const name of names) if (result[name] === null) delete result[name]
+    }
+    if (behavior.fields.location === 'none' && result.location === null) delete result.location
+    if (behavior.fields.people === 'none' && result.participants === null) delete result.participants
   }
-  if (behavior.fields.location === 'none' && result.location === null) delete result.location
-  if (behavior.fields.people === 'none' && result.participants === null) delete result.participants
   if (!behavior.fields.resources && result.linkedEntities !== undefined) {
     const existingLinks = Array.isArray(current.linkedEntities) ? current.linkedEntities : []
     const retainedResources = existingLinks.filter((link) =>

@@ -1,5 +1,5 @@
 import * as timezone from '../timezone'
-import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarTimezoneOptions, calendarWallTimeToInstant, isCalendarTimezone } from '../timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarTimezoneOptions, calendarWallTimeToInstant, canonicalCalendarTimezone, isCalendarTimezone } from '../timezone'
 import { buildInteractionPayload, computeDurationMinutes, createDefaultFormState, parseItemToFormState } from '../editorPayload'
 import { mapInteractionToCalendarItem } from '../mapItem'
 import { expandOccurrences } from '../recurrence'
@@ -11,6 +11,16 @@ describe('calendar selected time zone', () => {
     expect(calendarWallTimeToInstant('2026-09-29', '09:15', 'UTC')?.toISOString()).toBe('2026-09-29T09:15:00.000Z')
     expect(calendarInstantToWallTime(new Date('2026-09-29T07:15:00Z'), 'Europe/Warsaw')).toEqual({ date: '2026-09-29', time: '09:15' })
     expect(isCalendarTimezone('invalid-zone')).toBe(false)
+  })
+
+  it('canonicalizes a differently cased zone id so one zone never lists twice', () => {
+    expect(canonicalCalendarTimezone('europe/warsaw')).toBe('Europe/Warsaw')
+    expect(canonicalCalendarTimezone('EUROPE/WARSAW')).toBe('Europe/Warsaw')
+    expect(canonicalCalendarTimezone('utc')).toBe('UTC')
+    expect(canonicalCalendarTimezone('Europe/Warsaw')).toBe('Europe/Warsaw')
+    expect(canonicalCalendarTimezone('invalid-zone')).toBeNull()
+    expect(canonicalCalendarTimezone(null)).toBeNull()
+    expect(calendarTimezoneOptions(canonicalCalendarTimezone('europe/warsaw')).filter((option) => option === 'Europe/Warsaw')).toHaveLength(1)
   })
 
   it('rejects nonexistent DST wall times and chooses the earlier instant during an overlap', () => {

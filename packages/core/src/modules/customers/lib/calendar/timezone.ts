@@ -27,6 +27,17 @@ export function isCalendarTimezone(value: unknown): value is string {
   }
 }
 
+/**
+ * IANA zone ids are case-insensitive, so `europe/warsaw` and `Europe/Warsaw` are
+ * the same zone and would otherwise be stored — and listed — as two options.
+ * Canonicalize on write so the stored value matches the catalog spelling.
+ */
+export function canonicalCalendarTimezone(value: unknown): string | null {
+  if (!isCalendarTimezone(value)) return null
+  const resolved = formatter(value).resolvedOptions().timeZone
+  return isCalendarTimezone(resolved) ? resolved : value
+}
+
 export function defaultCalendarTimezone(): string {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return isCalendarTimezone(timezone) ? timezone : 'UTC'

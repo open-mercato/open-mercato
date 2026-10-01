@@ -36,14 +36,6 @@ import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'commands' })
 
-const PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD = Symbol.for(
-  'open-mercato.commands.prepare-snapshot-after-transaction-guard',
-)
-
-type TransactionGuardedSnapshotPrepare = NonNullable<CommandHandler['prepare']> & {
-  [PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD]?: true
-}
-
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
   'audit_logs.action',
@@ -268,12 +260,7 @@ export class CommandBus {
     }
 
     const snapshots: { before?: unknown } = {}
-    const prepareAfterTransactionGuard = Boolean(
-      (handler.prepare as TransactionGuardedSnapshotPrepare | undefined)?.[
-        PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD
-      ],
-    )
-    if (prepareAfterTransactionGuard && handler.prepare) {
+    if (handler.prepareSnapshotInsideTransaction && handler.prepare) {
       const prepare = handler.prepare
       const originalCtx = effectiveOptions.ctx
       const originalBeforeTransactionalWrite = originalCtx.beforeTransactionalWrite

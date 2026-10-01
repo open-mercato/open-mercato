@@ -245,6 +245,11 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
     }
   })
 
+  // These two cases reconfigure the tenant's shared built-in `call`/`task` behavior
+  // for their duration and restore it in `finally`. That is safe only because the
+  // integration suite runs with `workers: 1` (.ai/qa/tests/playwright.config.ts), so
+  // no concurrent case can observe the changed rules. Raising the worker count means
+  // giving this block its own tenant.
   for (const activityType of ['call', 'task'] as const) {
     test(`creates and edits ${activityType} from the company schedule dialog after its built-in fields change`, async ({ page, request }) => {
       const token = await getAuthToken(request, 'admin')
@@ -323,6 +328,61 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       }
     })
   }
+
+  test('switches a Task that has a priority to every type without one, the way the schedule dialog does', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let personId: string | null = null
+    const interactionIds: string[] = []
+    try {
+      personId = await createPersonFixture(request, token, { firstName: 'Priority', lastName: String(Date.now()), displayName: `Priority switch ${Date.now()}` })
+      for (const nextType of ['meeting', 'call', 'email', 'note'] as const) {
+        const created = await apiRequest(request, 'POST', '/api/customers/interactions', {
+          token, data: { entityId: personId, interactionType: 'task', title: `QA priority switch to ${nextType}`, priority: 90 },
+        })
+        expect(created.status(), await created.text()).toBe(201)
+        const interactionId = (await created.json() as { id: string }).id
+        interactionIds.push(interactionId)
+        // The schedule dialog omits `priority` for every type that cannot hold one and
+        // does not handle `calendar_type_change_confirmation_required`, so the switch
+        // must succeed in one call and clear the stored value.
+        const switched = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+          token, data: { id: interactionId, interactionType: nextType },
+        })
+        expect(switched.status(), await switched.text()).toBe(200)
+        const list = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}`, { token })
+        expect(list.status()).toBe(200)
+        const saved = (await list.json() as { items: Array<{ id: string; interactionType: string; priority: number | null }> })
+          .items.find((item) => item.id === interactionId)!
+        expect(saved).toMatchObject({ interactionType: nextType, priority: null })
+      }
+    } finally {
+      for (const interactionId of interactionIds) {
+        await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
+      }
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
+  test('canonicalizes a differently cased event time zone on write', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let personId: string | null = null
+    let interactionId: string | null = null
+    try {
+      personId = await createPersonFixture(request, token, { firstName: 'Zone', lastName: String(Date.now()), displayName: `Zone case ${Date.now()}` })
+      const created = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: { entityId: personId, interactionType: 'meeting', title: 'Lowercase zone', timezone: 'europe/warsaw', scheduledAt: '2026-09-29T07:15:00Z' },
+      })
+      expect(created.status(), await created.text()).toBe(201)
+      interactionId = (await created.json() as { id: string }).id
+      const list = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}`, { token })
+      expect(list.status()).toBe(200)
+      expect((await list.json() as { items: Array<{ id: string; timezone: string }> }).items.find((item) => item.id === interactionId))
+        .toMatchObject({ timezone: 'Europe/Warsaw' })
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
 
   test('round trips the selected event timezone and rejects an invalid zone', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')

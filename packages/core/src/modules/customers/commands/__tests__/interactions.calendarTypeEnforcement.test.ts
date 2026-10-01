@@ -269,7 +269,7 @@ describe('interaction calendar-type command enforcement', () => {
       location: null,
       durationMinutes: null,
       linkedEntities: [{ type: 'deal', id: NEW_DEAL, label: 'New deal' }],
-      cf_outcome: null,
+      enforceSelectableType: true,
     }, context)
     expect(interaction).toMatchObject({
       interactionType: 'note', location: 'Office', durationMinutes: 30,
@@ -283,19 +283,83 @@ describe('interaction calendar-type command enforcement', () => {
     const { interaction, em, context } = makeContext()
     findOneWithDecryptionMock.mockResolvedValue(interaction)
     const command = registeredCommands.get('customers.interactions.update')!
-    await expect(command.execute({ id: INTERACTION, interactionType: 'note' }, context))
+    await expect(command.execute({ id: INTERACTION, interactionType: 'note', enforceSelectableType: true }, context))
       .rejects.toMatchObject({
         status: 409,
         body: { code: 'calendar_type_change_confirmation_required', fields: ['durationMinutes', 'location', 'linkedEntities', 'cf_outcome'] },
       })
     expect(em.flush).not.toHaveBeenCalled()
-    await command.execute({ id: INTERACTION, interactionType: 'note', confirmDiscardInapplicableValues: true }, context)
+    await command.execute({ id: INTERACTION, interactionType: 'note', enforceSelectableType: true, confirmDiscardInapplicableValues: true }, context)
     expect(interaction).toMatchObject({
       interactionType: 'note', durationMinutes: null, location: null,
       linkedEntities: [{ type: 'deal', id: 'deal', label: 'Deal' }],
     })
     expect(setCustomFieldsIfAnyMock).toHaveBeenCalledWith(expect.objectContaining({ values: { outcome: null } }))
     expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets a legacy caller change type without a confirmation round trip, clearing what the new type cannot hold', async () => {
+    const { interaction, em, context } = makeContext()
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    const command = registeredCommands.get('customers.interactions.update')!
+    await expect(command.execute({ id: INTERACTION, interactionType: 'note' }, context)).resolves.toBeDefined()
+    expect(interaction).toMatchObject({
+      interactionType: 'note', durationMinutes: null, location: null,
+      linkedEntities: [{ type: 'deal', id: 'deal', label: 'Deal' }],
+    })
+    expect(setCustomFieldsIfAnyMock).toHaveBeenCalledWith(expect.objectContaining({ values: { outcome: null } }))
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets the schedule dialog switch a Task that has a priority to a type without one', async () => {
+    const task = calendarEventTypes.find((type) => type.key === 'task')!
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({
+      items: [
+        { ...task, selectable: true },
+        ...calendarEventTypes.filter((type) => type.key !== 'task').map((type) => ({ ...type, selectable: true })),
+      ],
+    })
+    for (const nextType of ['meeting', 'call', 'email', 'note']) {
+      const { interaction, context } = makeContext()
+      interaction.interactionType = 'task'
+      interaction.priority = 90
+      interaction.durationMinutes = null
+      interaction.location = null
+      interaction.linkedEntities = []
+      findOneWithDecryptionMock.mockResolvedValue(interaction)
+      // The dialog omits `priority` for every type that cannot hold one, so the
+      // stored value must not turn the switch into a 409 it cannot answer.
+      await expect(registeredCommands.get('customers.interactions.update')!
+        .execute({ id: INTERACTION, interactionType: nextType }, context)).resolves.toBeDefined()
+      expect(interaction.interactionType).toBe(nextType)
+      expect(interaction.priority).toBeNull()
+    }
+  })
+
+  it('keeps a legacy same-type edit unnarrowed: explicit clears of hidden core fields apply', async () => {
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: [{ key: 'note', selectable: true, behavior: noteBehavior }] })
+    const { interaction, context } = makeContext()
+    interaction.interactionType = 'note'
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    const command = registeredCommands.get('customers.interactions.update')!
+    await command.execute({ id: INTERACTION, durationMinutes: null, location: null }, context)
+    expect(interaction).toMatchObject({ durationMinutes: null, location: null })
+  })
+
+  it('keeps a legacy same-type edit unnarrowed: custom fields outside the fieldsets still persist', async () => {
+    resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: [{ key: 'note', selectable: true, behavior: noteBehavior }] })
+    loadCustomFieldDefinitionIndexMock.mockImplementation(async (options: { fieldset?: string[] }) =>
+      options.fieldset ? new Map() : new Map([['outcome', []]]))
+    const { interaction, context } = makeContext()
+    interaction.interactionType = 'note'
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    const command = registeredCommands.get('customers.interactions.update')!
+    await command.execute({ id: INTERACTION, cf_outcome: 'Legacy write' }, context)
+    expect(setCustomFieldsIfAnyMock).toHaveBeenLastCalledWith(expect.objectContaining({ values: { outcome: 'Legacy write' } }))
+    setCustomFieldsIfAnyMock.mockClear()
+    await expect(command.execute({ id: INTERACTION, cf_outcome: 'Strict write', enforceSelectableType: true }, context))
+      .rejects.toMatchObject({ status: 400, body: { code: 'activity_type_field_not_applicable', fields: ['cf_outcome'] } })
+    expect(setCustomFieldsIfAnyMock).not.toHaveBeenCalled()
   })
 
   it('rolls back a confirmed switch when custom-field clearing fails', async () => {

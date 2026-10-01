@@ -172,6 +172,14 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
    */
   readonly outputSchema?: ZodTypeAny
   prepare?(input: TInput, ctx: CommandRuntimeContext): Promise<{ before?: unknown } | null> | { before?: unknown } | null
+  /**
+   * Opt in to taking the undo snapshot *inside* the write transaction instead of
+   * before it. The bus then defers `prepare()` into `ctx.beforeTransactionalWrite`,
+   * so the snapshot is read under the same locks the write holds and cannot
+   * observe a row another request is about to change. Leave unset (the default)
+   * unless the handler's writes are serialized by an advisory lock.
+   */
+  readonly prepareSnapshotInsideTransaction?: boolean
   execute(input: TInput, ctx: CommandRuntimeContext): Promise<TResult> | TResult
   buildLog?(args: CommandLogBuilderArgs<TInput, TResult>): Promise<CommandLogMetadata | null | undefined> | CommandLogMetadata | null | undefined
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown

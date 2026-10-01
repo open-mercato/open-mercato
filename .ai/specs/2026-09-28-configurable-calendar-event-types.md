@@ -163,7 +163,7 @@ Existing interaction update input adds optional `confirmDiscardInapplicableValue
 { "error": "Changing type will clear existing values", "code": "calendar_type_change_confirmation_required", "fields": ["location", "cf_visit_outcome"] }
 ```
 
-Calendar-picker mutations request `enforceSelectableType` and reject unavailable changed keys. Internal commands retain legacy arbitrary/nonselectable keys unless that enforcement is requested. Same-key historical edits retain fallback semantics without rewriting the stored key. The optimistic-lock check precedes field-diff disclosure.
+Calendar-picker mutations request `enforceSelectableType` and reject unavailable changed keys. Internal commands retain legacy arbitrary/nonselectable keys unless that enforcement is requested. The type-change confirmation is scoped to the same flag: an enforcing caller is judged on the merged stored row and must confirm with `confirmDiscardInapplicableValues`, while a caller without the flag is judged only on the fields it sent and has stored values the new type cannot hold cleared silently. A same-type edit from a caller without the flag is likewise accepted as sent — explicit `null` clears of hidden core fields apply and custom-field values outside the type's fieldsets persist. Same-key historical edits retain fallback semantics without rewriting the stored key. The optimistic-lock check precedes field-diff disclosure.
 
 ## UI/UX
 
@@ -338,6 +338,14 @@ Approved for review. The original combined brief was split by capability with th
 ### 2026-09-30 — Preserve shipped calendar types
 
 - Example adds Visit and optionally patches Meeting without removing or disabling any built-in type, regardless of the demo flag. Generic app-owned removal instructions and Customers tombstone support remain available.
+
+### 2026-10-01 — Legacy type changes, shared availability decision, preview organization
+
+- Scoped the `calendar_type_change_confirmation_required` 409 and the same-type field narrowing to callers that send `enforceSelectableType: true`. Judging a type change on the merged stored row rejected switches the schedule dialog, deal composer and kanban quick actions have always been able to make (a Task carrying a priority could not become a Meeting, Call, Email or Note), and only the calendar editor handles that code. Callers without the flag keep the pre-catalog behavior: the switch succeeds, values the new type cannot hold are cleared silently, explicit `null` clears of hidden core fields apply, and custom-field values outside the type's fieldsets persist. Retaining stored resource links on a partial payload stays unconditional.
+- Gave the Visit pre-write guard and the transaction-bound re-check one shared decision (`visitAvailabilityDecision.ts`): the same type comparison, the same unchanged/canceled skips, the same `selectVisitSubjectsForSave` field settings, and the same "skip when the behavior cannot be resolved" rule. The locked re-check now loads `interaction_type`, `status`, `scheduled_at`, `duration_minutes`, `all_day` and `recurrence_rule`, so a `PUT` that does not resend the type — or a reactivation that only flips `status` — is re-checked under the subject locks instead of silently passing. Non-Visit interaction writes return before the advisory lock and the record read. Lock failures, failed record reads and corrupt stored JSON surface as the retryable 503 rather than a 500.
+- The availability preview resolves the organization from the parent record: the edited interaction via `excludeInteractionId`, a new Visit via a new `entityId` query parameter sent by the widget, each checked against the caller's allowed organization set. Without it, a caller with "All organizations" or another organization selected had staff looked up in the wrong organization and reported as inactive, blocking a save the server would accept.
+- Canonicalized the stored event time zone on write, so `europe/warsaw` and `Europe/Warsaw` cannot both appear in the zone list.
+- Replaced the `Symbol.for(...)` opt-in for in-transaction undo snapshots with a typed optional `prepareSnapshotInsideTransaction` field on `CommandHandler`, so third-party handlers can discover it from the types.
 
 ### 2026-10-01 — Public interaction compatibility and dictionary scope
 

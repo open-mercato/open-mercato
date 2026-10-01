@@ -121,7 +121,7 @@ describe('CommandBus', () => {
     )
   })
 
-  it('defers marked before snapshots until after the transactional write guard', async () => {
+  it('defers opted-in before snapshots until after the transactional write guard', async () => {
     const calls: string[] = []
     const transactionalEm = { id: 'transaction-em' }
     const buildLogMock = jest.fn(() => ({
@@ -129,20 +129,16 @@ describe('CommandBus', () => {
       resourceKind: 'test',
       resourceId: 'transactional',
     }))
-    const prepare = Object.assign(
-      jest.fn(async (_input, ctx) => {
-        calls.push('prepare')
-        expect(ctx.transactionalEm).toBe(transactionalEm)
-        return { before: { state: 'locked-before' } }
-      }),
-      {
-        [Symbol.for('open-mercato.commands.prepare-snapshot-after-transaction-guard')]: true as const,
-      },
-    )
+    const prepare = jest.fn(async (_input, ctx) => {
+      calls.push('prepare')
+      expect(ctx.transactionalEm).toBe(transactionalEm)
+      return { before: { state: 'locked-before' } }
+    })
 
     registerCommand({
       id: 'test.command.transactional-snapshot',
       prepare,
+      prepareSnapshotInsideTransaction: true,
       execute: jest.fn(async (_input, ctx) => {
         calls.push('execute')
         await ctx.beforeTransactionalWrite?.(transactionalEm as never)

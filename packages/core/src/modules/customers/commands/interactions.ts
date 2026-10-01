@@ -55,13 +55,11 @@ import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth
 import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from '../lib/calendar/eventTypeResolver'
 import { clearInapplicableCoreFields, findInapplicableCoreFields, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
 import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-event-types'
+import { canonicalCalendarTimezone } from '../lib/calendar/timezone'
 
 const logger = createLogger('customers')
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
-const PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD = Symbol.for(
-  'open-mercato.commands.prepare-snapshot-after-transaction-guard',
-)
 const interactionCrudIndexer: CrudIndexerConfig<CustomerInteraction> = {
   entityType: 'customers:customer_interaction' as const,
 }
@@ -355,6 +353,13 @@ async function runInTransaction<TResult>(
   input?: unknown,
 ): Promise<TResult> {
   if (typeof em.isInTransaction === 'function' && em.isInTransaction()) {
+    // Joining a caller-owned transaction: this helper neither begins nor commits it,
+    // so the commit boundary — and with it the point the CRUD side effects become
+    // durable — belongs to that caller. The side effects this command emits after
+    // `runInTransaction` returns therefore fire BEFORE the outer commit, unlike the
+    // self-managed branch below. No in-repo caller passes an open transaction today;
+    // a future one must either emit its own side effects after its commit or open a
+    // nested savepoint instead.
     await beforeWrite?.(em, input)
     return operation(em)
   }
@@ -531,7 +536,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         appearanceIcon: parsed.appearanceIcon ?? null,
         appearanceColor: parsed.appearanceColor ?? null,
         durationMinutes: parsed.durationMinutes ?? null,
-        timezone: parsed.timezone ?? null,
+        timezone: canonicalCalendarTimezone(parsed.timezone) ?? null,
         location: parsed.location ?? null,
         allDay: parsed.allDay ?? null,
         recurrenceRule: parsed.recurrenceRule ?? null,
@@ -752,19 +757,17 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 
 // ─── Update ─────────────────────────────────────────────────────────
 
-const prepareUpdateInteractionSnapshot = Object.assign(
-  async (rawInput: InteractionUpdateInput, ctx: CommandRuntimeContext) => {
-    const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
-    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id)
-    return snapshot ? { before: snapshot } : {}
-  },
-  { [PREPARE_SNAPSHOT_AFTER_TRANSACTION_GUARD]: true as const },
-)
+async function prepareUpdateInteractionSnapshot(rawInput: InteractionUpdateInput, ctx: CommandRuntimeContext) {
+  const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
+  const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+  const snapshot = await loadInteractionSnapshot(em, parsed.id)
+  return snapshot ? { before: snapshot } : {}
+}
 
 const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interactionId: string }> = {
   id: 'customers.interactions.update',
   prepare: prepareUpdateInteractionSnapshot,
+  prepareSnapshotInsideTransaction: true,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
@@ -828,7 +831,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           translate('customers.calendar.activityTypes.errors.fieldNotApplicable', 'Field is not applicable to this activity type'),
         )
       }
-      if (changingType && (inapplicableCore.length || inapplicableCustom.length) && !parsed.confirmDiscardInapplicableValues) {
+      if (changingType && enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length) && !parsed.confirmDiscardInapplicableValues) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(409, {
           error: translate('customers.calendar.activityTypes.errors.changeConfirmationRequired', 'Changing type will clear existing values'),
@@ -836,14 +839,29 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           fields: [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
         })
       }
-      const clearedCore = changingType && parsed.confirmDiscardInapplicableValues
+      // Type-change confirmation is scoped to the selectable-type opt-in. A legacy
+      // caller (the schedule dialog, the deal composer, the kanban quick actions)
+      // sends a partial payload and does not handle the 409, so judging it on the
+      // merged stored row rejected switches it has always been able to make — e.g.
+      // a Task carrying a priority becoming a Meeting. Those callers keep the
+      // pre-catalog behavior: values the new type cannot hold are cleared silently.
+      const discardsInapplicableValues = changingType
+        && (!enforceSelectableType || parsed.confirmDiscardInapplicableValues === true)
+      const clearedCore = discardsInapplicableValues
         ? clearInapplicableCoreFields(behavior, coreValues)
         : {}
-      const clearedCustom = changingType && parsed.confirmDiscardInapplicableValues
+      const clearedCustom = discardsInapplicableValues
         ? Object.fromEntries(inapplicableCustom.map((key) => [key, Array.isArray(customValues[key]) ? [] : null]))
         : {}
-      const sameTypeFields = changingType ? parsed : preserveHiddenCoreValuesOnSameTypeEdit(behavior, currentCoreValues, parsed)
-      const sameTypeCustom = changingType || !customKeys
+      // Narrowing a same-type edit (ignoring explicit clears of hidden core fields,
+      // dropping custom fields outside the type's fieldsets) is part of the opt-in
+      // contract too: a legacy caller's write is accepted as sent.
+      const sameTypeFields = changingType
+        ? parsed
+        : preserveHiddenCoreValuesOnSameTypeEdit(behavior, currentCoreValues, parsed, {
+          ignoreHiddenClears: enforceSelectableType,
+        })
+      const sameTypeCustom = changingType || !customKeys || !enforceSelectableType
         ? custom
         : Object.fromEntries(Object.entries(custom).filter(([key]) =>
           !customKeys.defined.has(key.toLowerCase()) || customKeys.allowed.has(key.toLowerCase())))
@@ -903,7 +921,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       if (parsed.body !== undefined) interaction.body = parsed.body ?? null
       if (parsed.status !== undefined) interaction.status = parsed.status
       if (parsed.scheduledAt !== undefined) interaction.scheduledAt = parsed.scheduledAt ?? null
-      if (parsed.timezone !== undefined) interaction.timezone = parsed.timezone ?? null
+      if (parsed.timezone !== undefined) interaction.timezone = canonicalCalendarTimezone(parsed.timezone) ?? null
       if (parsed.occurredAt !== undefined) interaction.occurredAt = parsed.occurredAt ?? null
       if (sameTypeFields.priority !== undefined) interaction.priority = sameTypeFields.priority as number | null
       if (parsed.authorUserId !== undefined) interaction.authorUserId = parsed.authorUserId ?? null
