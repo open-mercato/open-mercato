@@ -25,77 +25,24 @@ jobs:
   guard:
     runs-on: ubuntu-latest
     steps:
-      - name: Block external changes to packages/enterprise
-        uses: actions/github-script@v9
+      # Only the guard script itself is checked out, pinned to the PR's base
+      # ref — never the PR head — so a PR can't ship its own copy of this
+      # file to neutralize the check.
+      - name: Check out the guard script
+        uses: actions/checkout@v7
         with:
-          script: |
-            const { owner, repo } = context.repo
-            const pr = context.payload.pull_request
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci/enterprise-contribution-guard.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
 
-            // Only these GitHub accounts may author commits touching
-            // packages/enterprise/ — keep in sync by hand; do not widen this to
-            // an org/team or association check (membership changes shouldn't
-            // silently grant enterprise write access). Checked per commit, not
-            // just the PR opener: an allowlisted author opening the PR must not
-            // let someone else's pushes to the same branch slip through.
-            const allowedLogins = new Set([
-              'pkarw',
-              'patzick',
-              'haxiorz',
-              'mstaniaszek1998',
-              'pat-lewczuk',
-              'matgren',
-              'zielivia',
-              'andrzejewsky',
-              'dominikpalatynski',
-            ])
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
 
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner, repo, pull_number: pr.number, per_page: 100,
-            })
-            const touchesEnterprise = files.some((f) => f.filename.startsWith('packages/enterprise/'))
-
-            if (!touchesEnterprise) {
-              core.info('No packages/enterprise/ files changed; nothing to do.')
-              return
-            }
-
-            const commits = await github.paginate(github.rest.pulls.listCommits, {
-              owner, repo, pull_number: pr.number, per_page: 100,
-            })
-
-            const violations = []
-            for (const commit of commits) {
-              const { data: full } = await github.rest.repos.getCommit({ owner, repo, ref: commit.sha })
-              const enterpriseFiles = (full.files || [])
-                .map((f) => f.filename)
-                .filter((f) => f.startsWith('packages/enterprise/'))
-              if (enterpriseFiles.length === 0) continue
-
-              const login = commit.author && commit.author.login
-              const isBot = commit.author && commit.author.type === 'Bot'
-              if (isBot || (login && allowedLogins.has(login.toLowerCase()))) continue
-
-              violations.push({
-                sha: commit.sha,
-                identity: login ? `@${login}` : (commit.commit.author && commit.commit.author.email) || 'unknown author',
-                files: enterpriseFiles,
-              })
-            }
-
-            if (violations.length === 0) {
-              core.info('All commits touching packages/enterprise/ are from allowlisted authors.')
-              return
-            }
-
-            core.summary
-              .addHeading('Enterprise Contribution Guard')
-              .addRaw('`packages/enterprise/` is commercial, proprietary software — only specific allowlisted accounts may author commits that touch it (see [CONTRIBUTING.md § Enterprise Module Contributions](https://github.com/open-mercato/open-mercato/blob/main/CONTRIBUTING.md#enterprise-module-contributions)).\n\n')
-              .addRaw('These commits need to be dropped from this PR; open a separate issue describing the change instead:\n\n')
-              .addList(violations.map((v) => `${v.sha.slice(0, 7)} by ${v.identity}: ${v.files.map((f) => `\`${f}\``).join(', ')}`))
-              .write()
-
-            for (const v of violations) {
-              core.error(`Commit ${v.sha.slice(0, 7)} by ${v.identity} touches packages/enterprise/: ${v.files.join(', ')}`)
-            }
-            core.setFailed(`${violations.length} commit(s) by non-allowlisted authors touch packages/enterprise/. See the job summary.`)
+      - name: Block external changes to packages/enterprise
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/enterprise-contribution-guard.mjs
