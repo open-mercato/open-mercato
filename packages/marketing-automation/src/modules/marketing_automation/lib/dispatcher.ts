@@ -181,13 +181,27 @@ async function persist(
     context: AutomationContext
   },
 ): Promise<'completed' | 'waiting' | 'retrying' | 'dead'> {
+  /**
+   * Where a retry resumes if the ORCHESTRATION throws rather than a step.
+   *
+   * Starts at where this pass started, and advances past every step that finishes. Without it the catch
+   * below recorded the run at its starting index, so a journey whose first step is an email sent that email
+   * again on every retry — five times, before the dead letter.
+   */
+  let progress = {
+    nextStepIndex: state.currentStepIndex,
+    nextStepId: state.currentStepId ?? null,
+    stepLog: state.stepLog,
+    context: state.context,
+  }
+
   try {
     const transition = await executeRun(
       { id: run.id, campaignId: run.campaignId, subjectEntityId: run.subjectEntityId, ...state },
       steps,
       policy,
       buildStepDeps(deps),
-      buildEffects(deps, run),
+      { ...buildEffects(deps, run), reportProgress: (latest) => { progress = latest } },
     )
 
     if (transition.kind === 'failed') {
@@ -215,10 +229,11 @@ async function persist(
     // orchestration itself — a bad definition, an effects query. Resume where the run already was.
     return recordFailure(deps, run, claimToken, {
       error,
-      stepLog: state.stepLog,
-      context: state.context,
-      resumeStepIndex: state.currentStepIndex,
-      resumeStepId: state.currentStepId ?? null,
+      // The progress this pass actually made, not the state it started from.
+      stepLog: progress.stepLog,
+      context: progress.context,
+      resumeStepIndex: progress.nextStepIndex,
+      resumeStepId: progress.nextStepId,
     })
   }
 }

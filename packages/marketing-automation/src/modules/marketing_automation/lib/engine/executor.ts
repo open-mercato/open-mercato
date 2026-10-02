@@ -86,6 +86,23 @@ export type RunTransition =
 
 export type ExecutorSideEffects<TDeps> = {
   getStep(type: string): StepHandler<TDeps> | undefined
+  /**
+   * Called after every step this pass finishes, with where the run would resume if it stopped here.
+   *
+   * Exists because a throw loses everything the pass had done. A failure INSIDE a step comes back as a
+   * `failed` transition carrying its index, but a failure of the orchestration — a malformed definition, an
+   * effects query — propagates, and the caller's catch then had only the state it started from. It recorded
+   * the run at its STARTING index, so the retry re-ran every step that had already succeeded, which for a
+   * journey whose first step is an email means sending it again.
+   *
+   * Optional: a test that does not care about the retry point leaves it out.
+   */
+  reportProgress?(progress: {
+    nextStepIndex: number
+    nextStepId: string | null
+    stepLog: StepOutcome[]
+    context: AutomationContext
+  }): void
   /** Messages already sent to this subject since the given instant, across ALL campaigns. */
   countSendsSince(subjectEntityId: string, since: Date): Promise<number>
   /**
@@ -400,6 +417,13 @@ export async function executeRun<TDeps>(
 
     if (result.contextPatch) Object.assign(context, result.contextPatch)
     stepLog.push(outcome(step, result.status === 'done' ? 'done' : 'skipped', now, result.detail))
+    // Where a retry should pick up if the orchestration throws after this point: AFTER this step.
+    effects.reportProgress?.({
+      nextStepIndex: index + 1,
+      nextStepId: effectiveSteps[index + 1]?.id ?? null,
+      stepLog: [...stepLog],
+      context: { ...context },
+    })
   }
 
   return { kind: 'completed', stepLog, context }

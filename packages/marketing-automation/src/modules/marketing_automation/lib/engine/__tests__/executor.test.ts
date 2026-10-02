@@ -725,3 +725,60 @@ describe('resuming after the definition changed', () => {
     expect(transition.nextStepIndex).toBe(1)
   })
 })
+
+/**
+ * What a retry re-runs after the ORCHESTRATION throws rather than a step.
+ *
+ * A failure inside a step comes back as a `failed` transition carrying its index. A failure of the
+ * orchestration propagates, and the caller's catch then had only the state the pass started from — so it
+ * recorded the run at its STARTING index and the retry re-ran every step that had already succeeded. For a
+ * journey whose first step is an email, that is the same email five times before the dead letter.
+ */
+describe('progress reporting for a retry', () => {
+  test('reports the step after each one that finishes', async () => {
+    const seen: Array<{ nextStepIndex: number; nextStepId: string | null }> = []
+    await executeRun(
+      run(),
+      [step('first', 'add_tag'), step('second', 'add_tag')],
+      noPolicy,
+      deps,
+      makeEffects([tagHandler()], {
+        reportProgress: ({ nextStepIndex, nextStepId }) => { seen.push({ nextStepIndex, nextStepId }) },
+      }),
+    )
+
+    expect(seen).toEqual([
+      { nextStepIndex: 1, nextStepId: 'second' },
+      // Past the end after the last step: a retry there has nothing left to run.
+      { nextStepIndex: 2, nextStepId: null },
+    ])
+  })
+
+  test('the reported log carries the steps that ran, so a retry does not lose them', async () => {
+    const seen: Array<string[]> = []
+    await executeRun(
+      run(),
+      [step('first', 'add_tag'), step('second', 'add_tag')],
+      noPolicy,
+      deps,
+      makeEffects([tagHandler()], {
+        reportProgress: ({ stepLog }) => { seen.push(stepLog.map((entry) => entry.stepId)) },
+      }),
+    )
+
+    expect(seen[0]).toEqual(['first'])
+    expect(seen[1]).toEqual(['first', 'second'])
+  })
+
+  test('nothing is reported when no step finishes, so the retry point stays where the pass began', async () => {
+    const seen: unknown[] = []
+    await executeRun(
+      run(),
+      [step('w', 'wait', { minutes: 30 })],
+      noPolicy,
+      deps,
+      makeEffects([tagHandler()], { reportProgress: (progress) => { seen.push(progress) } }),
+    )
+    expect(seen).toHaveLength(0)
+  })
+})
