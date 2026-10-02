@@ -151,6 +151,9 @@ export function requiresVisitAvailabilityCheck(args: {
   if (updating && !hasAvailabilityChange(input)) return 'skip'
   const storedType = visitTypeKey(rowValue(existing, 'interactionType', 'interaction_type'))
   if ((suppliedType ?? storedType) !== 'visit') return 'skip'
+  // A Visit that is, or is being left, canceled books nobody: canceled Visits are
+  // never counted as conflicts, so moving one must not be refused for a clash.
+  if (('status' in input ? input.status : existing.status) === 'canceled') return 'skip'
   try {
     if (updating && storedType === 'visit' && !changedAvailability(input, existing)) return 'skip'
   } catch (error) {

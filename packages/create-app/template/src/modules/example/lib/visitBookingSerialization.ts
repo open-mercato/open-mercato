@@ -211,6 +211,15 @@ export function createVisitBookingSerializingCommandBus(args: {
         if (typeof interactionId !== 'string') return
         if (!hasAvailabilityChange(input)) return
         probe = await loadInteraction(lockEm, tenantId, interactionId, options as CommandExecutionOptions<unknown>, VISIT_TYPE_PROBE_FIELDS)
+        // Known window, accepted on purpose: this probe runs before the
+        // per-interaction lock, so a write that omits the type can read
+        // `meeting` while a concurrent transaction is still converting the same
+        // row to a Visit, skip here, and then land an unchecked time on what has
+        // become a Visit. Closing it means an advisory lock and a second read on
+        // every availability-touching update of every non-Visit interaction in
+        // every tenant, which is the cost the early return above exists to avoid.
+        // A client that sends the optimistic-lock header is already protected:
+        // the conversion bumps `updated_at`, so the stale write is rejected.
         if (suppliedType !== 'visit' && visitTypeKey(rowValue(probe ?? {}, 'interactionType', 'interaction_type')) !== 'visit') return
       }
       const organizationId = rowValue(probe ?? input, 'organizationId', 'organization_id')

@@ -432,6 +432,28 @@ describe('Visit booking command serialization', () => {
       expect(mockEvaluateVisitAvailability).not.toHaveBeenCalled()
     })
 
+    it('does not re-check a canceled Visit that is moved or canceled in the same write', async () => {
+      const manager = new AdvisoryLockManager()
+      mockEvaluateVisitAvailability.mockResolvedValue([
+        { type: 'staff', id: USER_ID, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+      ])
+      const bus = createVisitBookingSerializingCommandBus({
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
+        em: lockingEntityManager(manager, [], []) as never,
+      })
+      mockQuery.mockImplementation(async () => ({ items: [storedVisit({ status: 'canceled' })], total: 1 }))
+      await expect(bus.execute('customers.interactions.update', {
+        input: { id: INTERACTION_ID, scheduledAt: new Date('2026-10-02T13:00:00.000Z') },
+        ctx: updateContext() as never,
+      })).resolves.toBeDefined()
+      mockQuery.mockImplementation(async () => ({ items: [storedVisit()], total: 1 }))
+      await expect(bus.execute('customers.interactions.update', {
+        input: { id: INTERACTION_ID, status: 'canceled', scheduledAt: new Date('2026-10-02T13:00:00.000Z') },
+        ctx: updateContext() as never,
+      })).resolves.toBeDefined()
+      expect(mockEvaluateVisitAvailability).not.toHaveBeenCalled()
+    })
+
     it('takes no lock and reads no record for a non-Visit interaction write', async () => {
       const manager = new AdvisoryLockManager()
       const acquiredKeys: string[] = []
