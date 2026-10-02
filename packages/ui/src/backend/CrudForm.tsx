@@ -2699,9 +2699,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     })
   }, [extendedInjectionEventsEnabled, fieldChangeDispatchVersion, triggerInjectionEvent, values])
 
-  const onBlurRequest = React.useCallback((fieldId: string) => {
-    void validateFieldOnBlur(fieldId)
+  // `validateFieldOnBlur` is rebuilt whenever the form values change. Passing
+  // that identity down would invalidate every memoized field control on each
+  // keystroke, so the fields get a stable callback that reads the latest one.
+  const validateFieldOnBlurRef = React.useRef(validateFieldOnBlur)
+  React.useLayoutEffect(() => {
+    validateFieldOnBlurRef.current = validateFieldOnBlur
   }, [validateFieldOnBlur])
+  const onBlurRequest = React.useCallback((fieldId: string) => {
+    void validateFieldOnBlurRef.current(fieldId)
+  }, [])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
