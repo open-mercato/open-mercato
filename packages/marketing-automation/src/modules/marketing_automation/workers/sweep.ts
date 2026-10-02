@@ -16,6 +16,7 @@ import { findRowSweepSource } from '../lib/sweep-sources.js'
 import type { RowSweepSource, SweepCandidate } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
+import { pruneDeadLetters } from '../lib/dead-letter.js'
 import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
 import { loadValueBoundaries, refreshValueBoundariesIfStale } from '../lib/value-boundaries.js'
 import { loadValueHorizonYears } from '../lib/value-horizon.js'
@@ -637,6 +638,16 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     await pruneJobRuns(deps.em, scope, deps.now)
   } catch (error) {
     logger.warn('[internal] marketing job-run pruning failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  // The other side of the same log: what ran, and what could not be processed at all.
+  try {
+    const removed = await pruneDeadLetters(deps.em, scope, deps.now)
+    if (removed > 0) logger.info('marketing dead letters pruned', { removed })
+  } catch (error) {
+    logger.warn('[internal] marketing dead-letter pruning failed', {
       error: error instanceof Error ? error.message : String(error),
     })
   }

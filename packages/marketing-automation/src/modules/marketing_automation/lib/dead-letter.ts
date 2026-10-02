@@ -55,3 +55,43 @@ export async function recordDeadLetter(
     // Intentionally ignored — see the note above.
   }
 }
+
+/**
+ * How long a dead letter is kept.
+ *
+ * Thirty days, matching the job-run log: the two answer the same question from opposite sides, and a reader
+ * comparing "what ran" with "what could not" should not have to hold two windows in their head.
+ */
+export const DEAD_LETTER_RETENTION_DAYS = 30
+
+/**
+ * Removes dead letters past the retention window.
+ *
+ * The table was append-only with nothing ever reading or removing a row, so a tenant with a malformed
+ * integration accumulated one per failed delivery for ever. Pruned by the sweep that writes them, for the
+ * reason the job log is: a cleanup task nobody scheduled is a table that grows until somebody notices.
+ *
+ * Rows with no scope are included. The dispatcher records one when it could not resolve a tenant at all, so
+ * those rows belong to nobody and would otherwise be the only ones that never expire — and past the window
+ * there is nothing in them anybody can act on. The payload is redacted on write, so what ages out here is
+ * already a redacted record rather than a partner's body.
+ *
+ * This is retention, not a replay. Nothing reprocesses a dead letter automatically and nothing should: a
+ * dispatch is guarded against duplicates by an occurrence key with a window, and replaying one after that
+ * window has passed would start the journey a second time. Replay belongs behind a person deciding.
+ */
+export async function pruneDeadLetters(
+  source: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  now: Date,
+  retentionDays = DEAD_LETTER_RETENTION_DAYS,
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - retentionDays * 86_400_000)
+  return source.nativeDelete(MarketingDispatchDeadLetter, {
+    $and: [
+      { $or: [{ tenantId: scope.tenantId }, { tenantId: null }] },
+      { $or: [{ organizationId: scope.organizationId }, { organizationId: null }] },
+      { createdAt: { $lt: cutoff } },
+    ],
+  })
+}
