@@ -307,10 +307,20 @@ export default function SegmentsPage() {
       )
       flash(t('marketing_automation.segments.actionQueued', 'Started. Watch it in the progress bar at the top.'), 'success')
     } catch (error) {
+      /**
+       * A refusal and a failure are different answers, and "could not start" reads as the second.
+       *
+       * Tagging goes through the CRM's own grant, so an author who may write campaigns can still be
+       * refused here — and an operator told only that it "could not start" has no reason to suspect a
+       * permission and will try again.
+       */
+      const code = readApiErrorField(error, 'code')
       flash(
-        readApiErrorField(error, 'code') === 'marketing_automation.errors.progressUnavailable'
+        code === 'marketing_automation.errors.progressUnavailable'
           ? t('marketing_automation.errors.progressUnavailable', 'This installation cannot track background work, so bulk actions are unavailable.')
-          : t('marketing_automation.segments.actionFailed', 'Could not start the action.'),
+          : code === 'marketing_automation.errors.tagGrantRequired'
+            ? t('marketing_automation.errors.tagGrantRequired', 'Tagging customers needs permission to manage customer activities. Ask an administrator for it.')
+            : t('marketing_automation.segments.actionFailed', 'Could not start the action.'),
         'error',
       )
     } finally {

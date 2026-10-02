@@ -173,6 +173,7 @@
   "marketing_automation.errors.segmentSelfReference": "Ein Segment kann nicht über andere Segmente definiert werden.",
   "marketing_automation.errors.segmentSlug": "Aus diesem Namen entsteht keine brauchbare Referenz — verwende Buchstaben oder Ziffern.",
   "marketing_automation.errors.subjectErased": "Die Marketingdaten dieses Kunden wurden gelöscht, daher gelten die Scoring-Regeln nicht mehr für ihn.",
+  "marketing_automation.errors.tagGrantRequired": "Kunden zu markieren erfordert die Berechtigung, Kundenaktivitäten zu verwalten. Bitte eine Administratorin oder einen Administrator darum.",
   "marketing_automation.errors.testSendFailed": "Der Mailserver hat die Testnachricht abgelehnt.",
   "marketing_automation.errors.testSendNotEmail": "Nur ein E-Mail-Schritt kann getestet werden.",
   "marketing_automation.explain.ask": "Erklären",

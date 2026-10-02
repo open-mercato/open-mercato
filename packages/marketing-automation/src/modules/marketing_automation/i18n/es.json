@@ -173,6 +173,7 @@
   "marketing_automation.errors.segmentSelfReference": "Un segmento no puede definirse en términos de otros segmentos.",
   "marketing_automation.errors.segmentSlug": "Ese nombre no produce una referencia utilizable: usa letras o dígitos.",
   "marketing_automation.errors.subjectErased": "Los datos de marketing de este cliente se borraron, así que las reglas de puntuación ya no se le aplican.",
+  "marketing_automation.errors.tagGrantRequired": "Etiquetar clientes requiere permiso para gestionar actividades de clientes. Pídeselo a una persona con administración.",
   "marketing_automation.errors.testSendFailed": "El servidor de correo rechazó el mensaje de prueba.",
   "marketing_automation.errors.testSendNotEmail": "Solo se puede probar un paso de correo.",
   "marketing_automation.explain.ask": "Explicar",

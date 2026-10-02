@@ -173,6 +173,7 @@
   "marketing_automation.errors.segmentSelfReference": "A segment cannot be defined in terms of other segments.",
   "marketing_automation.errors.segmentSlug": "That name does not produce a usable reference — use some letters or digits.",
   "marketing_automation.errors.subjectErased": "This customer's marketing data was erased, so score rules no longer apply to them.",
+  "marketing_automation.errors.tagGrantRequired": "Tagging customers needs permission to manage customer activities. Ask an administrator for it.",
   "marketing_automation.errors.testSendFailed": "The transport refused the test message.",
   "marketing_automation.errors.testSendNotEmail": "Only an email step can be test sent.",
   "marketing_automation.explain.ask": "Explain",

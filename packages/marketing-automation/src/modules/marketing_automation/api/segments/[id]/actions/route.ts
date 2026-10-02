@@ -7,6 +7,7 @@ import type { ProgressService } from '@open-mercato/core/modules/progress/lib/pr
 import { MarketingSegment } from '../../../../data/entities.js'
 import { enqueueSegmentAction } from '../../../../lib/queue.js'
 import { readPathUuid } from '../../../shared.js'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 /**
  * Starts a bulk action over everybody in a segment.
@@ -55,6 +56,35 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+
+  /**
+   * Tagging customers needs the grant that protects customers, not the one that protects campaigns.
+   *
+   * `add_tag` writes to the CRM through `customers.tags.assign`, and core's own route for that single
+   * write requires `customers.activities.manage`. Accepting `campaigns.manage` alone here meant the bulk
+   * form over ten thousand people was easier to reach than tagging one of them by hand — a permission
+   * boundary that holds for one record and not for the set is not a boundary.
+   *
+   * Checked inline rather than declared, because which grant applies depends on the action in the body:
+   * `add_points` writes this module's own score ledger and no CRM row.
+   */
+  if (parsed.data.kind === 'add_tag') {
+    const rbac = container.resolve<RbacService>('rbacService')
+    const mayTag = await rbac.userHasAllFeatures(
+      auth.sub,
+      ['customers.activities.manage'],
+      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+    )
+    if (!mayTag) {
+      return NextResponse.json(
+        {
+          error: 'Tagging customers needs the customers.activities.manage permission',
+          code: 'marketing_automation.errors.tagGrantRequired',
+        },
+        { status: 403 },
+      )
+    }
+  }
 
   const segment = await em.findOne(MarketingSegment, { id: segmentId, ...scope, deletedAt: null })
   if (!segment) return NextResponse.json({ error: 'Not found' }, { status: 404 })

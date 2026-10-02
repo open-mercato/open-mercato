@@ -173,6 +173,7 @@
   "marketing_automation.errors.segmentSelfReference": "Segment nie może być zdefiniowany przez inne segmenty.",
   "marketing_automation.errors.segmentSlug": "Z tej nazwy nie da się zrobić odwołania — użyj liter lub cyfr.",
   "marketing_automation.errors.subjectErased": "Dane marketingowe tego klienta zostały usunięte, więc reguły punktacji już go nie obejmują.",
+  "marketing_automation.errors.tagGrantRequired": "Dodawanie tagów klientom wymaga uprawnienia do zarządzania aktywnościami klientów. Poproś o nie administratora.",
   "marketing_automation.errors.testSendFailed": "Serwer pocztowy odrzucił wiadomość testową.",
   "marketing_automation.errors.testSendNotEmail": "Test można wysłać tylko dla kroku e-mail.",
   "marketing_automation.explain.ask": "Wyjaśnij",

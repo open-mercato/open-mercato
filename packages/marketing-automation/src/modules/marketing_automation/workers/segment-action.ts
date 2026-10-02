@@ -8,6 +8,7 @@ import type { ConditionExpression } from '@open-mercato/core/modules/business_ru
 import { MarketingSegment } from '../data/entities.js'
 import { JOB_MAX_CHECKED, resolveSegmentMembers } from '../lib/segment-members.js'
 import { addScoreEntry } from '../lib/scores.js'
+import { buildCampaignCommandContext } from '../lib/command-context.js'
 import { isErasedSubject } from '../lib/gdpr.js'
 import { recordJobRun } from '../lib/job-runs.js'
 import type { SegmentActionJob } from '../lib/queue.js'
@@ -109,13 +110,16 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
                 entityId: subjectEntityId,
                 tagId: job.payload.action.tagId,
               },
-              ctx: {
-                container,
-                auth: null,
-                organizationScope: null,
-                selectedOrganizationId: scope.organizationId,
-                organizationIds: [scope.organizationId],
-              },
+              /**
+               * A deliberate system invocation, not an anonymous one.
+               *
+               * `auth: null` without `systemActor` is indistinguishable from a write nobody authorised,
+               * which is the one shape a command bus should be suspicious of. The person who asked for
+               * this is recorded on the progress job (`actorId`), and the route checked their
+               * `customers.activities.manage` before the job was ever enqueued — this context says the
+               * worker is running that decision, not making one of its own.
+               */
+              ctx: buildCampaignCommandContext(container, scope),
             })
             applied += 1
           } else {
