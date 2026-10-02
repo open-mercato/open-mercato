@@ -176,3 +176,87 @@ describe('DealOwnerSelect seed survives the roster fetch', () => {
     expect(screen.queryByText('Stale Seed')).toBeNull()
   })
 })
+
+/**
+ * Regression guards for #6857. Three separate defects made the picker misreport who the owner
+ * is: a name that is really an e-mail was printed twice, a placeholder label outlived the point
+ * where the roster knew the real name, and the roster vanished from the list after a save.
+ */
+describe('DealOwnerSelect identity reporting (#6857)', () => {
+  it('does not repeat the e-mail when the name falls back to it', async () => {
+    // The deal detail route sends `name: owner.name ?? owner.email`, so a user without a name
+    // arrives here with name === email.
+    render(
+      <DealOwnerSelect
+        value="user-1"
+        onChange={() => {}}
+        initialOption={{ id: 'user-1', name: 'admin@acme.com', email: 'admin@acme.com' }}
+      />,
+    )
+
+    expect(screen.getAllByText('admin@acme.com')).toHaveLength(1)
+  })
+
+  it('prefers the roster name over a placeholder seed once the roster has resolved', async () => {
+    fetchAssignableStaffMembers.mockResolvedValue([
+      { teamMemberId: 'tm-1', userId: 'user-1', displayName: 'Alex Chen', email: 'admin@acme.com', teamName: null },
+    ])
+
+    const { container } = render(
+      <DealOwnerSelect
+        value="user-1"
+        onChange={() => {}}
+        // What the create forms seed before the roster is known.
+        initialOption={{ id: 'user-1', name: 'Current user' }}
+      />,
+    )
+
+    fireEvent.change(getInput(container), { target: { value: 'ale' } })
+    await waitFor(() => expect(screen.getByText('Alex Chen')).toBeTruthy())
+
+    // Now search something the selected user does not match: the seed is re-injected so the
+    // selection stays visible, and it must carry the resolved name, not the placeholder.
+    fetchAssignableStaffMembers.mockResolvedValue([
+      { teamMemberId: 'tm-2', userId: 'user-9', displayName: 'Priya Nair', email: 'employee@acme.com', teamName: null },
+    ])
+    fireEvent.change(getInput(container), { target: { value: 'employee' } })
+
+    await waitFor(() => expect(screen.getByText('Priya Nair')).toBeTruthy())
+    expect(screen.getByText('Alex Chen')).toBeTruthy()
+    expect(screen.queryByText('Current user')).toBeNull()
+  })
+
+  it('keeps the resolved roster available to re-render from, so a save cannot collapse the list', async () => {
+    // LookupSelect resets its list to `options` whenever it is not searching and does not
+    // refetch on a plain re-render. If `options` only ever held the seed, the post-save
+    // re-render left a single card until reload.
+    const roster = [
+      { teamMemberId: 'tm-1', userId: 'user-1', displayName: 'Alex Chen', email: 'admin@acme.com', teamName: null },
+      { teamMemberId: 'tm-2', userId: 'user-9', displayName: 'Priya Nair', email: 'employee@acme.com', teamName: null },
+    ]
+    fetchAssignableStaffMembers.mockResolvedValue(roster)
+
+    const { container, rerender } = render(
+      <DealOwnerSelect value="user-1" onChange={() => {}} initialOption={{ id: 'user-1', name: 'Alex Chen' }} />,
+    )
+
+    // With a value set, LookupSelect searches immediately with an empty query — the unfiltered
+    // fetch that teaches the picker the roster, exactly as on page load.
+    await waitFor(() => expect(screen.getByText('Priya Nair')).toBeTruthy())
+
+    // Reproduce the reset: LookupSelect stops searching when there is no value and no query,
+    // and then replaces its list with whatever `options` holds. The post-save re-render on the
+    // deal detail page goes through exactly this path.
+    rerender(
+      <DealOwnerSelect value={null} onChange={() => {}} initialOption={{ id: 'user-1', name: 'Alex Chen' }} />,
+    )
+    fireEvent.change(getInput(container), { target: { value: '' } })
+    rerender(
+      <DealOwnerSelect value="user-1" onChange={() => {}} initialOption={{ id: 'user-1', name: 'Alex Chen' }} />,
+    )
+
+    // The whole roster must still be offered, not just the seeded owner.
+    await waitFor(() => expect(screen.getByText('Alex Chen')).toBeTruthy())
+    expect(screen.getByText('Priya Nair')).toBeTruthy()
+  })
+})

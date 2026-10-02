@@ -35,10 +35,14 @@ export type DealOwnerSelectProps = {
 function toLookupItem(id: string, name?: string | null, email?: string | null): LookupSelectItem {
   const trimmedName = typeof name === 'string' ? name.trim() : ''
   const trimmedEmail = typeof email === 'string' ? email.trim() : ''
+  // Callers fall back to the e-mail when a user has no name (the deal detail route sends
+  // `name: owner.name ?? owner.email`), so without this guard the card showed the same address
+  // as both title and subtitle — "admin@acme.com / admin@acme.com" (#6857).
+  const hasDistinctName = Boolean(trimmedName) && trimmedName !== trimmedEmail
   return {
     id,
     title: trimmedName || trimmedEmail || id,
-    subtitle: trimmedName && trimmedEmail ? trimmedEmail : null,
+    subtitle: hasDistinctName && trimmedEmail ? trimmedEmail : null,
   }
 }
 
@@ -64,13 +68,37 @@ export function DealOwnerSelect({
   // organization — every other deal-owner picker passes this.
   const activeOrgId = useCurrentOrganization()?.id ?? null
 
+  // The roster is the authority on a user's display name. Once it has resolved the selected
+  // value we keep that entry, so the picker stops falling back to `initialOption` — whose label
+  // may be a placeholder ("Current user") or an e-mail standing in for a missing name (#6857).
+  const resolvedForValue = React.useRef<LookupSelectItem | null>(null)
+  // The last roster we actually received, kept in state rather than a ref because it is also
+  // handed back to `LookupSelect` as `options`.
+  //
+  // `LookupSelect` resets its list to `options` whenever it is not searching, and it does not
+  // refetch on a plain re-render. After saving the deal the form re-rendered, that reset ran,
+  // and `options` held only the single seeded owner — so the field collapsed to one card and
+  // stayed that way until reload, with no network request in sight (#6857).
+  const [lastRoster, setLastRoster] = React.useState<LookupSelectItem[]>([])
+  const lastRosterRef = React.useRef<LookupSelectItem[]>([])
+
   const seededOptions = React.useMemo<LookupSelectItem[]>(
     () => (initialOption?.id ? [toLookupItem(initialOption.id, initialOption.name, initialOption.email)] : []),
     [initialOption?.email, initialOption?.id, initialOption?.name],
   )
 
+  // What `LookupSelect` falls back to when it is not searching: the roster we already know,
+  // with the seeded owner kept only if the roster does not contain them.
+  const fallbackOptions = React.useMemo<LookupSelectItem[]>(() => {
+    const seeded = seededOptions[0]
+    if (seeded && !lastRoster.some((item) => item.id === seeded.id)) return [seeded, ...lastRoster]
+    return lastRoster.length ? lastRoster : seededOptions
+  }, [lastRoster, seededOptions])
+
+
   const searchOwners = React.useCallback(async (query: string): Promise<LookupSelectItem[]> => {
     let items: LookupSelectItem[] = []
+    let fetchFailed = false
     try {
       // The assignable roster belongs to the optional `staff` module; when it is disabled the
       // helper turns the 404 into an empty page, so this resolves to "no candidates" rather
@@ -84,14 +112,29 @@ export function DealOwnerSelect({
     } catch (error) {
       logger.error('customers.deals.searchOwners failed', { err: error })
       items = []
+      fetchFailed = true
     }
+
+    const isUnfiltered = query.trim().length === 0
+    if (items.length === 0 && (fetchFailed || isUnfiltered) && lastRosterRef.current.length > 0) {
+      // Keep showing what we last knew rather than collapsing to the seed alone.
+      items = lastRosterRef.current
+    } else if (items.length > 0 && isUnfiltered) {
+      lastRosterRef.current = items
+      setLastRoster(items)
+    }
+
+    const fromRoster = items.find((item) => item.id === value)
+    if (fromRoster) resolvedForValue.current = fromRoster
 
     // `LookupSelect` only falls back to its `options` prop when it is NOT searching. A set
     // `value` makes it search, so the fetch result replaces that seed — which would leave an
     // owner outside the roster (a departed user, or anyone when the `staff` module is off)
     // rendering as no selection at all. Merge the seed back in so the current value always
     // has a matching, named item.
-    const seeded = seededOptions[0]
+    // Prefer the roster's own entry for the current value over the caller's seed.
+    const resolved = resolvedForValue.current
+    const seeded = resolved && resolved.id === value ? resolved : seededOptions[0]
     if (seeded && seeded.id === value && !items.some((item) => item.id === seeded.id)) {
       return [seeded, ...items]
     }
@@ -103,7 +146,7 @@ export function DealOwnerSelect({
       value={value}
       onChange={onChange}
       fetchItems={searchOwners}
-      options={seededOptions}
+      options={fallbackOptions}
       disabled={disabled}
       placeholder={translateWithFallback(
         t,
