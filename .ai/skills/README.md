@@ -72,7 +72,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `design` | opt-in | 1 | Figma-side design workflow skills. Opt-in — presumes Figma tooling. |
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
-| `analysis` | opt-in | 2 | Business/engagement analysis skills (app specs, platform gap analysis). Opt-in. |
+| `analysis` | opt-in | 3 | Business/engagement analysis skills (app specs, platform gap analysis). Opt-in. |
 | `migration` | opt-in | 3 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
 | external | always | 26 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
@@ -240,6 +240,7 @@ Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) �
 |-------|-------------|
 | `om-app-spec-writing` | Write and review a business-level App Spec — domain model, workflows with ROI, user stories with failure paths, platform gap analysis in atomic commits, and a phased rollout — BEFORE any feature spec or code exists. One level above `om-spec-writing`, which decomposes the finished App Spec into feature specs. Use when the user says "create an app spec", "define business requirements", "what should we build". |
 | `om-gap-analysis` | Grounded platform gap analysis at engagement scale — turn a folder of client docs into an Epic/Story tree where every coverage verdict is re-run by executable gates against a validated checkout of the platform, scored in atomic commits, license-tier-tagged, and synthesized into a client-facing summary + backlog. Verifies coverage against the platform's code; it does not author requirements or specs. |
+| `om-wcag-guardian` | Design accessibility contracts and review UI-impacting changes against WCAG 2.2 AA with verified evidence. Use for accessibility reviews and PRs affecting components, flows, styles, themes, accessible text or frontend dependencies. |
 
 ### migration
 
