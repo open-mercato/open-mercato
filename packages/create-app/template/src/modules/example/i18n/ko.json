@@ -23,7 +23,7 @@
   "example.calendar.visitAvailability.optionalModulesTitle": "선택적 가용성 확인",
   "example.calendar.visitAvailability.outsideHours": "가능한 근무 시간 외입니다.",
   "example.calendar.visitAvailability.pending": "가능 여부를 확인하는 중…",
-  "example.calendar.visitAvailability.plannerDisabled": "플래너 모듈이 활성화되어 있지 않습니다. 가용성 확인을 건너뛰며 방문을 저장할 수 있습니다.",
+  "example.calendar.visitAvailability.plannerDisabled": "플래너 모듈이 활성화되어 있지 않습니다. 가용성 확인을 건너뛰며 이 일정을 저장할 수 있습니다.",
   "example.calendar.visitAvailability.recipients": "받는 사람",
   "example.calendar.visitAvailability.removeSelection": "선택 제거",
   "example.calendar.visitAvailability.resources": "자원",

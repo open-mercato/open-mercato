@@ -380,6 +380,8 @@ Approved for review as a widget-based extension contract over the customers cale
 ### 2026-10-02 — Advisory availability on every bookable type
 
 - The Example panel wrapper now wraps every event type, not only `visit`. On types other than `visit` it runs in an advisory mode: the preview appears once a staff member, task assignee, or resource is selected for a timed, non-all-day interval, is titled "Availability", names each unavailable subject, and never blocks saving. `visit` keeps its enforced preview and save guard. The `NEXT_PUBLIC_OM_EXAMPLE_DISABLE_VISIT_PANEL` opt-out still restores the original panel for all types.
-- The booked and no-schedule reasons are worded without "visit" so they read correctly on every type.
+- The booked, no-schedule and planner-disabled reasons are worded without "visit" so they read correctly on every type.
+- The advisory mode reports a check it could not run rather than claiming availability: the server's own warnings (a disabled `planner` returns no subjects at all) are shown in both modes, so an unevaluated preview reads as "Availability checks were skipped" instead of a green "available". Only the staff/resources capability warnings stay Visit-owned, because they name fields that type requires.
+- On an assignee-only type the advisory preview names the assignee it checked. The assignee is not one of `values.participants`, so a user with no staff record — the case the server returns without a display name — was reported as "Selected staff member".
 - TC-EXAMPLE-018 gained a UI case: an Event that books an already-booked, scheduled resource shows the named core conflict warning and the advisory "Already booked at this time." preview. It creates and removes its own person, resource, availability rule and booking.
 

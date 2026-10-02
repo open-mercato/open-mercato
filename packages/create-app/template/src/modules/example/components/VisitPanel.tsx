@@ -38,14 +38,19 @@ function hasBookableSubject(participants: unknown, resources: unknown): boolean 
 export function VisitPanel({ definition, values, errors, disabled, capabilities, advisory = false, children }: VisitPanelProps) {
   const t = useT()
   const fields = definition.behavior.fields
+  // The staff the preview actually asks about. An assignee-only type books its
+  // assignee, who is not one of `values.participants`, so the reported subjects
+  // are resolved against this list rather than the raw form value.
+  const checkedParticipants = React.useMemo(
+    () => (advisory ? advisoryStaff(values, fields.people) : values.participants),
+    [advisory, values, fields.people],
+  )
   const url = React.useMemo(() => {
-    const participants = capabilities.staffEnabled && fields.people !== 'none'
-      ? advisory ? advisoryStaff(values, fields.people) : values.participants
-      : []
+    const participants = capabilities.staffEnabled && fields.people !== 'none' ? checkedParticipants : []
     const resources = capabilities.resourcesEnabled && fields.resources ? values.resources : []
     if (advisory && (!fields.endTime || values.allDay === true || !hasBookableSubject(participants, resources))) return null
     return visitAvailabilityRequestUrl({ ...values, participants, resources })
-  }, [values, advisory, fields.people, fields.resources, fields.endTime, capabilities.resourcesEnabled, capabilities.staffEnabled])
+  }, [values, checkedParticipants, advisory, fields.people, fields.resources, fields.endTime, capabilities.resourcesEnabled, capabilities.staffEnabled])
   const [preview, setPreview] = React.useState<Preview>({ state: 'idle', subjects: [] })
   const [retry, setRetry] = React.useState(0)
 
@@ -72,9 +77,15 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
     return <div className="space-y-4">{children}</div>
   }
 
-  const warnings = advisory ? [] : [...new Set([
-    ...(!capabilities.staffEnabled && fields.people !== 'none' ? ['example.calendar.visitAvailability.staffDisabled'] : []),
-    ...(!capabilities.resourcesEnabled && fields.resources ? ['example.calendar.visitAvailability.resourcesDisabled'] : []),
+  // The server's warnings say why nothing could be evaluated — a disabled planner
+  // leaves the subject list empty, which on its own reads as "available". They
+  // belong in both modes. The capability warnings name fields this type requires
+  // and an optional module does not provide, which only the Visit panel owns.
+  const warnings = [...new Set([
+    ...(advisory ? [] : [
+      ...(!capabilities.staffEnabled && fields.people !== 'none' ? ['example.calendar.visitAvailability.staffDisabled'] : []),
+      ...(!capabilities.resourcesEnabled && fields.resources ? ['example.calendar.visitAvailability.resourcesDisabled'] : []),
+    ]),
     ...(preview.warnings ?? []),
   ])]
   const blocked = preview.subjects.filter((subject) => subject.status !== 'available')
@@ -105,7 +116,7 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
       <AlertDescription>
         {description}
         {blocked.length ? <ul className="mt-2 list-disc space-y-1 pl-5" data-testid="example-visit-unavailable-subjects">
-          {blocked.map((subject) => <li key={`${subject.type}:${subject.id}`}>{visitAvailabilitySubjectMessage(subject, values, t)}</li>)}
+          {blocked.map((subject) => <li key={`${subject.type}:${subject.id}`}>{visitAvailabilitySubjectMessage(subject, { ...values, participants: checkedParticipants }, t)}</li>)}
         </ul> : null}
       </AlertDescription>
       {preview.state === 'retry' ? <Button type="button" variant="outline" disabled={disabled}

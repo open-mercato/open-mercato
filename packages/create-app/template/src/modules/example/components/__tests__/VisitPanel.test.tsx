@@ -143,6 +143,44 @@ describe('VisitPanel optional availability modules', () => {
       const url = new URL(String(jest.mocked(apiCall).mock.calls[0]?.[0]), 'http://localhost')
       expect(url.searchParams.get('staffUserIds')).toBe('66666666-6666-4666-8666-666666666666')
     })
+
+    it('names the assignee the server could not resolve instead of calling them "Selected staff member"', async () => {
+      const taskProps = {
+        ...eventProps,
+        definition: {
+          ...eventProps.definition,
+          behavior: { ...eventProps.definition.behavior, fields: { ...eventProps.definition.behavior.fields, people: 'assignee' } },
+        } as CalendarEventTypePanelProps['definition'],
+        values: { ...eventProps.values, participants: [], resources: [], assigneeUserId: '66666666-6666-4666-8666-666666666666', assigneeName: 'Sam' },
+      }
+      // The assignee is not one of `values.participants`, and a user without a
+      // staff record comes back with no `displayName`.
+      jest.mocked(apiCall).mockResolvedValue({ ok: true, status: 200, result: { warnings: [], subjects: [
+        { type: 'staff', id: '66666666-6666-4666-8666-666666666666', displayName: null, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+      ] }, response: {} as Response, cacheStatus: null })
+      render(<VisitPanel {...taskProps} advisory><div /></VisitPanel>)
+      await act(async () => { jest.advanceTimersByTime(250) })
+      const panel = screen.getByTestId('example-availability-panel')
+      expect(panel).toHaveTextContent('Sam: Already booked at this time.')
+      expect(panel).not.toHaveTextContent('Selected staff member')
+    })
+
+    it('reports a check that could not run instead of claiming availability', async () => {
+      // A disabled planner leaves the subject list empty, which on its own reads
+      // as "everything is available".
+      jest.mocked(apiCall).mockResolvedValue({ ok: true, status: 200,
+        result: { subjects: [], warnings: ['example.calendar.visitAvailability.plannerDisabled'] },
+        response: {} as Response, cacheStatus: null })
+      render(<VisitPanel {...eventProps} advisory><div /></VisitPanel>)
+      await act(async () => { jest.advanceTimersByTime(250) })
+      expect(screen.getByTestId('example-visit-optional-modules-warning')).toHaveTextContent('The planner module is not enabled.')
+      const panel = screen.getByTestId('example-availability-panel')
+      expect(panel).toHaveTextContent('Availability checks were skipped for unavailable modules.')
+      expect(panel).not.toHaveTextContent('Selected staff and resources are available.')
+      // The advisory panel is shown on every bookable type, so the reason must not
+      // call the event a visit.
+      expect(screen.getByTestId('example-visit-optional-modules-warning')).not.toHaveTextContent('save the visit')
+    })
   })
 
   it('registers the host translator for the headless save handler without modifying shared forms', async () => {

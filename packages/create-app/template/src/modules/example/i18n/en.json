@@ -23,7 +23,7 @@
   "example.calendar.visitAvailability.optionalModulesTitle": "Optional availability checks",
   "example.calendar.visitAvailability.outsideHours": "Outside available working hours.",
   "example.calendar.visitAvailability.pending": "Checking availability…",
-  "example.calendar.visitAvailability.plannerDisabled": "The planner module is not enabled. Availability checks are skipped; you can still save the visit.",
+  "example.calendar.visitAvailability.plannerDisabled": "The planner module is not enabled. Availability checks are skipped; you can still save this event.",
   "example.calendar.visitAvailability.recipients": "Recipients",
   "example.calendar.visitAvailability.removeSelection": "Remove selection",
   "example.calendar.visitAvailability.resources": "Resources",

@@ -23,7 +23,7 @@
   "example.calendar.visitAvailability.optionalModulesTitle": "Optionale Verfügbarkeitsprüfungen",
   "example.calendar.visitAvailability.outsideHours": "Außerhalb der verfügbaren Arbeitszeiten.",
   "example.calendar.visitAvailability.pending": "Verfügbarkeit wird geprüft…",
-  "example.calendar.visitAvailability.plannerDisabled": "Das Planungsmodul ist nicht aktiviert. Die Verfügbarkeit wird nicht geprüft; der Besuch kann weiterhin gespeichert werden.",
+  "example.calendar.visitAvailability.plannerDisabled": "Das Planungsmodul ist nicht aktiviert. Die Verfügbarkeit wird nicht geprüft; der Termin kann weiterhin gespeichert werden.",
   "example.calendar.visitAvailability.recipients": "Empfänger",
   "example.calendar.visitAvailability.removeSelection": "Auswahl entfernen",
   "example.calendar.visitAvailability.resources": "Ressourcen",

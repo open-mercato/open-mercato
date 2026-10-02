@@ -23,7 +23,7 @@
   "example.calendar.visitAvailability.optionalModulesTitle": "Comprobaciones de disponibilidad opcionales",
   "example.calendar.visitAvailability.outsideHours": "Fuera del horario de trabajo disponible.",
   "example.calendar.visitAvailability.pending": "Comprobando la disponibilidad…",
-  "example.calendar.visitAvailability.plannerDisabled": "El módulo de planificación no está habilitado. Se omiten las comprobaciones de disponibilidad; puedes guardar la visita.",
+  "example.calendar.visitAvailability.plannerDisabled": "El módulo de planificación no está habilitado. Se omiten las comprobaciones de disponibilidad; puedes guardar este evento.",
   "example.calendar.visitAvailability.recipients": "Destinatarios",
   "example.calendar.visitAvailability.removeSelection": "Quitar selección",
   "example.calendar.visitAvailability.resources": "Recursos",
