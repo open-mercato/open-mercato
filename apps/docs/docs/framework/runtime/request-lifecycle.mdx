@@ -32,7 +32,7 @@ When an unexpected exception escapes a [CRUD factory](../api/crud-factory) handl
 
 | Code | When |
 |------|------|
-| `DATABASE_ERROR` | A Postgres SQLSTATE is present but was not already classified as transient (`503`) or a foreign-key violation (`409`). |
+| `DATABASE_ERROR` | A Postgres SQLSTATE is present but was not already classified as transient (`503`), a foreign-key violation (`409 FOREIGN_KEY_VIOLATION`), or a unique-constraint violation (`409 UNIQUE_VIOLATION`). |
 | `PERSISTENCE_ERROR` | A MikroORM `ValidationError`/`NotFoundError` that no more specific branch handled. |
 | `INTERNAL_ERROR` | Everything else (default). |
 
