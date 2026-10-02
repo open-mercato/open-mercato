@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { enforceMarketingRateLimit, trackingRateLimitConfig } from '../../../lib/rate-limit.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { recordTrackingEvent } from '../../../lib/tracking/record.js'
@@ -55,6 +56,25 @@ export async function GET(req: Request) {
 
   try {
     const container = await createRequestContainer()
+    /**
+     * The limit guards the WRITE, not the response.
+     *
+     * This endpoint lives in messages already delivered and those cannot be fixed afterwards, so the rule
+     * above — the recipient must never see a broken image — outranks a 429. The damage a flood does here is
+     * an unbounded `marketing_message_send_events` table, and skipping the row is exactly what prevents it.
+     * Fail-open for the same reason: a degraded limiter must not turn every pixel in every sent email into
+     * an error.
+     */
+    const limited = await enforceMarketingRateLimit({
+      req,
+      container,
+      config: trackingRateLimitConfig,
+      namespace: 'marketing-track-open',
+      credential: token,
+      errorMessage: 'Too many requests',
+      posture: 'fail-open',
+    })
+    if (limited) return pixelResponse()
     const em = container.resolve<EntityManager>('em')
     await recordTrackingEvent(em, claims, { type: 'opened', now: new Date() })
   } catch (error) {

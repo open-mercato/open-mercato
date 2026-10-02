@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { enforceMarketingRateLimit, inboundRateLimitConfig } from '../../lib/rate-limit.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { findPeopleByAddresses } from '@open-mercato/core/modules/customers/lib/findPeopleByAddresses'
@@ -40,6 +41,28 @@ const ACCEPTED = { accepted: true } as const
 
 export async function POST(req: Request) {
   const token = new URL(req.url).searchParams.get(INBOUND_TOKEN_PARAM)
+
+  /**
+   * The tightest limit in the module, and fail-closed.
+   *
+   * Every accepted POST resolves an address through a bounded decrypt scan — the most expensive thing an
+   * unauthenticated caller can ask this module to do — and a leaked hook URL was enough to spend it on
+   * repeat. A partner posting a real event does so once per event, so the window is sized for a burst
+   * rather than a stream, and an unenforced limit here is worse than a rejected delivery: the partner
+   * retries, the scan does not come back.
+   *
+   * Keyed on the token as well as the address, so one hook being hammered cannot exhaust another's quota.
+   */
+  const limited = await enforceMarketingRateLimit({
+    req,
+    container: await createRequestContainer(),
+    config: inboundRateLimitConfig,
+    namespace: 'marketing-inbound',
+    credential: token,
+    errorMessage: 'Too many requests',
+    posture: 'fail-closed',
+  })
+  if (limited) return limited
   const secret = resolveTrackingSecret()
   if (!token || !secret) return NextResponse.json({ error: 'Invalid hook' }, { status: 400 })
 

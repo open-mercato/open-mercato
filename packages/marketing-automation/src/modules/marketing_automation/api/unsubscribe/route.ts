@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { enforceMarketingRateLimit, optOutRateLimitConfig } from '../../lib/rate-limit.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { reportError } from '@open-mercato/telemetry'
@@ -168,8 +169,30 @@ export async function GET(req: Request) {
   return confirmPage(verified.claims, verified.secret)
 }
 
+/**
+ * Fail-closed, because this one changes something.
+ *
+ * The GET beside it deliberately changes nothing — link scanners and gateways fetch every URL in an email —
+ * so the limit belongs on the action, where an unenforced one is worse than a rejected request. A person
+ * does this once; anything beyond a handful a minute per link is not a person.
+ */
+async function enforceLimit(req: Request): Promise<NextResponse | null> {
+  const container = await createRequestContainer()
+  return enforceMarketingRateLimit({
+    req,
+    container,
+    config: optOutRateLimitConfig,
+    namespace: 'marketing-unsubscribe',
+    credential: new URL(req.url).searchParams.get(TRACKING_TOKEN_PARAM),
+    errorMessage: 'Too many requests',
+    posture: 'fail-closed',
+  })
+}
+
 /** Acts — for the button on that page, and for mail clients that implement RFC 8058 one-click. */
 export async function POST(req: Request) {
+  const limited = await enforceLimit(req)
+  if (limited) return limited
   return handle(req)
 }
 

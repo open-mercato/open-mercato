@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { enforceMarketingRateLimit, trackingRateLimitConfig } from '../../../lib/rate-limit.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { recordTrackingEvent } from '../../../lib/tracking/record.js'
@@ -40,8 +41,27 @@ export async function GET(req: Request) {
 
   try {
     const container = await createRequestContainer()
-    const em = container.resolve<EntityManager>('em')
-    await recordTrackingEvent(em, claims, { type: 'clicked', linkUrl: claims.target, now: new Date() })
+    /**
+     * The limit guards the WRITE, not the redirect.
+     *
+     * Somebody clicked a link in an email and expects the page — the rule below — so a 429 here would break a
+     * message already delivered, which cannot be fixed afterwards. What a flood actually costs is rows in
+     * `marketing_message_send_events`, and skipping one is what the limit is for. Fail-open for the same
+     * reason the pixel is.
+     */
+    const limited = await enforceMarketingRateLimit({
+      req,
+      container,
+      config: trackingRateLimitConfig,
+      namespace: 'marketing-track-click',
+      credential: token,
+      errorMessage: 'Too many requests',
+      posture: 'fail-open',
+    })
+    if (!limited) {
+      const em = container.resolve<EntityManager>('em')
+      await recordTrackingEvent(em, claims, { type: 'clicked', linkUrl: claims.target, now: new Date() })
+    }
   } catch (error) {
     // The redirect happens regardless. Somebody clicked a link in an email and expects the page, not
     // an apology about our statistics.
