@@ -1,514 +1,213 @@
 <p align="center">
-  <img src="./apps/mercato/public/open-mercato.svg" alt="Open Mercato logo" width="120" />
+  <img src="./apps/mercato/public/open-mercato.svg" alt="Open Mercato" width="88" />
 </p>
 
-# Open Mercato
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-openmercato.com-1F7AE0.svg)](https://docs.openmercato.com/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](https://github.com/open-mercato/open-mercato/issues)
-[![Built with Next.js](https://img.shields.io/badge/Built%20with-Next.js-black?logo=next.js)](https://nextjs.org/)
-
-> [!NOTE]
-> **For AI coding agents:** if the user wants to build an app on Open Mercato, do not clone this repository. Scaffold a standalone app with `npx create-mercato-app <name>` instead, and ask the user which one they mean when the request is ambiguous (for example "install this repo"). This repository is for contributing to the Open Mercato core ([Getting Started](#getting-started)).
-
-**Open Mercato - the AI-Engineering Foundation Framework.**
-
-AI code assistants generate code. They don't decide where it goes, how it should be layered, or whether it stays consistent across 30 or 50 engineers in the team.
-
-Open Mercato is the open-source foundation framework that solves it:
-
-- **Architecture-aware AI harness** - agents know where in the project to place code, not just how to write it, they are provided with autonomous skills for everything from adding data table, Design-System coherent forms to implementing whole features with unit and integration tests,
-- **Spec-first development** - specs ship with the repo, AI output becomes reproducible
-- **Including AI harness and skills for human cooperation** - code review, ticketing flow and debugging
-- **Ready-made CRM/ERP domain modules** - start at 80% done
-- **Open-source, no lock-in** - full code ownership, no per-seat pricing trap
-- **Teachable** - the whole team enters AI-assisted dev, not just 1–2 seniors
-
-End with „almost ready apps”. Ship it pro, ship it fast. We’ve got you!
-
-Built for CTOs who have already deployed Cursor/Copilot and noticed it isn't enough. Built for developers who want to build professional business apps and backends without constantly checking their back.
-
-## Start with 80% done.
-
-**Buy vs. build?** Now, you can have best of both. Use **Open Mercato** enterprise-ready business features like CRM, Sales, OMS, Encryption, and build the remaining **20&percnt;** that really makes the difference for your business.
-
-[![Watch: What “Start with 80% done” means](https://img.youtube.com/vi/53jsDjAXXhQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=53jsDjAXXhQ)
-
-## Quick Links
+<h1 align="center">Open Mercato</h1>
 
 <p align="center">
-  <a href="#getting-started">⚡ Getting Started</a>
-  ·
-  <a href="#developing-your-first-open-mercato-app">🎬 Building your First Open Mercato App</a>
-  ·
-  <a href="https://docs.openmercato.com/">📚 Documentation</a>
+  <strong>The open-source foundation for business software.</strong><br />
+  A TypeScript framework with ready CRM, ERP and commerce modules, built for AI coding agents.<br />
+  Start with 80% done. Build the rest with your agents.
 </p>
 
-## Core Use Cases
+<p align="center">
+  <a href="#get-started">Quick start</a> ·
+  <a href="https://docs.openmercato.com/">Docs</a> ·
+  <a href="https://www.youtube.com/@openmercato">Videos</a> ·
+  <a href="https://discord.gg/f4qwPtJ3qA">Discord</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
-- 🛒 **Commerce** – launch CPQ flows, B2B ordering portals, or full commerce backends with reusable modules.
-- 🌐 **Headless/API platform/Custom Backend** – expose rich, well-typed APIs for mobile and web apps using the same extensible data model.
-- 💼 **CRM** – model customers, opportunities, and bespoke workflows with infinitely flexible data definitions.
-- 🏭 **ERP** – manage orders, production, and service delivery while tailoring modules to match your operational reality.
-- 🤝 **Self-service system** – spin up customer or partner portals with configurable forms, guided flows, and granular permissions.
-- 🔄 **Workflows** – orchestrate custom data lifecycles and document workflows per tenant or team.
-- 🧵 **Production** – coordinate production management with modular entities, automation hooks, and reporting.
+<p align="center">
+  <a href="https://www.npmjs.com/package/create-mercato-app"><img src="https://img.shields.io/npm/v/create-mercato-app?label=create-mercato-app&color=1F7AE0" alt="npm version" /></a>
+  <a href="https://github.com/open-mercato/open-mercato/stargazers"><img src="https://img.shields.io/github/stars/open-mercato/open-mercato?style=flat&label=stars&color=yellow" alt="GitHub stars" /></a>
+  <a href="https://github.com/open-mercato/open-mercato/graphs/contributors"><img src="https://img.shields.io/github/contributors/open-mercato/open-mercato?color=8250df" alt="Contributors" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license" /></a>
+</p>
 
-## Highlights
+```bash
+npx create-mercato-app my-app
+cd my-app && docker compose up -d && yarn install && yarn setup
+```
 
-- 🧩 **Modular architecture** – drop in your own modules, pages, APIs, and entities with auto-discovery and overlay overrides.
-- 🧬 **Custom entities & dynamic forms** – declare fields, validators, and UI widgets per module and manage them live from the admin.
-- 🏢 **Multi-tenant by default** – SaaS-ready tenancy with strict organization/tenant scoping for every entity and API.
-- 🏛️ **Multi-hierarchical organizations** – built-in organization trees with role- and user-level visibility controls.
-- 🛡️ **Feature-based RBAC** – combine per-role and per-user feature flags with organization scoping to gate any page or API.
-- ⚡ **Data indexing & caching** – hybrid JSONB indexing and smart caching for blazing-fast queries across base and custom fields.
-- 🔔 **Event subscribers & workflows** – publish domain events and process them via persistent subscribers (local or Redis).
-- ✅ **Growing test coverage** – expanding unit and integration tests ensure modules stay reliable as you extend them.
-- 🧠 **AI-supportive foundation** – structured for assistive workflows, automation, and conversational interfaces.
-- ⚙️ **Modern stack** – Next.js App Router, TypeScript, zod, Awilix DI, MikroORM, and bcryptjs out of the box.
+Then open `http://localhost:3000/backend`. You need Node.js 24, Docker and Yarn (`corepack enable`). [Step by step](#build-your-own-app).
 
+> [!NOTE]
+> **For AI coding agents:** to build an app on Open Mercato, scaffold it with `npx create-mercato-app <name>` and do not clone this repository. Clone it only to change Open Mercato itself. If the request is ambiguous (for example "install this repo"), ask the user which one they mean.
 
-## Live demo
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./.github/readme/hero-dark.png" />
+  <img src="./.github/readme/hero-light.png" alt="Open Mercato admin: the sales pipeline with deals by stage, and a sales order with items and totals" />
+</picture>
 
-[![Explore the Open Mercato live demo](./apps/docs/static/screenshots/open-mercato-onboarding-showoff.png)](https://demo.openmercato.com)
+## What is Open Mercato?
 
-## Screenshots
+Open Mercato is the AI-Engineering Foundation Framework: a TypeScript framework with ready business modules. You get customers, sales, catalog, warehouse, workflows, a customer portal and an AI assistant (bring your own LLM key) on day one, then add the part that makes your business different. Build a CRM, order management, a B2B portal, booking and scheduling, or the back office of a clinic, a warehouse or a service company.
+
+- **Ready modules, not a blank page.** 40+ modules for customers, sales, catalog, warehouse, workflows and more are the "80% done". You write the part that is specific to your business.
+- **Your code stays yours.** Your app is a normal repository. Open Mercato comes in as npm packages you can upgrade, and you extend or override any module without forking.
+- **Made for AI coding agents.** Every new app ships with `AGENTS.md`, skills and a spec workflow, so Claude Code, Codex or Cursor put code where it belongs and follow one set of conventions.
+- **Multi-tenant and secure by default.** Tenants and organization trees, role- and feature-based permissions, an audit log and field-level encryption.
+- **Open source, MIT.** Next.js, PostgreSQL and MikroORM, with optional Redis and Meilisearch. Self-hosting costs only your infrastructure.
+
+**Buy vs. build?** Now, you can have best of both. Use **Open Mercato** enterprise-ready business features like CRM, Sales, OMS, Encryption, and build the remaining **20%** that really makes the difference for your business.
+
+▶️ [Watch: Start with 80% done](https://www.youtube.com/watch?v=53jsDjAXXhQ) (17 min)
+
+### Is it for you?
+
+| | Off-the-shelf SaaS | Build from scratch | Open Mercato |
+|---|---|---|---|
+| Fits your processes | You adapt to the tool | Fully | Fully |
+| Business features on day one | Yes | No | Yes, 40+ modules |
+| You own the code and data | No | Yes | Yes |
+| License cost | Per seat | None | None for the MIT core |
+
+**A good fit** when you need software shaped around how your business works, want to own the code and data, and have developers or an agency (with or without AI agents) to build the remaining part. **Not a fit** when an off-the-shelf product already covers your needs, or when you want a finished app without any development.
+
+**Not a developer?** Follow the [video course](https://help.openmercatocloud.com/pl/) (in Polish), or ask [info@openmercato.com](mailto:info@openmercato.com) to introduce you to a partner agency.
+
+**Project status:** Open Mercato is before 1.0. New releases ship every few weeks with [upgrade notes](UPGRADE_NOTES.md) and an `om-auto-upgrade-*` skill for your coding agent, and a release can include breaking changes. See the [changelog](CHANGELOG.md). More than 100 contributors and 20+ partner agencies build on it.
+
+## Get started
+
+### Build your own app
+
+You need [Node.js 24](https://nodejs.org/en/download) (for example `nvm install 24`), Yarn through `corepack enable`, and Docker. On Windows, use [WSL2](https://docs.openmercato.com/installation/wsl2).
+
+```bash
+npx create-mercato-app my-app
+cd my-app
+docker compose up -d   # PostgreSQL, Redis, Meilisearch
+yarn install
+yarn setup             # migrates the database, adds demo data, starts the app
+```
+
+Open `http://localhost:3000/backend` and sign in with the login printed at the end of `yarn setup`. The first start compiles the app and takes a few minutes; 16 GB of RAM is recommended.
+
+The wizard asks which AI coding tool you use and sets up its skills. Then ask your agent something like *"Use om-help. I want to build an app for…"*: the **`om-help`** skill maps what you want to the right guides and skills. More options: [installation guide](https://docs.openmercato.com/installation/standalone).
+
+### Try it in the cloud
+
+Prefer not to install anything? Start a sandbox on [Open Mercato Cloud](https://openmercatocloud.com/): a working app with demo data, plus Claude Code, Codex and VS Code in the browser. Free trial.
+
+### Change Open Mercato itself
+
+New contributors are welcome: docs, tests, translations, bug fixes and modules. The framework and core modules live in this monorepo; [CONTRIBUTING.md](CONTRIBUTING.md) covers the setup and the pull request rules, and [Discord](https://discord.gg/f4qwPtJ3qA) is the place to ask. Working with an AI agent here? Run `yarn install-skills` after cloning.
+
+## See it in action
+
+<p align="center">
+  <img src="./.github/readme/tour.gif" alt="A short tour: sales pipeline, a deal moved to the next stage, a company record, an order, the warehouse dashboard and a workflow" width="100%" />
+</p>
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <a href="./apps/docs/static/screenshots/open-mercato-dashboard.png"><img src="./apps/docs/static/screenshots/open-mercato-dashboard.png" alt="Open Mercato dashboard" height="170"/></a><br/>
-      <strong>Dashboard</strong>
+    <td width="33%" align="center">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./.github/readme/orders-dark.png" />
+        <img src="./.github/readme/orders-light.png" alt="Sales order with items, adjustments and totals" />
+      </picture>
+      <br /><sub>Orders and quotes</sub>
     </td>
-    <td align="center" width="33%">
-      <a href="./apps/docs/static/screenshots/open-mercato-orders-order-details.png"><img src="./apps/docs/static/screenshots/open-mercato-orders-order-details.png" alt="Order details view" height="170"/></a><br/>
-      <strong>Order Details</strong>
+    <td width="33%" align="center">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./.github/readme/warehouse-dark.png" />
+        <img src="./.github/readme/warehouse-light.png" alt="Warehouse dashboard with stock alerts and daily movements" />
+      </picture>
+      <br /><sub>Warehouse</sub>
     </td>
-    <td align="center" width="33%">
-      <a href="./apps/docs/static/screenshots/open-mercato-ai-assistant-chat.png"><img src="./apps/docs/static/screenshots/open-mercato-ai-assistant-chat.png" alt="AI Assistant chat" height="170"/></a><br/>
-      <strong>AI Assistant</strong>
+    <td width="33%" align="center">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="./.github/readme/workflow-dark.png" />
+        <img src="./.github/readme/workflow-light.png" alt="Visual workflow editor with automated and user steps" />
+      </picture>
+      <br /><sub>Workflows</sub>
     </td>
   </tr>
 </table>
 
-[Browse the full screenshot gallery.](SCREENSHOTS.md)
+## What's in the box
 
-
-## Architecture Overview
-
-- 🧩 Modules: Each feature lives under `src/modules/<module>` with auto‑discovered frontend/backend pages, APIs, CLI, i18n, and DB entities.
-- 🗃️ Database: MikroORM with per‑module entities and migrations; no global schema. Migrations are generated and applied per module.
-- 🧰 Dependency Injection: Awilix container constructed per request. Modules can register and override services/components via `di.ts`.
-- 🏢 Multi‑tenant: Core `directory` module defines `tenants` and `organizations`. Most entities carry `tenant_id` + `organization_id`.
-- 🔐 Security: RBAC roles, zod validation, bcryptjs hashing, JWT sessions, role‑based access in routes and APIs.
-
-Read more on the [Open Mercato Architecture](https://docs.openmercato.com/architecture/system-overview)
-
-## Getting Started
-
-Building your own product, or trying Open Mercato for the first time? Start with a **standalone app**. Want to change Open Mercato itself? Jump to [Contributing to the core](#-contributing-to-the-core-monorepo).
-
-### ⚡ Quick start — build your own app
-
-A standalone app pulls Open Mercato packages from npm. Your modules, overrides, and customisations live in your own repository, and the core stays untouched and upgradeable.
-
-```bash
-# macOS / Linux
-brew install node@24   # or: nvm install 24 && nvm use 24
-corepack enable && corepack prepare yarn@4.12.0 --activate
-
-npx create-mercato-app my-app
-cd my-app
-docker compose up -d                  # starts PostgreSQL, Redis, Meilisearch
-# set DATABASE_URL / JWT_SECRET / REDIS_URL in .env
-yarn setup                            # installs, seeds, starts the app
-```
-
-Open **http://localhost:3000/backend** — credentials printed in the terminal.
-
-> 🤖 **Working with an AI coding agent?** Let `create-mercato-app` set up the agent harness (the wizard asks, or pass `--agents claude-code`, `codex`, `cursor` or `all`), then ask your agent to use the **`om-help`** skill. It maps what you want to build to the right guides and skills in your app.
-
-<details>
-<summary><strong>🪟 Windows</strong></summary>
-
-```powershell
-# PowerShell as Administrator — or use Git Bash / cmd
-# 1. Install Node.js 24 MSI from https://nodejs.org/en/download, then open a new terminal
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-corepack enable; corepack prepare yarn@4.12.0 --activate
-
-npx create-mercato-app my-app
-cd my-app
-docker compose up -d                  # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
-# set DATABASE_URL / JWT_SECRET / REDIS_URL in .env
-yarn setup
-```
-
-</details>
-
-### 🔧 Contributing to the core (monorepo)
-
-Use this path to work on Open Mercato itself: framework features, core modules, fixes, or a full local demo of the platform. It clones this repository.
-
-```bash
-npx @open-mercato/starter
-```
-
-It clones the repo if needed, audits your machine (`doctor`), handles corporate proxies/TLS interception, generates `.env` + secrets, starts the infra containers, initializes the database, and boots the supervised dev runtime — idempotently, so re-running always resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` double-click on Windows, `start.sh` on macOS/Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md).
-
-<details>
-<summary><strong>🔧 Manual steps</strong> — if you prefer to run each stage yourself</summary>
-
-```bash
-# macOS / Linux
-brew install node@24   # or: nvm install 24 && nvm use 24
-corepack enable && corepack prepare yarn@4.12.0 --activate
-
-git clone https://github.com/open-mercato/open-mercato.git
-cd open-mercato && git checkout develop
-yarn infra:up                         # starts PostgreSQL, Redis, Meilisearch (see starters/README.md)
-cp apps/mercato/.env.example apps/mercato/.env
-# set DATABASE_URL / JWT_SECRET / REDIS_URL in apps/mercato/.env
-yarn dev:greenfield                   # installs, builds, seeds, starts the app
-```
-
-```powershell
-# Windows (PowerShell — or use Git Bash / cmd)
-# 1. Install Node.js 24 MSI from https://nodejs.org/en/download, then open a new terminal
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-corepack enable; corepack prepare yarn@4.12.0 --activate
-
-git clone https://github.com/open-mercato/open-mercato.git
-cd open-mercato; git checkout develop
-yarn infra:up                         # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
-Copy-Item apps\mercato\.env.example apps\mercato\.env
-# set DATABASE_URL / JWT_SECRET / REDIS_URL in apps\mercato\.env
-yarn dev:greenfield
-```
-
-Open **http://localhost:3000/backend** — credentials printed in the terminal.
-
-</details>
-
-#### Running multiple persistent local instances
-
-To keep two long-lived local instances pointing at the same PostgreSQL server (e.g. `client-a` next to a stock `open-mercato`), pass an optional database-name override to `yarn dev`, `yarn dev:greenfield`, or `yarn setup`:
-
-```bash
-# Monorepo: explicit database name; .env update is offered (default yes)
-yarn dev:greenfield --database-name=my_db
-
-# Monorepo: derive database name from the current working directory
-yarn dev --database-name
-
-# Standalone app: same flag, applied to ./.env
-yarn setup --database-name=client_a
-
-# One-off run that does not touch .env (current child process only)
-yarn dev --database-name=review_1720 --no-update-env
-```
-
-Without the flag, behavior is unchanged (no prompt, no `.env` mutation). See the [installation guides](https://docs.openmercato.com/installation/monorepo) and [`yarn setup`](https://docs.openmercato.com/installation/setup) for details.
-
-#### Reducing dev-mode memory usage
-
-`yarn dev` watches every workspace package by default, and the watcher's memory footprint scales with how many packages it tracks. On smaller machines you can narrow the watch scope so only the packages you actually touch stay live — the active mode is printed with an emoji at startup:
-
-```bash
-# Watch only packages you've touched recently (git working tree + branch diff)
-yarn dev --watch=auto-optimized
-OM_WATCH_SCOPE=auto-optimized yarn dev
-
-# Watch only an explicit set of packages
-OM_WATCH_SCOPE=env OM_WATCH_PACKAGES=core,ui yarn dev
-
-# Watch only the most frequently changed packages (default cap: 6)
-yarn dev --watch=popular
-```
-
-Set `OM_WATCH_SCOPE=all` (or `--watch=all`) to restore watching every package. See [Choosing which packages the watcher tracks](https://docs.openmercato.com/appendix/troubleshooting) for the full reference, including `OM_WATCH_POPULAR_LIMIT` and the `git`-detection toggles.
-
----
-
-### Detailed guides (prerequisites, native services, troubleshooting)
-
-Each guide below is self-contained and covers all prerequisites, infrastructure setup (native services or Docker), and every command from zero to a running app.
-
-| | Guide |
+| Area | Modules |
 |---|---|
-| 📦 **Standalone app** — build your product without modifying the core | [🍎 macOS](https://docs.openmercato.com/installation/standalone#macos) · [🐧 Linux](https://docs.openmercato.com/installation/standalone#linux) · [🪟 Windows](https://docs.openmercato.com/installation/standalone#windows) |
-| 🔧 **Monorepo** — contribute to the core or demo the full platform | [🍎 macOS](https://docs.openmercato.com/installation/monorepo#macos) · [🐧 Linux](https://docs.openmercato.com/installation/monorepo#linux) · [🪟 Windows](https://docs.openmercato.com/installation/monorepo#windows) |
-| 🐧 **Windows with WSL2** — Ubuntu on Windows: memory config, Docker, GitHub CLI, native Postgres bridging | [WSL2 guide →](https://docs.openmercato.com/installation/wsl2) |
-| 🐳 **Docker dev** — full containerized dev with hot reload, no local toolchain | [All platforms →](https://docs.openmercato.com/installation/docker) |
-| 🚀 **VPS / production** — deploy a full stack to any Linux server | [Deploy guide →](https://docs.openmercato.com/installation/vps) |
-| 🛠️ **Dev Container** — zero-install VS Code environment | [Setup guide →](https://docs.openmercato.com/installation/devcontainer) |
-| ☁️ **Railway** — one-click cloud deployment | [Railway guide →](https://docs.openmercato.com/installation/railway) |
+| Customers and sales | Customers (people, companies, deals, activities) · Sales (quotes, orders, fulfillment, billing) · Catalog (products, variants, pricing) · Checkout and pay links · Payments (Stripe) · Shipping carriers · Currencies |
+| Self-service | Customer portal · Customer accounts |
+| Operations | Warehouse (WMS) · Staff and teams · Resources and scheduling · Availability planner · Warranty and returns · EUDR compliance |
+| Communication | Messages · Email channels (Gmail, IMAP, Resend, SES) · Push (APNs, FCM, Expo) · Notifications · Phone calls · Collaborative documents |
+| Automation | Workflows · Business rules · Scheduled jobs · Events · Webhooks · Feature toggles |
+| AI | AI assistant with MCP tools and approval before changes · Email-to-ERP agent |
+| Data and integrations | Custom entities and fields · CSV import · Data sync · Akeneo PIM · API keys · Generated API docs · Full-text and vector search |
+| Platform | Multi-tenant organizations · Roles and permissions · Audit log · Field-level encryption · Attachments · Translations · Dashboards |
 
-<table>
-  <tr>
-    <td align="center" valign="top">
-      <strong>Getting Started for Core Contributions</strong><br/><br/>
-      <a href="https://youtu.be/-ba8Bmc56EQ"><img src="https://img.youtube.com/vi/-ba8Bmc56EQ/hqdefault.jpg" alt="Getting Started for Core Contributions" width="400"/></a>
-    </td>
-    <td align="center" valign="top">
-      <strong>Building Standalone App on Linux/Mac</strong><br/><br/>
-      <a href="https://www.youtube.com/watch?v=uJn42SLVyI0"><img src="https://img.youtube.com/vi/uJn42SLVyI0/hqdefault.jpg" alt="Building Standalone App on Linux/Mac" width="400"/></a>
-    </td>
-    <td align="center" valign="top">
-      <strong>How to install Open Mercato on Windows</strong><br/><br/>
-      <a href="https://www.youtube.com/watch?v=eX1SqfDPhkU"><img src="https://img.youtube.com/vi/eX1SqfDPhkU/maxresdefault.jpg" alt="How to Install" width="400"/></a>
-    </td>
-  </tr>
-</table>
+Connect existing systems such as an ERP or accounting tool through the REST API (with generated OpenAPI docs), webhooks, data sync and CSV import. Add official modules with `yarn mercato module add @open-mercato/<name>`, or eject a module into your app to own its source (`yarn mercato eject --list`). See [modules](https://docs.openmercato.com/framework/modules/overview).
 
----
+## How it works
 
-### 🤖 Learn AI Engineering like we do!
-
-All of our experience building this enterprise-grade ERP is distilled into **[open-mercato/skills](https://github.com/open-mercato/skills)** — re-usable, **technology-agnostic** agent skills for autonomous PR creation, code review, CI stabilization, spec writing, integration testing, and merge management.
-
-Stack-agnostic — install them all with one command:
-
-```bash
-npx skills add open-mercato/skills --skill '*'
+```mermaid
+flowchart TB
+  agents["Coding agents<br/>Claude Code · Codex · Cursor"] --> harness["AI harness in your repo<br/>AGENTS.md · skills · specs"]
+  harness -.-> app
+  app["Your app<br/>your modules · overrides · pages · APIs"] --> modules["Open Mercato modules<br/>customers · sales · catalog · WMS · workflows · AI assistant"]
+  modules --> framework["Framework<br/>multi-tenancy · permissions · events · queues · encryption · search"]
+  framework --> infra[("PostgreSQL · Redis · Meilisearch")]
 ```
 
-If you're working inside this monorepo, use the repo-specific command instead — it installs this repo's committed local-tier skills together with the full shared collection into the gitignored `.agents/skills/` directory:
+Your own code goes into modules in `src/modules/<id>/`, and the framework discovers each part automatically:
 
-```bash
-yarn install-skills
+```text
+src/modules/bookings/
+  index.ts           module metadata
+  data/entities.ts   database entities (MikroORM)
+  api/               REST endpoints with OpenAPI
+  backend/           admin pages
+  acl.ts             permissions
+  events.ts          events the module publishes
+  i18n/              translations
 ```
 
-See [`.ai/skills/README.md`](.ai/skills/README.md) for the tier system, and the [local setup guide](https://docs.openmercato.com/installation/setup) for when to run it.
+A new app includes an example module to start from. Read the [architecture overview](https://docs.openmercato.com/architecture/system-overview) and the [first app tutorial](https://docs.openmercato.com/tutorials/first-app).
 
-[![Open Mercato Skills](https://img.shields.io/badge/GitHub-open--mercato%2Fskills-181717?logo=github)](https://github.com/open-mercato/skills)
+## Build with AI agents
 
----
+A coding agent on a blank Next.js app has to invent multi-tenancy, permissions, an audit log, encryption and a place for every file. In an Open Mercato app those decisions are made and written down for the agent:
 
-## Spec Driven Development
+- **`AGENTS.md` with the rules:** where modules and entities go, tenant and organization scoping that fails closed, OpenAPI metadata on every route, no cross-module ORM relations, a spec before any new capability, and asking before migrations or credentials.
+- **Skills for the work itself:** start with `om-help`; skills cover modules, data models, admin UI, troubleshooting and upgrades. Set up for Claude Code, Codex, Cursor or GitHub Copilot (the wizard asks, or pass `--agents`).
+- **Skills for any repository:** spec writing, autonomous PRs, code review and CI fixes, on any stack: `npx skills add open-mercato/skills --skill '*'`. See how we use them here in [`AGENTS.md`](AGENTS.md).
+- **Inside the product:** the [AI assistant](https://docs.openmercato.com/framework/ai-assistant/overview) (needs an LLM API key) works in the admin within the user's permissions, stages changes on an approval card before data is saved, and exposes tools over [MCP](https://docs.openmercato.com/framework/ai-assistant/mcp).
+- **Many agents at once:** [Cezar](https://github.com/open-mercato/cezar), our open-source cockpit, runs Claude Code, Codex, GitHub Copilot CLI, Cursor CLI, Junie, OpenCode, pi and more in parallel, each task in its own git worktree, and nothing merges on its own. Run `npx cezar-run` inside a repository. [Watch the demo](https://www.youtube.com/watch?v=nNLJm9gArnE).
 
-Open Mercato follows a **spec-first development approach**. Before implementing new features or making significant changes, we document the design in the `.ai/specs/` folder.
+## Learn
 
-### Why Specs?
+| | |
+|---|---|
+| First app | [Tutorial](https://docs.openmercato.com/tutorials/first-app) · [Standalone app guide](https://docs.openmercato.com/customization/standalone-app) |
+| Not a developer | [Build your own ERP with AI, no coding skills needed](https://help.openmercatocloud.com/pl/) (video course, in Polish) |
+| Reference | [Architecture](https://docs.openmercato.com/architecture/system-overview) · [API](https://docs.openmercato.com/api/overview) · [CLI](https://docs.openmercato.com/cli/overview) · [User guide](https://docs.openmercato.com/user-guide/overview) |
+| Run in production | [VPS](https://docs.openmercato.com/installation/vps) · [Docker](https://docs.openmercato.com/installation/docker) · [Railway](https://docs.openmercato.com/deployment/railway) |
+| Videos | [YouTube channel](https://www.youtube.com/@openmercato) |
 
-- **Clarity**: Specs ensure everyone understands the feature before coding starts
-- **Consistency**: Design decisions are documented and can be referenced by humans and AI agents
-- **Traceability**: Each spec maintains a changelog tracking the evolution of the feature
+## Open source and Enterprise
 
-### How It Works
+Open Mercato Core is and always will be MIT licensed. Some features for larger organizations are available under a commercial [Enterprise license](packages/enterprise/README.md).
 
-1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `{YYYY-MM-DD}-{title}.md`)
-2. **New features**: Create or update the spec with your design before implementation
-3. **After changes**: Update the spec's changelog with a dated summary
+## Community
 
-**Naming convention**: Specs use the format `{YYYY-MM-DD}-{title}.md` (e.g., `2026-01-26-sidebar-reorganization.md`)
+- **Questions and ideas:** [Discord](https://discord.gg/f4qwPtJ3qA) and [GitHub Discussions](https://github.com/open-mercato/open-mercato/discussions).
+- **Contributing:** read [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests go to the `develop` branch.
+- **Planning a project?** 20+ certified partner agencies build on Open Mercato. Write to [info@openmercato.com](mailto:info@openmercato.com) to be introduced.
+- **Security:** report vulnerabilities privately to [security@openmercato.com](mailto:security@openmercato.com), not in public issues. See [SECURITY.md](SECURITY.md).
+- **Hackathon champions:** see the [Hall of Fame](COMMUNITY.md#hall-of-fame).
 
-See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory and [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
+## Supported by
 
-### Developing your first Open Mercato app
+<a href="https://www.blacksmith.sh/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/wordmark-white.svg" /><img src="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/wordmark-black.svg" alt="Blacksmith" height="26" /></picture></a>
+&nbsp;&nbsp;&nbsp;
+<a href="https://catchthetornado.com/"><img src="./apps/mercato/public/catch-the-tornado-logo.png" alt="Catch The Tornado" height="40" /></a>
 
-<table>
-  <tr>
-    <td align="center" width="50%" valign="top">
-      <strong>How to use Open Mercato CRM as a backend for the custom app</strong><br/><br/>
-      <a href="https://www.youtube.com/watch?v=y-lxRrAzbYc&t=1s"><img src="https://img.youtube.com/vi/y-lxRrAzbYc/maxresdefault.jpg" alt="How to use Open Mercato CRM as a backend for the custom app" width="400"/></a>
-    </td>
-    <td align="center" width="50%" valign="top">
-      <strong>How to build custom landing page with Open Mercato as a backend</strong><br/><br/>
-      <a href="https://www.youtube.com/watch?v=fb47pmH6ojE&t=854s"><img src="https://img.youtube.com/vi/fb47pmH6ojE/maxresdefault.jpg" alt="How to build custom landing page with Open Mercato as a backend" width="400"/></a>
-    </td>
-  </tr>
-</table>
-
-These walkthroughs show how to treat Open Mercato as a ready-made business backend while keeping the frontend fully custom. You can start from the built-in CRM data model, expose it through the generated APIs, and then build the customer-facing experience around your product's own design. They are a practical path from the default admin setup to a tailored app or landing page powered by Open Mercato.
-
-### Get started without devops hassle
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      Start your own Sandbox instance with Claude Code, Codex, Visual Studio Code, and Open Mercato in under 30 seconds.<br/><br/>
-      <a href="https://sandboxes.openmercato.com">Launch a Sandbox instance</a>
-    </td>
-    <td align="center" width="50%" valign="top">
-      <a href="https://sandboxes.openmercato.com"><img src="https://img.youtube.com/vi/dGdacjG4Ul0/maxresdefault.jpg" alt="Open Mercato Sandbox preview" width="400"/></a>
-    </td>
-  </tr>
-</table>
-
-## Official Modules
-
-Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repo is where the community publishes those features.
-
-Every module there:
-
-- 🔌 **Installs in one command** — no manual wiring, no config files to edit
-- 🔒 **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
-- 🧬 **Is ejectable** — run `--eject` to copy the module into your app and own it fully
-- 🤝 **Gets reviewed** — every submission goes through core team review before reaching npm
-
-Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
-
-## AI Assistant
-
-Open Mercato ships with focused AI assistants that open inside the admin pages where your team already works. Agents are scoped by module, permissions, and tool allowlists, and any write is staged behind an explicit approval card before data changes.
-
-<table>
-  <tr>
-    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-available-assistants.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-available-assistants.png" alt="AI Assistant global launcher listing available assistants" width="390"/></a></td>
-    <td><a href="apps/docs/static/screenshots/open-mercato-ai-assistant-mutations-approvals.png"><img src="apps/docs/static/screenshots/open-mercato-ai-assistant-mutations-approvals.png" alt="AI Assistant mutation approval flow" width="390"/></a></td>
-  </tr>
-  <tr>
-    <td style="text-align:center;">Global launcher</td>
-    <td style="text-align:center;">Mutation approvals</td>
-  </tr>
-</table>
-
-Use the global launcher to find every assistant you can access, or embed `<AiChat>` directly in module pages for contextual workflows such as customer account exploration and catalog merchandising. Operators can tune prompts, downgrade mutation policies, and disable individual tools per tenant without redeploying.
-
-- [Getting started](https://docs.openmercato.com/framework/ai-assistant/overview)
-- [How to configure it](https://docs.openmercato.com/framework/ai-assistant/settings)
-- [User guide](https://docs.openmercato.com/user-guide/ai-assistant)
-- [Legacy MCP assistant docs](.ai/specs/implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md)
-
-## Data Encryption
-
-Open Mercato ships with tenant-scoped, field-level data encryption so PII and sensitive business data stay protected while you keep the flexibility of custom entities and fields. Encryption maps live in the admin UI/database, letting you pick which system and custom columns are encrypted; MikroORM hooks automatically encrypt on write and decrypt on read while keeping deterministic hashes (e.g., `email_hash`) for lookups.
-
-Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tenant DEKs and caches them so performance stays snappy; AES-GCM wrappers sit in the ORM lifecycle, storing ciphertext at rest while CRUD and APIs keep working with plaintext. Read the docs to dive deeper: [docs.openmercato.com/user-guide/encryption](https://docs.openmercato.com/user-guide/encryption).
-
-
-## Release Channels
-
-- `latest` is the stable npm channel published from `main`.
-- `develop` is the moving prerelease channel published from pushes to `develop`.
-- Exact snapshot versions remain installable for debugging or rollback when you need to pin one specific build.
-- PR package previews are opt-in. Run the `Package Previews` workflow manually with the PR number, or use the `om-auto-publish-pr` skill / `gh workflow run`, to publish pkg.pr.new previews without publishing to npm. Run `NPM Snapshot Preview` manually only when you need the legacy npm canary snapshot and standalone validation path.
-
-Examples:
-
-```bash
-yarn add @open-mercato/core@develop
-npx create-mercato-app@develop my-app
-```
-
-## Docker Setup
-
-Open Mercato ships two Docker Compose configurations — one for hot-reload development and one for production. Full step-by-step guides with environment variables, troubleshooting, and upgrade instructions:
-
-- 🐳 [Docker dev setup](https://docs.openmercato.com/installation/docker) — hot reload, no local toolchain required
-- 🚀 [VPS / production deployment](https://docs.openmercato.com/installation/vps) — full production stack with security guidance and backup instructions
-- 🛠️ [Dev Container](https://docs.openmercato.com/installation/devcontainer) — zero-install VS Code environment (12 GB RAM recommended)
-- ☁️ [Deploy on Railway](https://docs.openmercato.com/installation/railway) — one-click cloud deployment
-
-## Documentation
-
-Browse the full documentation at [docs.openmercato.com](https://docs.openmercato.com/).
-
-- [Introduction](https://docs.openmercato.com/introduction/overview)
-- [Installation](https://docs.openmercato.com/installation)
-- [User Guide](https://docs.openmercato.com/user-guide/overview)
-- [Tutorials](https://docs.openmercato.com/tutorials/first-app)
-- [Customization](https://docs.openmercato.com/customization/build-first-app)
-- [Architecture](https://docs.openmercato.com/architecture/system-overview)
-- [Framework](https://docs.openmercato.com/framework/modules/overview)
-- [API Reference](https://docs.openmercato.com/api/overview)
-- [CLI Reference](https://docs.openmercato.com/cli/overview)
-- [Appendix](https://docs.openmercato.com/appendix/troubleshooting)
-
-## Join us on Discord
-
-Connect with the team and other builders in our Discord community: [https://discord.gg/f4qwPtJ3qA](https://discord.gg/f4qwPtJ3qA).
-
-## 🏆 Hall of Fame
-
-Honoring the champions of the **Open Mercato Agentic Hackathon** — Sopot, 10–12 April 2026.
-
-### 🥇 Team MercatoMinds — 378 pts · 36 PRs
-
-| # | Contributor | GitHub | Points | PRs |
-|---|-------------|--------|-------:|----:|
-| 1 | Michał Strześniewski | [@strzesniewski](https://github.com/strzesniewski) | 106 | 9 |
-| 2 | Wiktor Idzikowski | [@WXYZx](https://github.com/WXYZx) | 93 | 11 |
-| 3 | Adam Kardasz | [@WH173-P0NY](https://github.com/WH173-P0NY) | 87 | 7 |
-| 4 | Karol Roman | [@RMN-45](https://github.com/RMN-45) | 39 | 3 |
-| 5 | Adam Kanigowski | [@AK-300codes](https://github.com/AK-300codes) | 29 | 3 |
-| 6 | Tomasz Jeleszuk | [@Tomeckyyyy](https://github.com/Tomeckyyyy) | 24 | 3 |
-
-Huge thanks for the incredible energy, craftsmanship, and contributions delivered over the weekend. 🎉
-
-## Contributing
-
-We welcome contributions of all sizes—from fixes and docs updates to new modules. Start by reading [CONTRIBUTING.md](CONTRIBUTING.md) for branching conventions (`main`, `develop`, `feat/<feature>`), release flow, and the full PR checklist. Then check the open issues or propose an idea in a discussion, and:
-
-1. Fork the repository and create a branch that reflects your change.
-2. Install dependencies with `yarn install` and bootstrap via `yarn mercato init` (add `--no-examples` to skip demo CRM content; `--stresstest` for thousands of synthetic contacts, companies, deals, and timeline interactions; or `--stresstest --lite` for high-volume contacts without the heavier extras).
-3. Develop and validate your changes (`yarn lint`, `yarn test`, or the relevant module scripts).
-4. Open a pull request referencing any related issues and outlining the testing you performed.
-
-Refer to [AGENTS.md](AGENTS.md) for deeper guidance on architecture and conventions when extending modules.
-
-## Sponsors
-
-### Blacksmith
-
-<a href="https://www.blacksmith.sh/">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-White-Large.png" />
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-Black-Large.png" />
-    <img src="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-Black-Large.png" alt="Blacksmith logo" width="240" />
-  </picture>
-</a>
-
-Open Mercato's continuous integration is powered by [Blacksmith](https://www.blacksmith.sh/), providing fast and reliable GitHub Actions runners for the project.
-
-### Catch The Tornado
-
-<a href="https://catchthetornado.com/">
-  <img src="./apps/mercato/public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
-</a>
-
-Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
-
-## CLI Commands
-
-Open Mercato let the module developers to expose the custom CLI commands for variouse maintenance tasks. Read more on the [CLI documentation](https://docs.openmercato.com/cli/overview)
-
-## Considering a project on Open Mercato?
-
-If you're planning to build on Open Mercato, don’t go it alone.
-
-### Certified Partner Agencies
-
-**Reach out to us** - we will connect you with one of our Certified Partner Agencies. Our Partnership Program certifies software consultancies that actively use and contribute to Open Mercato.
-
-Our mission is simple: ensure every Open Mercato deployment is successful, secure, and scalable.
+CI runs on [Blacksmith](https://www.blacksmith.sh/) runners. Open Mercato is supported by [Catch The Tornado](https://catchthetornado.com/).
 
 ## License
 
-- MIT — see `LICENSE` for details. Enterprise licensing details are documented in [`packages/enterprise/README.md`](packages/enterprise/README.md).
-
-## Enterprise Edition
-
-Open Mercato Core is and always will be MIT Licensed, fully Open Source.
-
-### Open Mercato Enterprise Subscription
-
-The Open Mercato Enterprise Subscription helps ensure your deployment is secure, scalable, and production-ready without surprises before go-live.
-
-It combines certification, expert reviews, and ongoing advisory support for teams building serious systems on Open Mercato.
-
-What’s included:
-- Architecture & Production Readiness
-- Pre-deployment architecture audit
-- Production approval before go-live
-- Hosting and deployment best practices
-- Security & Quality (monthly reviews)
-- Customer Success Manager (pre-go-live)
-- Priority technical support channel
-- Platform Continuity - access to security patches and new features
-
-Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
-
-Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
+MIT, see [LICENSE](LICENSE). The `packages/enterprise` package has its own [commercial license](packages/enterprise/LICENSE.md).
