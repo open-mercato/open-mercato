@@ -175,6 +175,9 @@ export async function POST(req: Request) {
  * customers module's own helper, which handles the encrypted-column case that a `where primary_email = ?`
  * silently fails at.
  */
+/** The shape `customer_entities.id` actually is. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 async function resolveSubject(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string },
@@ -182,8 +185,18 @@ async function resolveSubject(
   email: string | undefined,
 ): Promise<string | null> {
   if (customerId) {
-    const found = await em.findOne(CustomerEntity, { id: customerId, ...scope, deletedAt: null })
-    if (found) return found.id
+    /**
+     * Shape-checked before it reaches a uuid column.
+     *
+     * `id` is `uuid`, so a malformed value made Postgres raise and the endpoint answered 500 — to a public
+     * caller, for a field they got wrong, which also tells them more about the schema than a 202 does. An
+     * unusable id is treated exactly like an absent one: fall through to the address, and let the hook's
+     * recorded outcome say nobody matched.
+     */
+    if (UUID_PATTERN.test(customerId)) {
+      const found = await em.findOne(CustomerEntity, { id: customerId, ...scope, deletedAt: null })
+      if (found) return found.id
+    }
   }
   if (email) {
     /**

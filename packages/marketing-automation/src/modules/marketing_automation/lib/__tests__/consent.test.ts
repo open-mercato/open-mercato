@@ -10,7 +10,17 @@ import {
 const scope = { tenantId: 't1', organizationId: 'o1' }
 const now = new Date('2026-09-28T12:00:00.000Z')
 
-function fakeEm(existing: Record<string, unknown> | null = null, flushError?: unknown) {
+function fakeEm(
+  existing: Record<string, unknown> | null = null,
+  flushError?: unknown,
+  /**
+   * The row the race WINNER inserted, visible to the loser's second read.
+   *
+   * A unique violation means the row exists by definition, so a fake that keeps answering null models a state
+   * the database cannot be in — which is how the first version of the retry below looked correct.
+   */
+  winner?: Record<string, unknown> | null,
+) {
   const created: Record<string, unknown>[] = []
   const persisted: Record<string, unknown>[] = []
   const queries: Record<string, unknown>[] = []
@@ -18,7 +28,8 @@ function fakeEm(existing: Record<string, unknown> | null = null, flushError?: un
   const em = {
     findOne: async (_entity: unknown, where: Record<string, unknown>) => {
       queries.push(where)
-      return existing
+      // The first read is the one before the insert; later reads are the loser looking for the winner.
+      return queries.length === 1 ? existing : (winner ?? existing)
     },
     create: (_entity: unknown, data: Record<string, unknown>) => {
       const row = { ...data }
@@ -26,7 +37,8 @@ function fakeEm(existing: Record<string, unknown> | null = null, flushError?: un
       return row
     },
     persist: (row: Record<string, unknown>) => { persisted.push(row) },
-    flush: async () => { flushes += 1; if (flushError) throw flushError },
+    // Only the FIRST flush fails: the retry is an update and cannot collide.
+    flush: async () => { flushes += 1; if (flushError && flushes === 1) throw flushError },
     clear: () => { /* what the module does after losing an insert race */ },
   }
   return { em: em as unknown as EntityManager, created, persisted, queries, flushes: () => flushes }
@@ -118,12 +130,30 @@ describe('two people unsubscribing at once', () => {
    * Answering 500 to somebody who has in fact just been unsubscribed — "you may still be subscribed" — is the
    * single worst thing this module can say, so losing that race reports the decision that is now true.
    */
-  test('losing the insert race still reports the decision', async () => {
-    const { em } = fakeEm(null, new UniqueConstraintViolationException(new Error('duplicate key')))
+  test('losing the insert race still reports the decision, and still applies it', async () => {
+    /**
+     * The earlier handling swallowed the violation on the grounds that the winner "recorded the same
+     * decision". That holds when both carry the same state and not otherwise: a one-click `unsubscribed`
+     * racing somebody pressing "start receiving them again" are two different answers, and the loser's
+     * vanished — state and audit event both — leaving whichever won rather than whichever came last.
+     */
+    const winner = { state: 'subscribed', reason: null, source: 'operator' }
+    const { em, created, flushes } = fakeEm(
+      null,
+      new UniqueConstraintViolationException(new Error('duplicate key')),
+      winner,
+    )
     await expect(recordConsent(em, {
       scope, subjectEntityId: 'c1', channel: 'email', state: 'unsubscribed',
       reason: 'one-click', source: 'customer', now,
     })).resolves.toBe('unsubscribed')
+
+    // The loser's decision landed, as an UPDATE on the winner's row — which cannot collide.
+    expect(winner).toMatchObject({ state: 'unsubscribed', reason: 'one-click', source: 'customer' })
+    // And its audit event was re-appended, so the trail keeps both decisions in arrival order.
+    const events = created.filter((row) => row.occurredAt === now)
+    expect(events).toHaveLength(2)
+    expect(flushes()).toBe(2)
   })
 
   test('any other failure still throws, because it is not a race', async () => {

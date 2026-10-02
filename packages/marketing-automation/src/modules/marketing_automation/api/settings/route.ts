@@ -39,15 +39,40 @@ export const metadata = routeMetadata
 
 const MODULE_ID = 'marketing_automation'
 
+/**
+ * A URL template an operator may save, checked for its SCHEME.
+ *
+ * Both templates required a placeholder and accepted any scheme, so `javascript:alert(1)?sku={sku}` passed —
+ * and then went into a link in a customer's email and into the recommendation block the admin previews. The
+ * module already refuses a `javascript:` tracking target for exactly this reason
+ * (`isSafeRedirectTarget`); a template is the same hazard one step earlier, where an operator typed it
+ * instead of an author.
+ *
+ * The placeholder is substituted before parsing, because `{sku}` is not valid in a URL and the template is
+ * not one until it is filled. A relative template is accepted: a shop whose storefront is the same origin
+ * writes `/p/{sku}`, and that carries no scheme to abuse.
+ */
+function isHttpUrlTemplate(value: string): boolean {
+  if (value === '') return true
+  const filled = value.replace(/\{[a-z]+\}/gi, 'x')
+  if (filled.startsWith('/')) return true
+  try {
+    const url = new URL(filled)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 const bodySchema = z.object({
   /**
    * Where a product can be looked at. `{sku}` is required, since a template without it would produce
    * the same link for every product — worse than no link, because it looks like it works.
    */
-  productUrlTemplate: z.string().trim().max(500).refine(
-    (value) => value === '' || value.includes('{sku}'),
-    { message: 'must contain {sku}' },
-  ).optional(),
+  productUrlTemplate: z.string().trim().max(500)
+    .refine((value) => value === '' || value.includes('{sku}'), { message: 'must contain {sku}' })
+    .refine(isHttpUrlTemplate, { message: 'must be an http or https URL' })
+    .optional(),
   /**
    * How this shop writes, in the operator's own words, handed to the model on every draft.
    *
@@ -56,10 +81,10 @@ const bodySchema = z.object({
    */
   brandVoice: z.string().trim().max(1000).optional(),
   /** Where a shared referral link should point. `{code}` is required, for the same reason as the product one. */
-  referralUrlTemplate: z.string().trim().max(500).refine(
-    (value) => value === '' || value.includes('{code}'),
-    { message: 'must contain {code}' },
-  ).optional(),
+  referralUrlTemplate: z.string().trim().max(500)
+    .refine((value) => value === '' || value.includes('{code}'), { message: 'must contain {code}' })
+    .refine(isHttpUrlTemplate, { message: 'must be an http or https URL' })
+    .optional(),
   /**
    * The sales reps new leads are shared between, as user ids.
    *

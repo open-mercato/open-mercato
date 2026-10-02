@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -21,6 +22,14 @@ const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
   POST: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage'] },
 }
+
+/**
+ * How many times a losing insert re-derives its slug before the name is the author's problem.
+ *
+ * Small on purpose: this only runs when two writes collide on the same name at the same instant,
+ * and a name that collides five times in a row is a naming problem rather than a race.
+ */
+const SLUG_INSERT_ATTEMPTS = 5
 
 export const metadata = routeMetadata
 
@@ -152,17 +161,45 @@ export async function POST(req: Request) {
     )
   }
 
-  const segment = em.create(MarketingSegment, {
-    ...scope,
-    slug,
-    name: parsed.data.name,
-    description: parsed.data.description ?? null,
-    expression: (parsed.data.expression ?? null) as Record<string, unknown> | null,
-  })
-  em.persist(segment)
-  await em.flush()
+  /**
+   * The insert retries, because the lookup above cannot win a race it does not take part in.
+   *
+   * Deriving the slug was lookup-then-insert: two people creating "VIP" at the same moment both found the slug
+   * free and both inserted, and the unique index answered 500 to whichever lost — reachable by double-clicking
+   * submit. Losing that race is not a failure, it is the index doing its job, so the loser takes the next
+   * suffix and tries again. Same shape as `lib/preferences.ts`, which treats its own unique violation as the
+   * other write having already stored what this one meant to.
+   */
+  let candidate = slug
+  for (let attempt = 0; attempt < SLUG_INSERT_ATTEMPTS; attempt += 1) {
+    const segment = em.create(MarketingSegment, {
+      ...scope,
+      slug: candidate,
+      name: parsed.data.name,
+      description: parsed.data.description ?? null,
+      expression: (parsed.data.expression ?? null) as Record<string, unknown> | null,
+    })
+    try {
+      em.persist(segment)
+      await em.flush()
+      return NextResponse.json(present(segment))
+    } catch (error) {
+      // Only a slug collision is retried. Everything else is a real failure and must not be swallowed into
+      // "please give it a more distinct name".
+      if (!(error instanceof UniqueConstraintViolationException)) throw error
+      em.clear()
+      const suffix = `-${attempt + 2}`
+      candidate = `${base.slice(0, 64 - suffix.length)}${suffix}`
+    }
+  }
 
-  return NextResponse.json(present(segment))
+  return NextResponse.json(
+    {
+      error: 'Too many segments share this name — please give it a more distinct one',
+      code: 'marketing_automation.errors.segmentSlug',
+    },
+    { status: 400 },
+  )
 }
 
 export const openApi = {

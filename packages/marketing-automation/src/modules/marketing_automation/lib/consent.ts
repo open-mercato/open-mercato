@@ -109,16 +109,48 @@ export async function recordConsent(em: EntityManager, change: ConsentChange): P
     await em.flush()
   } catch (error) {
     /**
-     * Losing the insert race is the unique index doing its job, not a failure.
+     * Losing the insert race is the unique index doing its job — but the losing DECISION still has to land.
      *
-     * Two near-simultaneous unsubscribes are routine rather than exotic: an RFC 8058 client posts one-click while
-     * the person also presses the button on the confirmation page. Both read no row, both insert, one loses — and
-     * without this the endpoint answered 500 "you may still be subscribed" to somebody who had in fact just been
-     * unsubscribed, which is the single worst thing this module can say. The other writer has recorded the same
-     * decision, so the outcome is already true; the trail loses one duplicate event, which is the cheaper cost.
+     * Two near-simultaneous writes are routine rather than exotic: an RFC 8058 client posts one-click while the
+     * person also presses the button on the confirmation page. Both read no row, both insert, one loses. Without
+     * any handling the endpoint answered 500 "you may still be subscribed" to somebody who had just been
+     * unsubscribed, which is the worst thing this module can say.
+     *
+     * The earlier fix swallowed the violation on the grounds that "the other writer recorded the same
+     * decision". That holds when both carry the same state and not otherwise: a one-click `unsubscribed` racing
+     * somebody pressing "start receiving them again" are two different answers, and the loser vanished —
+     * state and audit event both — leaving whichever won rather than whichever the person meant last.
+     *
+     * So the loser retries as an UPDATE, which cannot collide, and re-appends its event so the trail keeps both
+     * decisions in the order they arrived. A second failure is a real one and propagates.
      */
     if (!(error instanceof UniqueConstraintViolationException)) throw error
     em.clear()
+
+    const winner = await em.findOne(MarketingConsent, {
+      tenantId: change.scope.tenantId,
+      organizationId: change.scope.organizationId,
+      subjectEntityId: change.subjectEntityId,
+      channel: change.channel,
+    })
+    // Gone between the violation and this read: nothing to update, and re-inserting would race again.
+    if (!winner) throw error
+
+    winner.state = change.state
+    winner.reason = change.reason ?? null
+    winner.source = change.source
+    em.persist(em.create(MarketingConsentEvent, {
+      tenantId: change.scope.tenantId,
+      organizationId: change.scope.organizationId,
+      subjectEntityId: change.subjectEntityId,
+      channel: change.channel,
+      state: change.state,
+      reason: change.reason ?? null,
+      source: change.source,
+      campaignId: change.campaignId ?? null,
+      occurredAt: change.now,
+    }))
+    await em.flush()
   }
   return change.state
 }
