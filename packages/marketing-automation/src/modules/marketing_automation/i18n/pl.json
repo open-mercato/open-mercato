@@ -316,6 +316,7 @@
   "marketing_automation.nps.band.detractor": "Krytyk",
   "marketing_automation.nps.band.passive": "Neutralny",
   "marketing_automation.nps.band.promoter": "Promotor",
+  "marketing_automation.palette.blocked.trackingMissing": "Wymaga sekretu trackingu i publicznego URL — bez nich nie da się zbudować linku wypisu, więc każda wysyłka zostałaby pominięta.",
   "marketing_automation.params.tagsUnavailable": "Nie udało się pobrać listy tagów. Odśwież stronę, aby spróbować ponownie.",
   "marketing_automation.picker.change": "Zmień",
   "marketing_automation.picker.noMatches": "Nikt nie pasuje.",

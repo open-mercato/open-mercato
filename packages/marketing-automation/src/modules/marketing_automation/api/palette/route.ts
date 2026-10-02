@@ -13,6 +13,7 @@ import { getSupportedLocales } from '@open-mercato/shared/lib/i18n/locale-set'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCapabilities } from '../../lib/capabilities.js'
+import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../../lib/tracking/secret.js'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
@@ -108,14 +109,35 @@ export async function GET(req: Request) {
       // copy can exist rather than every language there is.
       locales: getSupportedLocales().map((locale) => ({ value: locale, label: locale })),
     },
-    steps: listMarketingSteps().map((step) => ({
-      type: step.type,
-      labelKey: step.labelKey,
-      descriptionKey: step.descriptionKey ?? null,
-      icon: step.icon ?? null,
-      channel: step.channel ?? null,
-      uiFields: step.uiFields,
-    })),
+    /**
+     * Steps carry availability now, like triggers and sweep sources already did.
+     *
+     * A step on an email channel needs a signing secret and a public base URL: without either, no unsubscribe
+     * link can be built, and `steps/send-email.ts` refuses to send at all rather than mail somebody with no way
+     * out. That refusal is right, and its detail string says what to set — but it arrives at SEND time, after
+     * the campaign was authored, enabled and published. The palette offered "Send email" as a fully enabled
+     * button on an installation where every send it produced would be skipped.
+     *
+     * Reported, not hidden. The step exists and the shop will want it; what is missing is configuration, and the
+     * canvas can say which — the same distinction the trigger palette already draws between "nobody built this"
+     * and "you have not set that up".
+     */
+    steps: listMarketingSteps().map((step) => {
+      const needsTracking = step.channel === 'email'
+      const trackingReady = resolveTrackingSecret() !== null && resolveTrackingBaseUrl() !== null
+      return {
+        type: step.type,
+        labelKey: step.labelKey,
+        descriptionKey: step.descriptionKey ?? null,
+        icon: step.icon ?? null,
+        channel: step.channel ?? null,
+        uiFields: step.uiFields,
+        available: !needsTracking || trackingReady,
+        blockedReasonKey: needsTracking && !trackingReady
+          ? 'marketing_automation.palette.blocked.trackingMissing'
+          : null,
+      }
+    }),
   })
 }
 
