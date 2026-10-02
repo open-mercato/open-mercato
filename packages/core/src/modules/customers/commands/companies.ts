@@ -36,6 +36,7 @@ import {
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
+  CUSTOMER_ENTITY_UNDO_DATE_OPTIONS,
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
@@ -55,6 +56,7 @@ import { CUSTOMER_ENTITY_ID, resolveCompanyCustomFieldRouting } from '../lib/cus
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
@@ -604,9 +606,13 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     await emitQueryIndexDeleteEvents(ctx, [companyEntityIndexEntry(entity)])
   },
   redo: async ({ logEntry, ctx }) => {
-    const after = resolveRedoSnapshot<CompanySnapshot>(logEntry)
-    if (!after) {
+    const redoSnapshot = resolveRedoSnapshot<CompanySnapshot>(logEntry)
+    if (!redoSnapshot) {
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for company create' })
+    }
+    const after: CompanySnapshot = {
+      ...redoSnapshot,
+      entity: reviveSnapshotDates(redoSnapshot.entity, ['nextInteractionAt']),
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let entity = await findOneWithDecryption(
@@ -831,7 +837,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<CompanyUndoPayload>(logEntry)
+    const payload = extractUndoPayload<CompanyUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1170,7 +1176,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<CompanyUndoPayload>(logEntry)
+      const payload = extractUndoPayload<CompanyUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
