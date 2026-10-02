@@ -8,7 +8,11 @@ import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
+import { useMarketingMutation } from '../../../../../components/useMarketingMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
@@ -48,6 +52,13 @@ const STATUS_FILTERS = ['waiting', 'running', 'completed', 'dead'] as const
  * stranded mid-journey; `waiting` is a warning rather than an error because it is the normal state
  * of a drip campaign between steps.
  */
+/**
+ * The statuses a run row can actually hold.
+ *
+ * `failed` is kept although `failRun` never writes it to a RUN — `marketing_job_runs` uses that word, and a
+ * reader comparing the two screens should not find one of them silently falling through to `neutral` if the
+ * vocabularies are ever unified. A retry is not here because it is not stored: see the status cell below.
+ */
 const STATUS_VARIANT: Record<string, StatusBadgeVariant> = {
   running: 'info',
   claimed: 'info',
@@ -59,6 +70,8 @@ const STATUS_VARIANT: Record<string, StatusBadgeVariant> = {
 
 export default function CampaignRunsPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const runMutation = useMarketingMutation('campaign_run')
   const scopeVersion = useOrganizationScopeVersion()
   const campaignId = typeof params?.id === 'string' ? params.id : ''
 
@@ -103,15 +116,63 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
 
   React.useEffect(() => { void load() }, [load, scopeVersion])
 
+
+  /**
+   * Puts one dead run back in the queue — the only write this screen has.
+   *
+   * It ASKS first, because reviving a run resumes a journey and the next thing it does is send a message to a
+   * named person. And it goes through `runMutation` because `AGENTS.md` requires every write on a page that
+   * cannot use `CrudForm` to carry the platform's mutation guards; this page had no writes at all until now, so
+   * both arrive together.
+   */
+  const retry = async (row: RunRow) => {
+    const confirmed = await confirm({
+      text: t(
+        'marketing_automation.runs.confirmRetry',
+        'Put this journey back in the queue? It carries on from the step that failed, which may send a message to this customer.',
+      ),
+    })
+    if (!confirmed) return
+    try {
+      await runMutation(() => apiCallOrThrow(`/api/marketing_automation/campaigns/${campaignId}/runs`, {
+        method: 'POST',
+        body: JSON.stringify({ runId: row.id }),
+      }))
+      await load()
+      flash(t('marketing_automation.runs.retryQueued', 'Back in the queue. It resumes on the next pass.'), 'success')
+    } catch {
+      // The route answers 409 for a run that is no longer dead — somebody else revived it, or the list is stale.
+      flash(t('marketing_automation.runs.retryFailed', 'Could not retry this journey. Refresh and check its status.'), 'error')
+    }
+  }
+
   const columns = React.useMemo<ColumnDef<RunRow>[]>(() => [
     {
       accessorKey: 'status',
       header: t('marketing_automation.runs.columns.status', 'Status'),
-      cell: ({ row }) => (
-        <StatusBadge variant={STATUS_VARIANT[row.original.status] ?? 'neutral'} dot>
-          {t(`marketing_automation.runs.status.${row.original.status}`, row.original.status)}
-        </StatusBadge>
-      ),
+      /**
+       * A run backing off after a FAILURE reads differently from one waiting on purpose.
+       *
+       * `failRun` stores `waiting` for both, and it has to: the resume scan looks for `status: 'waiting'` with a
+       * due `resumeAt`, so storing anything else would mean a failed run never retried at all. But on screen the
+       * two are opposite facts — a drip campaign between steps is healthy, a run on attempt three with an error
+       * behind it is not — and the status filter could not tell them apart.
+       *
+       * Derived from data the row already carries rather than from a new column: attempts past the first, with an
+       * error recorded, is a retry by definition.
+       */
+      cell: ({ row }) => {
+        const retrying = row.original.status === 'waiting'
+          && row.original.attempts > 0
+          && Boolean(row.original.lastError)
+        return (
+          <StatusBadge variant={retrying ? 'error' : STATUS_VARIANT[row.original.status] ?? 'neutral'} dot>
+            {retrying
+              ? t('marketing_automation.runs.status.retrying', 'Retrying after an error')
+              : t(`marketing_automation.runs.status.${row.original.status}`, row.original.status)}
+          </StatusBadge>
+        )
+      },
     },
     {
       accessorKey: 'subjectEntityId',
@@ -200,7 +261,29 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
         </Button>
       ),
     },
-  ], [t, expanded])
+    {
+      id: 'actions',
+      header: '',
+      /**
+       * Offered only for a DEAD run, because that is the only state a retry applies to.
+       *
+       * A running or waiting journey needs nothing from anybody, and a menu item that answers 409 would be a
+       * button whose job is to be refused. The route checks the state again anyway — the list can be stale, and
+       * two operators can press it together — but the screen should not invite the race.
+       */
+      cell: ({ row }) => {
+        if (row.original.status !== 'dead') return null
+        const actions: RowActionItem[] = [
+          {
+            id: 'retry',
+            label: t('marketing_automation.runs.action.retry', 'Put back in the queue'),
+            onSelect: () => { void retry(row.original) },
+          },
+        ]
+        return <RowActions items={actions} />
+      },
+    },
+  ], [t, expanded, retry])
 
   const openRun = rows.find((row) => row.id === expanded) ?? null
 
@@ -296,6 +379,7 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
             )}
           </div>
         ) : null}
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )
