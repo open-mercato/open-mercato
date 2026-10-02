@@ -26,6 +26,8 @@ type WidgetContext = Record<string, unknown> & {
   reload?: () => void
 }
 
+const FORM_ID = 'channel-imap-connect-form'
+
 export default function ConnectImapWidget({
   context,
 }: InjectionWidgetComponentProps<Record<string, unknown>, Record<string, unknown>>) {
@@ -80,6 +82,7 @@ export default function ConnectImapWidget({
         type: 'select',
         label: t('communication_channels.profile.connect.fields.imapTls', 'IMAP security'),
         options: tlsOptions,
+        required: true,
         layout: 'half',
       },
       {
@@ -114,6 +117,7 @@ export default function ConnectImapWidget({
         type: 'select',
         label: t('communication_channels.profile.connect.fields.smtpTls', 'SMTP security'),
         options: tlsOptions,
+        required: true,
         layout: 'half',
       },
       {
@@ -158,13 +162,20 @@ export default function ConnectImapWidget({
     [mutationContext, runMutation, t, widgetContext],
   )
 
+  const onDialogKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
+    event.preventDefault()
+    const form = document.getElementById(FORM_ID)
+    if (form instanceof HTMLFormElement) form.requestSubmit()
+  }, [])
+
   return (
     <>
       <Button type="button" variant="outline" onClick={() => setOpen(true)}>
         {t('communication_channels.profile.connect.imap', 'Connect IMAP')}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent onKeyDown={onDialogKeyDown}>
           <DialogHeader>
             <DialogTitle>
               {t('communication_channels.profile.connect.imapTitle', 'Connect IMAP mailbox')}
@@ -172,6 +183,7 @@ export default function ConnectImapWidget({
           </DialogHeader>
           {open ? (
             <CrudForm<ImapConnectFormValues>
+              formId={FORM_ID}
               schema={schema}
               fields={fields}
               initialValues={IMAP_CONNECT_INITIAL_VALUES}
