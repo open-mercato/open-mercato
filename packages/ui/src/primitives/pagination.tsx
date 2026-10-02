@@ -123,7 +123,7 @@ export function buildPaginationItems(
 }
 
 const cellVariants = cva(
-  'inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-sm font-medium outline-none transition-colors tabular-nums ' +
+  'inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-sm font-medium outline-none cursor-pointer transition-colors tabular-nums ' +
     'focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-50',
   {
@@ -138,7 +138,7 @@ const cellVariants = cva(
 )
 
 const navButtonVariants = cva(
-  'inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors ' +
+  'inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none cursor-pointer transition-colors ' +
     'hover:bg-muted/40 hover:text-foreground ' +
     'focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground',

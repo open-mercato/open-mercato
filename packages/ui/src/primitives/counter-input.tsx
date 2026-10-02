@@ -24,7 +24,7 @@ const counterWrapperVariants = cva(
 )
 
 const counterButtonVariants = cva(
-  'inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 cursor-pointer disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       size: {

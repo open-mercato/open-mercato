@@ -25,7 +25,7 @@ export const Radio = React.forwardRef<
     ref={ref}
     className={cn(
       'aspect-square size-5 shrink-0 rounded-full border border-input bg-background',
-      'flex items-center justify-center transition-colors',
+      'flex items-center justify-center cursor-pointer transition-colors',
       'hover:border-muted-foreground/40',
       'data-[state=checked]:border-accent-indigo data-[state=checked]:bg-accent-indigo',
       'focus-visible:outline-none focus-visible:shadow-focus',

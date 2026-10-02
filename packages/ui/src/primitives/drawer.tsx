@@ -152,7 +152,7 @@ const DrawerContent = React.forwardRef<
             data-slot="drawer-close-button"
             aria-label={closeAriaLabel}
             className={cn(
-              'absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors',
+              'absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none cursor-pointer transition-colors',
               'hover:bg-muted/40 hover:text-foreground',
               'focus-visible:shadow-focus',
             )}
