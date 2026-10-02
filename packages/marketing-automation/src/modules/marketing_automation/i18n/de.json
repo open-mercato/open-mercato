@@ -318,6 +318,7 @@
   "marketing_automation.nps.band.detractor": "Kritiker",
   "marketing_automation.nps.band.passive": "Indifferent",
   "marketing_automation.nps.band.promoter": "Promoter",
+  "marketing_automation.palette.blocked.trackingMissing": "Benötigt ein Tracking-Secret und eine öffentliche URL — ohne beide lässt sich kein Abmeldelink bauen, jeder Versand würde übersprungen.",
   "marketing_automation.params.tagsUnavailable": "Die Tag-Liste konnte nicht geladen werden. Laden Sie die Seite neu, um es erneut zu versuchen.",
   "marketing_automation.picker.change": "Ändern",
   "marketing_automation.picker.noMatches": "Niemand passt dazu.",

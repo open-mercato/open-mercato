@@ -318,6 +318,7 @@
   "marketing_automation.nps.band.detractor": "Detractor",
   "marketing_automation.nps.band.passive": "Passive",
   "marketing_automation.nps.band.promoter": "Promoter",
+  "marketing_automation.palette.blocked.trackingMissing": "Needs a tracking secret and a public URL — without them no unsubscribe link can be built, so every send would be skipped.",
   "marketing_automation.params.tagsUnavailable": "The tag list could not be loaded. Reload the page to try again.",
   "marketing_automation.picker.change": "Change",
   "marketing_automation.picker.noMatches": "Nobody matches that.",

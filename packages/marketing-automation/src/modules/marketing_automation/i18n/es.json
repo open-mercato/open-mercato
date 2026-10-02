@@ -318,6 +318,7 @@
   "marketing_automation.nps.band.detractor": "Detractor",
   "marketing_automation.nps.band.passive": "Pasivo",
   "marketing_automation.nps.band.promoter": "Promotor",
+  "marketing_automation.palette.blocked.trackingMissing": "Requiere un secreto de seguimiento y una URL pública — sin ellos no se puede crear el enlace de baja, así que se omitiría cada envío.",
   "marketing_automation.params.tagsUnavailable": "No se pudo cargar la lista de etiquetas. Recarga la página para volver a intentarlo.",
   "marketing_automation.picker.change": "Cambiar",
   "marketing_automation.picker.noMatches": "No coincide nadie.",
