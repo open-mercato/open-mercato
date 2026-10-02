@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { campaignGraphSaveSchema } from '../../../../data/validators.js'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -37,6 +38,24 @@ export async function PUT(req: Request) {
   if (!body || typeof body !== 'object') {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
+  /**
+   * Parsed here as well as in the command, so the whitelist below has typed fields to copy.
+   *
+   * The command parses again and owns the refusal codes; this parse exists to stop the route handing it a bag
+   * of whatever arrived.
+   */
+  const parsed = campaignGraphSaveSchema.safeParse(body)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return NextResponse.json(
+      {
+        error: issue ? `${issue.path.join('.') || 'payload'}: ${issue.message}` : 'Invalid request body',
+        code: 'marketing_automation.validation.invalidPayload',
+      },
+      { status: 400 },
+    )
+  }
+  const payload = parsed.data
 
   const container = await createRequestContainer()
   const commandBus = container.resolve<CommandBus>('commandBus')
@@ -44,7 +63,28 @@ export async function PUT(req: Request) {
   try {
     const { result } = await commandBus.execute<Record<string, unknown>, { id: string; updatedAt: string; waitingRuns: number }>(
       'marketing_automation.campaigns.save_graph',
-      { input: { ...(body as Record<string, unknown>), id }, ctx: buildRequestCommandContext(container, auth, req) },
+      {
+        /**
+         * The fields the schema defines, named — never the body spread.
+         *
+         * Spreading let a client send `restoredFrom`, which the command threads into the revision note: the
+         * history would then read "restored:7" for a save that restored nothing, and the version list is the
+         * one record an author trusts when they are trying to undo something. `restoredFrom` is internal and
+         * the restore endpoint sets it by calling the command directly.
+         *
+         * A whitelist rather than a blacklist, so the next internal-only field is protected by having been
+         * written rather than by somebody remembering this.
+         */
+        input: {
+          id,
+          updatedAt: payload.updatedAt,
+          name: payload.name,
+          description: payload.description,
+          triggers: payload.triggers,
+          definition: payload.definition,
+        },
+        ctx: buildRequestCommandContext(container, auth, req),
+      },
     )
     return NextResponse.json(result)
   } catch (error) {

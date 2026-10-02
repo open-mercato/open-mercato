@@ -123,8 +123,24 @@ export const campaignTriggerSchema = z.discriminatedUnion('kind', [
  * customers, so it is its own endpoint behind `marketing_automation.campaigns.publish` rather than
  * a field on a save that only needs `campaigns.manage`.
  */
+/**
+ * `updatedAt` is OPTIONAL in the body because the header is the other half of the same channel.
+ *
+ * The platform's command lock accepts the expected version either as a typed input field or as the
+ * `x-om-ext-optimistic-lock-expected-updated-at` header, and it is the header that `buildOptimisticLockHeader`
+ * sends. Requiring the body field meant a caller doing it the header way — which is the documented way —
+ * got 400 for sending the version correctly, and restoring a revision was one such caller.
+ *
+ * Optional is not a default. `AGENTS.md` forbids defaulting this to `''`, because the helper falls back to the
+ * header only when the value is ABSENT and a present-but-empty string switches the lock off instead of
+ * weakening it. Absent means "look at the header"; `''` means "match nothing".
+ *
+ * A caller that sends neither gets the helper's documented no-op. That is the platform's contract — "strictly
+ * additive: when no expected token is present the helper is a no-op" — and respecting `OM_OPTIMISTIC_LOCK=off`
+ * is its job rather than this module's to second-guess.
+ */
 export const campaignGraphSaveSchema = z.object({
-  updatedAt: z.string().min(1),
+  updatedAt: z.string().min(1).optional(),
   name: z.string().min(1),
   description: z.string().nullable().optional(),
   triggers: z.array(campaignTriggerSchema),
@@ -132,7 +148,7 @@ export const campaignGraphSaveSchema = z.object({
 })
 
 export const campaignEnabledSchema = z.object({
-  updatedAt: z.string().min(1),
+  updatedAt: z.string().min(1).optional(),
   isEnabled: z.boolean(),
 })
 
