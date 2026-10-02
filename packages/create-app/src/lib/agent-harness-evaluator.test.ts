@@ -477,21 +477,28 @@ test('a declared module fact index allows only its sibling section files', async
   assert.ok(!allowlist.includes('.ai/guides/modules/sales/*.md'))
 })
 
-test('live timeout policy gives slow default runners measured floors without overriding operator timeouts', async () => {
+test('live timeout policy gives slow default runners matrix-declared floors without overriding operator timeouts', async () => {
   const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
     resolveLiveCaseTimeout: (
       options: { timeout: number; timeoutExplicit: boolean; runner: string; reasoningEffort?: string },
       model: string,
       caseTimeout?: number,
+      timeoutFloors?: Array<{ runner: string; modelPattern?: string; reasoningEffort?: string; timeoutMs: number }>,
     ) => number
   }
+  const floors = (JSON.parse(fs.readFileSync(path.join(sourceHarness, 'release-matrix.json'), 'utf8')) as {
+    routing: { timeoutFloors: Array<{ runner: string; modelPattern?: string; reasoningEffort?: string; timeoutMs: number }> }
+  }).routing.timeoutFloors
   const defaultOptions = { timeout: 300_000, timeoutExplicit: false, runner: 'codex', reasoningEffort: 'high' }
-  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini'), 900_000)
-  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, timeoutExplicit: true }, 'gpt-5.4-mini'), 300_000)
-  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, reasoningEffort: 'medium' }, 'gpt-5.4-mini'), 300_000)
-  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined }, 'sonnet'), 600_000)
-  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined, timeoutExplicit: true }, 'sonnet'), 300_000)
-  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini', 1_000_000), 1_000_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini', 0, floors), 900_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.6-mini-2026-05-01', 0, floors), 900_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, timeoutExplicit: true }, 'gpt-5.4-mini', 0, floors), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, reasoningEffort: 'medium' }, 'gpt-5.4-mini', 0, floors), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-turbo', 0, floors), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined }, 'sonnet', 0, floors), 600_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined, timeoutExplicit: true }, 'sonnet', 0, floors), 300_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini', 1_000_000, floors), 1_000_000)
+  assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini'), 300_000)
 })
 
 test('trace-start recovery recognizes only bounded unavailable-read startup reports', async () => {
@@ -1735,6 +1742,56 @@ if (!semanticCorrection || traceCorrection) {
     const [stored] = storedResults(root)
     assert.equal(stored.attempts, 3)
     assert.equal(stored.corrections, 2)
+    assert.deepEqual(stored.violations, [])
+    assert.deepEqual(stored.selectedRouter, ['architecture'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('live Codex stores a result when a structured-output retry composes with both corrections', { skip: !targetSandboxAvailable }, () => {
+  const root = stageApp()
+  const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+if (args[0] === 'features' && args[1] === 'list') process.exit(0)
+const prompt = fs.readFileSync(0, 'utf8')
+const invalidRetry = prompt.includes('not valid structured output')
+const traceCorrection = prompt.includes('Correction kind: trace-start')
+const semanticCorrection = prompt.includes('Correction kind: semantic-routing')
+const outPath = args[args.indexOf('-o') + 1]
+if (!invalidRetry && !traceCorrection && !semanticCorrection) {
+  fs.writeFileSync(outPath, JSON.stringify({ selectedRouter: 'architecture' }))
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'composed-attempt-1' }))
+  process.exit(0)
+}
+fs.writeFileSync(outPath, JSON.stringify({
+  selectedRouter: traceCorrection ? ['testing'] : ['architecture'],
+  selectedSkills: [],
+  selectedContext: ['AGENTS.md', '.ai/guides/architecture.md'],
+  decisions: ['standalone-boundary', 'facts-first'],
+  violations: []
+}))
+if (invalidRetry) {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'composed-attempt-2' }))
+} else {
+  for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
+    console.log(JSON.stringify({ type: 'item.completed', item: {
+      type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+    }}))
+  }
+}
+`)
+  try {
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+    })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(storedResults(root), null, 2)}`)
+    const [stored] = storedResults(root)
+    assert.equal(stored.attempts, 4)
+    assert.equal(stored.corrections, 3)
     assert.deepEqual(stored.violations, [])
     assert.deepEqual(stored.selectedRouter, ['architecture'])
   } finally {
