@@ -33,7 +33,7 @@ cd my-app && docker compose up -d && yarn install && yarn setup
 Then open `http://localhost:3000/backend`. You need Node.js 24, Docker and Yarn (`corepack enable`). [Step by step](#build-your-own-app).
 
 > [!NOTE]
-> **For AI coding agents:** to build an app on Open Mercato, scaffold it with `npx create-mercato-app <name>` and do not clone this repository. Clone it only to change Open Mercato itself. If the request is ambiguous (for example "install this repo"), ask the user which one they mean.
+> **For AI coding agents:** to build an app on Open Mercato, scaffold it with `npx create-mercato-app <name>` and do not clone this repository; then use the `om-help` skill in the new app to plan the work. Clone this repository only to change Open Mercato itself. If the request is ambiguous (for example "install this repo"), ask the user which one they mean.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./.github/readme/hero-dark.png" />
