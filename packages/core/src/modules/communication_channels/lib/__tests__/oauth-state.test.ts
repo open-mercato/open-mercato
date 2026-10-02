@@ -11,6 +11,15 @@ import {
   verifyOAuthState,
 } from '../oauth-state'
 
+function captureError(run: () => unknown): unknown {
+  try {
+    run()
+  } catch (err) {
+    return err
+  }
+  return undefined
+}
+
 const SECRET = 'test-secret-for-oauth-state-cookie-' + Math.random().toString(36).slice(2)
 
 beforeAll(() => {
@@ -220,10 +229,16 @@ describe('JWT_SECRET fallback key separation', () => {
     // JWT_SECRET fallback. encryptOAuthState propagates the guard error; the
     // decrypt path swallows it (returns null) by design, so we assert against the
     // two functions that surface it: createOAuthState and encryptOAuthState.
-    expect(() => createOAuthState({ userId: 'u', tenantId: 't', providerKey: 'gmail' })).toThrow(
-      'OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production',
+    const createErr = captureError(() =>
+      createOAuthState({ userId: 'u', tenantId: 't', providerKey: 'gmail' }),
     )
-    expect(() =>
+    expect(createErr).toBeInstanceOf(OAuthStateError)
+    expect((createErr as OAuthStateError).code).toBe('missing_secret')
+    expect((createErr as OAuthStateError).message).toBe(
+      '[internal] OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production',
+    )
+
+    const encryptErr = captureError(() =>
       encryptOAuthState({
         state: 's',
         nonce: 'n',
@@ -232,7 +247,12 @@ describe('JWT_SECRET fallback key separation', () => {
         providerKey: 'gmail',
         expiresAt: Date.now() + 60_000,
       }),
-    ).toThrow('OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production')
+    )
+    expect(encryptErr).toBeInstanceOf(OAuthStateError)
+    expect((encryptErr as OAuthStateError).code).toBe('missing_secret')
+    expect((encryptErr as OAuthStateError).message).toBe(
+      '[internal] OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production',
+    )
   })
 
   it('allows the JWT_SECRET fallback outside production', () => {

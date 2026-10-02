@@ -109,7 +109,10 @@ function getSecret(): string {
   // state cookies, bypassing the userId/tenant binding. In non-production we fall
   // back to JWT_SECRET so dev/test envs that only configure one secret still work.
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('[internal] OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production')
+    throw new OAuthStateError(
+      '[internal] OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production',
+      'missing_secret',
+    )
   }
   const fallback = process.env.JWT_SECRET
   if (!fallback) {
