@@ -12,7 +12,7 @@ import {
   portalCookieHeaders,
   portalLogin,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
-import { createPersonFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 const SETTINGS_PATH = '/api/marketing_automation/settings'
 const READINESS_PATH = '/api/marketing_automation/readiness'
@@ -396,9 +396,12 @@ test.describe('TC-MA-047 settings, setup and portal preferences screens', () => 
       expect(read.status()).toBe(403)
       expect((await readJsonSafe<{ code?: string }>(read))?.code).toBe('marketing_automation.errors.portalNotLinked')
 
+      // `subscribed` is the field the route's schema actually defines. Posting anything else would
+      // have been refused before `resolveSubject` ran, so the test would have passed without
+      // demonstrating that a VALID consent write is the thing being refused.
       const write = await request.put(PREFERENCES_PATH, {
         headers: { ...portalCookieHeaders(session), 'Content-Type': 'application/json' },
-        data: { consent: 'unsubscribed' },
+        data: { subscribed: false },
       })
       expect(write.status()).toBe(403)
     } finally {
@@ -412,6 +415,7 @@ test.describe('TC-MA-047 settings, setup and portal preferences screens', () => 
     const { tenantId, organizationId } = getTokenContext(adminToken)
     let companyId: string | null = null
     let userId: string | null = null
+    let personEntityId: string | null = null
     try {
       const orgResponse = await apiRequest(
         request,
@@ -426,7 +430,7 @@ test.describe('TC-MA-047 settings, setup and portal preferences screens', () => 
       companyId = await createCustomerCompanyFixture(request, adminToken, `QA MA-047 Portal ${Date.now()}`)
       const user = await createCustomerUserFixture(request, adminToken, { customerEntityId: companyId })
       userId = user.id
-      const personEntityId = await createPersonFixture(request, adminToken, {
+      personEntityId = await createPersonFixture(request, adminToken, {
         firstName: 'MA047',
         lastName: `Portal ${Date.now()}`,
         displayName: `QA MA-047 Portal Person ${Date.now()}`,
@@ -507,6 +511,8 @@ test.describe('TC-MA-047 settings, setup and portal preferences screens', () => 
       expect(final.preference?.maxPerWeek ?? null).toBeNull()
     } finally {
       await deleteCustomerUserFixture(request, adminToken, userId)
+      // Before the company: the person carries `company_entity_id` pointing at it.
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personEntityId)
       await deleteCustomerCompanyFixture(request, adminToken, companyId)
     }
   })

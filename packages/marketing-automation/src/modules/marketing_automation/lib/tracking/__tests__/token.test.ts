@@ -133,6 +133,15 @@ describe('resolveTrackingSecret', () => {
     expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: 'CHANGE-ME-anything' })).toBeNull()
   })
 
+  /**
+   * A `.env` file is not a shell. Documentation that reads `SECRET=$(openssl rand -hex 32)` puts that
+   * string in the file verbatim, which would be the same "secret" on every install that copied it.
+   */
+  test('refuses a shell substitution that was never expanded', () => {
+    expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: '$(openssl rand -hex 32)' })).toBeNull()
+    expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: '`openssl rand -hex 32`' })).toBeNull()
+  })
+
   test('ignores an empty or whitespace value, which an env file has plenty of', () => {
     expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: '   ' })).toBeNull()
   })

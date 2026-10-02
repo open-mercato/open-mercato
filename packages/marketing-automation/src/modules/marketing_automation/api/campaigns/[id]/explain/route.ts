@@ -15,7 +15,7 @@ import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { loadContactPreference } from '../../../../lib/preferences.js'
 import { isSuppressedByConsent } from '../../../../lib/consent.js'
 import { countSendsSince } from '../../../../lib/runs.js'
-import { readPathUuid } from '../../../shared.js'
+import { mayReadSubjectPii, readPathUuid } from '../../../shared.js'
 
 /**
  * Why this customer would, or would not, receive this campaign right now.
@@ -72,6 +72,26 @@ export async function POST(req: Request) {
     quietHours: definition.sendPolicy?.quietHours ?? null,
     optimizeSendTime: definition.sendPolicy?.optimizeSendTime ?? false,
     sendHour: definition.sendPolicy?.sendHour ?? null,
+  }
+
+  /**
+   * Answering ANYTHING about a named customer needs the grant that protects them.
+   *
+   * This route exists to answer a question about one person, and answering it means building their
+   * decrypted subject document and evaluating the campaign's own audience against it. That audience is
+   * an author-controlled predicate over any field in the document, and the same `campaigns.manage`
+   * that saves it reads the verdict back — so the single boolean this returns is a one-bit oracle over
+   * the whole record. Degrading the response would withhold nothing, and there is nothing to simulate
+   * without the customer, so this refuses.
+   */
+  if (!await mayReadSubjectPii(container, auth)) {
+    return NextResponse.json(
+      {
+        error: 'Reading this customer needs the customers.people.view permission',
+        code: 'marketing_automation.errors.subjectReadForbidden',
+      },
+      { status: 403 },
+    )
   }
 
   const tierThresholds = await loadTierThresholds(container, scope)

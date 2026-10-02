@@ -71,29 +71,52 @@ describe('routes that decrypt a customer', () => {
  * is load-bearing for the screen's whole answer ("it is waiting for nine o'clock their time"), so it is
  * recorded here as a known gap rather than closed by a detector change.
  */
-describe('routes that interpolate a subject document into authored copy', () => {
-  const interpolating = routeFiles(API_ROOT)
+
+/**
+ * A route that builds a subject document must check the same feature.
+ *
+ * This is the second way the module reaches decrypted data, and the finders above cannot see it:
+ * `buildSubjectDocument` does the decrypting one call deeper, so a route that never names a finder
+ * still returns a customer's name, email, order history, tags, addresses and scores.
+ *
+ * The rule used to stop at the finders, and `test-send` was the hole that left: holding
+ * `marketing_automation.test_dispatch` alone was enough to have it build any customer's document,
+ * interpolate it into the copy and mail the result to the caller's own address.
+ *
+ * Returning a FIXED PROJECTION of the document is not a defence, and an earlier version of this file
+ * claimed it was. `preview`, `test-dispatch` and `explain` each evaluate the campaign's own audience
+ * against the document and return the verdict — `entered`, `inAudience`, an audience gate outcome.
+ * That audience is an author-controlled predicate over any dotted path (`lib/engine/audience.ts`
+ * resolves `leaf.field` through `getNestedValue`, and `business_rules` validates that path for length
+ * and nothing else), and the same `campaigns.manage` that saves it reads the verdict back. One
+ * returned boolean is therefore a one-bit oracle over the entire record, `STARTS_WITH` at a time. The
+ * gate has to decide whether the document is BUILT.
+ */
+describe('routes that build a subject document', () => {
+  const building = routeFiles(API_ROOT)
     .map((path) => ({ path, source: readFileSync(path, 'utf8') }))
-    .filter(({ source }) => /renderEmail|renderValuesFromDocument/.test(source))
+    .filter(({ source }) => /buildSubjectDocument/.test(source))
 
   it('finds the routes it is meant to be guarding', () => {
-    expect(interpolating.length).toBeGreaterThanOrEqual(2)
+    expect(building.length).toBeGreaterThanOrEqual(5)
   })
 
-  for (const { path, source } of interpolating) {
+  for (const { path, source } of building) {
     const name = path.slice(path.indexOf('/api/') + 1)
     it(`${name} checks customers.people.view`, () => {
       const declared = /requireFeatures:\s*\[[^\]]*'customers\.people\.view'/.test(source)
-      const checkedInline = source.includes("'customers.people.view'") && source.includes('userHasAllFeatures')
+      const checkedInline = source.includes('mayReadSubjectPii')
+        || (source.includes("'customers.people.view'") && source.includes('userHasAllFeatures'))
       expect(declared || checkedInline).toBe(true)
     })
 
     /**
-     * The gate has to decide whether the DOCUMENT is built, not merely what is shown afterwards:
-     * building it and then hiding one field leaves every other field reachable through the copy.
+     * The check has to come BEFORE the document exists. Building it and then hiding one field leaves
+     * every other field reachable through the audience verdict.
      */
-    it(`${name} drops the subject rather than filtering the rendered output`, () => {
-      expect(/subjectEntityId && mayReadSubject/.test(source)).toBe(true)
+    it(`${name} decides the grant before building the document`, () => {
+      if (/requireFeatures:\s*\[[^\]]*'customers\.people\.view'/.test(source)) return
+      expect(source.indexOf('mayReadSubjectPii(')).toBeLessThan(source.indexOf('buildSubjectDocument('))
     })
   }
 })

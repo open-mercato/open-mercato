@@ -42,7 +42,11 @@ const PUBLISHED_PLACEHOLDER_SECRETS = new Set([
 
 function isPublishedPlaceholder(value: string): boolean {
   const normalized = value.toLowerCase()
-  return PUBLISHED_PLACEHOLDER_SECRETS.has(normalized) || normalized.startsWith('change-me')
+  if (PUBLISHED_PLACEHOLDER_SECRETS.has(normalized)) return true
+  if (normalized.startsWith('change-me')) return true
+  // An unexpanded shell substitution: a .env file is not a shell, so `$(openssl rand -hex 32)`
+  // arrives verbatim and would be the same "secret" on every install that copied the line.
+  return normalized.startsWith('$(') || normalized.startsWith('`')
 }
 
 export type EnvLike = Record<string, string | undefined>

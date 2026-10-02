@@ -165,7 +165,7 @@
   "marketing_automation.errors.loadListFailed": "Could not load the campaigns.",
   "marketing_automation.errors.noTestRecipient": "Your account has no email address, so there is nowhere to send a test.",
   "marketing_automation.errors.overlapSameSegment": "Pick two different segments.",
-  "marketing_automation.errors.portalNotLinked": "This account is not linked to a customer record.",
+  "marketing_automation.errors.portalNotLinked": "This account is not linked to a person record, so there are no marketing preferences to show.",
   "marketing_automation.errors.preferenceSaveFailed": "Could not save your preferences.",
   "marketing_automation.errors.progressUnavailable": "This installation cannot track background work, so bulk actions are unavailable.",
   "marketing_automation.errors.saveFailed": "Could not save the campaign.",

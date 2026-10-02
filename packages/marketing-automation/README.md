@@ -14,15 +14,22 @@ Off by default, on purpose: it migrates 23 tables and serves six public unauthen
 (open/click tracking, unsubscribe, the survey answer page and inbound hooks), which a shop should
 switch on deliberately rather than inherit.
 
+Generate a signing secret first — a `.env` file is not a shell, so the command belongs in your
+terminal and its OUTPUT belongs in the file:
+
+```bash
+openssl rand -hex 32
+```
+
 ```bash
 # apps/mercato/.env
 OM_ENABLE_MARKETING_AUTOMATION=true
 
 # Signs every token the module issues: tracking, unsubscribe, survey, inbound hooks.
-# Generate one per installation. There is no default, and no fallback to the platform's
+# Paste the value printed above. There is no default, and no fallback to the platform's
 # encryption keys — those are published in .env.example, so a token signed with one could
 # be forged by anybody.
-OM_MARKETING_TRACKING_SECRET=$(openssl rand -hex 32)
+OM_MARKETING_TRACKING_SECRET=<the 64 hex characters printed above>
 ```
 
 The secret is not optional in practice: it is also what builds the unsubscribe link, and a

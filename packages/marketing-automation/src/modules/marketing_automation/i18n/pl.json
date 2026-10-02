@@ -165,7 +165,7 @@
   "marketing_automation.errors.loadListFailed": "Nie udało się wczytać kampanii.",
   "marketing_automation.errors.noTestRecipient": "Twoje konto nie ma adresu e-mail, więc nie ma gdzie wysłać testu.",
   "marketing_automation.errors.overlapSameSegment": "Wybierz dwa różne segmenty.",
-  "marketing_automation.errors.portalNotLinked": "To konto nie jest powiązane z kartoteką klienta.",
+  "marketing_automation.errors.portalNotLinked": "To konto nie jest powiązane z kartoteką osoby, więc nie ma preferencji do pokazania.",
   "marketing_automation.errors.preferenceSaveFailed": "Nie udało się zapisać Twoich preferencji.",
   "marketing_automation.errors.progressUnavailable": "Ta instalacja nie potrafi śledzić pracy w tle, więc akcje masowe są niedostępne.",
   "marketing_automation.errors.saveFailed": "Nie udało się zapisać kampanii.",

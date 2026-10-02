@@ -17,10 +17,9 @@ import {
 } from '../../../../lib/recommendations.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
 import { renderValuesFromDocument } from '../../../../lib/render-values.js'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import type { AutomationContext } from '../../../../lib/engine/types.js'
-import { readPathUuid } from '../../../shared.js'
+import { mayReadSubjectPii, readPathUuid } from '../../../shared.js'
 
 /**
  * Renders one message exactly as a send would, and returns it instead of sending it.
@@ -110,14 +109,7 @@ export async function POST(req: Request) {
    * with the placeholders unfilled, which is what this screen is for when nobody is named. The sibling
    * `preview` route withholds PII under this same gate and says so; this one was the inconsistency.
    */
-  const rbac = container.resolve<RbacService>('rbacService')
-  const mayReadSubject = parsed.data.subjectEntityId
-    ? await rbac.userHasAllFeatures(
-        auth.sub,
-        ['customers.people.view'],
-        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
-      )
-    : false
+  const mayReadSubject = parsed.data.subjectEntityId ? await mayReadSubjectPii(container, auth) : false
 
   const tierThresholds = await loadTierThresholds(container, scope)
   const subject = parsed.data.subjectEntityId && mayReadSubject

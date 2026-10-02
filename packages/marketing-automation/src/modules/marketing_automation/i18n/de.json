@@ -165,7 +165,7 @@
   "marketing_automation.errors.loadListFailed": "Kampagnen konnten nicht geladen werden.",
   "marketing_automation.errors.noTestRecipient": "Dein Konto hat keine E-Mail-Adresse, es gibt also kein Ziel für einen Test.",
   "marketing_automation.errors.overlapSameSegment": "Wähle zwei verschiedene Segmente.",
-  "marketing_automation.errors.portalNotLinked": "Dieses Konto ist mit keinem Kundendatensatz verknüpft.",
+  "marketing_automation.errors.portalNotLinked": "Dieses Konto ist mit keiner Personenakte verknüpft, daher gibt es keine Einstellungen zum Anzeigen.",
   "marketing_automation.errors.preferenceSaveFailed": "Deine Einstellungen konnten nicht gespeichert werden.",
   "marketing_automation.errors.progressUnavailable": "Diese Installation kann Hintergrundarbeit nicht verfolgen, daher sind Massenaktionen nicht verfügbar.",
   "marketing_automation.errors.saveFailed": "Die Kampagne konnte nicht gespeichert werden.",

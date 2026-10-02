@@ -165,7 +165,7 @@
   "marketing_automation.errors.loadListFailed": "No se pudieron cargar las campañas.",
   "marketing_automation.errors.noTestRecipient": "Tu cuenta no tiene dirección de correo, así que no hay dónde enviar la prueba.",
   "marketing_automation.errors.overlapSameSegment": "Elige dos segmentos distintos.",
-  "marketing_automation.errors.portalNotLinked": "Esta cuenta no está vinculada a una ficha de cliente.",
+  "marketing_automation.errors.portalNotLinked": "Esta cuenta no está vinculada a una ficha de persona, así que no hay preferencias que mostrar.",
   "marketing_automation.errors.preferenceSaveFailed": "No se pudieron guardar tus preferencias.",
   "marketing_automation.errors.progressUnavailable": "Esta instalación no puede seguir el trabajo en segundo plano, así que las acciones masivas no están disponibles.",
   "marketing_automation.errors.saveFailed": "No se pudo guardar la campaña.",

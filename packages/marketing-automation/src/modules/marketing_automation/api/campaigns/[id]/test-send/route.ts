@@ -18,13 +18,12 @@ import {
   renderRecommendationsHtml,
 } from '../../../../lib/recommendations.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { renderValuesFromDocument } from '../../../../lib/render-values.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { redactEmails } from '../../../../lib/redact.js'
 import { applyContentBlocks, loadContentBlocks, referencedBlockKeys } from '../../../../lib/content-blocks.js'
 import type { AutomationContext } from '../../../../lib/engine/types.js'
-import { readPathUuid } from '../../../shared.js'
+import { mayReadSubjectPii, readPathUuid } from '../../../shared.js'
 
 /**
  * Sends one real message, to the author, so they can see what they wrote.
@@ -115,21 +114,16 @@ export async function POST(req: Request) {
    *
    * `marketing_automation.test_dispatch` says somebody may send a test message; `customers.people.view`
    * says they may read the CRM. Without this gate, holding the first alone was enough to have the module
-   * build any customer's subject document — decrypted name, address, order history — interpolate it into
-   * the copy and mail the result to the caller's own address. The sibling `render` route already closes
-   * exactly this hole; this one was the inconsistency.
+   * build any customer's subject document, interpolate it and mail the result to the caller's own address.
+   * What the copy can actually pull is bounded by `renderValuesFromDocument`, which projects a whitelist:
+   * the decrypted display name and email, order aggregates, the score and tier, the latest NPS answer.
+   * Narrower than the whole document, and still the CRM read this grant exists to protect. The sibling
+   * `render` route already closed exactly this hole; this one was the inconsistency.
    *
    * The subject is dropped rather than the request refused, matching `render`: the author still gets their
    * own copy back with the placeholders unfilled.
    */
-  const rbac = container.resolve<RbacService>('rbacService')
-  const mayReadSubject = parsed.data.subjectEntityId
-    ? await rbac.userHasAllFeatures(
-        auth.sub,
-        ['customers.people.view'],
-        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
-      )
-    : false
+  const mayReadSubject = parsed.data.subjectEntityId ? await mayReadSubjectPii(container, auth) : false
 
   const tierThresholds = await loadTierThresholds(container, scope)
   const subject = parsed.data.subjectEntityId && mayReadSubject

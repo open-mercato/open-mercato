@@ -12,6 +12,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PREFERENCES_PATH = '/api/marketing_automation/portal/preferences'
+const NOT_LINKED_CODE = 'marketing_automation.errors.portalNotLinked'
 
 type Answer = {
   consent?: 'subscribed' | 'unsubscribed' | null
@@ -31,15 +32,26 @@ export default function MarketingPreferencesPage() {
   const [answer, setAnswer] = React.useState<Answer | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
+  /**
+   * Told apart from a generic failure on purpose.
+   *
+   * An account the portal cannot tie to one person gets 403 here, because consent belongs to a person
+   * and answering for the company would speak for everybody at it. That is a permanent state, not a
+   * hiccup, so offering "try again" on the one page somebody visits to stop the mail would be the worst
+   * answer available: they would leave believing they had failed to act.
+   */
+  const [notLinked, setNotLinked] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [saved, setSaved] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
     setLoadFailed(false)
+    setNotLinked(false)
     try {
-      const result = await apiCall<Answer>(PREFERENCES_PATH)
+      const result = await apiCall<Answer & { code?: string }>(PREFERENCES_PATH)
       if (result.ok && result.result) setAnswer(result.result)
+      else if (result.status === 403 && result.result?.code === NOT_LINKED_CODE) setNotLinked(true)
       else setLoadFailed(true)
     } catch {
       setLoadFailed(true)
@@ -74,6 +86,21 @@ export default function MarketingPreferencesPage() {
   }
 
   if (loading) return <div className="p-4"><Spinner /></div>
+
+  /**
+   * No controls at all in this state, and this is the point of telling it apart.
+   *
+   * Every control below would 403, while the status badge would read "Subscribed" from an answer that
+   * was never loaded — a page promising somebody they can opt out, and silently refusing to let them.
+   */
+  if (notLinked) {
+    return (
+      <div className="mx-auto max-w-xl space-y-6 p-4">
+        <h1 className="text-lg font-medium">{t('marketing_automation.portal.title', 'Email preferences')}</h1>
+        <ErrorMessage label={t('marketing_automation.errors.portalNotLinked', 'This account is not linked to a person record, so there are no marketing preferences to show.')} />
+      </div>
+    )
+  }
 
   const unsubscribed = answer?.consent === 'unsubscribed'
   const maxPerWeek = answer?.preference?.maxPerWeek ?? null
