@@ -139,6 +139,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",
+            "user-guide/autopay-payments",
             "user-guide/payment-transactions",
           ],
         },

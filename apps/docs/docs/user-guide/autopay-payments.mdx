@@ -1,0 +1,90 @@
+---
+title: Autopay Payment Gateway
+description: Register your own Autopay Partner Service, connect it to Open Mercato, and understand what this integration does (and does not yet) support.
+sidebar_label: Autopay Payments
+---
+
+This guide walks you through connecting your own Autopay account to Open Mercato and running your first sandbox session. Unlike some other providers, Open Mercato does not ship a shared Autopay account — every merchant registers independently.
+
+## Before you start
+
+This is a **self-service integration**: `@open-mercato/gateway-autopay` is a reusable provider package, not a bespoke integration tied to one merchant's account. To use it you register your own Autopay Partner Service and enter your own credentials — Open Mercato never ships or shares credentials on your behalf.
+
+1. Register a Partner Service at [portal.autopay.eu](https://portal.autopay.eu/) (start in the sandbox/test environment).
+2. From that registration you receive:
+   - a **Service ID**,
+   - a **shared key** (used to sign and verify every request — keep it secret),
+   - a **payment initiation URL** specific to your registration (Autopay does not publish one universal URL; yours is issued to you).
+3. Confirm with Autopay whether your Partner Service has **settlement balance / refunds enabled** if you plan to use the refund feature (see [Limitations](#limitations-read-before-you-rely-on-this) below).
+
+:::caution
+The Autopay documentation's own worked examples use `ServiceID=2` and shared key `2test2` to demonstrate the hash calculation. These values only prove the signing math is correct — they will not authenticate against Autopay's sandbox or process a real session. You need your own registration.
+:::
+
+## Step 1 — Enter Autopay credentials
+
+1. Navigate to **External Systems → Integrations** and click **Configure** on the Autopay card.
+2. Open the **Credentials** tab.
+3. Fill in the fields from your own Autopay Partner Service registration:
+
+| Field | Where it comes from |
+|-------|---------------------|
+| **Service ID** | Issued when you register at [portal.autopay.eu](https://portal.autopay.eu/) |
+| **Shared Key** | Issued alongside the Service ID — keep this secret |
+| **Hash Algorithm** | SHA-256 by default; only change this if Autopay configured SHA-512 for your Service |
+| **Payment Initiation URL** | The exact hosted-session URL Autopay gives you — never guess or reuse another merchant's URL. Must be under `https://testpay.autopay.eu` (sandbox) or `https://pay.autopay.eu` (production) |
+
+4. Click **Save Credentials**.
+
+## Step 2 — Verify health
+
+Switch to the **Health** tab and click **Run Check**. Open Mercato probes Autopay's `transactionStatus` endpoint with a synthetic order ID that can never match a real transaction — this proves your Service ID, shared key, and gateway URL are valid without creating or affecting any real payment.
+
+If the check fails, double-check that the Payment Initiation URL's host matches exactly `https://testpay.autopay.eu` or `https://pay.autopay.eu`, and that the shared key matches what Autopay issued for that Service ID.
+
+## Optional env preconfiguration
+
+If your deployment already knows the Autopay credentials, you can preconfigure the integration automatically instead of filling the credentials form manually after every fresh install.
+
+Use these env vars:
+
+```env
+OM_INTEGRATION_AUTOPAY_SERVICE_ID=your-service-id
+OM_INTEGRATION_AUTOPAY_SHARED_KEY=your-shared-key
+OM_INTEGRATION_AUTOPAY_GATEWAY_URL=https://testpay.autopay.eu/your-issued-path
+OM_INTEGRATION_AUTOPAY_HASH_ALGORITHM=sha256
+OM_INTEGRATION_AUTOPAY_ENABLED=true
+OM_INTEGRATION_AUTOPAY_FORCE_PRECONFIGURE=false
+```
+
+To rerun the preset for an existing tenant:
+
+```bash
+yarn mercato gateway_autopay configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
+## What this integration does
+
+- Creates a hosted-redirect PLN payment session — the payer completes payment on Autopay's own page (bank transfer, BLIK, cards), then returns to your store.
+- Reads payment status by actively querying Autopay's `transactionStatus` API (used on the payer's return, or any time you want to check).
+- Cancels a session that has not been paid yet.
+- Requests a refund on an already-settled session (see the note below — this is asynchronous).
+
+## Limitations (read before you rely on this)
+
+- **PLN only.** Other currencies are not supported by this package.
+- **No push notifications (ITN) yet.** Autopay can notify Open Mercato the moment a payment completes, but this requires the merchant's endpoint to reply with a specific, provider-signed XML body that Open Mercato's generic webhook route does not yet produce. Until that follow-up ships, status is read by actively calling `transactionStatus` (on payer return, or via your own polling) rather than by push.
+- **No separate capture step.** Autopay settles immediately when the payer completes the redirect — there is nothing to capture afterward.
+- **Refunds are asynchronous.** A refund request is acknowledged immediately, but Autopay processes it in the background (documented as up to ~30 minutes). Open Mercato reports the refund as pending until a follow-up status check confirms it. Refunds also require your Autopay Partner Service to have settlement balance enabled — confirm this with Autopay if a refund is rejected unexpectedly.
+- **Sandbox testing needs your own Autopay sandbox registration.** There is no shared/demo account — see [Before you start](#before-you-start).
+
+## Programmatic usage
+
+This provider implements the same `GatewayAdapter` contract as every other payment gateway. For building custom checkout flows or server-to-server integrations, see the [Payment Gateways REST API](/api/payment-gateways) reference — everything there (`POST /payment_gateways/sessions` with `providerKey: "autopay"`, status polling, cancel/refund) applies the same way it does for Stripe.
+
+## Next steps
+
+- [Payment Transactions](./payment-transactions) — inspect all transactions across every provider in one place.
+- [Integration Marketplace](./integrations) — manage all external service connections.
+- [Payment Gateways REST API](/api/payment-gateways) — full API reference with curl and TypeScript examples.
+- [Building a Gateway Provider](/framework/modules/building-gateway-provider) — how this package itself was built, if you want to add another provider.
