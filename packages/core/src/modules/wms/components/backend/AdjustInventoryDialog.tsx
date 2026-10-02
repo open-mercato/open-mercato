@@ -782,7 +782,7 @@ export function AdjustInventoryDialog({
                 </p>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   {previewError ? (
-                    <p className="text-sm text-status-warning-fg">{previewError}</p>
+                    <p className="text-sm text-status-warning-text">{previewError}</p>
                   ) : loadingPreview && onHand == null ? (
                     <p className="text-sm text-muted-foreground">
                       {t('wms.backend.inventory.adjust.preview.loading', 'Refreshing balance…')}
