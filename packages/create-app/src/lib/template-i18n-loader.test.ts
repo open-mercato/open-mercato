@@ -20,7 +20,7 @@ test('standalone dictionary loader stays aligned with the main app locale-shard 
 test('standalone dictionary loader preserves all supported app dictionary fallbacks', () => {
   const source = readSource('../../template/src/lib/i18n/register-dictionary-loader.ts')
 
-  for (const locale of ['en', 'pl', 'es', 'de']) {
+  for (const locale of ['en', 'pl', 'es', 'de', 'ko', 'pt']) {
     assert.match(source, new RegExp(`case '${locale}':[\\s\\S]*?i18n/${locale}\\.json`))
   }
   assert.match(source, /default:[\s\S]*?i18n\/en\.json/)

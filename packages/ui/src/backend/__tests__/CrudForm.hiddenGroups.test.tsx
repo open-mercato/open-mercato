@@ -190,7 +190,7 @@ describe('CrudForm hiddenGroupIds', () => {
 
     it('drops the secondary column when the only column-2 group is hidden', () => {
       const findSidebarGrid = (root: HTMLElement) =>
-        Array.from(root.querySelectorAll('div')).find((node) => node.className.includes('7fr_3fr'))
+        Array.from(root.querySelectorAll('div')).find((node) => node.className.includes('minmax(0,7fr)_minmax(0,3fr)'))
 
       expect(findSidebarGrid(renderForm().container)).toBeTruthy()
       expect(findSidebarGrid(renderForm({ hiddenGroupIds: ['notes'] }).container)).toBeUndefined()
