@@ -44,6 +44,16 @@ type LookupSelectProps = {
   defaultOpen?: boolean
 }
 
+function keepSelectedItem(
+  result: LookupSelectItem[],
+  selected: LookupSelectItem | null,
+  value: string | null,
+): LookupSelectItem[] {
+  if (!value || !selected || selected.id !== value) return result
+  if (result.some((item) => item.id === value)) return result
+  return [selected, ...result]
+}
+
 export function LookupSelect({
   value,
   onChange,
@@ -97,10 +107,16 @@ export function LookupSelect({
   const setQueryRef = React.useRef(setQuery)
   const onReadyRef = React.useRef(onReady)
   const optionsWasArrayRef = React.useRef(Array.isArray(options))
+  const valueRef = React.useRef(value)
+  const selectedItemRef = React.useRef<LookupSelectItem | null>(null)
 
   React.useEffect(() => {
     fetchItemsRef.current = fetchItems ?? fetchOptions
   }, [fetchItems, fetchOptions])
+
+  React.useEffect(() => {
+    valueRef.current = value
+  }, [value])
 
   React.useEffect(() => {
     onReadyRef.current = onReady
@@ -215,10 +231,19 @@ export function LookupSelect({
       const requestId = Date.now()
       const fetcher = fetchItemsRef.current
       const loader = fetcher ?? (() => Promise.resolve(options ?? []))
-      loader(query.trim())
+      const trimmedQuery = query.trim()
+      loader(trimmedQuery)
         .then((result) => {
           if (cancelled) return
-          setItems(result)
+          // A set `value` opens the list with an empty query, and that browse
+          // fetch returns an arbitrary first page. Without this the stored
+          // selection vanished from the list whenever it fell outside that page,
+          // while the form still held its id. A typed query stays a pure search.
+          setItems(
+            trimmedQuery
+              ? result
+              : keepSelectedItem(result, selectedItemRef.current, valueRef.current),
+          )
         })
         .catch((err) => {
           if (cancelled) return
@@ -240,11 +265,15 @@ export function LookupSelect({
 
   React.useEffect(() => {
     if (!value) {
+      selectedItemRef.current = null
       setSelectedItem(null)
       return
     }
     const match = items.find((item) => item.id === value)
-    if (match) setSelectedItem(match)
+    if (match) {
+      selectedItemRef.current = match
+      setSelectedItem(match)
+    }
   }, [items, value])
 
   /*
