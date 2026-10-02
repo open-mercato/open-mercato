@@ -91,7 +91,22 @@ export async function resolveSegmentMembers(
       maxChecked: options.maxChecked,
     })
   } else {
-    const rows = await em.find(CustomerEntity, livePerson, { fields: ['id'], limit: options.maxChecked + 1 })
+    /**
+     * Ordered, because an unordered capped read is a different sample every time.
+     *
+     * Postgres guarantees no order without `order by`, so which `maxChecked` people got examined changed
+     * between runs — and this is the path that reports a TRUNCATED answer, so the qualifier the module is
+     * careful to attach was attached to a different subset on every pass. A campaign's membership moved with
+     * it, which is the same reasoning the sku list already carries.
+     *
+     * Oldest first, with the id as the tiebreak: two customers created in the same millisecond must still
+     * come out in one order.
+     */
+    const rows = await em.find(
+      CustomerEntity,
+      livePerson,
+      { fields: ['id'], orderBy: { createdAt: 'ASC', id: 'ASC' }, limit: options.maxChecked + 1 },
+    )
     candidateIds = rows.map((row) => row.id)
     truncatedCandidates = candidatesWereTruncated({
       candidateCount: null,

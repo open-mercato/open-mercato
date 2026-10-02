@@ -151,10 +151,25 @@ export function nextAllowedSendTime(
 }
 
 /**
+ * How long after the authored hour a LATE resume still counts as that hour.
+ *
+ * A run parked for an authored 09:00 and resumed at 10:05 — the queue was behind, or a wait ended a few
+ * minutes late — found the local hour was 10, not 9, and waited for the next 9 o'clock: twenty-three hours
+ * for one minute of lateness. Nobody authoring "send at nine" means "or tomorrow if you are five minutes
+ * late", and a campaign that drifts a day per hiccup is one an operator stops trusting.
+ *
+ * Two hours, not the rest of the day. The authored hour exists so a message lands at a civilised time, and
+ * 09:00 slipping to 11:00 keeps that promise while 09:00 slipping to 23:00 does not — quiet hours would catch
+ * the worst of it, but only where an operator configured them, and this must be right without that.
+ */
+export const SEND_HOUR_GRACE_HOURS = 2
+
+/**
  * The next instant at which the subject's local clock reads `hour`.
  *
  * Returns `at` unchanged when it is already that hour, so a send whose optimal moment has arrived goes
- * out now rather than being deferred a full day by its own optimisation.
+ * out now rather than being deferred a full day by its own optimisation — and also when `at` is within
+ * `SEND_HOUR_GRACE_HOURS` after it, which is the late-resume case.
  *
  * Steps in whole hours and snaps to the top of the hour for the same reason `nextAllowedSendTime` does:
  * a message deferred to "the customer's 9am" should land at 09:00, not at 09:37 because that is when the
@@ -163,6 +178,17 @@ export function nextAllowedSendTime(
 export function nextOccurrenceOfHour(hour: number, timeZone: string, at: Date): Date {
   const target = Math.min(Math.max(Math.trunc(hour), 0), 23)
   if (localHourIn(timeZone, at) === target) return at
+
+  /**
+   * Late, but not late enough to be worth a day.
+   *
+   * Looks BACK in whole hours rather than comparing hour numbers, so it does not have to reason about
+   * midnight, about a day boundary between `at` and the target, or about a DST shift that makes an hour
+   * number appear twice.
+   */
+  for (let hours = 1; hours <= SEND_HOUR_GRACE_HOURS; hours += 1) {
+    if (localHourIn(timeZone, new Date(at.getTime() - hours * 3_600_000)) === target) return at
+  }
 
   for (let hours = 1; hours <= 48; hours += 1) {
     const candidate = new Date(at.getTime() + hours * 3_600_000)
