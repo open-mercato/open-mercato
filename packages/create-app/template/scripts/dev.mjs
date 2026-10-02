@@ -30,6 +30,7 @@ import {
   resolveDevBundlerDecision,
   resolveRequestedDevBundler,
 } from './dev-inotify-limits.mjs'
+import { DOCKER_PROBE_TIMEOUT_MS, classifyDockerProbe } from './dev-docker-availability.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import {
   MCP_HEALTH_POLL_INTERVAL_MS,
@@ -2383,12 +2384,35 @@ function opencodeRestartCommand() {
   return 'docker compose --profile agents restart opencode'
 }
 
+// Docker is optional. Explain the skip once per dev session so a developer who
+// does not run Docker is not left wondering why OpenCode was never refreshed.
+let dockerUnavailableNoticeShown = false
+
+function noteDockerUnavailable(detail) {
+  if (dockerUnavailableNoticeShown) return
+  dockerUnavailableNoticeShown = true
+  console.warn(`ℹ️ Skipping the OpenCode container refresh — ${detail}.`)
+  console.warn('   ↳ Docker is optional: it is only used to restart the containerized OpenCode agent.')
+  console.warn('   ↳ The app, the dev server and the MCP server are unaffected.')
+}
+
+// Returns the running container names, or null when Docker cannot answer.
+function listDockerContainerNames() {
+  const probe = classifyDockerProbe(
+    spawnSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8', timeout: DOCKER_PROBE_TIMEOUT_MS }),
+  )
+  if (!probe.available) {
+    noteDockerUnavailable(probe.detail)
+    return null
+  }
+  return probe.names
+}
+
 function restartOpencodeContainer(reason) {
   if (opencodeRestartAttempted || shuttingDown) return false
   opencodeRestartAttempted = true
-  const running = spawnSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8' })
-  const names = running.error || running.status !== 0 ? [] : String(running.stdout ?? '').split('\n').map((line) => line.trim())
-  if (!names.includes('mercato-opencode')) return false
+  const names = listDockerContainerNames()
+  if (names === null || !names.includes('mercato-opencode')) return false
   console.log(`🔄 ${reason} — restarting the OpenCode container to pick up the fresh MCP key...`)
   updateSplashState({ activity: 'Restarting OpenCode to pick up the fresh MCP key' })
   const restart = spawnSync('docker', ['restart', 'mercato-opencode'], { encoding: 'utf8', timeout: 120_000 })
@@ -2404,6 +2428,9 @@ async function checkOpencodeMcpWiring() {
   const status = await fetchOpencodeMcpStatus()
   if (status === null || status === 'connected') return
   if (!restartOpencodeContainer('OpenCode is not connected to the MCP server')) {
+    // Without Docker the compose hint below is not actionable, and the skip has
+    // already been explained once.
+    if (dockerUnavailableNoticeShown) return
     console.warn('⚠️ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
     console.warn(`   ↳ restart it with: ${opencodeRestartCommand()}`)
     return
