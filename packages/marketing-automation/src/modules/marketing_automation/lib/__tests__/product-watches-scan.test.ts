@@ -24,9 +24,18 @@ function fakeEm(input: { watches?: Partial<MarketingProductWatch>[]; existing?: 
   const executed: Array<{ params: unknown[] }> = []
   let flushes = 0
   let priceCall = 0
+  const stamped: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = []
+  const finds: Array<Record<string, unknown>> = []
   const em = {
     findOne: async () => input.existing ?? null,
-    find: async () => (input.watches ?? []) as unknown[],
+    find: async (_entity: unknown, _where: unknown, options?: Record<string, unknown>) => {
+      finds.push(options ?? {})
+      return (input.watches ?? []) as unknown[]
+    },
+    nativeUpdate: async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+      stamped.push({ where, data })
+      return 1
+    },
     create: (_entity: unknown, data: Record<string, unknown>) => { created.push(data); return data },
     persist: () => undefined,
     flush: async () => { flushes += 1 },
@@ -38,7 +47,7 @@ function fakeEm(input: { watches?: Partial<MarketingProductWatch>[]; existing?: 
       },
     }),
   }
-  return { em: em as unknown as EntityManager, created, executed, flushes: () => flushes }
+  return { em: em as unknown as EntityManager, created, executed, stamped, finds, flushes: () => flushes }
 }
 
 const watch = (over: Partial<MarketingProductWatch> = {}): Partial<MarketingProductWatch> => ({
@@ -135,5 +144,31 @@ describe('scanPriceWatches', () => {
     const { em, flushes } = fakeEm({ watches: [watch()], prices: [[{ sku: 'SKU-A', amount: '70.00' }]] })
     await scanPriceWatches(em, scope, now)
     expect(flushes()).toBe(1)
+  })
+})
+
+/**
+ * The cap has to be a rotation, not a window on the oldest rows.
+ *
+ * The scan takes a bounded number of watches per tick and ordered them by creation, so an installation with
+ * more watches than the cap re-read the same rows for ever and everything past it was never looked at once:
+ * a customer waiting on a price they would never be told about, and nothing anywhere saying so.
+ */
+describe('scanPriceWatches — rotation', () => {
+  test('asks for the least recently scanned first, nulls before anything', async () => {
+    const { em, finds } = fakeEm({ watches: [watch({ id: 'w1' })], prices: [[]] })
+    await scanPriceWatches(em, scope, now)
+    expect(finds[0]?.orderBy).toEqual({ lastScannedAt: 'ASC NULLS FIRST', createdAt: 'ASC' })
+  })
+
+  test('stamps every watch it looked at, not only the ones that fired', async () => {
+    // Without this the ordering is not a rotation: an unchanged price writes nothing else, so the same rows
+    // would keep sorting first and the cap would never advance.
+    const { em, stamped } = fakeEm({ watches: [watch({ id: 'w1' }), watch({ id: 'w2' })], prices: [[]] })
+    const outcome = await scanPriceWatches(em, scope, now)
+    expect(outcome.fired).toHaveLength(0)
+    expect(stamped).toHaveLength(1)
+    expect(stamped[0].data).toEqual({ lastScannedAt: now })
+    expect(stamped[0].where).toMatchObject({ id: { $in: ['w1', 'w2'] }, ...scope })
   })
 })

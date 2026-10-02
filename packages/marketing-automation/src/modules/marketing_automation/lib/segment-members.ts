@@ -118,11 +118,23 @@ export async function resolveSegmentMembers(
   const maxMatches = options.maxMatches ?? Number.POSITIVE_INFINITY
   let truncatedMatches = false
 
-  for (const id of checkedIds) {
+  for (const [position, id] of checkedIds.entries()) {
     if (matches.length >= maxMatches) {
       truncatedMatches = true
       break
     }
+    /**
+     * The identity map is emptied as the loop walks, which the sweep already does for the same reason.
+     *
+     * A bulk action resolves up to `JOB_MAX_CHECKED` members, and each subject document loads the customer,
+     * their profile, their addresses and their tags — so without this the manager held every entity of every
+     * person it had examined, decrypted, until the job finished. Nothing read afterwards comes from the
+     * manager: this returns ids, and `options.documents` holds plain objects that a clear cannot detach.
+     *
+     * Not inside a transaction, and no caller opens one around this — `em.clear()` there would detach the
+     * transaction's own pending writes.
+     */
+    if (position > 0 && position % IDENTITY_MAP_CLEAR_EVERY === 0) em.clear()
     /**
      * Built with segment membership EMPTIED.
      *
@@ -208,4 +220,12 @@ export const SCREEN_MAX_CHECKED = 2_000
 export const REQUEST_MAX_CHECKED = 10_000
 
 /** How many a background job examines. Bounded, because an unbounded job is one nobody can reason about. */
+/**
+ * How many subjects are examined before the identity map is emptied.
+ *
+ * Large enough that the clear is not itself a cost, small enough that the manager never holds more than a few
+ * hundred people's decrypted records at once.
+ */
+const IDENTITY_MAP_CLEAR_EVERY = 500
+
 export const JOB_MAX_CHECKED = 50_000

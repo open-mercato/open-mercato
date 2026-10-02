@@ -1152,7 +1152,7 @@ export class MarketingSegmentSnapshot {
 })
 @Index({ name: 'mkt_product_watches_sku_idx', properties: ['tenantId', 'organizationId', 'sku'] })
 export class MarketingProductWatch {
-  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'notifiedCount'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'notifiedCount' | 'lastScannedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1185,6 +1185,16 @@ export class MarketingProductWatch {
 
   @Property({ name: 'notified_at', type: Date, nullable: true })
   notifiedAt?: Date | null
+
+  /**
+   * When the scan last LOOKED at this watch, whether or not it fired.
+   *
+   * The scan is capped per tick, and it used to take the oldest rows by creation — so on an installation with
+   * more watches than the cap, everything past it was never looked at once. Ordering by this instead, nulls
+   * first, turns the cap into a rotation: a watch waits its turn rather than waiting for ever.
+   */
+  @Property({ name: 'last_scanned_at', type: Date, nullable: true })
+  lastScannedAt?: Date | null
 
   /** How many times this watch has fired, which is what makes an unwanted repeat visible. */
   @Property({ name: 'notified_count', type: 'int', default: 0 })

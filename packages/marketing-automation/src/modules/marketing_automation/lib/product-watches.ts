@@ -136,10 +136,18 @@ export async function scanPriceWatches(
   now: Date,
   options: { limit?: number } = {},
 ): Promise<ScanOutcome> {
+  /**
+   * Least recently scanned first, which turns the per-tick cap into a rotation.
+   *
+   * It used to be oldest-by-creation, so an installation with more watches than the cap re-read the same rows
+   * on every tick and everything past it was never looked at once — a customer waiting on a price they would
+   * never be told about, and nothing anywhere saying so. Nulls sort first, so a watch that has never been
+   * scanned goes before one that has.
+   */
   const watches = await em.find(
     MarketingProductWatch,
     { ...scope, deletedAt: null },
-    { orderBy: { createdAt: 'ASC' }, limit: options.limit ?? 5_000 },
+    { orderBy: { lastScannedAt: 'ASC NULLS FIRST', createdAt: 'ASC' }, limit: options.limit ?? 5_000 },
   )
   if (watches.length === 0) return { scanned: 0, fired: [], reasons: {} }
 
@@ -183,6 +191,20 @@ export async function scanPriceWatches(
    * telling the same customer twice, so they are committed first and the message is sent after.
    */
   await em.flush()
+  /**
+   * Stamped for every watch LOOKED at, not only the ones that fired.
+   *
+   * This is what makes the ordering above a rotation: a watch whose price has not moved is written nothing
+   * else by this scan, so without this it would keep sorting first for ever and the cap would never advance.
+   * One statement per tick, after the work, because a stamp written before it would skip a watch on a tick
+   * that then failed.
+   */
+  await em.nativeUpdate(
+    MarketingProductWatch,
+    { id: { $in: watches.map((watch) => watch.id) }, ...scope },
+    { lastScannedAt: now },
+  )
+
   return { scanned: watches.length, fired, reasons }
 }
 

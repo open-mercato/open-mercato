@@ -3558,6 +3558,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "last_scanned_at": {
+          "name": "last_scanned_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "notified_at": {
           "name": "notified_at",
           "type": "timestamptz(6)",
@@ -3724,6 +3741,18 @@
           "composite": true,
           "constraint": false,
           "keyName": "mkt_product_watches_sku_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "last_scanned_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "mkt_watch_rotation_idx",
           "primary": false,
           "unique": false
         }
