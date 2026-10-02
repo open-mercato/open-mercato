@@ -216,7 +216,7 @@ Rejected because provider-owned upload flows should remain behind provider APIs 
 | --- | --- | --- | --- | --- |
 | Existing providers accidentally depend on exact adapter input shape | Low | `data_sync` adapters | New adapter fields are optional and additive-only | Low |
 | CSV mapping UI drops unmapped columns | Medium | `sync_excel` preview/import | Preview preserves all headers and distinguishes unmapped columns explicitly | Low |
-| File-backed imports create duplicate people | Medium | `customers.person` import | Prefer external ID mapping, fallback to decrypted batch-level email candidate scan, keep scope limited to one entity type in v1 | Low |
+| File-backed imports create duplicate people | Medium | `customers.person` import | Prefer external ID mapping (verified against a live person; a mapping whose person was deleted falls through), fallback to decrypted batch-level email candidate scan, store the mapping before the address step, keep scope limited to one entity type in v1 | Low |
 | First PR scope grows into company/address/deals | Medium | reviewability / upstream acceptance | Current slice limits target support to `customers.person` only | Low |
 | Split web/worker deployments lose access to container-local upload files | High | release readiness | Read persisted attachments from the partition storage path and keep legacy inline metadata only as a fallback for rows created before the hardening fix | Medium |
 | “All organizations” imports create orphan or unintended records | High | `sync_excel` provider APIs | Upload, preview, and import require an explicit selected organization and reject `__all__` with `422` | Low |
@@ -332,3 +332,10 @@ This branch remains additive-only because the operational fix reuses existing at
 
 - Removed the inline base64 CSV copy from newly-created sync_excel upload attachment metadata to avoid permanent database bloat and duplicate at-rest PII.
 - Changed upload reads to prefer attachment partition storage and use legacy `inlineCsvBase64` metadata only as a fallback for pre-existing rows whose stored file is unavailable.
+
+### 2026-10-03
+
+- Changed external-id matching to verify that the mapped person still exists: a row whose mapping points at a deleted person now falls back to the email match and otherwise creates the person again, re-pointing the existing mapping row, instead of failing with "Person not found" on every import.
+- Changed the row order so the external-id mapping and the email dedupe entry are written right after the person command and before the address step; a row whose address is rejected is still reported as failed but resolves to the same person on the next import.
+- Added integration coverage `TC-SX-009` (delete then re-import; rejected address then corrected re-import) and unit coverage for both paths.
+- Known limitations: a stale external id whose email matches another live person is merged into that person, exactly as an unknown external id is, and that re-keying now also happens when the row then fails in its address step; undoing the delete after a re-import leaves two people.

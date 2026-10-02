@@ -17,6 +17,30 @@ function setUploadCsv(lines: string[]): void {
   mockCreateSyncExcelUploadReadStream.mockImplementation(async () => Readable.from([buffer]))
 }
 
+function setLivePeople(personIds: string[]): void {
+  mockEm.count.mockImplementation(async (_entity: unknown, criteria: Record<string, unknown>) => (
+    criteria?.kind === 'person' && personIds.includes(String(criteria.id)) ? 1 : 0
+  ))
+}
+
+async function runImport(mapping: unknown = mappingRecord.mapping, batchSize = 50) {
+  const batches = []
+  for await (const batch of syncExcelCustomersAdapter.streamImport!({
+    entityType: 'customers.person',
+    batchSize,
+    credentials: {},
+    mapping: mapping as any,
+    scope: {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    },
+    runId: 'run-1',
+  })) {
+    batches.push(batch)
+  }
+  return batches
+}
+
 const mockCommandBus = {
   execute: jest.fn(),
 }
@@ -55,6 +79,7 @@ const mappingRecord = {
 const mockEm = {
   findOne: jest.fn(),
   find: jest.fn(),
+  count: jest.fn(),
   flush: jest.fn(async () => undefined),
 }
 
@@ -101,6 +126,7 @@ describe('sync_excel customers adapter', () => {
       return null
     })
     mockEm.find.mockResolvedValue([])
+    setLivePeople([])
     setUploadCsv([
       'Record Id,First Name,Last Name,Lead Name,Email,Address Line 1,City,Postal Code,Favorite Color',
       'ext-1,Ada,Lovelace,Ada Lovelace,ada@example.com,123 Main St,Austin,78701,Blue',
@@ -590,6 +616,7 @@ describe('sync_excel customers adapter', () => {
       'ext-existing,ada@example.com,Ada Lovelace',
     ])
     mockExternalIdMappingService.lookupLocalId.mockResolvedValueOnce('external-existing-id')
+    setLivePeople(['external-existing-id'])
     mockFindWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
       if (criteria?.entityId) return []
       if (criteria?.kind === 'person') {
@@ -831,5 +858,255 @@ describe('sync_excel customers adapter', () => {
     // rather than per command, because one row can issue several commands (person, then address).
     const personCreates = mockCommandBus.execute.mock.calls.filter(([command]) => command === 'customers.people.create')
     expect(personCreates).toHaveLength(1)
+  })
+
+  describe('external id pointing at a person that no longer exists', () => {
+    const identityMapping = {
+      entityType: 'customers.person',
+      matchStrategy: 'externalId',
+      matchField: 'person.externalId',
+      fields: [
+        { externalField: 'Record Id', localField: 'person.externalId', mappingKind: 'external_id', dedupeRole: 'primary' },
+        { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+        { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+      ],
+    }
+
+    function failUpdatesOfMissingPeople(livePersonIds: string[]): void {
+      mockCommandBus.execute.mockImplementation(async (command: string, payload: { input: { id?: string } }) => {
+        if (command === 'customers.people.update') {
+          if (!livePersonIds.includes(String(payload.input.id))) throw new Error('Person not found')
+          return { result: { entityId: payload.input.id } }
+        }
+        return {
+          result: {
+            entityId: '33333333-3333-4333-8333-333333333333',
+            personId: '44444444-4444-4444-8444-444444444444',
+          },
+        }
+      })
+    }
+
+    it('creates the person again and re-points the mapping when the mapped person was deleted', async () => {
+      setUploadCsv([
+        'Record Id,Email,Lead Name',
+        'ext-deleted,ada@example.com,Ada Lovelace',
+      ])
+      mockExternalIdMappingService.lookupLocalId.mockResolvedValue('deleted-person-id')
+      setLivePeople([])
+      failUpdatesOfMissingPeople([])
+
+      const batches = await runImport(identityMapping)
+
+      expect(batches[0].items[0]).toMatchObject({
+        externalId: 'ext-deleted',
+        action: 'create',
+        data: expect.objectContaining({ localId: '33333333-3333-4333-8333-333333333333' }),
+      })
+      expect(mockCommandBus.execute).not.toHaveBeenCalledWith('customers.people.update', expect.anything())
+      expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.people.create', expect.objectContaining({
+        input: expect.objectContaining({ displayName: 'Ada Lovelace', primaryEmail: 'ada@example.com' }),
+      }))
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledTimes(1)
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledWith(
+        'sync_excel',
+        'customers.person',
+        '33333333-3333-4333-8333-333333333333',
+        'ext-deleted',
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+      expect(mockEm.count).toHaveBeenCalledWith(expect.anything(), {
+        id: 'deleted-person-id',
+        kind: 'person',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        deletedAt: null,
+      })
+    })
+
+    it('falls back to the email match and re-points the mapping when the mapped person was deleted', async () => {
+      setUploadCsv([
+        'Record Id,Email,Lead Name',
+        'ext-deleted,ada@example.com,Ada Lovelace',
+      ])
+      mockExternalIdMappingService.lookupLocalId.mockResolvedValue('deleted-person-id')
+      setLivePeople(['recreated-person-id'])
+      failUpdatesOfMissingPeople(['recreated-person-id'])
+      mockFindWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
+        if (criteria?.kind === 'person') {
+          return [
+            {
+              id: 'recreated-person-id',
+              primaryEmail: 'ada@example.com',
+              createdAt: new Date('2024-03-01T00:00:00.000Z'),
+            } as any,
+          ]
+        }
+        return []
+      })
+
+      const batches = await runImport(identityMapping)
+
+      expect(batches[0].items[0]).toMatchObject({
+        externalId: 'ext-deleted',
+        action: 'update',
+        data: expect.objectContaining({ localId: 'recreated-person-id' }),
+      })
+      expect(mockCommandBus.execute).not.toHaveBeenCalledWith('customers.people.create', expect.anything())
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledTimes(1)
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledWith(
+        'sync_excel',
+        'customers.person',
+        'recreated-person-id',
+        'ext-deleted',
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+    })
+
+    it('creates one person for two rows that share a deleted external id', async () => {
+      setUploadCsv([
+        'Record Id,Email,Lead Name',
+        'ext-deleted,,Ada Lovelace',
+        'ext-deleted,,Ada Byron',
+      ])
+      let mappedPersonId = 'deleted-person-id'
+      mockExternalIdMappingService.lookupLocalId.mockImplementation(async () => mappedPersonId)
+      mockExternalIdMappingService.storeExternalIdMapping.mockImplementation(async (_integrationId: string, _entityType: string, localId: string) => {
+        mappedPersonId = localId
+      })
+      setLivePeople(['33333333-3333-4333-8333-333333333333'])
+      failUpdatesOfMissingPeople(['33333333-3333-4333-8333-333333333333'])
+
+      const batches = await runImport(identityMapping)
+
+      expect(batches[0].items.map((item) => item.action)).toEqual(['create', 'update'])
+      const personCommands = mockCommandBus.execute.mock.calls.filter(([command]) => String(command).startsWith('customers.people.'))
+      expect(personCommands.map(([command]) => command)).toEqual(['customers.people.create', 'customers.people.update'])
+      expect(personCommands[1]?.[1]).toEqual(expect.objectContaining({
+        input: expect.objectContaining({ id: '33333333-3333-4333-8333-333333333333', displayName: 'Ada Byron' }),
+      }))
+    })
+  })
+
+  it('stores the external-id mapping before the address step', async () => {
+    await runImport()
+
+    const addressCall = mockCommandBus.execute.mock.calls.findIndex(([command]) => command === 'customers.addresses.create')
+    expect(addressCall).toBeGreaterThan(-1)
+    expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledTimes(1)
+    expect(mockExternalIdMappingService.storeExternalIdMapping.mock.invocationCallOrder[0])
+      .toBeLessThan(mockCommandBus.execute.mock.invocationCallOrder[addressCall])
+  })
+
+  describe('address step failing after the person was written', () => {
+    function failAddressCommands(): void {
+      mockCommandBus.execute.mockImplementation(async (command: string, payload: { input: { id?: string } }) => {
+        if (command.startsWith('customers.addresses.')) throw new Error('Invalid address')
+        if (command === 'customers.people.update') return { result: { entityId: payload.input.id } }
+        return {
+          result: {
+            entityId: '33333333-3333-4333-8333-333333333333',
+            personId: '44444444-4444-4444-8444-444444444444',
+          },
+        }
+      })
+    }
+
+    it('keeps the mapping of a created person when its address is rejected', async () => {
+      failAddressCommands()
+
+      const batches = await runImport()
+
+      expect(batches[0].items[0]).toMatchObject({
+        externalId: 'ext-1',
+        action: 'failed',
+        data: expect.objectContaining({ rowNumber: 1, errorMessage: 'Invalid address' }),
+      })
+      expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.people.create', expect.anything())
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledTimes(1)
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledWith(
+        'sync_excel',
+        'customers.person',
+        '33333333-3333-4333-8333-333333333333',
+        'ext-1',
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+    })
+
+    it('re-points a stale mapping to the recreated person even when its address is rejected', async () => {
+      mockExternalIdMappingService.lookupLocalId.mockResolvedValue('deleted-person-id')
+      failAddressCommands()
+
+      const batches = await runImport()
+
+      expect(batches[0].items[0]).toMatchObject({ externalId: 'ext-1', action: 'failed' })
+      expect(mockCommandBus.execute).not.toHaveBeenCalledWith('customers.people.update', expect.anything())
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledTimes(1)
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledWith(
+        'sync_excel',
+        'customers.person',
+        '33333333-3333-4333-8333-333333333333',
+        'ext-1',
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+    })
+
+    it('stores the mapping of an email-matched person when its address is rejected', async () => {
+      mockFindWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
+        if (criteria?.kind === 'person') {
+          return [
+            {
+              id: 'existing-person-id',
+              primaryEmail: 'ada@example.com',
+              createdAt: new Date('2024-01-01T00:00:00.000Z'),
+            } as any,
+          ]
+        }
+        return []
+      })
+      failAddressCommands()
+
+      const batches = await runImport()
+
+      expect(batches[0].items[0]).toMatchObject({ externalId: 'ext-1', action: 'failed' })
+      expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.people.update', expect.objectContaining({
+        input: expect.objectContaining({ id: 'existing-person-id' }),
+      }))
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledTimes(1)
+      expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledWith(
+        'sync_excel',
+        'customers.person',
+        'existing-person-id',
+        'ext-1',
+        { organizationId: 'org-1', tenantId: 'tenant-1' },
+      )
+    })
+
+    it('matches a later row by email to the person whose address was rejected', async () => {
+      setUploadCsv([
+        'Email,Lead Name,Address Line 1',
+        'ada@example.com,Ada Lovelace,123 Main St',
+        'ada@example.com,Ada Byron,',
+      ])
+      failAddressCommands()
+
+      const batches = await runImport({
+        entityType: 'customers.person',
+        matchStrategy: 'email',
+        matchField: 'person.primaryEmail',
+        fields: [
+          { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+          { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+          { externalField: 'Address Line 1', localField: 'address.addressLine1', mappingKind: 'core' },
+        ],
+      })
+
+      expect(batches[0].items.map((item) => item.action)).toEqual(['failed', 'update'])
+      const personCommands = mockCommandBus.execute.mock.calls.filter(([command]) => String(command).startsWith('customers.people.'))
+      expect(personCommands.map(([command]) => command)).toEqual(['customers.people.create', 'customers.people.update'])
+      expect(personCommands[1]?.[1]).toEqual(expect.objectContaining({
+        input: expect.objectContaining({ id: '33333333-3333-4333-8333-333333333333', displayName: 'Ada Byron' }),
+      }))
+    })
   })
 })
