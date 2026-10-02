@@ -263,6 +263,8 @@
   "marketing_automation.jobs.counter.skipped": "건너뜀",
   "marketing_automation.jobs.counter.skippedModuleMissing": "건너뜀 — 설치되지 않은 모듈이 필요합니다",
   "marketing_automation.jobs.counter.started": "등록된 고객",
+  "marketing_automation.jobs.deadLetters.noEvent": "이벤트 ID 없음",
+  "marketing_automation.jobs.deadLetters.title": "실행되지 않은 디스패치",
   "marketing_automation.jobs.emptyBody": "예약 캠페인과 대기 중인 여정은 백그라운드에서 처리됩니다. 각 실행이 결과와 함께 여기에 표시됩니다.",
   "marketing_automation.jobs.emptyTitle": "기록된 작업 실행이 없습니다",
   "marketing_automation.jobs.kind.dispatch": "이벤트 처리",

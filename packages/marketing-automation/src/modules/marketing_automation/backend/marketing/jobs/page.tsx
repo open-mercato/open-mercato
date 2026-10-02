@@ -6,6 +6,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -36,11 +37,28 @@ const STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
  * The screen for the morning-after question. A sweep that quietly stopped firing looks exactly like a sweep
  * with nothing to do — until this list shows the last one was on Friday.
  */
+type DeadLetter = {
+  id: string
+  source: string
+  eventId: string | null
+  campaignId: string | null
+  error: string
+  createdAt: string
+}
+
 export default function MarketingJobsPage() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
 
   const [rows, setRows] = React.useState<JobRow[]>([])
+  /**
+   * Dispatches that never ran, which until now nothing displayed.
+   *
+   * They were written to a table, pruned at thirty days, and never shown, while `lib/dead-letter.ts` argued —
+   * correctly — that automatic replay is wrong because "replay belongs behind a person deciding". This is the
+   * screen that person needed.
+   */
+  const [deadLetters, setDeadLetters] = React.useState<DeadLetter[]>([])
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
 
@@ -48,7 +66,7 @@ export default function MarketingJobsPage() {
     setLoading(true)
     setLoadFailed(false)
     try {
-      const result = await apiCall<{ items?: JobRow[] }>('/api/marketing_automation/jobs?limit=100')
+      const result = await apiCall<{ items?: JobRow[]; deadLetters?: DeadLetter[] }>('/api/marketing_automation/jobs?limit=100')
       /**
        * A non-ok response is not an empty list.
        *
@@ -62,6 +80,7 @@ export default function MarketingJobsPage() {
         return
       }
       setRows(result.result.items)
+      setDeadLetters(Array.isArray(result.result.deadLetters) ? result.result.deadLetters : [])
     } catch {
       setLoadFailed(true)
     } finally {
@@ -158,6 +177,36 @@ export default function MarketingJobsPage() {
                 </Button>
               )}
             />
+          </div>
+        ) : null}
+        {/*
+          Dispatches that never ran, above the log of the ones that did.
+          
+          Shown only when there are some: a healthy installation has nothing here and should not be handed an
+          empty panel to interpret. No replay button, deliberately — `lib/dead-letter.ts` argues that a dispatch
+          which failed for a reason nobody has read should not be retried by a timer, and that argument applies
+          just as much to a button somebody clicks without reading. What was missing was the seeing, not the
+          retrying.
+        */}
+        {!loadFailed && deadLetters.length > 0 ? (
+          <div className="mb-4 space-y-2">
+            <SectionHeader
+              title={t('marketing_automation.jobs.deadLetters.title', 'Dispatches that never ran')}
+              count={deadLetters.length}
+            />
+            <ul className="space-y-1">
+              {deadLetters.map((entry) => (
+                <li key={entry.id} className="rounded-md border border-border p-2 text-xs">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <StatusBadge variant="error">{entry.source}</StatusBadge>
+                    <span className="text-foreground">{entry.eventId ?? t('marketing_automation.jobs.deadLetters.noEvent', 'no event id')}</span>
+                    <span className="text-muted-foreground">{formatDateTime(entry.createdAt)}</span>
+                  </div>
+                  {/* Already redacted on the way in — this is third-party failure text. */}
+                  <div className="mt-1 text-muted-foreground">{entry.error}</div>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
         {/* Not under the error: an empty table there would still make a claim about data nobody read. */}

@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { listJobRuns } from '../../lib/job-runs.js'
+import { listDeadLetters } from '../../lib/dead-letter.js'
 
 /**
  * What the background jobs have been doing.
@@ -39,7 +40,17 @@ export async function GET(req: Request) {
   const em = container.resolve<EntityManager>('em')
   const scope = { tenantId: auth.tenantId, organizationId }
 
-  return NextResponse.json({ items: await listJobRuns(em, scope, { kind, limit }) })
+  /**
+   * Dead letters ride along with the job log, because they answer the same question from the other side.
+   *
+   * The job log says what the background passes DID; a dead letter says what never got to run and why. They were
+   * written to a table nothing read — pruned at thirty days, never shown — so this list is where the person the
+   * replay argument defers to can actually see them. Same screen, same permission, one request.
+   */
+  return NextResponse.json({
+    items: await listJobRuns(em, scope, { kind, limit }),
+    deadLetters: await listDeadLetters(em, scope, { limit }),
+  })
 }
 
 export const openApi = {
