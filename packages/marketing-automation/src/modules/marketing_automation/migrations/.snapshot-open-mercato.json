@@ -361,6 +361,23 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "current_step_id": {
+          "name": "current_step_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "current_step_index": {
           "name": "current_step_index",
           "type": "int",

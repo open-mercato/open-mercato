@@ -10,7 +10,7 @@ jest.mock('../runs.js', () => ({
   hasRecentRun: (...a: unknown[]) => hasRecentRun(...a),
 }))
 
-import { MAX_RUNS_PER_SUBJECT, RUN_BUDGET_WINDOW_MINUTES, subjectGuardsAllow } from '../dispatcher'
+import { atCurrentTime, MAX_RUNS_PER_SUBJECT, RUN_BUDGET_WINDOW_MINUTES, subjectGuardsAllow } from '../dispatcher'
 import type { MarketingCampaign } from '../../data/entities'
 
 /**
@@ -119,5 +119,56 @@ describe('subjectGuardsAllow', () => {
       hasRecentRun.mockResolvedValue(true)
       await expect(subjectGuardsAllow(campaign, 'cust-1', { kind: 'once' }, deps)).resolves.toBe(false)
     })
+  })
+})
+
+/**
+ * The clock a per-subject decision is made on.
+ *
+ * A worker builds its deps once, so `now` is a single `Date` taken when the job started. A sweep tick
+ * walks up to `MAX_ROWS_PER_TICK` candidates and executes each inline, so by the end of a long tick
+ * that timestamp is minutes or tens of minutes old — and it was going straight into `claimed_at`, where
+ * anything older than the 15-minute lease invites the every-minute due-run scan to re-claim a run that
+ * is still executing and send its message a second time. The same frozen clock slides the run budget,
+ * the re-entry window, quiet hours and the frequency cap by however long the tick has been running.
+ */
+describe('the clock a per-subject decision is made on', () => {
+  const twentyMinutesLater = new Date(now.getTime() + 20 * 60_000)
+
+  it('measures the run budget from the current time, not from when the job started', async () => {
+    await subjectGuardsAllow(campaign, 'cust-1', unlimited, {
+      ...(deps as object),
+      clock: () => twentyMinutesLater,
+    } as never)
+
+    const budgetSince = countRunsStartedSince.mock.calls[0][3] as Date
+    expect(budgetSince).toEqual(new Date(twentyMinutesLater.getTime() - RUN_BUDGET_WINDOW_MINUTES * 60_000))
+    // The negative control: this is what the frozen clock would have produced.
+    expect(budgetSince).not.toEqual(new Date(now.getTime() - RUN_BUDGET_WINDOW_MINUTES * 60_000))
+  })
+
+  it('measures the re-entry window from the current time too', async () => {
+    await subjectGuardsAllow(campaign, 'cust-1', { kind: 'cooldown', afterDays: 30 }, {
+      ...(deps as object),
+      clock: () => twentyMinutesLater,
+    } as never)
+
+    expect(hasRecentRun.mock.calls[0][4]).toEqual(new Date(twentyMinutesLater.getTime() - 30 * 86_400_000))
+  })
+
+  /**
+   * Without an injected clock the deps are handed back unchanged, which is what keeps every fixture in
+   * this suite — and every other suite that injects a fixed `now` — deterministic.
+   */
+  it('leaves deps untouched when nothing injects a clock', () => {
+    expect(atCurrentTime(deps as never)).toBe(deps as never)
+  })
+
+  it('reads the clock rather than caching the first answer', () => {
+    let reading = 0
+    const clock = () => new Date(now.getTime() + (reading += 1) * 60_000)
+    const first = atCurrentTime({ ...(deps as object), clock } as never)
+    const second = atCurrentTime({ ...(deps as object), clock } as never)
+    expect(second.now.getTime()).toBeGreaterThan(first.now.getTime())
   })
 })

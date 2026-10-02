@@ -644,3 +644,84 @@ describe('executeRun — send-time optimisation must terminate', () => {
     }
   })
 })
+
+/**
+ * What a resume does after somebody edited the campaign the run is parked in.
+ *
+ * `current_step_index` is a position in the flattened definition, and an edit renumbers it. The run
+ * therefore records the step's id and resolves the position from that; when the step is gone there is
+ * no correct position to resume at, and guessing one is how a customer gets the wrong message.
+ */
+describe('resuming after the definition changed', () => {
+  test('picks up at the recorded step wherever the edit moved it', async () => {
+    const execute = jest.fn().mockResolvedValue({ status: 'done', detail: 'tagged' })
+    const steps = [step('inserted', 'add_tag'), step('parked', 'add_tag')]
+
+    const transition = await executeRun(
+      // Parked at 'parked', which was index 0 before 'inserted' was added in front of it.
+      run({ currentStepIndex: 0, currentStepId: 'parked' }),
+      steps,
+      noPolicy,
+      deps,
+      makeEffects([tagHandler(execute)]),
+    )
+
+    expect(transition.kind).toBe('completed')
+    // Only the parked step ran: the index alone would have run 'inserted' again as well.
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(transition.stepLog.map((entry) => entry.stepId)).toEqual(['parked'])
+  })
+
+  test('ends the run when the parked step is no longer in the campaign', async () => {
+    const execute = jest.fn().mockResolvedValue({ status: 'done', detail: 'tagged' })
+
+    const transition = await executeRun(
+      run({ currentStepIndex: 0, currentStepId: 'deleted-step' }),
+      [step('somebody-elses-step', 'add_tag')],
+      noPolicy,
+      deps,
+      makeEffects([tagHandler(execute)]),
+    )
+
+    expect(transition.kind).toBe('completed')
+    // The whole point: the step occupying that position is NOT run.
+    expect(execute).not.toHaveBeenCalled()
+    expect(transition.stepLog).toHaveLength(1)
+    expect(transition.stepLog[0]).toMatchObject({
+      stepId: 'deleted-step',
+      status: 'skipped',
+      detail: 'the step this run was waiting at is no longer in the campaign',
+    })
+  })
+
+  test('a run with no recorded id still resumes on the index', async () => {
+    const execute = jest.fn().mockResolvedValue({ status: 'done', detail: 'tagged' })
+
+    const transition = await executeRun(
+      run({ currentStepIndex: 1 }),
+      [step('first', 'add_tag'), step('second', 'add_tag')],
+      noPolicy,
+      deps,
+      makeEffects([tagHandler(execute)]),
+    )
+
+    expect(transition.kind).toBe('completed')
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(transition.stepLog.map((entry) => entry.stepId)).toEqual(['second'])
+  })
+
+  test('a wait records the id of the step it will resume at, not only its position', async () => {
+    const transition = await executeRun(
+      run(),
+      [step('w', 'wait', { minutes: 30 }), step('after-the-wait', 'add_tag')],
+      noPolicy,
+      deps,
+      makeEffects([tagHandler()]),
+    )
+
+    expect(transition.kind).toBe('waiting')
+    if (transition.kind !== 'waiting') return
+    expect(transition.nextStepId).toBe('after-the-wait')
+    expect(transition.nextStepIndex).toBe(1)
+  })
+})

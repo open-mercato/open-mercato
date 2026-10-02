@@ -184,6 +184,7 @@ export async function applyTransition(
         status: 'waiting' as const,
         resumeAt: transition.resumeAt,
         currentStepIndex: transition.nextStepIndex,
+        currentStepId: transition.nextStepId,
         claimToken: null,
         claimedAt: null,
       }
@@ -221,6 +222,8 @@ export async function failRun(
      * customer again.
      */
     resumeStepIndex: number
+    /** Resolved by id on the retry, for the same reason the wait path records one. */
+    resumeStepId?: string | null
     context: AutomationContext
   },
   now: Date,
@@ -242,6 +245,7 @@ export async function failRun(
       claimToken: null,
       claimedAt: null,
       currentStepIndex: input.resumeStepIndex,
+      currentStepId: input.resumeStepId ?? null,
       stepLog: input.stepLog as unknown as Record<string, unknown>[],
       context: input.context as Record<string, unknown>,
     },

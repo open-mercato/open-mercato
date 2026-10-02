@@ -194,7 +194,7 @@ export class MarketingCampaignTrigger {
  */
 @Index({ name: 'mkt_runs_subject_window_idx', properties: ['tenantId', 'organizationId', 'subjectEntityId', 'startedAt'] })
 export class MarketingCampaignRun {
-  [OptionalProps]?: 'currentStepIndex' | 'stepLog' | 'status' | 'attempts' | 'startedAt' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'currentStepIndex' | 'currentStepId' | 'stepLog' | 'status' | 'attempts' | 'startedAt' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -242,6 +242,17 @@ export class MarketingCampaignRun {
   /** Index of the step to execute next. */
   @Property({ name: 'current_step_index', type: 'integer', default: 0 })
   currentStepIndex!: number
+
+  /**
+   * The id of the step this run is parked at.
+   *
+   * The index beside it is a position in the flattened definition, and that flattening changes when an
+   * author edits the campaign or an A/B test promotes its winner — so on its own it resumes a parked
+   * subject into whatever step now occupies that position, which can be the other variant's. Null on
+   * runs that parked before this column existed, and on a run parked past the end of the definition.
+   */
+  @Property({ name: 'current_step_id', type: 'text', nullable: true })
+  currentStepId?: string | null
 
   @Property({ name: 'step_log', type: 'jsonb', default: '[]' })
   stepLog!: Record<string, unknown>[]

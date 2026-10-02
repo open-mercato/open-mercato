@@ -52,10 +52,41 @@ export type DispatchDeps = {
   em: EntityManager
   container: AwilixContainer
   logger: EngineLogger
+  /**
+   * The clock this unit of work started from, and the fallback when no `clock` is injected.
+   *
+   * Not the time to claim a run with: see `clock`.
+   */
   now: Date
+  /**
+   * How to read the CURRENT time, re-read at each per-subject boundary.
+   *
+   * A worker builds its deps once and `now` is a single `Date` taken then, which was being written
+   * straight into `claimed_at`. A sweep tick walks up to `MAX_ROWS_PER_TICK` candidates and executes
+   * each inline, so by the end of a long tick that timestamp is already older than the 15-minute claim
+   * lease — and the every-minute due-run scan then re-claims runs that are still executing and replays
+   * them from `current_step_index`. `applyTransition` re-asserts the claim token, so the stored result
+   * stays consistent; the message goes out twice all the same. The same frozen clock also shifts quiet
+   * hours and the frequency-cap window by however long the tick has been running.
+   *
+   * Optional so a test can leave it out and keep the fixed `now` it injected; production wiring
+   * (`workers/shared.ts`) supplies the real clock.
+   */
+  clock?: () => Date
   scope: RunScope
   /** Schedules the delayed continuation. Injected so the engine never imports the queue. */
   enqueueResume(runId: string, delayMs: number): Promise<void>
+}
+
+/**
+ * The same deps with the clock re-read, for one subject's worth of work.
+ *
+ * Applied at every boundary that decides something about ONE subject — the re-entry guards, enrolment
+ * and a resume — because those are what claim runs and evaluate timing gates.
+ */
+export function atCurrentTime(deps: DispatchDeps): DispatchDeps {
+  const now = deps.clock ? deps.clock() : deps.now
+  return now === deps.now ? deps : { ...deps, now }
 }
 
 export function readSendPolicyOf(definition: CampaignDefinition): SendPolicy {
@@ -143,7 +174,12 @@ async function persist(
   claimToken: string,
   steps: CampaignDefinition['steps'],
   policy: SendPolicy,
-  state: { currentStepIndex: number; stepLog: StepOutcome[]; context: AutomationContext },
+  state: {
+    currentStepIndex: number
+    currentStepId?: string | null
+    stepLog: StepOutcome[]
+    context: AutomationContext
+  },
 ): Promise<'completed' | 'waiting' | 'retrying' | 'dead'> {
   try {
     const transition = await executeRun(
@@ -160,6 +196,7 @@ async function persist(
         stepLog: transition.stepLog,
         context: transition.context,
         resumeStepIndex: transition.failedIndex,
+        resumeStepId: transition.failedStepId,
       })
     }
 
@@ -181,6 +218,7 @@ async function persist(
       stepLog: state.stepLog,
       context: state.context,
       resumeStepIndex: state.currentStepIndex,
+      resumeStepId: state.currentStepId ?? null,
     })
   }
 }
@@ -190,7 +228,13 @@ async function recordFailure(
   deps: DispatchDeps,
   run: { id: string; campaignId: string; attempts: number },
   claimToken: string,
-  input: { error: unknown; stepLog: StepOutcome[]; context: AutomationContext; resumeStepIndex: number },
+  input: {
+    error: unknown
+    stepLog: StepOutcome[]
+    context: AutomationContext
+    resumeStepIndex: number
+    resumeStepId?: string | null
+  },
 ): Promise<'retrying' | 'dead'> {
   deps.logger.error('[internal] marketing run failed', {
     runId: run.id,
@@ -214,6 +258,7 @@ async function recordFailure(
       error: input.error,
       stepLog: input.stepLog,
       resumeStepIndex: input.resumeStepIndex,
+      resumeStepId: input.resumeStepId ?? null,
       context: input.context,
     },
     deps.now,
@@ -272,8 +317,10 @@ export async function subjectGuardsAllow(
   campaign: MarketingCampaign,
   subjectEntityId: string,
   reentryPolicy: ReentryPolicy,
-  deps: DispatchDeps,
+  jobDeps: DispatchDeps,
 ): Promise<boolean> {
+  // The budget and re-entry windows are measured from now, not from when the worker booted.
+  const deps = atCurrentTime(jobDeps)
   /**
    * Before every other guard: somebody who asked to be forgotten is never enrolled again.
    *
@@ -318,8 +365,10 @@ export async function startCampaignForSubject(
     /** Identifies the event delivery, so a redelivery cannot start a second run. */
     occurrenceKey?: string | null
   },
-  deps: DispatchDeps,
+  jobDeps: DispatchDeps,
 ): Promise<StartOutcome> {
+  // Enrolment claims a run and evaluates the audience; both want the time it is happening.
+  const deps = atCurrentTime(jobDeps)
   if (input.subjectEntityId && !(await subjectGuardsAllow(campaign, input.subjectEntityId, input.reentryPolicy, deps))) {
     return 'guard'
   }
@@ -495,8 +544,10 @@ export async function dispatchEvent(
 /** Continues a parked run. Returns `skipped` when another worker already owns it. */
 export async function resumeRun(
   runId: string,
-  deps: DispatchDeps,
+  jobDeps: DispatchDeps,
 ): Promise<'completed' | 'waiting' | 'retrying' | 'dead' | 'skipped'> {
+  // Before the claim, which is the write that must carry a current `claimed_at`.
+  const deps = atCurrentTime(jobDeps)
   const claimToken = await claimRun(deps.em, runId, deps.scope, deps.now)
   if (!claimToken) return 'skipped'
 
@@ -537,6 +588,7 @@ export async function resumeRun(
     readSendPolicy(definition),
     {
       currentStepIndex: run.currentStepIndex,
+      currentStepId: run.currentStepId ?? null,
       stepLog: run.stepLog as unknown as StepOutcome[],
       context: run.context as AutomationContext,
     },

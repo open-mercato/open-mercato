@@ -111,6 +111,34 @@ export function flattenSteps(steps: CampaignStep[], subjectKey: string, depth = 
   return flattened
 }
 
+/**
+ * Where a parked run picks up, resolved by the step's own id rather than by its position.
+ *
+ * `current_step_index` indexes into whatever `flattenSteps` returns NOW, and that array is not stable.
+ * The lane choice is derived from the step id and the subject, so it survives a resume — but the array
+ * does not survive an EDIT. After `save_graph`, after an unattended A/B promotion (which replaces the
+ * split with the winning lane's steps), or after a step is reordered or deleted, index 3 is a different
+ * step than it was when the run parked. A subject parked in lane B then resumes into lane A's step at
+ * the same position, which is the variant mixture this module's AGENTS.md forbids, and a reorder either
+ * re-sends a step or skips one.
+ *
+ * Returns null when the step the run was waiting at is gone. That is deliberately NOT the same as
+ * "resume at the old index": the run has nowhere correct to continue, and guessing a position is how a
+ * customer receives the wrong message. The caller ends the run and says so.
+ *
+ * `stepId` is null for runs that parked before the id was recorded, and for those the index is all there
+ * is — the old behaviour, confined to rows that predate the column.
+ */
+export function resolveResumeIndex(
+  steps: CampaignStep[],
+  stepId: string | null | undefined,
+  fallbackIndex: number,
+): number | null {
+  if (!stepId) return fallbackIndex
+  const found = steps.findIndex((step) => step.id === stepId)
+  return found === -1 ? null : found
+}
+
 /** Which lane each split in a definition assigned this subject, for reporting. */
 export function describeVariantChoices(steps: CampaignStep[], subjectKey: string): Record<string, string> {
   const choices: Record<string, string> = {}

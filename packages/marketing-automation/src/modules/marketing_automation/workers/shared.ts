@@ -26,6 +26,13 @@ export function buildDispatchDeps(ctx: HandlerContext, scope: JobScope): Dispatc
     container,
     logger,
     now: new Date(),
+    /**
+     * Read again at every per-subject boundary rather than frozen here.
+     *
+     * A sweep tick executes up to `MAX_ROWS_PER_TICK` candidates inline, so a single `Date` taken
+     * when the job started is older than the claim lease long before the tick ends.
+     */
+    clock: () => new Date(),
     scope,
     // The delayed job is the fast path; the due-run scan is the safety net. Injected so the
     // engine never imports the queue and stays unit-testable.

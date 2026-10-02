@@ -1,4 +1,4 @@
-import { describeVariantChoices, flattenSteps, readVariants, selectVariant, SPLIT_STEP_TYPE } from '../split'
+import { describeVariantChoices, flattenSteps, readVariants, resolveResumeIndex, selectVariant, SPLIT_STEP_TYPE } from '../split'
 import type { CampaignStep } from '../types'
 
 const action = (id: string, type = 'add_tag'): CampaignStep => ({ id, type, params: {} })
@@ -215,5 +215,52 @@ describe('more than two lanes', () => {
     expect(treated.length).toBeGreaterThan(0)
     expect(holdouts.every((ids) => ids.join() === 'after')).toBe(true)
     expect(treated.every((ids) => ids.join() === 'email,after')).toBe(true)
+  })
+})
+
+/**
+ * Where a parked run picks up once the definition it parked in has been edited.
+ *
+ * The lane choice is stable, so the tests above hold for an UNCHANGED campaign. They say nothing about
+ * an edited one, and `current_step_index` indexes into the array `flattenSteps` returns now: after a
+ * save, an A/B promotion, a reorder or a delete, the same position is a different step.
+ */
+describe('resolveResumeIndex', () => {
+  test('finds the step by id wherever it has moved to', () => {
+    const steps = [action('a'), action('b'), action('c')]
+    // Parked at 'c', which was index 2 and is now index 0.
+    expect(resolveResumeIndex([action('c'), action('a'), action('b')], 'c', 2)).toBe(0)
+  })
+
+  test('a step inserted before the parked one does not re-send it', () => {
+    const parked = [action('welcome'), wait('w'), action('offer')]
+    expect(resolveResumeIndex(parked, 'offer', 2)).toBe(2)
+    const withInsert = [action('welcome'), action('extra'), wait('w'), action('offer')]
+    // The index would have pointed at the wait, running the offer a second time afterwards.
+    expect(resolveResumeIndex(withInsert, 'offer', 2)).toBe(3)
+  })
+
+  /**
+   * The variant mixture, which is the defect this exists to stop.
+   *
+   * A promotion replaces the split with the winning lane's steps, so a subject parked at lane B's step
+   * has a definition that no longer contains it. Resuming on the index would run lane A's step at the
+   * same position and deliver a mixture of both variants.
+   */
+  test('refuses to resume when the parked step is gone, rather than guessing a position', () => {
+    const promotedToLaneA = flattenSteps([action('before'), twoLanes('s'), action('after')], 'customer-1')
+    const parkedInTheOtherLane = promotedToLaneA[1].id === 's-a' ? 's-b' : 's-a'
+    expect(resolveResumeIndex(promotedToLaneA, parkedInTheOtherLane, 1)).toBeNull()
+  })
+
+  test('a run parked past the new end is refused too, not silently completed at the old index', () => {
+    expect(resolveResumeIndex([action('a')], 'c', 2)).toBeNull()
+  })
+
+  /** Runs that parked before the column existed have only the index, which is the old behaviour. */
+  test('falls back to the index when no id was recorded', () => {
+    const steps = [action('a'), action('b'), action('c')]
+    expect(resolveResumeIndex(steps, null, 1)).toBe(1)
+    expect(resolveResumeIndex(steps, undefined, 2)).toBe(2)
   })
 })

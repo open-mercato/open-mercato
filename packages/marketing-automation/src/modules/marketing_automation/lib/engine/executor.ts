@@ -1,5 +1,5 @@
 import { planSteps } from './chain-planner.js'
-import { flattenSteps } from './split.js'
+import { flattenSteps, resolveResumeIndex } from './split.js'
 import {
   isFrequencyCapped,
   isPaused,
@@ -39,6 +39,13 @@ export type RunState = {
   id: string
   campaignId: string
   currentStepIndex: number
+  /**
+   * The id of the step this run parked at, when it has one.
+   *
+   * Resolved against the CURRENT flattening in preference to `currentStepIndex`; absent on runs that
+   * parked before the column existed, which fall back to the index.
+   */
+  currentStepId?: string | null
   stepLog: StepOutcome[]
   context: AutomationContext
   subjectEntityId?: string | null
@@ -52,7 +59,21 @@ export type RunState = {
  */
 export type RunTransition =
   | { kind: 'completed'; stepLog: StepOutcome[]; context: AutomationContext }
-  | { kind: 'waiting'; resumeAt: Date; nextStepIndex: number; stepLog: StepOutcome[]; context: AutomationContext; reason: 'wait' | 'quiet_hours' | 'send_time' | 'paused' }
+  | {
+      kind: 'waiting'
+      resumeAt: Date
+      nextStepIndex: number
+      /**
+       * The id of the step the run will pick up at, which is what the resume actually resolves on.
+       *
+       * The index alone is a position in an array that an author can rewrite while the run is parked.
+       * Null only when the flattened definition has no step at that position — a run parked past the end.
+       */
+      nextStepId: string | null
+      stepLog: StepOutcome[]
+      context: AutomationContext
+      reason: 'wait' | 'quiet_hours' | 'send_time' | 'paused'
+    }
   /**
    * A step threw.
    *
@@ -61,7 +82,7 @@ export type RunTransition =
    * caller would park the run at its original index — replaying every completed step, which for a
    * chain containing a send means mailing the customer again on every one of the five attempts.
    */
-  | { kind: 'failed'; failedIndex: number; error: unknown; stepLog: StepOutcome[]; context: AutomationContext }
+  | { kind: 'failed'; failedIndex: number; failedStepId: string | null; error: unknown; stepLog: StepOutcome[]; context: AutomationContext }
 
 export type ExecutorSideEffects<TDeps> = {
   getStep(type: string): StepHandler<TDeps> | undefined
@@ -139,13 +160,34 @@ export async function executeRun<TDeps>(
   // customer would receive a mixture of both variants.
   const effectiveSteps = flattenSteps(steps, run.subjectEntityId || run.id)
 
-  for (const planned of planSteps(effectiveSteps, run.currentStepIndex)) {
+  /**
+   * Resolved by id, because the array this indexes into is not stable across an edit.
+   *
+   * `resolveResumeIndex` returns null when the step the run parked at is gone — after a step was
+   * deleted, or after an A/B promotion replaced the split it lived in. Resuming at the old POSITION
+   * then means running a different step than the one the run stopped before, so the run ends instead
+   * and the log says why.
+   */
+  const startIndex = resolveResumeIndex(effectiveSteps, run.currentStepId, run.currentStepIndex)
+  if (startIndex === null) {
+    stepLog.push({
+      stepId: run.currentStepId ?? '-',
+      type: '-',
+      status: 'skipped',
+      at: now.toISOString(),
+      detail: 'the step this run was waiting at is no longer in the campaign',
+    })
+    return { kind: 'completed', stepLog, context }
+  }
+
+  for (const planned of planSteps(effectiveSteps, startIndex)) {
     if (planned.kind === 'pause') {
       return {
         kind: 'waiting',
         reason: 'wait',
         resumeAt: new Date(now.getTime() + planned.minutes * 60_000),
         nextStepIndex: planned.resumeIndex,
+        nextStepId: effectiveSteps[planned.resumeIndex]?.id ?? null,
         stepLog,
         context,
       }
@@ -256,6 +298,8 @@ export async function executeRun<TDeps>(
             : isWithinQuietHours(policy.quietHours, timeZone, now) ? 'quiet_hours' : 'send_time',
           resumeAt: sendAt,
           nextStepIndex: index,
+          // This step, not the next: a deferred message still has to go.
+          nextStepId: step.id,
           stepLog,
           context,
         }
@@ -328,7 +372,7 @@ export async function executeRun<TDeps>(
       // runs API: a transport rejection quotes the address it rejected, and this module keeps
       // addresses out of both.
       stepLog.push(outcome(step, 'failed', now, redactEmails(error instanceof Error ? error.message : String(error))))
-      return { kind: 'failed', failedIndex: index, error, stepLog, context }
+      return { kind: 'failed', failedIndex: index, failedStepId: step.id, error, stepLog, context }
     }
 
     if (handler.channel && result.status === 'done') {
