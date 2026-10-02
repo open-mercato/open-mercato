@@ -45,6 +45,13 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-mcp.mjs',
   },
   {
+    // `scripts/dev.mjs` imports this to keep its optional Docker probe bounded,
+    // so a scaffolded app fails to boot `yarn dev` without it.
+    sourceFile: path.join(ROOT, 'scripts', 'dev-docker-availability.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-docker-availability.mjs'),
+    rel: 'scripts/dev-docker-availability.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-memory-sampler.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-memory-sampler.mjs'),
     rel: 'scripts/dev-memory-sampler.mjs',

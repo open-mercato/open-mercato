@@ -227,7 +227,9 @@ export function resolveEncryptionKeyId(
   return keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
 }
 
-function getSqlConnection(em: EntityManager): SqlConnection | null {
+function getSqlExecutor(em: EntityManager): SqlConnection | null {
+  const transactional = em as unknown as { execute?: unknown }
+  if (typeof transactional.execute === 'function') return transactional as SqlConnection
   const source = em as { getConnection?: () => unknown }
   const conn = source.getConnection?.()
   if (!conn || typeof conn !== 'object') return null
@@ -337,7 +339,7 @@ export class TenantDataEncryptionService {
 
   private async fetchMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
     // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
-    const conn = getSqlConnection(this.em)
+    const conn = getSqlExecutor(this.em)
     if (!conn) return null
     const sql = `
       select entity_id, fields_json
@@ -440,7 +442,7 @@ export class TenantDataEncryptionService {
     entityId: string,
     tenantId: string | null,
   ): Promise<EncryptedFieldRule[]> {
-    const conn = getSqlConnection(this.em)
+    const conn = getSqlExecutor(this.em)
     if (!conn) return []
     const sql = `
       select fields_json

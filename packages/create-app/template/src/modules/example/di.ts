@@ -1,3 +1,7 @@
+import type { CalendarEventTypeRegistry } from '@open-mercato/core/modules/customers/calendar-event-types'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import calendarVisitWidget from './widgets/injection/calendar-visit/widget'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
@@ -13,6 +17,7 @@ import { mockWebhookEndpointAdapter } from './lib/mock-webhook-endpoint-adapter'
 import { mockShippingAdapter } from './lib/mock-shipping-adapter'
 import { exampleCurrencyRateProvider } from './lib/mock-currency-rate-provider'
 import { registerCurrencyRateProvider } from '@open-mercato/core/modules/currencies/services/providers/registry'
+import { createVisitBookingSerializingCommandBus } from './lib/visitBookingSerialization'
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
   const data = payload?.data
@@ -27,6 +32,26 @@ export const EXAMPLE_CURRENCY_RATE_PROVIDER = 'exampleCurrencyRateProvider' as c
 
 // Example DI registrar; modules can register their own services/components
 export function register(container: AppContainer) {
+  let calendarRegistry: CalendarEventTypeRegistry | null
+  try {
+    calendarRegistry = container.resolve<CalendarEventTypeRegistry>('calendarEventTypeRegistry')
+  } catch {
+    calendarRegistry = null
+  }
+  if (calendarRegistry) {
+    for (const definition of calendarVisitWidget.eventTypes) calendarRegistry.upsert('example', definition)
+    for (const [key, definition] of Object.entries(calendarVisitWidget.eventTypeOverrides ?? {})) calendarRegistry.replace('example', key, definition)
+    for (const patch of calendarVisitWidget.eventTypePatches ?? []) calendarRegistry.patch('example', patch)
+  }
+
+  if (container.hasRegistration('commandBus') && container.hasRegistration('em')) {
+    const commandBus = container.resolve<CommandBus>('commandBus')
+    const em = container.resolve<EntityManager>('em')
+    container.register({
+      commandBus: asValue(createVisitBookingSerializingCommandBus({ commandBus, em })),
+    })
+  }
+
   // The module's own service registration, as opposed to the adapter-registry calls
   // below (which register into module-external registries, not into this container).
   //

@@ -141,11 +141,41 @@ function notifyInjectionRegistryChanged() {
   }))
 }
 
-export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry[]) {
-  if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
+export type RegisterCoreInjectionWidgetsOptions = {
+  /**
+   * `replace` (default) publishes `entries` as the whole registry.
+   *
+   * `merge` adds only the entries the registry does not already carry, keeping whatever a
+   * previous bootstrap published. A process may run more than one bootstrap partition (the
+   * API-only one and the full page one share a Node process in a mixed web host), and the
+   * partition that registers second must not shrink the registry the first one populated.
+   */
+  mode?: 'replace' | 'merge'
+}
+
+export function registerCoreInjectionWidgets(
+  entries: ModuleInjectionWidgetEntry[],
+  options: RegisterCoreInjectionWidgetsOptions = {},
+) {
+  if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development' && options.mode !== 'merge') {
     logger.debug('Core injection widgets re-registered (this may occur during HMR)')
   }
-  const finalEntries = applyInjectionWidgetOverridesToEntries(entries)
+  const incoming = applyInjectionWidgetOverridesToEntries(entries)
+  if (options.mode !== 'merge') {
+    _coreInjectionWidgetEntries = incoming
+    writeGlobalInjectionWidgets(incoming)
+    notifyInjectionRegistryChanged()
+    return
+  }
+
+  const existing = readGlobalInjectionWidgets() ?? _coreInjectionWidgetEntries ?? []
+  const known = new Set(existing.map((entry) => entry.key))
+  const added = incoming.filter((entry) => !known.has(entry.key))
+  // Nothing to contribute: leave the registry exactly as it was. Publishing an empty array here
+  // would turn "never registered" into "registered with no widgets", which downgrades the loud
+  // bootstrap error into silently missing contributions.
+  if (!added.length) return
+  const finalEntries = [...existing, ...added]
   _coreInjectionWidgetEntries = finalEntries
   writeGlobalInjectionWidgets(finalEntries)
   notifyInjectionRegistryChanged()

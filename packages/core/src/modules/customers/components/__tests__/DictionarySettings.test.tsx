@@ -47,6 +47,10 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryForm', (
   DictionaryForm: () => null,
 }))
 
+jest.mock('../ActivityTypeEditor', () => ({
+  ActivityTypeEditor: ({ title }: { title: string }) => <div>{title}</div>,
+}))
+
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryTable', () => ({
   DictionaryTable: ({
     entries,

@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
+import { calendarDayStartInstant, calendarWallTimeToInstant, isCalendarTimezone } from '../lib/calendar/timezone'
 
 const uuid = () => z.string().uuid()
 
@@ -350,13 +352,27 @@ const dictionaryColorSchema = z
   )
 const dictionaryIconSchema = z.string().trim().max(48)
 
+function validateDictionaryBehavior(
+  payload: { kind: string; behavior?: unknown },
+  ctx: z.RefinementCtx,
+): void {
+  if (payload.behavior !== undefined && payload.kind !== 'activity_type') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['behavior'],
+      message: 'Behavior is only supported for activity types',
+    })
+  }
+}
+
 export const customerDictionaryEntryCreateSchema = scopedSchema.extend({
   kind: dictionaryKindEnum,
   value: dictionaryValueSchema,
   label: dictionaryLabelSchema.optional(),
   color: dictionaryColorSchema.nullable().optional(),
   icon: dictionaryIconSchema.nullable().optional(),
-})
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
+}).superRefine(validateDictionaryBehavior)
 
 export type CustomerDictionaryEntryCreateInput = z.infer<typeof customerDictionaryEntryCreateSchema>
 
@@ -368,18 +384,21 @@ export const customerDictionaryEntryUpdateSchema = scopedSchema
     label: dictionaryLabelSchema.optional(),
     color: dictionaryColorSchema.nullable().optional(),
     icon: dictionaryIconSchema.nullable().optional(),
+    behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
   })
   .refine(
     (payload) =>
       payload.value !== undefined ||
       payload.label !== undefined ||
       payload.color !== undefined ||
-      payload.icon !== undefined,
+      payload.icon !== undefined ||
+      payload.behavior !== undefined,
     {
       message: 'Provide at least one field to update.',
       path: ['value'],
     }
   )
+  .superRefine(validateDictionaryBehavior)
 
 export type CustomerDictionaryEntryUpdateInput = z.infer<typeof customerDictionaryEntryUpdateSchema>
 
@@ -477,7 +496,10 @@ const interactionGuestPermissionsSchema = z
   })
   .strict()
 
+export const calendarTimezoneSchema = z.string().trim().min(1).max(120).refine(isCalendarTimezone, { message: 'customers.calendar.editor.validation.timezoneInvalid' })
+
 const interactionExtendedFields = {
+  timezone: calendarTimezoneSchema.optional().nullable(),
   durationMinutes: z.number().int().min(0).optional().nullable(),
   location: z.string().trim().max(500).optional().nullable(),
   allDay: z.boolean().optional().nullable(),
@@ -494,6 +516,7 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   id: z.string().uuid().optional(),
   entityId: z.string().uuid(),
   interactionType: z.string().trim().min(1).max(100),
+  enforceSelectableType: z.boolean().optional(),
   title: z.string().trim().max(500).optional().nullable(),
   body: z.string().trim().max(10000).optional().nullable(),
   // Lenient like `deal_status` (status: z.string().max(50)). The `interaction-statuses`
@@ -518,11 +541,13 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   ...interactionExtendedFields,
 })
 
-function deriveScheduledAtFromDateTime(date?: string | null, time?: string | null): Date | null {
+function deriveScheduledAtFromDateTime(date?: string | null, time?: string | null, timezone?: string | null, allDay?: boolean | null): Date | null {
   if (!date || typeof date !== 'string') return null
   const trimmedDate = date.trim()
   if (!trimmedDate) return null
   const trimmedTime = typeof time === 'string' ? time.trim() : ''
+  if (timezone && allDay) return calendarDayStartInstant(trimmedDate, timezone)
+  if (timezone) return calendarWallTimeToInstant(trimmedDate, trimmedTime || '00:00', timezone)
   const iso = trimmedTime ? `${trimmedDate}T${trimmedTime}:00` : `${trimmedDate}T00:00:00`
   const parsed = new Date(iso)
   return Number.isNaN(parsed.getTime()) ? null : parsed
@@ -551,9 +576,13 @@ export const interactionCreateSchema = interactionCreateBaseSchema
   // external API consumers don't silently persist `scheduled_at: null` after
   // the validator already enforced non-empty date/time. The form already
   // computes `scheduledAt` itself, so this branch is a no-op for the form path.
-  .transform((value) => {
+  .transform((value, ctx) => {
     if (value.scheduledAt) return value
-    const derived = deriveScheduledAtFromDateTime(value.date, value.time)
+    const derived = deriveScheduledAtFromDateTime(value.date, value.time, value.timezone, value.allDay)
+    if (value.timezone && value.date && !derived) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['time'], message: 'customers.calendar.editor.validation.timezoneGap' })
+      return z.NEVER
+    }
     return derived ? { ...value, scheduledAt: derived } : value
   })
 
@@ -572,6 +601,8 @@ const interactionUpdateBaseSchema = z
         // state to express — that depends on #5935 making the column nullable first.
         entityId: z.string().uuid().optional(),
         interactionType: z.string().trim().min(1).max(100).optional(),
+        enforceSelectableType: z.boolean().optional(),
+        confirmDiscardInapplicableValues: z.boolean().optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
         status: z.string().max(50).optional(),
@@ -614,13 +645,17 @@ export const interactionUpdateSchema = interactionUpdateBaseSchema
   // Mirror the create-schema derivation for partial updates: when an external
   // caller supplies `date+time` without `scheduledAt`, derive the timestamp so
   // the update doesn't silently leave `scheduled_at` stale.
-  .transform((value) => {
+  .transform((value, ctx) => {
     if (value.scheduledAt !== undefined) return value
     // An explicit `date: null` is how a caller drops the due date; mirror it
     // onto `scheduledAt` rather than leaving the old timestamp behind (#5941).
     if (value.date === null) return { ...value, scheduledAt: null }
     if (!value.date && !value.time) return value
-    const derived = deriveScheduledAtFromDateTime(value.date, value.time)
+    const derived = deriveScheduledAtFromDateTime(value.date, value.time, value.timezone, value.allDay)
+    if (value.timezone && value.date && !derived) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['time'], message: 'customers.calendar.editor.validation.timezoneGap' })
+      return z.NEVER
+    }
     return derived ? { ...value, scheduledAt: derived } : value
   })
 

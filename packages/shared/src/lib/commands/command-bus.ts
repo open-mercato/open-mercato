@@ -240,6 +240,8 @@ export class CommandBus {
         auth: options.ctx.auth ?? null,
         selectedOrganizationId: options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null,
         container: options.ctx.container,
+        organizationScope: options.ctx.organizationScope ?? null,
+        request: options.ctx.request ?? null,
       }
       const beforeResult = await runCommandInterceptorsBefore(
         allInterceptors, commandId, options.input, interceptorCtx, userFeatures,
@@ -257,7 +259,29 @@ export class CommandBus {
       }
     }
 
-    const snapshots = await this.prepareSnapshots(handler, effectiveOptions)
+    const snapshots: { before?: unknown } = {}
+    if (handler.prepareSnapshotInsideTransaction && handler.prepare) {
+      const prepare = handler.prepare
+      const originalCtx = effectiveOptions.ctx
+      const originalBeforeTransactionalWrite = originalCtx.beforeTransactionalWrite
+      let prepared = false
+      let transactionalCtx: CommandRuntimeContext
+      transactionalCtx = {
+        ...originalCtx,
+        beforeTransactionalWrite: async (em, input) => {
+          await originalBeforeTransactionalWrite?.(em, input)
+          if (prepared) return
+          Object.assign(
+            snapshots,
+            (await prepare(effectiveOptions.input, { ...transactionalCtx, transactionalEm: em })) ?? {},
+          )
+          prepared = true
+        },
+      }
+      effectiveOptions = { ...effectiveOptions, ctx: transactionalCtx }
+    } else {
+      Object.assign(snapshots, await this.prepareSnapshots(handler, effectiveOptions))
+    }
     const redoLogEntry = effectiveOptions.redoLogEntry ?? null
     const result =
       redoLogEntry && typeof handler.redo === 'function'
@@ -332,6 +356,8 @@ export class CommandBus {
         auth: effectiveOptions.ctx.auth ?? null,
         selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
         container: effectiveOptions.ctx.container,
+        request: effectiveOptions.ctx.request ?? null,
+        organizationScope: effectiveOptions.ctx.organizationScope ?? null,
       }
       const afterResult = await runCommandInterceptorsAfter(
         allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
@@ -383,6 +409,8 @@ export class CommandBus {
           auth: ctx.auth ?? null,
           selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
           container: ctx.container,
+          request: ctx.request ?? null,
+          organizationScope: ctx.organizationScope ?? null,
         }
         const beforeResult = await runCommandInterceptorsBeforeUndo(
           allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
@@ -409,6 +437,8 @@ export class CommandBus {
           auth: ctx.auth ?? null,
           selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
           container: ctx.container,
+          request: ctx.request ?? null,
+          organizationScope: ctx.organizationScope ?? null,
         }
         await runCommandInterceptorsAfterUndo(
           allInterceptors, log.commandId, undoCtx, interceptorCtx,
