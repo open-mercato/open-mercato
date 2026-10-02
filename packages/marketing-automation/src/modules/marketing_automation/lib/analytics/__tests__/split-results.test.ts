@@ -3,6 +3,7 @@ import type { SplitVariantResult } from '../split-results'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { describeLanes } from '../../engine/split'
 import type { CampaignStep } from '../../engine/types'
+import { resetCapabilityCache } from '../../capabilities'
 
 const scope = { tenantId: 't1', organizationId: 'o1' }
 
@@ -36,9 +37,16 @@ const lane = (
 })
 
 describe('loadSplitResults', () => {
-  function fakeEm(rows: unknown[]) {
+  /**
+   * `em.execute` answers the capability probe; `getConnection().execute` answers the lane query.
+   *
+   * These tests are about a shop that HAS `sales`, so the probe says so — the revenue CTE is part of what they
+   * assert the parameter order of. The no-sales shape has its own test below.
+   */
+  function fakeEm(rows: unknown[], capabilities = { sales: true, catalog: true }) {
     const executed: Array<{ sql: string; params: unknown[] }> = []
     const em = {
+      execute: async () => [capabilities],
       getConnection: () => ({
         execute: async (sql: string, params: unknown[]) => {
           executed.push({ sql, params })
@@ -48,6 +56,31 @@ describe('loadSplitResults', () => {
     }
     return { em: em as unknown as EntityManager, executed }
   }
+
+  beforeEach(() => resetCapabilityCache())
+
+  test('without a sales module the revenue CTE and its placeholders both go', async () => {
+    /**
+     * The two must travel together. The statement omits `lane_orders`, so its five placeholders must go with
+     * it — leave them in and every later parameter shifts by five, binding a step id where a tenant belongs,
+     * and the lane reports nothing while looking like it ran.
+     */
+    const { em, executed } = fakeEm([{ runs: 2, sends: 2, reached: 2, opened: 1, clicked: 1 }], { sales: false, catalog: false })
+    const results = await loadSplitResults(em, 'camp-1', scope, [lane('a', ['s1'])])
+    const { sql, params } = executed[0]
+    expect(sql).not.toContain('lane_orders')
+    expect(sql).not.toContain('sales_orders')
+    // lane_runs takes five, then four counting subqueries of (tenant, org, one step id).
+    expect(params).toHaveLength(5 + 4 * 3)
+    // Revenue is withheld, not reported as zero earned: `pickSplitWinner` refuses to rank on what it cannot see.
+    expect(results[0].revenue).toBeNull()
+    expect(results[0].currencyCode).toBeNull()
+    expect(results[0].mixedCurrency).toBe(false)
+    expect(results[0].revenuePerRecipient).toBeNull()
+    // The lane's own numbers are unaffected: they come from this module's tables.
+    expect(results[0].clicked).toBe(1)
+    expect(results[0].clickRate).toBeCloseTo(0.5)
+  })
 
   const lane = (variant: string, stepIds: string[]) => ({ splitStepId: 'sp1', variant, stepIds })
 

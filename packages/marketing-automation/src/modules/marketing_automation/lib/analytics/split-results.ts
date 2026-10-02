@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { LaneDescriptor } from '../engine/split.js'
 import type { SubjectScope } from '../subject-document.js'
 import { SALES_ORDERS } from '../external/tables.js'
+import { hasSales } from '../capabilities.js'
 
 /**
  * A/B results, read from what actually happened.
@@ -75,7 +76,16 @@ export type SplitVariantResult = {
  * dominated, and the "minimum sample per lane" gate below could be satisfied by a message neither lane
  * had sent.
  */
-function laneSql(stepPlaceholders: string): string {
+/**
+ * `withRevenue: false` for an installation with no `sales` module.
+ *
+ * The lane's own numbers — runs, sends, reached, opens, clicks — all come from this module's tables and are
+ * unaffected. Only the revenue CTE joins `sales_orders`, and without that table the whole statement would
+ * error, so it is left out and the three revenue columns answer as "nothing attributed". `readRevenue` already
+ * returns all nulls for zero currencies and `pickSplitWinner` already refuses to rank on revenue it does not
+ * have, so the absence travels through the existing path rather than needing a second one.
+ */
+function laneSql(stepPlaceholders: string, withRevenue = true): string {
   return `
     with lane_runs as (
       select r.id
@@ -84,14 +94,21 @@ function laneSql(stepPlaceholders: string): string {
          and r.tenant_id = ?
          and r.organization_id = ?
          and r.variant_choices ->> ? = ?
-    ),
-    /**
+    )
+    /*
      * The orders this lane's clicks led to, resolved once.
      *
      * DISTINCT on the order rather than on (order, total): the three aggregates below need the currency too,
      * and a plain distinct over all three columns is the same set as long as an order has one total and one
      * currency, which it does.
+     *
+     * The COMMA belongs to this block, not to the CTE above: without the sales module there is no second CTE,
+     * and a trailing comma before the select is a syntax error rather than a missing feature.
+     *
+     * No backticks in here. This is inside a template literal, and a backtick in an SQL comment closes it —
+     * which has now happened twice in this file.
      */
+    ${withRevenue ? `,
     lane_orders as (
       select distinct o.id, o.grand_total_gross_amount as total, o.currency_code
         from marketing_message_send_events e
@@ -111,7 +128,7 @@ function laneSql(stepPlaceholders: string): string {
          -- winner. Through the shared filter rather than a hand-rolled subset, which is how the scope went
          -- missing in the first place.
          and ${PLACED_ORDER_FILTER_SQL_ALIASED}
-    )
+    )` : ''}
     select (select count(*) from lane_runs)::int as runs,
            (select count(*)
               from marketing_message_sends s
@@ -154,9 +171,13 @@ function laneSql(stepPlaceholders: string): string {
             * expensive join on the results screen, executed three times per lane, and again for every lane of
             * every enabled campaign each time the unattended winner pass runs.
             */
-           (select coalesce(sum(total), 0)::float8 from lane_orders)::float8 as revenue,
+           ${withRevenue
+             ? `(select coalesce(sum(total), 0)::float8 from lane_orders)::float8 as revenue,
            (select count(distinct currency_code) from lane_orders)::int as currencies,
-           (select min(currency_code) from lane_orders) as currency_code
+           (select min(currency_code) from lane_orders) as currency_code`
+             : `0::float8 as revenue,
+           0::int as currencies,
+           null::text as currency_code`}
   `
 }
 
@@ -224,6 +245,11 @@ export async function loadSplitResults(
    */
   conversionWindowDays = 7,
 ): Promise<SplitVariantResult[]> {
+  /**
+   * Resolved once for all lanes, not per lane: the answer cannot differ between them, and the probe is cached
+   * anyway — asking inside the loop would only make the loop look like it might vary.
+   */
+  const withRevenue = await hasSales(em)
   const results: SplitVariantResult[] = []
 
   for (const lane of lanes) {
@@ -258,17 +284,25 @@ export async function loadSplitResults(
 
     // Placeholders, not values: the step ids stay bound parameters.
     const placeholders = lane.stepIds.map(() => '?').join(', ')
-    const rows = await em.getConnection().execute<ResultRow[]>(laneSql(placeholders), [
+    const rows = await em.getConnection().execute<ResultRow[]>(laneSql(placeholders, withRevenue), [
       // `lane_runs`.
       campaignId, scope.tenantId, scope.organizationId, lane.splitStepId, lane.variant,
-      // `lane_orders`, which now binds BEFORE the select list because a CTE is written first. It used to be
-      // three subqueries at the end, each repeating this; getting the order wrong here binds a step id where
-      // a tenant belongs and the lane silently reports nothing.
-      //
-      // The trailing pair is the ORDER's own scope, from `PLACED_ORDER_FILTER_SQL_ALIASED` — the events and
-      // the runs were scoped and the orders were not.
-      conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
-      scope.tenantId, scope.organizationId,
+      /**
+       * `lane_orders`, which binds BEFORE the select list because a CTE is written first, and only when the
+       * CTE is there at all — the statement omits it on an installation with no `sales` module, so its
+       * placeholders must go with it. Getting this wrong binds a step id where a tenant belongs and the lane
+       * silently reports nothing, which is why the two are spread from one conditional rather than guarded
+       * separately.
+       *
+       * The trailing pair is the ORDER's own scope, from `PLACED_ORDER_FILTER_SQL_ALIASED` — the events and
+       * the runs were scoped and the orders were not.
+       */
+      ...(withRevenue
+        ? [
+            conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
+            scope.tenantId, scope.organizationId,
+          ]
+        : []),
       // Then the four counting subqueries, each scope-then-steps.
       scope.tenantId, scope.organizationId, ...lane.stepIds,
       scope.tenantId, scope.organizationId, ...lane.stepIds,
