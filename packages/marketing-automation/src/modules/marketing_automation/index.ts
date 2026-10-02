@@ -32,5 +32,23 @@ export const metadata: ModuleInfo = {
    * session helpers (`api/portal/preferences/route.ts`), so the dependency existed undeclared. It carries none
    * of the optionality question above — both module registries enable it unconditionally.
    */
-  requires: ['customers', 'customer_accounts', 'sales', 'catalog', 'business_rules'],
+  /**
+   * HARD: without these the module cannot function at all.
+   *
+   * `customers` owns the person this module sends to, `customer_accounts` the portal session the preference
+   * centre runs on, `business_rules` the condition language every audience is written in.
+   */
+  requires: ['customers', 'customer_accounts', 'business_rules'],
+  /**
+   * SOFT: used where present, degraded where not — and every reader keeps that promise.
+   *
+   * Marketing enriches campaigns with purchase history when `sales` is there and with live product
+   * classification when `catalog` is. Neither is needed to send a welcome sequence, run lead scoring, survey
+   * somebody or write a birthday campaign, which is the whole point: an installation shaped as a CRM rather
+   * than a shop could not previously enable this module at all.
+   *
+   * What is withheld without them is stated on the setup screen rather than discovered per trigger, and every
+   * reader is guarded — `lib/capabilities.ts` is the probe, and two tests keep the list of readers complete.
+   */
+  optionalRequires: ['sales', 'catalog'],
 }

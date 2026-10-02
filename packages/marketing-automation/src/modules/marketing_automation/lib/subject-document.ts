@@ -20,7 +20,7 @@ import type { TierThreshold } from './engine/tiers.js'
  */
 export { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
 import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
-import { readCapabilities } from './capabilities.js'
+import { hasSales, readCapabilities } from './capabilities.js'
 import {
   CATALOG_PRODUCT_CATEGORIES,
   CATALOG_PRODUCT_CATEGORY_ASSIGNMENTS,
@@ -58,12 +58,31 @@ function wholeDaysBetween(from: Date, to: Date): number {
   return Math.floor((to.getTime() - from.getTime()) / MS_PER_DAY)
 }
 
+/** Categories need both modules, so the two-module question gets a name of its own. */
+async function bothModules(em: EntityManager): Promise<boolean> {
+  const capabilities = await readCapabilities(em)
+  return capabilities.sales && capabilities.catalog
+}
+
 export async function loadOrderAggregates(
   em: EntityManager,
   subjectEntityId: string,
   scope: SubjectScope,
   now: Date,
 ): Promise<SubjectDocument['orders']> {
+  /**
+   * Guarded HERE rather than only in `buildSubjectDocument`, because that is not the only caller.
+   *
+   * The customer-profile route calls this loader directly, so guarding the orchestrator left the profile
+   * answering 500 with `relation "sales_orders" does not exist` on an installation with no sales module —
+   * found by actually running one, not by any unit test. The query lives in this function, so the question
+   * "may I run it" belongs in it too, and every future caller inherits the answer.
+   *
+   * `undefined` rather than a zero shape: the caller has to decide whether to omit its key, and a zeroed
+   * aggregate is the lie that makes `orders.count <= 5` true for everybody.
+   */
+  if (!(await hasSales(em))) return undefined
+
   const rows = await em.getConnection().execute<OrderAggregateRow[]>(
     ORDER_AGGREGATE_SQL,
     [subjectEntityId, scope.tenantId, scope.organizationId],
@@ -144,6 +163,8 @@ export async function loadPurchasedChannels(
   subjectEntityId: string,
   scope: SubjectScope,
 ): Promise<string[]> {
+  // Channels come from orders. Guarded in the loader so a direct caller cannot bypass it — the profile route did exactly that.
+  if (!(await hasSales(em))) return []
   const rows = await em.getConnection().execute<{ code: string | null }[]>(
     `select distinct c.code as code
        from ${SALES_ORDERS} o
@@ -179,6 +200,8 @@ export async function loadPurchasedCategories(
   subjectEntityId: string,
   scope: SubjectScope,
 ): Promise<string[]> {
+  // The line comes from sales, its classification from catalog. Guarded in the loader so a direct caller cannot bypass it — the profile route did exactly that.
+  if (!(await bothModules(em))) return []
   const rows = await em.getConnection().execute<{ slug: string | null }[]>(
     `select distinct c.slug as slug
        from ${SALES_ORDER_LINES} l
@@ -204,6 +227,8 @@ export async function loadPurchasedSkus(
   subjectEntityId: string,
   scope: SubjectScope,
 ): Promise<string[]> {
+  // Skus come from order lines. Guarded in the loader so a direct caller cannot bypass it — the profile route did exactly that.
+  if (!(await hasSales(em))) return []
   const rows = await em.getConnection().execute<{ sku: string | null }[]>(
     `select sku from (
        select coalesce(
