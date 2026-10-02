@@ -150,7 +150,6 @@ export const searchConfig: SearchModuleConfig = {
             title: record.preferred_name ?? `${record.first_name} ${record.last_name}`,
             subtitle: record.job_title,
             icon: 'user',
-            badge: 'Person',
           },
         }
       },
@@ -159,7 +158,6 @@ export const searchConfig: SearchModuleConfig = {
         title: ctx.record.preferred_name ?? `${ctx.record.first_name} ${ctx.record.last_name}`,
         subtitle: ctx.record.job_title,
         icon: 'user',
-        badge: 'Person',
       }),
 
       resolveUrl: async ({ record }) => `/backend/customers/${record.entity_id}`,
