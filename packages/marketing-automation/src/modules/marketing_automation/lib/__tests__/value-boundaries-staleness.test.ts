@@ -1,5 +1,6 @@
 import { refreshValueBoundariesIfStale, VALUE_BOUNDARY_MAX_AGE_MS } from '../value-boundaries'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resetCapabilityCache } from '../capabilities'
 
 /**
  * How often the most expensive statement in this module is allowed to run.
@@ -19,6 +20,9 @@ function fakeEm(computedAt: Date | null) {
     findOne: async () => (computedAt
       ? { boundaries: {}, buyerCount: 10, computedAt }
       : null),
+    // The capability probe. These tests are about a shop that HAS sales — there are no cut points to compute
+    // without buyers — so it reports both present, and the cache is reset per test.
+    execute: async () => [{ sales: true, catalog: true }],
     getConnection: () => ({
       execute: async (sql: string) => {
         executed.push(sql)
@@ -34,6 +38,8 @@ function fakeEm(computedAt: Date | null) {
 }
 
 describe('refreshValueBoundariesIfStale', () => {
+  beforeEach(() => resetCapabilityCache())
+
   test('recomputes when there is no row, which is the first-sweep case', async () => {
     const { em, executed } = fakeEm(null)
     const result = await refreshValueBoundariesIfStale(em, scope, now)

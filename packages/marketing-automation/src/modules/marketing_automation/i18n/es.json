@@ -503,6 +503,7 @@
   "marketing_automation.results.funnel.sent": "Recibieron un mensaje",
   "marketing_automation.results.funnel.stage": "Etapa",
   "marketing_automation.results.funnelHint": "Personas, no mensajes: una persona que recorre la campaña una vez cuenta una vez en cada etapa.",
+  "marketing_automation.results.funnelNoConversions": "No se muestran las conversiones: esta instalación no tiene módulo de ventas, así que no se pueden ver las compras.",
   "marketing_automation.results.funnelUntracked": "No hay aperturas ni clics registrados para esta campaña: si sus mensajes se enviaron con el seguimiento desactivado, las etapas por debajo de «recibieron un mensaje» no se pueden medir.",
   "marketing_automation.results.holdout": "grupo de control: no envía nada",
   "marketing_automation.results.inLane": "en la variante {key}",

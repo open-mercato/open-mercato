@@ -503,6 +503,7 @@
   "marketing_automation.results.funnel.sent": "메시지 수신",
   "marketing_automation.results.funnel.stage": "단계",
   "marketing_automation.results.funnelHint": "메시지가 아니라 사람 기준 — 캠페인을 한 번 거친 사람은 각 단계에서 한 번 집계됩니다.",
+  "marketing_automation.results.funnelNoConversions": "전환이 표시되지 않습니다. 이 설치에는 판매 모듈이 없어 구매를 확인할 수 없습니다.",
   "marketing_automation.results.funnelUntracked": "이 캠페인에는 열어봄·클릭 기록이 없습니다 — 트래킹을 끈 상태로 발송했다면 \"메시지 수신\" 이후 단계는 측정할 수 없습니다.",
   "marketing_automation.results.holdout": "대조군 — 발송하지 않음",
   "marketing_automation.results.inLane": "{key} 분기에서",

@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SubjectScope } from '../subject-document.js'
 import { SALES_ORDERS } from '../external/tables.js'
+import { hasSales } from '../capabilities.js'
 
 /**
  * Linear multi-touch revenue attribution.
@@ -118,6 +119,14 @@ export async function loadAttribution(
   scope: SubjectScope,
   query: AttributionQuery,
 ): Promise<AttributionRow[]> {
+  /**
+   * Nothing to attribute without `sales`, which is not the same claim as zero revenue.
+   *
+   * An empty list is what the screens already render for a campaign that has earned nothing yet, and
+   * `pickSplitWinner` already refuses a verdict on a lane with nothing attributed — so the absence travels
+   * through the existing path rather than needing a second one.
+   */
+  if (!(await hasSales(em))) return []
   const rows = await em.getConnection().execute<TouchRow[]>(TOUCHES_SQL, [
     scope.tenantId,
     scope.organizationId,

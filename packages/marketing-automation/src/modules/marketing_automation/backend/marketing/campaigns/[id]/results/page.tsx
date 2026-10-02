@@ -78,7 +78,7 @@ type FunnelStage = {
 type Results = {
   campaign: { id: string; name: string }
   sends: { sent: number; suppressed: number }
-  funnel: { stages: FunnelStage[]; hasEngagementData: boolean }
+  funnel: { stages: FunnelStage[]; hasEngagementData: boolean; hasConversionData?: boolean }
   events: { delivered: number; opened: number; clicked: number; bounced: number }
   uniqueRecipients: { opened: number; clicked: number }
   splits: SplitResult[]
@@ -337,6 +337,21 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                 )}
               </div>
             )}
+            {/*
+              Said out loud, because the stage is GONE from the table rather than showing zero.
+
+              A reader who knows the funnel has five stages needs to be told why this one has four, or the
+              missing row looks like a rendering bug. `undefined` is an older response that predates the flag
+              and had conversions, so only an explicit false says anything.
+            */}
+            {results.funnel.hasConversionData === false ? (
+              <div className="mt-2 text-xs text-muted-foreground">
+                {t(
+                  'marketing_automation.results.funnelNoConversions',
+                  'Conversions are not shown: this installation has no sales module, so purchases cannot be seen.',
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

@@ -503,6 +503,7 @@
   "marketing_automation.results.funnel.sent": "Received a message",
   "marketing_automation.results.funnel.stage": "Stage",
   "marketing_automation.results.funnelHint": "People, not messages — one person going through the campaign once counts once at each stage.",
+  "marketing_automation.results.funnelNoConversions": "Conversions are not shown: this installation has no sales module, so purchases cannot be seen.",
   "marketing_automation.results.funnelUntracked": "No opens or clicks are on record for this campaign — if its messages were sent with tracking switched off, the stages below \"sent\" cannot be measured.",
   "marketing_automation.results.holdout": "control — sends nothing",
   "marketing_automation.results.inLane": "in lane {key}",

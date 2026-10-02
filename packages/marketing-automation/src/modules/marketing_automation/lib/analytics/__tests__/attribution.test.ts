@@ -1,6 +1,7 @@
 import { attributeLinear, loadAttribution } from '../attribution'
 import type { AttributionTouch } from '../attribution'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resetCapabilityCache } from '../../capabilities'
 
 const touch = (orderId: string, campaignId: string, orderTotal: number, currencyCode = 'PLN'): AttributionTouch =>
   ({ orderId, campaignId, orderTotal, currencyCode })
@@ -71,9 +72,17 @@ describe('loadAttribution', () => {
   const scope = { tenantId: 't1', organizationId: 'o1' }
   const since = new Date('2026-09-01T00:00:00.000Z')
 
+  /**
+   * `em.execute` answers the capability probe; `getConnection().execute` answers the query under test.
+   *
+   * These tests are about an installation that HAS `sales` — attribution is meaningless without it — so the
+   * probe reports both modules present. The no-sales path has its own test, and the cache is reset per test so
+   * one answer cannot leak into the next.
+   */
   function fakeEm(rows: unknown[]) {
     const executed: Array<{ sql: string; params: unknown[] }> = []
     const em = {
+      execute: async () => [{ sales: true, catalog: true }],
       getConnection: () => ({
         execute: async (sql: string, params: unknown[]) => {
           executed.push({ sql, params })
@@ -83,6 +92,15 @@ describe('loadAttribution', () => {
     }
     return { em: em as unknown as EntityManager, executed }
   }
+
+  beforeEach(() => resetCapabilityCache())
+
+  test('returns nothing, rather than zero revenue, when there is no sales module', async () => {
+    // Declared in `optionalRequires`: the tables may not exist, and "we cannot see purchases" is not the same
+    // claim as "this campaign earned nothing".
+    const em = { execute: async () => [{ sales: false, catalog: false }] } as unknown as EntityManager
+    expect(await loadAttribution(em, scope, { windowDays: 7, since })).toEqual([])
+  })
 
   test('joins clicks to later orders inside the window, scoped, excluding cancellations', async () => {
     const { em, executed } = fakeEm([])

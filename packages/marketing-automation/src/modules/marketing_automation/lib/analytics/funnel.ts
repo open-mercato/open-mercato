@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SubjectScope } from '../subject-document.js'
 import { PLACED_ORDER_FILTER_SQL_ALIASED } from '../order-filter.js'
 import { SALES_ORDERS } from '../external/tables.js'
+import { hasSales } from '../capabilities.js'
 
 /**
  * The campaign funnel: how many people reached each stage, and where they fell out.
@@ -45,9 +46,27 @@ export type CampaignFunnel = {
    * off for this campaign" instead of showing three zeroes that look like a campaign nobody engaged with.
    */
   hasEngagementData: boolean
+  /**
+   * Whether conversions can be measured at all.
+   *
+   * False on an installation with no `sales` module, which is declared in `optionalRequires` — and the symmetry
+   * with `hasEngagementData` is deliberate: a conversion stage reading zero looks like a campaign nobody bought
+   * from, when the truth is that nothing here can see a purchase. The stage is omitted rather than zeroed, for
+   * the same reason this module refuses a `delivered` stage while the platform has no provider feedback: it
+   * could only be a number wearing a confidence it has not earned.
+   */
+  hasConversionData: boolean
 }
 
-const FUNNEL_SQL = `
+/**
+ * The four stages that come from this module's OWN tables.
+ *
+ * Separated from the conversion CTE so the funnel can be asked on an installation with no `sales` module,
+ * where `sales_orders` does not exist and the whole statement would error. Composed rather than duplicated:
+ * two copies of this would drift, and a funnel that disagrees with itself depending on which modules are
+ * installed is worse than either version.
+ */
+const FUNNEL_BASE_CTES = `
   with entered as (
     select id, subject_entity_id
       from marketing_campaign_runs
@@ -71,11 +90,19 @@ const FUNNEL_SQL = `
       from marketing_message_send_events e
      where e.campaign_id = ? and e.tenant_id = ? and e.organization_id = ?
        and e.type = 'clicked'
-  ),
-  /**
-   * A conversion is a click followed by an order inside the window — the SAME definition the revenue
-   * attribution uses, keyed back to the run so the funnel counts people rather than orders.
-   */
+  )`
+
+const FUNNEL_BASE_COUNTS = `
+    (select count(*) from entered)::int as entered,
+    (select count(*) from sent)::int as sent,
+    (select count(*) from opened)::int as opened,
+    (select count(*) from clicked)::int as clicked`
+
+/**
+ * A conversion is a click followed by an order inside the window — the SAME definition the revenue
+ * attribution uses, keyed back to the run so the funnel counts people rather than orders.
+ */
+const FUNNEL_SQL = `${FUNNEL_BASE_CTES},
   converted as (
     select distinct e.run_id as id
       from marketing_message_send_events e
@@ -90,11 +117,15 @@ const FUNNEL_SQL = `
        and ${PLACED_ORDER_FILTER_SQL_ALIASED}
   )
   select
-    (select count(*) from entered)::int as entered,
-    (select count(*) from sent)::int as sent,
-    (select count(*) from opened)::int as opened,
-    (select count(*) from clicked)::int as clicked,
+${FUNNEL_BASE_COUNTS},
     (select count(*) from converted)::int as converted
+`
+
+/** The same funnel with the conversion stage left out, for an installation that has no `sales` module. */
+const FUNNEL_SQL_WITHOUT_CONVERSIONS = `${FUNNEL_BASE_CTES}
+  select
+${FUNNEL_BASE_COUNTS},
+    0::int as converted
 `
 
 type FunnelRow = {
@@ -117,13 +148,17 @@ function ratio(numerator: number, denominator: number): number | null {
  * denominator each percentage uses. A reader of the screen needs both — "half of those who opened clicked" and
  * "a tenth of everyone who entered clicked" are different facts and operators quote whichever suits them.
  */
-export function buildFunnelStages(counts: FunnelRow): FunnelStage[] {
+export function buildFunnelStages(counts: FunnelRow, options?: { hasConversionData?: boolean }): FunnelStage[] {
   const ordered: Array<[string, number]> = [
     ['entered', counts.entered],
     ['sent', counts.sent],
     ['opened', counts.opened],
     ['clicked', counts.clicked],
-    ['converted', counts.converted],
+    // Dropped entirely when conversions cannot be seen, rather than reported as zero. Defaults to included,
+    // so every existing caller keeps the funnel it had.
+    ...(options?.hasConversionData === false
+      ? []
+      : [['converted', counts.converted] as [string, number]]),
   ]
 
   return ordered.map(([key, people], index) => {
@@ -144,21 +179,36 @@ export async function loadCampaignFunnel(
   options: { conversionWindowDays: number },
 ): Promise<CampaignFunnel> {
   const { tenantId, organizationId } = scope
-  const rows = await em.getConnection().execute<FunnelRow[]>(FUNNEL_SQL, [
-    campaignId, tenantId, organizationId,
-    campaignId, tenantId, organizationId,
-    campaignId, tenantId, organizationId,
-    campaignId, tenantId, organizationId,
-    options.conversionWindowDays,
-    campaignId, tenantId, organizationId,
-    tenantId, organizationId,
-  ])
+  /**
+   * The conversion CTE joins `sales_orders`, so the whole query is only askable where that table exists.
+   *
+   * Without it the funnel still has four honest stages — entered, sent, opened, clicked — all of which come
+   * from this module's own tables. Only the fifth is withheld.
+   */
+  const hasConversionData = await hasSales(em)
+  const rows = hasConversionData
+    ? await em.getConnection().execute<FunnelRow[]>(FUNNEL_SQL, [
+        campaignId, tenantId, organizationId,
+        campaignId, tenantId, organizationId,
+        campaignId, tenantId, organizationId,
+        campaignId, tenantId, organizationId,
+        options.conversionWindowDays,
+        campaignId, tenantId, organizationId,
+        tenantId, organizationId,
+      ])
+    : await em.getConnection().execute<FunnelRow[]>(FUNNEL_SQL_WITHOUT_CONVERSIONS, [
+        campaignId, tenantId, organizationId,
+        campaignId, tenantId, organizationId,
+        campaignId, tenantId, organizationId,
+        campaignId, tenantId, organizationId,
+      ])
   const counts = rows[0] ?? { entered: 0, sent: 0, opened: 0, clicked: 0, converted: 0 }
 
   return {
-    stages: buildFunnelStages(counts),
+    stages: buildFunnelStages(counts, { hasConversionData }),
     // An untracked campaign delivers perfectly well and simply cannot report engagement; saying so is the
     // difference between "nobody opened this" and "we were not watching".
     hasEngagementData: counts.opened > 0 || counts.clicked > 0,
+    hasConversionData,
   }
 }

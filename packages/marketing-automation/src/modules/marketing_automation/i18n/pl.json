@@ -503,6 +503,7 @@
   "marketing_automation.results.funnel.sent": "Dostali wiadomość",
   "marketing_automation.results.funnel.stage": "Etap",
   "marketing_automation.results.funnelHint": "Osoby, nie wiadomości — jedna osoba przechodząca kampanię raz liczy się raz na każdym etapie.",
+  "marketing_automation.results.funnelNoConversions": "Konwersje nie są pokazywane: ta instalacja nie ma modułu sprzedaży, więc zakupów nie widać.",
   "marketing_automation.results.funnelUntracked": "Dla tej kampanii nie ma zapisanych otwarć ani kliknięć — jeśli wiadomości wyszły z wyłączonym śledzeniem, etapów poniżej „Dostali wiadomość” nie da się zmierzyć.",
   "marketing_automation.results.holdout": "grupa kontrolna — nic nie wysyła",
   "marketing_automation.results.inLane": "w wariancie {key}",

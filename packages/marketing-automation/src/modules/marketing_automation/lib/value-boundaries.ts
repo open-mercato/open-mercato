@@ -4,6 +4,7 @@ import { EMPTY_VALUE_BOUNDARIES, RFM_BUCKETS } from './engine/rfm.js'
 import type { ValueBoundaries } from './engine/rfm.js'
 import { PLACED_ORDER_FILTER_SQL } from './order-filter.js'
 import { SALES_ORDERS } from './external/tables.js'
+import { hasSales } from './capabilities.js'
 
 /** Declared locally rather than imported from the document builder, which imports this file. */
 type BoundaryScope = { tenantId: string; organizationId: string }
@@ -79,10 +80,17 @@ export async function refreshValueBoundaries(
   scope: BoundaryScope,
   now: Date,
 ): Promise<ValueBoundaries> {
-  const rows = await em.getConnection().execute<BoundariesRow[]>(
-    BOUNDARIES_SQL,
-    [scope.tenantId, scope.organizationId],
-  )
+  /**
+   * No `sales` module means no buyers to rank, which is the state the RFM minimum already handles.
+   *
+   * `buyerCount: 0` is honest here rather than a convenient zero: there genuinely are no buyers this
+   * installation could rank anybody against, and `computeRfm` withholds a score below
+   * `MINIMUM_BUYERS_FOR_RFM` — so nobody is scored 1-1-1 and swept into a win-back audience as "our worst
+   * customer".
+   */
+  const rows = (await hasSales(em))
+    ? await em.getConnection().execute<BoundariesRow[]>(BOUNDARIES_SQL, [scope.tenantId, scope.organizationId])
+    : []
   const row = rows[0]
 
   const computed: ValueBoundaries = {
