@@ -25,6 +25,7 @@ test.describe('TC-CRM-6859: One Add action per customer detail tab', () => {
         const fixtureName = `TC-CRM-6859 ${Date.now()}`
 
         try {
+          await page.setViewportSize({ width: 1440, height: 960 })
           token = await getAuthToken(request)
           companyId = await createCompanyFixture(request, token, fixtureName)
           personId = await createPersonFixture(request, token, {
