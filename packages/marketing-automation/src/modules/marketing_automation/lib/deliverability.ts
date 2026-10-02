@@ -107,6 +107,19 @@ export async function applyDeliverabilityGuardrails(
       ctx: buildCampaignCommandContext(container, scope),
     })
 
+    /**
+     * Stamped AFTER the command, and outside it on purpose.
+     *
+     * `set_enabled` is the shared write and must not grow a breaker-specific argument — `auto-winner` calls the
+     * same command. The stamp is this function's own bookkeeping: the pause already happened, and a failure here
+     * costs a badge rather than a guardrail.
+     */
+    await em.nativeUpdate(
+      MarketingCampaign,
+      { id: campaign.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      { breakerTrippedAt: new Date() },
+    )
+
     tripped.push({ campaignId: campaign.id, campaignName: campaign.name, decision })
   }
 

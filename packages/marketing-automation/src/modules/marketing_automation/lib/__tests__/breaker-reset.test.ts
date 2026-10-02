@@ -52,7 +52,12 @@ describe('what moves the reset', () => {
      * slate it never earned, and `updatedAt` would have cleared the breaker's memory on any edit — a guardrail
      * that stops guarding exactly while somebody is editing.
      */
-    expect(commands).toContain('if (changed && payload.isEnabled) campaign.breakerResetAt = new Date()')
+    // Asserted on the condition rather than on one exact line: the block grew a second statement when the
+    // breaker badge was added, and a rule that pins formatting fails on an unrelated edit.
+    expect(commands).toContain('if (changed && payload.isEnabled)')
+    expect(commands).toContain('campaign.breakerResetAt = new Date()')
+    // Enabling clears the automatic-pause badge too, in the same place and for the same reason.
+    expect(commands).toContain('campaign.breakerTrippedAt = null')
     expect(commands).not.toContain('breakerResetAt = campaign.updatedAt')
   })
 })

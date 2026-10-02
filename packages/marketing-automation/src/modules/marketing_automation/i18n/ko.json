@@ -293,6 +293,7 @@
   "marketing_automation.list.empty.action": "이 설치에 무엇이 필요한지 확인",
   "marketing_automation.list.empty.description": "캠페인은 어떤 일이 일어나면 반응하여 적용 대상을 판단한 뒤 여러 단계를 실행합니다.",
   "marketing_automation.list.empty.title": "아직 캠페인이 없습니다",
+  "marketing_automation.list.pausedByBreaker": "자동 일시중지됨",
   "marketing_automation.list.title": "캠페인",
   "marketing_automation.nav.group": "마케팅",
   "marketing_automation.notifications.campaignNotice.body": "{message}",
