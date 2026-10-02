@@ -68,17 +68,34 @@ with no stubs and no file reviewed twice. The zero-ORM-relations result matters 
 on the data side — entities are joined by plain FK ids, following the platform's own convention, so
 splitting the entity file and the migration costs nothing structurally.
 
+## Correction: these numbers moved twice, and why
+
+The first version of this spec reported phase 1 at **68.3%** and the inverted variant at **52.0%**. Both were
+wrong, in the same direction, for one reason: the measurement used `dependency-cruiser` over
+`src/**/*.ts`, and the package's cruiser config filters by extension. That glob silently omitted every `.tsx`
+file — **23 backend screens**, almost all of which belong to phase 1. The script now builds its own import
+graph so the extension can never filter the answer again, and it ships beside this spec so the figures can be
+re-derived rather than taken on trust.
+
+The inverted figure moved for a second reason. It was 52% while `MarketingConsent` and
+`MarketingContactPreference` were allowed to follow the graph into phase 2 — which they must not, because a
+phase that can send without consent is a phase that mails people who said no, and a merged phase is a
+shippable state. With consent pinned to phase 1 the honest figure is **64.4%**.
+
+So the inversion buys **9.3 percentage points and moves four tables**, for a refactor of the enrolment core.
+That is the trade as measured, and it is why the delivery does not take it.
+
 ## The phases
 
 Ordered so each depends only on earlier ones. Verified: **zero back-edges**.
 
 | Phase | What it is | Files | Source lines | Share |
 |---|---|---|---|---|
-| **P1** | A campaign runs: entities, validators, ACL, the engine, the dispatcher, runs and claims, the canvas, campaign CRUD, the sweep — plus everything the dispatcher consults (see below) | 166 | 20,646 | 68.3% |
-| **P2** | Tracking, the public pages, the portal preference centre, content blocks | 9 | 1,335 | 4.4% |
-| **P3** | Results: the daily series, the funnel, links, attribution, A/B results | 10 | 1,475 | 4.9% |
-| **P4** | Segments, score rules, referrals, price watches, lead routing | 32 | 4,800 | 15.9% |
-| **P5** | The authoring agent, AI copy, inbound hooks | 11 | 1,975 | 6.5% |
+| **P1** | A campaign runs: entities, validators, ACL, the engine, the dispatcher, runs and claims, the canvas, campaign CRUD, the sweep, consent and the contact preference — plus everything else the dispatcher consults (see below) | 190 | 28,431 | 73.7% |
+| **P2** | Tracking, the public pages, the portal preference centre, content blocks | 7 | 1,028 | 2.7% |
+| **P3** | Results: the daily series, the funnel, links, attribution, A/B results | 12 | 2,254 | 5.8% |
+| **P4** | Segments, score rules, referrals, price watches, lead routing | 32 | 4,870 | 12.6% |
+| **P5** | The authoring agent, AI copy, inbound hooks | 11 | 1,975 | 5.1% |
 
 Phase 0 is not in this table: it is platform work, outside this package. See **What phasing does not
 fix**.
@@ -116,10 +133,10 @@ Measured, with those twelve edges inverted:
 
 | Phase | Files | Source lines | Share |
 |---|---|---|---|
-| P1 | 137 | 15,719 | 52.0% |
-| P2 | 26 | 3,825 | 12.7% |
-| P3 | 12 | 1,958 | 6.5% |
-| P4 | 42 | 6,754 | 22.3% |
+| P1 | 168 | 24,827 | 64.4% |
+| P2 | 17 | 2,139 | 5.5% |
+| P3 | 14 | 2,771 | 7.2% |
+| P4 | 42 | 6,846 | 17.8% |
 | P5 | 11 | 1,975 | 6.5% |
 
 Phase 1 drops by about five thousand lines. It is still half the module, because the engine, the
