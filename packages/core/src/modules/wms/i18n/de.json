@@ -223,6 +223,7 @@
   "wms.backend.inventory.adjust.dialog.submit": "Korrektur speichern",
   "wms.backend.inventory.adjust.dialog.title": "Bestand anpassen",
   "wms.backend.inventory.adjust.errors.deltaZero": "Das Bestandsdelta darf nicht Null sein.",
+  "wms.backend.inventory.adjust.errors.insufficientStock": "Die Korrektur übersteigt die an diesem Lagerplatz verfügbare Menge.",
   "wms.backend.inventory.adjust.errors.lot": "Das Inventarlos konnte nicht aufgelöst werden.",
   "wms.backend.inventory.adjust.errors.previewBalance": "Die Balance-Vorschau konnte nicht geladen werden.",
   "wms.backend.inventory.adjust.errors.submit": "Der Lagerbestand konnte nicht angepasst werden.",

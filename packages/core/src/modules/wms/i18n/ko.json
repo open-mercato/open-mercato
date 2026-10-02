@@ -223,6 +223,7 @@
   "wms.backend.inventory.adjust.dialog.submit": "조정 저장",
   "wms.backend.inventory.adjust.dialog.title": "재고 조정",
   "wms.backend.inventory.adjust.errors.deltaZero": "재고 델타는 0이 아니어야 합니다.",
+  "wms.backend.inventory.adjust.errors.insufficientStock": "조정 수량이 이 위치의 가용 수량보다 큽니다.",
   "wms.backend.inventory.adjust.errors.lot": "재고 로트를 해결하지 못했습니다.",
   "wms.backend.inventory.adjust.errors.previewBalance": "미리보기 로드 밸런싱에 실패했습니다.",
   "wms.backend.inventory.adjust.errors.submit": "인벤토리 조정에 실패했습니다.",

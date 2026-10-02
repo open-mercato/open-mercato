@@ -223,6 +223,7 @@
   "wms.backend.inventory.adjust.dialog.submit": "Guardar ajuste",
   "wms.backend.inventory.adjust.dialog.title": "Ajustar inventario",
   "wms.backend.inventory.adjust.errors.deltaZero": "El delta de inventario debe ser distinto de cero.",
+  "wms.backend.inventory.adjust.errors.insufficientStock": "El ajuste supera la cantidad disponible en esta ubicación.",
   "wms.backend.inventory.adjust.errors.lot": "No se pudo resolver el lote de inventario.",
   "wms.backend.inventory.adjust.errors.previewBalance": "No se pudo cargar la vista previa del saldo.",
   "wms.backend.inventory.adjust.errors.submit": "No se pudo ajustar el inventario.",
