@@ -51,7 +51,7 @@ describe('resolveSafeHostAddress — connect-time SSRF pinning', () => {
     await expect(resolveSafeHostAddress('169.254.169.254')).rejects.toThrow(/private or loopback/i)
   })
 
-  it.each(['64:ff9b::7f00:1', '2002:7f00:1::', '::7f00:1', '[64:ff9b::a9fe:a9fe]'])(
+  it.each(['64:ff9b::7f00:1', '2002:7f00:1::', '::7f00:1', '[64:ff9b::a9fe:a9fe]', '64:ff9b::7f00:1%eth0'])(
     'rejects literal IPv6-embedded internal IPv4 %s without resolving it',
     async (host) => {
       const lookup = fakeLookup([{ address: '93.184.216.34', family: 4 }])

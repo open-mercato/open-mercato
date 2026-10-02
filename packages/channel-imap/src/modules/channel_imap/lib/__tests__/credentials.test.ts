@@ -118,6 +118,12 @@ describe('isInternalHost (SSRF guard)', () => {
     '::7f00:1',
     '::127.0.0.1',
     '[::a9fe:a9fe]',
+    '64:ff9b::7f00:1%eth0',
+    '[64:ff9b::7f00:1%25lo0]',
+    '2002:7f00:1::%en0',
+    '::7f00:1%lo0',
+    '::1%lo0',
+    'fe80::1%eth0',
   ]
 
   const allowed = [

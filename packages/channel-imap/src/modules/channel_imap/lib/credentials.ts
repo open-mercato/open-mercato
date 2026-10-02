@@ -85,7 +85,8 @@ export function isInternalHost(rawHost: string): boolean {
   if (!host) return false
   if (FORBIDDEN_HOST_NAMES.has(host) || host.endsWith('.localhost')) return true
   if (host.includes(':')) {
-    return PRIVATE_IPV6_PATTERNS.some((pattern) => pattern.test(host)) || isPrivateIPv6(host)
+    const address = host.replace(/%.*$/, '')
+    return PRIVATE_IPV6_PATTERNS.some((pattern) => pattern.test(address)) || isPrivateIPv6(address)
   }
   if (isObfuscatedIpv4(host)) return true
   // Only treat the private-range patterns as internal for a real dotted-decimal
