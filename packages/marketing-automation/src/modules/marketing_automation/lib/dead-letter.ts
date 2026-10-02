@@ -41,8 +41,11 @@ export async function recordDeadLetter(
        *
        * `readInboundPayload` copies every key a partner posted into the trigger context, so a failed dispatch of
        * an inbound hook wrote their whole body here — contact addresses, phone numbers, names — into plaintext
-       * jsonb that the jobs screen shows and every replica carries. Redacting the error while storing the payload
-       * verbatim was protecting the smaller half.
+       * jsonb that every replica carries and that a future reader will show. Redacting the error while storing
+       * the payload verbatim was protecting the smaller half.
+       *
+       * The jobs screen shows these now, through `listDeadLetters` below — it did not when this comment first
+       * claimed it did, and the claim was what made the gap findable.
        */
       payload: redactPayload(entry.payload),
       // Redacted for the same reason `last_error` is: this is third-party failure text, and a transport
@@ -94,4 +97,46 @@ export async function pruneDeadLetters(
       { createdAt: { $lt: cutoff } },
     ],
   })
+}
+
+export type DeadLetterSummary = {
+  id: string
+  source: 'dispatch' | 'resume'
+  eventId: string | null
+  campaignId: string | null
+  error: string
+  createdAt: string
+}
+
+/**
+ * The reader this table did not have.
+ *
+ * Dispatches were being dead-lettered, pruned at thirty days, and never shown — and this file's own comment
+ * claimed "the jobs screen shows" them, which reads a different table. The argument against automatic replay is
+ * right: a dispatch that failed for a reason nobody has looked at should not be retried by a timer, because
+ * "replay belongs behind a person deciding". That argument needs a screen for the person to decide ON.
+ *
+ * The PAYLOAD is deliberately not returned. It is redacted on the way in, but it is still a third party's body
+ * and the question this list answers — what failed, from where, and why — does not need it. Somebody debugging a
+ * specific entry has the database.
+ */
+export async function listDeadLetters(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  options: { limit?: number } = {},
+): Promise<DeadLetterSummary[]> {
+  const rows = await em.find(
+    MarketingDispatchDeadLetter,
+    { ...scope },
+    // Newest first, and capped like every other list in this module: a page of failures is a page of failures.
+    { orderBy: { createdAt: 'DESC' }, limit: Math.min(Math.max(options.limit ?? 50, 1), 200) },
+  )
+  return rows.map((row) => ({
+    id: row.id,
+    source: row.source,
+    eventId: row.eventId ?? null,
+    campaignId: row.campaignId ?? null,
+    error: row.error,
+    createdAt: row.createdAt.toISOString(),
+  }))
 }
