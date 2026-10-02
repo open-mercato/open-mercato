@@ -5,6 +5,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { clickRowAction } from './helpers/marketing'
 
 const RULES_PATH = '/api/marketing_automation/score-rules'
 const LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
@@ -75,7 +76,7 @@ test.describe('TC-MA-040 score rules screen', () => {
       const created = await findRule(request, token, name)
       expect(created).toMatchObject({ points: 7, isEnabled: false })
 
-      await row.getByRole('button', { name: 'Edit' }).click()
+      await clickRowAction(page, row, 'Edit')
       await expect(page.locator('#score-rule-name')).toHaveValue(name)
 
       // Unsaved work is not thrown away without asking.
@@ -88,7 +89,7 @@ test.describe('TC-MA-040 score rules screen', () => {
       await expect(row).toContainText('-3', { timeout: 20_000 })
       expect((await findRule(request, token, name))?.points).toBe(-3)
 
-      await row.getByRole('button', { name: 'Remove' }).click()
+      await clickRowAction(page, row, 'Remove')
       await confirmDialog(page, 'Confirm')
       await expect(row).toBeHidden({ timeout: 20_000 })
       expect(await findRule(request, token, name)).toBeNull()

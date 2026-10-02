@@ -148,3 +148,42 @@ export async function deleteOwnPerson(
 ): Promise<void> {
   await deleteEntityIfExists(request, token, '/api/customers/people', personEntityId)
 }
+
+/**
+ * Clicks a row action through the `RowActions` menu.
+ *
+ * Four screens used to lay out their own end-justified row of outline buttons, so a spec could click
+ * `row.getByRole('button', { name: 'Edit' })` directly. They go through the design system's overflow menu now,
+ * which means the trigger has to be opened first and the item is PORTALLED to `document.body` — so it is not a
+ * descendant of the row and cannot be found through it.
+ *
+ * Retried, and only reopened when the item is not already showing: a blind second click would close a menu the
+ * first attempt had opened. That is the shape `TC-CUR-004` and `TC-ADMIN-002` arrived at, and the reason is the
+ * same here — these lists re-render when data settles, which can detach the element between finding and
+ * clicking it.
+ */
+export async function clickRowAction(
+  page: import('@playwright/test').Page,
+  row: import('@playwright/test').Locator,
+  name: string | RegExp,
+): Promise<void> {
+  const trigger = row.getByRole('button', { name: 'Open actions' })
+  const item = page.getByRole('menuitem').filter({ hasText: name }).first()
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const alreadyOpen = await item.isVisible().catch(() => false)
+    if (!alreadyOpen) {
+      await trigger.click({ timeout: 5_000 }).catch(async () => {
+        // Keyboard, for the case where the click lands on a detached node mid-re-render.
+        await trigger.focus()
+        await trigger.press('Enter')
+      })
+    }
+    const clicked = await item
+      .click({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false)
+    if (clicked) return
+  }
+  throw new Error(`[internal] could not click the row action ${String(name)}`)
+}

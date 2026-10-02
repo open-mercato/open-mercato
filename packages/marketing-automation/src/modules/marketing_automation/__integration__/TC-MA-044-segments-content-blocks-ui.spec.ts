@@ -5,6 +5,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { clickRowAction } from './helpers/marketing'
 
 const SEGMENTS_PATH = '/api/marketing_automation/segments'
 const BLOCKS_PATH = '/api/marketing_automation/content-blocks'
@@ -136,7 +137,7 @@ test.describe('TC-MA-044 segments and content blocks screens', () => {
       // Saving resets the editor to a fresh draft.
       await expect(page.locator('#segment-name')).toHaveValue('')
 
-      await row.getByRole('button', { name: 'Edit' }).click()
+      await clickRowAction(page, row, 'Edit')
       await expect(page.getByText(`Editing ${name}`)).toBeVisible()
       await expect(page.locator('#segment-name')).toHaveValue(name)
       await expect(page.getByText(`Referenced in an audience as ${created!.slug}. It does not change when the name does.`)).toBeVisible()
@@ -154,7 +155,7 @@ test.describe('TC-MA-044 segments and content blocks screens', () => {
         .toBe('Edited by TC-MA-044')
       expect((await findSegment(request, token, name))?.slug).toBe(created!.slug)
 
-      await row.getByRole('button', { name: 'Remove' }).click()
+      await clickRowAction(page, row, 'Remove')
       await confirmDialog(page, 'Confirm', 'Campaigns that target it will match nobody.')
       await expect(row).toBeHidden({ timeout: 20_000 })
       expect(await findSegment(request, token, name)).toBeNull()
@@ -181,7 +182,7 @@ test.describe('TC-MA-044 segments and content blocks screens', () => {
 
       const row = segmentRow(page, mainName)
       await expect(row).toBeVisible({ timeout: 20_000 })
-      await row.getByRole('button', { name: 'Members' }).click()
+      await clickRowAction(page, row, 'Members')
 
       await expect(page.getByText(`Editing ${mainName}`)).toBeVisible()
       await expect(page.getByRole('link', { name: marker })).toBeVisible({ timeout: 20_000 })
@@ -247,7 +248,7 @@ test.describe('TC-MA-044 segments and content blocks screens', () => {
       await fillControlledInput(page.locator('#segment-name'), draftName)
       await page.getByRole('button', { name: 'Add First Condition' }).click()
 
-      await row.getByRole('button', { name: 'Edit' }).click()
+      await clickRowAction(page, row, 'Edit')
       await confirmDialog(page, 'Cancel', 'This segment has changes that have not been saved.')
       await expect(page.locator('#segment-name')).toHaveValue(draftName)
       await expect(page.getByPlaceholder('e.g., status, user.email')).toBeVisible()
@@ -296,7 +297,7 @@ test.describe('TC-MA-044 segments and content blocks screens', () => {
       await expect(row).toContainText('QA UI footer')
       expect(await findBlock(request, token, key)).toMatchObject({ name: 'QA UI footer', html: '<p>QA footer</p>' })
 
-      await row.getByRole('button', { name: 'Edit' }).click()
+      await clickRowAction(page, row, 'Edit')
       await expect(page.getByText(`Editing ${key}`)).toBeVisible()
       // The reference is immutable once created: messages point at it.
       await expect(page.locator('#block-key')).toBeDisabled()
@@ -308,7 +309,7 @@ test.describe('TC-MA-044 segments and content blocks screens', () => {
         .toBe('<p>QA footer, edited</p>')
       await expect(page.getByText('New block').first()).toBeVisible()
 
-      await row.getByRole('button', { name: 'Remove' }).click()
+      await clickRowAction(page, row, 'Remove')
       await confirmDialog(page, 'Confirm', 'Messages that reference it will render nothing in its place.')
       await expect(row).toBeHidden({ timeout: 20_000 })
       expect(await findBlock(request, token, key)).toBeNull()
