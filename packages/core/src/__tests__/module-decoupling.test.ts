@@ -4,6 +4,13 @@
  * Verifies that the application remains functional when optional modules
  * (catalog, sales, api_keys) are disabled — removed from the generated
  * module registry and entity IDs.
+ *
+ * `journal_entry_line_dimension` (OM-37) is checked the same way, but more
+ * narrowly: it has zero real consumers in Phase 1 (`posting_rules`,
+ * `fixed_assets` are still future work), so the only thing worth asserting
+ * is that it is absent without anything else crashing — there is no
+ * catalog-shaped "other code references this module's literal id" case to
+ * cover the way sections 2-3 cover `catalog`.
  */
 
 // Build a reduced entity IDs registry excluding catalog, sales, api_keys
@@ -221,6 +228,15 @@ describe('Module Decoupling', () => {
       expect(entityIds).not.toHaveProperty('catalog')
       expect(entityIds).not.toHaveProperty('sales')
       expect(entityIds).not.toHaveProperty('api_keys')
+    })
+
+    // OM-37: journal_entry_line_dimension has zero consumers in Phase 1
+    // (posting_rules/fixed_assets are still future work), so disabling it
+    // is expected to be a pure no-op — nothing else in `reducedModules`/
+    // `reducedE` references it, unlike catalog (see sections 2-3 below).
+    it('getEntityIds() has no journal_entry_line_dimension key', () => {
+      const entityIds = getEntityIds()
+      expect(entityIds).not.toHaveProperty('journal_entry_line_dimension')
     })
 
     it('still contains core modules', () => {

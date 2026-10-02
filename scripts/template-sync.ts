@@ -302,6 +302,20 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
+  // template-sync didn't know the ledger module was deliberately kept
+  // commented out in the template (see the comment in
+  // packages/create-app/template/src/modules.ts), so `template-sync --check`
+  // reported it as drift and `template:sync:fix` would have silently
+  // re-enabled it there.
+  ledger: {
+    source: `  { id: 'ledger', from: '@open-mercato/core' },`,
+    template: `  // General Ledger core engine — ships with the scaffold but stays disabled
+  // here until its module fact-sheet gains catalog coverage (run the
+  // om-refresh-standalone-harness skill to add it, then enable this line).
+  // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
+  // deliberate divergence, not drift.
+  // { id: 'ledger', from: '@open-mercato/core' },`,
+  },
 }
 
 function commentOutTemplateModules(content: string, rel: string): string {
