@@ -24,6 +24,24 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### OpenAI-compatible presets call Chat Completions by default (#4638)
+
+`createOpenAICompatibleProvider(preset)`
+(`@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-adapters/openai`) used to build every
+model with `openai(modelId)`, which `@ai-sdk/openai` v4 routes to the Responses API
+(`POST {baseURL}/responses`). OpenAI-compatible backends (DeepInfra, Groq, Together, Fireworks,
+OpenRouter, LiteLLM, Ollama, LM Studio, …) only implement Chat Completions, so every call answered
+`404 Not Found`.
+
+`OpenAICompatiblePreset` gained an optional `apiMode?: 'chat' | 'responses'` (type
+`OpenAICompatibleApiMode`). A preset that omits it now calls `POST {baseURL}/chat/completions`.
+The built-in `openai` preset sets `apiMode: 'responses'`, so native OpenAI keeps the Responses API
+and its provider-executed tools such as `web_search`.
+
+**Action for app authors:** a custom preset registered with `createOpenAICompatibleProvider` now
+uses Chat Completions. If its backend implements the Responses API and you rely on it, add
+`apiMode: 'responses'` to the preset.
+
 ### Customers calendar event-type extension contract (#6684)
 
 Customers now exposes the scoped `GET /api/customers/activity-types` catalog and the additive `calendar:customers.event-types` headless widget spot. Modules can use widget `eventTypeOverrides` and `eventTypePatches` payloads to replace, patch, or hide event types, and use the Customers-owned `calendarEventTypeRegistry` service for process-local contributions. React panels use the new `section:customers.calendar-event-editor.type-panel` UMES handle. The six existing keys and persisted `interactionType` values remain unchanged; the existing `KIND_CONFIG`, `EDITOR_KINDS`, `EditorKindConfig`, and `editorKindOfInteractionType()` exports remain available.
@@ -84,16 +102,34 @@ looked in a bucket that does not exist.
 
 `FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
 (`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
-own organization — `null` when it has none. The Gmail push path (`gmail-history-sync` →
-`applyPushNotification`, which forwards its scope into `fetchHistory`) still substitutes the tenant
-id and is tracked in #6634, so adapters should keep handling both shapes for now. `TenantScope` and every other adapter input are unchanged,
-and the hub still resolves channel credentials under the key they are written with (the tenant id
-for an organization-less channel).
+own organization — `null` when it has none. The Gmail push path and the reaction adapter inputs
+follow in the same release — see the next entry (#6634). `TenantScope` and the remaining adapter
+inputs are unchanged, and the hub still resolves channel credentials under the key they are written
+with (the tenant id for an organization-less channel).
 
 **Action for adapter authors:** if your `fetchHistory` reads `input.scope.organizationId`, handle
 `null` (a tenant-wide channel). TypeScript now flags code that passes it where a `string` is
 required. If you previously worked around the substitution by resolving the channel's real
 organization yourself, that workaround keeps working and can be dropped.
+
+### `applyPushNotification`, `sendReaction` and `removeReaction` receive `scope.organizationId: null` for a channel with no organization (#6634)
+
+Follow-up to #6331. The `communication_channels` Gmail push worker (`gmail-history-sync` →
+`adapter.applyPushNotification`) and the outbound reaction worker (`reaction-processor` →
+`adapter.sendReaction` / `adapter.removeReaction`) also replaced a channel's missing organization
+with the tenant id in the scope they hand the adapter. For Gmail this reached `fetchHistory` too,
+because `applyPushNotification` forwards its scope there.
+
+`ApplyPushNotificationInput.scope`, `SendReactionInput.scope` and `RemoveReactionInput.scope` are
+now typed as `ChannelScope` (`{ tenantId: string; organizationId: string | null }`), and both
+workers pass the channel's own organization — `null` when it has none. Channel credentials are
+still resolved under the key they are written with (the tenant id for an organization-less
+channel), so existing credential rows keep working.
+
+**Action for adapter authors:** if your `applyPushNotification`, `sendReaction` or
+`removeReaction` reads `input.scope.organizationId`, handle `null` (a tenant-wide channel).
+TypeScript now flags code that passes it where a `string` is required. The in-repo Gmail and
+Discord adapters needed no change.
 
 ### `customers` now requires `progress` to be enabled (#6302)
 

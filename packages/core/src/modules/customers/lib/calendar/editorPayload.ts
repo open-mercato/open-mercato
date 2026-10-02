@@ -122,6 +122,15 @@ export type EditorParticipant = {
   name: string
   email?: string
   isCustomer: boolean
+  status?: string
+}
+
+const CUSTOMER_PARTICIPANT_STATUS = 'customer'
+
+function resolveParticipantStatus(participant: EditorParticipant): string {
+  if (participant.isCustomer) return CUSTOMER_PARTICIPANT_STATUS
+  if (participant.status && participant.status !== CUSTOMER_PARTICIPANT_STATUS) return participant.status
+  return 'pending'
 }
 
 /** linkedEntities `type` marker for resource assignments (FK-id + label snapshot). */
@@ -351,7 +360,7 @@ export function buildInteractionPayload(state: EditorFormState, options: BuildPa
             userId: participant.userId,
             name: participant.name,
             email: participant.email,
-            status: participant.isCustomer ? 'customer' : 'pending',
+            status: resolveParticipantStatus(participant),
           }))
         : null,
   }
@@ -417,18 +426,16 @@ function parseRepeatFromRule(rawRule: unknown, start: Date, timezone?: string): 
 }
 
 function parseParticipants(item: CalendarItem): EditorParticipant[] {
-  const rawParticipants = Array.isArray(item.raw.participants) ? item.raw.participants : []
-  const statusByUserId = new Map<string, string | null>()
-  for (const raw of rawParticipants) {
-    if (!raw.userId) continue
-    statusByUserId.set(raw.userId, readUnknownString((raw as Record<string, unknown>).status))
-  }
-  return item.participants.map((participant) => ({
-    userId: participant.userId,
-    name: participant.name ?? participant.email ?? participant.userId ?? '',
-    email: participant.email,
-    isCustomer: participant.userId ? statusByUserId.get(participant.userId) === 'customer' : false,
-  }))
+  return item.participants.map((participant) => {
+    const status = readUnknownString(participant.status)
+    return {
+      userId: participant.userId,
+      name: participant.name ?? participant.email ?? participant.userId ?? '',
+      email: participant.email,
+      isCustomer: Boolean(participant.userId) && status === CUSTOMER_PARTICIPANT_STATUS,
+      ...(status ? { status } : {}),
+    }
+  })
 }
 
 export function parseItemToFormState(item: CalendarItem): EditorFormState {

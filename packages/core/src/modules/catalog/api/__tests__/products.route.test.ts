@@ -166,6 +166,72 @@ describe('catalog products route helpers', () => {
     expect(filters.id).toEqual({ $eq: '00000000-0000-0000-0000-000000000000' })
   })
 
+  describe('prequery organization scope (issue #6466)', () => {
+    const runScopedPrequeries = async (ctx: Record<string, unknown>) => {
+      const find = jest.fn().mockResolvedValue([])
+      const em = { fork: () => ({ find }) }
+      const container = { resolve: jest.fn().mockReturnValue(em) }
+      ;(buildCustomFieldFiltersFromQuery as jest.Mock).mockResolvedValueOnce({})
+      await buildProductFilters(
+        {
+          search: 'hustawka',
+          channelIds: '11111111-1111-4111-8111-111111111111',
+          categoryIds: '22222222-2222-4222-8222-222222222222',
+          tagIds: '33333333-3333-4333-8333-333333333333',
+        } as any,
+        { container, ...ctx } as any,
+      )
+      expect(find).toHaveBeenCalledTimes(4)
+      return find.mock.calls.map(([, where]) => where as Record<string, unknown>)
+    }
+
+    it('does not restrict by organization when "All organizations" leaves the scope unrestricted', async () => {
+      const wheres = await runScopedPrequeries({
+        auth: { tenantId: 'tenant-1', orgId: null },
+        selectedOrganizationId: null,
+        organizationIds: null,
+      })
+      for (const where of wheres) {
+        expect(where).not.toHaveProperty('organizationId')
+        expect(where.tenantId).toBe('tenant-1')
+      }
+    })
+
+    it('matches every organization in a multi-organization scope', async () => {
+      const wheres = await runScopedPrequeries({
+        auth: { tenantId: 'tenant-1', orgId: null },
+        selectedOrganizationId: null,
+        organizationIds: ['org-a', 'org-b'],
+      })
+      for (const where of wheres) {
+        expect(where.organizationId).toEqual({ $in: ['org-a', 'org-b'] })
+        expect(where.tenantId).toBe('tenant-1')
+      }
+    })
+
+    it('matches nothing when the organization scope is empty', async () => {
+      const wheres = await runScopedPrequeries({
+        auth: { tenantId: 'tenant-1', orgId: null },
+        selectedOrganizationId: null,
+        organizationIds: [],
+      })
+      for (const where of wheres) {
+        expect(where.organizationId).toEqual({ $in: [] })
+      }
+    })
+
+    it('keeps the selected organization when no organization scope is resolved', async () => {
+      const wheres = await runScopedPrequeries({
+        auth: { tenantId: 'tenant-1', orgId: 'org-auth' },
+        selectedOrganizationId: 'org-selected',
+      })
+      for (const where of wheres) {
+        expect(where.organizationId).toBe('org-selected')
+        expect(where.tenantId).toBe('tenant-1')
+      }
+    })
+  })
+
   it('scores obvious product title and sku matches by relevance', () => {
     expect(scoreProductSearchRelevance('aurora', 'Aurora', 'AU-01')).toBe(0)
     expect(scoreProductSearchRelevance('aurora', 'Northern Lights', 'aurora')).toBe(1)

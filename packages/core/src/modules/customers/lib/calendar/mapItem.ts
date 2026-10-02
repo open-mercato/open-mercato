@@ -54,6 +54,7 @@ function mapParticipants(payload: CalendarInteractionPayload): CalendarParticipa
     if (typeof participant.userId === 'string') entry.userId = participant.userId
     if (typeof participant.name === 'string') entry.name = participant.name
     if (typeof participant.email === 'string') entry.email = participant.email
+    if (typeof participant.status === 'string') entry.status = participant.status
     mapped.push(entry)
   }
   return mapped

@@ -124,6 +124,7 @@ export type CompanyFormValues = {
 } & Record<string, unknown>
 
 type DictionarySelectFieldProps = {
+  id?: string
   kind: CustomerDictionaryKind
   value?: string
   onChange: (value: string | undefined) => void
@@ -155,6 +156,7 @@ const createSectionHeadingField = (id: string, title: string): CrudField => ({
 })
 
 export function DictionarySelectField({
+  id,
   kind,
   value,
   onChange,
@@ -267,6 +269,7 @@ export function DictionarySelectField({
 
   return (
     <DictionaryEntrySelect
+      id={id}
       value={value}
       onChange={onChange}
       fetchOptions={fetchOptions}
