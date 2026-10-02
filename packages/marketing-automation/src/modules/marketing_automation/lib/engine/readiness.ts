@@ -106,6 +106,19 @@ export function evaluateReadiness(facts: ReadinessFacts): ReadinessCheck[] {
        * every periodic campaign and does not know.
        */
       id: 'schedules',
+      /**
+       * `recommended`, and deliberately so — this was re-examined and the grade is right.
+       *
+       * An audit proposed grading it `blocking` where the scheduler is installed and these two jobs are not,
+       * reasoning that every periodic campaign then silently never runs. The consequence is real; the grade
+       * would not be. `blocking` is defined one screen down as "nothing will be delivered until it is done", and
+       * an installation without a scheduler still delivers every EVENT-triggered campaign. Calling it blocking
+       * would make `isReadyToSend` answer a question it was not asked, and tell an operator whose welcome
+       * sequence is working perfectly that nothing can send.
+       *
+       * The real gap the audit found is in the WORDING on the setup screen, not in this severity: "Ready to
+       * send" is true and incomplete. That is fixed where it is said, not by mislabelling the fact here.
+       */
       severity: 'recommended',
       done: facts.schedulesRegistered !== false,
       href: '/backend/settings/scheduler',

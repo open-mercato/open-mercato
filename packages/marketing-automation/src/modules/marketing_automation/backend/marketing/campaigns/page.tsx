@@ -297,6 +297,23 @@ export default function CampaignsListPage() {
     },
   ], [t, router])
 
+  /**
+   * The empty state is ROUTED to the readiness checklist, not merely descriptive.
+   *
+   * This is the first marketing screen anybody opens, and it used to explain what a campaign IS and stop there
+   * — on an installation that may not be able to send at all. The checklist exists to answer exactly that, and
+   * nothing in the module linked to it, so the one screen written for this moment was reachable only by
+   * guessing it was in the nav.
+   */
+  const emptyState = (
+    <ListEmptyState
+      title={t('marketing_automation.list.empty.title', 'No campaigns yet')}
+      description={t('marketing_automation.list.empty.description', 'A campaign reacts to something that happens, decides who it applies to, and then runs a series of steps.')}
+      createHref="/backend/marketing/setup"
+      createLabel={t('marketing_automation.list.empty.action', 'Check what this installation needs')}
+    />
+  )
+
   return (
     <Page>
       <PageBody>
@@ -369,12 +386,7 @@ export default function CampaignsListPage() {
               pageSizeOptions: [10, 25, 50, 100],
               onPageSizeChange: (next) => { setPageSize(next); setPage(1) },
             }}
-            emptyState={(
-              <ListEmptyState
-                title={t('marketing_automation.list.empty.title', 'No campaigns yet')}
-                description={t('marketing_automation.list.empty.description', 'A campaign reacts to something that happens, decides who it applies to, and then runs a series of steps.')}
-              />
-            )}
+            emptyState={emptyState}
           />
         )}
         {ConfirmDialogElement}
