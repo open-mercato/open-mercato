@@ -219,4 +219,44 @@ test.describe('CRM deal owner assignment — browser UI', () => {
     expect(Array.isArray(sent.ids) && sent.ids.length > 0, 'The bulk request must carry the selection').toBeTruthy();
     expect(sent.ownerUserId, 'The bulk request must carry a real owner, never null').toBeTruthy();
   });
+
+  /**
+   * Regression guard for #6858. The create card's header packed the title, subtitle and both
+   * buttons into one row with the actions `shrink-0`, so at phone width the heading column
+   * collapsed and broke word by word underneath the Cancel button — visibly worse in locales
+   * whose labels are longer than English. Checked in Polish, the locale the issue reported.
+   */
+  test('create card header does not collide with its actions at phone width', async ({ page, context }) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    await login(page, 'admin');
+    await context.addCookies([{ name: 'locale', value: 'pl', url: 'http://localhost:3000' }]);
+    await page.goto('/backend/customers/deals/create');
+
+    const ownerField = page.locator(OWNER_FIELD);
+    await expect(ownerField).toBeVisible({ timeout: 120_000 });
+
+    const card = page.locator('section').filter({ has: page.locator('[data-crud-field-id="title"]') }).first();
+    const heading = card.locator('p').first();
+    const headingBox = await heading.boundingBox();
+    expect(headingBox, 'The card heading must be laid out').not.toBeNull();
+
+    for (const button of await card.locator('button').all()) {
+      const box = await button.boundingBox();
+      if (!box || !headingBox) continue;
+      const overlaps =
+        headingBox.x < box.x + box.width &&
+        box.x < headingBox.x + headingBox.width &&
+        headingBox.y < box.y + box.height &&
+        box.y < headingBox.y + headingBox.height;
+      expect(overlaps, 'No header action may sit on top of the card heading').toBe(false);
+    }
+
+    // The heading collapsing to a sliver is what forced the word-by-word wrap.
+    expect(headingBox!.width, 'The heading must keep a usable width').toBeGreaterThan(100);
+
+    const scrollsSideways = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(scrollsSideways, 'A phone-width page must not scroll horizontally').toBe(false);
+  });
 });
