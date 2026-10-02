@@ -1429,6 +1429,7 @@
   "customers.deals.list.close.overdue": "Overdue",
   "customers.deals.list.close.won": "Won",
   "customers.deals.list.columns.companies": "Companies",
+  "customers.deals.list.columns.createdAt": "Created",
   "customers.deals.list.columns.expectedClose": "Expected close",
   "customers.deals.list.columns.owner": "Owner",
   "customers.deals.list.columns.people": "People",

@@ -1429,6 +1429,7 @@
   "customers.deals.list.close.overdue": "Vencido",
   "customers.deals.list.close.won": "Ganado",
   "customers.deals.list.columns.companies": "Empresas",
+  "customers.deals.list.columns.createdAt": "Creado",
   "customers.deals.list.columns.expectedClose": "Cierre esperado",
   "customers.deals.list.columns.owner": "Responsable",
   "customers.deals.list.columns.people": "Personas",

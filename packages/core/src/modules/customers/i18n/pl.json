@@ -1429,6 +1429,7 @@
   "customers.deals.list.close.overdue": "Po terminie",
   "customers.deals.list.close.won": "Wygrana",
   "customers.deals.list.columns.companies": "Firmy",
+  "customers.deals.list.columns.createdAt": "Utworzono",
   "customers.deals.list.columns.expectedClose": "Planowana finalizacja",
   "customers.deals.list.columns.owner": "Właściciel",
   "customers.deals.list.columns.people": "Osoby",
