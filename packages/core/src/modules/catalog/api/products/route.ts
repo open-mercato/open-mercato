@@ -955,7 +955,10 @@ const crud = makeCrudRoute({
           ? { ...base, customFields: custom }
           : base;
       },
-      response: () => ({ ok: true }),
+      response: ({ result }) => ({
+        ok: true,
+        updatedAt: result?.updatedAt ?? null,
+      }),
     },
     delete: {
       commandId: "catalog.products.delete",
@@ -1067,7 +1070,9 @@ export const openApi = createCatalogCrudOpenApi({
   },
   update: {
     schema: productUpdateSchema,
-    responseSchema: defaultOkResponseSchema,
+    responseSchema: defaultOkResponseSchema.extend({
+      updatedAt: z.string().nullable().optional(),
+    }),
     description: "Updates an existing product by id.",
   },
   del: {
