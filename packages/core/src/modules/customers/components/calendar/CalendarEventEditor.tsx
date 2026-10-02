@@ -334,12 +334,26 @@ export function CalendarEventEditor({
     if (saving || closeConfirmPendingRef.current) return
     if (dirtyRef.current) {
       closeConfirmPendingRef.current = true
+      // The shared confirm answers Cmd/Ctrl+Enter with its confirm action, which
+      // here discards the draft — on the very shortcut that saves the form. The
+      // shortcut is swallowed while the prompt is up; the buttons and Escape
+      // (keep editing) still answer it.
+      const swallowSubmitShortcut = (event: KeyboardEvent) => {
+        if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      window.addEventListener('keydown', swallowSubmitShortcut, true)
       try {
         const confirmed = await confirm({
           title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+          confirmText: t('customers.deals.detail.unsavedConfirm', 'Discard changes'),
+          cancelText: t('customers.deals.detail.unsavedCancel', 'Keep editing'),
+          variant: 'destructive',
         })
         if (!confirmed) return
       } finally {
+        window.removeEventListener('keydown', swallowSubmitShortcut, true)
         closeConfirmPendingRef.current = false
       }
     }

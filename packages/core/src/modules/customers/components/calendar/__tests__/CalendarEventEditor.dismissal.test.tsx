@@ -49,7 +49,13 @@ it.each(['Outside overlay', 'Close', 'Escape'])('protects a changed draft with t
   confirmMock.mockResolvedValueOnce(false)
   await act(async () => { dismiss() })
   expect(confirmMock).toHaveBeenCalledTimes(1)
-  expect(confirmMock).toHaveBeenCalledWith({ title: 'You have unsaved changes. Are you sure you want to leave?' })
+  // The draft-losing action is named and destructive; the safe one keeps editing.
+  expect(confirmMock).toHaveBeenCalledWith({
+    title: 'You have unsaved changes. Are you sure you want to leave?',
+    confirmText: 'Discard changes',
+    cancelText: 'Keep editing',
+    variant: 'destructive',
+  })
   expect(onOpenChange).not.toHaveBeenCalled()
   confirmMock.mockResolvedValueOnce(true)
   await act(async () => { dismiss() })
@@ -68,6 +74,32 @@ it('asks once while an unsaved-changes confirmation is already pending', async (
   expect(confirmMock).toHaveBeenCalledTimes(1)
   await act(async () => { resolveConfirm(true) })
   expect(onOpenChange).toHaveBeenCalledTimes(1)
+})
+
+it('swallows the save shortcut while the discard confirmation is up, so it cannot discard the draft', async () => {
+  const onOpenChange = jest.fn()
+  renderWithProviders(<CalendarEventEditor open mode="create" typeLabels={{}} onOpenChange={onOpenChange} onSaved={() => {}} />)
+  fireEvent.change(screen.getByLabelText('Draft title'), { target: { value: 'Unsaved event' } })
+  let resolveConfirm: (confirmed: boolean) => void = () => {}
+  confirmMock.mockReturnValueOnce(new Promise<boolean>((resolve) => { resolveConfirm = resolve }))
+  // Stands in for the shared ConfirmDialog, which confirms on Cmd/Ctrl+Enter
+  // from a bubble-phase window listener.
+  const confirmShortcut = jest.fn()
+  window.addEventListener('keydown', confirmShortcut)
+  try {
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Outside overlay' })) })
+    fireEvent.keyDown(document.body, { key: 'Enter', metaKey: true })
+    fireEvent.keyDown(document.body, { key: 'Enter', ctrlKey: true })
+    expect(confirmShortcut).not.toHaveBeenCalled()
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    expect(confirmShortcut).toHaveBeenCalledTimes(1)
+    await act(async () => { resolveConfirm(false) })
+    expect(onOpenChange).not.toHaveBeenCalled()
+    fireEvent.keyDown(document.body, { key: 'Enter', metaKey: true })
+    expect(confirmShortcut).toHaveBeenCalledTimes(2)
+  } finally {
+    window.removeEventListener('keydown', confirmShortcut)
+  }
 })
 
 it('closes an unchanged draft without a confirmation', async () => {
