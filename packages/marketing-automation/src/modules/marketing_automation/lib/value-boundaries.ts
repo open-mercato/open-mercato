@@ -135,3 +135,34 @@ export async function loadValueBoundaries(
     computedAt: row.computedAt ? row.computedAt.toISOString() : null,
   }
 }
+
+/**
+ * How long a set of cut points stays usable before it is worth recomputing.
+ *
+ * The boundaries are percentiles over every buyer in the tenant, which is the most expensive statement
+ * this module runs. They answer "where does the top fifth of our customers start", and that does not
+ * move measurably between one hour and the next — so recomputing on every hourly tick spent the whole
+ * cost twenty-four times a day to produce the same numbers.
+ */
+export const VALUE_BOUNDARY_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Refreshes the cut points only when they are missing or a day old.
+ *
+ * Missing matters more than stale: on an installation that has never swept there is no row at all, and a
+ * published "top 20% spenders" campaign enrolled nobody on its first pass because the projection read
+ * boundaries that did not exist yet. So an absent row refreshes immediately, whatever the clock says.
+ */
+export async function refreshValueBoundariesIfStale(
+  em: EntityManager,
+  scope: BoundaryScope,
+  now: Date,
+): Promise<{ refreshed: boolean; boundaries: ValueBoundaries }> {
+  const current = await loadValueBoundaries(em, scope)
+  const computedAt = current.computedAt ? Date.parse(current.computedAt) : null
+  const fresh = computedAt !== null
+    && Number.isFinite(computedAt)
+    && now.getTime() - computedAt < VALUE_BOUNDARY_MAX_AGE_MS
+  if (fresh) return { refreshed: false, boundaries: current }
+  return { refreshed: true, boundaries: await refreshValueBoundaries(em, scope, now) }
+}

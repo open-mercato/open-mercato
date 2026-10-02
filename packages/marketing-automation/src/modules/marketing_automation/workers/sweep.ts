@@ -17,7 +17,7 @@ import type { RowSweepSource, SweepCandidate } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
 import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
-import { loadValueBoundaries, refreshValueBoundaries } from '../lib/value-boundaries.js'
+import { loadValueBoundaries, refreshValueBoundariesIfStale } from '../lib/value-boundaries.js'
 import { loadValueHorizonYears } from '../lib/value-horizon.js'
 import type { ValueBoundaries } from '../lib/engine/rfm.js'
 import { scanPriceWatches } from '../lib/product-watches.js'
@@ -382,12 +382,72 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
    * Both are tenant configuration rather than per-subject facts, and a sweep may project thousands of
    * candidates, so `buildSubjectDocument` must not read them once per customer.
    */
+  /**
+   * The deliverability guardrail, before anything else on this pass — and this time actually before.
+   *
+   * First because everything below is about sending more: a campaign being refused by the transport should
+   * stop before the sweep enrols another thousand people into it. It used to run AFTER the campaign loop, so
+   * a campaign the transport was rejecting enrolled one more tick's worth of people on every pass and was
+   * paused only once that was done.
+   */
+  try {
+    const tripped = await applyDeliverabilityGuardrails(deps.em, deps.container, scope, deps.now)
+    for (const outcome of tripped) {
+      logger.warn('marketing campaign paused by the deliverability guardrail', {
+        campaignId: outcome.campaignId,
+        failureRate: outcome.decision.failureRate,
+        attempts: outcome.decision.attempts,
+      })
+      await announceBreaker(deps.container, scope, outcome)
+    }
+  } catch (error) {
+    /**
+     * Reported, not just logged.
+     *
+     * This catch swallowed a guardrail that could not work at all: the command it calls threw on every trip,
+     * and a `warn` with no error report is invisible in exactly the way that let it stay broken. A pass that
+     * cannot pause a campaign is worth knowing about — the whole point of the breaker is that nobody is
+     * watching when it matters.
+     */
+    logger.warn('[internal] marketing deliverability guardrail failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.deliverability_guardrail_failed',
+    })
+  }
+  /**
+   * The RFM cut points, refreshed before any campaign is projected — and this time actually before.
+   *
+   * The ordering was asserted in a comment and contradicted by the code: the refresh sat AFTER the
+   * campaign loop, so on an installation that had never swept there was no boundaries row when the
+   * projection read one, and a published "top 20% spenders" campaign enrolled nobody on its first pass
+   * with no diagnostic, then started working an hour later.
+   *
+   * Refreshed at most once a day rather than on every tick. The statement is percentiles over every buyer
+   * in the tenant — the most expensive one this module runs — and where the top fifth of customers starts
+   * does not move between one hour and the next. An ABSENT row still refreshes immediately, because that
+   * is the case the ordering above exists for.
+   *
+   * A failure is logged and the pass continues. Yesterday's boundaries are a perfectly good answer, and
+   * none at all means no scores — never a wrong score.
+   */
+  try {
+    const { refreshed, boundaries } = await refreshValueBoundariesIfStale(deps.em, scope, deps.now)
+    if (refreshed) logger.info('marketing value boundaries refreshed', { buyers: boundaries.buyerCount })
+  } catch (error) {
+    logger.warn('[internal] marketing value boundaries refresh failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
   const projection: ProjectionOptions | null = scheduled.length
     ? {
         tierThresholds: await loadTierThresholds(deps.container, scope),
         segments: await loadSegmentDefinitions(deps.em, scope),
-        // Refreshed below once a day; read here as one row, because a percentile over every buyer must not
-        // run per candidate.
+        // Refreshed just above, at most once a day; read here as one row, because a percentile over every
+        // buyer must not run per candidate.
         valueBoundaries: await loadValueBoundaries(deps.em, scope),
         valueHorizonYears: await loadValueHorizonYears(deps.container, scope),
       }
@@ -451,39 +511,6 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     }
   }
 
-  /**
-   * The deliverability guardrail, before anything else on this pass.
-   *
-   * First because everything below is about sending more: a campaign being refused by the transport should stop
-   * before the sweep enrols another thousand people into it.
-   */
-  try {
-    const tripped = await applyDeliverabilityGuardrails(deps.em, deps.container, scope, deps.now)
-    for (const outcome of tripped) {
-      logger.warn('marketing campaign paused by the deliverability guardrail', {
-        campaignId: outcome.campaignId,
-        failureRate: outcome.decision.failureRate,
-        attempts: outcome.decision.attempts,
-      })
-      await announceBreaker(deps.container, scope, outcome)
-    }
-  } catch (error) {
-    /**
-     * Reported, not just logged.
-     *
-     * This catch swallowed a guardrail that could not work at all: the command it calls threw on every trip,
-     * and a `warn` with no error report is invisible in exactly the way that let it stay broken. A pass that
-     * cannot pause a campaign is worth knowing about — the whole point of the breaker is that nobody is
-     * watching when it matters.
-     */
-    logger.warn('[internal] marketing deliverability guardrail failed', {
-      error: error instanceof Error ? error.message : String(error),
-    })
-    reportError(error, {
-      module: 'marketing_automation',
-      code: 'marketing_automation.deliverability_guardrail_failed',
-    })
-  }
 
   /**
    * The weekly lead digest, which decides for itself whether it is due.
@@ -561,25 +588,6 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
    * Idempotent through a unique index on the day, so running on every tick records one point per day without
    * needing to remember whether it already did.
    */
-  /**
-   * The RFM cut points, refreshed BEFORE any campaign is projected.
-   *
-   * Order matters and used to be wrong: the refresh sat after the campaign loop, so on an installation that had
-   * never swept there was no boundaries row when the projection read one — and a published "top 20% spenders"
-   * campaign enrolled nobody on its first run, with no diagnostic, then started working an hour later. Cheap to
-   * get right: one statement before the loop rather than after it.
-   *
-   * A failure is logged and the pass continues. Yesterday's boundaries are a perfectly good answer, and none at
-   * all means no scores — never a wrong score.
-   */
-  try {
-    const boundaries = await refreshValueBoundaries(deps.em, scope, deps.now)
-    logger.info('marketing value boundaries refreshed', { buyers: boundaries.buyerCount })
-  } catch (error) {
-    logger.warn('[internal] marketing value boundaries refresh failed', {
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
 
   /**
    * A/B tests that have earned a conclusion, concluded.
