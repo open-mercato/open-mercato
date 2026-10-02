@@ -51,10 +51,16 @@ const auditActionQuerySchema = z.object({
     .default('false')
     .describe('When `true`, only undoable actions are returned')
     .optional(),
-  limit: z.string().describe('Maximum number of records to return (default 50, max 1000)').optional(),
-  offset: z.string().describe('Zero-based record offset for pagination (legacy — prefer page/pageSize)').optional(),
-  page: z.string().describe('Page number (default 1)').optional(),
-  pageSize: z.string().describe('Page size (default 50, max 200)').optional(),
+  limit: z
+    .string()
+    .describe('Maximum number of records to return (default 50, max 1000). Ignored when `pageSize` is sent.')
+    .optional(),
+  offset: z
+    .string()
+    .describe('Zero-based record offset for pagination (legacy — prefer page/pageSize). Takes precedence over `page` when both are sent.')
+    .optional(),
+  page: z.string().describe('Page number (default 1). Ignored when `offset` is sent.').optional(),
+  pageSize: z.string().describe('Page size (default 50, max 200). Takes precedence over `limit` when both are sent.').optional(),
   sortField: z
     .enum(SORT_FIELDS)
     .describe('Sort field: `createdAt`, `user`, `action`, `field`, or `source`.')
@@ -111,18 +117,11 @@ function parseDate(value: string | null): Date | undefined {
   return new Date(ts)
 }
 
-function parseLimit(param: string | null): number {
-  if (!param) return 50
+function parseOptionalInteger(param: string | null, { min, max }: { min: number; max: number }): number | undefined {
+  if (param === null || param.trim() === '') return undefined
   const value = Number(param)
-  if (!Number.isFinite(value)) return 50
-  return Math.min(Math.max(Math.trunc(value), 1), 1000)
-}
-
-function parseOffset(param: string | null): number {
-  if (!param) return 0
-  const value = Number(param)
-  if (!Number.isFinite(value)) return 0
-  return Math.max(Math.trunc(value), 0)
+  if (!Number.isFinite(value)) return undefined
+  return Math.min(Math.max(Math.trunc(value), min), max)
 }
 
 function splitCsv(value: string | null): string[] {
@@ -137,15 +136,6 @@ function parseActionTypes(param: string | null) {
   return splitCsv(param).filter((value): value is (typeof ACTION_TYPE_TOKENS)[number] =>
     ACTION_TYPE_TOKENS.includes(value as (typeof ACTION_TYPE_TOKENS)[number]),
   )
-}
-
-function parseNumber(param: string | null, { min, max, fallback }: { min: number; max: number; fallback: number }) {
-  if (!param) return fallback
-  const value = Number(param)
-  if (!Number.isFinite(value)) return fallback
-  const normalized = Math.trunc(value)
-  if (Number.isNaN(normalized)) return fallback
-  return Math.min(Math.max(normalized, min), max)
 }
 
 export async function GET(req: Request) {
@@ -178,10 +168,10 @@ export async function GET(req: Request) {
   const includeRelated = parseBooleanToken(url.searchParams.get('includeRelated')) === true
   const includeTotal = parseBooleanToken(url.searchParams.get('includeTotal')) === true
   const undoableOnly = parseBooleanToken(url.searchParams.get('undoableOnly')) === true
-  const limit = parseLimit(url.searchParams.get('limit'))
-  const offset = parseOffset(url.searchParams.get('offset'))
-  const page = parseNumber(url.searchParams.get('page'), { min: 1, max: 1000000, fallback: 1 })
-  const pageSize = parseNumber(url.searchParams.get('pageSize'), { min: 1, max: 200, fallback: 50 })
+  const limit = parseOptionalInteger(url.searchParams.get('limit'), { min: 1, max: 1000 })
+  const offset = parseOptionalInteger(url.searchParams.get('offset'), { min: 0, max: Number.MAX_SAFE_INTEGER })
+  const page = parseOptionalInteger(url.searchParams.get('page'), { min: 1, max: 1000000 })
+  const pageSize = parseOptionalInteger(url.searchParams.get('pageSize'), { min: 1, max: 200 })
   const sortField = SORT_FIELDS.find((value) => value === url.searchParams.get('sortField')) ?? 'createdAt'
   const sortDir = SORT_DIRECTIONS.find((value) => value === url.searchParams.get('sortDir')) ?? 'desc'
   const before = parseDate(url.searchParams.get('before'))
