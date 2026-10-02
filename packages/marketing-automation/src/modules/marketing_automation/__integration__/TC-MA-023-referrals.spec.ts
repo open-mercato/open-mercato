@@ -117,6 +117,14 @@ test.describe('TC-MA-023 referrals', () => {
   })
 
   test('an order by the referred customer converts the referral', async ({ request }) => {
+    /**
+     * The shared budget is 20s and the wait below is up to 20s, so this test could only ever end as a
+     * TIMEOUT — never as its own assertion. It failed for a real reason and reported "Test timeout of
+     * 20000ms exceeded", which says nothing about referrals, nothing about what was polled, and nothing
+     * anybody could act on. `slow()` triples the budget rather than hard-coding a number that would drift
+     * from the config.
+     */
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const referrerId = await createPersonFixture(request, token, {
@@ -147,6 +155,14 @@ test.describe('TC-MA-023 referrals', () => {
         data: {
           currencyCode: 'USD',
           customerEntityId: referredId,
+          /**
+           * PLACED, because an unplaced order converts nothing — by design.
+           *
+           * The conversion subscriber skips an order with no `placedAt`: the payout is irreversible once it
+           * fires, so a cart that was never submitted must not trigger it. Without this field the spec was
+           * asking the subscriber to do the one thing it is written not to do, and then waiting for it.
+           */
+          placedAt: new Date().toISOString(),
           lines: [{ currencyCode: 'USD', quantity: 1, name: `QA referral line ${stamp}`, unitPriceNet: 100, unitPriceGross: 123 }],
         },
       })

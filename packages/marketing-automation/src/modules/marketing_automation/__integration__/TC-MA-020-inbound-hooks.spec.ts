@@ -155,6 +155,13 @@ test.describe('TC-MA-020 inbound hooks', () => {
   })
 
   test('a post naming a customer starts a real run', async ({ request }) => {
+    /**
+     * Same trap as the referral conversion: the wait below is up to 20s and the shared budget IS 20s, so a
+     * genuine failure here could only ever report "Test timeout exceeded" rather than what it was waiting
+     * for. This one has been passing on the worker happening to be quick, which is not the same as being
+     * right.
+     */
+    test.slow()
     test.skip(!secret, 'no signing secret configured in this environment')
     const token = await getAuthToken(request, 'admin')
 
