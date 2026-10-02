@@ -1409,3 +1409,31 @@ The previous draft is superseded. This spec is the canonical email integration d
 - [x] `yarn build:packages` succeeds (20/20 packages); `yarn test` succeeds (21/21 packages)
 - [ ] Live IMAP/SMTP end-to-end test against a real server — covered manually by user when connecting a real account; not part of CI
 - [ ] Phase 4 widget injections (profile + integrations + data tables) — deferred to slice 3f when shared with the Gmail provider
+
+---
+
+## Amendment — Single-Use OAuth State (PR #3836, 2026-09-20)
+
+Adds a fourth security control to the state-cookie design described in § Hub Deltas → Delta 7 / § OSS Independence (§ OAuth State Cookie):
+
+| Control | Mechanism |
+|---|---|
+| Crypto integrity | AES-256-GCM AEAD (unchanged) |
+| Binding | userId + providerKey + state nonce in AEAD payload (unchanged) |
+| TTL | 5-minute `expiresAt` in payload (unchanged) |
+| **Single-use** | **Short-TTL cache marker keyed by `tenantId:state` (new)** |
+
+### New cache dependency
+
+`GET /communication_channels/oauth/[provider]/callback` now requires the `cache` DI binding to be a valid `CacheStrategy`. On startup it is always registered via `bootstrap.ts`, but if the resolved instance lacks `has`/`set` (e.g., all `createCacheService` attempts failed) the callback redirects with `code=state_store_unavailable` rather than proceeding.
+
+**Multi-replica requirement**: the single-use marker is written to the resolved cache instance. With `CACHE_STRATEGY=memory` (default) the marker is process-local — a replayed callback against a different replica will still succeed. Production multi-replica deployments MUST set `CACHE_STRATEGY=redis` to share the marker across all replicas.
+
+### New error codes on the callback flash redirect
+
+| Code | Meaning |
+|---|---|
+| `replay` | State nonce already consumed — user is replaying or refreshing the callback URL |
+| `state_store_unavailable` | Cache unavailable at callback time; fail-closed rather than skipping single-use protection |
+
+Both codes are i18n-mapped in the profile page (`communication_channels.profile.flash.replayedState`, `communication_channels.profile.flash.stateStoreUnavailable`).

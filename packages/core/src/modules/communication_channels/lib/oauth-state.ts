@@ -1,4 +1,7 @@
 import crypto from 'node:crypto'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const oauthStateLogger = createLogger('communication_channels').child({ component: 'oauth-state' })
 
 /**
  * OAuth state-cookie helper for the communication_channels hub.
@@ -16,6 +19,13 @@ import crypto from 'node:crypto'
  *   - 5-minute TTL — short window to bound replay surface.
  *   - Payload binds the initiating `userId` so the callback rejects state cookies
  *     used by a different session.
+ *   - Single-use consume-on-read via a short-TTL cache marker keyed by
+ *     `tenantId:state` (see {@link consumeOAuthStateOnce}) so a captured cookie
+ *     cannot re-drive the callback within the TTL. **This guarantee only holds
+ *     across all replicas when `CACHE_STRATEGY=redis`.** With
+ *     `CACHE_STRATEGY=memory` (the default) the marker is process-local — a
+ *     replayed callback that reaches a different replica succeeds within the TTL.
+ *     Multi-replica deployments MUST use a shared cache (`CACHE_STRATEGY=redis`).
  *
  * The output is a base64url string that we set on an HttpOnly + SameSite=Lax cookie.
  * Forgery requires the encryption key (KMS-managed in production).
@@ -33,6 +43,10 @@ export const COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME =
 
 export const DEFAULT_OAUTH_RETURN_URL = '/backend/profile/communication-channels'
 
+/** Cache tag for OAuth-state consume markers (invalidation / diagnostics). */
+export const COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG =
+  'communication_channels:oauth-state'
+
 /** Errors thrown by the helpers. Stable for tests + route mapping. */
 export class OAuthStateError extends Error {
   override name = 'OAuthStateError'
@@ -43,7 +57,8 @@ export class OAuthStateError extends Error {
       | 'invalid_cookie'
       | 'expired'
       | 'user_mismatch'
-      | 'decrypt_failed',
+      | 'decrypt_failed'
+      | 'replay',
   ) {
     super(message)
   }
@@ -73,6 +88,20 @@ export interface OAuthStatePayload {
   expiresAt: number
   /** Provider-specific extras (PKCE code_verifier, scopes, login_hint, …). */
   extra?: Record<string, unknown>
+}
+
+/**
+ * Minimal cache surface used by {@link consumeOAuthStateOnce}. Matches the
+ * `has` / `set` subset of `@open-mercato/cache`'s `CacheStrategy` so callers
+ * can pass `container.resolve('cache')` directly.
+ */
+export type OAuthStateConsumeStore = {
+  has(key: string): Promise<boolean>
+  set(
+    key: string,
+    value: unknown,
+    options?: { ttl?: number; tags?: string[] },
+  ): Promise<void>
 }
 
 export function isSafeOAuthReturnUrl(value: string | null | undefined): value is string {
@@ -121,6 +150,11 @@ function getSecret(): string {
   return fallback
 }
 
+/** Cache key for a consumed OAuth `state` nonce. Exported for tests. */
+export function oauthStateConsumedCacheKey(tenantId: string, state: string): string {
+  return `communication_channels:oauth-state:used:${tenantId}:${state}`
+}
+
 /** Encrypt + sign a state payload. Output is a base64url string suitable for a cookie. */
 export function encryptOAuthState(payload: OAuthStatePayload): string {
   const key = deriveKey(getSecret())
@@ -166,6 +200,9 @@ export function decryptOAuthState(cookie: string): OAuthStatePayload | null {
  * Throws an {@link OAuthStateError} with a stable `code` field on any check
  * failure so route handlers can map to consistent HTTP responses + redirect
  * flash codes.
+ *
+ * Crypto + binding checks only — callers MUST also call
+ * {@link consumeOAuthStateOnce} so the state cannot be replayed within the TTL.
  */
 export function verifyOAuthState(input: {
   cookie: string | null | undefined
@@ -198,6 +235,37 @@ export function verifyOAuthState(input: {
 }
 
 /**
+ * Mark a verified OAuth `state` as consumed in a short-TTL store.
+ *
+ * First successful call records a used-marker until `expiresAt` (or 1s minimum).
+ * A second call with the same `state` throws {@link OAuthStateError} `replay`.
+ *
+ * Call immediately after {@link verifyOAuthState} on the callback path so a
+ * captured valid cookie cannot re-drive the flow within the cookie TTL.
+ *
+ * Note: the `has`→`set` pattern is not atomic. Two concurrent callbacks racing
+ * on the same `state` both pass the `has` check and both proceed — the
+ * single-use guarantee requires an atomic `setNx` which `CacheStrategy` does
+ * not currently expose. The race window is milliseconds; document it rather
+ * than silently claiming it is closed.
+ */
+export async function consumeOAuthStateOnce(
+  store: OAuthStateConsumeStore,
+  payload: Pick<OAuthStatePayload, 'state' | 'expiresAt' | 'tenantId'>,
+  now: number = Date.now(),
+): Promise<void> {
+  const key = oauthStateConsumedCacheKey(payload.tenantId, payload.state)
+  if (await store.has(key)) {
+    throw new OAuthStateError('State cookie already used', 'replay')
+  }
+  const ttl = Math.max(payload.expiresAt - now, 1_000)
+  await store.set(key, 1, {
+    ttl,
+    tags: [COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG, `${COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG}:${payload.tenantId}`],
+  })
+}
+
+/**
  * Create a fresh state payload + matching `state` query parameter. PKCE
  * verifiers are NOT generated here — the provider adapter decides whether it
  * needs PKCE and packs the verifier into `extra` itself.
@@ -226,3 +294,29 @@ export function createOAuthState(params: {
   const cookie = encryptOAuthState(payload)
   return { payload, cookie, stateParam: state }
 }
+
+let memoryCacheStartupWarningEmitted = false
+
+/**
+ * Emit a one-time startup warning when the cache strategy is process-local.
+ * OAuth state single-use markers rely on a shared store across replicas.
+ */
+export function emitOAuthStateMemoryCacheStartupWarningIfNeeded(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (memoryCacheStartupWarningEmitted) return
+  const strategy = (env.CACHE_STRATEGY ?? 'memory').trim().toLowerCase()
+  if (strategy !== 'memory') return
+  memoryCacheStartupWarningEmitted = true
+  oauthStateLogger.warn(
+    'OAuth state single-use protection uses process-local cache (CACHE_STRATEGY=memory). Multi-replica deployments MUST set CACHE_STRATEGY=redis so replay markers are shared across replicas.',
+    { context: 'startup', startup: true, cacheStrategy: strategy },
+  )
+}
+
+/** Test helper — reset the one-time startup warning latch. */
+export function resetOAuthStateMemoryCacheStartupWarningForTests(): void {
+  memoryCacheStartupWarningEmitted = false
+}
+
+emitOAuthStateMemoryCacheStartupWarningIfNeeded()
