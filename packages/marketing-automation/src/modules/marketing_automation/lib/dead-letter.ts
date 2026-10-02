@@ -41,8 +41,14 @@ export async function recordDeadLetter(
        *
        * `readInboundPayload` copies every key a partner posted into the trigger context, so a failed dispatch of
        * an inbound hook wrote their whole body here — contact addresses, phone numbers, names — into plaintext
-       * jsonb that the jobs screen shows and every replica carries. Redacting the error while storing the payload
-       * verbatim was protecting the smaller half.
+       * jsonb that every replica carries and that a future reader will show. Redacting the error while storing
+       * the payload verbatim was protecting the smaller half.
+       *
+       * NOTE: there is no reader yet. This comment said "the jobs screen shows" it, and that screen reads
+       * `marketing_job_runs` — a different table. Nothing in `api/` or `backend/` touches this one, so a dead
+       * letter is written, pruned at thirty days, and never seen. The argument below for refusing automatic
+       * replay is right — "replay belongs behind a person deciding" — but there is no screen for that person to
+       * decide on, which makes this table write-only until one exists.
        */
       payload: redactPayload(entry.payload),
       // Redacted for the same reason `last_error` is: this is third-party failure text, and a transport

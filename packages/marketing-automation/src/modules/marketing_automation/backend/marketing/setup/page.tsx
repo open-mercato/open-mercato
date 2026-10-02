@@ -56,6 +56,9 @@ export default function MarketingSetupPage() {
   }
 
   const checks = readiness?.checks ?? []
+  // The one `recommended` check whose absence stops a whole category of campaign rather than merely leaving a
+  // gap, which is why the badge above singles it out.
+  const schedulesMissing = checks.some((check) => check.id === 'schedules' && !check.done)
 
   return (
     <Page>
@@ -66,10 +69,23 @@ export default function MarketingSetupPage() {
           </div>
         ) : null}
 
+        {/*
+          "Ready to send" was true and incomplete.
+
+          `isReadyToSend` reads the BLOCKING checks, and a missing scheduler registration is not one — event
+          campaigns deliver perfectly well without it, which is why the severity stays `recommended`. But the
+          badge then reported unqualified readiness to an installation where every win-back, birthday and
+          reorder reminder was dead, and the checklist row saying so is further down the page wearing the same
+          "Recommended" label as "create a segment".
+
+          So the badge says WHICH half is ready. The fact is unchanged; the sentence is no longer misleading.
+        */}
         <div className="mb-4">
-          <StatusBadge variant={readiness?.ready ? 'success' : 'warning'}>
+          <StatusBadge variant={readiness?.ready ? (schedulesMissing ? 'warning' : 'success') : 'warning'}>
             {readiness?.ready
-              ? t('marketing_automation.setup.ready', 'Ready to send')
+              ? schedulesMissing
+                ? t('marketing_automation.setup.readyEventsOnly', 'Ready to send event-triggered campaigns — scheduled ones cannot run')
+                : t('marketing_automation.setup.ready', 'Ready to send')
               : t('marketing_automation.setup.notReady', 'Nothing will be delivered yet')}
           </StatusBadge>
         </div>

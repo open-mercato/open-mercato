@@ -236,7 +236,19 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
         setUpdatedAt(campaign.result.updatedAt)
         setTriggers(campaign.result.triggers ?? [])
         setDefinition(campaign.result.definition)
-        if (paletteResult.ok && paletteResult.result) setPalette(paletteResult.result)
+        /**
+         * A palette that failed to load is REPORTED, not shrugged off.
+         *
+         * `apiCall` resolves a non-ok response rather than throwing, so the catch below never saw a 400 from
+         * `organizationScopeRequiredResponse` or a 403 — and with `palette === null` the editor renders three
+         * headings over three empty boxes. The author gets a canvas they cannot add anything to, and nothing
+         * tells them why. The campaign's own load failure was handled ten lines up; this one was not.
+         */
+        if (paletteResult.ok && paletteResult.result) {
+          setPalette(paletteResult.result)
+        } else if (!cancelled) {
+          setError(t('marketing_automation.errors.paletteLoadFailed', 'Could not load the step and trigger palette, so this campaign cannot be edited right now.'))
+        }
       } catch {
         if (!cancelled) setError(t('marketing_automation.errors.loadFailed', 'Could not load the campaign.'))
       } finally {
