@@ -18,7 +18,8 @@ type Check = {
 }
 
 type Unavailable = { module: string; reasonKey: string }
-type Readiness = { checks?: Check[]; ready?: boolean; remaining?: number; unavailable?: Unavailable[] }
+type QueueDepth = { queueName: string; known: boolean; ready?: number; active?: number; delayed?: number }
+type Readiness = { checks?: Check[]; ready?: boolean; remaining?: number; unavailable?: Unavailable[]; queues?: QueueDepth[] }
 
 /**
  * The first-run checklist.
@@ -98,6 +99,41 @@ export default function MarketingSetupPage() {
           be a checklist row with a `done` nobody can ever tick. An operator who reads this first knows why half
           the trigger palette is greyed out before they go looking.
         */}
+        {/*
+          Work that is waiting, shown only when there IS some.
+          
+          "No worker is running" and "nothing to do" used to look identical: the job log has no rows until a
+          worker has already picked something up, so a fresh deploy with no consumer reads as a quiet Sunday.
+          This reports the measurable fact — how many jobs are queued — and stops there. It does NOT conclude
+          that workers are down: `active` is one sample and can be zero simply between polls, and a false "your
+          workers are down" sends somebody hunting a problem that is not there.
+          
+          A healthy installation has nothing queued and sees none of this.
+        */}
+        {(() => {
+          const waiting = (readiness?.queues ?? []).filter((queue) => (queue.ready ?? 0) > 0)
+          if (waiting.length === 0) return null
+          const total = waiting.reduce((sum, queue) => sum + (queue.ready ?? 0), 0)
+          const working = waiting.reduce((sum, queue) => sum + (queue.active ?? 0), 0)
+          return (
+            <div className="mb-4 rounded-md border border-border p-3 text-sm">
+              <div className="font-medium text-foreground">
+                {t('marketing_automation.setup.queued.title', '{count} background jobs are waiting')
+                  .replace('{count}', String(total))}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {working > 0
+                  ? t('marketing_automation.setup.queued.working', '{count} are being processed right now.')
+                      .replace('{count}', String(working))
+                  : t(
+                      'marketing_automation.setup.queued.idle',
+                      'None are being processed at this instant. If this number does not fall, check that a queue worker is running.',
+                    )}
+              </div>
+            </div>
+          )
+        })()}
+
         {(readiness?.unavailable ?? []).length > 0 ? (
           <div className="space-y-2">
             <SectionHeader title={t('marketing_automation.setup.unavailableTitle', 'Not available here')} />

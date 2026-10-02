@@ -116,6 +116,31 @@ export default function MarketingOverviewWidget({
 
   if (!data) return null
 
+  /**
+   * Nothing has happened yet — say so, and point at the one screen that explains why.
+   *
+   * The widget already refuses to print five zeroes for a FAILED request, on the stated grounds that zeroes read
+   * as "nothing is working". An unconfigured installation produced exactly those zeroes, on the module's
+   * most-seen surface, with a link to Campaigns — the screen that cannot tell the operator what is missing
+   * either. This is the dashboard, so it is where somebody first wonders.
+   */
+  const nothingYet = data.campaigns.total === 0 && data.runs === 0 && data.sends.sent === 0
+  if (nothingYet) {
+    return (
+      <div className="space-y-2 text-sm">
+        <div className="text-muted-foreground">
+          {t(
+            'marketing_automation.widgets.overview.nothingYet',
+            'No campaigns yet. The checklist shows what this installation still needs before anything can send.',
+          )}
+        </div>
+        <Link className="underline" href="/backend/marketing/setup">
+          {t('marketing_automation.widgets.overview.openSetup', 'Getting started')}
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-3 text-sm">
       <div className="grid grid-cols-2 gap-3">

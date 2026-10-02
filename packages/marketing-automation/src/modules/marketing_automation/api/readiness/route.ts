@@ -12,6 +12,8 @@ import {
 import { evaluateReadiness, isReadyToSend, remainingCount } from '../../lib/engine/readiness.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../../lib/tracking/secret.js'
 import { readCapabilities } from '../../lib/capabilities.js'
+import { getQueuePendingProbe } from '@open-mercato/queue'
+import { MARKETING_QUEUES } from '../../lib/queues.js'
 
 /**
  * Whether this installation can actually run a campaign.
@@ -126,10 +128,45 @@ export async function GET(req: Request) {
    */
   const capabilities = await readCapabilities(em)
 
+  /**
+   * How much work is sitting in this module's queues, reported as a FACT rather than a diagnosis.
+   *
+   * "No worker is running" and "nothing to do" were indistinguishable: the job log shows no rows at all until a
+   * worker has already picked something up, so a fresh deploy with no consumer looks exactly like a quiet
+   * Sunday. The platform has `getQueuePendingProbe` for this and nothing in the module used it.
+   *
+   * Deliberately NOT inferred into "no worker is running". `active` is a point-in-time sample and may be
+   * unavailable for some strategies, so `ready > 0 && active === 0` can simply mean the worker is between
+   * polls — and a false "your workers are down" is worse than silence, because the operator goes looking for a
+   * problem that is not there. A depth an operator can watch is honest; a conclusion drawn from one sample is
+   * not. `error: true` is reported as unknown for the same reason.
+   */
+  const queues = await Promise.all(
+    MARKETING_QUEUES.map(async (queueName) => {
+      try {
+        const probe = await getQueuePendingProbe(queueName)
+        return probe.error
+          ? { queueName, known: false as const }
+          : { queueName, known: true as const, ready: probe.ready, active: probe.active, delayed: probe.delayedFuture }
+      } catch {
+        // A probe that throws must never fail the readiness answer: the question it helps with is secondary to
+        // every other check on this screen.
+        return { queueName, known: false as const }
+      }
+    }),
+  )
+
   return NextResponse.json({
     checks,
     ready: isReadyToSend(checks),
     remaining: remainingCount(checks),
+    /**
+     * Queue depth per queue, so "nothing is processing" is visible rather than inferred.
+     *
+     * The screen shows this only when something is actually waiting — a healthy installation has nothing to say
+     * here and should not be given a panel of zeroes to read.
+     */
+    queues,
     /** Each entry names a module that is absent and the group of features that goes with it. */
     unavailable: [
       ...(capabilities.sales
