@@ -8,6 +8,68 @@ We’re excited to collaborate with folks building on top of Open Mercato. This 
 - `develop` – nightly builds and upcoming release work. Base regular feature work off `develop` so it can soak in automation and shared testing.
 - Topic branches – create a dedicated branch per change using the format `feat/<concise-feature-name>` (for example `feat/customer-export`). Use other prefixes when appropriate (`fix/`, `chore/`, `docs/`).
 
+## Development Setup
+
+These steps set up this monorepo, which is what you need to change Open Mercato itself. To build your own app on Open Mercato, use `npx create-mercato-app` instead (see the [README](README.md#get-started)).
+
+### Quick start
+
+With [Node.js](https://nodejs.org/en/download) installed, one command does everything:
+
+```bash
+npx @open-mercato/starter
+```
+
+It clones the repo if needed, audits your machine (`doctor`, which expects Node 24), handles corporate proxies and TLS interception, generates `.env` and secrets, starts the infra containers, initializes the database and boots the supervised dev runtime. Re-running it resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` on Windows, `start.sh` on macOS and Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md); the first run needs about 20 GB of free disk.
+
+### Manual steps (macOS and Linux)
+
+```bash
+brew install node@24   # or: nvm install 24 && nvm use 24
+corepack enable        # uses the Yarn version pinned in package.json
+
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato && git checkout develop
+yarn install
+yarn infra:up                                 # PostgreSQL, Redis, Meilisearch (see starters/README.md)
+cp apps/mercato/.env.example apps/mercato/.env # the defaults work with yarn infra:up
+yarn dev:greenfield                           # builds, generates, initializes and starts the app
+```
+
+`yarn dev:greenfield` reinstalls the database: it drops all tables in the configured database before seeding it again. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
+
+### Seed data
+
+`yarn initialize` runs `mercato init`. Add `--no-examples` to skip the demo CRM content, `--stresstest` for thousands of synthetic contacts, companies, deals and timeline interactions, or `--stresstest --lite` for high-volume contacts without the heavier extras (pass flags after `--`, for example `yarn initialize -- --no-examples`). See the [init reference](https://docs.openmercato.com/cli/init).
+
+### Agent skills
+
+Working with an AI coding agent in this repository? Run `yarn install-skills` after cloning. It installs this repo's committed local-tier skills together with the shared collection from [open-mercato/skills](https://github.com/open-mercato/skills) into the gitignored `.agents/skills/` directory. See [`.ai/skills/README.md`](.ai/skills/README.md) for the tier system.
+
+### Running multiple persistent local instances
+
+To keep two long-lived local instances on the same PostgreSQL server, pass an optional database-name override to `yarn dev`, `yarn dev:greenfield` or `yarn setup`:
+
+```bash
+yarn dev:greenfield --database-name=my_db     # explicit name; a .env update is offered (default yes)
+yarn dev --database-name                      # derive the name from the current directory
+yarn dev --database-name=review_1720 --no-update-env   # one-off run that does not touch .env
+```
+
+Without the flag nothing changes. See the [monorepo installation guide](https://docs.openmercato.com/installation/monorepo).
+
+### Reducing dev-mode memory usage
+
+`yarn dev` watches every workspace package by default. On smaller machines, narrow the watch scope:
+
+```bash
+yarn dev --watch=auto-optimized                          # packages touched in git
+OM_WATCH_SCOPE=env OM_WATCH_PACKAGES=core,ui yarn dev    # an explicit set
+yarn dev --watch=popular                                 # the most frequently changed (default cap 6)
+```
+
+`OM_WATCH_SCOPE=all` restores the default. See [Choosing which packages the watcher tracks](https://docs.openmercato.com/appendix/troubleshooting).
+
 ## Working on Features
 
 - Branch from `develop`, keeping it up to date via `git pull --rebase origin develop`.
@@ -71,13 +133,13 @@ The legacy npm canary snapshot path is still available for comparison by dispatc
 
 ## Developing on Windows
 
-The fastest way to a working dev environment on Windows is the starter: double-click `packages\starter\platform\start.cmd` (no admin needed — it installs a portable, checksum-verified Node 24 and hands off to the cross-platform CLI), or run `npx @open-mercato/starter` if you already have Node. The starter audits the machine, handles corporate proxies and TLS interception (CA capture + provisioning into host tooling, image builds, and the container engine), and starts the stack; WSL2 and Docker Desktop / Rancher Desktop are detected and *proposed* with exact instructions — including a "hand this to IT" sheet from `yarn om doctor` — never installed behind your back. Hardware floor: 16 GB RAM recommended (12 GB minimum), ~20 GB free disk. On machines where host Node workloads are not allowed, use `npx @open-mercato/starter up --mode docker` for the fully containerized stack. Printable EN/PL manuals with troubleshooting live in [`docs/manuals/windows/`](docs/manuals/windows/); the docs site covers the [Windows monorepo path](https://docs.openmercato.com/docs/installation/monorepo) and the [WSL2-native guide](https://docs.openmercato.com/docs/installation/wsl2).
+The fastest way to a working dev environment on Windows is the starter: double-click `packages\starter\platform\start.cmd` (no admin needed — it installs a portable, checksum-verified Node 24 and hands off to the cross-platform CLI), or run `npx @open-mercato/starter` if you already have Node. The starter audits the machine, handles corporate proxies and TLS interception (CA capture + provisioning into host tooling, image builds, and the container engine), and starts the stack; WSL2 and Docker Desktop / Rancher Desktop are detected and *proposed* with exact instructions — including a "hand this to IT" sheet from `yarn om doctor` — never installed behind your back. Hardware floor: 16 GB RAM recommended (12 GB minimum), ~20 GB free disk. On machines where host Node workloads are not allowed, use `npx @open-mercato/starter up --mode docker` for the fully containerized stack. Printable EN/PL manuals with troubleshooting live in [`docs/manuals/windows/`](docs/manuals/windows/); the docs site covers the [Windows monorepo path](https://docs.openmercato.com/installation/monorepo#windows) and the [WSL2-native guide](https://docs.openmercato.com/installation/wsl2).
 
 ## Releasing
 
 Two channels ship packages to npm:
 
-- **Snapshots** — every push to `develop` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag. Fully automatic; nothing to do.
+- **Snapshots** — every push to `develop` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag. Fully automatic; nothing to do. Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
 - **Stable releases** — a maintainer-driven two-stage flow off `main`, described below.
 
 Stable releases are split across two workflows on purpose. `main` is protected, so a workflow cannot push a version bump to it directly; the bump lands through a normal PR, and the publishing workflow only ever pushes a tag.
