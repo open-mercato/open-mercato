@@ -485,7 +485,7 @@ The lock check runs before any entity manager work; the entity mutations themsel
 
 ### 8.2 Idempotency
 
-Mutations accept an `Idempotency-Key`. A repeated key within the cart's lifetime returns the original result without re-applying — this is what makes "add to cart" safe under a double-tap or a retried request on a flaky mobile connection.
+Mutations accept an `Idempotency-Key`. A repeated key within the cart's lifetime returns the original result without re-applying — this is what makes "add to cart" safe under a double-tap or a retried request on a flaky mobile connection. The idempotency lookup precedes the §8.1 optimistic-lock check (clarified 2026-09-30): a retry of a mutation that landed but lost its response carries the pre-mutation `updatedAt`, so a lock check that ran first would answer it with a `409` against the cart the original request itself changed.
 
 Keys are stored per cart with the resulting `updatedAt` and a response digest. A key replayed with a different body returns `422 idempotency_key_mismatch`.
 
@@ -838,6 +838,9 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 ---
 
 ## 18) Changelog
+
+### 2026-09-30 (§8.2 ordering clarified)
+- **§8.2 states that the idempotency lookup runs before the §8.1 optimistic-lock check.** §8.1's "every mutating command starts with" the lock check read, literally, as the opposite order, under which a retried mutation that had already landed gets a `409` instead of its original result. One sentence, no contract change: cart is unimplemented. Requested by [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3.3, whose chunked replay depends on it; the storefront's own double-tap retry (storefront-app §5.2) depends on it too.
 
 ### 2026-09-27 (rev 8 — proposal seam review fixes)
 

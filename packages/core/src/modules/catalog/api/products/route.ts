@@ -186,6 +186,16 @@ export async function buildProductFilters(
     organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
     tenantId: ctx.auth?.tenantId ?? null,
   };
+  const scopeWhere = buildScopedWhere(
+    {},
+    {
+      organizationId: scope.organizationId,
+      organizationIds: ctx.organizationIds ?? undefined,
+      tenantId: scope.tenantId,
+      orgField: ctx.organizationIds === null ? null : undefined,
+      softDeleteField: null,
+    },
+  );
   const term = sanitizeSearchTerm(query.search);
   const channelFilterIds = parseIdList(query.channelIds);
   const categoryFilterIds = parseIdList(query.categoryIds);
@@ -210,7 +220,7 @@ export async function buildProductFilters(
       em,
       CatalogProduct,
       {
-        ...scope,
+        ...scopeWhere,
         ...(query.withDeleted ? {} : { deletedAt: null }),
         $or: [
           { title: { $ilike: like } },
@@ -236,7 +246,7 @@ export async function buildProductFilters(
       {
         channelId: { $in: channelFilterIds },
         deletedAt: null,
-        ...scope,
+        ...scopeWhere,
       },
       { fields: ["id", "product"] },
       scope,
@@ -255,7 +265,7 @@ export async function buildProductFilters(
     const assignments = await findWithDecryption(
       em,
       CatalogProductCategoryAssignment,
-      { category: { $in: categoryFilterIds }, ...scope },
+      { category: { $in: categoryFilterIds }, ...scopeWhere },
       { fields: ["id", "product"] },
       scope,
     );
@@ -273,7 +283,7 @@ export async function buildProductFilters(
     const assignments = await findWithDecryption(
       em,
       CatalogProductTagAssignment,
-      { tag: { $in: tagFilterIds }, ...scope },
+      { tag: { $in: tagFilterIds }, ...scopeWhere },
       { fields: ["id", "product"] },
       scope,
     );
@@ -945,7 +955,10 @@ const crud = makeCrudRoute({
           ? { ...base, customFields: custom }
           : base;
       },
-      response: () => ({ ok: true }),
+      response: ({ result }) => ({
+        ok: true,
+        updatedAt: result?.updatedAt ?? null,
+      }),
     },
     delete: {
       commandId: "catalog.products.delete",
@@ -1057,7 +1070,9 @@ export const openApi = createCatalogCrudOpenApi({
   },
   update: {
     schema: productUpdateSchema,
-    responseSchema: defaultOkResponseSchema,
+    responseSchema: defaultOkResponseSchema.extend({
+      updatedAt: z.string().nullable().optional(),
+    }),
     description: "Updates an existing product by id.",
   },
   del: {
