@@ -7,6 +7,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
+import { isEntityTypeProjected } from '@open-mercato/shared/modules/query-index'
 import {
   loadQueryIndexRowScope,
   QueryIndexScopeError,
@@ -168,6 +169,9 @@ export function register(container: AppContainer) {
         // bridge only covers domain events from write paths that do not own an
         // indexer, otherwise failures and error logs are duplicated.
         if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
+        // Skip before the scope resolution: the bridge exists only to emit
+        // `query_index.upsert_one`, which this entity type does not want.
+        if (!isEntityTypeProjected(entityType)) return
         em = ctx.resolve('em') as EntityManager
         id = String(payload?.id || payload?.recordId || '')
         if (!id) return

@@ -49,6 +49,7 @@ import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decry
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { createBoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
+import { isEntityTypeProjected } from '@open-mercato/shared/modules/query-index'
 
 const logger = createLogger('query_index').child({ component: 'engine' })
 
@@ -2464,6 +2465,14 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private async indexAnyRows(entity: string): Promise<boolean> {
+    // An entity type the app does not project is *not indexed*, which is a
+    // different answer from *partially indexed*: the caller falls back to the
+    // base tables and never reaches the coverage comparison. Short-circuiting
+    // here — ahead of the probes — also means a stray row surviving from before
+    // the switch was set cannot flip the engine into the forced-index path under
+    // `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES`, where a half-filled type is read as
+    // though it were complete.
+    if (!isEntityTypeProjected(entity)) return false
     const db = this.getDb() as any
     const coverage = await db
       .selectFrom('entity_index_coverage')
@@ -2924,6 +2933,11 @@ export class HybridQueryEngine implements QueryEngine {
     coverageScope?: { tenantId: string | null; organizationId: string | null } | null,
     _sourceTable?: string
   ): Promise<{ stats?: { baseCount: number; indexedCount: number }; scope: 'scoped' | 'global' } | null> {
+    // No gap can exist for an entity type that is not projected — the same
+    // reasoning as `indexAnyRows`. This covers the `customFieldSources` loop and
+    // the global-scope check, which reach a coverage decision for an entity other
+    // than the one being queried.
+    if (!isEntityTypeProjected(entity)) return null
     const scope = coverageScope ?? this.resolveCoverageSnapshotScope(opts)
     if (!scope) return null
     const tenantId = scope.tenantId

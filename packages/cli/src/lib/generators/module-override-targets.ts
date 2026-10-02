@@ -793,6 +793,39 @@ const encryptionAdapter: InternalAdapter = {
   },
 }
 
+/**
+ * `queryIndex.entities.<entityId>` addresses the module's own ORM entities: each
+ * one may be switched out of the `entity_indexes` read projection. Keyed off the
+ * entity facts rather than an owned-contract family, because that is where an
+ * entity's id and source live.
+ *
+ * An app may also name an entity belonging to a *different* module — that is the
+ * point of the switch — so this catalog is the set of keys a module contributes,
+ * not the set an override map may legally contain.
+ */
+const queryIndexAdapter: InternalAdapter = {
+  domain: 'queryIndex',
+  run(facts, resolveFactSource) {
+    const moduleId = moduleIdOf(facts)
+    const targets: ModuleOverrideTarget[] = []
+    const diagnostics: ModuleOverrideTargetDiagnostic[] = []
+    for (const entity of facts.entities ?? []) {
+      const path = ['queryIndex', 'entities', entity.id]
+      const sourcePath = indexedFactSourcePath(resolveFactSource, 'entity', entity.id)
+      if (!sourcePath) {
+        diagnostics.push({ code: 'missing-source', moduleId, domain: 'queryIndex', candidatePath: path })
+        continue
+      }
+      pushTarget(targets, diagnostics, {
+        moduleId, domain: 'queryIndex', path, key: entity.id, dottedHost: 'queryIndex.entities',
+        factRef: { factSection: 'entities', factKey: entity.id },
+        source: { sourcePath },
+      })
+    }
+    return { targets, diagnostics }
+  },
+}
+
 /** `nav.groupOrder` is a framework-only setting; never a module target. */
 const navAdapter: InternalAdapter = {
   domain: 'nav',
@@ -819,6 +852,7 @@ const INTERNAL_ADAPTERS: InternalAdapter[] = [
   diAdapter,
   encryptionAdapter,
   navAdapter,
+  queryIndexAdapter,
 ]
 
 /**
@@ -845,6 +879,7 @@ const OVERRIDE_DOMAIN_PRESENCE: Record<ModuleOverrideDomain, true> = {
   di: true,
   encryption: true,
   nav: true,
+  queryIndex: true,
 }
 
 export const ALL_OVERRIDE_DOMAINS = Object.keys(OVERRIDE_DOMAIN_PRESENCE) as ModuleOverrideDomain[]

@@ -3,6 +3,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { refreshCoverageSnapshot } from '../lib/coverage'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isEntityTypeProjected } from '@open-mercato/shared/modules/query-index'
 
 const logger = createLogger('query_index').child({ component: 'coverage-refresh' })
 
@@ -37,6 +38,12 @@ function scopeKey(input: Payload): string {
 export default async function handle(payload: Payload, ctx: { resolve: <T = any>(name: string) => T }) {
   const entityType = String(payload?.entityType || '')
   if (!entityType) {
+    return
+  }
+  // `query_index.delete_one` stays unfiltered so stray rows clean themselves up,
+  // and it emits this event. Writing the snapshot anyway would leave an
+  // `entity_index_coverage` row for a type that is deliberately not indexed.
+  if (!isEntityTypeProjected(entityType)) {
     return
   }
 

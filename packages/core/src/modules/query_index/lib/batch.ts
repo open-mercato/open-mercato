@@ -5,6 +5,7 @@ import { buildIndexDocument, rebuildAggregateSearchField, type IndexCustomFieldV
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { isEntityTypeProjected } from '@open-mercato/shared/modules/query-index'
 
 const logger = createLogger('query_index').child({ component: 'reindex-batch' })
 
@@ -149,6 +150,11 @@ export async function upsertIndexBatch(
   options: IndexBatchOptions = {},
 ): Promise<UpsertIndexBatchResult> {
   if (!rows.length) return createEmptyUpsertIndexBatchResult()
+  // Every bulk writer funnels through here — the reindexer, the `rebuild` CLI and
+  // any module flushing its own batch. An entity type the app does not project
+  // reports `attempted: 0`, so `assertIndexBatchWritesLanded` reads it as "nothing
+  // was asked for" rather than "rows were lost".
+  if (!isEntityTypeProjected(entityType)) return createEmptyUpsertIndexBatchResult()
   const recordIds = rows.map((row) => normalizeId(row.id))
 
   const failedRecordIds: string[] = []
