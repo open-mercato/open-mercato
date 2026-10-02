@@ -80,14 +80,31 @@ export async function POST(req: Request) {
 
     const subjectEntityId = await resolveSubject(em, scope, payload.customerId, payload.email)
 
-    hook.receivedCount += 1
-    hook.lastReceivedAt = new Date()
-    hook.lastOutcome = subjectEntityId
+    /**
+     * The counters are written WITHOUT touching `updated_at`, and atomically.
+     *
+     * Two reasons, and the second is the one that made revoking a hook impossible. Loading the entity and
+     * flushing it runs the `onUpdate` hook, so every public POST advanced the optimistic-lock version — and
+     * a hook receiving traffic therefore answered 409 to the admin trying to revoke it, for ever, because
+     * the version they had read was stale before the form rendered. These three columns are telemetry about
+     * the hook, not the content somebody is editing, so they are not what the lock is protecting.
+     *
+     * And `received_count = received_count + 1` in SQL rather than read-modify-write in memory: this is the
+     * one endpoint in the module that genuinely runs concurrently with itself.
+     */
+    const outcome = subjectEntityId
       ? 'identified'
       : payload.customerId || payload.email
         ? 'no matching customer'
         : 'no customerId or email in the payload'
-    await em.flush()
+    await em.execute(
+      `update marketing_inbound_hooks
+          set received_count = received_count + 1,
+              last_received_at = ?,
+              last_outcome = ?
+        where id = ? and tenant_id = ? and organization_id = ?`,
+      [new Date(), outcome, hook.id, scope.tenantId, scope.organizationId],
+    )
 
     if (!subjectEntityId) return NextResponse.json(ACCEPTED, { status: 202 })
 
