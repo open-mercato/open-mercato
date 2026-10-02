@@ -25,6 +25,8 @@ Change `DealsSection`, `CompanyPeopleSection` and their existing tests. Keep cal
 
 ## Risks
 
+Unit regression: the three new assertions fail before the implementation and all 28 section tests pass afterward. Browser coverage is in `TC-CRM-6859.spec.ts` for the six affected classic/v2 tabs.
+
 Preserve dialog click handlers and tab cleanup. Dependencies are installed with the immutable lockfile; broad gate and live environment availability are not yet verified.
 
 ## Progress
@@ -33,8 +35,8 @@ Preserve dialog click handlers and tab cleanup. Dependencies are installed with 
 
 ### Phase 1: Correct duplicated actions
 
-- [ ] 1.1 Add regression tests proving local creation works without header registration.
-- [ ] 1.2 Replace duplicate action registration with null notification and cleanup.
+- [x] 1.1 Add regression tests proving local creation works without header registration. — 71392443a3
+- [x] 1.2 Replace duplicate action registration with null notification and cleanup. — 71392443a3
 
 ### Phase 2: Validate and publish
 
