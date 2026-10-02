@@ -215,11 +215,14 @@ export function createVisitBookingSerializingCommandBus(args: {
         // per-interaction lock, so a write that omits the type can read
         // `meeting` while a concurrent transaction is still converting the same
         // row to a Visit, skip here, and then land an unchecked time on what has
-        // become a Visit. Closing it means an advisory lock and a second read on
-        // every availability-touching update of every non-Visit interaction in
-        // every tenant, which is the cost the early return above exists to avoid.
-        // A client that sends the optimistic-lock header is already protected:
-        // the conversion bumps `updated_at`, so the stale write is rejected.
+        // become a Visit. The mirrored order exists too: the conversion checks
+        // availability against the old time while this write is still in flight.
+        // Closing it means an advisory lock and a second read on every
+        // availability-touching update of every non-Visit interaction in every
+        // tenant, which is the cost the early return above exists to avoid.
+        // The optimistic-lock header narrows the window but does not close it:
+        // that check is a read-then-compare, so it only rejects the stale write
+        // when the conversion has already committed by the time it reads.
         if (suppliedType !== 'visit' && visitTypeKey(rowValue(probe ?? {}, 'interactionType', 'interaction_type')) !== 'visit') return
       }
       const organizationId = rowValue(probe ?? input, 'organizationId', 'organization_id')

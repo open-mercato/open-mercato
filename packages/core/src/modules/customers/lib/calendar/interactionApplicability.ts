@@ -77,7 +77,12 @@ export function preserveHiddenCoreValuesOnSameTypeEdit(
     const retainedResources = existingLinks.filter((link) =>
       link !== null && typeof link === 'object' && 'type' in link && link.type === 'resource')
     const nextLinks = Array.isArray(result.linkedEntities) ? result.linkedEntities : []
-    result.linkedEntities = [...nextLinks, ...retainedResources]
+    const sentResourceIds = new Set(nextLinks.flatMap((link) =>
+      link !== null && typeof link === 'object' && 'type' in link && link.type === 'resource' && 'id' in link ? [link.id] : []))
+    result.linkedEntities = [
+      ...nextLinks,
+      ...retainedResources.filter((link) => !('id' in link) || !sentResourceIds.has(link.id)),
+    ]
   }
   return result
 }

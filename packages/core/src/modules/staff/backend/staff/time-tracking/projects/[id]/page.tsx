@@ -181,6 +181,9 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   // previous project's guard (with a live request button) while the new one loads.
   const [accessDeniedProjectId, setAccessDeniedProjectId] = React.useState<string | null>(null)
   const accessDenied = accessDeniedProjectId !== null && accessDeniedProjectId === projectId
+  // The id the last finished load was for. Until it matches the route, the page
+  // is still loading — never the previous project's error or empty state.
+  const [settledProjectId, setSettledProjectId] = React.useState<string | null>(null)
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -417,7 +420,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
           setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setSettledProjectId(projectId ?? null)
+        }
       }
     }
     loadProject()
@@ -663,7 +669,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     return <NoProjectAccess timeProjectId={projectId} />
   }
 
-  if (loading) {
+  if (loading || settledProjectId !== (projectId ?? null)) {
     return (
       <Page>
         <PageBody>

@@ -57,4 +57,14 @@ describe('calendar interaction field applicability', () => {
       linkedEntities: [{ type: 'deal', id: 'new' }, { type: 'resource', id: 'room' }],
     })
   })
+
+  it('does not duplicate a retained resource link the caller already sent back', () => {
+    expect(preserveHiddenCoreValuesOnSameTypeEdit(noResourceNote, {
+      linkedEntities: [{ type: 'resource', id: 'room' }, { type: 'resource', id: 'desk' }, { type: 'deal', id: 'deal' }],
+    }, {
+      linkedEntities: [{ type: 'resource', id: 'room' }, { type: 'deal', id: 'deal' }],
+    })).toEqual({
+      linkedEntities: [{ type: 'resource', id: 'room' }, { type: 'deal', id: 'deal' }, { type: 'resource', id: 'desk' }],
+    })
+  })
 })

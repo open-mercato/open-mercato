@@ -2428,11 +2428,10 @@ async function checkOpencodeMcpWiring() {
   const status = await fetchOpencodeMcpStatus()
   if (status === null || status === 'connected') return
   if (!restartOpencodeContainer('OpenCode is not connected to the MCP server')) {
-    // Without Docker the compose hint below is not actionable, and the skip has
-    // already been explained once.
-    if (dockerUnavailableNoticeShown) return
     console.warn('⚠️ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
-    console.warn(`   ↳ restart it with: ${opencodeRestartCommand()}`)
+    // Without Docker the compose hint is not actionable; the stale-key warning
+    // above still is, however OpenCode happens to be running.
+    if (!dockerUnavailableNoticeShown) console.warn(`   ↳ restart it with: ${opencodeRestartCommand()}`)
     return
   }
   await sleepUnlessShuttingDown(30_000)
