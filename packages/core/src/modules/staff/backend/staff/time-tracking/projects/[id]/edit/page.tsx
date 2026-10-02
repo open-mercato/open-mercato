@@ -15,6 +15,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DEFAULT_BUDGET_WARN_AT_PERCENT, type ProjectBudgetKind } from '../../../../../../lib/time-tracking-ui/ProjectFormSections'
 import { NoProjectAccess } from '../../../../../../lib/time-tracking-ui/NoProjectAccess'
+import { getProjectAccessScopeKey } from '../../../../../../lib/time-tracking-ui/projectAccessScope'
 import {
   buildProjectPayload,
   createProjectFormFields,
@@ -105,12 +106,15 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const projectAccessScopeKey = getProjectAccessScopeKey(projectId)
 
   const [initialValues, setInitialValues] = React.useState<ProjectFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
-  const [accessDenied, setAccessDenied] = React.useState(false)
+  const [accessDeniedScopeKey, setAccessDeniedScopeKey] = React.useState<string | null>(null)
+  const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
+  const accessDenied = accessDeniedScopeKey === projectAccessScopeKey
 
   const fetchProject = React.useCallback(async (): Promise<ProjectRecord | null> => {
     const call = await apiCall<{ items?: ProjectRecord[]; reason?: unknown }>(
@@ -156,9 +160,9 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
       setLoading(true)
       setError(null)
       setIsNotFound(false)
-      setAccessDenied(false)
       try {
         const record = await fetchProject()
+        if (!cancelled) setAccessDeniedScopeKey(null)
         if (!record) {
           if (!cancelled) setIsNotFound(true)
           return
@@ -167,23 +171,27 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
       } catch (err) {
         if (cancelled) return
         if (err instanceof ProjectAccessDeniedError) {
-          setAccessDenied(true)
+          setAccessDeniedScopeKey(projectAccessScopeKey)
           return
         }
+        setAccessDeniedScopeKey(null)
         setError(
           err instanceof Error
             ? err.message
             : t('staff.timesheets.projects.errors.load', 'Failed to load project.'),
         )
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoadedScopeKey(projectAccessScopeKey)
+          setLoading(false)
+        }
       }
     }
     load()
     return () => { cancelled = true }
-  }, [projectId, fetchProject, scopeVersion, t])
+  }, [projectId, fetchProject, scopeVersion, t, projectAccessScopeKey])
 
-  if (loading) {
+  if (!accessDenied && (loading || loadedScopeKey !== projectAccessScopeKey)) {
     return <Page><PageBody><LoadingMessage label={t('staff.timesheets.projects.loading', 'Loading project...')} /></PageBody></Page>
   }
 
