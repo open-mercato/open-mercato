@@ -49,14 +49,7 @@ describe('organization scope', () => {
   })
 
   it('finds the routes it is meant to be guarding', () => {
-    /**
-     * Counted by a second, independent route: every file under `api/` named `route.ts`.
-     *
-     * The old floor of forty was "how many existed when this was written", which a partial delivery cannot
-     * meet. The traversal is what this control is protecting, so counting the same files by a plain directory
-     * walk catches a traversal that stopped finding them without naming a number that ages.
-     */
-    expect(routes.length).toBeGreaterThan(0)
+    expect(routes.length).toBeGreaterThan(40)
   })
 
   it('no staff route refuses a missing organization with a 401', () => {
@@ -75,19 +68,10 @@ describe('organization scope', () => {
     expect(offenders).toEqual([])
   })
 
-  it('the exempt route, where this delivery contains it, is the portal one', () => {
+  it('the exempt route is the portal one, and it still exists', () => {
     // A rename that empties this list would quietly widen the exemption.
     for (const relative of CUSTOMER_SESSION_ROUTES) {
       const route = routes.find((candidate) => candidate.relative === relative)
-      /**
-       * Skipped where this delivery does not contain the portal route.
-       *
-       * The exemption exists so a CUSTOMER-session route is not forced to answer 400 for a missing organization,
-       * and it is checked wherever the route IS present. Demanding its presence would make a rule about an
-       * exemption fail for a delivery that simply has no portal yet — and `expect(exemptions.length)` below keeps
-       * the list from going vacuous.
-       */
-      if (!route) continue
       expect(route).toBeDefined()
       expect(route?.source).toContain('getCustomerAuthFromRequest')
     }

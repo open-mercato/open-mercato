@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -47,32 +47,10 @@ describe('the public routes', () => {
       return /export async function (GET|POST)/.test(source)
     })
     const relative = unauthenticated.map((path) => path.slice(API_ROOT.length + 1)).sort()
-    /**
-     * The routes this delivery CONTAINS, not the whole catalogue.
-     *
-     * `PUBLIC_ROUTES` is the module's complete list and a partial delivery holds a subset, so comparing against
-     * all of it fails for the right reason in the wrong place. Comparing against the ones present keeps the real
-     * assertion — that no public route exists which this list has forgotten — which is the direction that
-     * matters: a new unlisted public endpoint still fails here.
-     */
-    const expected = PUBLIC_ROUTES.map((route) => route.path).filter((path) => relative.includes(path)).sort()
-    expect(relative).toEqual(expected)
-    /**
-     * Where this delivery contains none, that is asserted against an INDEPENDENT definition rather than waved
-     * through: a public route is precisely one whose metadata does not require auth, so if the list is empty
-     * every route here must require it. A delivery that gains a public endpoint without adding it to
-     * `PUBLIC_ROUTES` therefore still fails, which is the whole point of the rule.
-     */
-    if (relative.length === 0) {
-      const unauthenticated = routeFiles(API_ROOT).filter(
-        (path) => !/requireAuth:\s*true/.test(readFileSync(path, 'utf8')),
-      )
-      expect(unauthenticated).toEqual([])
-    }
+    expect(relative).toEqual(PUBLIC_ROUTES.map((route) => route.path).sort())
   })
 
-  // Only the ones this delivery contains, for the reason the finder control above states.
-  for (const { path, posture } of PUBLIC_ROUTES.filter((route) => existsSync(join(API_ROOT, route.path)))) {
+  for (const { path, posture } of PUBLIC_ROUTES) {
     const source = readFileSync(join(API_ROOT, path), 'utf8')
 
     it(`${path} enforces a limit`, () => {

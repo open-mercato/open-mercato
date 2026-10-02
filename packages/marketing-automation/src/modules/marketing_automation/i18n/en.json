@@ -159,6 +159,8 @@
   "marketing_automation.errors.aiNotConfigured": "No AI model is configured for this installation.",
   "marketing_automation.errors.aiUnusable": "The model did not return usable copy. Try again.",
   "marketing_automation.errors.blockKeyTaken": "A block with that reference already exists.",
+  "marketing_automation.errors.campaignNotFound": "That campaign no longer exists.",
+  "marketing_automation.errors.configUnavailable": "Settings storage is not available in this installation.",
   "marketing_automation.errors.conflict": "Somebody else saved this campaign while you were editing it.",
   "marketing_automation.errors.emailChannelMissing": "No email channel is configured yet, so nothing can be sent. Set one up in Communication channels.",
   "marketing_automation.errors.eraseNotConfirmed": "The erasure was not confirmed.",

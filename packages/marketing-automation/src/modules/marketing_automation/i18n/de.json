@@ -159,6 +159,8 @@
   "marketing_automation.errors.aiNotConfigured": "In dieser Installation ist kein KI-Modell konfiguriert.",
   "marketing_automation.errors.aiUnusable": "Das Modell hat keinen brauchbaren Text geliefert. Bitte erneut versuchen.",
   "marketing_automation.errors.blockKeyTaken": "Ein Block mit dieser Referenz existiert bereits.",
+  "marketing_automation.errors.campaignNotFound": "Diese Kampagne existiert nicht mehr.",
+  "marketing_automation.errors.configUnavailable": "In dieser Installation gibt es keinen Einstellungsspeicher.",
   "marketing_automation.errors.conflict": "Jemand anderes hat diese Kampagne gespeichert, während Sie sie bearbeitet haben.",
   "marketing_automation.errors.emailChannelMissing": "Es ist noch kein E-Mail-Kanal konfiguriert, also kann nichts gesendet werden. Richte einen unter Kommunikationskanäle ein.",
   "marketing_automation.errors.eraseNotConfirmed": "Die Löschung wurde nicht bestätigt.",
