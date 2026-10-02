@@ -212,6 +212,14 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
   }
 
   /**
+   * "Has anybody entered" — the one question every section below already asks before drawing itself.
+   *
+   * Hoisted so the KPI row can ask it too. `sent` is included because a campaign whose messages went out but
+   * whose runs were since erased still has numbers worth showing.
+   */
+  const hasEntered = (results.funnel?.stages?.[0]?.people ?? 0) > 0 || (results.sends?.sent ?? 0) > 0
+
+  /**
    * A step's label from its id, read off the funnel the same response carried.
    *
    * The link report only knows step ids, and the funnel is the one place in this payload that says what each
