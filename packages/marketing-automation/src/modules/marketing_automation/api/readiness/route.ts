@@ -11,6 +11,7 @@ import {
 } from '../../data/entities.js'
 import { evaluateReadiness, isReadyToSend, remainingCount } from '../../lib/engine/readiness.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../../lib/tracking/secret.js'
+import { readCapabilities } from '../../lib/capabilities.js'
 
 /**
  * Whether this installation can actually run a campaign.
@@ -112,10 +113,32 @@ export async function GET(req: Request) {
     schedulesRegistered,
   })
 
+  /**
+   * What this installation CANNOT do, said once and up front.
+   *
+   * Deliberately not a checklist item. Every check is a thing somebody can go and complete, with a `done` that
+   * flips — and "the sales module is not installed" is not that: it would sit there forever unticked, which is
+   * worse than silence because it reads as an unfinished setup rather than a deliberate shape.
+   *
+   * Said HERE rather than left to the palette, where an operator meets it one greyed-out trigger at a time
+   * after they have already decided what to build. Open Mercato is an ERP or a CRM depending on what is
+   * installed, so "this is a CRM without a shop" is a fact about the installation, not a fault in it.
+   */
+  const capabilities = await readCapabilities(em)
+
   return NextResponse.json({
     checks,
     ready: isReadyToSend(checks),
     remaining: remainingCount(checks),
+    /** Each entry names a module that is absent and the group of features that goes with it. */
+    unavailable: [
+      ...(capabilities.sales
+        ? []
+        : [{ module: 'sales', reasonKey: 'marketing_automation.readiness.unavailable.sales' }]),
+      ...(capabilities.catalog
+        ? []
+        : [{ module: 'catalog', reasonKey: 'marketing_automation.readiness.unavailable.catalog' }]),
+    ],
   })
 }
 

@@ -17,7 +17,8 @@ type Check = {
   href?: string
 }
 
-type Readiness = { checks?: Check[]; ready?: boolean; remaining?: number }
+type Unavailable = { module: string; reasonKey: string }
+type Readiness = { checks?: Check[]; ready?: boolean; remaining?: number; unavailable?: Unavailable[] }
 
 /**
  * The first-run checklist.
@@ -72,6 +73,30 @@ export default function MarketingSetupPage() {
               : t('marketing_automation.setup.notReady', 'Nothing will be delivered yet')}
           </StatusBadge>
         </div>
+
+        {/*
+          What this installation cannot do, ABOVE the checklist and visibly not part of it.
+
+          Open Mercato is an ERP or a CRM depending on what is installed, so a missing module is a fact about
+          the shape of the installation rather than an unfinished setup step — which is exactly why it must not
+          be a checklist row with a `done` nobody can ever tick. An operator who reads this first knows why half
+          the trigger palette is greyed out before they go looking.
+        */}
+        {(readiness?.unavailable ?? []).length > 0 ? (
+          <div className="space-y-2">
+            <SectionHeader title={t('marketing_automation.setup.unavailableTitle', 'Not available here')} />
+            <ul className="space-y-2">
+              {(readiness?.unavailable ?? []).map((entry) => (
+                <li key={entry.module} className="flex items-start gap-2 border-b border-border py-2 text-sm">
+                  <StatusBadge variant="neutral">
+                    {t('marketing_automation.setup.notInstalled', 'Not installed')}
+                  </StatusBadge>
+                  <span className="text-muted-foreground">{t(entry.reasonKey, entry.module)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div className="space-y-2">
           <SectionHeader

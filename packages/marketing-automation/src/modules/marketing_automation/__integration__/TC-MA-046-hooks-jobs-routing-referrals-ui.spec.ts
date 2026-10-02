@@ -6,7 +6,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { createCampaign, deleteCampaignIfExists } from './helpers/marketing'
+import { clickRowAction, createCampaign, deleteCampaignIfExists } from './helpers/marketing'
 
 const HOOKS_PATH = '/api/marketing_automation/inbound-hooks'
 const JOBS_PATH = '/api/marketing_automation/jobs'
@@ -100,15 +100,16 @@ test.describe('TC-MA-046 hooks, jobs, lead routing and referrals screens', () =>
       const [created] = await listHooks(request, token, campaignId)
       expect(created?.name).toBe(hookName)
       if (created.url) {
-        await row.getByRole('button', { name: 'Copy URL' }).click()
+        await clickRowAction(page, row, 'Copy URL')
         await expect(page.getByText('URL copied.')).toBeVisible()
         expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(created.url)
       } else {
         await expect(row).toContainText('No signing secret configured')
-        await expect(row.getByRole('button', { name: 'Copy URL' })).toHaveCount(0)
+        // Through the menu now: the explanation stays in the cell, the action would have been an item.
+        await expect(page.getByRole('menuitem').filter({ hasText: 'Copy URL' })).toHaveCount(0)
       }
 
-      await row.getByRole('button', { name: 'Revoke' }).click()
+      await clickRowAction(page, row, 'Revoke')
       const dialog = page.getByRole('alertdialog')
       await expect(dialog).toContainText('Revoke this hook?')
       await dialog.getByRole('button', { name: 'Cancel' }).click()
@@ -116,16 +117,19 @@ test.describe('TC-MA-046 hooks, jobs, lead routing and referrals screens', () =>
       await expect(row).toContainText('Live')
       expect((await listHooks(request, token, campaignId))[0]?.revokedAt).toBeNull()
 
-      await row.getByRole('button', { name: 'Revoke' }).click()
+      await clickRowAction(page, row, 'Revoke')
       await dialog.getByRole('button', { name: 'Confirm' }).click()
       await expect(dialog).toBeHidden()
       await expect(row).toContainText('Revoked', { timeout: 20_000 })
-      await expect(row.getByRole('button', { name: 'Restore' })).toBeVisible()
       expect((await listHooks(request, token, campaignId))[0]?.revokedAt).toBeTruthy()
 
-      await row.getByRole('button', { name: 'Restore' }).click()
+      // Revoked, so the SAME menu item now reads Restore — one action whose label follows the state, which is
+      // why the assertion is about the label rather than about two separate buttons.
+      await clickRowAction(page, row, 'Restore')
       await expect(row).toContainText('Live', { timeout: 20_000 })
-      await expect(row.getByRole('button', { name: 'Revoke' })).toBeVisible()
+      await row.getByRole('button', { name: 'Open actions' }).click()
+      await expect(page.getByRole('menuitem').filter({ hasText: 'Revoke' })).toBeVisible()
+      await page.keyboard.press('Escape')
       expect((await listHooks(request, token, campaignId))[0]?.revokedAt).toBeNull()
     } finally {
       await removeHooksOf(request, token, campaignId)
