@@ -698,7 +698,7 @@
   "marketing_automation.setup.check.schedules.title": "Activa los trabajos periódicos",
   "marketing_automation.setup.check.segments.body": "Un segmento definido una vez se puede usar en todas las campañas.",
   "marketing_automation.setup.check.segments.title": "Nombra una audiencia para reutilizar",
-  "marketing_automation.setup.check.tracking.body": "Necesarios para aperturas, clics, baja en un clic y llamadas entrantes. Los mensajes salen igual, pero nada se puede medir.",
+  "marketing_automation.setup.check.tracking.body": "Necesario para aperturas, clics, baja con un clic y hooks entrantes. Hasta que ambos estén configurados, los mensajes de marketing no se envían: un mensaje sin forma de darse de baja se rechaza en lugar de entregarse.",
   "marketing_automation.setup.check.tracking.title": "Define un secreto de firma y una URL pública",
   "marketing_automation.setup.done": "Hecho",
   "marketing_automation.setup.loadFailed": "No se pudo comprobar la configuración.",

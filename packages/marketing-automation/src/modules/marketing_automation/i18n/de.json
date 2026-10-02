@@ -698,7 +698,7 @@
   "marketing_automation.setup.check.schedules.title": "Periodische Aufgaben einschalten",
   "marketing_automation.setup.check.segments.body": "Ein einmal definiertes Segment lässt sich in jeder Kampagne verwenden.",
   "marketing_automation.setup.check.segments.title": "Eine Zielgruppe benennen",
-  "marketing_automation.setup.check.tracking.body": "Nötig für Öffnungen, Klicks, Ein-Klick-Abmeldung und eingehende Hooks. Nachrichten gehen auch ohne raus, messbar ist dann nichts.",
+  "marketing_automation.setup.check.tracking.body": "Erforderlich für Öffnungen, Klicks, Ein-Klick-Abmeldung und eingehende Hooks. Solange nicht beide gesetzt sind, werden Marketing-Nachrichten gar nicht versendet: eine Nachricht ohne Abmeldemöglichkeit wird abgelehnt statt zugestellt.",
   "marketing_automation.setup.check.tracking.title": "Signaturgeheimnis und öffentliche URL setzen",
   "marketing_automation.setup.done": "Erledigt",
   "marketing_automation.setup.loadFailed": "Die Einrichtung konnte nicht geprüft werden.",

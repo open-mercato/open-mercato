@@ -698,7 +698,7 @@
   "marketing_automation.setup.check.schedules.title": "주기 작업 켜기",
   "marketing_automation.setup.check.segments.body": "한 번 정의한 세그먼트는 모든 캠페인에서 사용할 수 있습니다.",
   "marketing_automation.setup.check.segments.title": "재사용할 대상 그룹 만들기",
-  "marketing_automation.setup.check.tracking.body": "열람, 클릭, 원클릭 수신 거부, 외부 후크에 필요합니다. 없어도 메시지는 나가지만 아무것도 측정할 수 없습니다.",
+  "marketing_automation.setup.check.tracking.body": "열람, 클릭, 원클릭 수신거부, 인바운드 훅에 필요합니다. 둘 다 설정하기 전까지 마케팅 메시지는 전혀 발송되지 않습니다. 수신거부 수단이 없는 메시지는 전달되지 않고 거부됩니다.",
   "marketing_automation.setup.check.tracking.title": "서명 시크릿과 공개 URL 설정",
   "marketing_automation.setup.done": "완료",
   "marketing_automation.setup.loadFailed": "설정을 확인할 수 없습니다.",

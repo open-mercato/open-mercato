@@ -285,6 +285,37 @@ export const sendEmailStep: StepHandler<StepDeps> = {
     }
 
     /**
+     * A marketing send with no way out does not go out.
+     *
+     * `renderEmail` offers the author `{{unsubscribeUrl}}` and appends a footer when they did not place
+     * it, but both need a signing secret and an absolute base URL; without either, the link is null and
+     * the message would ship with no opt-out at all — which in much of the world is not lawful. This is a
+     * configuration fault, so it is reported and the run is skipped rather than thrown: five retries
+     * cannot supply a missing environment variable, and dead-lettering the journey hides the cause.
+     *
+     * A test send is unaffected: it has no run, renders through `renderEmail` directly, and never
+     * reaches this handler.
+     */
+    if (!unsubscribeLinkFor(ctx)) {
+      deps.logger.error('[internal] marketing send refused: no unsubscribe URL could be built', {
+        campaignId: ctx.campaignId,
+        runId: ctx.runId,
+        stepId: ctx.actionId,
+        trackingSecretConfigured: resolveTrackingSecret() !== null,
+        trackingBaseUrlConfigured: resolveTrackingBaseUrl() !== null,
+      })
+      reportError(new Error('[internal] marketing send has no unsubscribe URL'), {
+        module: 'marketing_automation',
+        code: 'marketing_automation.unsubscribe_url_unavailable',
+        attributes: { campaignId: ctx.campaignId ?? undefined, stepId: ctx.actionId ?? undefined },
+      })
+      return {
+        status: 'skipped',
+        detail: 'no unsubscribe URL: set OM_MARKETING_TRACKING_SECRET and APP_URL',
+      }
+    }
+
+    /**
      * Loaded by what the copy ASKS for.
      *
      * Most messages name the customer and nothing else, and the name arrived with the address lookup above,

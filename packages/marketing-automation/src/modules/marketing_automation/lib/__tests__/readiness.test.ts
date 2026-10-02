@@ -21,17 +21,34 @@ describe('evaluateReadiness', () => {
     expect(remainingCount(checks)).toBe(checks.length)
   })
 
-  it('treats the email channel and a published campaign as blocking, and tracking as not', () => {
+  it('treats tracking as blocking, because without it nothing is sent at all', () => {
     const blocking = evaluateReadiness(nothing).filter((check) => check.severity === 'blocking').map((check) => check.id)
-    // Without a channel or an enabled campaign nothing can arrive; without tracking it arrives unmeasured,
-    // which is a reason to fix it rather than a reason to stop.
-    expect(blocking).toEqual(['email_channel', 'first_campaign', 'publish'])
+    /**
+     * Tracking used to be 'recommended' on the reasoning that a message without it still arrives, only
+     * unmeasured. It does not arrive: the signing secret is what builds the unsubscribe link, and a marketing
+     * send that cannot offer a way out is refused in `sendEmailStep`. A checklist calling that optional would
+     * leave an operator reading "recommended" beside a campaign that silently skips every send.
+     */
+    expect(blocking).toEqual(['email_channel', 'tracking', 'first_campaign', 'publish'])
   })
 
-  it('is ready once the blocking three are in place, even with nothing else', () => {
+  it('is not ready while tracking is missing, however much else is in place', () => {
     const checks = evaluateReadiness({
       ...nothing,
       emailChannelConfigured: true,
+      campaignCount: 1,
+      enabledCampaignCount: 1,
+    })
+    expect(isReadyToSend(checks)).toBe(false)
+    expect(checks.find((check) => check.id === 'tracking')?.done).toBe(false)
+  })
+
+  it('is ready once the blocking four are in place, even with nothing else', () => {
+    const checks = evaluateReadiness({
+      ...nothing,
+      emailChannelConfigured: true,
+      trackingSecretConfigured: true,
+      publicBaseUrlConfigured: true,
       campaignCount: 1,
       enabledCampaignCount: 1,
     })

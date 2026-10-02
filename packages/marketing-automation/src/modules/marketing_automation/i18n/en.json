@@ -698,7 +698,7 @@
   "marketing_automation.setup.check.schedules.title": "Turn on the periodic jobs",
   "marketing_automation.setup.check.segments.body": "A segment defined once can be targeted from every campaign.",
   "marketing_automation.setup.check.segments.title": "Name an audience you will reuse",
-  "marketing_automation.setup.check.tracking.body": "Needed for opens, clicks, one-click unsubscribe and inbound hooks. Messages still send without them, but nothing can be measured.",
+  "marketing_automation.setup.check.tracking.body": "Needed for opens, clicks, one-click unsubscribe and inbound hooks. Until both are set, marketing messages are not sent at all: a message with no way to opt out is refused rather than delivered.",
   "marketing_automation.setup.check.tracking.title": "Set a signing secret and a public URL",
   "marketing_automation.setup.done": "Done",
   "marketing_automation.setup.loadFailed": "Could not check your setup.",

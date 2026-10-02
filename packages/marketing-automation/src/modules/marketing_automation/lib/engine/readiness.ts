@@ -69,9 +69,15 @@ export function evaluateReadiness(facts: ReadinessFacts): ReadinessCheck[] {
     },
     {
       id: 'tracking',
-      // Recommended, not blocking: a campaign without tracking still sends, it just cannot report or offer a
-      // one-click unsubscribe — which is a reason to fix it, not a reason to stop.
-      severity: 'recommended',
+      /**
+       * Blocking, because without it nothing sends.
+       *
+       * This was 'recommended' on the reasoning that a campaign without tracking still sends and merely
+       * cannot report. It no longer does: the signing secret is also what builds the unsubscribe link, and
+       * `sendEmailStep` refuses a marketing send it cannot give an opt-out — so an unconfigured install
+       * skips every send. Advising about that would be advising about silence.
+       */
+      severity: 'blocking',
       done: facts.trackingSecretConfigured && facts.publicBaseUrlConfigured,
     },
     {
