@@ -84,6 +84,9 @@ type PaletteStep = {
   descriptionKey: string | null
   channel: string | null
   uiFields: UiFieldSpec[]
+  /** False where the installation cannot run this step — an email step with no signing secret, for instance. */
+  available?: boolean
+  blockedReasonKey?: string | null
 }
 
 type PreviewEntry =
@@ -991,16 +994,32 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                 </div>
               ) : null}
               <div className="space-y-1">
-                {(palette?.steps ?? []).map((step) => (
-                  <Button
-                    key={step.type}
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => addStep(step.type)}
-                  >
-                    <span className="truncate">{t(step.labelKey, step.type)}</span>
-                  </Button>
-                ))}
+                {(palette?.steps ?? []).map((step) => {
+                  const blocked = step.available === false
+                  return (
+                    <div key={step.type}>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        disabled={blocked}
+                        onClick={() => addStep(step.type)}
+                      >
+                        <span className="truncate">{t(step.labelKey, step.type)}</span>
+                      </Button>
+                      {/*
+                        The reason is VISIBLE, not a tooltip.
+                        
+                        A blocked trigger explains itself through `title`, which is hover-only and therefore
+                        invisible on a touch screen and to anybody who does not think to hover a disabled
+                        control. An author who cannot see why "Send email" is greyed out will assume the module
+                        is broken. Two lines of text beat a tooltip here.
+                      */}
+                      {blocked && step.blockedReasonKey ? (
+                        <div className="mt-1 text-xs text-muted-foreground">{t(step.blockedReasonKey, '')}</div>
+                      ) : null}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </aside>

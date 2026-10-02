@@ -316,6 +316,7 @@
   "marketing_automation.nps.band.detractor": "비추천 고객",
   "marketing_automation.nps.band.passive": "중립 고객",
   "marketing_automation.nps.band.promoter": "추천 고객",
+  "marketing_automation.palette.blocked.trackingMissing": "트래킹 시크릿과 공개 URL이 필요합니다 — 없으면 수신거부 링크를 만들 수 없어 모든 발송이 건너뜁니다.",
   "marketing_automation.params.tagsUnavailable": "태그 목록을 불러올 수 없습니다. 페이지를 새로 고쳐 다시 시도하세요.",
   "marketing_automation.picker.change": "변경",
   "marketing_automation.picker.noMatches": "일치하는 사람이 없습니다.",
