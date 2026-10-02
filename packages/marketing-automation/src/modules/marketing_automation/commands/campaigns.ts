@@ -718,6 +718,18 @@ const setCampaignEnabledCommand: CommandHandler<
 
     const changed = campaign.isEnabled !== payload.isEnabled
     campaign.isEnabled = payload.isEnabled
+    /**
+     * Enabling resets the deliverability breaker's memory.
+     *
+     * The breaker counts the failure rate over a fixed window, so an operator who fixed the cause and
+     * re-enabled had the campaign paused again on the very next sweep — by the same failures they had just
+     * dealt with — and the only way out was waiting the window out with nothing saying so. Re-enabling IS the
+     * statement that the cause is dealt with, so it is the act that moves this.
+     *
+     * Only on enabling. Disabling leaves it where it was: a campaign switched off for an unrelated reason and
+     * switched on later should not arrive with a cleared slate it never earned.
+     */
+    if (changed && payload.isEnabled) campaign.breakerResetAt = new Date()
     await em.flush()
 
     if (changed) {

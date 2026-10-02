@@ -8,6 +8,7 @@ import type { ConditionExpression } from '@open-mercato/core/modules/business_ru
 import { MarketingSegment } from '../data/entities.js'
 import { JOB_MAX_CHECKED, resolveSegmentMembers } from '../lib/segment-members.js'
 import { addScoreEntry } from '../lib/scores.js'
+import { emitMarketingAutomationEvent } from '../events.js'
 import { buildCampaignCommandContext } from '../lib/command-context.js'
 import { isErasedSubject } from '../lib/gdpr.js'
 import { recordJobRun } from '../lib/job-runs.js'
@@ -123,7 +124,7 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
             })
             applied += 1
           } else {
-            await addScoreEntry(em, {
+            const scored = await addScoreEntry(em, {
               scope,
               subjectEntityId,
               points: job.payload.action.points,
@@ -141,6 +142,31 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
               stepId: subjectEntityId,
               now: new Date(),
             })
+            /**
+             * The same event the single-customer step emits, for the same reason.
+             *
+             * `marketing_automation.score.changed` carries the PREVIOUS total as well as the new one, which is
+             * what lets an audience express "reached 100 points" rather than "is above 100 points" — fire once
+             * instead of on every later change. Awarding points in bulk and not emitting meant a campaign
+             * triggered on reaching a threshold fired for the customers a person tagged one at a time and
+             * stayed silent for the thousand they did in one action, which is the shape nobody would debug.
+             *
+             * Emitted only when the ledger actually applied: a redelivered job collides on the unique index
+             * and must not announce a change that did not happen.
+             */
+            if (scored.applied) {
+              await emitMarketingAutomationEvent('marketing_automation.score.changed', {
+                entityId: subjectEntityId,
+                tenantId: scope.tenantId,
+                organizationId: scope.organizationId,
+                points: scored.points,
+                previousPoints: scored.previousPoints,
+                delta: job.payload.action.points,
+                // Nothing about a bulk action came from a campaign, and naming one would make the score
+                // history claim a journey awarded it.
+                campaignId: null,
+              }, { persistent: true })
+            }
             applied += 1
           }
         } catch (error) {

@@ -14,7 +14,7 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
 @Index({ name: 'mkt_campaigns_scope_enabled_idx', properties: ['tenantId', 'organizationId', 'isEnabled'] })
 @Index({ name: 'mkt_campaigns_scope_deleted_idx', properties: ['tenantId', 'organizationId', 'deletedAt'] })
 export class MarketingCampaign {
-  [OptionalProps]?: 'isEnabled' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isEnabled' | 'breakerResetAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -32,6 +32,21 @@ export class MarketingCampaign {
   description?: string | null
 
   /** Default off: a half-authored campaign must never send. */
+  /**
+   * When the deliverability breaker's view of this campaign was last reset.
+   *
+   * Set every time somebody ENABLES the campaign, and read by the breaker as the earliest failure it may
+   * count. Without it the breaker counted the whole window, so an operator who fixed the cause and re-enabled
+   * had the campaign paused again on the next sweep — by the same failures they had just dealt with — and the
+   * only way out was waiting the window out without being told so.
+   *
+   * Not `updatedAt`: that moves on any edit, and a guardrail whose memory is cleared by an unrelated save is
+   * one that stops guarding at the moment somebody is editing. This moves only on the act that means "I have
+   * dealt with it".
+   */
+  @Property({ name: 'breaker_reset_at', type: Date, nullable: true })
+  breakerResetAt?: Date | null
+
   @Property({ name: 'is_enabled', type: 'boolean', default: false })
   isEnabled!: boolean
 

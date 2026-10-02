@@ -41,13 +41,28 @@ export async function applyDeliverabilityGuardrails(
 ): Promise<BreakerOutcome[]> {
   const since = new Date(now.getTime() - WINDOW_HOURS * 3_600_000)
 
+  /**
+   * The window starts at whichever is LATER: the window's own edge, or the last time this campaign was enabled.
+   *
+   * It used to be the window's edge alone, so an operator who fixed the cause and re-enabled had the campaign
+   * paused again on this very pass — by the same failures they had just dealt with. The only way out was
+   * waiting the whole window out, and nothing on the screen said that was what they were waiting for.
+   *
+   * Joined rather than filtered per campaign because this query is deliberately ONE grouped pass: the breaker
+   * runs on the periodic sweep and a query per campaign is what it exists to avoid.
+   */
   const rows = await em.getConnection().execute<RateRow[]>(
-    `select campaign_id,
-            count(*) filter (where status = 'sent')::text as sent,
-            count(*) filter (where status = 'failed')::text as failed
-       from marketing_message_sends
-      where tenant_id = ? and organization_id = ? and sent_at >= ?
-      group by campaign_id`,
+    `select s.campaign_id,
+            count(*) filter (where s.status = 'sent')::text as sent,
+            count(*) filter (where s.status = 'failed')::text as failed
+       from marketing_message_sends s
+       join marketing_campaigns c
+         on c.id = s.campaign_id
+        and c.tenant_id = s.tenant_id
+        and c.organization_id = s.organization_id
+      where s.tenant_id = ? and s.organization_id = ?
+        and s.sent_at >= greatest(?::timestamptz, coalesce(c.breaker_reset_at, '-infinity'::timestamptz))
+      group by s.campaign_id`,
     [scope.tenantId, scope.organizationId, since],
   )
   if (rows.length === 0) return []
