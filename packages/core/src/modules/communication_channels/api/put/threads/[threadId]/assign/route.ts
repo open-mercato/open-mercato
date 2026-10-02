@@ -19,13 +19,6 @@ export const metadata = {
   },
 }
 
-type RbacServiceLike = {
-  loadAcl: (
-    userId: string,
-    scope: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations: string[] | null }>
-}
-
 const bodySchema = z.object({
   assignedUserId: z.string().uuid().nullable(),
 })
@@ -71,29 +64,14 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
   if ('response' in guard) return guard.response
 
   const commandBus = container.resolve('commandBus') as CommandBus
-  const organizationId = (auth as { orgId?: string | null }).orgId ?? null
-
-  let actorFeatures: string[] = []
-  try {
-    const rbac = container.resolve('rbacService') as RbacServiceLike
-    const acl = await rbac.loadAcl(auth.sub as string, {
-      tenantId: auth.tenantId,
-      organizationId,
-    })
-    actorFeatures = acl?.isSuperAdmin ? ['*'] : Array.isArray(acl?.features) ? acl.features : []
-  } catch {
-    actorFeatures = []
-  }
 
   const input: ReassignConversationInput = {
     threadId,
     assignedUserId: body.assignedUserId,
     scope: {
       tenantId: auth.tenantId,
-      organizationId,
+      organizationId: (auth as { orgId?: string | null }).orgId ?? null,
     },
-    actorUserId: (auth.sub as string | undefined) ?? null,
-    actorFeatures,
   }
   const { result } = await commandBus.execute<
     ReassignConversationInput,
@@ -111,7 +89,10 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
     },
   })
 
-  if (result.status === 'no_channel_link' || result.status === 'access_denied') {
+  if (result.status === 'access_denied') {
+    return NextResponse.json({ error: 'Thread not found' }, { status: 404 })
+  }
+  if (result.status === 'no_channel_link') {
     return NextResponse.json({ error: result.reason }, { status: 404 })
   }
   if (result.status === 'invalid_assignee') {

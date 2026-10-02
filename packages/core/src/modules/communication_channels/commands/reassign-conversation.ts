@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -19,16 +19,40 @@ const reassignConversationSchema = z.object({
     tenantId: z.string().uuid(),
     organizationId: z.string().uuid().nullable(),
   }),
-  /**
-   * The caller the reassignment is performed for. Personal-mailbox threads may
-   * only be reassigned by the mailbox owner; shared-channel threads require
-   * `communication_channels.assign`. Omitting it fails closed.
-   */
-  actorUserId: z.string().min(1).nullable().optional(),
-  actorFeatures: z.array(z.string()).optional(),
 })
 
 export type ReassignConversationInput = z.infer<typeof reassignConversationSchema>
+
+type RbacServiceLike = {
+  loadAcl: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<{ isSuperAdmin: boolean; features: string[] } | null>
+}
+
+/**
+ * Resolve the acting user's granted features from the command context rather
+ * than the input, so a redo re-checks the user performing it and no ACL
+ * snapshot is persisted into the action log. Fails closed to no features.
+ */
+async function resolveActorFeatures(
+  ctx: CommandRuntimeContext,
+  actorUserId: string | null,
+  scope: ReassignConversationInput['scope'],
+): Promise<string[]> {
+  if (!actorUserId) return []
+  try {
+    const rbac = ctx.container.resolve('rbacService') as RbacServiceLike
+    const acl = await rbac.loadAcl(actorUserId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+    })
+    return acl?.isSuperAdmin ? ['*'] : Array.isArray(acl?.features) ? acl.features : []
+  } catch (err) {
+    logger.warn('actor ACL lookup failed; denying shared-channel reassignment', { err })
+    return []
+  }
+}
 
 export type ReassignConversationResult =
   | {
@@ -111,7 +135,7 @@ const reassignConversationCommand: CommandHandler<
     const channel = await findOneWithDecryption(
       em,
       CommunicationChannel,
-      { id: mapping.channelId, tenantId: input.scope.tenantId, deletedAt: null },
+      { id: mapping.channelId, tenantId: input.scope.tenantId },
       undefined,
       dscope,
     )
@@ -121,11 +145,14 @@ const reassignConversationCommand: CommandHandler<
         reason: `no CommunicationChannel for thread ${input.threadId}`,
       }
     }
+    const actorUserId = ctx.auth?.sub ?? null
     try {
       assertCanManageChannel(
         { userId: channel.userId ?? null },
-        input.actorUserId ?? null,
-        input.actorFeatures ?? [],
+        actorUserId,
+        channel.userId == null
+          ? await resolveActorFeatures(ctx, actorUserId, input.scope)
+          : [],
         'communication_channels.assign',
       )
     } catch (err) {
