@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Planner availability replace endpoints honour the declared `timezone`; unresolvable zones are deprecated (#5868)
+
+`POST /api/planner/availability-weekly` and `POST /api/planner/availability-date-specific` used
+to build every `DTSTART` with the host process's local clock and ignore the required
+`timezone` field (#5862). They now anchor each wall-clock time in the declared IANA zone, so
+for a non-UTC zone the stored instant moves by that zone's offset. Rows written before the
+upgrade are not re-anchored; they stay offset from newly written rows until they are saved
+again.
+
+Because `timezone` now decides the stored instant, a value the runtime cannot resolve (a typo
+such as `Europe/Warszawa`, or `UTC+2`) is anchored to UTC and logged as a `[deprecated]`
+warning. The request schemas (`plannerAvailabilityWeeklyReplaceSchema`,
+`plannerAvailabilityDateSpecificReplaceSchema`) still accept it for now, so the request
+contract is unchanged. A future minor release will reject it with `400`.
+
+**Action for API callers:** send a valid IANA zone name (anything `Intl.DateTimeFormat`
+accepts, e.g. `Europe/Warsaw`, `UTC`, `Etc/GMT+2`). Look for
+`Unresolvable availability timezone` warnings in the `planner` logs to find callers that will
+start failing.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
