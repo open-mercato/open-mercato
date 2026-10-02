@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
@@ -151,14 +152,15 @@ export default function ContentBlocksPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="outline" size="sm" onClick={() => startEdit(row.original)}>
-            {t('marketing_automation.blocks.edit', 'Edit')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => void remove(row.original)}>
-            {t('marketing_automation.action.removeNode', 'Remove')}
-          </Button>
-        </div>
+        <RowActions items={[
+          { id: 'edit', label: t('marketing_automation.blocks.edit', 'Edit'), onSelect: () => startEdit(row.original) },
+          {
+            id: 'remove',
+            label: t('marketing_automation.action.removeNode', 'Remove'),
+            destructive: true,
+            onSelect: () => { void remove(row.original) },
+          },
+        ]} />
       ),
     },
   // Same reason as the segments screen: a row button that closes over state must list it, or it acts on the

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
@@ -245,14 +246,15 @@ export default function ScoreRulesPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="outline" size="sm" onClick={() => { void startEdit(row.original) }}>
-            {t('marketing_automation.scoreRules.edit', 'Edit')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => void remove(row.original)}>
-            {t('marketing_automation.action.removeNode', 'Remove')}
-          </Button>
-        </div>
+        <RowActions items={[
+          { id: 'edit', label: t('marketing_automation.scoreRules.edit', 'Edit'), onSelect: () => { void startEdit(row.original) } },
+          {
+            id: 'remove',
+            label: t('marketing_automation.action.removeNode', 'Remove'),
+            destructive: true,
+            onSelect: () => { void remove(row.original) },
+          },
+        ]} />
       ),
     },
   // Every closure the row buttons call is a dependency, or they keep a stale `isDirty` and skip the unsaved guard.

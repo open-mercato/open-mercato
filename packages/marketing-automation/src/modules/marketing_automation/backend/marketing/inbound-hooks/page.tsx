@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -185,31 +186,47 @@ export default function InboundHooksPage() {
     {
       id: 'actions',
       header: '',
-      cell: ({ row }) => (
-        <div className="flex justify-end gap-1">
-          {/* Three distinct states, because "you may not see it" and "it does not exist" are different facts. */}
-          {row.original.url ? (
-            <Button variant="outline" size="sm" onClick={() => void copyUrl(row.original.url as string)}>
-              {t('marketing_automation.hooks.copyUrl', 'Copy URL')}
-            </Button>
-          ) : row.original.hasUrl ? (
-            <span className="text-xs text-muted-foreground">
-              {t('marketing_automation.hooks.urlHidden', 'URL hidden — needs campaign management rights')}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">
-              {t('marketing_automation.hooks.noSecret', 'No signing secret configured')}
-            </span>
-          )}
-          {canManage ? (
-            <Button variant="outline" size="sm" onClick={() => void setRevoked(row.original, !row.original.revokedAt)}>
-              {row.original.revokedAt
-                ? t('marketing_automation.hooks.restore', 'Restore')
-                : t('marketing_automation.hooks.revoke', 'Revoke')}
-            </Button>
-          ) : null}
-        </div>
-      ),
+      /**
+       * The actions go through `RowActions`; the two EXPLANATIONS stay as text.
+       *
+       * "URL hidden — needs campaign management rights" and "No signing secret configured" are not actions and
+       * must not become menu items somebody can click: they are why there is nothing to click. Three distinct
+       * states, because "you may not see it" and "it does not exist" are different facts, and hiding either
+       * inside a dropdown would answer neither.
+       */
+      cell: ({ row }) => {
+        const actions: RowActionItem[] = []
+        if (row.original.url) {
+          actions.push({
+            id: 'copy',
+            label: t('marketing_automation.hooks.copyUrl', 'Copy URL'),
+            onSelect: () => { void copyUrl(row.original.url as string) },
+          })
+        }
+        if (canManage) {
+          actions.push({
+            id: 'revoked',
+            label: row.original.revokedAt
+              ? t('marketing_automation.hooks.restore', 'Restore')
+              : t('marketing_automation.hooks.revoke', 'Revoke'),
+            // Revoking stops every caller posting to that URL immediately; restoring does not.
+            destructive: !row.original.revokedAt,
+            onSelect: () => { void setRevoked(row.original, !row.original.revokedAt) },
+          })
+        }
+        return (
+          <div className="flex items-center justify-end gap-2">
+            {!row.original.url ? (
+              <span className="text-xs text-muted-foreground">
+                {row.original.hasUrl
+                  ? t('marketing_automation.hooks.urlHidden', 'URL hidden — needs campaign management rights')
+                  : t('marketing_automation.hooks.noSecret', 'No signing secret configured')}
+              </span>
+            ) : null}
+            {actions.length > 0 ? <RowActions items={actions} /> : null}
+          </div>
+        )
+      },
     },
   ], [t, canManage])
 

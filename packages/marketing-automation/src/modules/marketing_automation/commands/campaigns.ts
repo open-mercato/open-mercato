@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -494,8 +495,21 @@ const applySplitWinnerCommand: CommandHandler<
     assertNoLoopRisk(steps, triggers.map((trigger) => trigger.eventId).filter((eventId): eventId is string => !!eventId))
 
     await em.transactional(async (tx) => {
-      const managed = await tx.findOne(MarketingCampaign, { id: campaign.id })
+      // Locked and re-asserted for the reason `save_graph` is: the check above is check-then-write, and
+      // promoting a winner rewrites somebody's campaign.
+      const managed = await tx.findOne(
+        MarketingCampaign,
+        { id: campaign.id },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
       if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'marketing_automation.campaign',
+        resourceId: managed.id,
+        current: managed.updatedAt,
+        expected: rawInput.updatedAt,
+        request: ctx.request ?? null,
+      })
       managed.definition = rewritten as unknown as Record<string, unknown>
     })
 
@@ -597,8 +611,30 @@ const saveCampaignGraphCommand: CommandHandler<
     // carrying its new definition and ZERO triggers — and the unique constraint on
     // (campaign, event) makes a concurrent double-save a plausible way to get there.
     await em.transactional(async (tx) => {
-      const managed = await tx.findOne(MarketingCampaign, { id: campaign.id })
+      /**
+       * Locked, and the version re-asserted INSIDE the transaction.
+       *
+       * The check above is check-then-write: both saves read the same `updated_at`, both pass, both enter
+       * their own transaction and the second overwrites the first with no conflict reported — which is the one
+       * outcome the lock exists to prevent. A `pessimistic_write` lock makes the loser wait for the winner's
+       * commit, and re-reading the version after it has the loser see the row it is about to destroy.
+       *
+       * The same helper, so the 409 body, the conflict bar and the `OM_OPTIMISTIC_LOCK` contract are the ones
+       * the rest of the platform already produces — the only difference is that this one cannot be raced.
+       */
+      const managed = await tx.findOne(
+        MarketingCampaign,
+        { id: campaign.id },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
       if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'marketing_automation.campaign',
+        resourceId: managed.id,
+        current: managed.updatedAt,
+        expected: payload.updatedAt,
+        request: ctx.request ?? null,
+      })
       managed.name = payload.name
       // `description` is only touched when the caller sent the field. The canvas does not edit it,
       // and treating an absent field as "clear it" silently wiped descriptions set through the API.

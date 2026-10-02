@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LineChart } from '@open-mercato/ui/backend/charts'
@@ -339,17 +340,16 @@ export default function SegmentsPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="outline" size="sm" onClick={() => void showMembers(row.original)}>
-            {t('marketing_automation.segments.members', 'Members')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => { void startEdit(row.original) }}>
-            {t('marketing_automation.segments.edit', 'Edit')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => void remove(row.original)}>
-            {t('marketing_automation.action.removeNode', 'Remove')}
-          </Button>
-        </div>
+        <RowActions items={[
+          { id: 'members', label: t('marketing_automation.segments.members', 'Members'), onSelect: () => { void showMembers(row.original) } },
+          { id: 'edit', label: t('marketing_automation.segments.edit', 'Edit'), onSelect: () => { void startEdit(row.original) } },
+          {
+            id: 'remove',
+            label: t('marketing_automation.action.removeNode', 'Remove'),
+            destructive: true,
+            onSelect: () => { void remove(row.original) },
+          },
+        ]} />
       ),
     },
   /**
