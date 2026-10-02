@@ -17,6 +17,7 @@ import { isSuppressedByConsent } from './consent.js'
 import { occurrenceKeyFor } from './occurrence.js'
 import { loadTierThresholds } from './tiers.js'
 import { recordDeadLetter } from './dead-letter.js'
+import { releaseSendSlot, reserveSendSlot, settleSendSlot } from './send-slots.js'
 import {
   applyTransition,
   claimRun,
@@ -133,6 +134,20 @@ export function buildEffects(
       // backdate every send to when the job began and skew the frequency-cap window.
       sentAt: new Date(),
     }),
+    reserveSendSlot: (input) => reserveSendSlot(deps.em, {
+      scope: deps.scope,
+      subjectEntityId: input.subjectEntityId,
+      campaignId: run.campaignId,
+      runId: run.id,
+      stepId: input.stepId,
+      channel: input.channel,
+      caps: input.caps,
+      // The moment of the reservation, which is what every cap window filters on — not the worker's start
+      // instant, which would backdate a long chain's sends and widen the window.
+      now: new Date(),
+    }),
+    settleSendSlot: (id, status) => settleSendSlot(deps.em, deps.scope, id, status),
+    releaseSendSlot: (id) => releaseSendSlot(deps.em, deps.scope, id),
     loadContactPreference: async (subjectEntityId) => (subjectEntityId
       ? loadContactPreference(deps.em, deps.scope, subjectEntityId)
       : null),

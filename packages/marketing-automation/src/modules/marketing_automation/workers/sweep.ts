@@ -17,6 +17,7 @@ import type { RowSweepSource, SweepCandidate } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
 import { pruneDeadLetters } from '../lib/dead-letter.js'
+import { expireStaleSendReservations } from '../lib/send-slots.js'
 import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
 import { loadValueBoundaries, refreshValueBoundariesIfStale } from '../lib/value-boundaries.js'
 import { loadValueHorizonYears } from '../lib/value-horizon.js'
@@ -638,6 +639,22 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     await pruneJobRuns(deps.em, scope, deps.now)
   } catch (error) {
     logger.warn('[internal] marketing job-run pruning failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  /**
+   * Slots whose worker never came back.
+   *
+   * A reservation counts against the frequency cap — that is what makes the cap atomic — so a worker that
+   * died between taking a slot and hearing from the transport would otherwise cost that person a message for
+   * ever. Expired rather than settled: nothing went out, so nothing belongs in the delivery figures.
+   */
+  try {
+    const freed = await expireStaleSendReservations(deps.em, scope, deps.now)
+    if (freed > 0) logger.info('marketing send reservations expired', { freed })
+  } catch (error) {
+    logger.warn('[internal] marketing send reservation expiry failed', {
       error: error instanceof Error ? error.message : String(error),
     })
   }

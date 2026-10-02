@@ -350,6 +350,9 @@ export async function countRunsStartedSince(
 }
 
 /** Counts across ALL campaigns — a per-campaign cap would not protect anybody. */
+/** What counts against a frequency cap: a message that went out, and one whose slot is taken. */
+export const CAP_CONSUMING_SEND_STATUSES = ['sent', 'reserved'] as const
+
 export async function countSendsSince(
   em: EntityManager,
   subjectEntityId: string,
@@ -360,7 +363,8 @@ export async function countSendsSince(
     subjectEntityId,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-    status: 'sent',
+    // A reservation counts: it is a slot another worker has already taken for a message about to go out.
+    status: { $in: [...CAP_CONSUMING_SEND_STATUSES] },
     sentAt: { $gte: since },
   })
 }

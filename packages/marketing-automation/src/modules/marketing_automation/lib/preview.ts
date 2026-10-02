@@ -140,6 +140,24 @@ export async function previewJourney<TDeps>(
       // Nothing is written. A preview that recorded sends would count against the very frequency cap
       // it is trying to explain, and would show up in the campaign's reports as traffic.
       recordSend: async () => {},
+      /**
+       * The caps are still ASKED, and the answer is simulated rather than reserved.
+       *
+       * A preview that took a real slot would consume one of the customer's messages to explain what would
+       * happen to it — and the reservation counts against the cap, so previewing a journey twice would make
+       * the second preview lie about the first. The gate's verdict still comes from real sends, through the
+       * `countSendsSince` this preview inherits.
+       */
+      reserveSendSlot: async (input) => {
+        for (const cap of input.caps) {
+          const since = new Date(effects.now.getTime() - cap.windowHours * 3_600_000)
+          const taken = await effects.countSendsSince(input.subjectEntityId, since)
+          if (taken >= cap.maxMessages) return { reserved: false, reason: cap.reason }
+        }
+        return { reserved: true, id: 'preview' }
+      },
+      settleSendSlot: async () => {},
+      releaseSendSlot: async () => {},
     }
 
     const transition = await executeRun(state, input.steps, input.policy, deps, simulated)

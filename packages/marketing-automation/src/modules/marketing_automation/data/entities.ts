@@ -384,8 +384,21 @@ export class MarketingMessageSend {
   channel!: 'email' | 'sms' | 'push'
 
   /** `suppressed` records a send the frequency cap or quiet hours refused, with a reason. */
+  /**
+   * `reserved` is a send that has been counted against the frequency caps and has not gone out yet.
+   *
+   * The caps used to be check-then-send: count what this subject has had, decide, then hand the message to
+   * the transport. Three workers running three campaigns for the same person all counted the same number and
+   * all sent, so "at most two a week" delivered four. A row written BEFORE the transport call, and counted
+   * like a sent one, is what makes the decision and the slot the same act.
+   *
+   * It becomes `sent` or `failed` once the transport answers, and a worker that dies in between leaves it
+   * `reserved` — which the sweep expires, so a crash costs one slot for one lease rather than for ever.
+   *
+   * The column has no check constraint, so this needed no migration.
+   */
   @Property({ type: 'text', default: 'sent' })
-  status!: 'sent' | 'suppressed' | 'failed'
+  status!: 'sent' | 'suppressed' | 'failed' | 'reserved'
 
   @Property({ name: 'suppression_reason', type: 'text', nullable: true })
   suppressionReason?: string | null

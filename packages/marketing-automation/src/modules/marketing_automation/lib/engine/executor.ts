@@ -87,6 +87,23 @@ export type RunTransition =
 export type ExecutorSideEffects<TDeps> = {
   getStep(type: string): StepHandler<TDeps> | undefined
   /**
+   * Takes a slot against the frequency caps, or refuses because one is full.
+   *
+   * Replaces counting and then deciding. The count and the slot are one act, serialised per subject, so
+   * three workers running three campaigns for the same person can no longer all read the same number and all
+   * send — which is how "at most two a week" delivered four.
+   */
+  reserveSendSlot(input: {
+    subjectEntityId: string
+    stepId: string
+    channel: NonNullable<StepHandler<TDeps>['channel']>
+    caps: Array<{ maxMessages: number; windowHours: number; reason: 'frequency_cap' | 'preference_cap' }>
+  }): Promise<{ reserved: true; id: string } | { reserved: false; reason: 'frequency_cap' | 'preference_cap' }>
+  /** Turns a taken slot into what happened. */
+  settleSendSlot(id: string, status: 'sent' | 'failed'): Promise<void>
+  /** Gives a slot back when the step produced no message at all. */
+  releaseSendSlot(id: string): Promise<void>
+  /**
    * Called after every step this pass finishes, with where the run would resume if it stopped here.
    *
    * Exists because a throw loses everything the pass had done. A failure INSIDE a step comes back as a
@@ -212,6 +229,12 @@ export async function executeRun<TDeps>(
 
     const { step, index } = planned
     const handler = effects.getStep(step.type)
+    /**
+     * The slot this step took, so whatever happens next can account for it.
+     *
+     * Per step rather than per pass: a journey can hold several sends, and each takes its own slot.
+     */
+    let reservationId: string | null = null
 
     if (!handler) {
       // Fail open per step: a step type disappears when the module contributing it is
@@ -323,44 +346,45 @@ export async function executeRun<TDeps>(
       }
 
       /**
-       * The recipient's own cap, checked as a second cap rather than merged with the campaign's.
+       * Both caps, decided together and taken as a slot in the same act.
        *
-       * "Three a week" and the shop's "two a day" both have exact answers only when each is evaluated in its
-       * own window; merging them would mean normalising two windows into one and getting a different number
-       * from either.
+       * Each is still evaluated in its OWN window: "three a week" and the shop's "two a day" have exact
+       * answers only that way, and merging them would mean normalising two windows into one and getting a
+       * number from neither. What changed is that they are decided under one lock and the decision writes a
+       * reservation — because counting and then sending let three workers running three campaigns for the
+       * same person all read the same number and all send, which turned "at most two a week" into four.
+       *
+       * A refusal is still DROPPED rather than deferred, and still recorded: the point of a cap is that the
+       * customer does not receive this message, and deferring would only move the flood later.
        */
+      const caps: Array<{ maxMessages: number; windowHours: number; reason: 'frequency_cap' | 'preference_cap' }> = []
       const ownCap = preferenceCap(preference)
-      if (ownCap && run.subjectEntityId) {
-        const since = new Date(now.getTime() - ownCap.windowHours * 3_600_000)
-        const alreadySent = await effects.countSendsSince(run.subjectEntityId, since)
-        if (isFrequencyCapped(alreadySent, ownCap)) {
-          await effects.recordSend({
-            channel: handler.channel,
-            status: 'suppressed',
-            stepId: step.id,
-            suppressionReason: 'preference_cap',
-          })
-          stepLog.push(outcome(step, 'skipped', now, 'recipient frequency preference'))
-          continue
-        }
-      }
+      if (ownCap) caps.push({ ...ownCap, reason: 'preference_cap' })
+      if (policy.frequencyCap) caps.push({ ...policy.frequencyCap, reason: 'frequency_cap' })
 
-      if (policy.frequencyCap && run.subjectEntityId) {
-        const since = new Date(now.getTime() - policy.frequencyCap.windowHours * 3_600_000)
-        const alreadySent = await effects.countSendsSince(run.subjectEntityId, since)
-        if (isFrequencyCapped(alreadySent, policy.frequencyCap)) {
-          // Dropped permanently rather than deferred: the point of a cap is that the customer
-          // does not receive this message, and deferring would only move the flood later.
-          // Recorded so the suppression is visible in reporting instead of vanishing.
+      if (run.subjectEntityId) {
+        const slot = await effects.reserveSendSlot({
+          subjectEntityId: run.subjectEntityId,
+          stepId: step.id,
+          channel: handler.channel,
+          caps,
+        })
+        if (!slot.reserved) {
           await effects.recordSend({
             channel: handler.channel,
             status: 'suppressed',
             stepId: step.id,
-            suppressionReason: 'frequency_cap',
+            suppressionReason: slot.reason,
           })
-          stepLog.push(outcome(step, 'skipped', now, 'frequency cap'))
+          stepLog.push(outcome(
+            step,
+            'skipped',
+            now,
+            slot.reason === 'preference_cap' ? 'recipient frequency preference' : 'frequency cap',
+          ))
           continue
         }
+        reservationId = slot.id
       }
     }
 
@@ -379,7 +403,16 @@ export async function executeRun<TDeps>(
        */
       if (handler.channel) {
         try {
-          await effects.recordSend({ channel: handler.channel, status: 'failed', stepId: step.id })
+          /**
+           * The reservation BECOMES the failure row rather than a second row beside it.
+           *
+           * The slot was taken before the transport was called, so settling it is both the record of the
+           * failure and the release of the slot — and a `failed` row is deliberately kept rather than
+           * deleted: a campaign whose every message is rejected must look broken rather than quiet, which
+           * is the signal the deliverability guardrail reads.
+           */
+          if (reservationId) await effects.settleSendSlot(reservationId, 'failed')
+          else await effects.recordSend({ channel: handler.channel, status: 'failed', stepId: step.id })
         } catch {
           // Bookkeeping must not replace the real error with its own.
         }
@@ -394,7 +427,11 @@ export async function executeRun<TDeps>(
 
     if (handler.channel && result.status === 'done') {
       try {
-        await effects.recordSend({ channel: handler.channel, status: 'sent', stepId: step.id })
+        /**
+         * The reservation becomes the sent row. One row per message, from the moment the slot was taken.
+         */
+        if (reservationId) await effects.settleSendSlot(reservationId, 'sent')
+        else await effects.recordSend({ channel: handler.channel, status: 'sent', stepId: step.id })
       } catch (error) {
         /**
          * The message HAS gone out. A throw here would escape into the caller's outer catch, which
@@ -408,6 +445,26 @@ export async function executeRun<TDeps>(
          * what every other option here does.
          */
         logger.error('[internal] marketing send recorded failed after the message went out', {
+          campaignId: run.campaignId,
+          stepId: step.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    /**
+     * A step that took a slot and sent nothing gives it back.
+     *
+     * `skipped` here is the step's own decision — no address on the subject, a tag already assigned — so no
+     * message exists. Leaving the reservation would spend one of the customer's slots on a message nobody
+     * ever received, and the lease would hide it for fifteen minutes before the sweep noticed.
+     */
+    if (reservationId && result.status !== 'done') {
+      try {
+        await effects.releaseSendSlot(reservationId)
+      } catch (error) {
+        // The sweep expires it instead; losing the slot for one lease is not worth failing the run over.
+        logger.warn('[internal] marketing send slot not released', {
           campaignId: run.campaignId,
           stepId: step.id,
           error: error instanceof Error ? error.message : String(error),

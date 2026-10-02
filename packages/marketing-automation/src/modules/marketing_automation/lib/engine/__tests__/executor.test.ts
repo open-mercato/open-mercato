@@ -32,9 +32,29 @@ const noPolicy: SendPolicy = { frequencyCap: null, quietHours: null }
 
 function makeEffects(handlers: StepHandler<Deps>[], over: Partial<ExecutorSideEffects<Deps>> = {}) {
   const byType = new Map(handlers.map((h) => [h.type, h]))
+  const countSendsSince = jest.fn().mockResolvedValue(0)
   const effects: ExecutorSideEffects<Deps> = {
     getStep: (type) => byType.get(type),
-    countSendsSince: jest.fn().mockResolvedValue(0),
+    countSendsSince,
+    /**
+     * The fake decides the caps the way the contract says, and nothing more.
+     *
+     * Atomicity is the real implementation's job — an advisory lock around the count and the insert — and a
+     * fake cannot model a race. What it models is the CONTRACT: each cap is evaluated in its own window, a
+     * refusal names which cap refused, and a success hands back a slot id the caller has to account for.
+     * Driving it from `countSendsSince` is what keeps every cap test in this file expressing the same intent
+     * it did when the executor counted for itself.
+     */
+    reserveSendSlot: jest.fn(async (input: Parameters<ExecutorSideEffects<Deps>['reserveSendSlot']>[0]) => {
+      for (const cap of input.caps) {
+        const since = new Date(now.getTime() - cap.windowHours * 3_600_000)
+        const taken = await effects.countSendsSince(input.subjectEntityId, since)
+        if (taken >= cap.maxMessages) return { reserved: false as const, reason: cap.reason }
+      }
+      return { reserved: true as const, id: `slot-${input.stepId}` }
+    }),
+    settleSendSlot: jest.fn().mockResolvedValue(undefined),
+    releaseSendSlot: jest.fn().mockResolvedValue(undefined),
     recordSend: jest.fn().mockResolvedValue(undefined),
     isChannelSuppressed: jest.fn().mockResolvedValue(false),
     // No preference expressed: the overwhelmingly common case, and the one every other test assumes.
@@ -196,16 +216,69 @@ describe('executeRun — quiet hours', () => {
 describe('executeRun — frequency cap', () => {
   const policy: SendPolicy = { frequencyCap: { maxMessages: 2, windowHours: 24 }, quietHours: null }
 
-  test('sends while under the cap and records the send', async () => {
+  test('takes a slot while under the cap, and the slot becomes the sent row', async () => {
     const handler = emailHandler()
     const effects = makeEffects([handler], { countSendsSince: jest.fn().mockResolvedValue(1) })
     const transition = await executeRun(run(), [step('s1', 'send_email')], policy, deps, effects)
     expect(transition.kind).toBe('completed')
-    expect(effects.recordSend).toHaveBeenCalledWith({ channel: 'email', status: 'sent', stepId: 's1' })
-    // The firing assertion for the PII rule: the recorded entry must carry no address, because the
-    // send history is append-only and is not covered by the platform's at-rest encryption.
-    const recorded = (effects.recordSend as jest.Mock).mock.calls[0][0] as Record<string, unknown>
-    expect(Object.keys(recorded)).not.toContain('toAddress')
+
+    /**
+     * One row per message, from the moment the slot was taken.
+     *
+     * The send used to be recorded AFTER the transport answered, which is what made the cap
+     * check-then-send: the count the next worker read did not yet include this message. The reservation is
+     * the record, and settling it is what says the message went out.
+     */
+    expect(effects.reserveSendSlot).toHaveBeenCalledWith({
+      subjectEntityId: 'c1',
+      stepId: 's1',
+      channel: 'email',
+      caps: [{ maxMessages: 2, windowHours: 24, reason: 'frequency_cap' }],
+    })
+    expect(effects.settleSendSlot).toHaveBeenCalledWith('slot-s1', 'sent')
+    expect(effects.recordSend).not.toHaveBeenCalled()
+
+    // The firing assertion for the PII rule: nothing about the message carries an address, because the send
+    // history is append-only and is not covered by the platform's at-rest encryption.
+    const reserved = (effects.reserveSendSlot as jest.Mock).mock.calls[0][0] as Record<string, unknown>
+    expect(Object.keys(reserved)).not.toContain('toAddress')
+  })
+
+  test('gives the slot back when the step sent nothing', async () => {
+    // A `skipped` result is the step's own decision — no address on the subject, say — so no message exists.
+    // Leaving the reservation would spend one of the customer's slots on a message nobody received.
+    const handler = emailHandler(jest.fn().mockResolvedValue({ status: 'skipped', detail: 'no email address' }))
+    const effects = makeEffects([handler])
+    await executeRun(run(), [step('s1', 'send_email')], policy, deps, effects)
+    expect(effects.releaseSendSlot).toHaveBeenCalledWith('slot-s1')
+    expect(effects.settleSendSlot).not.toHaveBeenCalled()
+  })
+
+  test('settles the slot as failed when the transport rejects, rather than releasing it', async () => {
+    // A campaign whose every message is rejected must look broken rather than quiet: the failure rate is the
+    // signal the deliverability guardrail reads, so a rejected send keeps its row.
+    const handler = emailHandler(jest.fn().mockRejectedValue(new Error('550 rejected')))
+    const effects = makeEffects([handler])
+    const transition = await executeRun(run(), [step('s1', 'send_email')], policy, deps, effects)
+    expect(transition.kind).toBe('failed')
+    expect(effects.settleSendSlot).toHaveBeenCalledWith('slot-s1', 'failed')
+    expect(effects.releaseSendSlot).not.toHaveBeenCalled()
+  })
+
+  test('decides both caps in one reservation, each in its own window', async () => {
+    /**
+     * Merging them would mean normalising two windows into one and getting a number from neither. Deciding
+     * them separately but under one lock is what stops a slot taken for one being invisible to the other.
+     */
+    const effects = makeEffects([emailHandler()], {
+      loadContactPreference: jest.fn().mockResolvedValue({ maxPerWeek: 3, pausedUntil: null, locale: null }),
+    })
+    await executeRun(run(), [step('s1', 'send_email')], policy, deps, effects)
+    const caps = ((effects.reserveSendSlot as jest.Mock).mock.calls[0][0] as { caps: Array<Record<string, unknown>> }).caps
+    expect(caps.map((cap) => cap.reason)).toEqual(['preference_cap', 'frequency_cap'])
+    // The recipient's own cap first: it is the only one of the two the CUSTOMER set.
+    expect(caps[0]).toMatchObject({ maxMessages: 3 })
+    expect(caps[1]).toMatchObject({ maxMessages: 2, windowHours: 24 })
   })
 
   // Dropped, not deferred: the point of a cap is that this message does not arrive. Deferring
