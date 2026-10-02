@@ -159,6 +159,8 @@
   "marketing_automation.errors.aiNotConfigured": "이 설치에는 AI 모델이 구성되어 있지 않습니다.",
   "marketing_automation.errors.aiUnusable": "모델이 사용할 수 있는 문구를 반환하지 않았습니다. 다시 시도하세요.",
   "marketing_automation.errors.blockKeyTaken": "같은 참조를 가진 블록이 이미 있습니다.",
+  "marketing_automation.errors.campaignNotFound": "해당 캠페인이 더 이상 없습니다.",
+  "marketing_automation.errors.configUnavailable": "이 설치에는 설정 저장소가 없습니다.",
   "marketing_automation.errors.conflict": "편집하는 동안 다른 사용자가 이 캠페인을 저장했습니다.",
   "marketing_automation.errors.emailChannelMissing": "이메일 채널이 설정되지 않아 발송할 수 없습니다. 커뮤니케이션 채널에서 설정하세요.",
   "marketing_automation.errors.eraseNotConfirmed": "삭제가 확인되지 않았습니다.",

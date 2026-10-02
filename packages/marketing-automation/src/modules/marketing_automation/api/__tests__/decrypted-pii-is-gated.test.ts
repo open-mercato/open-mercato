@@ -35,22 +35,9 @@ describe('routes that decrypt a customer', () => {
     .map((path) => ({ path, source: readFileSync(path, 'utf8') }))
     .filter(({ source }) => /findWithDecryption|findOneWithDecryption/.test(source))
 
-  it('finds every route that decrypts, counted a second way', () => {
-    /**
-     * The control, and it carries no NUMBER on purpose.
-     *
-     * A rename that empties the list would turn the whole suite into a silent pass, so the control has to
-     * notice — but "at least four" was only ever "the number that existed when this was written", which makes
-     * the guard fail in any delivery that contains a subset of the module. Counting the same thing by a second
-     * route is exact wherever it runs: every file under `api/` whose text names a decrypting finder must be in
-     * the list the rule iterates.
-     */
-    const byPlainScan = routeFiles(API_ROOT).filter((path) =>
-      /findWithDecryption|findOneWithDecryption/.test(readFileSync(path, 'utf8')),
-    )
-    expect(decrypting.map(({ path }) => path).sort()).toEqual(byPlainScan.sort())
-    // And it must find something, or both routes agree on nothing and prove nothing.
-    expect(decrypting.length).toBeGreaterThan(0)
+  it('finds the routes it is meant to be guarding', () => {
+    // A rename that empties this list would turn the whole suite into a silent pass.
+    expect(decrypting.length).toBeGreaterThanOrEqual(4)
   })
 
   for (const { path, source } of decrypting) {
@@ -110,30 +97,8 @@ describe('routes that build a subject document', () => {
     .map((path) => ({ path, source: readFileSync(path, 'utf8') }))
     .filter(({ source }) => /buildSubjectDocument/.test(source))
 
-  it('finds every route that builds a document, or says why there are none', () => {
-    /**
-     * A control that survives a partial delivery, without going vacuous.
-     *
-     * Counting a second way keeps it exact. But a delivery that does not yet contain the document BUILDER has
-     * no routes to find, and demanding at least one would fail for the right reason in the wrong place — while
-     * demanding nothing would let the rule pass silently if the detector broke.
-     *
-     * So the emptiness is tied to a checkable fact instead of a number: no routes means the builder itself is
-     * absent from this tree. If it IS here and the list is empty, the detector has stopped matching and this
-     * fails, which is exactly what a control is for.
-     */
-    /**
-     * Counted by the IMPORT rather than by the call, which is what makes it independent.
-     *
-     * A second count using the same regex as the detector proves nothing: if that regex rots, both sides go to
-     * zero together and the comparison passes. The import path and the call site are two different facts about
-     * the same file, so they would have to rot in step — and a delivery containing none of these routes gets an
-     * honest empty set from both, with nothing invented to keep a threshold happy.
-     */
-    const byImport = routeFiles(API_ROOT).filter((path) =>
-      /from '[^']*subject-document/.test(readFileSync(path, 'utf8')),
-    )
-    expect(building.map(({ path }) => path).sort()).toEqual(byImport.sort())
+  it('finds the routes it is meant to be guarding', () => {
+    expect(building.length).toBeGreaterThanOrEqual(5)
   })
 
   for (const { path, source } of building) {

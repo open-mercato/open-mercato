@@ -159,6 +159,8 @@
   "marketing_automation.errors.aiNotConfigured": "Esta instalación no tiene ningún modelo de IA configurado.",
   "marketing_automation.errors.aiUnusable": "El modelo no devolvió un texto utilizable. Inténtalo de nuevo.",
   "marketing_automation.errors.blockKeyTaken": "Ya existe un bloque con esa referencia.",
+  "marketing_automation.errors.campaignNotFound": "Esa campaña ya no existe.",
+  "marketing_automation.errors.configUnavailable": "Esta instalación no dispone de almacenamiento de ajustes.",
   "marketing_automation.errors.conflict": "Otra persona guardó esta campaña mientras la editabas.",
   "marketing_automation.errors.emailChannelMissing": "Todavía no hay ningún canal de correo configurado, así que no se puede enviar nada. Configúralo en Canales de comunicación.",
   "marketing_automation.errors.eraseNotConfirmed": "El borrado no se confirmó.",
