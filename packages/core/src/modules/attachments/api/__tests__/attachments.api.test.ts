@@ -59,6 +59,10 @@ const mockDataEngine = {
 
 let mockAttachmentQuotaService: any = null
 const mockAttachmentQuotaRecoveryScheduler = jest.fn(async () => {})
+let mockRateLimiterService: {
+  consume: jest.Mock
+  trustProxyDepth: number
+} | null = null
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -67,12 +71,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (k === 'dataEngine') return mockDataEngine
       if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
       if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
+      if (k === 'rateLimiterService') return mockRateLimiterService
       return null
     },
   }),
 }))
 
-const defaultAuth = () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] })
+const defaultAuth = () => ({ sub: 'user-1', orgId: 'org', tenantId: 't1', roles: ['admin'] })
 const mockGetAuthFromRequest = jest.fn(defaultAuth)
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args) }))
 
@@ -152,10 +157,33 @@ describe('attachments API', () => {
     mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
     mockAttachmentQuotaService = null
     mockAttachmentQuotaRecoveryScheduler.mockClear()
+    mockRateLimiterService = null
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENAI_API_KEY
+  })
+
+  it('rejects uploads when the per-tenant/user rate limit is exceeded', async () => {
+    mockRateLimiterService = {
+      trustProxyDepth: 0,
+      consume: jest.fn(async () => ({
+        allowed: false,
+        remainingPoints: 0,
+        msBeforeNext: 12_000,
+        consumedPoints: 30,
+      })),
+    }
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(429)
+    expect(mockRateLimiterService.consume).toHaveBeenCalledWith(
+      't1:user-1',
+      expect.objectContaining({ keyPrefix: 'attachments_upload', points: 100, duration: 60 }),
+    )
+    expect(mockEm.create).not.toHaveBeenCalled()
   })
 
   it('rejects disallowed extension', async () => {
