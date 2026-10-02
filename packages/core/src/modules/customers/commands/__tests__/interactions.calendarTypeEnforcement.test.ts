@@ -298,16 +298,16 @@ describe('interaction calendar-type command enforcement', () => {
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
-  it('lets a legacy caller change type without a confirmation round trip, clearing what the new type cannot hold', async () => {
+  it('lets a legacy caller change type without a confirmation round trip and clears nothing it did not send', async () => {
     const { interaction, em, context } = makeContext()
     findOneWithDecryptionMock.mockResolvedValue(interaction)
     const command = registeredCommands.get('customers.interactions.update')!
     await expect(command.execute({ id: INTERACTION, interactionType: 'note' }, context)).resolves.toBeDefined()
     expect(interaction).toMatchObject({
-      interactionType: 'note', durationMinutes: null, location: null,
-      linkedEntities: [{ type: 'deal', id: 'deal', label: 'Deal' }],
+      interactionType: 'note', durationMinutes: 30, location: 'Office', timezone: 'Europe/Warsaw',
+      linkedEntities: [{ type: 'resource', id: 'room', label: 'Room' }, { type: 'deal', id: 'deal', label: 'Deal' }],
     })
-    expect(setCustomFieldsIfAnyMock).toHaveBeenCalledWith(expect.objectContaining({ values: { outcome: null } }))
+    expect(setCustomFieldsIfAnyMock).not.toHaveBeenCalled()
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
@@ -328,11 +328,12 @@ describe('interaction calendar-type command enforcement', () => {
       interaction.linkedEntities = []
       findOneWithDecryptionMock.mockResolvedValue(interaction)
       // The dialog omits `priority` for every type that cannot hold one, so the
-      // stored value must not turn the switch into a 409 it cannot answer.
+      // stored value must not turn the switch into a 409 it cannot answer. It
+      // stays stored, exactly as before the catalog existed.
       await expect(registeredCommands.get('customers.interactions.update')!
         .execute({ id: INTERACTION, interactionType: nextType }, context)).resolves.toBeDefined()
       expect(interaction.interactionType).toBe(nextType)
-      expect(interaction.priority).toBeNull()
+      expect(interaction.priority).toBe(90)
     }
   })
 

@@ -811,7 +811,8 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       }
       const coreValues = { ...currentCoreValues, ...parsed }
       const inapplicableCore = findInapplicableCoreFields(behavior, changingType ? coreValues : parsed)
-      const currentCustom = changingType
+      const confirmsDiscard = parsed.confirmDiscardInapplicableValues === true
+      const currentCustom = changingType && (enforceSelectableType || confirmsDiscard)
         ? await loadCustomFieldSnapshot(trx, {
           entityId: INTERACTION_ENTITY_ID,
           recordId: interaction.id,
@@ -831,7 +832,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           translate('customers.calendar.activityTypes.errors.fieldNotApplicable', 'Field is not applicable to this activity type'),
         )
       }
-      if (changingType && enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length) && !parsed.confirmDiscardInapplicableValues) {
+      if (changingType && enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length) && !confirmsDiscard) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(409, {
           error: translate('customers.calendar.activityTypes.errors.changeConfirmationRequired', 'Changing type will clear existing values'),
@@ -839,14 +840,16 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           fields: [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
         })
       }
-      // Type-change confirmation is scoped to the selectable-type opt-in. A legacy
-      // caller (the schedule dialog, the deal composer, the kanban quick actions)
-      // sends a partial payload and does not handle the 409, so judging it on the
-      // merged stored row rejected switches it has always been able to make — e.g.
-      // a Task carrying a priority becoming a Meeting. Those callers keep the
-      // pre-catalog behavior: values the new type cannot hold are cleared silently.
-      const discardsInapplicableValues = changingType
-        && (!enforceSelectableType || parsed.confirmDiscardInapplicableValues === true)
+      // The type-change 409 is scoped to the selectable-type opt-in, and stored
+      // values are cleared only on an explicit `confirmDiscardInapplicableValues`.
+      // A legacy caller (the schedule dialog, the deal composer, the kanban quick
+      // actions, a direct API client) sends a partial payload and does not handle
+      // the 409, so judging it on the merged stored row rejected switches it has
+      // always been able to make — e.g. a Task carrying a priority becoming a
+      // Meeting. Those callers keep the pre-catalog behavior exactly: the fields
+      // they sent are written and nothing stored is cleared, even when the new
+      // type cannot display it.
+      const discardsInapplicableValues = changingType && confirmsDiscard
       const clearedCore = discardsInapplicableValues
         ? clearInapplicableCoreFields(behavior, coreValues)
         : {}

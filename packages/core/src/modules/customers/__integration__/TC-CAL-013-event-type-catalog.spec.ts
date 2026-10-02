@@ -139,7 +139,9 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
       expect(list.status(), await list.text()).toBe(200)
       const row = ((await list.json()) as { items?: Array<{ id: string; interactionType: string; durationMinutes?: number | null; location?: string | null }> })
         .items?.find((item) => item.id === meetingId)
-      expect(row).toMatchObject({ interactionType: 'task', durationMinutes: 60, location: null })
+      // A Task cannot display a location, but a caller that did not opt in gets
+      // the pre-catalog write: only the type it sent changes, nothing is cleared.
+      expect(row).toMatchObject({ interactionType: 'task', durationMinutes: 60, location: 'Office' })
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', meetingId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
@@ -383,7 +385,8 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
         interactionIds.push(interactionId)
         // The schedule dialog omits `priority` for every type that cannot hold one and
         // does not handle `calendar_type_change_confirmation_required`, so the switch
-        // must succeed in one call and clear the stored value.
+        // must succeed in one call. The stored value is left alone, as before the
+        // catalog existed.
         const switched = await apiRequest(request, 'PUT', '/api/customers/interactions', {
           token, data: { id: interactionId, interactionType: nextType },
         })
@@ -392,7 +395,7 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
         expect(list.status()).toBe(200)
         const saved = (await list.json() as { items: Array<{ id: string; interactionType: string; priority: number | null }> })
           .items.find((item) => item.id === interactionId)!
-        expect(saved).toMatchObject({ interactionType: nextType, priority: null })
+        expect(saved).toMatchObject({ interactionType: nextType, priority: 90 })
       }
     } finally {
       for (const interactionId of interactionIds) {
