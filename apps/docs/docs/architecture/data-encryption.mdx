@@ -81,6 +81,51 @@ flowchart TD
 2. Hook uses map + tenant DEK to decrypt mapped fields.
 3. API/CRUD receives hydrated plaintext while the DB keeps ciphertext.
 
+#### Decryption is at-rest protection, not a read-side access control
+
+An encryption map decides **how a value is stored**, never **who may read it**. Decryption runs
+automatically on load, so any caller authorised to read the record receives every mapped field in
+the clear. Restricting who may see a field is the job of an ACL feature on the route or page that
+exposes it; the map protects the value against database access, backups and dumps.
+
+#### Decryption is bound to the caller's tenant
+
+The decrypt scope is resolved by `resolveDecryptScope`
+(`@open-mercato/shared/lib/encryption/decryptScope`), shared by `BasicQueryEngine`,
+`HybridQueryEngine` and the ORM `EncryptionSubscriber`:
+
+- The row's own `tenant_id` is used **only** when the caller asserted none, or when it agrees with
+  the tenant the caller asserted.
+- When the caller asserted a tenant and the row contradicts it, the row is **refused**: it is
+  returned untouched (ciphertext) and never decrypted with the foreign tenant's DEK. Both engines
+  emit one aggregated `warn` per query naming the entity, the refusal count and the mismatching
+  tenant ids — ids only, never field values.
+- `organization_id` is deliberately not compared: organisations inside a tenant share the tenant
+  DEK, so an org mismatch does not change which key is used.
+
+The guard exists so a scoping bug anywhere else in the stack degrades to ciphertext rather than
+being amplified into a cross-tenant plaintext disclosure. A refusal always means something upstream
+returned a row it should not have — treat the warning as a bug report about that query, not about
+encryption.
+
+##### Where the refusal cannot engage
+
+The comparison needs both ids, so two shapes degrade instead of refusing. Neither produces
+cross-tenant plaintext, but neither emits the warning either — do not read a silent query as a
+verified one:
+
+- **No caller tenant.** A `find*WithDecryption` call that passes no scope gives the ORM path nothing
+  to bind against, so the row's own tenant wins exactly as it did before this guard existed. Pass
+  `{ tenantId }` to those helpers to get the binding.
+- **No row tenant.** A table without a `tenant_id` column has no row tenant, so the caller's own
+  tenant is used — which is the strongest form of the binding, since a foreign row could then only
+  be attempted with the caller's DEK. A narrow `fields` projection does *not* land here: both query
+  engines force `tenant_id` into the projection when the entity has an encryption map, then strip it
+  back out of the response, so the decision is always made against the real row tenant.
+
+A caller that does not want plaintext at all sets `QueryOptions.decryptEncryptedFields: false`,
+which skips the DEK lookup entirely. It defaults to `true`, preserving existing behaviour.
+
 ### Querying encrypted columns
 
 Decryption happens on **load**, not on **filter**. A `where` clause is passed to the database as
