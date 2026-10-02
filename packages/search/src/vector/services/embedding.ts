@@ -1,4 +1,4 @@
-import { embed } from 'ai'
+import { embed, RetryError } from 'ai'
 import type { EmbeddingModel } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 
@@ -47,10 +47,70 @@ function resolveEmbeddingTimeoutMs(): number {
   return parsed
 }
 
+// createEmbedding() races the WHOLE SDK retry loop against
+// VECTOR_EMBEDDING_TIMEOUT_MS, so the deadline is a total budget and every retry
+// spends it. The SDK default of 2 cannot fit: the second backoff alone pushes the
+// loop past the 3s default, so the deadline always won and the caller was handed
+// the fabricated timeoutError() below instead of whatever the provider said.
+//
+// 1 is the largest budget that fits. It keeps the one recovery that completes
+// inside the deadline - a fast transient failure then success resolves at ~2.2s -
+// while a permanent error still rejects at ~2.25s with an AI_RetryError that
+// unwrapRetryError() below turns back into the provider's own code. Operators who
+// raise VECTOR_EMBEDDING_TIMEOUT_MS can raise this alongside it.
+//
+// The residual case, stated because it is the reason 0 exists as an option: when
+// the provider sends a Retry-After larger than the remaining budget, no non-zero
+// value is diagnostic - the deadline elapses during the wait. Set 0 to make the
+// provider's own error reach the classifier unconditionally, at the cost of that
+// one recovery.
+const DEFAULT_EMBEDDING_MAX_RETRIES = 1
+
+// The deadline already bounds the loop, so a high value cannot run away - but an
+// operator who typed an extra digit deserves the same clamp the repo's other
+// retry knob gets (webhooks/data/validators.ts).
+const MAX_EMBEDDING_MAX_RETRIES = 30
+
+function resolveEmbeddingMaxRetries(): number {
+  const rawValue = process.env.VECTOR_EMBEDDING_MAX_RETRIES
+  if (!rawValue) return DEFAULT_EMBEDDING_MAX_RETRIES
+  const parsed = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_EMBEDDING_MAX_RETRIES
+  }
+  return Math.min(parsed, MAX_EMBEDDING_MAX_RETRIES)
+}
+
+// With a non-zero retry budget the SDK wraps the provider error in an
+// AI_RetryError whose own statusCode/data are empty, so the classification below
+// falls through to its default branch and loses the provider's code. Unwrap to
+// the last real attempt first. This is load-bearing at the default budget of 1,
+// and again for any operator who raises the deadline and buys more retries back.
+function unwrapRetryError(err: unknown): unknown {
+  const candidate = err as { name?: string; lastError?: unknown; errors?: unknown[] } | null
+  if (!candidate) return err
+  // `isInstance` matches on a Symbol marker, so it survives a duplicate `ai` install
+  // where `instanceof` would not. The name check stays as a fallback for a provider
+  // package that mints the error shape without the marker.
+  if (!RetryError?.isInstance?.(err) && candidate.name !== 'AI_RetryError') return err
+  if (candidate.lastError) return candidate.lastError
+  if (Array.isArray(candidate.errors) && candidate.errors.length > 0) {
+    return candidate.errors[candidate.errors.length - 1]
+  }
+  return err
+}
+
+// Report what was observed. Nothing here knows WHY the deadline elapsed, and
+// naming envKeyRequired asserts a cause with no evidence behind it. The
+// `[vector.embedding] ` prefix makes the default branch of the classification
+// below pass this message through verbatim instead of appending its own
+// "Check <KEY>".
 function timeoutError(providerId: EmbeddingProviderId, timeoutMs: number): Error {
   const providerInfo = EMBEDDING_PROVIDERS[providerId]
   return new Error(
-    `${providerInfo.name} request timed out after ${timeoutMs}ms. Check ${providerInfo.envKeyRequired}.`,
+    `[vector.embedding] ${providerInfo.name} embedding request exceeded the ${timeoutMs}ms ` +
+      `VECTOR_EMBEDDING_TIMEOUT_MS deadline before the provider answered; raise it to surface ` +
+      `the provider's own error.`,
   )
 }
 
@@ -266,6 +326,7 @@ export class EmbeddingService {
           model,
           value: merged,
           abortSignal: abortController.signal,
+          maxRetries: resolveEmbeddingMaxRetries(),
           ...(providerOptions && { providerOptions }),
         }),
         new Promise<never>((_, reject) => {
@@ -287,7 +348,7 @@ export class EmbeddingService {
         : Array.from(result.embedding as ArrayLike<number>)
       return emb.map((n) => Number.isFinite(n) ? Number(n) : 0)
     } catch (err: unknown) {
-      const error = err as { statusCode?: number; status?: number; response?: { status?: number; statusCode?: number; data?: { error?: { message?: string; code?: string }; message?: string } }; data?: { error?: { message?: string; code?: string } }; body?: { error?: { message?: string; code?: string } }; message?: string }
+      const error = unwrapRetryError(err) as { statusCode?: number; status?: number; response?: { status?: number; statusCode?: number; data?: { error?: { message?: string; code?: string }; message?: string } }; data?: { error?: { message?: string; code?: string } }; body?: { error?: { message?: string; code?: string } }; message?: string }
       const statusCandidate =
         error?.statusCode ?? error?.status ?? error?.response?.status ?? error?.response?.statusCode
       const status =
