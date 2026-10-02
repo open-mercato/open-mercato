@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   MarketingCampaignRun,
   MarketingConsent,
+  MarketingDispatchDeadLetter,
   MarketingConsentEvent,
   MarketingContactPreference,
   MarketingCustomerScoreEntry,
@@ -29,7 +30,22 @@ export type SubjectExport = {
   consent: Array<{ channel: string; state: string; reason: string | null; source: string; updatedAt: string }>
   consentHistory: Array<{ channel: string; state: string; reason: string | null; source: string; occurredAt: string }>
   scoreEntries: Array<{ points: number; reason: string | null; source: string; occurredAt: string }>
-  runs: Array<{ campaignId: string; triggerEventId: string; status: string; startedAt: string; completedAt: string | null }>
+  runs: Array<{
+    campaignId: string
+    triggerEventId: string
+    status: string
+    startedAt: string
+    completedAt: string | null
+    /**
+     * What started the run, as it arrived.
+     *
+     * The one part of a run this module does not define the shape of: an inbound hook puts whatever a
+     * partner posted in here, so it is where a name or a phone number about this person actually lives.
+     * An export that summarised the run and omitted it answered a subject access request with everything
+     * except the part somebody else wrote.
+     */
+    triggerContext: Record<string, unknown>
+  }>
   messages: Array<{ campaignId: string | null; channel: string; status: string; suppressionReason: string | null; sentAt: string }>
   engagement: Array<{ campaignId: string; type: string; linkUrl: string | null; occurredAt: string }>
   /**
@@ -45,6 +61,13 @@ export type SubjectExport = {
   referralCode: string | null
   referralsMade: Array<{ status: string; orderTotal: string | null; createdAt: string; convertedAt: string | null }>
   referredBy: { status: string; createdAt: string } | null
+  /**
+   * Deliveries that failed and were never retried, with the payload that could not be dispatched.
+   *
+   * Included because the payload is third-party text about this person that the module is holding, and a
+   * request to see everything held about somebody does not get to exclude the parts that went wrong.
+   */
+  undeliveredPayloads: Array<{ source: string; eventId: string | null; payload: Record<string, unknown>; error: string; createdAt: string }>
   /** When this person's marketing data was erased, if it ever was: the only thing erasure writes. */
   erasedAt: string | null
 }
@@ -78,6 +101,7 @@ export async function exportSubjectData(
     referralsMade,
     referredBy,
     erasure,
+    deadLetters,
   ] = await Promise.all([
     em.find(MarketingConsent, where),
     em.find(MarketingConsentEvent, where, { orderBy: { occurredAt: 'DESC' } }),
@@ -104,6 +128,24 @@ export async function exportSubjectData(
       referredEntityId: subjectEntityId,
     }),
     em.findOne(MarketingSubjectErasure, where),
+    /**
+     * Matched on the uuid appearing anywhere in the payload, for the same reason erasure is.
+     *
+     * The subject's id arrives under a different key for every trigger, and a dead letter is the raw
+     * payload with no shape this module imposed. A uuid is unique, so the match cannot reach somebody
+     * else's row; the null-scope branch covers the dead letters the dispatcher records when it could not
+     * resolve a scope, which are the ones most likely to hold an unparsed payload.
+     */
+    em.find(
+      MarketingDispatchDeadLetter,
+      {
+        $and: [
+          { $or: [{ tenantId: scope.tenantId }, { tenantId: null }] },
+          { $or: [{ organizationId: scope.organizationId }, { organizationId: null }] },
+        ],
+      },
+      { orderBy: { createdAt: 'DESC' } },
+    ).then((rows) => rows.filter((row) => JSON.stringify(row.payload ?? {}).includes(subjectEntityId))),
   ])
 
   // Engagement is keyed to the send, not the person, so it is reached through this subject's runs — the
@@ -146,6 +188,7 @@ export async function exportSubjectData(
       status: row.status,
       startedAt: row.startedAt.toISOString(),
       completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+      triggerContext: ((row.context as Record<string, unknown> | null)?.trigger ?? {}) as Record<string, unknown>,
     })),
     messages: messages.map((row) => ({
       campaignId: row.campaignId ?? null,
@@ -189,6 +232,13 @@ export async function exportSubjectData(
     })),
     // Who referred THEM is a fact about them, but the other person's id is not theirs to receive.
     referredBy: referredBy ? { status: referredBy.status, createdAt: referredBy.createdAt.toISOString() } : null,
+    undeliveredPayloads: deadLetters.map((row) => ({
+      source: row.source,
+      eventId: row.eventId ?? null,
+      payload: row.payload,
+      error: row.error,
+      createdAt: row.createdAt.toISOString(),
+    })),
     erasedAt: erasure ? erasure.erasedAt.toISOString() : null,
   }
 }
@@ -206,6 +256,10 @@ export type ErasureReport = {
   productWatchesDeleted: number
   /** Kept on purpose — see the docblock below. */
   consentKept: number
+  /** Click URLs blanked, because an interpolated link can carry the address it was built for. */
+  linkUrls: number
+  /** Dead letters deleted: raw third-party payloads with no replay path and nothing to keep. */
+  deadLettersDeleted: number
 }
 
 /**
@@ -214,9 +268,13 @@ export type ErasureReport = {
  * **The decision: unlink, do not delete.** The subject link is nulled on every row and the rows stay.
  * Two reasons, and the second is the one that decides it:
  *
- *  1. These rows contain nothing else that identifies anybody. This module never stored a name, an address
- *     or a phone number — the run context, the send history and the event table were each designed to hold
- *     none — so a row with no subject id identifies nobody, which is what erasure has to achieve.
+ *  1. With the free-form columns handled, a row with no subject id identifies nobody — which is what
+ *     erasure has to achieve. This module's own columns were designed to hold no name, address or phone
+ *     number, but three places take text it does not control and they are cleared explicitly rather than
+ *     assumed empty: the run context's `trigger` blob (an inbound hook puts whatever a partner sent in
+ *     there), a send event's `link_url` (an author may interpolate `{{customer.email}}` into a link), and
+ *     a dead letter's raw payload. The earlier version of this reasoning asserted the columns held nothing
+ *     identifying and stopped there, which was true of the schema and not of what goes into it.
  *  2. Deleting them would silently rewrite history. A campaign that reported 4,000 sends last quarter
  *     would start reporting 3,850, and every number an operator wrote down would quietly stop matching.
  *     Erasure is a duty to one person; falsifying an audit trail is a harm to everybody else.
@@ -260,6 +318,54 @@ async function eraseWithin(
 ): Promise<ErasureReport> {
   const scoped = { tenantId: scope.tenantId, organizationId: scope.organizationId, subjectEntityId }
 
+  /**
+   * The free-form columns go first, while the rows still carry the link they are found BY.
+   *
+   * Everything below nulls `subject_entity_id`, so a statement that needs to locate this person's rows
+   * has to run before that happens. Getting the order wrong does not fail — it silently erases nothing.
+   */
+
+  /**
+   * A click URL is author-written and interpolated, so it can carry the address it was built for.
+   *
+   * `{{customer.email}}` in a tracked link is a supported thing for an author to write, and the click
+   * is recorded with the URL it actually went to. Found through `run_id`, which every send event has,
+   * because the sends' own subject link is nulled two statements from here.
+   */
+  const linkUrls = await em.execute(
+    `update marketing_message_send_events
+        set link_url = null
+      where tenant_id = ? and organization_id = ?
+        and link_url is not null
+        and run_id in (
+          select id from marketing_campaign_runs
+           where tenant_id = ? and organization_id = ? and subject_entity_id = ?
+        )`,
+    [scope.tenantId, scope.organizationId, scope.tenantId, scope.organizationId, subjectEntityId],
+  )
+
+  /**
+   * Dead letters are deleted outright, which is the one place here that does delete.
+   *
+   * They hold the RAW platform or partner payload that could not be dispatched — an inbound hook can put
+   * a first name, a phone number and anything else a partner chose to send in there, and unlike the run
+   * context there is no shape to null one key of. There is also nothing to keep: a dead letter has no
+   * replay path, so it is a failed delivery nobody can act on, and the arithmetic no report depends on.
+   *
+   * Matched on the uuid appearing anywhere in the payload, because the subject's id arrives under a
+   * different key for every trigger (`id`, `entityId`, `customerId`, a partner's own spelling). A uuid is
+   * unique, so the match cannot catch somebody else's row. The null-scope branch is deliberate: the
+   * dispatcher records a dead letter even when it could not resolve a scope, and those are exactly the
+   * rows most likely to carry an unparsed payload.
+   */
+  const deadLettersDeleted = await em.execute(
+    `delete from marketing_dispatch_dead_letters
+      where (tenant_id = ? or tenant_id is null)
+        and (organization_id = ? or organization_id is null)
+        and payload::text like ?`,
+    [scope.tenantId, scope.organizationId, `%${subjectEntityId}%`],
+  )
+
   const runs = await em.nativeUpdate(MarketingCampaignRun, scoped, { subjectEntityId: null })
   const messages = await em.nativeUpdate(MarketingMessageSend, scoped, { subjectEntityId: null })
   const scoreEntries = await em.nativeUpdate(MarketingCustomerScoreEntry, scoped, { subjectEntityId: null })
@@ -286,6 +392,7 @@ async function eraseWithin(
   await em.execute(
     `update marketing_campaign_runs
         set context = jsonb_set(context, '{subjectEntityId}', 'null'::jsonb)
+                        || jsonb_build_object('trigger', '{}'::jsonb)
       where tenant_id = ? and organization_id = ?
         and context ->> 'subjectEntityId' = ?`,
     [scope.tenantId, scope.organizationId, subjectEntityId],
@@ -361,6 +468,8 @@ async function eraseWithin(
     preferencesDeleted,
     productWatchesDeleted,
     consentKept,
+    linkUrls: Number(linkUrls ?? 0),
+    deadLettersDeleted: Number(deadLettersDeleted ?? 0),
   }
 }
 

@@ -88,6 +88,23 @@ describe('exportSubjectData', () => {
     await exportSubjectData(em, 'c1', scope, now)
     for (const entry of finds) {
       if (entry.entity === 'MarketingMessageSendEvent') continue
+      /**
+       * The one table whose scope columns are NULLABLE, so its filter has a different shape.
+       *
+       * The dispatcher records a dead letter even when it could not resolve a scope, and those rows are
+       * the ones most likely to hold an unparsed third-party payload — excluding them would leave exactly
+       * the riskiest rows out of a subject access request. It is still scoped: this tenant, or no tenant
+       * at all, and the payload must contain this person's id. Never somebody else's tenant.
+       */
+      if (entry.entity === 'MarketingDispatchDeadLetter') {
+        expect(entry.where).toEqual({
+          $and: [
+            { $or: [{ tenantId: 't1' }, { tenantId: null }] },
+            { $or: [{ organizationId: 'o1' }, { organizationId: null }] },
+          ],
+        })
+        continue
+      }
       expect(entry.where).toMatchObject({ tenantId: 't1', organizationId: 'o1' })
       // The referral graph keys on the two roles rather than on a subject column, so it is scoped by
       // whichever end this person is.
@@ -261,5 +278,62 @@ describe('eraseSubjectData', () => {
     const insert = executed.find((entry) => entry.sql.includes('insert into marketing_subject_erasures'))
     expect(insert?.sql).toContain('on conflict')
     expect(insert?.params).toEqual(['t1', 'o1', 'c1', now])
+  })
+})
+
+/**
+ * The columns this module does not define the shape of.
+ *
+ * The erasure reasoning used to be "these rows contain nothing else that identifies anybody", which was true
+ * of the schema and not of what goes into it. Three places take text from outside: an inbound hook's payload
+ * lands in the run context's `trigger` blob, an author may interpolate `{{customer.email}}` into a tracked
+ * link, and a dead letter is a raw payload with no shape at all.
+ */
+describe('eraseSubjectData — the free-form columns', () => {
+  test('blanks click URLs before the rows that locate them are unlinked', async () => {
+    const { em, executed, updates } = fakeEm()
+    await eraseSubjectData(em, 'c1', scope, now)
+
+    const linkUpdate = executed.findIndex((entry) => entry.sql.includes('set link_url = null'))
+    expect(linkUpdate).toBeGreaterThanOrEqual(0)
+    expect(executed[linkUpdate].params).toContain('c1')
+
+    /**
+     * The ordering IS the fix. Every update below nulls `subject_entity_id`, and the link statement finds
+     * its rows through the runs table — so running it afterwards would match nothing and erase nothing,
+     * silently and with a perfectly plausible count of zero.
+     */
+    const firstUnlink = updates.findIndex((entry) => entry.data?.subjectEntityId === null)
+    expect(firstUnlink).toBeGreaterThanOrEqual(0)
+    expect(linkUpdate).toBe(0)
+  })
+
+  test('empties the trigger blob, not only the subject id inside the context', async () => {
+    const { em, executed } = fakeEm()
+    await eraseSubjectData(em, 'c1', scope, now)
+
+    const contextUpdate = executed.find((entry) => entry.sql.includes('jsonb_set'))
+    expect(contextUpdate).toBeDefined()
+    // Both halves in one statement: the id one key deeper, and the partner payload beside it.
+    expect(contextUpdate?.sql).toContain("'{subjectEntityId}'")
+    expect(contextUpdate?.sql).toContain("jsonb_build_object('trigger'")
+  })
+
+  test('deletes dead letters that mention the person, matched on the uuid', async () => {
+    const { em, executed } = fakeEm()
+    await eraseSubjectData(em, 'c1', scope, now)
+
+    const deletion = executed.find((entry) => entry.sql.includes('delete from marketing_dispatch_dead_letters'))
+    expect(deletion).toBeDefined()
+    // The id arrives under a different key for every trigger, so the payload is matched as text.
+    expect(deletion?.params).toContain('%c1%')
+    // Scoped even though both scope columns are nullable on that table.
+    expect(deletion?.sql).toContain('tenant_id = ? or tenant_id is null')
+  })
+
+  test('reports both counts, because a report is what answers the legal request', async () => {
+    const { em } = fakeEm()
+    const report = await eraseSubjectData(em, 'c1', scope, now)
+    expect(report).toMatchObject({ linkUrls: expect.any(Number), deadLettersDeleted: expect.any(Number) })
   })
 })
