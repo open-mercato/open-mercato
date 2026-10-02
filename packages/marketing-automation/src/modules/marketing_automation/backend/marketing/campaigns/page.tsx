@@ -144,11 +144,15 @@ export default function CampaignsListPage() {
 
   const createCampaign = async () => {
     try {
-      const response = await apiCallOrThrow<{ id: string }>('/api/marketing_automation/campaigns', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: t('marketing_automation.action.create', 'New campaign') }),
-      })
+      // Guarded like every other write on this page: a mutation guard that covers delete and not create is
+      // a guard somebody will reasonably believe covers both.
+      const response = await runMutation(
+        () => apiCallOrThrow<{ id: string }>('/api/marketing_automation/campaigns', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: t('marketing_automation.action.create', 'New campaign') }),
+        }),
+      )
       const id = response.result?.id
       if (id) router.push(`/backend/marketing/campaigns/${id}`)
     } catch {
@@ -184,9 +188,12 @@ export default function CampaignsListPage() {
   const importDocument = async (document: unknown, successKey: string, fallback: string) => {
     setImporting(true)
     try {
-      const response = await apiCallOrThrow<{ id?: string; warnings?: Array<{ stepId: string; param: string }> }>(
-        '/api/marketing_automation/campaigns/import',
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document) },
+      // Covers both callers: starting from a template and importing a file go through this one function.
+      const response = await runMutation(
+        () => apiCallOrThrow<{ id?: string; warnings?: Array<{ stepId: string; param: string }> }>(
+          '/api/marketing_automation/campaigns/import',
+          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document) },
+        ),
       )
       const warnings = response.result?.warnings ?? []
       if (warnings.length > 0) {

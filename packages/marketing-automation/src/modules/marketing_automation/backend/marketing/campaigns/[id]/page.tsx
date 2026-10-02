@@ -366,13 +366,22 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const sendTest = async (stepId: string) => {
     setTestSending(true)
     try {
-      const response = await apiCallOrThrow<{ to?: string }>(
-        `/api/marketing_automation/campaigns/${campaignId}/test-send`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ stepId }),
-          headers: { 'content-type': 'application/json' },
-        },
+      /**
+       * Guarded, even though it writes no record.
+       *
+       * It sends a real email, which is the act this module treats as the most consequential one it has, and
+       * the rule in AGENTS.md is about the method rather than about what the endpoint happens to touch. A
+       * record-lock dialog has nothing to say here; an approval hook the platform adds later does.
+       */
+      const response = await runMutation(
+        () => apiCallOrThrow<{ to?: string }>(
+          `/api/marketing_automation/campaigns/${campaignId}/test-send`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ stepId }),
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
       )
       flash(
         t('marketing_automation.testSend.sent', 'Sent to {address}.').replace('{address}', response.result?.to ?? ''),

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { reportError } from '@open-mercato/telemetry'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -45,11 +46,22 @@ export async function POST(req: Request) {
   const commandBus = container.resolve<CommandBus>('commandBus')
   const ctx = buildRequestCommandContext(container, auth, req)
 
+  /**
+   * The id of the campaign this request created, so a later failure can take it back.
+   *
+   * An import is two commands — `create` makes an empty disabled campaign and `save_graph` validates and
+   * stores the graph — and when the second refused the first had already committed. So a document the save
+   * rules reject answered 400 and left a nameless empty campaign in the list, one per attempt, which an
+   * operator then had to find and delete by hand with no idea where they came from.
+   */
+  let createdId: string | null = null
+
   try {
     const { result: created } = await commandBus.execute<{ name: string; description?: string | null }, { id: string }>(
       'marketing_automation.campaigns.create',
       { input: { name: parsed.data.name, description: parsed.data.description ?? null }, ctx },
     )
+    createdId = created.id
 
     /**
      * The graph is saved through the ordinary command, with the version the create just produced.
@@ -99,6 +111,40 @@ export async function POST(req: Request) {
       warnings: findUnportableReferences(parsed.data.definition),
     }, { status: 201 })
   } catch (error) {
+    /**
+     * Take the half-made campaign back before answering.
+     *
+     * A compensating delete rather than validating the graph up front: validation would close the case the
+     * review found and not the others — a transient database error, a trigger the save rules refuse, anything
+     * `save_graph` can throw. Through the ordinary delete command, with the version read back, so the removal
+     * is audited exactly like a deliberate one.
+     *
+     * Its own failure is swallowed deliberately. The caller is already being told their import failed, and
+     * replacing that with "could not clean up" would hide the answer they need behind one they cannot act on.
+     */
+    if (createdId) {
+      try {
+        const em = container.resolve<EntityManager>('em')
+        const orphan = await em.findOne(MarketingCampaign, {
+          id: createdId,
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          deletedAt: null,
+        })
+        if (orphan) {
+          await commandBus.execute(
+            'marketing_automation.campaigns.delete',
+            { input: { id: createdId, updatedAt: orphan.updatedAt.toISOString() }, ctx },
+          )
+        }
+      } catch (cleanupError) {
+        reportError(cleanupError, {
+          module: 'marketing_automation',
+          code: 'marketing_automation.import_rollback_failed',
+          attributes: { campaignId: createdId },
+        })
+      }
+    }
     return commandErrorResponse(error)
   }
 }

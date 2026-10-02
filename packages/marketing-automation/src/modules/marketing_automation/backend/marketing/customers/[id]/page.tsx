@@ -208,9 +208,13 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
   const recalculateScore = async () => {
     setBusy(true)
     try {
-      const response = await apiCallOrThrow<{ changed?: boolean; delta?: number }>(
-        `/api/marketing_automation/customers/${customerId}/rescore`,
-        { method: 'POST' },
+      // Guarded: it reads like a recalculation and it is a write — the rules are applied and ledger
+      // entries are created. It was exempted from the guard as read-only on the strength of the name.
+      const response = await runMutation(
+        () => apiCallOrThrow<{ changed?: boolean; delta?: number }>(
+          `/api/marketing_automation/customers/${customerId}/rescore`,
+          { method: 'POST' },
+        ),
       )
       const delta = response.result?.delta ?? 0
       flash(
