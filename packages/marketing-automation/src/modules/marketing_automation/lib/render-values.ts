@@ -101,7 +101,9 @@ export async function loadRenderValues(
  */
 export function renderValuesFromDocument(document: {
   customer: { displayName?: string | null; email?: string | null } | null
-  orders: { count: number; totalGross: number; daysSinceLast?: number }
+  // Optional for the reason the document's own key is: an installation without `sales` has no order data, and
+  // a placeholder rendering "you have placed 0 orders" is worse than one rendering nothing.
+  orders?: { count: number; totalGross: number; daysSinceLast?: number }
   score: { points: number; tier: string | null }
   survey: { nps: number | null; answeredAt: string | null }
 } | null): RenderValues {
@@ -110,12 +112,16 @@ export function renderValuesFromDocument(document: {
     ...(document.customer
       ? { customer: { displayName: document.customer.displayName ?? null, email: document.customer.email ?? null } }
       : {}),
-    orders: {
-      count: document.orders.count,
-      totalGross: document.orders.totalGross,
-      // Absent, not null, for a never-buyer — the same rule the targeted loader follows.
-      ...(document.orders.daysSinceLast === undefined ? {} : { daysSinceLast: document.orders.daysSinceLast }),
-    },
+    ...(document.orders
+      ? {
+          orders: {
+            count: document.orders.count,
+            totalGross: document.orders.totalGross,
+            // Absent, not null, for a never-buyer — the same rule the targeted loader follows.
+            ...(document.orders.daysSinceLast === undefined ? {} : { daysSinceLast: document.orders.daysSinceLast }),
+          },
+        }
+      : {}),
     score: { points: document.score.points, tier: document.score.tier },
     ...(document.survey.nps === null ? {} : { survey: { nps: document.survey.nps, answeredAt: document.survey.answeredAt } }),
   }

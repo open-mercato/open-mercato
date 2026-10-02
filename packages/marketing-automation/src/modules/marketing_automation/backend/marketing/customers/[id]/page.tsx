@@ -44,6 +44,7 @@ type Explanation = {
 type Profile = {
   customer: { id: string; displayName: string | null; email: string | null; createdAt: string | null }
   score: { points: number; tier: string | null; tierRank: number; pointsToNext: number | null }
+  /** Null on an installation with no `sales` module — see the profile route. */
   orders: {
     count: number
     totalGross: number
@@ -52,7 +53,7 @@ type Profile = {
     firstPlacedAt: string | null
     averageGross: number | null
     categories: string[]
-  }
+  } | null
   tags: string[]
   /** 1–5 per dimension, measured against this shop's own buyers. Null until it means something. */
   rfm: { recency: number; frequency: number; monetary: number; cell: string; total: number } | null
@@ -410,34 +411,51 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
               </span>
             }
           />
-          <KpiCard
-            title={t('marketing_automation.profile.kpi.orders', 'Orders')}
-            value={profile.orders.count}
-            footer={
-              <span>
-                {profile.orders.daysSinceLast === null
-                  ? t('marketing_automation.profile.neverOrdered', 'Never ordered')
-                  : t('marketing_automation.profile.daysSinceLast', 'Last order {count} days ago')
-                      .replace('{count}', String(profile.orders.daysSinceLast))}
-              </span>
-            }
-          />
-          <KpiCard
-            title={t('marketing_automation.profile.kpi.spend', 'Lifetime spend')}
-            value={profile.orders.totalGross}
-            footer={
-              <span>
-                {profile.value?.grossPercentile === undefined
-                  ? (profile.orders.averageGross === null
-                      ? null
-                      : t('marketing_automation.profile.averageOrder', '{amount} per order')
-                          .replace('{amount}', String(profile.orders.averageGross)))
-                  : t('marketing_automation.profile.spendPercentile', 'Top {share}% of buyers · {amount} per order')
-                      .replace('{share}', String(100 - profile.value.grossPercentile))
-                      .replace('{amount}', String(profile.value.averageOrderGross))}
-              </span>
-            }
-          />
+          {/*
+            Both order cards are withheld together when the shop has no `sales` module.
+
+            Printing 0 would merge two different facts — "this shop has never recorded a sale" and "this
+            customer has not bought anything" — and the second is a real segment somebody targets. The footer
+            says which one this is instead.
+          */}
+          {profile.orders ? (
+            <>
+              <KpiCard
+                title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+                value={profile.orders.count}
+                footer={
+                  <span>
+                    {profile.orders.daysSinceLast === null
+                      ? t('marketing_automation.profile.neverOrdered', 'Never ordered')
+                      : t('marketing_automation.profile.daysSinceLast', 'Last order {count} days ago')
+                          .replace('{count}', String(profile.orders.daysSinceLast))}
+                  </span>
+                }
+              />
+              <KpiCard
+                title={t('marketing_automation.profile.kpi.spend', 'Lifetime spend')}
+                value={profile.orders.totalGross}
+                footer={
+                  <span>
+                    {profile.value?.grossPercentile === undefined
+                      ? (profile.orders.averageGross === null
+                          ? null
+                          : t('marketing_automation.profile.averageOrder', '{amount} per order')
+                              .replace('{amount}', String(profile.orders.averageGross)))
+                      : t('marketing_automation.profile.spendPercentile', 'Top {share}% of buyers · {amount} per order')
+                          .replace('{share}', String(100 - profile.value.grossPercentile))
+                          .replace('{amount}', String(profile.value.averageOrderGross))}
+                  </span>
+                }
+              />
+            </>
+          ) : (
+            <KpiCard
+              title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+              value={null}
+              footer={<span>{t('marketing_automation.profile.noSalesModule', 'No sales module installed')}</span>}
+            />
+          )}
           {/*
             RFM, which is the one number on this screen that compares the customer to the SHOP.
             Said as three digits because that is how the technique is read, with the cell spelled out below —
@@ -446,12 +464,16 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           {/* What they buy, in the same vocabulary an audience uses — so the screen teaches the field name. */}
           <KpiCard
             title={t('marketing_automation.profile.kpi.categories', 'Buys from')}
-            value={profile.orders.categories.length}
+            // Null, not zero, without the modules: `KpiCard` renders an absent value as absent, and "we cannot
+            // see what they buy" is not the same claim as "they buy from nothing".
+            value={profile.orders ? profile.orders.categories.length : null}
             footer={
               <span>
-                {profile.orders.categories.length > 0
-                  ? profile.orders.categories.slice(0, 4).join(', ')
-                  : t('marketing_automation.profile.noCategories', 'No categorised purchases yet')}
+                {!profile.orders
+                  ? t('marketing_automation.profile.noSalesModule', 'No sales module installed')
+                  : profile.orders.categories.length > 0
+                    ? profile.orders.categories.slice(0, 4).join(', ')
+                    : t('marketing_automation.profile.noCategories', 'No categorised purchases yet')}
               </span>
             }
           />

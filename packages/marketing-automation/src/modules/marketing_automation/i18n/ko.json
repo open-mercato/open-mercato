@@ -387,6 +387,7 @@
   "marketing_automation.profile.noReferralCode": "아직 추천 코드가 없습니다 — 캠페인 단계가 발급합니다.",
   "marketing_automation.profile.noRfm": "점수 없음: 이 고객이 아직 구매하지 않았거나, 비교할 구매자 수가 아직 부족합니다.",
   "marketing_automation.profile.noRuns": "이 고객은 아직 캠페인에 진입하지 않았습니다.",
+  "marketing_automation.profile.noSalesModule": "판매 모듈이 설치되지 않음",
   "marketing_automation.profile.noScoreEntries": "아직 부여된 점수가 없습니다.",
   "marketing_automation.profile.noTier": "등급 없음",
   "marketing_automation.profile.notFound": "해당 고객이 더 이상 존재하지 않습니다.",

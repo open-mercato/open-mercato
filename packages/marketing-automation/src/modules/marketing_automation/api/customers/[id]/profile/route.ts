@@ -198,16 +198,25 @@ export async function GET(req: Request) {
       tierRank: tier.rank,
       pointsToNext: tier.pointsToNext,
     },
-    orders: {
-      count: orders.count,
-      totalGross: orders.totalGross,
-      lastPlacedAt: orders.lastPlacedAt ?? null,
-      daysSinceLast: orders.daysSinceLast ?? null,
-      firstPlacedAt: orders.firstPlacedAt ?? null,
-      averageGross: orders.averageGross ?? null,
-      /** What they buy, as category slugs — the audience path, so the screen teaches the vocabulary. */
-      categories: document.orders.categories,
-    },
+    /**
+     * NULL on an installation with no `sales` module, rather than a row of zeroes.
+     *
+     * `sales` is declared in `optionalRequires`, so there may be no order data at all — and "this shop has
+     * never recorded a sale" and "this customer has not bought anything" are different facts that a screen
+     * printing 0 would merge. The page says the first out loud instead.
+     */
+    orders: orders
+      ? {
+          count: orders.count,
+          totalGross: orders.totalGross,
+          lastPlacedAt: orders.lastPlacedAt ?? null,
+          daysSinceLast: orders.daysSinceLast ?? null,
+          firstPlacedAt: orders.firstPlacedAt ?? null,
+          averageGross: orders.averageGross ?? null,
+          /** What they buy, as category slugs — the audience path, so the screen teaches the vocabulary. */
+          categories: orders.categories,
+        }
+      : null,
     /**
      * RFM and the value projection, both NULL until they mean something.
      *

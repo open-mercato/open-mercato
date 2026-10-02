@@ -67,7 +67,20 @@ export type SubjectDocument = {
   } | null
   /** Tag slugs, so an audience can say `tags CONTAINS 'vip'`. */
   tags: string[]
-  orders: {
+  /**
+   * ABSENT when this installation has no `sales` module.
+   *
+   * `sales` is declared in `optionalRequires`, so its tables may genuinely not exist — and the key is omitted
+   * rather than zeroed, which is the difference between a campaign that mails nobody and one that mails
+   * everybody. `orders.count: 0` is a TRUE statement about a never-buyer and a LIE about an installation with
+   * no order data, and the lie satisfies `orders.count <= 5`, so a win-back audience would match the entire
+   * customer base on a shop that cannot even record a sale.
+   *
+   * Omitting the parent rather than each field: "there is no order data here" is one fact and belongs in one
+   * place. `getNestedValue` returns undefined as soon as a level is missing, so every `orders.*` path fails
+   * closed through exactly the veto a never-buyer already relies on.
+   */
+  orders?: {
     count: number
     totalGross: number
     /**

@@ -387,6 +387,7 @@
   "marketing_automation.profile.noReferralCode": "Brak kodu polecającego — nadaje go krok kampanii.",
   "marketing_automation.profile.noRfm": "Bez oceny: albo ten klient nic nie kupił, albo sklep ma za mało kupujących, by go do nich porównać.",
   "marketing_automation.profile.noRuns": "Ten klient nie wszedł jeszcze do żadnej kampanii.",
+  "marketing_automation.profile.noSalesModule": "Brak modułu sprzedaży",
   "marketing_automation.profile.noScoreEntries": "Nie przyznano jeszcze punktów.",
   "marketing_automation.profile.noTier": "Brak poziomu",
   "marketing_automation.profile.notFound": "Ten klient już nie istnieje.",

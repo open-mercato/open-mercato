@@ -387,6 +387,7 @@
   "marketing_automation.profile.noReferralCode": "Aún sin código: lo emite un paso de campaña.",
   "marketing_automation.profile.noRfm": "Sin puntuación: o este cliente no ha comprado, o la tienda aún tiene muy pocos compradores para comparar.",
   "marketing_automation.profile.noRuns": "Este cliente aún no ha entrado en ninguna campaña.",
+  "marketing_automation.profile.noSalesModule": "Sin módulo de ventas instalado",
   "marketing_automation.profile.noScoreEntries": "Aún no se han otorgado puntos.",
   "marketing_automation.profile.noTier": "Aún sin nivel",
   "marketing_automation.profile.notFound": "Este cliente ya no existe.",

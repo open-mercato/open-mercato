@@ -387,6 +387,7 @@
   "marketing_automation.profile.noReferralCode": "Noch kein Empfehlungscode — ein Kampagnenschritt gibt einen aus.",
   "marketing_automation.profile.noRfm": "Nicht bewertet: entweder hat dieser Kunde nichts gekauft, oder der Shop hat noch zu wenige Käufer zum Vergleich.",
   "marketing_automation.profile.noRuns": "Dieser Kunde ist noch in keiner Kampagne gelandet.",
+  "marketing_automation.profile.noSalesModule": "Kein Verkaufsmodul installiert",
   "marketing_automation.profile.noScoreEntries": "Noch keine Punkte vergeben.",
   "marketing_automation.profile.noTier": "Noch keine Stufe",
   "marketing_automation.profile.notFound": "Diesen Kunden gibt es nicht mehr.",

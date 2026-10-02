@@ -387,6 +387,7 @@
   "marketing_automation.profile.noReferralCode": "No referral code yet — a campaign step issues one.",
   "marketing_automation.profile.noRfm": "Not scored: either this customer has not ordered, or the shop has too few buyers to rank against yet.",
   "marketing_automation.profile.noRuns": "This customer has not entered a campaign yet.",
+  "marketing_automation.profile.noSalesModule": "No sales module installed",
   "marketing_automation.profile.noScoreEntries": "No points awarded yet.",
   "marketing_automation.profile.noTier": "No tier yet",
   "marketing_automation.profile.notFound": "This customer no longer exists.",

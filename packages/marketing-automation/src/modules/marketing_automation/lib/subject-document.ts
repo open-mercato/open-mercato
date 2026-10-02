@@ -20,6 +20,7 @@ import type { TierThreshold } from './engine/tiers.js'
  */
 export { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
 import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
+import { readCapabilities } from './capabilities.js'
 import {
   CATALOG_PRODUCT_CATEGORIES,
   CATALOG_PRODUCT_CATEGORY_ASSIGNMENTS,
@@ -461,13 +462,24 @@ export async function buildSubjectDocument(
     scope,
   )
 
+  /**
+   * `sales` and `catalog` are declared in `optionalRequires`, so their tables may not exist.
+   *
+   * Skipped rather than attempted-and-caught: a missing table is not an error condition to recover from, it is
+   * the installation this module promises to run on, and catching the error would log a failure per customer per
+   * evaluation for a shop that is working exactly as configured.
+   *
+   * Categories need BOTH — the join reads a line from `sales` and its classification from `catalog`.
+   */
+  const capabilities = await readCapabilities(em)
+
   const [tags, orders, scorePoints, skus, categories, channels, locale, address, nps, engagement] = await Promise.all([
     loadTagSlugs(em, subjectEntityId, scope),
-    loadOrderAggregates(em, subjectEntityId, scope, now),
+    capabilities.sales ? loadOrderAggregates(em, subjectEntityId, scope, now) : Promise.resolve(null),
     loadScorePoints(em, subjectEntityId, scope),
-    loadPurchasedSkus(em, subjectEntityId, scope),
-    loadPurchasedCategories(em, subjectEntityId, scope),
-    loadPurchasedChannels(em, subjectEntityId, scope),
+    capabilities.sales ? loadPurchasedSkus(em, subjectEntityId, scope) : Promise.resolve([]),
+    capabilities.sales && capabilities.catalog ? loadPurchasedCategories(em, subjectEntityId, scope) : Promise.resolve([]),
+    capabilities.sales ? loadPurchasedChannels(em, subjectEntityId, scope) : Promise.resolve([]),
     loadPreferredLocale(em, scope, subjectEntityId),
     loadSubjectAddress(em, subjectEntityId, scope),
     loadLatestNps(em, subjectEntityId, scope),
@@ -483,8 +495,10 @@ export async function buildSubjectDocument(
    * against the shop's stored cut points, and the projection is arithmetic over the same aggregates.
    */
   const boundaries = options?.valueBoundaries ?? await loadValueBoundaries(em, scope)
-  const projection = projectCustomerValue(orders, now, options?.valueHorizonYears)
-  const percentile = grossPercentile(orders.totalGross, boundaries)
+  // All three are statements ABOUT order history, so without it they are withheld rather than computed from
+  // zeroes — an RFM of 1-1-1 reads as "our worst customer" and would sweep everybody into every win-back.
+  const projection = orders ? projectCustomerValue(orders, now, options?.valueHorizonYears) : null
+  const percentile = orders ? grossPercentile(orders.totalGross, boundaries) : null
   const projectedValue = projection
     ? { ...projection, ...(percentile === null ? {} : { grossPercentile: percentile }) }
     : null
@@ -506,9 +520,10 @@ export async function buildSubjectDocument(
         }
       : null,
     tags,
-    orders: { ...orders, skus, categories, channels },
+    // Absent, not zeroed: see the key's own docblock in `lib/engine/types.ts`.
+    ...(orders ? { orders: { ...orders, skus, categories, channels } } : {}),
     score: { points: scorePoints, tier: tier.key, tierRank: tier.rank },
-    rfm: computeRfm(orders, boundaries),
+    rfm: orders ? computeRfm(orders, boundaries) : null,
     value: projectedValue,
     address,
     survey: { nps: nps?.score ?? null, answeredAt: nps?.answeredAt ?? null },
