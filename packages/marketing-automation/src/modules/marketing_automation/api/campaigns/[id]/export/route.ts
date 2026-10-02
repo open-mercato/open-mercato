@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -21,13 +22,23 @@ export const metadata = routeMetadata
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  /**
+   * A scope that cannot be resolved is a 400, never a 401.
+   *
+   * `apiFetch` reads 401 as an expired session: it refreshes, succeeds, returns to the same page and
+   * refreshes again — so answering 401 for "All organizations" did not fail, it looped for ever. The
+   * resolver also recovers the actor's own organization where that is still the actor's tenant, which is
+   * what keeps a super-admin's own configuration visible instead of unreachable.
+   */
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
   const campaignId = readPathUuid(req, 2)
   if (!campaignId) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const scope = { tenantId: auth.tenantId, organizationId }
 
   const campaign = await em.findOne(MarketingCampaign, { id: campaignId, ...scope, deletedAt: null })
   if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })

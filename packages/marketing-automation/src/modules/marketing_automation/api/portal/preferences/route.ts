@@ -60,6 +60,14 @@ const bodySchema = z.object({
 async function resolveSubject(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) return { error: NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 }) }
+  /**
+   * A 401 here is right, unlike on every staff route in this module.
+   *
+   * Those answer 400 through `organizationScopeRequiredResponse()`, because a staff caller can have "All
+   * organizations" selected and a 401 sends `apiFetch` into a session-refresh loop. A portal session is not
+   * that: `orgId` comes from the customer's own session, there is no scope to select, and an absent one means
+   * the session is genuinely unusable.
+   */
   if (!auth.personEntityId || !auth.tenantId || !auth.orgId) {
     return {
       error: NextResponse.json(

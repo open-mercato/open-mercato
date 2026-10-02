@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -26,9 +27,17 @@ function readCampaignId(req: Request): string | null {
 
 export async function PUT(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  /**
+   * A scope that cannot be resolved is a 400, never a 401.
+   *
+   * `apiFetch` reads 401 as an expired session: it refreshes, succeeds, returns to the same page and
+   * refreshes again — so answering 401 for "All organizations" did not fail, it looped for ever.
+   */
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
   const id = readCampaignId(req)
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 

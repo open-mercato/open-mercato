@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -73,7 +74,17 @@ function present(
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ items: [], total: 0 }, { status: 401 })
+  if (!auth?.tenantId) return NextResponse.json({ items: [], total: 0 }, { status: 401 })
+  /**
+   * A scope that cannot be resolved is a 400, never a 401.
+   *
+   * `apiFetch` reads 401 as an expired session: it refreshes, succeeds, returns to the same page and
+   * refreshes again — so answering 401 for "All organizations" did not fail, it looped for ever. The
+   * resolver also recovers the actor's own organization where that is still the actor's tenant, which is
+   * what keeps a super-admin's own configuration visible instead of unreachable.
+   */
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
 
   const url = new URL(req.url)
   const pageSize = Math.min(Math.max(Number.parseInt(url.searchParams.get('pageSize') ?? '50', 10) || 50, 1), MAX_PAGE_SIZE)
@@ -88,7 +99,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const scope = { tenantId: auth.tenantId, organizationId }
 
   const [items, total] = await em.findAndCount(
     MarketingInboundHook,
@@ -115,7 +126,7 @@ export async function GET(req: Request) {
   const mayRevealUrl = await rbac.userHasAllFeatures(
     auth.sub,
     ['marketing_automation.campaigns.manage'],
-    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+    { tenantId: auth.tenantId ?? null, organizationId },
   )
 
   return NextResponse.json({
@@ -135,7 +146,11 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // A scope that cannot be resolved is a 400, never a 401: `apiFetch` reads 401 as an expired session and
+  // loops. See the first guard in this file.
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
 
   const parsed = inboundHookCreateSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
@@ -151,7 +166,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const scope = { tenantId: auth.tenantId, organizationId }
 
   // The campaign is checked in THIS tenant before a hook can point at it: the id comes from a request, and
   // a hook naming somebody else's campaign would enrol their customers.

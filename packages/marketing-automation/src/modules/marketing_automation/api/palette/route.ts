@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { listMarketingSteps } from '../../lib/engine/registry.js'
 import { TRIGGER_CATALOG } from '../../lib/trigger-catalog.js'
@@ -28,13 +29,21 @@ export const metadata = routeMetadata
  */
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json(
       { triggers: [], steps: [], sweepSources: [], contentBlocks: [], segments: [], audienceFields: [], audienceOptions: {} },
       { status: 401 },
     )
   }
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  /**
+   * A scope that cannot be resolved is a 400, never a 401.
+   *
+   * `apiFetch` reads 401 as an expired session: it refreshes, succeeds, returns to the same page and
+   * refreshes again — so answering 401 for "All organizations" did not fail, it looped for ever.
+   */
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
+  const scope = { tenantId: auth.tenantId, organizationId }
 
   /**
    * The only tenant data in this response, and the reason it needs a query: an author cannot reference a

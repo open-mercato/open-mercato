@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -37,9 +38,17 @@ function readStepLog(value: unknown): StepOutcome[] {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ items: [], total: 0 }, { status: 401 })
   }
+  /**
+   * A scope that cannot be resolved is a 400, never a 401.
+   *
+   * `apiFetch` reads 401 as an expired session: it refreshes, succeeds, returns to the same page and
+   * refreshes again — so answering 401 for "All organizations" did not fail, it looped for ever.
+   */
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
   const campaignId = readCampaignId(req)
   if (!campaignId) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
@@ -51,7 +60,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const scope = { tenantId: auth.tenantId, organizationId }
 
   // Scoped through the campaign so a run id from another organization cannot be reached by
   // guessing a campaign id.
@@ -87,7 +96,7 @@ export async function GET(req: Request) {
   const mayReadContactDetails = await rbac.userHasAllFeatures(
     auth.sub,
     ['customers.people.view'],
-    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+    { tenantId: auth.tenantId ?? null, organizationId },
   )
 
   const subjectIds = [...new Set(runs.map((run) => run.subjectEntityId).filter((id): id is string => !!id))]

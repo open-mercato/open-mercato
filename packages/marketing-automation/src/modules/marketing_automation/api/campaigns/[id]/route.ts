@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
@@ -20,15 +21,23 @@ function readId(req: Request): string | null {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  /**
+   * A scope that cannot be resolved is a 400, never a 401.
+   *
+   * `apiFetch` reads 401 as an expired session: it refreshes, succeeds, returns to the same page and
+   * refreshes again — so answering 401 for "All organizations" did not fail, it looped for ever.
+   */
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
   const id = readId(req)
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const scope = { tenantId: auth.tenantId, organizationId }
 
   const campaign = await em.findOne(MarketingCampaign, { id, ...scope, deletedAt: null })
   if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -60,9 +69,12 @@ export async function GET(req: Request) {
 
 export async function DELETE(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  // A 400, never a 401: see the first guard in this file.
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
   const id = readId(req)
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
