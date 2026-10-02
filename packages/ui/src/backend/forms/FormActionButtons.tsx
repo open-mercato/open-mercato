@@ -79,7 +79,7 @@ export function FormActionButtons({
       ) : null}
       {cancelHref ? (
         <Button asChild variant="outline">
-          <Link href={cancelHref}>{resolvedCancelLabel}</Link>
+          <Link href={cancelHref} data-crud-form-cancel="">{resolvedCancelLabel}</Link>
         </Button>
       ) : null}
       {submit ? (
