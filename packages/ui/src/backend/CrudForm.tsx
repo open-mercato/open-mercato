@@ -1629,6 +1629,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       {extraActions}
     </>
   ) : undefined
+  const renderFooterActions = !hideFooterActions && !formReadOnly
+  const embeddedExtraActions = renderFooterActions ? undefined : extraActions
+  const embeddedHeaderActions = versionHistoryEnabled || headerInjectionAction || embeddedExtraActions ? (
+    <>
+      {versionHistoryEnabled ? versionHistoryAction : null}
+      {headerInjectionAction}
+      {embeddedExtraActions}
+    </>
+  ) : undefined
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -3877,8 +3886,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
-        ) : headerExtraActions ? (
-          <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
+        ) : embeddedHeaderActions ? (
+          <div className="flex justify-end gap-2 mb-2">{embeddedHeaderActions}</div>
         ) : null}
         {contentHeader}
         <DataLoader
@@ -3916,7 +3925,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
-            {hideFooterActions || formReadOnly ? null : (
+            {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -3930,7 +3939,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon }
                 }}
               />
-            )}
+            ) : null}
             </form>,
           )}
         </DataLoader>
@@ -3960,8 +3969,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
-      ) : headerExtraActions ? (
-        <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
+      ) : embeddedHeaderActions ? (
+        <div className="flex justify-end gap-2 mb-2">{embeddedHeaderActions}</div>
       ) : null}
       {contentHeader}
       <DataLoader
@@ -4014,7 +4023,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               })}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
-            {hideFooterActions || formReadOnly ? null : (
+            {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -4028,7 +4037,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
                 }}
               />
-            )}
+            ) : null}
           </form>
           </div>,
         )}
