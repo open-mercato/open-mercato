@@ -85,9 +85,15 @@ describe('example Visit panel wrapper', () => {
     expect(markup).not.toContain('type="time"')
   })
 
-  it('delegates other event types and renders the Visit availability panel for Visit', () => {
-    const meeting = renderToStaticMarkup(React.createElement(Wrapped, baseProps))
+  it('keeps other event types on the standard panel and renders the Visit availability panel for Visit', () => {
+    const meeting = renderToStaticMarkup(React.createElement(
+      I18nProvider,
+      { locale: 'en', dict: catalog },
+      React.createElement(Wrapped, baseProps),
+    ))
     expect(meeting).toContain('default-calendar-panel')
+    expect(meeting).not.toContain('Visit availability')
+    expect(meeting).not.toContain('example-visit-panel')
 
     const visit = renderToStaticMarkup(React.createElement(
       I18nProvider,

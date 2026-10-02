@@ -10,13 +10,42 @@ import { visitAvailabilityRequestUrl, visitAvailabilitySubjectMessage, type Visi
 
 type Preview = { state: 'idle' | 'pending' | 'available' | 'unavailable' | 'retry'; subjects: VisitAvailabilitySubject[]; warnings?: string[] }
 
-export function VisitPanel({ definition, values, errors, disabled, capabilities, children }: React.PropsWithChildren<CalendarEventTypePanelProps>) {
+export type VisitPanelProps = React.PropsWithChildren<CalendarEventTypePanelProps> & {
+  /**
+   * Shown on every other event type that can book staff or resources. The same
+   * preview, but informational: it appears only once someone or something is
+   * selected for a timed interval, and saving is not blocked by it.
+   */
+  advisory?: boolean
+}
+
+function advisoryStaff(values: CalendarEventTypePanelProps['values'], people: string): unknown {
+  if (people !== 'assignee') return values.participants
+  return typeof values.assigneeUserId === 'string' && values.assigneeUserId
+    ? [{ userId: values.assigneeUserId, name: values.assigneeName }]
+    : []
+}
+
+function hasBookableSubject(participants: unknown, resources: unknown): boolean {
+  const staffSelected = Array.isArray(participants) && participants.some((entry) =>
+    entry !== null && typeof entry === 'object' && !(entry as { isCustomer?: unknown }).isCustomer
+    && typeof (entry as { userId?: unknown }).userId === 'string')
+  const resourceSelected = Array.isArray(resources) && resources.some((entry) =>
+    entry !== null && typeof entry === 'object' && typeof (entry as { id?: unknown }).id === 'string')
+  return staffSelected || resourceSelected
+}
+
+export function VisitPanel({ definition, values, errors, disabled, capabilities, advisory = false, children }: VisitPanelProps) {
   const t = useT()
-  const url = React.useMemo(() => visitAvailabilityRequestUrl({
-    ...values,
-    participants: capabilities.staffEnabled && definition.behavior.fields.people !== 'none' ? values.participants : [],
-    resources: capabilities.resourcesEnabled && definition.behavior.fields.resources ? values.resources : [],
-  }), [values, definition.behavior.fields.people, definition.behavior.fields.resources, capabilities.resourcesEnabled, capabilities.staffEnabled])
+  const fields = definition.behavior.fields
+  const url = React.useMemo(() => {
+    const participants = capabilities.staffEnabled && fields.people !== 'none'
+      ? advisory ? advisoryStaff(values, fields.people) : values.participants
+      : []
+    const resources = capabilities.resourcesEnabled && fields.resources ? values.resources : []
+    if (advisory && (!fields.endTime || values.allDay === true || !hasBookableSubject(participants, resources))) return null
+    return visitAvailabilityRequestUrl({ ...values, participants, resources })
+  }, [values, advisory, fields.people, fields.resources, fields.endTime, capabilities.resourcesEnabled, capabilities.staffEnabled])
   const [preview, setPreview] = React.useState<Preview>({ state: 'idle', subjects: [] })
   const [retry, setRetry] = React.useState(0)
 
@@ -37,9 +66,15 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [url, retry])
 
-  const warnings = [...new Set([
-    ...(!capabilities.staffEnabled && definition.behavior.fields.people !== 'none' ? ['example.calendar.visitAvailability.staffDisabled'] : []),
-    ...(!capabilities.resourcesEnabled && definition.behavior.fields.resources ? ['example.calendar.visitAvailability.resourcesDisabled'] : []),
+  // Children stay at the same position in both modes, so switching event types
+  // or revealing the alert never remounts the standard fields.
+  if (advisory && (!url || preview.state === 'idle')) {
+    return <div className="space-y-4">{children}</div>
+  }
+
+  const warnings = advisory ? [] : [...new Set([
+    ...(!capabilities.staffEnabled && fields.people !== 'none' ? ['example.calendar.visitAvailability.staffDisabled'] : []),
+    ...(!capabilities.resourcesEnabled && fields.resources ? ['example.calendar.visitAvailability.resourcesDisabled'] : []),
     ...(preview.warnings ?? []),
   ])]
   const blocked = preview.subjects.filter((subject) => subject.status !== 'available')
@@ -55,7 +90,7 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
           ? t('example.calendar.visitAvailability.retry', 'Availability could not be checked. Try again.')
           : t('example.calendar.visitAvailability.unavailable', 'A selected person or resource is unavailable.')
 
-  return <div className="space-y-4" data-testid="example-visit-panel">
+  return <div className="space-y-4" data-testid={advisory ? 'example-availability-panel' : 'example-visit-panel'}>
     {children}
     {errors.participants ? <p role="alert" className="text-sm text-status-error-text">{errors.participants}</p> : null}
     {errors.resources || errors.linkedEntities ? <p role="alert" className="text-sm text-status-error-text">{errors.resources ?? errors.linkedEntities}</p> : null}
@@ -64,7 +99,9 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
       <AlertDescription>{warnings.map((warning) => <p key={warning}>{t(warning)}</p>)}</AlertDescription>
     </Alert> : null}
     <Alert status={preview.state === 'available' ? (warnings.length && !preview.subjects.length ? 'information' : 'success') : preview.state === 'unavailable' ? 'warning' : 'information'}>
-      <AlertTitle>{t('example.calendar.visitAvailability.title', 'Visit availability')}</AlertTitle>
+      <AlertTitle>{advisory
+        ? t('example.calendar.availability.title', 'Availability')
+        : t('example.calendar.visitAvailability.title', 'Visit availability')}</AlertTitle>
       <AlertDescription>
         {description}
         {blocked.length ? <ul className="mt-2 list-disc space-y-1 pl-5" data-testid="example-visit-unavailable-subjects">

@@ -27,6 +27,70 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
     await expect(dialog.getByRole('button', { name: 'Save event' })).toBeVisible()
   })
 
+  test('warns on a non-Visit type that books an already-booked resource, naming it in both messages', async ({ page, request }) => {
+    test.setTimeout(120_000)
+    let token: string | null = null
+    let personId: string | null = null
+    let resourceId: string | null = null
+    let bookingId: string | null = null
+    try {
+      token = await getAuthToken(request, 'admin')
+      const stamp = Date.now()
+      const resourceName = `Advisory QA room ${stamp}`
+      const bookingTitle = `Advisory QA booking ${stamp}`
+      personId = await createPersonFixture(request, token, {
+        firstName: 'Advisory', lastName: `QA${stamp}`, displayName: `Advisory QA ${stamp}`,
+      })
+      const resource = await apiRequest(request, 'POST', '/api/resources/resources', {
+        token, data: { name: resourceName, isActive: true },
+      })
+      expect(resource.status(), await resource.text()).toBe(201)
+      resourceId = (await resource.json() as { id?: string }).id ?? null
+      expect(resourceId).toBeTruthy()
+
+      // The editor defaults a new event to the next full hour, so a booking that
+      // spans the next several hours overlaps it whenever the test runs.
+      const bookingStart = new Date()
+      bookingStart.setMinutes(0, 0, 0)
+      const booking = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token,
+        data: {
+          entityId: personId, interactionType: 'meeting', title: bookingTitle,
+          scheduledAt: bookingStart.toISOString(), durationMinutes: 360,
+          linkedEntities: [{ id: resourceId, type: 'resource', label: resourceName }],
+        },
+      })
+      expect(booking.status(), await booking.text()).toBe(201)
+      bookingId = (await booking.json() as { id?: string }).id ?? null
+
+      await login(page, 'admin')
+      await page.goto('/backend/calendar')
+      await page.getByRole('button', { name: 'New event' }).click()
+      const dialog = page.getByRole('dialog', { name: 'New event' })
+      await dialog.getByRole('group', { name: 'Event type' }).getByRole('button', { name: 'Event', exact: true }).click()
+      await expect(dialog.getByTestId('example-availability-panel')).toHaveCount(0)
+
+      const resources = dialog.getByRole('combobox', { name: 'Resources', exact: true })
+      await resources.click()
+      await resources.fill(resourceName)
+      await page.getByText(resourceName, { exact: true }).last().click()
+
+      // Core conflict warning: a shared resource is a double-booking on its own,
+      // and the warning names it.
+      await expect(dialog.getByText('Calendar conflict')).toBeVisible({ timeout: 20_000 })
+      await expect(dialog).toContainText(`${bookingTitle} (${resourceName})`)
+      // Example availability preview, advisory on every type that can book.
+      const availability = dialog.getByTestId('example-availability-panel')
+      await expect(availability).toBeVisible({ timeout: 20_000 })
+      await expect(availability).toContainText(resourceName)
+      await expect(dialog.getByTestId('example-visit-panel')).toHaveCount(0)
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', bookingId)
+      await deleteEntityIfExists(request, token, '/api/resources/resources', resourceId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
   test('previews an unscheduled resource and rejects direct create/update while preserving the Visit', async ({ request }) => {
     test.setTimeout(60_000)
     let token: string | null = null

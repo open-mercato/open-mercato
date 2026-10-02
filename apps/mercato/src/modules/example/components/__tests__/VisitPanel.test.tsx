@@ -76,10 +76,73 @@ describe('VisitPanel optional availability modules', () => {
     const warning = screen.getByTestId('example-visit-unavailable-subjects')
     expect(warning.querySelectorAll('li')).toHaveLength(4)
     expect(warning).toHaveTextContent('Alex server: Outside available working hours.')
-    expect(warning).toHaveTextContent('Sam: Already booked during this visit.')
+    expect(warning).toHaveTextContent('Sam: Already booked at this time.')
     expect(warning).toHaveTextContent('Room: No availability schedule covers the visit.')
-    expect(warning).toHaveTextContent('Desk: Already booked during this visit.')
+    expect(warning).toHaveTextContent('Desk: Already booked at this time.')
     expect(warning).not.toHaveTextContent('11111111-1111-4111-8111-111111111111')
+  })
+
+  describe('advisory mode on other event types', () => {
+    const eventProps: CalendarEventTypePanelProps = {
+      ...props,
+      definition: {
+        ...props.definition, key: 'event', label: 'Event',
+        behavior: { ...props.definition.behavior, fields: { ...props.definition.behavior.fields, allDay: true, recurrence: true, people: 'attendees' } },
+      } as CalendarEventTypePanelProps['definition'],
+      capabilities: { staffEnabled: true, resourcesEnabled: true },
+    }
+
+    it('names the booked staff member and resource without the Visit title', async () => {
+      jest.mocked(apiCall).mockResolvedValue({ ok: true, status: 200, result: { warnings: [], subjects: [
+        { type: 'staff', id: '11111111-1111-4111-8111-111111111111', displayName: 'Alex', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+        { type: 'resource', id: '33333333-3333-4333-8333-333333333333', displayName: 'Room', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+      ] }, response: {} as Response, cacheStatus: null })
+      render(<VisitPanel {...eventProps} advisory><div data-testid="standard-calendar-fields" /></VisitPanel>)
+      expect(screen.queryByTestId('example-availability-panel')).toBeNull()
+      await act(async () => { jest.advanceTimersByTime(250) })
+      const url = new URL(String(jest.mocked(apiCall).mock.calls[0]?.[0]), 'http://localhost')
+      expect(url.searchParams.get('staffUserIds')).toBe('11111111-1111-4111-8111-111111111111')
+      expect(url.searchParams.get('resourceIds')).toBe('33333333-3333-4333-8333-333333333333')
+      const panel = screen.getByTestId('example-availability-panel')
+      expect(panel).toHaveTextContent('Availability')
+      expect(panel).not.toHaveTextContent('Visit availability')
+      expect(panel).toHaveTextContent('Alex: Already booked at this time.')
+      expect(panel).toHaveTextContent('Room: Already booked at this time.')
+      expect(screen.getByTestId('standard-calendar-fields')).toBeInTheDocument()
+    })
+
+    it('stays out of the way until staff or a resource is selected for a timed interval', async () => {
+      const cases: Array<Partial<CalendarEventTypePanelProps['values']>> = [
+        { participants: [], resources: [] },
+        { participants: [{ userId: '55555555-5555-4555-8555-555555555555', name: 'Customer', isCustomer: true }], resources: [] },
+        { allDay: true },
+      ]
+      for (const overrides of cases) {
+        const view = render(
+          <VisitPanel {...eventProps} values={{ ...eventProps.values, ...overrides }} advisory><div data-testid="standard-calendar-fields" /></VisitPanel>,
+        )
+        await act(async () => { jest.advanceTimersByTime(250) })
+        expect(screen.queryByTestId('example-availability-panel')).toBeNull()
+        expect(screen.getByTestId('standard-calendar-fields')).toBeInTheDocument()
+        view.unmount()
+      }
+      expect(apiCall).not.toHaveBeenCalled()
+    })
+
+    it('checks the assignee of a task-like type', async () => {
+      const taskProps = {
+        ...eventProps,
+        definition: {
+          ...eventProps.definition,
+          behavior: { ...eventProps.definition.behavior, fields: { ...eventProps.definition.behavior.fields, people: 'assignee' } },
+        } as CalendarEventTypePanelProps['definition'],
+        values: { ...eventProps.values, participants: [], resources: [], assigneeUserId: '66666666-6666-4666-8666-666666666666', assigneeName: 'Sam' },
+      }
+      render(<VisitPanel {...taskProps} advisory><div /></VisitPanel>)
+      await act(async () => { jest.advanceTimersByTime(250) })
+      const url = new URL(String(jest.mocked(apiCall).mock.calls[0]?.[0]), 'http://localhost')
+      expect(url.searchParams.get('staffUserIds')).toBe('66666666-6666-4666-8666-666666666666')
+    })
   })
 
   it('registers the host translator for the headless save handler without modifying shared forms', async () => {
@@ -92,7 +155,7 @@ describe('VisitPanel optional availability modules', () => {
       { type: 'staff', id: '11111111-1111-4111-8111-111111111111', displayName: 'Alex', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
     ] }, response: {} as Response, cacheStatus: null })
     expect(await widget.eventHandlers?.onBeforeSave?.({ ...props.values, category: 'visit' }, context)).toEqual({
-      ok: false, fieldErrors: { participants: 'Alex: Already booked during this visit.' },
+      ok: false, fieldErrors: { participants: 'Alex: Already booked at this time.' },
     })
   })
 
