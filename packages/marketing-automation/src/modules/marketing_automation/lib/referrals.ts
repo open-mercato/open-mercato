@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import { PLACED_ORDER_FILTER_SQL } from './order-filter.js'
 import { MarketingReferralCode, MarketingReferralRedemption } from '../data/entities.js'
 import {
   generateReferralCode,
@@ -103,6 +104,8 @@ export type ClaimOutcome =
   | { status: 'unknown_code' }
   | { status: 'already_referred' }
   | { status: 'self_referral' }
+  /** Already a buyer before the code was used, so there is no referral to reward. */
+  | { status: 'already_a_customer' }
 
 /**
  * Records that someone arrived on a code.
@@ -150,6 +153,25 @@ export async function claimReferral(
 
   const existing = await em.findOne(MarketingReferralRedemption, { ...scope, referredEntityId: input.referredEntityId })
   if (existing) return { status: 'already_referred' }
+
+  /**
+   * An existing buyer cannot be referred, which is the third way a programme is gamed.
+   *
+   * The reward is for bringing somebody NEW. Without this, an existing customer types any code before their
+   * next order and the conversion pays out on a purchase that was going to happen anyway — and done between
+   * two accounts that is a reward machine, since the referred side needs nothing but a code and an order.
+   * "No earlier orders" is checked with the module's own definition of an order that counts, so a cancelled
+   * one does not disqualify somebody and a draft cart does not either.
+   */
+  const earlierOrders = await em.execute<Array<{ one: number }>>(
+    `select 1 as one
+       from sales_orders
+      where ${PLACED_ORDER_FILTER_SQL}
+        and customer_entity_id = ?
+      limit 1`,
+    [scope.tenantId, scope.organizationId, input.referredEntityId],
+  )
+  if (earlierOrders.length > 0) return { status: 'already_a_customer' }
 
   try {
     const redemption = em.create(MarketingReferralRedemption, {

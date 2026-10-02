@@ -46,6 +46,19 @@ export default async function handle(
     const referredEntityId = order?.customerEntityId ?? null
     if (!referredEntityId) return
 
+    /**
+     * A cancelled order converts nothing, and nor does a draft.
+     *
+     * The conversion is the whole payout: it flips the claim and emits the event a reward step listens to.
+     * Taking any `sales.order.created` meant somebody could place an order, have the referral convert, and
+     * cancel it — the reward is already irreversible by then, because the conditional UPDATE is what stops a
+     * second one and it has already fired. The same two conditions every other order read in this module
+     * uses (`lib/order-filter.ts`): both spellings of cancelled are excluded, and `placedAt` excludes carts
+     * that were never submitted.
+     */
+    const cancelled = order?.status === 'canceled' || order?.status === 'cancelled'
+    if (cancelled || !order?.placedAt) return
+
     const converted = await convertPendingReferral(em, scope, {
       referredEntityId,
       orderId,

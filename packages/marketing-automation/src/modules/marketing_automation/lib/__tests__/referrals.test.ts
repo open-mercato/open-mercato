@@ -27,8 +27,11 @@ function fakeEm(answers: {
   liveCustomers?: Row[]
   redemption?: Row | null
   onFlush?: () => void
+  /** Rows the "has this person already bought from us" probe returns. Empty means a new customer. */
+  earlierOrders?: Row[]
 }) {
   const created: Array<{ entity: unknown; data: Row }> = []
+  const executed: Array<{ sql: string; params: unknown[] }> = []
   const em = {
     findOne: async (entity: unknown, where: Row) => {
       if (entity === MarketingReferralCode) return answers.code ?? null
@@ -36,12 +39,18 @@ function fakeEm(answers: {
       return null
     },
     find: async (entity: unknown) => (entity === CustomerEntity ? answers.liveCustomers ?? [] : []),
+    execute: async (sql: string, params: unknown[]) => {
+      executed.push({ sql, params })
+      return answers.earlierOrders ?? []
+    },
     create: (entity: unknown, data: Row) => { created.push({ entity, data }); return { id: 'new', ...data } },
     persist: () => undefined,
     flush: async () => { answers.onFlush?.() },
     clear: () => undefined,
+    // The connection form escapes a transaction, and a storefront may well claim inside one.
+    getConnection: () => { throw new Error('[internal] use em.execute()') },
   }
-  return { em: em as unknown as EntityManager, created }
+  return { em: em as unknown as EntityManager, created, executed }
 }
 
 describe('ensureReferralCode', () => {
@@ -164,5 +173,58 @@ describe('claimReferral', () => {
       await expect(claimReferral(em, scope, { code: 'GOOD1234', referredEntityId: 'new-1' }))
         .rejects.toThrow('connection terminated')
     })
+  })
+})
+
+/**
+ * The third way a referral programme is gamed: being referred when you are already a customer.
+ *
+ * Claiming your own code and claiming twice were both refused; this was not. An existing customer typing any
+ * code before their next order had the conversion pay out on a purchase that was going to happen anyway — and
+ * between two accounts that is a reward machine, because the referred side needs nothing but a code and an
+ * order.
+ */
+describe('claimReferral — an existing buyer', () => {
+  const liveReferrer = [{ id: 'ref-1' }]
+
+  it('refuses somebody who has already ordered', async () => {
+    const { em, created } = fakeEm({
+      code: { id: 'code-1', code: 'GOOD1234', referrerEntityId: 'ref-1' },
+      liveCustomers: liveReferrer,
+      redemption: null,
+      earlierOrders: [{ one: 1 }],
+    })
+    await expect(claimReferral(em, scope, { code: 'GOOD1234', referredEntityId: 'new-1' }))
+      .resolves.toEqual({ status: 'already_a_customer' })
+    // Nothing recorded: a refused claim must not leave a pending redemption behind.
+    expect(created).toHaveLength(0)
+  })
+
+  it('lets a genuinely new customer through', async () => {
+    const { em, created } = fakeEm({
+      code: { id: 'code-1', code: 'GOOD1234', referrerEntityId: 'ref-1' },
+      liveCustomers: liveReferrer,
+      redemption: null,
+      earlierOrders: [],
+    })
+    const outcome = await claimReferral(em, scope, { code: 'GOOD1234', referredEntityId: 'new-1' })
+    expect(outcome).toMatchObject({ status: 'claimed', referrerEntityId: 'ref-1' })
+    expect(created).toHaveLength(1)
+  })
+
+  it('asks with the module\'s own definition of an order that counts', async () => {
+    const { em, executed } = fakeEm({
+      code: { id: 'code-1', code: 'GOOD1234', referrerEntityId: 'ref-1' },
+      liveCustomers: liveReferrer,
+      redemption: null,
+      earlierOrders: [],
+    })
+    await claimReferral(em, scope, { code: 'GOOD1234', referredEntityId: 'new-1' })
+    const probe = executed.find((entry) => entry.sql.includes('sales_orders'))
+    expect(probe).toBeDefined()
+    // A cancelled order must not disqualify anybody, and nor must a cart they never submitted.
+    expect(probe?.sql).toContain("not in ('canceled', 'cancelled')")
+    expect(probe?.sql).toContain('placed_at is not null')
+    expect(probe?.params).toEqual(['t1', 'o1', 'new-1'])
   })
 })

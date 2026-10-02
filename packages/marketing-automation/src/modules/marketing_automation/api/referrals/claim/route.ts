@@ -71,12 +71,12 @@ export const openApi = {
   POST: {
     summary: 'Claim a referral code for a customer',
     description:
-      'Records a pending referral. It converts on its own when that customer places their first order, which is what fires the referral trigger for the REFERRER. Refuses a self-referral and a second claim for the same customer, each with its own code.',
+      'Records a pending referral. It converts on its own when that customer places their first non-cancelled order, which is what fires the referral trigger for the REFERRER. Refuses a self-referral, a second claim for the same customer, and a customer who has already bought — each with its own code.',
     tags: ['Marketing Automation'],
     responses: {
       200: { description: 'Claimed' },
       404: { description: 'No such customer, or no such code' },
-      409: { description: 'Already referred, or the code belongs to this customer' },
+      409: { description: 'Already referred, already a customer, or the code belongs to this customer' },
     },
   },
 }
