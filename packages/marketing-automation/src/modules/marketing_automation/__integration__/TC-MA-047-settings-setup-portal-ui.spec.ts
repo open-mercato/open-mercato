@@ -12,10 +12,37 @@ import {
   portalCookieHeaders,
   portalLogin,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+import { createPersonFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 const SETTINGS_PATH = '/api/marketing_automation/settings'
 const READINESS_PATH = '/api/marketing_automation/readiness'
 const PREFERENCES_PATH = '/api/marketing_automation/portal/preferences'
+const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
+
+/**
+ * Links the portal account to a CRM PERSON, which is who marketing consent is about.
+ *
+ * `POST /admin/users` takes only `customerEntityId` (the company), so the person link is a second
+ * call. This matters to the fixture and not just to the route: a portal user linked to a company
+ * alone exercises nothing of the preference centre's real path, and this spec used to pass while
+ * every save landed on a company-wide consent row.
+ */
+async function linkPersonToPortalUser(
+  request: APIRequestContext,
+  adminToken: string,
+  userId: string,
+  personEntityId: string,
+): Promise<void> {
+  const current = await apiRequest(request, 'GET', `/api/customer_accounts/admin/users/${userId}`, { token: adminToken })
+  expect(current.status(), 'reading the portal user should succeed').toBe(200)
+  const body = await readJsonSafe<{ updatedAt?: string | null }>(current)
+  const updated = await apiRequest(request, 'PUT', `/api/customer_accounts/admin/users/${userId}`, {
+    token: adminToken,
+    data: { personEntityId },
+    headers: body?.updatedAt ? { [OPTIMISTIC_LOCK_HEADER]: body.updatedAt } : {},
+  })
+  expect(updated.status(), 'linking the person to the portal user should succeed').toBe(200)
+}
 
 type Settings = {
   productUrlTemplate: string
@@ -347,6 +374,39 @@ test.describe('TC-MA-047 settings, setup and portal preferences screens', () => 
     }
   })
 
+  /**
+   * The preference centre refuses an account it cannot tie to one person.
+   *
+   * Consent is about a person, and `customerEntityId` is the company. Answering for a company-only
+   * account would record one row shared by every portal user there — so the unsubscribe of whoever
+   * clicked last would speak for all of them, and the mail would keep arriving for everyone else.
+   */
+  test('a portal account with no person link cannot record consent for the company', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const { tenantId } = getTokenContext(adminToken)
+    let companyId: string | null = null
+    let userId: string | null = null
+    try {
+      companyId = await createCustomerCompanyFixture(request, adminToken, `QA MA-047 NoPerson ${Date.now()}`)
+      const user = await createCustomerUserFixture(request, adminToken, { customerEntityId: companyId })
+      userId = user.id
+      const session = await portalLogin(request, { email: user.email, password: user.password, tenantId })
+
+      const read = await request.get(PREFERENCES_PATH, { headers: portalCookieHeaders(session) })
+      expect(read.status()).toBe(403)
+      expect((await readJsonSafe<{ code?: string }>(read))?.code).toBe('marketing_automation.errors.portalNotLinked')
+
+      const write = await request.put(PREFERENCES_PATH, {
+        headers: { ...portalCookieHeaders(session), 'Content-Type': 'application/json' },
+        data: { consent: 'unsubscribed' },
+      })
+      expect(write.status()).toBe(403)
+    } finally {
+      await deleteCustomerUserFixture(request, adminToken, userId)
+      await deleteCustomerCompanyFixture(request, adminToken, companyId)
+    }
+  })
+
   test('a portal customer changes frequency, language, pause and subscription', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenContext(adminToken)
@@ -366,6 +426,14 @@ test.describe('TC-MA-047 settings, setup and portal preferences screens', () => 
       companyId = await createCustomerCompanyFixture(request, adminToken, `QA MA-047 Portal ${Date.now()}`)
       const user = await createCustomerUserFixture(request, adminToken, { customerEntityId: companyId })
       userId = user.id
+      const personEntityId = await createPersonFixture(request, adminToken, {
+        firstName: 'MA047',
+        lastName: `Portal ${Date.now()}`,
+        displayName: `QA MA-047 Portal Person ${Date.now()}`,
+        companyEntityId: companyId,
+        primaryEmail: user.email,
+      })
+      await linkPersonToPortalUser(request, adminToken, userId, personEntityId)
       const session = await portalLogin(request, { email: user.email, password: user.password, tenantId })
       const readPreferences = async (): Promise<Preferences> => {
         const result = await request.get(PREFERENCES_PATH, { headers: portalCookieHeaders(session) })

@@ -45,19 +45,31 @@ const bodySchema = z.object({
   ),
 })
 
+/**
+ * The PERSON this session belongs to, which is who consent is about.
+ *
+ * `customerEntityId` is the CRM *company* FK, and this route used to use it. Sends gate on the
+ * person's entity id, so recording consent against the company meant a portal user who unsubscribed
+ * kept receiving every campaign while this page told them they were unsubscribed — and every portal
+ * user at that company shared, and overwrote, one consent row. A withdrawal of consent that does not
+ * stop the mail is worse than no preference centre at all.
+ *
+ * An account with no linked person therefore gets 403 rather than a company-wide row: the question
+ * "may we mail you" has no answer we are entitled to store for anybody else.
+ */
 async function resolveSubject(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) return { error: NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 }) }
-  if (!auth.customerEntityId || !auth.tenantId || !auth.orgId) {
+  if (!auth.personEntityId || !auth.tenantId || !auth.orgId) {
     return {
       error: NextResponse.json(
-        { ok: false, error: 'This account is not linked to a customer record', code: 'marketing_automation.errors.portalNotLinked' },
+        { ok: false, error: 'This account is not linked to a person record', code: 'marketing_automation.errors.portalNotLinked' },
         { status: 403 },
       ),
     }
   }
   return {
-    subjectEntityId: auth.customerEntityId,
+    subjectEntityId: auth.personEntityId,
     // The portal session calls it `orgId`; every read and write in this module wants `organizationId`.
     scope: { tenantId: auth.tenantId, organizationId: auth.orgId },
   }
