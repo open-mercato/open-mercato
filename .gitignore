@@ -201,5 +201,3 @@ starters/company/certs/
 # Local Storybook build and generated previews
 packages/ui/storybook-static/
 packages/ui/.storybook/generated/
-# Local isolated dev stack env (see .env.isolated header)
-.env.isolated
