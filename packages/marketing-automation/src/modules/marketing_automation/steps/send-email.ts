@@ -439,6 +439,33 @@ export const sendEmailStep: StepHandler<StepDeps> = {
        * address in a shape the prefix below does not anticipate.
        */
       const original = error instanceof Error ? error.message : String(error)
+
+      /**
+       * A missing email channel is CONFIGURATION, and it takes the same path as a missing unsubscribe URL.
+       *
+       * Fifty lines above, this handler already states the rule for a fault of this kind: "five retries cannot
+       * supply a missing environment variable, and dead-lettering the journey hides the cause." A tenant with no
+       * email channel is exactly that fault, and it was taking the opposite path — five retries over hours, a
+       * dead run, and a detail panel reading `[internal] email transport rejected the send:
+       * SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED`. Every one of those attempts also counts as a failure towards the
+       * deliverability breaker, so a fresh installation paused its own campaigns for a reason that was never the
+       * transport's.
+       *
+       * Skipped with the remedy in the detail, like its sibling. `test-send` already answers this case with its
+       * own code and a translated message; this is the step handler catching up with the route.
+       */
+      if (original.includes('SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED')) {
+        deps.logger.warn('[internal] marketing send has no email channel to use', {
+          campaignId: ctx.campaignId,
+          runId: ctx.runId,
+          stepId: ctx.actionId,
+        })
+        return {
+          status: 'skipped',
+          detail: 'no email channel: configure a tenant-wide email channel in Settings → Communication channels',
+        }
+      }
+
       deps.logger.error('[internal] marketing email transport rejected the send', {
         campaignId: ctx.campaignId,
         runId: ctx.runId,

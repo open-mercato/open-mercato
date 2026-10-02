@@ -131,6 +131,20 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
       })
     } catch (error) {
       const original = error instanceof Error ? error.message : String(error)
+
+      // Configuration, not a rejection — the same distinction `send-email.ts` makes, and for the same reason:
+      // retries cannot create an email channel, and a dead run hides which of the two went wrong.
+      if (original.includes('SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED')) {
+        deps.logger.warn('[internal] marketing survey has no email channel to use', {
+          campaignId: ctx.campaignId,
+          stepId: ctx.actionId,
+        })
+        return {
+          status: 'skipped',
+          detail: 'no email channel: configure a tenant-wide email channel in Settings → Communication channels',
+        }
+      }
+
       deps.logger.error('[internal] marketing survey transport rejected the send', {
         campaignId: ctx.campaignId,
         stepId: ctx.actionId,
