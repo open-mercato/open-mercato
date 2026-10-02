@@ -270,6 +270,8 @@
   "marketing_automation.jobs.counter.skipped": "omitidos",
   "marketing_automation.jobs.counter.skippedModuleMissing": "omitido — requiere un módulo que no está instalado",
   "marketing_automation.jobs.counter.started": "clientes inscritos",
+  "marketing_automation.jobs.deadLetters.noEvent": "sin id de evento",
+  "marketing_automation.jobs.deadLetters.title": "Despachos que nunca se ejecutaron",
   "marketing_automation.jobs.emptyBody": "Las campañas programadas y los recorridos en espera se procesan en segundo plano. Cada pasada aparece aquí con lo que hizo.",
   "marketing_automation.jobs.emptyTitle": "Aún no hay ejecuciones registradas",
   "marketing_automation.jobs.kind.dispatch": "Despacho de eventos",
