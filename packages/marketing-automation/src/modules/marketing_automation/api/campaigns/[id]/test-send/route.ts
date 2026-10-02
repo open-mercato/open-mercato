@@ -18,6 +18,7 @@ import {
   renderRecommendationsHtml,
 } from '../../../../lib/recommendations.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { renderValuesFromDocument } from '../../../../lib/render-values.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { redactEmails } from '../../../../lib/redact.js'
@@ -109,8 +110,29 @@ export async function POST(req: Request) {
     )
   }
 
+  /**
+   * Rendering FOR a named customer needs the grant that protects them.
+   *
+   * `marketing_automation.test_dispatch` says somebody may send a test message; `customers.people.view`
+   * says they may read the CRM. Without this gate, holding the first alone was enough to have the module
+   * build any customer's subject document — decrypted name, address, order history — interpolate it into
+   * the copy and mail the result to the caller's own address. The sibling `render` route already closes
+   * exactly this hole; this one was the inconsistency.
+   *
+   * The subject is dropped rather than the request refused, matching `render`: the author still gets their
+   * own copy back with the placeholders unfilled.
+   */
+  const rbac = container.resolve<RbacService>('rbacService')
+  const mayReadSubject = parsed.data.subjectEntityId
+    ? await rbac.userHasAllFeatures(
+        auth.sub,
+        ['customers.people.view'],
+        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+      )
+    : false
+
   const tierThresholds = await loadTierThresholds(container, scope)
-  const subject = parsed.data.subjectEntityId
+  const subject = parsed.data.subjectEntityId && mayReadSubject
     ? await buildSubjectDocument(em, parsed.data.subjectEntityId, scope, {}, now, { tierThresholds })
     : null
 
@@ -208,7 +230,7 @@ export const openApi = {
   POST: {
     summary: 'Send one real test message for a step',
     description:
-      'Renders the step through the same function a real send uses and delivers it to the CALLER\'s own address, taken from the session — the request cannot name a recipient. Untracked and unrecorded. Gated by `marketing_automation.test_dispatch`.',
+      'Renders the step through the same function a real send uses and delivers it to the CALLER\'s own address, taken from the session — the request cannot name a recipient. Untracked and unrecorded. Gated by `marketing_automation.test_dispatch`; interpolating a named subject\'s data additionally requires `customers.people.view`, without which the placeholders are left unfilled.',
     tags: ['Marketing Automation'],
     responses: {
       200: { description: 'Sent' },
