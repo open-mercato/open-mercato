@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SubjectScope } from '../subject-document.js'
 import { PLACED_ORDER_FILTER_SQL_ALIASED } from '../order-filter.js'
+import { SALES_ORDERS } from '../external/tables.js'
 
 /**
  * The campaign funnel: how many people reached each stage, and where they fell out.
@@ -79,7 +80,7 @@ const FUNNEL_SQL = `
     select distinct e.run_id as id
       from marketing_message_send_events e
       join entered r on r.id = e.run_id
-      join sales_orders o
+      join ${SALES_ORDERS} o
         on o.customer_entity_id = r.subject_entity_id
        and o.placed_at > e.occurred_at
        and o.placed_at <= e.occurred_at + make_interval(days => ?)

@@ -4,6 +4,12 @@ import { sweepClaimKey } from './occurrence.js'
 import { cycleNumber, MINIMUM_PURCHASES_FOR_CYCLE, reorderCycleFor } from './engine/reorder.js'
 import { PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
 import type { RunScope } from './runs.js'
+import {
+  CUSTOMER_ENTITIES,
+  CUSTOMER_PEOPLE,
+  SALES_ORDERS,
+  SALES_ORDER_LINES,
+} from './external/tables.js'
 
 /**
  * What a scheduled campaign iterates over.
@@ -237,8 +243,8 @@ const birthdays: RowSweepSource = {
     const rows = await em.getConnection().execute<Array<{ entity_id: string; birth_date: string | null }>>(
       `select p.entity_id as entity_id, v.value_text as birth_date
          from custom_field_values v
-         join customer_people p on p.id::text = v.record_id
-         join customer_entities e on e.id = p.entity_id
+         join ${CUSTOMER_PEOPLE} p on p.id::text = v.record_id
+         join ${CUSTOMER_ENTITIES} e on e.id = p.entity_id
         where v.field_key = ?
           and v.tenant_id = ? and v.organization_id = ?
           and v.deleted_at is null
@@ -332,8 +338,8 @@ const reorderDue: RowSweepSource = {
                 l.catalog_snapshot -> 'variant' ->> 'sku'
               ) as sku,
               array_agg(o.placed_at order by o.placed_at desc) as purchased_at
-         from sales_order_lines l
-         join sales_orders o on o.id = l.order_id
+         from ${SALES_ORDER_LINES} l
+         join ${SALES_ORDERS} o on o.id = l.order_id
         where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
           and o.customer_entity_id is not null
           and coalesce(

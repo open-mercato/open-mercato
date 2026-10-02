@@ -10,6 +10,7 @@ import {
   normalizeReferralCode,
   referralUrlFor,
 } from './engine/referral-code.js'
+import { SALES_ORDERS } from './external/tables.js'
 
 /** Postgres unique violation — losing a race against a concurrent claim, which the index is there to win. */
 const POSTGRES_UNIQUE_VIOLATION = '23505'
@@ -165,7 +166,7 @@ export async function claimReferral(
    */
   const earlierOrders = await em.execute<Array<{ one: number }>>(
     `select 1 as one
-       from sales_orders
+       from ${SALES_ORDERS}
       where ${PLACED_ORDER_FILTER_SQL}
         and customer_entity_id = ?
       limit 1`,

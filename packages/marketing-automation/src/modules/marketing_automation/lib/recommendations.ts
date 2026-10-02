@@ -9,6 +9,10 @@ import {
 } from './engine/recommendations.js'
 import { PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './subject-document.js'
 import type { SubjectScope } from './subject-document.js'
+import {
+  SALES_ORDERS,
+  SALES_ORDER_LINES,
+} from './external/tables.js'
 
 /**
  * Product recommendations: the queries behind them, and how they reach a message.
@@ -120,15 +124,15 @@ export async function loadAffinityCandidates(
   const rows = await em.getConnection().execute<AffinityRow[]>(
     `with mine as (
         select distinct ${LINE_SKU_SQL} as sku
-          from sales_order_lines l
-          join sales_orders o on o.id = l.order_id
+          from ${SALES_ORDER_LINES} l
+          join ${SALES_ORDERS} o on o.id = l.order_id
          where o.customer_entity_id = ?
            and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
       ),
       peer_orders as (
         select distinct o.id as order_id
-          from sales_order_lines l
-          join sales_orders o on o.id = l.order_id
+          from ${SALES_ORDER_LINES} l
+          join ${SALES_ORDERS} o on o.id = l.order_id
          where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
            and ${LINE_SKU_SQL} in (select sku from mine where sku is not null)
       )
@@ -136,8 +140,8 @@ export async function loadAffinityCandidates(
              max(${LINE_NAME_SQL}) as name,
              count(*)::int as co_occurrences,
              count(distinct o.customer_entity_id)::int as distinct_customers
-        from sales_order_lines l
-        join sales_orders o on o.id = l.order_id
+        from ${SALES_ORDER_LINES} l
+        join ${SALES_ORDERS} o on o.id = l.order_id
        where o.id in (select order_id from peer_orders)
          and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
          and ${LINE_SKU_SQL} is not null
@@ -168,8 +172,8 @@ export async function loadBestSellers(
     `select ${LINE_SKU_SQL} as sku,
             max(${LINE_NAME_SQL}) as name,
             count(distinct o.id)::int as orders
-       from sales_order_lines l
-       join sales_orders o on o.id = l.order_id
+       from ${SALES_ORDER_LINES} l
+       join ${SALES_ORDERS} o on o.id = l.order_id
       where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
         and ${LINE_SKU_SQL} is not null
       group by 1
@@ -190,8 +194,8 @@ async function loadOwnedSkus(
 ): Promise<string[]> {
   const rows = await em.getConnection().execute<{ sku: string | null }[]>(
     `select distinct ${LINE_SKU_SQL} as sku
-       from sales_order_lines l
-       join sales_orders o on o.id = l.order_id
+       from ${SALES_ORDER_LINES} l
+       join ${SALES_ORDERS} o on o.id = l.order_id
       where o.customer_entity_id = ?
         and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}`,
     [subjectEntityId, scope.tenantId, scope.organizationId],

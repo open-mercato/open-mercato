@@ -20,6 +20,15 @@ import type { TierThreshold } from './engine/tiers.js'
  */
 export { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
 import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
+import {
+  CATALOG_PRODUCT_CATEGORIES,
+  CATALOG_PRODUCT_CATEGORY_ASSIGNMENTS,
+  CUSTOMER_TAGS,
+  CUSTOMER_TAG_ASSIGNMENTS,
+  SALES_CHANNELS,
+  SALES_ORDERS,
+  SALES_ORDER_LINES,
+} from './external/tables.js'
 
 export type { SubjectScope } from './scope.js'
 
@@ -30,7 +39,7 @@ const ORDER_AGGREGATE_SQL = `
     coalesce(sum(grand_total_gross_amount), 0)::text as total_gross,
     max(placed_at) as last_placed_at,
     min(placed_at) as first_placed_at
-  from sales_orders
+  from ${SALES_ORDERS}
   where customer_entity_id = ?
     and ${PLACED_ORDER_FILTER_SQL}
 `
@@ -136,8 +145,8 @@ export async function loadPurchasedChannels(
 ): Promise<string[]> {
   const rows = await em.getConnection().execute<{ code: string | null }[]>(
     `select distinct c.code as code
-       from sales_orders o
-       join sales_channels c on c.id = o.channel_id
+       from ${SALES_ORDERS} o
+       join ${SALES_CHANNELS} c on c.id = o.channel_id
       where o.customer_entity_id = ?
         and ${PLACED_ORDER_FILTER_SQL_ALIASED}
       limit ?`,
@@ -171,10 +180,10 @@ export async function loadPurchasedCategories(
 ): Promise<string[]> {
   const rows = await em.getConnection().execute<{ slug: string | null }[]>(
     `select distinct c.slug as slug
-       from sales_order_lines l
-       join sales_orders o on o.id = l.order_id
-       join catalog_product_category_assignments a on a.product_id = l.product_id
-       join catalog_product_categories c on c.id = a.category_id and c.deleted_at is null
+       from ${SALES_ORDER_LINES} l
+       join ${SALES_ORDERS} o on o.id = l.order_id
+       join ${CATALOG_PRODUCT_CATEGORY_ASSIGNMENTS} a on a.product_id = l.product_id
+       join ${CATALOG_PRODUCT_CATEGORIES} c on c.id = a.category_id and c.deleted_at is null
       where o.customer_entity_id = ?
         and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
         and c.slug is not null
@@ -201,8 +210,8 @@ export async function loadPurchasedSkus(
                 l.catalog_snapshot -> 'variant' ->> 'sku'
               ) as sku,
               max(o.placed_at) as last_bought
-         from sales_order_lines l
-         join sales_orders o on o.id = l.order_id
+         from ${SALES_ORDER_LINES} l
+         join ${SALES_ORDERS} o on o.id = l.order_id
         where o.customer_entity_id = ?
           and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
         group by 1
@@ -313,8 +322,8 @@ export async function loadTagSlugs(
 ): Promise<string[]> {
   const rows = await em.getConnection().execute<{ slug: string }[]>(
     `select t.slug
-       from customer_tag_assignments a
-       join customer_tags t on t.id = a.tag_id
+       from ${CUSTOMER_TAG_ASSIGNMENTS} a
+       join ${CUSTOMER_TAGS} t on t.id = a.tag_id
       where a.entity_id = ? and a.tenant_id = ? and a.organization_id = ?
       order by t.slug`,
     [subjectEntityId, scope.tenantId, scope.organizationId],

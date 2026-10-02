@@ -1,6 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SubjectScope } from '../scope.js'
 import type { AudienceOptionSource } from './field-catalog.js'
+import {
+  CATALOG_PRODUCT_CATEGORIES,
+  CUSTOMER_TAGS,
+  SALES_CHANNELS,
+} from '../external/tables.js'
 
 /**
  * The option lists behind the audience editor's dropdowns.
@@ -38,7 +43,7 @@ export async function loadTagOptions(em: EntityManager, scope: SubjectScope): Pr
   return slugs(
     em,
     `select slug as value, label as label
-       from customer_tags
+       from ${CUSTOMER_TAGS}
       where tenant_id = ? and organization_id = ?
       order by label
       limit ?`,
@@ -57,7 +62,7 @@ export async function loadCategoryOptions(em: EntityManager, scope: SubjectScope
   return slugs(
     em,
     `select slug as value, name as label
-       from catalog_product_categories
+       from ${CATALOG_PRODUCT_CATEGORIES}
       where tenant_id = ? and organization_id = ? and deleted_at is null and slug is not null
       order by name
       limit ?`,
@@ -69,7 +74,7 @@ export async function loadChannelOptions(em: EntityManager, scope: SubjectScope)
   return slugs(
     em,
     `select code as value, name as label
-       from sales_channels
+       from ${SALES_CHANNELS}
       where tenant_id = ? and organization_id = ? and deleted_at is null and code is not null
       order by name
       limit ?`,

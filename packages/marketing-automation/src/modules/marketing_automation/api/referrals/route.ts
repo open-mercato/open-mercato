@@ -10,6 +10,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { MarketingReferralCode } from '../../data/entities.js'
 import { ensureReferralCode, loadReferralUrlTemplate } from '../../lib/referrals.js'
 import { referralUrlFor } from '../../lib/engine/referral-code.js'
+import { CUSTOMER_ENTITIES } from '../../lib/external/tables.js'
 
 /**
  * Who is referring whom, and how well it is working.
@@ -64,7 +65,7 @@ export async function GET(req: Request) {
   const liveIds = await em.getConnection().execute<Array<{ id: string }>>(
     `select c.id
        from marketing_referral_codes c
-       join customer_entities e
+       join ${CUSTOMER_ENTITIES} e
          on e.id = c.referrer_entity_id and e.tenant_id = c.tenant_id
         and e.organization_id = c.organization_id and e.deleted_at is null
       where c.tenant_id = ? and c.organization_id = ? and c.deleted_at is null

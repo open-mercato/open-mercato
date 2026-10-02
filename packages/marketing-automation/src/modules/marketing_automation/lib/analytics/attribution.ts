@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SubjectScope } from '../subject-document.js'
+import { SALES_ORDERS } from '../external/tables.js'
 
 /**
  * Linear multi-touch revenue attribution.
@@ -85,7 +86,7 @@ const TOUCHES_SQL = `
          o.currency_code,
          o.grand_total_gross_amount::text as order_total
     from clicks c
-    join sales_orders o
+    join ${SALES_ORDERS} o
       on o.customer_entity_id = c.subject_entity_id
      and o.placed_at > c.occurred_at
      and o.placed_at <= c.occurred_at + make_interval(days => ?)

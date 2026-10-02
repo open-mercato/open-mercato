@@ -2,6 +2,7 @@ import { PLACED_ORDER_FILTER_SQL_ALIASED } from '../order-filter.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { LaneDescriptor } from '../engine/split.js'
 import type { SubjectScope } from '../subject-document.js'
+import { SALES_ORDERS } from '../external/tables.js'
 
 /**
  * A/B results, read from what actually happened.
@@ -95,7 +96,7 @@ function laneSql(stepPlaceholders: string): string {
       select distinct o.id, o.grand_total_gross_amount as total, o.currency_code
         from marketing_message_send_events e
         join marketing_campaign_runs r on r.id = e.run_id
-        join sales_orders o
+        join ${SALES_ORDERS} o
           on o.customer_entity_id = r.subject_entity_id
          and o.placed_at > e.occurred_at
          and o.placed_at <= e.occurred_at + make_interval(days => ?)

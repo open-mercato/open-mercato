@@ -3,6 +3,7 @@ import { MarketingValueBoundaries } from '../data/entities.js'
 import { EMPTY_VALUE_BOUNDARIES, RFM_BUCKETS } from './engine/rfm.js'
 import type { ValueBoundaries } from './engine/rfm.js'
 import { PLACED_ORDER_FILTER_SQL } from './order-filter.js'
+import { SALES_ORDERS } from './external/tables.js'
 
 /** Declared locally rather than imported from the document builder, which imports this file. */
 type BoundaryScope = { tenantId: string; organizationId: string }
@@ -38,7 +39,7 @@ const BOUNDARIES_SQL = `
            count(*)::int as order_count,
            sum(grand_total_gross_amount)::float8 as total_gross,
            extract(epoch from (now() - max(placed_at))) / 86400.0 as days_since_last
-      from sales_orders
+      from ${SALES_ORDERS}
      where customer_entity_id is not null
        and ${PLACED_ORDER_FILTER_SQL}
      group by customer_entity_id

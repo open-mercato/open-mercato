@@ -1,6 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import type { RunScope } from './runs.js'
+import {
+  CUSTOMER_DEAL_PERSON_LINKS,
+  CUSTOMER_ENTITIES,
+  SALES_INVOICES,
+  SALES_ORDERS,
+  SALES_PAYMENTS,
+} from './external/tables.js'
 
 /**
  * What a trigger hands the engine: who the run is about, and the scalars an audience
@@ -384,8 +391,8 @@ const invoiceCreated: TriggerCatalogEntry = {
     }>>(
       `select i.invoice_number, i.grand_total_gross_amount, i.outstanding_amount, i.currency_code, i.status,
               i.order_id, o.customer_entity_id
-         from sales_invoices i
-         left join sales_orders o on o.id = i.order_id and o.deleted_at is null
+         from ${SALES_INVOICES} i
+         left join ${SALES_ORDERS} o on o.id = i.order_id and o.deleted_at is null
         where i.id = ? and i.tenant_id = ? and i.organization_id = ? and i.deleted_at is null`,
       [invoiceId, scope.tenantId, scope.organizationId],
     )
@@ -467,8 +474,8 @@ async function hydratePayment(
     customer_entity_id: string | null
   }>>(
     `select p.amount, p.captured_amount, p.currency_code, p.status, p.order_id, o.customer_entity_id
-       from sales_payments p
-       left join sales_orders o on o.id = p.order_id and o.deleted_at is null
+       from ${SALES_PAYMENTS} p
+       left join ${SALES_ORDERS} o on o.id = p.order_id and o.deleted_at is null
       where p.id = ? and p.tenant_id = ? and p.organization_id = ? and p.deleted_at is null`,
     [paymentId, scope.tenantId, scope.organizationId],
   )
@@ -512,8 +519,8 @@ function dealClosure(won: boolean): TriggerCatalogEntry {
 
       const rows = await em.getConnection().execute<Array<{ person_entity_id: string | null }>>(
         `select l.person_entity_id
-           from customer_deal_person_links l
-           join customer_entities e on e.id = l.person_entity_id
+           from ${CUSTOMER_DEAL_PERSON_LINKS} l
+           join ${CUSTOMER_ENTITIES} e on e.id = l.person_entity_id
           where l.deal_id = ?
             and l.is_primary = true
             and e.tenant_id = ? and e.organization_id = ?

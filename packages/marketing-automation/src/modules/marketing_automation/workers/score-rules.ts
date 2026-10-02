@@ -11,6 +11,7 @@ import { loadValueBoundaries } from '../lib/value-boundaries.js'
 import { loadValueHorizonYears } from '../lib/value-horizon.js'
 import { logger, readScope } from './shared.js'
 import type { HandlerContext, JobScope } from './shared.js'
+import { CUSTOMER_ENTITIES } from '../lib/external/tables.js'
 
 // See the note in dispatch.ts: this string must stay a literal.
 export const metadata: WorkerMeta = {
@@ -103,7 +104,7 @@ async function scoredPersonPage(em: EntityManager, scope: JobScope, cursor: stri
   const rows = await em.getConnection().execute<Array<{ id: string }>>(
     `select e.subject_entity_id as id
        from marketing_customer_score_entries e
-       join customer_entities c
+       join ${CUSTOMER_ENTITIES} c
          on c.id = e.subject_entity_id and c.kind = 'person' and c.deleted_at is null
         and c.tenant_id = e.tenant_id and c.organization_id = e.organization_id
       where e.tenant_id = ? and e.organization_id = ? and e.rule_sequence is not null

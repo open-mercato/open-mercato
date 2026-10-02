@@ -4,6 +4,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { chooseAssignee } from './engine/lead-routing.js'
 import type { RepDigest, RoutingDecision } from './engine/lead-routing.js'
+import { CUSTOMER_ENTITIES } from './external/tables.js'
 
 /**
  * Lead routing: the rep pool, who is carrying what, and what each rep got this week.
@@ -63,7 +64,7 @@ export async function loadOwnerLoad(
   const placeholders = userIds.map(() => '?').join(', ')
   const rows = await em.getConnection().execute<LoadRow[]>(
     `select owner_user_id, count(*)::text as total
-       from customer_entities
+       from ${CUSTOMER_ENTITIES}
       where tenant_id = ? and organization_id = ?
         and deleted_at is null
         and kind = 'person'

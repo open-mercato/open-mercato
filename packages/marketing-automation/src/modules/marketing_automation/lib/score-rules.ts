@@ -9,6 +9,7 @@ import { addScoreEntry, loadRuleScoreState } from './scores.js'
 import { buildSubjectDocument } from './subject-document.js'
 import type { SubjectScope } from './subject-document.js'
 import type { ValueBoundaries } from './engine/rfm.js'
+import { CUSTOMER_ENTITIES } from './external/tables.js'
 
 /**
  * Score rules: points for who a customer IS.
@@ -206,7 +207,7 @@ export async function isScorableSubject(em: EntityManager, subjectEntityId: stri
               select 1 from marketing_subject_erasures e
                where e.subject_entity_id = c.id and e.tenant_id = c.tenant_id and e.organization_id = c.organization_id
             ) as erased
-       from customer_entities c
+       from ${CUSTOMER_ENTITIES} c
       where c.id = ? and c.tenant_id = ? and c.organization_id = ? and c.deleted_at is null`,
     [subjectEntityId, scope.tenantId, scope.organizationId],
   )

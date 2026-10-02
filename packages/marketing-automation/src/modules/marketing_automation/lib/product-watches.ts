@@ -2,6 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingProductWatch } from '../data/entities.js'
 import { decidePriceDrop, nextReferencePrice } from './engine/price-watch.js'
 import type { PriceDropDecision } from './engine/price-watch.js'
+import {
+  CATALOG_PRODUCTS,
+  CATALOG_PRODUCT_VARIANTS,
+  CATALOG_PRODUCT_VARIANT_PRICES,
+} from './external/tables.js'
 
 /**
  * Price watches: reading the current price, scanning the watches, and what fires.
@@ -25,9 +30,9 @@ export type WatchScope = { tenantId: string; organizationId: string }
  */
 const CURRENT_PRICE_SQL = `
   select coalesce(v.sku, pr.sku) as sku, min(p.unit_price_gross)::text as amount
-    from catalog_product_variant_prices p
-    left join catalog_product_variants v on v.id = p.variant_id
-    left join catalog_products pr on pr.id = p.product_id
+    from ${CATALOG_PRODUCT_VARIANT_PRICES} p
+    left join ${CATALOG_PRODUCT_VARIANTS} v on v.id = p.variant_id
+    left join ${CATALOG_PRODUCTS} pr on pr.id = p.product_id
    where p.tenant_id = ? and p.organization_id = ?
      and p.currency_code = ?
      and p.kind = 'regular'

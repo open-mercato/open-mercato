@@ -3,6 +3,7 @@ import {
   PLACED_ORDER_FILTER_SQL_ALIASED,
   PLACED_ORDER_LINE_FILTER_SQL_ALIASED,
 } from '../order-filter'
+import * as EXTERNAL_TABLES from '../external/tables'
 
 /**
  * `sales_order_lines` carries `deleted_at` and not one of this module's ten line queries filtered it.
@@ -12,6 +13,24 @@ import {
  * seeing it excluded from their recommendations as something they already owned.
  */
 const normalise = (sql: string): string => sql.replace(/\s+/g, ' ').trim()
+
+/**
+ * Foreign table names are declared in `lib/external/tables.ts`, so the query text now interpolates a constant.
+ *
+ * This detector matched the literal `sales_order_lines l` and reported ZERO queries the moment they became
+ * `${SALES_ORDER_LINES} l` — the exact rot this module's guidance warns about, a guard that has stopped
+ * matching certifying a clean module for ever. It was caught only by the positive control below, which is why
+ * that control exists.
+ *
+ * Resolving the constants rather than matching both spellings: the test asserts something about the SQL that
+ * REACHES Postgres, and that is this string with the names substituted in. Matching the indirection would make
+ * the next layer of indirection break it again.
+ */
+const resolveTableNames = (sql: string): string =>
+  sql.replace(/\$\{([A-Z_]+)\}/g, (whole, name: string) => {
+    const declared = (EXTERNAL_TABLES as Record<string, string | undefined>)[name]
+    return declared ?? whole
+  })
 
 describe('the order filters', () => {
   it('say the same thing about an order, aliased or not', () => {
@@ -65,12 +84,19 @@ describe('every consumer', () => {
       return statSync(path).isDirectory() ? walk(path) : (entry.endsWith('.ts') ? [path] : [])
     })
     return walk(root)
+      /**
+       * The two files that DEFINE the fragments, rather than querying with them.
+       *
+       * `order-filter.ts` is where the predicates live and `external/joins.ts` is where the join shapes do, so
+       * each legitimately holds a join without the predicate beside it — that is what being the definition
+       * means. Every other file is a caller and must carry both.
+       */
       .filter((path) => !path.endsWith('order-filter.ts'))
       .flatMap((path) => {
         const source = readFileSync(path, 'utf8')
         // Every SQL in this module is a backtick template; one entry per template.
         return [...source.matchAll(/`[^`]*`/g)]
-          .map((match) => ({ path: path.slice(path.indexOf('/lib/')), sql: match[0] }))
+          .map((match) => ({ path: path.slice(path.indexOf('/lib/')), sql: resolveTableNames(match[0]) }))
       })
   })()
 
