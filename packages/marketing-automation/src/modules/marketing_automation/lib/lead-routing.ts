@@ -103,6 +103,15 @@ export async function decideAssignment(
  * Display names are read through the DECRYPTING finder: they are encrypted at rest, and a digest listing
  * ciphertext would be worse than no digest.
  */
+/**
+ * How many new leads one rep's digest lists.
+ *
+ * A ceiling per rep rather than one shared across the pool: shared, the busiest rep took all of it. The
+ * number is a readability limit as much as a query one — a notification naming more people than this is
+ * not something anybody reads to the end.
+ */
+export const MAX_DIGEST_LEADS_PER_REP = 50
+
 export async function buildRepDigests(
   em: EntityManager,
   scope: RoutingScope,
@@ -120,19 +129,31 @@ export async function buildRepDigests(
    * arrived in the window and belong to the rep now. Stated plainly in the digest copy rather than dressed up
    * as an assignment log.
    */
-  const rows = (await findWithDecryption(
+  /**
+   * One query per rep, each with its own ceiling.
+   *
+   * It used to be a single query over the whole pool with `limit: 200`, ordered by creation — so the
+   * busiest rep's newest two hundred leads filled the budget and every other rep got an empty digest.
+   * An empty digest is then dropped as not worth sending, so the quiet reps were told nothing at all and
+   * nothing anywhere said why.
+   *
+   * A pool is the handful of people named on the marketing settings screen, so the extra queries cost
+   * little, and each rep's share of their own digest is no longer something a colleague can take.
+   */
+  const perRep = await Promise.all(pool.map(async (ownerUserId) => (await findWithDecryption(
     em,
     CustomerEntity,
     {
       ...scope,
       kind: 'person',
       deletedAt: null,
-      ownerUserId: { $in: pool },
+      ownerUserId,
       createdAt: { $gte: since },
     },
-    { orderBy: { createdAt: 'DESC' }, limit: 200 },
+    { orderBy: { createdAt: 'DESC' }, limit: MAX_DIGEST_LEADS_PER_REP },
     scope,
-  )) as Array<{ id: string; displayName?: string | null; ownerUserId?: string | null }>
+  )) as Array<{ id: string; displayName?: string | null; ownerUserId?: string | null }>))
+  const rows = perRep.flat()
 
   const byOwner = new Map<string, Array<{ id: string; displayName: string }>>()
   for (const row of rows) {

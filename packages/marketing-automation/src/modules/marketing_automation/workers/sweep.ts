@@ -21,7 +21,7 @@ import { loadValueBoundaries, refreshValueBoundariesIfStale } from '../lib/value
 import { loadValueHorizonYears } from '../lib/value-horizon.js'
 import type { ValueBoundaries } from '../lib/engine/rfm.js'
 import { scanPriceWatches } from '../lib/product-watches.js'
-import { sendWeeklyLeadDigests, DIGEST_JOB_KIND } from '../lib/lead-digest.js'
+import { leadDigestIsDue, sendWeeklyLeadDigests, DIGEST_JOB_KIND } from '../lib/lead-digest.js'
 import { announceBreaker, applyDeliverabilityGuardrails } from '../lib/deliverability.js'
 import { announceAppliedWinner, applyEarnedWinners } from '../lib/auto-winner.js'
 import { emitMarketingAutomationEvent } from '../events.js'
@@ -519,12 +519,21 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
    * week" answer, rather than a second flag that can disagree with it.
    */
   try {
-    const due = await sendWeeklyLeadDigests(deps.em, deps.container, scope, deps.now)
-    if (due.dueNow) {
-      await recordJobRun(deps.em, scope, { kind: DIGEST_JOB_KIND }, async () => ({
-        counters: { sent: due.sent, skipped: due.skipped },
-      }))
-      if (due.sent > 0) logger.info('marketing lead digests sent', { sent: due.sent })
+    /**
+     * The job row is written BEFORE the sending, which is what makes it a claim.
+     *
+     * It used to be written after: `sendWeeklyLeadDigests` decided it was due, sent every rep their week,
+     * and only then was the row that answers "already sent this week" created. Two overlapping ticks both
+     * read "not yet" and both sent, and the longer the send loop the wider that window. `recordJobRun`
+     * creates its row as `running` first, and the due check counts running rows, so the second tick finds
+     * the first one's claim.
+     */
+    if (await leadDigestIsDue(deps.em, scope, deps.now)) {
+      const due = await recordJobRun(deps.em, scope, { kind: DIGEST_JOB_KIND }, async () => {
+        const outcome = await sendWeeklyLeadDigests(deps.em, deps.container, scope, deps.now)
+        return { counters: { sent: outcome.sent, skipped: outcome.skipped }, outcome }
+      })
+      if (due.outcome.sent > 0) logger.info('marketing lead digests sent', { sent: due.outcome.sent })
     }
   } catch (error) {
     logger.warn('[internal] marketing lead digest failed', {

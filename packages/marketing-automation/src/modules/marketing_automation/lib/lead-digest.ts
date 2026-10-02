@@ -40,14 +40,36 @@ type NotificationServiceLike = {
   ): Promise<unknown>
 }
 
-export type DigestOutcome = { sent: number; skipped: number; dueNow: boolean }
+export type DigestOutcome = { sent: number; skipped: number }
 
 /**
- * Sends each rep their week, at most once per week.
+ * Whether a digest is owed this week.
  *
- * "Have I already sent one" is answered from the job log rather than from a flag of its own: the pass is
- * already recorded there for the operator, and a second source of truth for the same fact is a second thing to
- * get wrong.
+ * Answered from the job log rather than from a flag of its own: the pass is already recorded there for the
+ * operator, and a second source of truth for the same fact is a second thing to get wrong. Rows in
+ * `running` count, which is what makes the log a CLAIM rather than a receipt — see the caller.
+ */
+export async function leadDigestIsDue(
+  em: EntityManager,
+  scope: DigestScope,
+  now: Date,
+): Promise<boolean> {
+  const since = new Date(now.getTime() - DIGEST_INTERVAL_DAYS * 86_400_000)
+  const recent = await em.find(
+    MarketingJobRun,
+    { ...scope, kind: DIGEST_JOB_KIND, startedAt: { $gte: since } },
+    { limit: 1 },
+  )
+  return recent.length === 0
+}
+
+/**
+ * Sends each rep their week.
+ *
+ * Does NOT decide whether it is due. It used to, and the caller then wrote the job row afterwards — so the
+ * row that answers "already sent this week" appeared only once the sending had finished, and two overlapping
+ * ticks both read "not yet" and both sent. The caller claims the week by creating the row first and runs this
+ * inside that claim; `leadDigestIsDue` is the question it asks before claiming.
  */
 export async function sendWeeklyLeadDigests(
   em: EntityManager,
@@ -57,22 +79,15 @@ export async function sendWeeklyLeadDigests(
 ): Promise<DigestOutcome> {
   const since = new Date(now.getTime() - DIGEST_INTERVAL_DAYS * 86_400_000)
 
-  const recent = await em.find(
-    MarketingJobRun,
-    { ...scope, kind: DIGEST_JOB_KIND, startedAt: { $gte: since } },
-    { limit: 1 },
-  )
-  if (recent.length > 0) return { sent: 0, skipped: 0, dueNow: false }
-
   const pool = await loadRoutingPool(container, scope)
-  if (pool.length === 0) return { sent: 0, skipped: 0, dueNow: true }
+  if (pool.length === 0) return { sent: 0, skipped: 0 }
 
   let notifications: NotificationServiceLike
   try {
     notifications = container.resolve<NotificationServiceLike>('notificationService')
   } catch {
     // A trimmed installation without the notifications module routes leads fine; it just cannot tell anybody.
-    return { sent: 0, skipped: pool.length, dueNow: true }
+    return { sent: 0, skipped: pool.length }
   }
 
   const digests = await buildRepDigests(em, scope, pool, since)
@@ -108,5 +123,5 @@ export async function sendWeeklyLeadDigests(
     sent += 1
   }
 
-  return { sent, skipped, dueNow: true }
+  return { sent, skipped }
 }
