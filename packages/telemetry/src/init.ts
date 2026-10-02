@@ -15,6 +15,7 @@ import { registerTelemetryLogger } from './facade/logger-bridge'
 import { captureTraceContext, continueTrace } from './facade/propagation'
 import { withSpan } from './facade/tracer'
 import { recordHttpDuration } from './facade/http'
+import { histogram } from './facade/meter'
 import { reportError } from './facade/report-error'
 
 let initialized = false
@@ -130,6 +131,7 @@ function createRuntime(provider: TelemetryProvider): TelemetryRuntime {
     continueTrace: (carrier, name, fn, options) =>
       continueTrace(carrier, name, () => fn(), options),
     withSpan: (name, fn, options) => withSpan(name, fn, options),
+    recordHistogram: histogram,
     recordHttpDuration,
     reportError,
     shutdown: shutdownTelemetry,
