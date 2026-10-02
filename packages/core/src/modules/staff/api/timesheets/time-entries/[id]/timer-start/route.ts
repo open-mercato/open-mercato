@@ -3,26 +3,28 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { LockMode } from '@mikro-orm/core'
+import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
-import { assertTimeEntryUnlocked } from '../../../../../commands/timesheets-entries'
-import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
+import {
+  staffTimeEntryStartTimerExistingSchema,
+  type StaffTimeEntryStartTimerExistingInput,
+} from '../../../../../data/validators'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
-import { emitStaffEvent } from '../../../../../events'
-import { invalidateStaffTimeEntryCache } from '../../../../../lib/timesheets/timeEntryCacheInvalidation'
 import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
+
+type StartTimerExistingCommandResult = { timeEntryId: string }
 
 function extractEntryIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
@@ -39,76 +41,68 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
 }
 
+async function buildContext(
+  req: Request
+): Promise<{ ctx: CommandRuntimeContext; translate: (key: string, fallback?: string) => string }> {
+  const container = await createRequestContainer()
+  const auth = await getAuthFromRequest(req)
+  const { translate } = await resolveTranslations()
+  if (!auth) throw new CrudHttpError(401, { error: translate('staff.errors.unauthorized', 'Unauthorized') })
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const ctx: CommandRuntimeContext = {
+    container,
+    auth,
+    organizationScope: scope,
+    selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+    organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+    request: req,
+  }
+  return { ctx, translate }
+}
+
 export async function POST(req: Request) {
   try {
-    const container = await createRequestContainer()
-    const auth = await getAuthFromRequest(req)
-    const { translate } = await resolveTranslations()
-    if (!auth) throw new CrudHttpError(401, { error: translate('staff.errors.unauthorized', 'Unauthorized') })
-
-    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const tenantId = scope?.tenantId ?? auth.tenantId ?? null
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
-    if (!tenantId || !organizationId) {
-      throw new CrudHttpError(400, { error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.') })
-    }
-
-    const interceptors = await runTimesheetInterceptors({
-      request: req,
-      method: 'POST',
-      scope: { container, userId: auth.sub, tenantId, organizationId },
-    })
-    if (!interceptors.ok) return interceptors.response
-    const { session } = interceptors
-
-    const em = (container.resolve('em') as EntityManager).fork()
-    const scopeCtx = { tenantId, organizationId }
-
+    const { ctx, translate } = await buildContext(req)
     const entryId = extractEntryIdFromUrl(req)
     if (!entryId) {
       throw new CrudHttpError(400, { error: translate('staff.timesheets.errors.missingEntryId', 'Missing entry ID.') })
     }
 
-    const entry = await findOneWithDecryption(
-      em,
-      StaffTimeEntry,
-      { id: entryId, tenantId, organizationId, deletedAt: null },
-      {},
-      scopeCtx,
+    // The entry id comes from the URL, never the body — merge it into the
+    // command input so scope resolution and validation see a complete payload.
+    const missingScopeMessage = { key: 'staff.errors.missingScope', fallback: 'Missing tenant or organization scope.' }
+    const input = parseScopedCommandInput(
+      staffTimeEntryStartTimerExistingSchema,
+      { id: entryId },
+      ctx,
+      translate,
+      { messages: { tenantRequired: missingScopeMessage, organizationRequired: missingScopeMessage } },
     )
-    if (!entry) {
-      throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
-    }
 
-    const staffMember = await getStaffMemberByUserId(em, auth.sub, tenantId, organizationId)
-    if (!staffMember || entry.staffMemberId !== staffMember.id) {
-      throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.') })
-    }
-
-    // Running a timer on a frozen entry is only ever the first half of changing
-    // its duration, so it is refused at the same gate the entries command uses.
-    assertTimeEntryUnlocked(entry, translate)
-
-    if (entry.startedAt) {
-      return NextResponse.json(
-        { error: translate('staff.timesheets.errors.timerAlreadyStarted', 'Timer is already started for this entry.') },
-        { status: 409 },
-      )
-    }
-
-    const guardResult = await runStaffMutationGuards(
-      container,
-      {
-        tenantId,
-        organizationId,
-        userId: auth.sub ?? '',
-        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
-        resourceId: entry.id,
-        operation: 'update',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: {
+        container: ctx.container,
+        userId: ctx.auth?.sub,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
       },
-    )
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const guardContext = {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      userId: ctx.auth?.sub ?? '',
+      resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
+      resourceId: input.id,
+      operation: 'update' as const,
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    }
+    const guardResult = await runStaffMutationGuards(ctx.container, guardContext)
     if (!guardResult.ok) {
       return NextResponse.json(
         guardResult.errorBody ?? { error: 'Operation blocked by guard' },
@@ -116,111 +110,45 @@ export async function POST(req: Request) {
       )
     }
 
-    // Start the timer inside a single transaction with a PESSIMISTIC_WRITE lock
-    // on the time entry row, re-checking startedAt under the lock so two
-    // concurrent timer-start calls on the same entry cannot both create an
-    // initial work segment (issue #2416).
-    const now = await em.transactional(async (trx) => {
-      const lockedEntry = await findOneWithDecryption(
-        trx,
-        StaffTimeEntry,
-        { id: entryId, tenantId, organizationId, deletedAt: null },
-        { lockMode: LockMode.PESSIMISTIC_WRITE },
-        scopeCtx,
-      )
-      if (!lockedEntry) {
-        throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
-      }
-      // Re-checked under the row lock: a report close committed between the
-      // pre-flight read and this transaction would otherwise slip through.
-      assertTimeEntryUnlocked(lockedEntry, translate)
-      if (lockedEntry.startedAt) {
-        throw new CrudHttpError(409, {
-          error: translate('staff.timesheets.errors.timerAlreadyStarted', 'Timer is already started for this entry.'),
-        })
-      }
-
-      // Single-active-timer invariant (issue #2855): reject the start when the
-      // staff member already has another running entry (started_at set,
-      // ended_at null). Without this guard a second surface (dashboard widget,
-      // another tab) could create and start a parallel timer, leaving two
-      // concurrent running entries and the "stopped timer comes back running"
-      // symptom reported in #2456.
-      const otherRunningEntry = await findOneWithDecryption(
-        trx,
-        StaffTimeEntry,
-        {
-          tenantId,
-          organizationId,
-          staffMemberId: lockedEntry.staffMemberId,
-          id: { $ne: lockedEntry.id },
-          startedAt: { $ne: null },
-          endedAt: null,
-          deletedAt: null,
-        },
-        {},
-        scopeCtx,
-      )
-      if (otherRunningEntry) {
-        throw new CrudHttpError(409, {
-          error: translate(
-            'staff.timesheets.errors.timerAlreadyRunning',
-            'Another timer is already running. Stop it before starting a new one.',
-          ),
-        })
-      }
-
-      const startedAt = new Date()
-      lockedEntry.startedAt = startedAt
-      lockedEntry.source = 'timer'
-
-      const segmentData = {
-        tenantId,
-        organizationId,
-        timeEntryId: lockedEntry.id,
-        startedAt,
-        segmentType: 'work' as const,
-      }
-      trx.create(StaffTimeEntrySegment, segmentData as never)
-
-      await trx.flush()
-      return startedAt
-    })
-
-    await invalidateStaffTimeEntryCache(
-      container,
-      { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
-      tenantId,
-      'timer_started',
+    const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
+    const { result, logEntry } = await commandBus.execute<
+      StaffTimeEntryStartTimerExistingInput,
+      StartTimerExistingCommandResult
+    >(
+      'staff.timesheets.time_entries.start_timer_existing',
+      { input, ctx },
     )
 
-    void emitStaffEvent('staff.timesheets.time_entry.timer_started', {
-      id: entry.id,
-      staffMemberId: entry.staffMemberId,
-      tenantId: entry.tenantId,
-      organizationId: entry.organizationId,
-      startedAt: now.toISOString(),
-    }, { persistent: true }).catch((err) => {
-      logger.error('staff.timesheets emit timer_started failed', { err })
-    })
-
     if (guardResult.afterSuccessCallbacks.length) {
-      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
-        tenantId,
-        organizationId,
-        userId: auth.sub ?? '',
-        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
-        resourceId: entry.id,
-        operation: 'update',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
-      })
+      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, guardContext)
     }
 
-    return session.respond(200, { ok: true })
+    const response = await session.respond(200, { ok: true })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
+          resourceId: logEntry.resourceId ?? result?.timeEntryId ?? null,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        }),
+      )
+    }
+    return response
   } catch (err) {
-    if (err instanceof CrudHttpError) {
+    if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    // Routing this write through the command bus put a command interceptor
+    // between the request and the handler, so its rejection carries the status
+    // the interceptor chose and must not be flattened into the generic 400.
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     const { translate } = await resolveTranslations()
     logger.error('staff.timesheets.time-entries.timer-start failed', { err })
