@@ -35,6 +35,7 @@ import { SCORE_RULES_JOB_KIND, scoreRulesInPlay } from '../lib/score-rules.js'
 import { buildDispatchDeps, logger, readScope } from './shared.js'
 import type { HandlerContext, JobScope } from './shared.js'
 import { reportError } from '@open-mercato/telemetry'
+import { readCapabilities } from '../lib/capabilities.js'
 
 // See the note in dispatch.ts: this string must stay a literal.
 export const metadata: WorkerMeta = {
@@ -477,6 +478,43 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
       )
 
       const rowSource = findRowSweepSource(trigger.sweepSource)
+
+      /**
+       * A source whose module is not installed is SKIPPED, visibly, rather than attempted.
+       *
+       * `fulfilledOrders` and `expiringQuotes` reach `sales` through its ORM entities, so without that module
+       * the table behind the entity does not exist and `collect` throws — once per tick, for ever, as a
+       * `sweep_failed` with a Postgres message that says nothing about modules. Skipping it records a job run
+       * with zero started instead, which is the honest answer and the one the job log can explain.
+       *
+       * The campaign stays enabled on purpose: install the module and the next tick picks it up, with no
+       * edit needed to a campaign that was authored correctly.
+       */
+      if (rowSource?.requiresModule) {
+        const capabilities = await readCapabilities(deps.em)
+        if (!capabilities[rowSource.requiresModule]) {
+          logger.info('marketing sweep skipped: the source needs a module this installation does not have', {
+            campaignId: campaign.id,
+            source: rowSource.id,
+            needs: rowSource.requiresModule,
+          })
+          await recordJobRun(
+            deps.em,
+            scope,
+            { kind: 'sweep', campaignId: campaign.id },
+            /**
+             * A counter, not a free-text note: `counters` is `Record<string, number>` and is the only part of a
+             * job run that is persisted, so a note would have been dropped on the way to the table — a
+             * write-only field explaining a skip nobody could then see.
+             *
+             * `started: 0` alone would read as "nothing to do", which is the ambiguity this log exists to
+             * remove, so the skip gets a key of its own.
+             */
+            async () => ({ counters: { started: 0, skippedModuleMissing: 1 } }),
+          )
+          continue
+        }
+      }
       /**
        * Logged as a job run, per campaign.
        *

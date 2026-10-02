@@ -267,6 +267,7 @@
   "marketing_automation.jobs.counter.resumed": "fortgesetzt",
   "marketing_automation.jobs.counter.sent": "gesendete Nachrichten",
   "marketing_automation.jobs.counter.skipped": "übersprungen",
+  "marketing_automation.jobs.counter.skippedModuleMissing": "übersprungen — benötigt ein nicht installiertes Modul",
   "marketing_automation.jobs.counter.started": "aufgenommene Kunden",
   "marketing_automation.jobs.emptyBody": "Geplante Kampagnen und wartende Journeys werden im Hintergrund verarbeitet. Jeder Durchlauf erscheint hier mit seinem Ergebnis.",
   "marketing_automation.jobs.emptyTitle": "Noch keine Job-Durchläufe erfasst",

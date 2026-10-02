@@ -267,6 +267,7 @@
   "marketing_automation.jobs.counter.resumed": "resumed",
   "marketing_automation.jobs.counter.sent": "messages sent",
   "marketing_automation.jobs.counter.skipped": "skipped",
+  "marketing_automation.jobs.counter.skippedModuleMissing": "skipped — needs a module that is not installed",
   "marketing_automation.jobs.counter.started": "people enrolled",
   "marketing_automation.jobs.emptyBody": "Scheduled campaigns and waiting journeys are processed in the background. Each pass appears here with what it did.",
   "marketing_automation.jobs.emptyTitle": "No job runs recorded yet",

@@ -267,6 +267,7 @@
   "marketing_automation.jobs.counter.resumed": "wznowione",
   "marketing_automation.jobs.counter.sent": "wysłane wiadomości",
   "marketing_automation.jobs.counter.skipped": "pominięci",
+  "marketing_automation.jobs.counter.skippedModuleMissing": "pominięte — wymaga modułu, którego nie ma",
   "marketing_automation.jobs.counter.started": "zapisani klienci",
   "marketing_automation.jobs.emptyBody": "Kampanie cykliczne i oczekujące ścieżki są obsługiwane w tle. Każdy przebieg pojawi się tutaj z tym, co zrobił.",
   "marketing_automation.jobs.emptyTitle": "Nie zapisano jeszcze żadnych przebiegów",
