@@ -22,28 +22,41 @@ export type DailyPoint = {
   clicked: number
 }
 
+/**
+ * Every day boundary is UTC, said explicitly.
+ *
+ * `date_trunc('day', ts)` on a `timestamptz` buckets in the SESSION's time zone, and so does casting one to
+ * `date` — so the same campaign produced a different series on a server configured for Europe/Warsaw than on
+ * one left at UTC, and the day spine and the buckets could disagree with each other on the same connection.
+ * A message sent at 23:30 UTC counted as the next day in Warsaw, which is how a chart's first bar comes out
+ * empty and nobody can say why.
+ *
+ * UTC rather than the tenant's zone deliberately: this series is a shape over time for one campaign, and the
+ * module has no single tenant-level zone to use — the one it does know is the RECIPIENT's, which differs per
+ * row and would make the buckets incomparable.
+ */
 const DAILY_SQL = `
   with days as (
     select generate_series(
-             (?::timestamptz)::date,
-             (?::timestamptz)::date,
+             ((?::timestamptz) at time zone 'UTC')::date,
+             ((?::timestamptz) at time zone 'UTC')::date,
              interval '1 day'
            )::date as day
   ),
   sends as (
-    select date_trunc('day', sent_at)::date as day, count(*)::int as total
+    select (date_trunc('day', sent_at at time zone 'UTC'))::date as day, count(*)::int as total
       from marketing_message_sends
      where campaign_id = ? and tenant_id = ? and organization_id = ? and status = 'sent'
      group by 1
   ),
   opens as (
-    select date_trunc('day', occurred_at)::date as day, count(distinct run_id)::int as total
+    select (date_trunc('day', occurred_at at time zone 'UTC'))::date as day, count(distinct run_id)::int as total
       from marketing_message_send_events
      where campaign_id = ? and tenant_id = ? and organization_id = ? and type = 'opened'
      group by 1
   ),
   clicks as (
-    select date_trunc('day', occurred_at)::date as day, count(distinct run_id)::int as total
+    select (date_trunc('day', occurred_at at time zone 'UTC'))::date as day, count(distinct run_id)::int as total
       from marketing_message_send_events
      where campaign_id = ? and tenant_id = ? and organization_id = ? and type = 'clicked'
      group by 1

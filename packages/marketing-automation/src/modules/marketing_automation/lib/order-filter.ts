@@ -37,3 +37,19 @@ export const PLACED_ORDER_FILTER_SQL_ALIASED = `
     and o.placed_at is not null
     and (o.status is null or o.status not in ('canceled', 'cancelled'))
 `
+
+/**
+ * The same rule, plus the LINE's own soft delete, for a query that joins `sales_order_lines l`.
+ *
+ * `sales_order_lines` carries `deleted_at` and not one of this module's ten line queries filtered it — so a
+ * line removed from an order went on counting as a purchase. A customer who had the one relevant product
+ * taken off their order stayed in "bought SKU X" audiences, kept getting reorder reminders for it, and kept
+ * seeing it excluded from their recommendations as something they already owned.
+ *
+ * A second constant rather than folding the clause into the order filter: that one is also used by queries
+ * joining orders ALONE (the funnel, the A/B revenue), where `l` does not exist and would be a syntax error.
+ */
+export const PLACED_ORDER_LINE_FILTER_SQL_ALIASED = `
+  l.deleted_at is null
+    and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+`

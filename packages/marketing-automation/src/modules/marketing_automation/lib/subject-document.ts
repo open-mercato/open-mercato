@@ -18,8 +18,8 @@ import type { TierThreshold } from './engine/tiers.js'
  * Re-exported from here because every existing caller imports it from this module, and the definition of "an
  * order that counts" is a contract the narrowing depends on matching exactly.
  */
-export { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED } from './order-filter.js'
-import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED } from './order-filter.js'
+export { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
+import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
 
 export type { SubjectScope } from './scope.js'
 
@@ -176,7 +176,7 @@ export async function loadPurchasedCategories(
        join catalog_product_category_assignments a on a.product_id = l.product_id
        join catalog_product_categories c on c.id = a.category_id and c.deleted_at is null
       where o.customer_entity_id = ?
-        and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+        and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
         and c.slug is not null
       -- Deterministic for the same reason the sku list is: a capped list that changes between runs makes a
       -- campaign's membership change with it.
@@ -204,7 +204,7 @@ export async function loadPurchasedSkus(
          from sales_order_lines l
          join sales_orders o on o.id = l.order_id
         where o.customer_entity_id = ?
-          and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+          and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
         group by 1
        ) ranked
       where sku is not null

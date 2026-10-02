@@ -7,7 +7,7 @@ import {
   type BestSellerCandidate,
   type Recommendation,
 } from './engine/recommendations.js'
-import { PLACED_ORDER_FILTER_SQL_ALIASED } from './subject-document.js'
+import { PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './subject-document.js'
 import type { SubjectScope } from './subject-document.js'
 
 /**
@@ -123,13 +123,13 @@ export async function loadAffinityCandidates(
           from sales_order_lines l
           join sales_orders o on o.id = l.order_id
          where o.customer_entity_id = ?
-           and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+           and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
       ),
       peer_orders as (
         select distinct o.id as order_id
           from sales_order_lines l
           join sales_orders o on o.id = l.order_id
-         where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+         where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
            and ${LINE_SKU_SQL} in (select sku from mine where sku is not null)
       )
       select ${LINE_SKU_SQL} as sku,
@@ -139,7 +139,7 @@ export async function loadAffinityCandidates(
         from sales_order_lines l
         join sales_orders o on o.id = l.order_id
        where o.id in (select order_id from peer_orders)
-         and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+         and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
          and ${LINE_SKU_SQL} is not null
          and ${LINE_SKU_SQL} not in (select sku from mine where sku is not null)
        group by 1
@@ -170,7 +170,7 @@ export async function loadBestSellers(
             count(distinct o.id)::int as orders
        from sales_order_lines l
        join sales_orders o on o.id = l.order_id
-      where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+      where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
         and ${LINE_SKU_SQL} is not null
       group by 1
       order by orders desc
@@ -193,7 +193,7 @@ async function loadOwnedSkus(
        from sales_order_lines l
        join sales_orders o on o.id = l.order_id
       where o.customer_entity_id = ?
-        and ${PLACED_ORDER_FILTER_SQL_ALIASED}`,
+        and ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}`,
     [subjectEntityId, scope.tenantId, scope.organizationId],
   )
   return rows.flatMap((row) => (row.sku ? [row.sku] : []))

@@ -81,12 +81,23 @@ describe('loadSplitResults', () => {
      */
     expect(sql).toContain('lane_orders as (')
     expect(sql).toContain('from lane_orders')
+    // Through the shared filter: a hand-rolled subset is how the scope went missing in the first place.
+    expect(sql).toContain('o.tenant_id = ?')
+    expect(sql).toContain('o.organization_id = ?')
     expect(params).toEqual([
       // lane_runs
       'camp-1', 't1', 'o1', 'sp1', 'a',
       // lane_orders: the conversion window first, then the scope and the lane's steps. The same window the
       // funnel and the revenue attribution use, so the three cannot disagree.
       7, 't1', 'o1', 'a1', 'a2',
+      /**
+       * Then the ORDER's own scope, which this query used to leave out entirely.
+       *
+       * The events and the runs were scoped and the orders were joined on the customer id alone — so an
+       * order belonging to another organization, for a customer entity visible in both, was summed into this
+       * lane's revenue and could decide an A/B winner.
+       */
+      't1', 'o1',
       // The four counting subqueries.
       't1', 'o1', 'a1', 'a2',
       't1', 'o1', 'a1', 'a2',

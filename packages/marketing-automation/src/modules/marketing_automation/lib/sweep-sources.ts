@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { sweepClaimKey } from './occurrence.js'
 import { cycleNumber, MINIMUM_PURCHASES_FOR_CYCLE, reorderCycleFor } from './engine/reorder.js'
-import { PLACED_ORDER_FILTER_SQL_ALIASED } from './order-filter.js'
+import { PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from './order-filter.js'
 import type { RunScope } from './runs.js'
 
 /**
@@ -334,7 +334,7 @@ const reorderDue: RowSweepSource = {
               array_agg(o.placed_at order by o.placed_at desc) as purchased_at
          from sales_order_lines l
          join sales_orders o on o.id = l.order_id
-        where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+        where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
           and o.customer_entity_id is not null
           and coalesce(
                 l.catalog_snapshot -> 'product' ->> 'sku',

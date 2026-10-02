@@ -1,3 +1,4 @@
+import { PLACED_ORDER_FILTER_SQL_ALIASED } from '../order-filter.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { LaneDescriptor } from '../engine/split.js'
 import type { SubjectScope } from '../subject-document.js'
@@ -103,9 +104,12 @@ function laneSql(stepPlaceholders: string): string {
          and e.run_id in (select id from lane_runs)
          and e.step_id in (${stepPlaceholders})
          and r.subject_entity_id is not null
-         and o.deleted_at is null
-         and o.placed_at is not null
-         and (o.status is null or o.status not in ('canceled', 'cancelled'))
+         -- The ORDER's own scope, which this query used to leave out: it scoped the events and the runs and
+         -- then joined orders on the customer id alone, so an order belonging to another organization, for a
+         -- customer entity visible in both, was summed into this lane's revenue and could decide an A/B
+         -- winner. Through the shared filter rather than a hand-rolled subset, which is how the scope went
+         -- missing in the first place.
+         and ${PLACED_ORDER_FILTER_SQL_ALIASED}
     )
     select (select count(*) from lane_runs)::int as runs,
            (select count(*)
@@ -259,7 +263,11 @@ export async function loadSplitResults(
       // `lane_orders`, which now binds BEFORE the select list because a CTE is written first. It used to be
       // three subqueries at the end, each repeating this; getting the order wrong here binds a step id where
       // a tenant belongs and the lane silently reports nothing.
+      //
+      // The trailing pair is the ORDER's own scope, from `PLACED_ORDER_FILTER_SQL_ALIASED` — the events and
+      // the runs were scoped and the orders were not.
       conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
+      scope.tenantId, scope.organizationId,
       // Then the four counting subqueries, each scope-then-steps.
       scope.tenantId, scope.organizationId, ...lane.stepIds,
       scope.tenantId, scope.organizationId, ...lane.stepIds,

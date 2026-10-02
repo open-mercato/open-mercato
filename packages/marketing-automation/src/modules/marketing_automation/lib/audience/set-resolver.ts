@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recencyBounds } from '../engine/narrowing.js'
 import type { ComparisonOp, Narrowing, NarrowingPredicate, OrderMetric } from '../engine/narrowing.js'
-import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED } from '../subject-document.js'
+import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from '../subject-document.js'
 import type { SubjectScope } from '../subject-document.js'
 
 /**
@@ -244,7 +244,7 @@ export function createSqlCandidateSource(
         `select distinct o.customer_entity_id
            from sales_order_lines l
            join sales_orders o on o.id = l.order_id
-          where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+          where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
             and o.customer_entity_id is not null
             and coalesce(
                   l.catalog_snapshot -> 'product' ->> 'sku',
@@ -269,7 +269,7 @@ export function createSqlCandidateSource(
            join sales_orders o on o.id = l.order_id
            join catalog_product_category_assignments a on a.product_id = l.product_id
            join catalog_product_categories c on c.id = a.category_id and c.deleted_at is null
-          where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+          where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
             and o.customer_entity_id is not null
             and c.slug = ?
                 limit ?`,
@@ -283,7 +283,7 @@ export function createSqlCandidateSource(
         `select distinct o.customer_entity_id
            from sales_orders o
            join sales_channels c on c.id = o.channel_id
-          where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+          where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
             and o.customer_entity_id is not null
             and c.code = ?
                 limit ?`,
