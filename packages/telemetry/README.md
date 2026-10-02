@@ -285,6 +285,28 @@ implementation, where you can decide what a dropped report means.
 `attributes`, so putting it in both `tags` and `extra`, as the snippet above does
 with `tags`, is your choice rather than an accident of the payload.
 
+### Built-in runtime metrics
+
+An active provider starts one process-wide 10-second sampler. Disabled/noop
+telemetry starts no interval or event-loop monitor. The sampler also invokes
+shared metric collectors, which lets the primary PostgreSQL pool report state
+without making `@open-mercato/shared` depend on this package.
+
+| Metric | Kind | Unit | Labels |
+| --- | --- | --- | --- |
+| `db.client.connection.count` | gauge | `{connection}` | `pool=primary`, `state=idle|used` |
+| `db.client.connection.pending_requests` | gauge | `{request}` | `pool=primary` |
+| `db.client.connection.max` | gauge | `{connection}` | `pool=primary` |
+| `db.client.connection.wait_time` | histogram | `s` | `pool=primary` |
+| `nodejs.eventloop.utilization` | gauge | `1` | none |
+| `nodejs.eventloop.delay.p50` / `p90` / `p99` | gauge | `s` | none |
+| `process.memory.usage` | gauge | `By` | none |
+| `v8js.memory.heap.used` | gauge | `By` | `v8js.heap.space.name` |
+
+Pool acquisition wait is recorded per `pool.connect` call, including failed
+promise and callback acquisitions. Connection-state values are sampled; sum
+`idle` and `used` for the current open-connection total.
+
 ### Long-lived jobs: root spans
 
 Trace context propagates from the request that triggered a job through the queue

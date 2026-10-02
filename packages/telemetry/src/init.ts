@@ -16,11 +16,14 @@ import { captureTraceContext, continueTrace } from './facade/propagation'
 import { withSpan } from './facade/tracer'
 import { recordHttpDuration } from './facade/http'
 import { reportError } from './facade/report-error'
+import { startRuntimeMetrics } from './runtime-metrics'
 
 let initialized = false
+let initializing: Promise<void> | undefined
 let activeProvider: TelemetryProvider | undefined
 let disposeLoggerExtension: (() => void) | undefined
 let disposeRuntime: (() => void) | undefined
+let disposeRuntimeMetrics: (() => void) | undefined
 
 const logger = createLogger('telemetry')
 const OTLP_DEPENDENCY_UNAVAILABLE = Symbol.for('open-mercato.telemetry.otlp-dependency-unavailable')
@@ -45,7 +48,17 @@ class OtlpDependencyUnavailableError extends Error {
  */
 export async function initTelemetry(): Promise<void> {
   if (initialized) return
+  if (initializing) return initializing
 
+  let pending: Promise<void>
+  pending = initializeTelemetry().finally(() => {
+    if (initializing === pending) initializing = undefined
+  })
+  initializing = pending
+  return pending
+}
+
+async function initializeTelemetry(): Promise<void> {
   // Drop any env snapshot memoized BEFORE the host loaded its `.env` (the CLI
   // binary imports this package before dotenv runs) so init resolves the backend
   // from the actual, fully-loaded environment.
@@ -74,6 +87,7 @@ export async function initTelemetry(): Promise<void> {
   activeProvider = provider
   disposeLoggerExtension = registerTelemetryLogger(provider)
   disposeRuntime = registerTelemetryRuntime(createRuntime(provider))
+  disposeRuntimeMetrics = startRuntimeMetrics()
   initialized = true
 
   logger.info('Telemetry initialized', {
@@ -110,11 +124,20 @@ async function loadOtlpProvider(backend: TelemetryBackendName): Promise<Telemetr
 
 /** Flush + tear down the active backend (shutdown hook / `after()`). */
 export async function shutdownTelemetry(): Promise<void> {
+  if (initializing) {
+    try {
+      await initializing
+    } catch (err) {
+      logger.warn('Telemetry initialization failed before shutdown', { err })
+    }
+  }
   const provider = activeProvider
   activeProvider = undefined
   initialized = false
   disposeLoggerExtension?.()
   disposeLoggerExtension = undefined
+  disposeRuntimeMetrics?.()
+  disposeRuntimeMetrics = undefined
   disposeRuntime?.()
   disposeRuntime = undefined
   clearActiveProvider()
@@ -130,6 +153,7 @@ function createRuntime(provider: TelemetryProvider): TelemetryRuntime {
     continueTrace: (carrier, name, fn, options) =>
       continueTrace(carrier, name, () => fn(), options),
     withSpan: (name, fn, options) => withSpan(name, fn, options),
+    recordMetric: (point) => provider.recordMetric(point),
     recordHttpDuration,
     reportError,
     shutdown: shutdownTelemetry,
@@ -139,9 +163,12 @@ function createRuntime(provider: TelemetryProvider): TelemetryRuntime {
 /** Test-only: allow re-init in jest. */
 export function resetTelemetryInit(): void {
   initialized = false
+  initializing = undefined
   activeProvider = undefined
   disposeLoggerExtension?.()
   disposeLoggerExtension = undefined
+  disposeRuntimeMetrics?.()
+  disposeRuntimeMetrics = undefined
   disposeRuntime?.()
   disposeRuntime = undefined
 }

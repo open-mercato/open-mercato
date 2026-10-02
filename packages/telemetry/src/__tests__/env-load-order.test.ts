@@ -3,7 +3,7 @@ import {
   getTelemetryRuntime,
   resetTelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
-import { initTelemetry, resetTelemetryInit } from '../init'
+import { initTelemetry, resetTelemetryInit, shutdownTelemetry } from '../init'
 import {
   getActiveProvider,
   registerProvider,
@@ -31,12 +31,18 @@ function provider(name = 'noop'): TelemetryProvider {
 
 describe('telemetry explicit opt-in boundary', () => {
   beforeEach(() => {
+    jest.useFakeTimers()
     delete process.env.TELEMETRY_BACKEND
     resetTelemetryEnvCache()
     resetTelemetryInit()
     resetActiveProvider()
     resetLoggerExtension()
     resetTelemetryRuntime()
+  })
+
+  afterEach(() => {
+    resetTelemetryInit()
+    jest.useRealTimers()
   })
 
   it('does not resolve a custom provider or register runtime hooks while off', async () => {
@@ -49,6 +55,7 @@ describe('telemetry explicit opt-in boundary', () => {
     expect(getActiveProvider().name).toBe('noop')
     expect(getLoggerExtension()).toBeUndefined()
     expect(getTelemetryRuntime()).toBeUndefined()
+    expect(jest.getTimerCount()).toBe(0)
   })
 
   it('can initialize after dotenv sets an enabled backend following an off call', async () => {
@@ -63,6 +70,7 @@ describe('telemetry explicit opt-in boundary', () => {
     expect(getActiveProvider()).toBe(customConsole)
     expect(getLoggerExtension()).toBeDefined()
     expect(getTelemetryRuntime()).toBeDefined()
+    expect(jest.getTimerCount()).toBe(1)
   })
 
   it('initializes an explicitly registered custom backend', async () => {
@@ -76,5 +84,22 @@ describe('telemetry explicit opt-in boundary', () => {
     expect(getActiveProvider()).toBe(customProvider)
     expect(getLoggerExtension()).toBeDefined()
     expect(getTelemetryRuntime()).toBeDefined()
+  })
+
+  it('shares concurrent initialization and releases the sampler on shutdown', async () => {
+    const customConsole = provider('console')
+    registerProvider(customConsole)
+    process.env.TELEMETRY_BACKEND = 'console'
+
+    await Promise.all([initTelemetry(), initTelemetry()])
+
+    expect(customConsole.start).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(1)
+
+    await shutdownTelemetry()
+
+    expect(customConsole.shutdown).toHaveBeenCalledTimes(1)
+    expect(getTelemetryRuntime()).toBeUndefined()
+    expect(jest.getTimerCount()).toBe(0)
   })
 })
