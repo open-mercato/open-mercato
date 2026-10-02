@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -311,6 +312,24 @@ async function replaceTriggers(
 
 const emptyDefinition = () => campaignDefinitionSchema.parse({ version: 1 })
 
+/**
+ * Who to record as the author of a revision.
+ *
+ * `ctx.auth.sub` whenever there is one: an HTTP caller's identity is the truth and nothing they send may
+ * override it. A SYSTEM actor has no `auth`, and the AI authoring tools run as one — so every campaign an
+ * agent saved was recorded with no author at all, and the version list could not say who had approved the
+ * change the approval card was shown for. A system actor may therefore name the person who authorised it,
+ * through `onBehalfOfUserId`, and only a system actor may: for anybody else the field is ignored outright
+ * rather than refused, because a caller who sends it is not making a request worth failing, just one worth
+ * disregarding.
+ */
+function revisionActorId(ctx: CommandRuntimeContext, rawInput: Record<string, unknown>): string | null {
+  if (typeof ctx.auth?.sub === 'string') return ctx.auth.sub
+  if (ctx.systemActor !== true) return null
+  const claimed = rawInput.onBehalfOfUserId
+  return typeof claimed === 'string' && claimed.length > 0 ? claimed : null
+}
+
 const createCampaignCommand: CommandHandler<{ name: string; description?: string | null }, { id: string }> = {
   id: 'marketing_automation.campaigns.create',
 
@@ -495,7 +514,7 @@ const applySplitWinnerCommand: CommandHandler<
         campaignId: campaign.id,
         name: campaign.name,
         definition: rewritten as unknown as Record<string, unknown>,
-        actorId: typeof ctx.auth?.sub === 'string' ? ctx.auth.sub : null,
+        actorId: revisionActorId(ctx, rawInput as Record<string, unknown>),
         note: `winner:${variantKey}`,
       },
       (error) => {
@@ -602,7 +621,7 @@ const saveCampaignGraphCommand: CommandHandler<
         campaignId: campaign.id,
         name: payload.name,
         definition: payload.definition as unknown as Record<string, unknown>,
-        actorId: typeof ctx.auth?.sub === 'string' ? ctx.auth.sub : null,
+        actorId: revisionActorId(ctx, rawInput as Record<string, unknown>),
         note: typeof rawInput.restoredFrom === 'number' ? `restored:${rawInput.restoredFrom}` : 'saved',
       },
       (error) => {

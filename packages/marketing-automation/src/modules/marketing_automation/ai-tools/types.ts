@@ -19,6 +19,22 @@ export interface MarketingToolContext {
   isSuperAdmin: boolean
 }
 
+/**
+ * The before-state `prepareMutation` diffs a proposal against, declared structurally like the rest of this
+ * file. Mirrors `AiToolLoadBeforeSingleRecord` in `@open-mercato/ai-assistant`, which this package
+ * deliberately does not import.
+ *
+ * A mutating tool without one ships `fieldDiff: []`, so the approval card shows the operator nothing about
+ * what is going to change — they approve a tool name.
+ */
+export interface MarketingAiToolBeforeRecord {
+  recordId: string
+  entityType: string
+  recordVersion: string | null
+  before: Record<string, unknown>
+  after?: Record<string, unknown>
+}
+
 export interface MarketingAiToolDefinition<TInput = unknown, TOutput = unknown> {
   name: string
   displayName?: string
@@ -28,6 +44,11 @@ export interface MarketingAiToolDefinition<TInput = unknown, TOutput = unknown> 
   tags?: string[]
   isMutation?: boolean
   isDestructive?: boolean | ((input: TInput) => boolean)
+  /** Null when the record is gone: the write will refuse on its own, and an empty before-state would show a deletion as a creation. */
+  loadBeforeRecord?: (
+    input: TInput,
+    context: MarketingToolContext,
+  ) => Promise<MarketingAiToolBeforeRecord | null>
   handler: (input: TInput, context: MarketingToolContext) => Promise<TOutput>
 }
 

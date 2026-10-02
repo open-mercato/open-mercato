@@ -188,6 +188,14 @@ const createCampaignTool: MarketingAiToolDefinition<z.infer<typeof createInput>>
     requiredFeatures: ['marketing_automation.campaigns.manage'],
     tags: ['marketing', 'authoring'],
     isMutation: true,
+    /**
+     * Deliberately no `loadBeforeRecord` and no author, unlike `save_campaign_graph`.
+     *
+     * There is no before-state to diff a creation against — the card shows the name and that the campaign
+     * arrives disabled, which is the whole of what this does. And `create` records no revision, so there is
+     * nowhere to put an author: carrying one would be a field nothing reads, which this module has shipped
+     * once already. The first revision is written by the save that follows, and that one names the person.
+     */
     async handler(input, context) {
       const scope = requireToolScope(context)
       const commandBus = context.container.resolve<CommandBus>('commandBus')
@@ -218,6 +226,48 @@ const saveCampaignGraphTool: MarketingAiToolDefinition<z.infer<typeof saveInput>
     requiredFeatures: ['marketing_automation.campaigns.manage'],
     tags: ['marketing', 'authoring'],
     isMutation: true,
+    /**
+     * What the approval card diffs the proposal against.
+     *
+     * Without it `prepareMutation` ships `fieldDiff: []`, so the one card standing between an agent and a
+     * live campaign showed the operator nothing about what was going to change — they were approving a tool
+     * name. An edit to a campaign that is already messaging customers is exactly the case the card exists
+     * for, and exactly the case it was blank for.
+     *
+     * Null when the campaign is gone: the save will refuse on its own, and inventing an empty before-state
+     * would present a deletion as a creation.
+     */
+    async loadBeforeRecord(input, context) {
+      const scope = requireToolScope(context)
+      const em = context.container.resolve<EntityManager>('em')
+      const campaign = await em.findOne(MarketingCampaign, {
+        id: input.campaignId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      })
+      if (!campaign) return null
+      const triggers = await em.find(MarketingCampaignTrigger, {
+        campaignId: campaign.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+      return {
+        recordId: campaign.id,
+        entityType: 'marketing_campaign',
+        recordVersion: campaign.updatedAt.toISOString(),
+        before: {
+          name: campaign.name,
+          triggers: triggers.map((trigger) => trigger.eventId ?? trigger.scheduleValue ?? trigger.kind),
+          definition: campaign.definition as Record<string, unknown>,
+        },
+        after: {
+          name: input.name,
+          triggers: input.triggers.map((trigger) => trigger.eventId ?? trigger.scheduleValue ?? trigger.kind),
+          definition: input.definition as unknown as Record<string, unknown>,
+        },
+      }
+    },
     async handler(input, context) {
       const scope = requireToolScope(context)
       const commandBus = context.container.resolve<CommandBus>('commandBus')
@@ -234,6 +284,15 @@ const saveCampaignGraphTool: MarketingAiToolDefinition<z.infer<typeof saveInput>
               // See `create` above: a system actor carries its scope in the input.
               tenantId: scope.tenantId,
               organizationId: scope.organizationId,
+              /**
+               * The person who approved this, recorded as the author of the revision.
+               *
+               * The command runs as a system actor — a campaign's writes are the module's, not the agent's —
+               * and a system actor has no `auth`, so every save from an agent was recorded with no author at
+               * all. The version list then could not say who had approved the change the card was shown for.
+               * Only a system actor may name somebody; an HTTP caller's own identity always wins.
+               */
+              onBehalfOfUserId: context.userId ?? null,
             },
             ctx: buildCampaignCommandContext(context.container, scope),
           },
