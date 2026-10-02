@@ -59,18 +59,47 @@ function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
 }
 
 /**
- * Custom dynamic import provider for MikroORM that properly handles Windows paths.
- * MikroORM's built-in handling has a bug where it converts file:// URLs back to
- * Windows paths when the extension isn't in require.extensions (which is always
- * true for .ts files in ESM mode).
+ * Convert a filesystem path into a specifier `import()` can resolve under plain
+ * Node ESM on every platform (#6238).
+ *
+ * Windows already needed `file:` URLs for drive-letter absolute paths. On POSIX,
+ * cwd-relative paths such as `node_modules/.../Migration.js` are treated as
+ * bare package names (`node_modules`), so migration reindex declarations were
+ * logged and skipped. Absolute paths become `file:` URLs on every platform.
+ * Already-URL / `node:` / bare package (and package-subpath) specifiers stay as-is.
+ */
+export function toImportableModuleSpecifier(id: string): string {
+  if (
+    id.startsWith('file:') ||
+    id.startsWith('data:') ||
+    id.startsWith('node:') ||
+    id.startsWith('http:') ||
+    id.startsWith('https:')
+  ) {
+    return id
+  }
+
+  const isWindowsAbsolute = /^[a-zA-Z]:[\\/]/.test(id)
+  const isFilesystemRelative =
+    id.startsWith('./') ||
+    id.startsWith('../') ||
+    id.startsWith('.\\') ||
+    id.startsWith('..\\') ||
+    /(^|[\\/])node_modules([\\/]|$)/.test(id)
+
+  if (path.isAbsolute(id) || isWindowsAbsolute || isFilesystemRelative) {
+    return pathToFileURL(path.resolve(id)).href
+  }
+
+  return id
+}
+
+/**
+ * Custom dynamic import provider for MikroORM and migration reindex loading.
+ * Always converts filesystem paths to `file:` URLs before `import()` (#6238).
  */
 async function dynamicImportProvider(id: string): Promise<any> {
-  // On Windows, convert absolute paths to file:// URLs
-  // Check if it's a Windows absolute path (e.g., C:\... or D:\...)
-  if (process.platform === 'win32' && /^[a-zA-Z]:[\\/]/.test(id)) {
-    id = pathToFileURL(id).href
-  }
-  return import(id)
+  return import(toImportableModuleSpecifier(id))
 }
 
 /**
