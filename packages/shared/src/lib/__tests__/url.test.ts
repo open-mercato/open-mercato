@@ -4,6 +4,7 @@ import {
   assertAllowedAppOrigin,
   getAppBaseUrl,
   getSecurityEmailBaseUrl,
+  isEquivalentLoopbackOrigin,
   resolveRequestOrigin,
   toAbsoluteUrl,
   toSecurityEmailUrl,
@@ -263,5 +264,27 @@ describe('toAbsoluteUrl', () => {
       'x-forwarded-host': 'app.example.com',
     })
     expect(toAbsoluteUrl(req, '/reset/token123')).toBe('https://app.example.com/reset/token123')
+  })
+})
+
+describe('isEquivalentLoopbackOrigin', () => {
+  it('treats mismatched loopback hostnames on the same scheme and port as equivalent by default', () => {
+    expect(isEquivalentLoopbackOrigin('http://127.0.0.1:3000', 'http://localhost:3000')).toBe(true)
+  })
+
+  it('ignores a scheme mismatch by default (TLS-terminating proxy tolerance)', () => {
+    expect(isEquivalentLoopbackOrigin('https://127.0.0.1:3000', 'http://127.0.0.1:3000')).toBe(true)
+  })
+
+  it('rejects a scheme mismatch when requireSameProtocol is set', () => {
+    expect(
+      isEquivalentLoopbackOrigin('https://127.0.0.1:3000', 'http://127.0.0.1:3000', { requireSameProtocol: true }),
+    ).toBe(false)
+  })
+
+  it('still allows matching schemes when requireSameProtocol is set', () => {
+    expect(
+      isEquivalentLoopbackOrigin('http://127.0.0.1:3000', 'http://localhost:3000', { requireSameProtocol: true }),
+    ).toBe(true)
   })
 })
