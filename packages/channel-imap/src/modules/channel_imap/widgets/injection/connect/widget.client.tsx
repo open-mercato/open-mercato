@@ -190,11 +190,6 @@ export default function ConnectImapWidget({
               submitLabel={t('communication_channels.profile.connect.save', 'Connect')}
               onSubmit={handleSubmit}
               embedded
-              extraActions={
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                  {t('communication_channels.profile.connect.cancel', 'Cancel')}
-                </Button>
-              }
             />
           ) : null}
         </DialogContent>
