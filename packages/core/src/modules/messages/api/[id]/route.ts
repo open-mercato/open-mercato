@@ -5,6 +5,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
@@ -350,6 +351,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   if (!message.isDraft) {
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
+  }
+
+  // `sendAsUser` composes a fresh message rather than updating an existing
+  // one, so sending a saved draft through a connected mailbox is not
+  // implemented yet. Refuse explicitly instead of silently stripping the
+  // field and falling back to the platform sender.
+  if (input.senderChannelId) {
+    const { t } = await resolveTranslations()
+    const errorMessage = t(
+      'messages.errors.senderDraftSendUnsupported',
+      'Sending a saved draft through a connected mailbox is not supported yet.',
+    )
+    return Response.json(
+      { error: errorMessage, fieldErrors: { senderChannelId: errorMessage } },
+      { status: 422 },
+    )
   }
 
   const guardResult = await runMessageMutationGuards(
