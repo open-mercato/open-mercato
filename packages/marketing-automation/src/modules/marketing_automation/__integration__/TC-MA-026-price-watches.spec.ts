@@ -49,8 +49,9 @@ test.describe('TC-MA-026 price watches', () => {
       expect(second?.id).toBe(watch?.id)
       expect(second?.watchedPriceGross ?? null).toBe(watch?.watchedPriceGross ?? null)
 
+      // 100 is the platform's page-size ceiling and the route's cap; asking for 200 used to be accepted.
       const demand = await readJsonSafe<{ items?: Array<{ sku?: string; watchers?: number }> }>(
-        await apiRequest(request, 'GET', `${WATCHES_PATH}?limit=200`, { token }),
+        await apiRequest(request, 'GET', `${WATCHES_PATH}?limit=100`, { token }),
       )
       expect((demand?.items ?? []).find((item) => item.sku === sku)?.watchers).toBe(1)
 
@@ -126,5 +127,22 @@ test.describe('TC-MA-026 price watches', () => {
   test('an anonymous caller can neither list nor create watches', async ({ request }) => {
     expect([401, 403]).toContain((await request.get(WATCHES_PATH)).status())
     expect([401, 403]).toContain((await request.post(WATCHES_PATH, { data: { sku: 'x' } })).status())
+  })
+})
+
+/**
+ * The page size is a ceiling, not a suggestion.
+ *
+ * `AGENTS.md` keeps `pageSize` at or below 100, and this route accepted 200 — so the one screen that reads it
+ * asked for twice the ceiling on every load. A caller asking for more is clamped rather than refused, because
+ * the number is a page size and not a request anybody needs rejected.
+ */
+test.describe('TC-MA-026 the watch list page size', () => {
+  test('clamps a request above the ceiling instead of honouring or refusing it', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'GET', `${WATCHES_PATH}?limit=500`, { token })
+    expect(response.ok(), await response.text()).toBe(true)
+    const body = await readJsonSafe<{ items?: unknown[] }>(response)
+    expect((body?.items ?? []).length).toBeLessThanOrEqual(100)
   })
 })

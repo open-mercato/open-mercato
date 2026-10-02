@@ -20,6 +20,9 @@ const routeMetadata = {
   POST: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage'] },
 }
 
+/** The platform's ceiling, which `AGENTS.md` sets at 100. */
+const MAX_WATCH_PAGE_SIZE = 100
+
 export const metadata = routeMetadata
 
 const createSchema = z.object({
@@ -46,7 +49,15 @@ export async function GET(req: Request) {
   if (!organizationId) return organizationScopeRequiredResponse()
 
   const url = new URL(req.url)
-  const limit = Math.min(Math.max(Number.parseInt(url.searchParams.get('limit') ?? '50', 10) || 50, 1), 200)
+  /**
+   * Capped at the platform's page size, not above it.
+   *
+   * `AGENTS.md` keeps `pageSize` at or below 100, and this route let a caller ask for 200 — so the one screen
+   * that reads it asked for twice the ceiling every time it loaded. The cap is the limit, not a suggestion:
+   * a client that asks for more gets 100 rather than an error, because the number is a page size and not a
+   * request anybody needs refused.
+   */
+  const limit = Math.min(Math.max(Number.parseInt(url.searchParams.get('limit') ?? '50', 10) || 50, 1), MAX_WATCH_PAGE_SIZE)
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')

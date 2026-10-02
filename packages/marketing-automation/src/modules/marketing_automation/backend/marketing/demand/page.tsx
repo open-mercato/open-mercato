@@ -31,7 +31,7 @@ export default function PriceWatchDemandPage() {
     setLoading(true)
     setLoadFailed(false)
     try {
-      const result = await apiCall<{ items?: DemandRow[] }>('/api/marketing_automation/watches?limit=200')
+      const result = await apiCall<{ items?: DemandRow[] }>('/api/marketing_automation/watches?limit=100')
       /**
        * A non-ok response is not an empty list.
        *

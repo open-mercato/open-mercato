@@ -154,6 +154,7 @@
   "marketing_automation.demand.loadFailed": "Could not load the price watches.",
   "marketing_automation.demand.retry": "Try again",
   "marketing_automation.demand.title": "Price watches",
+  "marketing_automation.email.unsubscribe": "Unsubscribe",
   "marketing_automation.errors.aiFailed": "Could not draft the copy. Try again, or write it yourself.",
   "marketing_automation.errors.aiNotConfigured": "No AI model is configured for this installation.",
   "marketing_automation.errors.aiUnusable": "The model did not return usable copy. Try again.",

@@ -122,7 +122,15 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
   const [results, setResults] = React.useState<Results | null>(null)
   const [state, setState] = React.useState<'loading' | 'ready' | 'error'>('loading')
   const [applying, setApplying] = React.useState<string | null>(null)
-  const [updatedAt, setUpdatedAt] = React.useState('')
+  /**
+   * The campaign's version, or null when it has not been read yet.
+   *
+   * Never `''`: the platform's lock falls back to the extension header only when the expected version is
+   * ABSENT, so an empty string is a present value matching nothing — it switches the lock off rather than
+   * weakening it. The Apply button is already disabled while this is empty, which is what keeps the two
+   * consistent.
+   */
+  const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     try {
@@ -136,7 +144,15 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
       }
       setResults(report.result)
       // Needed to promote a winner: the write collides with a concurrent edit exactly as a save does.
-      setUpdatedAt(campaign.result?.updatedAt ?? '')
+      /**
+       * Null, never `''`.
+       *
+       * The platform's lock falls back to the extension header only when the expected version is ABSENT, so an
+       * empty string is a PRESENT value that matches nothing — it does not weaken the check, it switches it
+       * off, and the save that follows overwrites whatever somebody else just did. The module's own rule says
+       * never default an expected-version token to `''`; this screen did.
+       */
+      setUpdatedAt(campaign.result?.updatedAt ?? null)
       setState('ready')
     } catch {
       setState('error')
@@ -166,7 +182,7 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
     try {
       await runMutation(
         () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(updatedAt),
+          buildOptimisticLockHeader(updatedAt ?? undefined),
           () => apiCallOrThrow(`/api/marketing_automation/campaigns/${campaignId}/apply-split-winner`, {
             method: 'POST',
             body: JSON.stringify({ updatedAt, stepId: winner.stepId, variantKey: winner.variant }),

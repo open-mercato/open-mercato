@@ -7,10 +7,13 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
-    "watch": "node watch.mjs",
+    "check:boundaries": "cd ../.. && npx --yes dependency-cruiser@16 --config packages/marketing-automation/.dependency-cruiser.cjs \"packages/marketing-automation/src/**/*.ts\"",
+    "check:quality": "yarn check:boundaries && yarn check:unused",
+    "check:unused": "cd ../.. && npx --yes knip@5 --config packages/marketing-automation/knip.json --workspace packages/marketing-automation --no-progress",
+    "lint": "node --require ../../scripts/typescript-js-require-hook.cjs ../../node_modules/eslint/bin/eslint.js --no-error-on-unmatched-pattern \"src/**/*.ts\" \"src/**/*.tsx\"",
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit",
-    "lint": "node --require ../../scripts/typescript-js-require-hook.cjs ../../node_modules/eslint/bin/eslint.js --no-error-on-unmatched-pattern \"src/**/*.ts\" \"src/**/*.tsx\""
+    "watch": "node watch.mjs"
   },
   "exports": {
     ".": {

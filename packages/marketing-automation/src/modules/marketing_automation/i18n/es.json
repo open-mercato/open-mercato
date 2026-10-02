@@ -154,6 +154,7 @@
   "marketing_automation.demand.loadFailed": "No se pudieron cargar los precios vigilados.",
   "marketing_automation.demand.retry": "Intentar de nuevo",
   "marketing_automation.demand.title": "Precios vigilados",
+  "marketing_automation.email.unsubscribe": "Darse de baja",
   "marketing_automation.errors.aiFailed": "No se pudo redactar el texto. Inténtalo de nuevo o escríbelo tú.",
   "marketing_automation.errors.aiNotConfigured": "Esta instalación no tiene ningún modelo de IA configurado.",
   "marketing_automation.errors.aiUnusable": "El modelo no devolvió un texto utilizable. Inténtalo de nuevo.",

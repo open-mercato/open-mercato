@@ -154,6 +154,7 @@
   "marketing_automation.demand.loadFailed": "Nie udało się wczytać obserwowanych cen.",
   "marketing_automation.demand.retry": "Spróbuj ponownie",
   "marketing_automation.demand.title": "Obserwowane ceny",
+  "marketing_automation.email.unsubscribe": "Wypisz się",
   "marketing_automation.errors.aiFailed": "Nie udało się napisać treści. Spróbuj ponownie albo napisz ją samodzielnie.",
   "marketing_automation.errors.aiNotConfigured": "Ta instalacja nie ma skonfigurowanego modelu AI.",
   "marketing_automation.errors.aiUnusable": "Model nie zwrócił użytecznej treści. Spróbuj ponownie.",

@@ -6,6 +6,13 @@ import { reportError } from '@open-mercato/telemetry'
 import { interpolate } from '../lib/interpolate.js'
 import { loadRenderValues, neededRenderRoots } from '../lib/render-values.js'
 import { redactEmails } from '../lib/redact.js'
+import { escapeText } from '../lib/html-escape.js'
+import { loadContactPreference, normalizeLocale } from '../lib/preferences.js'
+import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
+import { isSupportedLocale } from '@open-mercato/shared/lib/i18n/locale-set'
+import type { Locale } from '@open-mercato/shared/lib/i18n/config'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+
 import { applyContentBlocks, loadContentBlocks, referencedBlockKeys } from '../lib/content-blocks.js'
 import {
   applyRecommendations,
@@ -43,6 +50,9 @@ const paramsSchema = z.object({
 
 /** What `{{recommendations}}` renders when the author did not say. Three fits a phone screen. */
 export const DEFAULT_RECOMMENDATION_COUNT = 3
+
+/** What the footer says when no dictionary answered — the previous behaviour, now the fallback. */
+export const DEFAULT_UNSUBSCRIBE_LABEL = 'Unsubscribe'
 
 /**
  * Rewrites the body so opens and clicks can be attributed, when everything needed is present.
@@ -121,11 +131,11 @@ function unsubscribeLinkFor(ctx: AutomationContext): string | null {
  * author's link into a tracking URL, so it was never found and every such message went out with two
  * unsubscribe links.
  */
-function withUnsubscribeFooter(html: string, url: string | null): string {
+function withUnsubscribeFooter(html: string, url: string | null, label: string): string {
   if (!url) return html
 
   const footer = `<p style="margin-top:2rem;font-size:12px;color:#666">`
-    + `<a href="${url.replace(/&/g, '&amp;')}" style="color:#666">Unsubscribe</a>`
+    + `<a href="${url.replace(/&/g, '&amp;')}" style="color:#666">${escapeText(label)}</a>`
     + `</p>`
   const closing = html.lastIndexOf('</body>')
   if (closing === -1) return `${html}${footer}`
@@ -198,6 +208,18 @@ export function renderEmail(
      * synchronous, which is what lets a test render exactly what a send renders.
      */
     values?: Record<string, unknown>
+    /**
+     * The footer's own wording, in the recipient's language.
+     *
+     * The one user-facing string this module hardcoded. It is not an author's copy — the module appends it —
+     * so it has to come from the dictionary like every other string the platform shows a person, and in the
+     * language THEY chose in the preference centre rather than the one the worker happens to run in.
+     *
+     * Falls back to English rather than refusing to render: a message with an unsubscribe link in the wrong
+     * language is better than one with no link, and the guard in `execute` is what refuses a message with no
+     * link at all.
+     */
+    unsubscribeLabel?: string
   } = {},
 ): { subject: string; html: string; text?: string } {
   const unsubscribe = unsubscribeLinkFor(ctx)
@@ -239,7 +261,9 @@ export function renderEmail(
 
   return {
     subject: interpolate(params.subject, withValues),
-    html: authorPlacedUnsubscribe ? tracked : withUnsubscribeFooter(tracked, unsubscribe),
+    html: authorPlacedUnsubscribe
+      ? tracked
+      : withUnsubscribeFooter(tracked, unsubscribe, resolved.unsubscribeLabel ?? DEFAULT_UNSUBSCRIBE_LABEL),
     text: params.bodyText ? interpolate(params.bodyText, withUnsubscribeAvailable) : undefined,
   }
 }
@@ -265,6 +289,43 @@ function oneClickUnsubscribeHeaders(url: string | null): Record<string, string> 
   return {
     'List-Unsubscribe': `<${url}>`,
     'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  }
+}
+
+
+/**
+ * The footer's wording, in the language the RECIPIENT chose.
+ *
+ * Not the locale the worker happens to run in, and not the browser's: a send has no request, and which
+ * language to email somebody in is a decision they made in the preference centre. Falls back to the module's
+ * English when they have expressed no preference or the dictionary has no entry, because a link in the wrong
+ * language beats no link — and `execute` already refuses a marketing send that has no link at all.
+ */
+async function resolveUnsubscribeLabel(
+  em: StepDeps['em'],
+  scope: StepDeps['scope'],
+  subjectEntityId: string | null,
+): Promise<string> {
+  if (!subjectEntityId) return DEFAULT_UNSUBSCRIBE_LABEL
+  try {
+    const preference = await loadContactPreference(em, scope, subjectEntityId)
+    const locale = preference?.locale ? normalizeLocale(preference.locale) : null
+    /**
+     * Narrowed against what this installation actually ships.
+     *
+     * A customer may have chosen a language the platform has since stopped carrying — the column stores a tag
+     * rather than a member of an enum — and asking for a dictionary that does not exist is how a send fails
+     * for a reason the operator cannot read.
+     */
+    if (!locale || !isSupportedLocale(locale)) return DEFAULT_UNSUBSCRIBE_LABEL
+    const dictionary = await loadDictionary(locale as Locale)
+    return createFallbackTranslator(dictionary)(
+      'marketing_automation.email.unsubscribe',
+      DEFAULT_UNSUBSCRIBE_LABEL,
+    )
+  } catch {
+    // A dictionary that will not load must not stop a send: the English footer still carries the link.
+    return DEFAULT_UNSUBSCRIBE_LABEL
   }
 }
 
@@ -357,9 +418,10 @@ export const sendEmailStep: StepHandler<StepDeps> = {
     )
 
     try {
+      const unsubscribeLabel = await resolveUnsubscribeLabel(deps.em, deps.scope, ctx.subjectEntityId ?? null)
       await sendEmail({
         to,
-        ...renderEmail(params, ctx, { blocks, recommendationsHtml, values }),
+        ...renderEmail(params, ctx, { blocks, recommendationsHtml, values, unsubscribeLabel }),
         // Non-null by here: the guard above refuses a marketing send that cannot build one.
         headers: oneClickUnsubscribeHeaders(unsubscribeLinkFor(ctx)),
         tenantId: deps.scope.tenantId,

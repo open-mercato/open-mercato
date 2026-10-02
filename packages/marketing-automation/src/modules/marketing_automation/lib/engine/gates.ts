@@ -189,6 +189,14 @@ export type ContactPreference = {
   maxPerWeek: number | null
   /** "Not until then", chosen by the customer. Null when they are not paused. */
   pausedUntil: Date | null
+  /**
+   * The language they asked to be emailed in. Null when they have not said.
+   *
+   * No gate reads it — it is here because it is one of the three things the preference centre stores, and the
+   * send needs it for the unsubscribe footer. Which language to EMAIL somebody in is their decision, and it is
+   * a different one from the language the public pages render in (that follows the browser).
+   */
+  locale: string | null
 }
 
 /** A week, as the window the customer's own cap is expressed in. */

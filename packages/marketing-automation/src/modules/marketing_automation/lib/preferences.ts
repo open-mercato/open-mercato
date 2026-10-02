@@ -27,6 +27,7 @@ export async function loadContactPreference(
   return {
     maxPerWeek: row.maxPerWeek ?? null,
     pausedUntil: row.pausedUntil ?? null,
+    locale: row.locale ?? null,
   }
 }
 
@@ -104,7 +105,7 @@ export async function saveContactPreference(
     if (!(error instanceof UniqueConstraintViolationException)) throw error
     em.clear()
   }
-  return { maxPerWeek: row.maxPerWeek ?? null, pausedUntil: row.pausedUntil ?? null }
+  return { maxPerWeek: row.maxPerWeek ?? null, pausedUntil: row.pausedUntil ?? null, locale: row.locale ?? null }
 }
 
 /** `en`, `en-GB` — or null for anything that is not a language tag. */

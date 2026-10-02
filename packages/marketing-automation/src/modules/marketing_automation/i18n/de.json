@@ -154,6 +154,7 @@
   "marketing_automation.demand.loadFailed": "Preisbeobachtungen konnten nicht geladen werden.",
   "marketing_automation.demand.retry": "Erneut versuchen",
   "marketing_automation.demand.title": "Preisbeobachtungen",
+  "marketing_automation.email.unsubscribe": "Abmelden",
   "marketing_automation.errors.aiFailed": "Der Text konnte nicht entworfen werden. Erneut versuchen oder selbst schreiben.",
   "marketing_automation.errors.aiNotConfigured": "In dieser Installation ist kein KI-Modell konfiguriert.",
   "marketing_automation.errors.aiUnusable": "Das Modell hat keinen brauchbaren Text geliefert. Bitte erneut versuchen.",
