@@ -81,7 +81,7 @@ async function resolveCurrentOrganization(req: Request) {
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope.selectedId ?? auth.orgId ?? null
+  const organizationId = scope.selectedId
   const tenantId = scope.tenantId ?? auth.tenantId ?? null
   if (!organizationId || !tenantId) {
     return {
