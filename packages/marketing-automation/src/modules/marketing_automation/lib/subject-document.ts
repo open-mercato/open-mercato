@@ -463,7 +463,7 @@ export async function buildSubjectDocument(
   )
 
   /**
-   * `sales` and `catalog` are declared in `optionalRequires`, so their tables may not exist.
+   * `sales` and `catalog` may not be installed at all, so their tables may not exist.
    *
    * Skipped rather than attempted-and-caught: a missing table is not an error condition to recover from, it is
    * the installation this module promises to run on, and catching the error would log a failure per customer per

@@ -96,7 +96,7 @@ describe('loadAttribution', () => {
   beforeEach(() => resetCapabilityCache())
 
   test('returns nothing, rather than zero revenue, when there is no sales module', async () => {
-    // Declared in `optionalRequires`: the tables may not exist, and "we cannot see purchases" is not the same
+    // The module may not be installed at all, so the tables may not exist, and "we cannot see purchases" is not the same
     // claim as "this campaign earned nothing".
     const em = { execute: async () => [{ sales: false, catalog: false }] } as unknown as EntityManager
     expect(await loadAttribution(em, scope, { windowDays: 7, since })).toEqual([])

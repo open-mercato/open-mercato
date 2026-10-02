@@ -88,9 +88,25 @@ export async function refreshValueBoundaries(
    * `MINIMUM_BUYERS_FOR_RFM` — so nobody is scored 1-1-1 and swept into a win-back audience as "our worst
    * customer".
    */
-  const rows = (await hasSales(em))
-    ? await em.getConnection().execute<BoundariesRow[]>(BOUNDARIES_SQL, [scope.tenantId, scope.organizationId])
-    : []
+  /**
+   * No `sales` module: answer empty and persist NOTHING.
+   *
+   * Returning the zero-buyer shape was not enough. Writing it stores `computedAt: now`, and
+   * `refreshValueBoundariesIfStale` reads the STORED row to decide freshness — so one sweep tick during the
+   * state this probe exists to catch (sales enabled, migrations not yet applied) would pin `buyerCount: 0` as
+   * fresh for a full day. Every RFM and value audience would then enrol nobody for 24 hours, and a restart
+   * would not clear it because the staleness gate consults the row rather than the capability.
+   *
+   * Not persisting means the next tick simply asks again, which is what a transient state deserves.
+   */
+  // `computedAt: null` is part of the point: nothing was computed, so nothing may later read as fresh. Spread
+  // rather than returned by reference, so a caller cannot mutate the shared constant.
+  if (!(await hasSales(em))) return { ...EMPTY_VALUE_BOUNDARIES }
+
+  const rows = await em.getConnection().execute<BoundariesRow[]>(
+    BOUNDARIES_SQL,
+    [scope.tenantId, scope.organizationId],
+  )
   const row = rows[0]
 
   const computed: ValueBoundaries = {

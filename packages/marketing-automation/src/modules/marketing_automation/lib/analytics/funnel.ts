@@ -49,7 +49,7 @@ export type CampaignFunnel = {
   /**
    * Whether conversions can be measured at all.
    *
-   * False on an installation with no `sales` module, which is declared in `optionalRequires` — and the symmetry
+   * False on an installation with no `sales` module — and the symmetry
    * with `hasEngagementData` is deliberate: a conversion stage reading zero looks like a campaign nobody bought
    * from, when the truth is that nothing here can see a purchase. The stage is omitted rather than zeroed, for
    * the same reason this module refuses a `delivered` stage while the platform has no provider feedback: it

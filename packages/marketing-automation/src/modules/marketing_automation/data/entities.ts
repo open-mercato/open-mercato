@@ -31,7 +31,6 @@ export class MarketingCampaign {
   @Property({ type: 'text', nullable: true })
   description?: string | null
 
-  /** Default off: a half-authored campaign must never send. */
   /**
    * When the deliverability breaker's view of this campaign was last reset.
    *
@@ -47,6 +46,7 @@ export class MarketingCampaign {
   @Property({ name: 'breaker_reset_at', type: Date, nullable: true })
   breakerResetAt?: Date | null
 
+  /** Default off: a half-authored campaign must never send. */
   @Property({ name: 'is_enabled', type: 'boolean', default: false })
   isEnabled!: boolean
 

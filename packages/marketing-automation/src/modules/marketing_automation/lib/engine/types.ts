@@ -70,7 +70,7 @@ export type SubjectDocument = {
   /**
    * ABSENT when this installation has no `sales` module.
    *
-   * `sales` is declared in `optionalRequires`, so its tables may genuinely not exist — and the key is omitted
+   * `sales` may not be installed at all, so its tables may genuinely not exist — and the key is omitted
    * rather than zeroed, which is the difference between a campaign that mails nobody and one that mails
    * everybody. `orders.count: 0` is a TRUE statement about a never-buyer and a LIE about an installation with
    * no order data, and the lie satisfies `orders.count <= 5`, so a win-back audience would match the entire

@@ -59,6 +59,17 @@ describe('loadSplitResults', () => {
 
   beforeEach(() => resetCapabilityCache())
 
+
+  const lane = (variant: string, stepIds: string[]) => ({ splitStepId: 'sp1', variant, stepIds })
+
+  /**
+   * Below the `lane` helper it uses, deliberately.
+   *
+   * There are two `lane` helpers in this file with incompatible signatures — a module-level one building a
+   * `SplitVariantResult` and this one building a `LaneDescriptor` — so a test placed above this line reads as a
+   * call to the other, with a step-id array sitting in a `reached: number` slot. It would still pass, which is
+   * what makes it worth avoiding.
+   */
   test('without a sales module the revenue CTE and its placeholders both go', async () => {
     /**
      * The two must travel together. The statement omits `lane_orders`, so its five placeholders must go with
@@ -82,7 +93,6 @@ describe('loadSplitResults', () => {
     expect(results[0].clickRate).toBeCloseTo(0.5)
   })
 
-  const lane = (variant: string, stepIds: string[]) => ({ splitStepId: 'sp1', variant, stepIds })
 
   test('counts only the lane OWN steps, and reads the recorded lane off the run', async () => {
     const { em, executed } = fakeEm([

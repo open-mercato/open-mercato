@@ -1,4 +1,5 @@
-import { buildFunnelStages } from '../funnel'
+import { buildFunnelStages, loadCampaignFunnel } from '../funnel'
+import { resetCapabilityCache } from '../../capabilities'
 
 /**
  * The funnel's arithmetic, which is where its decisions are: which denominator each percentage uses, and what
@@ -62,5 +63,66 @@ describe('buildFunnelStages', () => {
    */
   test('there is no delivered stage to mislead anybody', () => {
     expect(buildFunnelStages(counts).map((stage) => stage.key)).not.toContain('delivered')
+  })
+})
+
+/**
+ * The no-conversions statement and its binding, which no test reached.
+ *
+ * The sibling A/B change has a dedicated test for exactly this hazard — omit a CTE and leave its placeholders
+ * and every later parameter shifts, binding a step id where a tenant belongs — and the funnel has the same
+ * CTE/placeholder split. `TC-MA-031` runs against an install that HAS sales and asserts five stages, so the
+ * four-stage statement had never been executed or counted.
+ */
+describe('loadCampaignFunnel without a sales module', () => {
+  function fakeEm(capabilities: { sales: boolean; catalog: boolean }) {
+    const executed: Array<{ sql: string; params: unknown[] }> = []
+    const em = {
+      execute: async () => [capabilities],
+      getConnection: () => ({
+        execute: async (sql: string, params: unknown[]) => {
+          executed.push({ sql, params })
+          return [{ entered: 5, sent: 4, opened: 2, clicked: 1, converted: 0 }]
+        },
+      }),
+    }
+    return { em: em as never, executed }
+  }
+
+  beforeEach(() => resetCapabilityCache())
+
+  it('omits the conversion CTE and the placeholders that belong to it', async () => {
+    const { em, executed } = fakeEm({ sales: false, catalog: false })
+    const funnel = await loadCampaignFunnel(em, 'camp-1', { tenantId: 't1', organizationId: 'o1' }, { conversionWindowDays: 7 })
+    const { sql, params } = executed[0]
+    expect(sql).not.toContain('sales_orders')
+    expect(sql).not.toContain('converted as (')
+    // Four CTEs of (campaign, tenant, org) each: the conversion binding is gone with its CTE.
+    expect(params).toHaveLength(12)
+    expect(funnel.hasConversionData).toBe(false)
+  })
+
+  it('still reports the four stages that come from this module own tables', async () => {
+    const { em } = fakeEm({ sales: false, catalog: false })
+    const funnel = await loadCampaignFunnel(em, 'camp-1', { tenantId: 't1', organizationId: 'o1' }, { conversionWindowDays: 7 })
+    expect(funnel.stages.map((stage) => stage.key)).toEqual(['entered', 'sent', 'opened', 'clicked'])
+  })
+
+  it('binds the conversion CTE when sales IS there, and keeps five stages', async () => {
+    // The control: the parameter count must differ, or the branch above proves nothing.
+    const { em, executed } = fakeEm({ sales: true, catalog: true })
+    const funnel = await loadCampaignFunnel(em, 'camp-1', { tenantId: 't1', organizationId: 'o1' }, { conversionWindowDays: 7 })
+    expect(executed[0].sql).toContain('sales_orders')
+    expect(executed[0].params).toHaveLength(18)
+    expect(funnel.stages.map((stage) => stage.key)).toEqual(['entered', 'sent', 'opened', 'clicked', 'converted'])
+    expect(funnel.hasConversionData).toBe(true)
+  })
+
+  it('drops the stage from buildFunnelStages directly, rather than showing it at zero', () => {
+    const counts = { entered: 5, sent: 4, opened: 2, clicked: 1, converted: 0 }
+    expect(buildFunnelStages(counts, { hasConversionData: false }).map((stage) => stage.key))
+      .toEqual(['entered', 'sent', 'opened', 'clicked'])
+    // Defaulting to included, so every existing caller keeps the funnel it had.
+    expect(buildFunnelStages(counts).map((stage) => stage.key)).toHaveLength(5)
   })
 })

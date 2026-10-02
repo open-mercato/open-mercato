@@ -113,6 +113,24 @@ describe('every consumer', () => {
     expect(offenders).toEqual([])
   })
 
+  /**
+   * The OTHER direction, which is the one that actually broke production.
+   *
+   * The rule above asks "does every line-joining query carry the line filter". It passed while
+   * `purchasedInChannelMembers` carried the LINE filter in a query that joins channels and never joins
+   * `sales_order_lines` — so `l.deleted_at` had no table to refer to, Postgres answered "missing FROM-clause
+   * entry for table l", and every audience targeting a sales channel returned 500. `order-filter.ts` warns
+   * about exactly this in the constant's own docblock, and the warning was not enough.
+   */
+  it('never uses the LINE filter in a query that does not join order lines', () => {
+    const offenders = queries
+      .filter((query) => query.sql.includes('PLACED_ORDER_LINE_FILTER_SQL_ALIASED'))
+      .filter((query) => !/\b(from|join)\s+(\$\{SALES_ORDER_LINES\}|sales_order_lines)\s+l\b/.test(query.sql))
+      .map((query) => query.path)
+    // Named, so a failure says which query would answer 500 rather than just that one would.
+    expect(offenders).toEqual([])
+  })
+
   it('never hand-rolls the order conditions in a query that joins lines', () => {
     const offenders = queries
       .filter((query) => query.sql.includes('sales_order_lines l'))

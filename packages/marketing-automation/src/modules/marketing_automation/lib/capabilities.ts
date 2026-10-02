@@ -4,11 +4,13 @@ import { CATALOG_PRODUCTS, SALES_ORDERS } from './external/tables.js'
 /**
  * Whether the modules this one USES but does not require are actually there.
  *
- * `index.ts` declares `sales` and `catalog` in `optionalRequires`, and that declaration is a promise the code
- * keeps rather than a hint: marketing reads their tables directly, so on an installation without them the
- * tables do not exist and every such query would error at request time. A declaration without this check would
- * turn a clear `yarn generate` failure into a 500 on the audience screen, which is strictly worse than the hard
- * dependency it replaced.
+ * `index.ts` does NOT declare them yet, and that is deliberate. `sales` and `catalog` stay in `requires` —
+ * a hard gate that fails `yarn generate` — until every reader degrades, because a module that announces an
+ * optional dependency while half its queries still assume the tables exist turns a clear generator failure
+ * into a 500 on the audience screen. That is strictly worse than the hard dependency it would replace.
+ *
+ * So this probe is the work that EARNS the declaration, one reader at a time. The remaining unguarded readers
+ * are named in the module's commit history and the declaration moves when the list is empty.
  *
  * Asked of the DATABASE rather than of the module registry, because the precondition is the table, not the
  * registration. `sales` enabled with its migrations unapplied is a real state — a half-finished install, a

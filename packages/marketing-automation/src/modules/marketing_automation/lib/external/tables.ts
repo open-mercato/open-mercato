@@ -27,10 +27,10 @@
  * it because it buys an enforced audit; a second buys tidiness and pays in guards that cannot see what they
  * guard. The review asked for auditable coupling, not for fewer joins.
  *
- * The real fix is a platform data contract plus optional module dependencies — `ModuleInfo.requires` is
- * enforced with `process.exit(1)` and has no optional form, so "sales and catalog are optional" cannot be
- * expressed today at all. That is a platform spec, tracked as an open question on the module's PR, and this
- * file is the seam it would replace.
+ * `ModuleInfo.optionalRequires` now exists, so "sales and catalog are optional" is expressible — but this
+ * module has not claimed it yet: the declaration is a promise every reader has to keep, and `lib/capabilities.ts`
+ * is the probe that earns it one reader at a time. The remaining fix beyond that is a platform data contract,
+ * which this file is the seam for.
  */
 
 /** `sales` — what somebody bought, when, for how much, and through which channel. */

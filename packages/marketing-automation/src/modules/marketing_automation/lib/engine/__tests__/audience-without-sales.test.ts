@@ -4,7 +4,7 @@ import type { SubjectDocument } from '../types'
 /**
  * On an installation with no `sales` module, an order audience must match NOBODY — never everybody.
  *
- * `sales` is declared in `optionalRequires`, so its tables may genuinely not exist, and the subject document
+ * `sales` may not be installed at all, so its tables may genuinely not exist, and the subject document
  * omits the whole `orders` key rather than filling it with zeroes. This test is why.
  *
  * `orders.count: 0` is a TRUE statement about a never-buyer and a LIE about a shop that cannot record a sale —

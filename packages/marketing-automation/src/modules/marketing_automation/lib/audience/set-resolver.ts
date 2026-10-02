@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recencyBounds } from '../engine/narrowing.js'
 import type { ComparisonOp, Narrowing, NarrowingPredicate, OrderMetric } from '../engine/narrowing.js'
-import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from '../subject-document.js'
+import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED, PLACED_ORDER_LINE_FILTER_SQL_ALIASED } from '../subject-document.js'
 import type { SubjectScope } from '../subject-document.js'
 import {
   CATALOG_PRODUCT_CATEGORIES,
@@ -289,10 +289,12 @@ export function createSqlCandidateSource(
 
     async purchasedInChannelMembers(code: string): Promise<string[]> {
       const rows = await em.getConnection().execute<{ customer_entity_id: string }[]>(
+        // The ORDER filter, not the line one: this query joins channels, never `sales_order_lines`, so
+        // `l.deleted_at` has no table to refer to and Postgres answers "missing FROM-clause entry for table l".
         `select distinct o.customer_entity_id
            from ${SALES_ORDERS} o
            join ${SALES_CHANNELS} c on c.id = o.channel_id
-          where ${PLACED_ORDER_LINE_FILTER_SQL_ALIASED}
+          where ${PLACED_ORDER_FILTER_SQL_ALIASED}
             and o.customer_entity_id is not null
             and c.code = ?
                 limit ?`,
