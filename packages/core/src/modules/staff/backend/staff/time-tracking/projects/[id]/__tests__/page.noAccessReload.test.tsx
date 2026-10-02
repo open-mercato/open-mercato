@@ -142,4 +142,15 @@ describe('project detail no-access guard', () => {
     expect(await screen.findByRole('heading', { name: 'Apollo' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Request access' })).not.toBeInTheDocument()
   })
+
+  it('drops the guard as soon as the route moves to another project', async () => {
+    const OTHER_PROJECT_ID = '22222222-2222-4222-8222-222222222222'
+    const view = render(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+    await settleProjectLoad()
+    await screen.findByRole('button', { name: 'Request access' })
+
+    view.rerender(<TimesheetProjectDetailPage params={{ id: OTHER_PROJECT_ID }} />)
+    expect(screen.queryByRole('button', { name: 'Request access' })).not.toBeInTheDocument()
+    expect(screen.getByText('Loading project...')).toBeInTheDocument()
+  })
 })

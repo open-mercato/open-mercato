@@ -177,7 +177,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
-  const [accessDenied, setAccessDenied] = React.useState(false)
+  // Keyed by project id so a route change to another project never shows the
+  // previous project's guard (with a live request button) while the new one loads.
+  const [accessDeniedProjectId, setAccessDeniedProjectId] = React.useState<string | null>(null)
+  const accessDenied = accessDeniedProjectId !== null && accessDeniedProjectId === projectId
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -395,10 +398,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          if (!cancelled) setAccessDenied(true)
+          if (!cancelled) setAccessDeniedProjectId(projectId ?? null)
           return
         }
-        if (!cancelled) setAccessDenied(false)
+        if (!cancelled) setAccessDeniedProjectId(null)
         if (!call.ok) {
           throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
