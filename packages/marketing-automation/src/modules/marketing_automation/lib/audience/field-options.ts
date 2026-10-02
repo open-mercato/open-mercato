@@ -6,6 +6,7 @@ import {
   CUSTOMER_TAGS,
   SALES_CHANNELS,
 } from '../external/tables.js'
+import { hasCatalog, hasSales } from '../capabilities.js'
 
 /**
  * The option lists behind the audience editor's dropdowns.
@@ -59,6 +60,14 @@ export async function loadTagOptions(em: EntityManager, scope: SubjectScope): Pr
  * those customers unreachable.
  */
 export async function loadCategoryOptions(em: EntityManager, scope: SubjectScope): Promise<AudienceOption[]> {
+  /**
+   * Nothing to offer where the `catalog` module is not installed.
+   *
+   * An empty option list rather than an error: the builder renders a field with no choices, which is the honest
+   * shape — the field exists in the vocabulary, and this shop has nothing to put in it. Offering choices read
+   * from a table that does not exist would be the alternative, and there is none.
+   */
+  if (!(await hasCatalog(em))) return []
   return slugs(
     em,
     `select slug as value, name as label
@@ -71,6 +80,14 @@ export async function loadCategoryOptions(em: EntityManager, scope: SubjectScope
 }
 
 export async function loadChannelOptions(em: EntityManager, scope: SubjectScope): Promise<AudienceOption[]> {
+  /**
+   * Nothing to offer where the `sales` module is not installed.
+   *
+   * An empty option list rather than an error: the builder renders a field with no choices, which is the honest
+   * shape — the field exists in the vocabulary, and this shop has nothing to put in it. Offering choices read
+   * from a table that does not exist would be the alternative, and there is none.
+   */
+  if (!(await hasSales(em))) return []
   return slugs(
     em,
     `select code as value, name as label

@@ -2,6 +2,7 @@ import { MarketingReferralCode, MarketingReferralRedemption } from '../../data/e
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { claimReferral, ensureReferralCode } from '../referrals'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resetCapabilityCache } from '../capabilities'
 
 /**
  * The referral programme's rules, which are mostly rules about refusing.
@@ -40,6 +41,14 @@ function fakeEm(answers: {
     },
     find: async (entity: unknown) => (entity === CustomerEntity ? answers.liveCustomers ?? [] : []),
     execute: async (sql: string, params: unknown[]) => {
+      /**
+       * The capability probe comes through the same door, so it is answered by its shape rather than recorded.
+       *
+       * Recording it would shift every `executed[0]` assertion in this file by one, and these tests are about
+       * which statement the claim path runs. Both modules present: the anti-abuse check these tests cover only
+       * exists on an installation that HAS orders.
+       */
+      if (sql.includes('to_regclass')) return [{ sales: true, catalog: true }]
       executed.push({ sql, params })
       return answers.earlierOrders ?? []
     },
@@ -54,6 +63,7 @@ function fakeEm(answers: {
 }
 
 describe('ensureReferralCode', () => {
+  beforeEach(() => resetCapabilityCache())
   it('returns the code the customer already has rather than a second one', async () => {
     // Idempotent on purpose: the step that calls it runs inside a journey that may be redelivered, and a
     // person's code has to stay the same as the one already printed in every message that mentioned it.

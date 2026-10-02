@@ -12,6 +12,7 @@ import {
   SALES_ORDERS,
   SALES_ORDER_LINES,
 } from '../external/tables.js'
+import { readCapabilities } from '../capabilities.js'
 
 /**
  * Executes a narrowing plan against the database and hands back candidate subject ids.
@@ -190,6 +191,18 @@ export function createSqlCandidateSource(
   scope: SubjectScope,
   now: Date,
 ): CandidateSource {
+  /**
+   * Whether the optional modules these statements read are actually installed.
+   *
+   * Inside the factory so they close over this `em`, and through the cached probe so a plan with six order
+   * predicates still asks the database once.
+   */
+  const hasSales = async (): Promise<boolean> => (await readCapabilities(em)).sales
+  const bothPresent = async (): Promise<boolean> => {
+    const capabilities = await readCapabilities(em)
+    return capabilities.sales && capabilities.catalog
+  }
+
   return {
     async tagMembers(slug: string | null): Promise<string[]> {
       const params: unknown[] = [scope.tenantId, scope.organizationId]
@@ -210,6 +223,16 @@ export function createSqlCandidateSource(
     },
 
     async orderMetricMembers(metric: OrderMetric, op: ComparisonOp, value: number): Promise<string[]> {
+      /**
+       * An order metric has no candidates where there are no orders, and the planner never pushes down a
+       * comparison a customer with no orders satisfies — so an empty set is provably a superset here, not a
+       * narrowing that drops somebody.
+       *
+       * Empty rather than "no narrowing": returning null would walk the whole population to have
+       * `matchesAudience` reject every one of them, because the subject document omits `orders` entirely
+       * without the module. Same answer, one query instead of a population walk.
+       */
+      if (!(await hasSales())) return []
       const params: unknown[] = [scope.tenantId, scope.organizationId]
       let having: string
 
@@ -249,6 +272,14 @@ export function createSqlCandidateSource(
     },
 
     async purchasedSkuMembers(sku: string): Promise<string[]> {
+      /**
+       * Nobody has bought a sku on an installation with no orders.
+       *
+       * Empty rather than "no narrowing": returning null would walk the whole population to have
+       * `matchesAudience` reject every one of them, because the subject document omits `orders` entirely
+       * without the module. Same answer, one query instead of a population walk.
+       */
+      if (!(await hasSales())) return []
       const rows = await em.getConnection().execute<{ customer_entity_id: string }[]>(
         `select distinct o.customer_entity_id
            from ${SALES_ORDER_LINES} l
@@ -272,6 +303,14 @@ export function createSqlCandidateSource(
      * exact rather than merely a superset.
      */
     async purchasedCategoryMembers(slug: string): Promise<string[]> {
+      /**
+       * This join needs both: the line comes from `sales` and its classification from `catalog`.
+       *
+       * Empty rather than "no narrowing": returning null would walk the whole population to have
+       * `matchesAudience` reject every one of them, because the subject document omits `orders` entirely
+       * without the module. Same answer, one query instead of a population walk.
+       */
+      if (!(await bothPresent())) return []
       const rows = await em.getConnection().execute<{ customer_entity_id: string }[]>(
         `select distinct o.customer_entity_id
            from ${SALES_ORDER_LINES} l
@@ -288,6 +327,14 @@ export function createSqlCandidateSource(
     },
 
     async purchasedInChannelMembers(code: string): Promise<string[]> {
+      /**
+       * Nobody has bought through a channel on an installation with no orders.
+       *
+       * Empty rather than "no narrowing": returning null would walk the whole population to have
+       * `matchesAudience` reject every one of them, because the subject document omits `orders` entirely
+       * without the module. Same answer, one query instead of a population walk.
+       */
+      if (!(await hasSales())) return []
       const rows = await em.getConnection().execute<{ customer_entity_id: string }[]>(
         // The ORDER filter, not the line one: this query joins channels, never `sales_order_lines`, so
         // `l.deleted_at` has no table to refer to and Postgres answers "missing FROM-clause entry for table l".

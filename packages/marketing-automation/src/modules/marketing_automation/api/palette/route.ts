@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { listMarketingSteps } from '../../lib/engine/registry.js'
-import { TRIGGER_CATALOG } from '../../lib/trigger-catalog.js'
+import { triggerCatalogFor } from '../../lib/trigger-catalog.js'
 import { sweepSourceCatalog } from '../../lib/sweep-sources.js'
 import { listContentBlockKeys } from '../../lib/content-blocks.js'
 import { loadSegmentDefinitions } from '../../lib/segments.js'
@@ -12,6 +12,7 @@ import { loadTierThresholds } from '../../lib/tiers.js'
 import { getSupportedLocales } from '@open-mercato/shared/lib/i18n/locale-set'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { readCapabilities } from '../../lib/capabilities.js'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
@@ -70,8 +71,11 @@ export async function GET(req: Request) {
     loadTierThresholds(container, scope),
   ])
 
+  // One probe for both catalogues, so the two cannot disagree about what is installed.
+  const capabilities = await readCapabilities(em)
+
   return NextResponse.json({
-    triggers: TRIGGER_CATALOG.map((entry) => ({
+    triggers: triggerCatalogFor(capabilities).map((entry) => ({
       eventId: entry.eventId,
       labelKey: entry.labelKey,
       available: entry.available,
@@ -80,7 +84,9 @@ export async function GET(req: Request) {
     })),
     // What a SCHEDULED campaign can iterate over. Without this the canvas could only author event
     // triggers, which left every periodic campaign — win-back, review requests — API-only.
-    sweepSources: sweepSourceCatalog(),
+    // Narrowed by what this installation can read, so a source whose module is not installed arrives
+    // unavailable WITH a reason rather than as a row that silently never produces anybody.
+    sweepSources: sweepSourceCatalog(capabilities),
     contentBlocks,
     segments,
     /**

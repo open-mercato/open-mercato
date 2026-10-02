@@ -11,6 +11,7 @@ import {
   referralUrlFor,
 } from './engine/referral-code.js'
 import { SALES_ORDERS } from './external/tables.js'
+import { hasSales } from './capabilities.js'
 
 /** Postgres unique violation — losing a race against a concurrent claim, which the index is there to win. */
 const POSTGRES_UNIQUE_VIOLATION = '23505'
@@ -164,14 +165,24 @@ export async function claimReferral(
    * "No earlier orders" is checked with the module's own definition of an order that counts, so a cancelled
    * one does not disqualify somebody and a draft cart does not either.
    */
-  const earlierOrders = await em.execute<Array<{ one: number }>>(
-    `select 1 as one
-       from ${SALES_ORDERS}
-      where ${PLACED_ORDER_FILTER_SQL}
-        and customer_entity_id = ?
-      limit 1`,
-    [scope.tenantId, scope.organizationId, input.referredEntityId],
-  )
+  /**
+   * Skipped where there is no `sales` module, and that is not a weakened check.
+   *
+   * The question is "has this person ordered before", and on an installation with no order table the answer is
+   * genuinely no — there are no orders for anybody. Nor is anything left exposed: a conversion fires on
+   * `sales.order.created`, which that installation cannot emit, so the programme is codes-only and the payout
+   * this check guards cannot happen at all.
+   */
+  const earlierOrders = (await hasSales(em))
+    ? await em.execute<Array<{ one: number }>>(
+        `select 1 as one
+           from ${SALES_ORDERS}
+          where ${PLACED_ORDER_FILTER_SQL}
+            and customer_entity_id = ?
+          limit 1`,
+        [scope.tenantId, scope.organizationId, input.referredEntityId],
+      )
+    : []
   if (earlierOrders.length > 0) return { status: 'already_a_customer' }
 
   try {

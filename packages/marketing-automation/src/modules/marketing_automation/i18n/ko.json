@@ -761,6 +761,8 @@
   "marketing_automation.step.wait.label": "대기",
   "marketing_automation.step.wait.param.minutes": "분",
   "marketing_automation.sweep.birthdays.label": "생일인 고객",
+  "marketing_automation.sweep.blocked.catalogModuleMissing": "카탈로그 모듈이 필요하지만 설치되어 있지 않습니다",
+  "marketing_automation.sweep.blocked.salesModuleMissing": "판매 모듈이 필요하지만 설치되어 있지 않습니다",
   "marketing_automation.sweep.customers.label": "모든 고객",
   "marketing_automation.sweep.expiring_quotes.label": "만료가 가까운 견적",
   "marketing_automation.sweep.fulfilled_orders.label": "배송 후 일정 기간 지난 주문",

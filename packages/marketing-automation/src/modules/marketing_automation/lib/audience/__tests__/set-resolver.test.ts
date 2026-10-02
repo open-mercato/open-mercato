@@ -3,6 +3,7 @@ import type { CandidateSource } from '../set-resolver'
 import { planNarrowing } from '../../engine/narrowing'
 import type { ComparisonOp, OrderMetric } from '../../engine/narrowing'
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
+import { resetCapabilityCache } from '../../capabilities'
 
 const leaf = (field: string, operator: string, value?: unknown): ConditionExpression =>
   ({ field, operator, value } as ConditionExpression)
@@ -187,9 +188,14 @@ describe('createSqlCandidateSource', () => {
   const scope = { tenantId: 't1', organizationId: 'o1' }
   const now = new Date('2026-09-28T12:00:00.000Z')
 
-  function fakeEm(rows: unknown[]) {
+  function fakeEm(rows: unknown[], capabilities = { sales: true, catalog: true }) {
     const executed: Array<{ sql: string; params: unknown[] }> = []
     const em = {
+      /**
+       * The capability probe. These tests assert which SQL each predicate runs, so they are about an
+       * installation that HAS the modules — the no-module shapes are asserted separately below.
+       */
+      execute: async () => [capabilities],
       getConnection: () => ({
         execute: async (sql: string, params: unknown[]) => {
           executed.push({ sql, params })
@@ -199,6 +205,40 @@ describe('createSqlCandidateSource', () => {
     }
     return { em: em as never, executed }
   }
+
+  beforeEach(() => resetCapabilityCache())
+
+  /**
+   * Without the module the predicate resolves to nobody, in ONE query rather than a population walk.
+   *
+   * Empty is provably a superset here: the planner never pushes down a comparison that a customer with no
+   * orders satisfies, and the subject document omits `orders` entirely without `sales` — so `matchesAudience`
+   * would reject every candidate a walk produced. Same answer, no walk.
+   */
+  it('resolves an order predicate to nobody when there is no sales module, without querying', async () => {
+    const { em, executed } = fakeEm([], { sales: false, catalog: false })
+    const source = createSqlCandidateSource(em, scope, now)
+    expect(await source.purchasedSkuMembers('sku-1')).toEqual([])
+    expect(await source.purchasedInChannelMembers('web')).toEqual([])
+    expect(await source.orderMetricMembers('count', '>=', 2)).toEqual([])
+    // Not one statement reached the connection: the probe answers through `em.execute`.
+    expect(executed).toHaveLength(0)
+  })
+
+  it('needs BOTH modules for a purchased-category predicate', async () => {
+    // The line comes from `sales` and its classification from `catalog`, so either one missing is enough.
+    const { em } = fakeEm([], { sales: true, catalog: false })
+    const source = createSqlCandidateSource(em, scope, now)
+    expect(await source.purchasedCategoryMembers('coffee')).toEqual([])
+  })
+
+  it('still queries tags and scores, which this module owns', async () => {
+    const { em, executed } = fakeEm([{ subject_entity_id: 'c1' }], { sales: false, catalog: false })
+    const source = createSqlCandidateSource(em, scope, now)
+    await source.tagMembers('vip')
+    // A tag lives in `customers`, which is a HARD dependency — it is always there.
+    expect(executed).toHaveLength(1)
+  })
 
   test('scopes the tag query by tenant and organization, and binds the slug', async () => {
     const { em, executed } = fakeEm([{ entity_id: 'c1' }])

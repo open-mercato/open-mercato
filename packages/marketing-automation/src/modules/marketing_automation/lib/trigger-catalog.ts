@@ -8,6 +8,7 @@ import {
   SALES_ORDERS,
   SALES_PAYMENTS,
 } from './external/tables.js'
+import type { MarketingCapabilities } from './capabilities.js'
 
 /**
  * What a trigger hands the engine: who the run is about, and the scalars an audience
@@ -24,6 +25,18 @@ export type TriggerCatalogEntry = {
   labelKey: string
   available: boolean
   blockedReasonKey?: string
+  /**
+   * The module whose data or events this trigger depends on, when that module is optional.
+   *
+   * Separate from `available`, which answers "does this trigger exist". A fulfilled-order trigger exists and is
+   * finished; it simply has nothing to fire on where `sales` is not installed, and an author offered it would
+   * author a campaign that can never run. The palette says which of the two it is.
+   *
+   * Deliberately NOT enforced by save validation. An unknown trigger is always a mistake, but one that cannot
+   * fire HERE is not — the installation may gain the module tomorrow, and refusing the save would strand a
+   * campaign authored in anticipation. The writer allows it; the canvas explains it.
+   */
+  requiresModule?: 'sales' | 'catalog'
   /** Paths this trigger contributes, so the audience builder can offer them. */
   contextKeys: string[]
   build(payload: Record<string, unknown>, em: EntityManager, scope: RunScope): Promise<TriggerContext>
@@ -67,6 +80,7 @@ const tagAssigned: TriggerCatalogEntry = {
 
 const orderCreated: TriggerCatalogEntry = {
   eventId: 'sales.order.created',
+  requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.sales.order.created.label',
   available: true,
   contextKeys: ['trigger.orderId', 'trigger.orderNumber', 'trigger.orderTotal', 'trigger.currencyCode'],
@@ -107,6 +121,7 @@ export const EXPIRING_QUOTE_TRIGGER_ID = 'marketing_automation.quote.expiring'
 
 const expiringQuote: TriggerCatalogEntry = {
   eventId: EXPIRING_QUOTE_TRIGGER_ID,
+  requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.sales.quote.expiring.label',
   available: false,
   contextKeys: ['trigger.quoteId', 'trigger.quoteNumber', 'trigger.quoteTotal', 'trigger.daysUntilExpiry'],
@@ -169,6 +184,7 @@ const scoreChanged: TriggerCatalogEntry = {
  */
 const fulfilledOrder: TriggerCatalogEntry = {
   eventId: 'marketing_automation.order.fulfilled',
+  requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.marketing_automation.order.fulfilled.label',
   available: false,
   contextKeys: ['trigger.orderId', 'trigger.orderNumber', 'trigger.orderTotal', 'trigger.daysSinceOrder'],
@@ -187,6 +203,7 @@ const fulfilledOrder: TriggerCatalogEntry = {
  */
 const reorderDue: TriggerCatalogEntry = {
   eventId: 'marketing_automation.product.reorder_due',
+  requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.marketing_automation.product.reorder_due.label',
   available: false,
   contextKeys: [
@@ -252,6 +269,7 @@ const inboundReceived: TriggerCatalogEntry = {
  */
 const referralConverted: TriggerCatalogEntry = {
   eventId: 'marketing_automation.referral.converted',
+  requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.marketing_automation.referral.converted.label',
   available: true,
   contextKeys: ['trigger.code', 'trigger.referredEntityId', 'trigger.orderTotal'],
@@ -278,6 +296,7 @@ const referralConverted: TriggerCatalogEntry = {
  */
 const priceDropped: TriggerCatalogEntry = {
   eventId: 'marketing_automation.product.price_dropped',
+  requiresModule: 'catalog',
   labelKey: 'marketing_automation.trigger.marketing_automation.product.price_dropped.label',
   available: true,
   contextKeys: ['trigger.sku', 'trigger.dropPercent', 'trigger.currentPrice', 'trigger.previousPrice'],
@@ -327,6 +346,7 @@ const tagRemoved: TriggerCatalogEntry = {
  */
 const orderConfirmed: TriggerCatalogEntry = {
   eventId: 'sales.order.confirmed',
+  requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.sales.order.confirmed.label',
   available: true,
   contextKeys: ['trigger.orderId', 'trigger.orderNumber', 'trigger.orderTotal', 'trigger.currencyCode', 'trigger.previousStatus'],
@@ -370,6 +390,7 @@ const orderConfirmed: TriggerCatalogEntry = {
  */
 const invoiceCreated: TriggerCatalogEntry = {
   eventId: 'sales.invoice.created',
+  requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.sales.invoice.created.label',
   available: true,
   contextKeys: [
@@ -575,4 +596,26 @@ export function findTrigger(eventId: string): TriggerCatalogEntry | undefined {
 /** Event ids a campaign may be authored against. */
 export function availableEventTriggers(): TriggerCatalogEntry[] {
   return TRIGGER_CATALOG.filter((entry) => entry.available)
+}
+
+/**
+ * The catalogue as this installation can actually use it.
+ *
+ * `available` stays as the trigger's own answer, and a missing module produces its own reason key — so the
+ * canvas can distinguish "nobody has built this" from "you have not installed that", which lead an operator to
+ * completely different next steps.
+ */
+export function triggerCatalogFor(capabilities: MarketingCapabilities): Array<
+  Omit<TriggerCatalogEntry, 'blockedReasonKey'> & { blockedReasonKey: string | null }
+> {
+  return TRIGGER_CATALOG.map((entry) => {
+    const moduleMissing = Boolean(entry.requiresModule && !capabilities[entry.requiresModule])
+    return {
+      ...entry,
+      available: entry.available && !moduleMissing,
+      blockedReasonKey: moduleMissing
+        ? `marketing_automation.sweep.blocked.${entry.requiresModule}ModuleMissing`
+        : entry.blockedReasonKey ?? null,
+    }
+  })
 }

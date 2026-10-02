@@ -10,6 +10,7 @@ import {
   SALES_ORDERS,
   SALES_ORDER_LINES,
 } from './external/tables.js'
+import type { MarketingCapabilities } from './capabilities.js'
 
 /**
  * What a scheduled campaign iterates over.
@@ -41,6 +42,16 @@ export type RowSweepSource = {
   labelKey: string
   available: boolean
   blockedReasonKey?: string
+  /**
+   * The module whose data this source reads, when that module is one this one can run without.
+   *
+   * `available` answers "is this source finished"; this answers "can this installation use it". The two are
+   * separate questions and a source can fail either — an abandoned-cart source is unavailable because no cart
+   * entity exists anywhere, while a reorder source is perfectly finished and simply has nothing to read on a
+   * shop with no `sales` module. The palette says which, because "we have not built it" and "you have not
+   * installed it" lead an operator to completely different next steps.
+   */
+  requiresModule?: 'sales' | 'catalog'
   /** The synthetic trigger id runs from this source are recorded under. */
   triggerEventId: string
   /** Paths the audience builder can offer for this source. */
@@ -91,6 +102,7 @@ export const EXPIRING_QUOTES_SOURCE_ID = 'expiring_quotes'
 const expiringQuotes: RowSweepSource = {
   id: EXPIRING_QUOTES_SOURCE_ID,
   labelKey: 'marketing_automation.sweep.expiring_quotes.label',
+  requiresModule: 'sales',
   available: true,
   triggerEventId: 'marketing_automation.quote.expiring',
   contextKeys: ['trigger.quoteId', 'trigger.quoteNumber', 'trigger.quoteTotal', 'trigger.daysUntilExpiry'],
@@ -152,6 +164,7 @@ const FULFILLED_STATUSES = ['fulfilled', 'delivered', 'complete', 'completed']
 const fulfilledOrders: RowSweepSource = {
   id: FULFILLED_ORDERS_SOURCE_ID,
   labelKey: 'marketing_automation.sweep.fulfilled_orders.label',
+  requiresModule: 'sales',
   available: true,
   triggerEventId: FULFILLED_ORDER_TRIGGER_ID,
   contextKeys: ['trigger.orderId', 'trigger.orderNumber', 'trigger.orderTotal', 'trigger.daysSinceOrder'],
@@ -304,6 +317,7 @@ export const REORDER_DUE_TRIGGER_ID = 'marketing_automation.product.reorder_due'
 const reorderDue: RowSweepSource = {
   id: REORDER_DUE_SOURCE_ID,
   labelKey: 'marketing_automation.sweep.reorder_due.label',
+  requiresModule: 'sales',
   available: true,
   triggerEventId: REORDER_DUE_TRIGGER_ID,
   contextKeys: [
@@ -399,7 +413,13 @@ export function findRowSweepSource(id: string | null | undefined): RowSweepSourc
 }
 
 /** Every source an author may pick, including the population one. */
-export function sweepSourceCatalog(): Array<{
+/**
+ * `capabilities` is optional so a caller with no entity manager still gets the catalogue.
+ *
+ * Passing it narrows `available` by what this installation can actually read. Omitting it answers about the
+ * sources themselves, which is what a caller asking "what does this module support" wants.
+ */
+export function sweepSourceCatalog(capabilities?: MarketingCapabilities): Array<{
   id: string
   labelKey: string
   available: boolean
@@ -416,14 +436,23 @@ export function sweepSourceCatalog(): Array<{
       contextKeys: [],
       defaultWithinDays: null,
     },
-    ...ROW_SWEEP_SOURCES.map((source) => ({
-      id: source.id,
-      labelKey: source.labelKey,
-      available: source.available,
-      blockedReasonKey: source.blockedReasonKey ?? null,
-      contextKeys: source.contextKeys,
-      defaultWithinDays: source.defaultWithinDays,
-    })),
+    ...ROW_SWEEP_SOURCES.map((source) => {
+      // A source the installation cannot read is unavailable for a DIFFERENT reason than an unfinished one, and
+      // the reason key is what makes the palette say so rather than just greying the row out.
+      const moduleMissing = Boolean(
+        capabilities && source.requiresModule && !capabilities[source.requiresModule],
+      )
+      return {
+        id: source.id,
+        labelKey: source.labelKey,
+        available: source.available && !moduleMissing,
+        blockedReasonKey: moduleMissing
+          ? `marketing_automation.sweep.blocked.${source.requiresModule}ModuleMissing`
+          : source.blockedReasonKey ?? null,
+        contextKeys: source.contextKeys,
+        defaultWithinDays: source.defaultWithinDays,
+      }
+    }),
   ]
 }
 

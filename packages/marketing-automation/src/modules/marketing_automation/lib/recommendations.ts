@@ -13,6 +13,7 @@ import {
   SALES_ORDERS,
   SALES_ORDER_LINES,
 } from './external/tables.js'
+import { hasSales } from './capabilities.js'
 
 /**
  * Product recommendations: the queries behind them, and how they reach a message.
@@ -219,6 +220,16 @@ export async function recommendForSubject(
   if (wanted === 0) return []
 
   // Padding is fetched at the same depth as the request, plus room for what the exclusion removes.
+  /**
+   * Nothing to recommend without order history, so the block renders nothing rather than an empty frame.
+   *
+   * Both signals this ranker has — what sells, and what this customer bought — come from orders. With no
+   * `sales` module there is no third signal to fall back to: guessing from the catalogue would offer whatever
+   * happens to be listed first, which is not a recommendation, and `applyRecommendations` already removes the
+   * placeholder when there is nothing to put in its place.
+   */
+  if (!(await hasSales(em))) return []
+
   const fetchDepth = wanted * 3
   const bestSellers = await loadBestSellers(em, scope, fetchDepth)
   if (!subjectEntityId) return rankRecommendations({ affinity: [], bestSellers, alreadyPurchased: [], limit: wanted })

@@ -1,6 +1,7 @@
 import { MarketingProductWatch } from '../../data/entities'
 import { scanPriceWatches, startWatch } from '../product-watches'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resetCapabilityCache } from '../capabilities'
 
 /**
  * The orchestration around the price-drop decision, which the decision's own tests cannot reach.
@@ -27,6 +28,12 @@ function fakeEm(input: { watches?: Partial<MarketingProductWatch>[]; existing?: 
   const stamped: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = []
   const finds: Array<Record<string, unknown>> = []
   const em = {
+    /**
+     * The capability probe. These tests are about a shop that HAS a catalogue — there is no price to compare
+     * against without one — so it reports both present, and the cache is reset per test so one answer cannot
+     * leak into the next.
+     */
+    execute: async () => [{ sales: true, catalog: true }],
     findOne: async () => input.existing ?? null,
     find: async (_entity: unknown, _where: unknown, options?: Record<string, unknown>) => {
       finds.push(options ?? {})
@@ -56,6 +63,7 @@ const watch = (over: Partial<MarketingProductWatch> = {}): Partial<MarketingProd
 })
 
 describe('startWatch', () => {
+  beforeEach(() => resetCapabilityCache())
   it('returns the existing watch rather than creating a second one', async () => {
     // A customer clicking "tell me" twice is one watch, not two notifications.
     const { em, created } = fakeEm({ existing: { id: 'w1' } })

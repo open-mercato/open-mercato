@@ -7,6 +7,7 @@ import {
   CATALOG_PRODUCT_VARIANTS,
   CATALOG_PRODUCT_VARIANT_PRICES,
 } from './external/tables.js'
+import { hasCatalog } from './capabilities.js'
 
 /**
  * Price watches: reading the current price, scanning the watches, and what fires.
@@ -59,6 +60,13 @@ export async function loadCurrentPrices(
   skus: string[],
 ): Promise<Map<string, string>> {
   if (skus.length === 0) return new Map()
+  /**
+   * No `catalog` module means no price list to compare against.
+   *
+   * An empty map, so the scan's existing "no current price" branch handles it — and that branch deliberately
+   * does NOT treat a missing price as a drop, because a product that cannot be priced has not become cheaper.
+   */
+  if (!(await hasCatalog(em))) return new Map()
   /**
    * Placeholders expanded, rather than `= any(?)` with an array parameter.
    *
@@ -141,6 +149,15 @@ export async function scanPriceWatches(
   now: Date,
   options: { limit?: number } = {},
 ): Promise<ScanOutcome> {
+  /**
+   * Reported as a reason rather than as a silent zero.
+   *
+   * `reasons` exists so the admin screen can say why nothing fired, and "there is no catalogue to read a price
+   * from" is the most important answer it can give — a watcher staring at a scan that reports nothing, forever,
+   * with no explanation, is the failure this field was added to prevent.
+   */
+  if (!(await hasCatalog(em))) return { scanned: 0, fired: [], reasons: { noCatalogModule: 1 } }
+
   /**
    * Least recently scanned first, which turns the per-tick cap into a rotation.
    *

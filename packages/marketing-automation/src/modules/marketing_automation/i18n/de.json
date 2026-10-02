@@ -761,6 +761,8 @@
   "marketing_automation.step.wait.label": "Warten",
   "marketing_automation.step.wait.param.minutes": "Minuten",
   "marketing_automation.sweep.birthdays.label": "Kunden mit Geburtstag",
+  "marketing_automation.sweep.blocked.catalogModuleMissing": "Benötigt das Katalogmodul, das nicht installiert ist",
+  "marketing_automation.sweep.blocked.salesModuleMissing": "Benötigt das Verkaufsmodul, das nicht installiert ist",
   "marketing_automation.sweep.customers.label": "Alle Kunden",
   "marketing_automation.sweep.expiring_quotes.label": "Angebote kurz vor Ablauf",
   "marketing_automation.sweep.fulfilled_orders.label": "Vor einiger Zeit gelieferte Bestellungen",
