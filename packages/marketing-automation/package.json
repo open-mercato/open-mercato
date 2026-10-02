@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/marketing-automation",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "license": "MIT",
   "description": "Visual marketing automation campaigns: triggers, audience conditions and delayed action chains",
   "type": "module",
