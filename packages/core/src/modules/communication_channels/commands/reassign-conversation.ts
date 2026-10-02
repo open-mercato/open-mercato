@@ -4,7 +4,8 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ChannelThreadMapping, ExternalConversation } from '../data/entities'
+import { ChannelThreadMapping, CommunicationChannel, ExternalConversation } from '../data/entities'
+import { ChannelAccessDeniedError, assertCanManageChannel } from '../lib/access-control'
 import { emitCommunicationChannelsEvent } from '../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -18,6 +19,13 @@ const reassignConversationSchema = z.object({
     tenantId: z.string().uuid(),
     organizationId: z.string().uuid().nullable(),
   }),
+  /**
+   * The caller the reassignment is performed for. Personal-mailbox threads may
+   * only be reassigned by the mailbox owner; shared-channel threads require
+   * `communication_channels.assign`. Omitting it fails closed.
+   */
+  actorUserId: z.string().min(1).nullable().optional(),
+  actorFeatures: z.array(z.string()).optional(),
 })
 
 export type ReassignConversationInput = z.infer<typeof reassignConversationSchema>
@@ -32,6 +40,7 @@ export type ReassignConversationResult =
       undo: ReassignConversationUndoSnapshot
     }
   | { status: 'no_channel_link'; reason: string }
+  | { status: 'access_denied'; reason: string }
   | { status: 'invalid_assignee'; reason: string }
   | { status: 'noop'; reason: string }
 
@@ -97,6 +106,33 @@ const reassignConversationCommand: CommandHandler<
         status: 'no_channel_link',
         reason: `no ChannelThreadMapping for thread ${input.threadId}`,
       }
+    }
+
+    const channel = await findOneWithDecryption(
+      em,
+      CommunicationChannel,
+      { id: mapping.channelId, tenantId: input.scope.tenantId, deletedAt: null },
+      undefined,
+      dscope,
+    )
+    if (!channel) {
+      return {
+        status: 'no_channel_link',
+        reason: `no CommunicationChannel for thread ${input.threadId}`,
+      }
+    }
+    try {
+      assertCanManageChannel(
+        { userId: channel.userId ?? null },
+        input.actorUserId ?? null,
+        input.actorFeatures ?? [],
+        'communication_channels.assign',
+      )
+    } catch (err) {
+      if (err instanceof ChannelAccessDeniedError) {
+        return { status: 'access_denied', reason: err.message }
+      }
+      throw err
     }
 
     const previousAssignedUserId = mapping.assignedUserId ?? null
