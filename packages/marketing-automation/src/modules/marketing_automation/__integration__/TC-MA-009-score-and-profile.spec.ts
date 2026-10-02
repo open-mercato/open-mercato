@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, PALETTE_PATH } from './helpers/marketing'
+import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, PALETTE_PATH, createOwnPerson, deleteOwnPerson } from './helpers/marketing'
 
 type Profile = {
   customer: { id: string; displayName: string | null; email: string | null }
@@ -116,24 +116,27 @@ test.describe('TC-MA-009 scoring and customer profile', () => {
 
   test('the profile reports a real customer with a derived tier', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const list = await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token })
-    expect(list.ok(), 'the suite needs at least one customer in the installation').toBe(true)
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(list)
-    const customerId = people?.items?.[0]?.entityId ?? people?.items?.[0]?.id
-    test.skip(!customerId, 'no customer available in this installation')
+    // A person this spec owns. It used to take whichever customer the installation listed first,
+    // and skip itself when there was none — green while asserting nothing on a fresh database, and
+    // reading a customer another spec also asserts about on a seeded one.
+    const customerId = await createOwnPerson(request, token, 'Scoring')
+    try {
 
-    const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
-    expect(response.ok(), await response.text()).toBe(true)
-    const profile = await readJsonSafe<Profile>(response)
-    expect(profile?.customer.id).toBe(customerId)
-    // Zero points is the bronze tier on the default ladder, and the tier is derived rather than
-    // stored — so it is present even for a customer nothing has ever scored.
-    expect(profile?.score.points).toBe(0)
-    expect(profile?.score.tier).toBe('bronze')
-    expect(profile?.score.tierRank).toBe(0)
-    expect(profile?.score.pointsToNext).toBe(100)
-    expect(Array.isArray(profile?.tags)).toBe(true)
-    expect(profile?.messages).toMatchObject({ sent: expect.any(Number), opened: expect.any(Number) })
+      const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
+      expect(response.ok(), await response.text()).toBe(true)
+      const profile = await readJsonSafe<Profile>(response)
+      expect(profile?.customer.id).toBe(customerId)
+      // Zero points is the bronze tier on the default ladder, and the tier is derived rather than
+      // stored — so it is present even for a customer nothing has ever scored.
+      expect(profile?.score.points).toBe(0)
+      expect(profile?.score.tier).toBe('bronze')
+      expect(profile?.score.tierRank).toBe(0)
+      expect(profile?.score.pointsToNext).toBe(100)
+      expect(Array.isArray(profile?.tags)).toBe(true)
+      expect(profile?.messages).toMatchObject({ sent: expect.any(Number), opened: expect.any(Number) })
+    } finally {
+      await deleteOwnPerson(request, token, customerId)
+    }
   })
 
   test('the profile is refused without both features', async ({ request }) => {

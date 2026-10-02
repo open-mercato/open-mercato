@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, saveGraph } from './helpers/marketing'
+import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, saveGraph, createOwnPerson, deleteOwnPerson } from './helpers/marketing'
 
 type Preview = {
   entered: boolean
@@ -31,19 +31,23 @@ const email = (id: string) => ({ id, type: 'send_email', params: { subject: 'x',
  * on the installation's clock, so the assertions are about ORDER and SHAPE, not exact values.
  */
 test.describe('TC-MA-013 journey preview', () => {
-  async function customerId(request: Parameters<typeof apiRequest>[0], token: string): Promise<string | null> {
-    const response = await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token })
-    if (!response.ok()) return null
-    const body = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(response)
-    return body?.items?.[0]?.entityId ?? body?.items?.[0]?.id ?? null
+  /**
+   * A person each test owns, rather than whoever the installation happened to list first.
+   *
+   * The old helper returned the first seeded customer and every test skipped itself when there was none —
+   * green while asserting nothing on a fresh database, and previewing a journey for a customer other specs
+   * were also asserting about on a seeded one.
+   */
+  async function ownCustomer(request: Parameters<typeof apiRequest>[0], token: string): Promise<string> {
+    return createOwnPerson(request, token, 'Preview')
   }
 
   test('predicts a chain of steps in order, and sends nothing', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let campaignId: string | null = null
+    let subjectEntityId: string | null = null
     try {
-      const subjectEntityId = await customerId(request, token)
-      test.skip(!subjectEntityId, 'no customer available in this installation')
+      subjectEntityId = await ownCustomer(request, token)
 
       campaignId = await createCampaign(request, token, `QA preview ${Date.now()}`)
       const created = await getCampaign(request, token, campaignId)
@@ -89,15 +93,16 @@ test.describe('TC-MA-013 journey preview', () => {
       expect(runBody?.total).toBe(0)
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteOwnPerson(request, token, subjectEntityId)
     }
   })
 
   test('says plainly when the audience would turn the customer away', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let campaignId: string | null = null
+    let subjectEntityId: string | null = null
     try {
-      const subjectEntityId = await customerId(request, token)
-      test.skip(!subjectEntityId, 'no customer available in this installation')
+      subjectEntityId = await ownCustomer(request, token)
 
       campaignId = await createCampaign(request, token, `QA preview excluded ${Date.now()}`)
       const created = await getCampaign(request, token, campaignId)
@@ -121,15 +126,16 @@ test.describe('TC-MA-013 journey preview', () => {
       expect(preview?.entries).toEqual([])
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteOwnPerson(request, token, subjectEntityId)
     }
   })
 
   test('reports which A/B lane the customer would take', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let campaignId: string | null = null
+    let subjectEntityId: string | null = null
     try {
-      const subjectEntityId = await customerId(request, token)
-      test.skip(!subjectEntityId, 'no customer available in this installation')
+      subjectEntityId = await ownCustomer(request, token)
 
       campaignId = await createCampaign(request, token, `QA preview split ${Date.now()}`)
       const created = await getCampaign(request, token, campaignId)
@@ -159,6 +165,7 @@ test.describe('TC-MA-013 journey preview', () => {
       expect(preview?.entries.filter((entry) => entry.kind === 'step').map((entry) => entry.stepId)).toEqual([`${chosen}1`])
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteOwnPerson(request, token, subjectEntityId)
     }
   })
 
@@ -172,6 +179,7 @@ test.describe('TC-MA-013 journey preview', () => {
         expect(response.status(), JSON.stringify(data)).toBe(400)
       }
     } finally {
+      // No person to remove: this test deliberately sends bodies that name nobody.
       await deleteCampaignIfExists(request, token, campaignId)
     }
   })

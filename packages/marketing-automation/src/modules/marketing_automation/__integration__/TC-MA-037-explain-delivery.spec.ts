@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, saveGraph, setEnabled } from './helpers/marketing'
+import { CAMPAIGNS_PATH, createCampaign, createOwnPerson, deleteCampaignIfExists, deleteOwnPerson, getCampaign, saveGraph, setEnabled } from './helpers/marketing'
 
 type Explanation = {
   wouldSend?: boolean
@@ -19,16 +19,20 @@ type Explanation = {
  * nothing happened at all.
  */
 test.describe('TC-MA-037 explaining delivery', () => {
-  async function anyCustomer(request: APIRequestContext, token: string) {
-    const list = await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token })
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(list)
-    return people?.items?.[0]?.entityId ?? people?.items?.[0]?.id ?? null
+  /**
+   * A person each test owns, rather than whoever the installation happened to list first.
+   *
+   * The old helper returned the first seeded customer and every test skipped itself when there was none —
+   * green while asserting nothing on a fresh database, and explaining delivery for a customer other specs
+   * were also asserting about on a seeded one.
+   */
+  async function ownCustomer(request: APIRequestContext, token: string) {
+    return createOwnPerson(request, token, 'Explain')
   }
 
   test('a disabled campaign is the answer, because it is the commonest one', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const customerId = await anyCustomer(request, token)
-    test.skip(!customerId, 'no customer available in this installation')
+    const customerId = await ownCustomer(request, token)
 
     const campaignId = await createCampaign(request, token, `Explain disabled ${Date.now()}`)
     try {
@@ -46,13 +50,13 @@ test.describe('TC-MA-037 explaining delivery', () => {
       expect(body?.decidedBy).toBe('campaignDisabled')
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteOwnPerson(request, token, customerId)
     }
   })
 
   test('every gate is reported, in the order the engine applies them', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const customerId = await anyCustomer(request, token)
-    test.skip(!customerId, 'no customer available in this installation')
+    const customerId = await ownCustomer(request, token)
 
     const campaignId = await createCampaign(request, token, `Explain gates ${Date.now()}`)
     try {
@@ -70,13 +74,13 @@ test.describe('TC-MA-037 explaining delivery', () => {
       ])
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteOwnPerson(request, token, customerId)
     }
   })
 
   test('an audience the customer is not in is named as the reason', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const customerId = await anyCustomer(request, token)
-    test.skip(!customerId, 'no customer available in this installation')
+    const customerId = await ownCustomer(request, token)
 
     const name = `Explain audience ${Date.now()}`
     const campaignId = await createCampaign(request, token, name)
@@ -113,13 +117,13 @@ test.describe('TC-MA-037 explaining delivery', () => {
         .then((current) => setEnabled(request, token, campaignId, { updatedAt: current.updatedAt, isEnabled: false }))
         .catch(() => undefined)
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteOwnPerson(request, token, customerId)
     }
   })
 
   test('quiet hours defer rather than refuse, and say where the customer is', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const customerId = await anyCustomer(request, token)
-    test.skip(!customerId, 'no customer available in this installation')
+    const customerId = await ownCustomer(request, token)
 
     const name = `Explain quiet ${Date.now()}`
     const campaignId = await createCampaign(request, token, name)
@@ -151,6 +155,7 @@ test.describe('TC-MA-037 explaining delivery', () => {
       expect(quiet?.detail?.timeZone).toBeTruthy()
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteOwnPerson(request, token, customerId)
     }
   })
 
@@ -172,6 +177,7 @@ test.describe('TC-MA-037 explaining delivery', () => {
       )
       expect(unknownCampaign.status()).toBe(404)
     } finally {
+      // No person to remove: this test deliberately asks about uuids that belong to nobody.
       await deleteCampaignIfExists(request, token, campaignId)
     }
   })

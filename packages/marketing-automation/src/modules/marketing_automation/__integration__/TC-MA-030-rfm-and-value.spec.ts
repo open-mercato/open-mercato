@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, PALETTE_PATH, saveGraph } from './helpers/marketing'
+import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, PALETTE_PATH, saveGraph, createOwnPerson, deleteOwnPerson } from './helpers/marketing'
 
 type Profile = {
   orders: { count: number; totalGross: number; averageGross: number | null; firstPlacedAt: string | null }
@@ -27,37 +27,41 @@ type Profile = {
 test.describe('TC-MA-030 RFM and value projection', () => {
   test('the profile answers with the RFM and value keys, null when there is nothing to score', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const list = await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token })
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(list)
-    const customerId = people?.items?.[0]?.entityId ?? people?.items?.[0]?.id
-    test.skip(!customerId, 'no customer available in this installation')
+    // A person this spec owns. It used to take whichever customer the installation listed first,
+    // and skip itself when there was none — green while asserting nothing on a fresh database, and
+    // reading a customer another spec also asserts about on a seeded one.
+    const customerId = await createOwnPerson(request, token, 'Rfm')
+    try {
 
-    const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
-    expect(response.ok(), await response.text()).toBe(true)
-    const profile = await readJsonSafe<Profile>(response)
+      const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
+      expect(response.ok(), await response.text()).toBe(true)
+      const profile = await readJsonSafe<Profile>(response)
 
-    // The keys must be PRESENT, because the screen reads them; their values are legitimately null.
-    expect(profile).toHaveProperty('rfm')
-    expect(profile).toHaveProperty('value')
+      // The keys must be PRESENT, because the screen reads them; their values are legitimately null.
+      expect(profile).toHaveProperty('rfm')
+      expect(profile).toHaveProperty('value')
 
-    if (profile?.orders.count === 0) {
-      // A never-buyer scored 1-1-1 would read as "our worst customer" rather than "not a customer yet".
-      expect(profile.rfm).toBeNull()
-      expect(profile.value).toBeNull()
-      expect(profile.orders.averageGross).toBeNull()
-    } else if (profile?.rfm) {
-      for (const digit of [profile.rfm.recency, profile.rfm.frequency, profile.rfm.monetary]) {
-        expect(digit).toBeGreaterThanOrEqual(1)
-        expect(digit).toBeLessThanOrEqual(5)
+      if (profile?.orders.count === 0) {
+        // A never-buyer scored 1-1-1 would read as "our worst customer" rather than "not a customer yet".
+        expect(profile.rfm).toBeNull()
+        expect(profile.value).toBeNull()
+        expect(profile.orders.averageGross).toBeNull()
+      } else if (profile?.rfm) {
+        for (const digit of [profile.rfm.recency, profile.rfm.frequency, profile.rfm.monetary]) {
+          expect(digit).toBeGreaterThanOrEqual(1)
+          expect(digit).toBeLessThanOrEqual(5)
+        }
+        expect(profile.rfm.cell).toHaveLength(3)
+        expect(profile.rfm.total).toBe(profile.rfm.recency + profile.rfm.frequency + profile.rfm.monetary)
       }
-      expect(profile.rfm.cell).toHaveLength(3)
-      expect(profile.rfm.total).toBe(profile.rfm.recency + profile.rfm.frequency + profile.rfm.monetary)
-    }
 
-    // An order count above zero must come with an average; the two are computed from the same row.
-    if ((profile?.orders.count ?? 0) > 0) {
-      expect(profile?.orders.averageGross).not.toBeNull()
-      expect(profile?.value?.averageOrderGross).toBeGreaterThan(0)
+      // An order count above zero must come with an average; the two are computed from the same row.
+      if ((profile?.orders.count ?? 0) > 0) {
+        expect(profile?.orders.averageGross).not.toBeNull()
+        expect(profile?.value?.averageOrderGross).toBeGreaterThan(0)
+      }
+    } finally {
+      await deleteOwnPerson(request, token, customerId)
     }
   })
 
@@ -122,16 +126,20 @@ test.describe('TC-MA-030 RFM and value projection', () => {
 
   test('the profile reports which categories the customer buys from', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const list = await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token })
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(list)
-    const customerId = people?.items?.[0]?.entityId ?? people?.items?.[0]?.id
-    test.skip(!customerId, 'no customer available in this installation')
+    // A person this spec owns. It used to take whichever customer the installation listed first,
+    // and skip itself when there was none — green while asserting nothing on a fresh database, and
+    // reading a customer another spec also asserts about on a seeded one.
+    const customerId = await createOwnPerson(request, token, 'Rfm')
+    try {
 
-    const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
-    expect(response.ok()).toBe(true)
-    const profile = await readJsonSafe<{ orders?: { categories?: unknown } }>(response)
-    // Present and an array even for somebody who has bought nothing: the screen reads it unconditionally.
-    expect(Array.isArray(profile?.orders?.categories)).toBe(true)
+      const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
+      expect(response.ok()).toBe(true)
+      const profile = await readJsonSafe<{ orders?: { categories?: unknown } }>(response)
+      // Present and an array even for somebody who has bought nothing: the screen reads it unconditionally.
+      expect(Array.isArray(profile?.orders?.categories)).toBe(true)
+    } finally {
+      await deleteOwnPerson(request, token, customerId)
+    }
   })
 
   test('the agent is offered the new audience paths', async ({ request }) => {

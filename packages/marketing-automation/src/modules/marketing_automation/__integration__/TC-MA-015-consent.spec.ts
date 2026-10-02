@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { createOwnPerson, deleteOwnPerson } from './helpers/marketing'
 import fs from 'node:fs'
 import path from 'node:path'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
@@ -159,17 +160,21 @@ test.describe('TC-MA-015 consent and unsubscribe', () => {
 
   test('the customer profile reports consent, including that none is recorded', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const list = await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token })
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(list)
-    const customerId = people?.items?.[0]?.entityId ?? people?.items?.[0]?.id
-    test.skip(!customerId, 'no customer available in this installation')
+    // A person this spec owns. It used to take whichever customer the installation listed first,
+    // and skip itself when there was none — green while asserting nothing on a fresh database, and
+    // reading a customer another spec also asserts about on a seeded one.
+    const customerId = await createOwnPerson(request, token, 'Consent')
+    try {
 
-    const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
-    expect(response.ok(), await response.text()).toBe(true)
-    const profile = await readJsonSafe<{ consent?: { email?: string | null } }>(response)
-    // Null, not false: "nothing on record" and "said no" are different facts and the screen shows both.
-    expect(profile?.consent).toBeDefined()
-    expect([null, 'subscribed', 'unsubscribed']).toContain(profile?.consent?.email ?? null)
+      const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
+      expect(response.ok(), await response.text()).toBe(true)
+      const profile = await readJsonSafe<{ consent?: { email?: string | null } }>(response)
+      // Null, not false: "nothing on record" and "said no" are different facts and the screen shows both.
+      expect(profile?.consent).toBeDefined()
+      expect([null, 'subscribed', 'unsubscribed']).toContain(profile?.consent?.email ?? null)
+    } finally {
+      await deleteOwnPerson(request, token, customerId)
+    }
   })
 })
 

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, saveGraph } from './helpers/marketing'
+import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, saveGraph, createOwnPerson, deleteOwnPerson } from './helpers/marketing'
 
 type Rendered = { stepId?: string; subject?: string; html?: string; text?: string | null; personalised?: boolean }
 
@@ -72,11 +72,10 @@ test.describe('TC-MA-036 render preview', () => {
    */
   test('naming a customer fills the placeholders in', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(
-      await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token }),
-    )
-    const customerId = people?.items?.[0]?.entityId ?? people?.items?.[0]?.id
-    test.skip(!customerId, 'no customer available in this installation')
+    // A person this spec owns. It used to take whichever customer the installation listed first, and skip
+    // itself when there was none — green while asserting nothing on a fresh database, and rendering a
+    // message for a customer other specs were also asserting about on a seeded one.
+    const customerId = await createOwnPerson(request, token, 'Render')
 
     const name = `Render personalised ${Date.now()}`
     const campaignId = await createCampaign(request, token, name)
@@ -96,6 +95,7 @@ test.describe('TC-MA-036 render preview', () => {
       expect(body?.html).not.toContain('{{orders.count}}')
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteOwnPerson(request, token, customerId)
     }
   })
 

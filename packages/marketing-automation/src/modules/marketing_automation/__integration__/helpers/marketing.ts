@@ -1,3 +1,4 @@
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import type { APIRequestContext } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -113,4 +114,37 @@ export async function listRuns(
 ) {
   const query = status ? `?status=${encodeURIComponent(status)}` : ''
   return apiRequest(request, 'GET', `${CAMPAIGNS_PATH}/${id}/runs${query}`, { token })
+}
+
+/**
+ * A person this spec owns, created and deleted by it.
+ *
+ * Ten specs used to take `GET /api/customers/people?pageSize=1` and `test.skip` when the installation had
+ * nobody — so on a fresh database they reported green while asserting nothing, and on a seeded one they
+ * read, scored and tagged a customer another spec was also asserting about. `.ai/qa/AGENTS.md` asks for
+ * self-contained specs for exactly that reason, and TC-MA-016 already did it this way.
+ *
+ * The label goes into the display name with a timestamp so a leaked row says which spec left it.
+ */
+export async function createOwnPerson(
+  request: APIRequestContext,
+  token: string,
+  label: string,
+): Promise<string> {
+  const stamp = Date.now()
+  return createPersonFixture(request, token, {
+    firstName: 'QA',
+    lastName: `${label} ${stamp}`,
+    displayName: `QA ${label} ${stamp}`,
+    primaryEmail: `qa-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${stamp}@test.local`,
+  })
+}
+
+/** Removes a person created by {@link createOwnPerson}. Safe with null, so it can sit in a `finally`. */
+export async function deleteOwnPerson(
+  request: APIRequestContext,
+  token: string,
+  personEntityId: string | null,
+): Promise<void> {
+  await deleteEntityIfExists(request, token, '/api/customers/people', personEntityId)
 }

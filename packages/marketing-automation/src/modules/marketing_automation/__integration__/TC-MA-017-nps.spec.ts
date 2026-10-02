@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists } from './helpers/marketing'
+import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, createOwnPerson, deleteOwnPerson } from './helpers/marketing'
 import { resolveTrackingSecret, trackingSecretEnvNames } from '../lib/tracking/secret'
 import { signTrackingToken } from '../lib/tracking/token'
 import { SURVEY_ANSWER_PATH, TRACKING_TOKEN_PARAM } from '../lib/tracking/urls'
@@ -143,14 +143,18 @@ test.describe('TC-MA-017 NPS survey', () => {
 
   test('the profile reports the NPS field, including that none was ever given', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const list = await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token })
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(list)
-    const customerId = people?.items?.[0]?.entityId ?? people?.items?.[0]?.id
-    test.skip(!customerId, 'no customer available in this installation')
+    // A person this spec owns. It used to take whichever customer the installation listed first,
+    // and skip itself when there was none — green while asserting nothing on a fresh database, and
+    // reading a customer another spec also asserts about on a seeded one.
+    const customerId = await createOwnPerson(request, token, 'Nps')
+    try {
 
-    const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
-    const profile = await readJsonSafe<{ nps?: unknown }>(response)
-    expect(profile).toHaveProperty('nps')
+      const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
+      const profile = await readJsonSafe<{ nps?: unknown }>(response)
+      expect(profile).toHaveProperty('nps')
+    } finally {
+      await deleteOwnPerson(request, token, customerId)
+    }
   })
 
   test('a detractor audience is answerable in the database, and exactly', async ({ request }) => {

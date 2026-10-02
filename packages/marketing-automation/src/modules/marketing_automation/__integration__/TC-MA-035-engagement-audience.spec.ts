@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, saveGraph } from './helpers/marketing'
+import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, saveGraph, createOwnPerson, deleteOwnPerson } from './helpers/marketing'
 
 /**
  * TC-MA-035: targeting people by what they did with the messages.
@@ -80,22 +80,26 @@ test.describe('TC-MA-035 engagement audiences', () => {
 
   test('the profile reports the same silence a campaign would act on', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const list = await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token })
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(list)
-    const customerId = people?.items?.[0]?.entityId ?? people?.items?.[0]?.id
-    test.skip(!customerId, 'no customer available in this installation')
+    // A person this spec owns. It used to take whichever customer the installation listed first,
+    // and skip itself when there was none — green while asserting nothing on a fresh database, and
+    // reading a customer another spec also asserts about on a seeded one.
+    const customerId = await createOwnPerson(request, token, 'Engagement')
+    try {
 
-    const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
-    expect(response.ok()).toBe(true)
-    const profile = await readJsonSafe<{
-      messages?: { sent?: number; opened?: number; clicked?: number; daysSinceEngaged?: number | null; lastEngagedAt?: string | null }
-    }>(response)
+      const response = await apiRequest(request, 'GET', `/api/marketing_automation/customers/${customerId}/profile`, { token })
+      expect(response.ok()).toBe(true)
+      const profile = await readJsonSafe<{
+        messages?: { sent?: number; opened?: number; clicked?: number; daysSinceEngaged?: number | null; lastEngagedAt?: string | null }
+      }>(response)
 
-    expect(typeof profile?.messages?.opened).toBe('number')
-    // Null rather than zero for somebody nobody has written to: there is no silence to measure.
-    expect(profile?.messages).toHaveProperty('daysSinceEngaged')
-    if ((profile?.messages?.sent ?? 0) === 0) {
-      expect(profile?.messages?.daysSinceEngaged).toBeNull()
+      expect(typeof profile?.messages?.opened).toBe('number')
+      // Null rather than zero for somebody nobody has written to: there is no silence to measure.
+      expect(profile?.messages).toHaveProperty('daysSinceEngaged')
+      if ((profile?.messages?.sent ?? 0) === 0) {
+        expect(profile?.messages?.daysSinceEngaged).toBeNull()
+      }
+    } finally {
+      await deleteOwnPerson(request, token, customerId)
     }
   })
 
