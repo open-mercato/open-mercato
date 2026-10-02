@@ -582,6 +582,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "trigger_context": {
+          "name": "trigger_context",
+          "type": "json",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "trigger_event_id": {
           "name": "trigger_event_id",
           "type": "text",

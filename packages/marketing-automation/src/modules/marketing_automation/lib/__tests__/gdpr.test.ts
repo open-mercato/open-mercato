@@ -308,15 +308,18 @@ describe('eraseSubjectData — the free-form columns', () => {
     expect(linkUpdate).toBe(0)
   })
 
-  test('empties the trigger blob, not only the subject id inside the context', async () => {
+  test('nulls the trigger column and the subject id inside the context, in one statement', async () => {
     const { em, executed } = fakeEm()
     await eraseSubjectData(em, 'c1', scope, now)
 
     const contextUpdate = executed.find((entry) => entry.sql.includes('jsonb_set'))
     expect(contextUpdate).toBeDefined()
-    // Both halves in one statement: the id one key deeper, and the partner payload beside it.
+    // The id one key deeper in the queryable half, and the partner payload in the encrypted column beside it.
     expect(contextUpdate?.sql).toContain("'{subjectEntityId}'")
-    expect(contextUpdate?.sql).toContain("jsonb_build_object('trigger'")
+    expect(contextUpdate?.sql).toContain('trigger_context = null')
+    // There is no `trigger` key inside `context` any more; a statement still emptying one would be erasing
+    // a place nothing is stored.
+    expect(contextUpdate?.sql).not.toContain("jsonb_build_object('trigger'")
   })
 
   test('deletes dead letters that mention the person, matched on the uuid', async () => {

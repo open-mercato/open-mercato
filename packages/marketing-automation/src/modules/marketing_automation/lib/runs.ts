@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { raw, UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingCampaignRun, MarketingMessageSend } from '../data/entities.js'
+import { splitRunContext } from './run-context.js'
 import type { RunTransition } from './engine/executor.js'
 import {
   computeClaimLeaseCutoff,
@@ -46,7 +47,7 @@ export async function createRun(
     triggerEventId: input.triggerEventId,
     occurrenceKey: input.occurrenceKey ?? null,
     variantChoices: input.variantChoices ?? null,
-    context: input.context as Record<string, unknown>,
+    ...splitRunContext(input.context),
     currentStepIndex: 0,
     stepLog: [],
     status: 'running',
@@ -168,7 +169,8 @@ export async function applyTransition(
 ): Promise<boolean> {
   const common = {
     stepLog: transition.stepLog as unknown as Record<string, unknown>[],
-    context: transition.context as Record<string, unknown>,
+    // Split for storage: the queryable half stays jsonb, the partner's text goes to the encrypted column.
+    ...splitRunContext(transition.context),
     lastError: null,
   }
 
@@ -247,7 +249,7 @@ export async function failRun(
       currentStepIndex: input.resumeStepIndex,
       currentStepId: input.resumeStepId ?? null,
       stepLog: input.stepLog as unknown as Record<string, unknown>[],
-      context: input.context as Record<string, unknown>,
+      ...splitRunContext(input.context),
     },
   )
   /**

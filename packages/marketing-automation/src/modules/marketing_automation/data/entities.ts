@@ -194,7 +194,7 @@ export class MarketingCampaignTrigger {
  */
 @Index({ name: 'mkt_runs_subject_window_idx', properties: ['tenantId', 'organizationId', 'subjectEntityId', 'startedAt'] })
 export class MarketingCampaignRun {
-  [OptionalProps]?: 'currentStepIndex' | 'currentStepId' | 'stepLog' | 'status' | 'attempts' | 'startedAt' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'currentStepIndex' | 'currentStepId' | 'triggerContext' | 'stepLog' | 'status' | 'attempts' | 'startedAt' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -236,8 +236,29 @@ export class MarketingCampaignRun {
   variantChoices?: Record<string, string> | null
 
   /** JSON-serializable dispatch context, including patches earlier steps contributed. */
+  /**
+   * The run's own facts: ids, scope, the event that started it, whatever steps patched in.
+   *
+   * Queryable on purpose. The erasure finds a person's runs with `context ->> 'subjectEntityId'`, and an
+   * encrypted column cannot answer that — which is why the free-form half lives in `triggerContext` instead
+   * of here.
+   */
   @Property({ type: 'jsonb' })
   context!: Record<string, unknown>
+
+  /**
+   * What the trigger carried, as it arrived. ENCRYPTED.
+   *
+   * An inbound hook copies every key a partner posted — `readInboundPayload` does not filter — so a first
+   * name, a phone number and an address all land here. It used to sit inside `context`, where it was stored
+   * in plaintext jsonb that the runs API returns and every replica carries.
+   *
+   * Split out rather than encrypting `context` whole, because the erasure queries that jsonb in SQL. The
+   * split is applied at the persistence boundary (`lib/run-context.ts`), so everything above the database
+   * still sees one `AutomationContext` with `trigger` on it and `{{trigger.*}}` keeps resolving in copy.
+   */
+  @Property({ name: 'trigger_context', type: 'json', nullable: true })
+  triggerContext?: Record<string, unknown> | null
 
   /** Index of the step to execute next. */
   @Property({ name: 'current_step_index', type: 'integer', default: 0 })

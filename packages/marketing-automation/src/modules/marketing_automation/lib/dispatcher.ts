@@ -18,6 +18,7 @@ import { occurrenceKeyFor } from './occurrence.js'
 import { loadTierThresholds } from './tiers.js'
 import { recordDeadLetter } from './dead-letter.js'
 import { releaseSendSlot, reserveSendSlot, settleSendSlot } from './send-slots.js'
+import { mergeRunContext } from './run-context.js'
 import {
   applyTransition,
   claimRun,
@@ -604,7 +605,7 @@ export async function resumeRun(
         ...(run.stepLog as unknown as StepOutcome[]),
         { stepId: '-', type: '-', status: 'skipped', at: deps.now.toISOString(), detail: 'campaign disabled or removed' },
       ],
-      context: run.context as AutomationContext,
+      context: mergeRunContext(run),
     }, deps.now)
     return 'completed'
   }
@@ -620,7 +621,7 @@ export async function resumeRun(
       currentStepIndex: run.currentStepIndex,
       currentStepId: run.currentStepId ?? null,
       stepLog: run.stepLog as unknown as StepOutcome[],
-      context: run.context as AutomationContext,
+      context: mergeRunContext(run),
     },
   )
 }

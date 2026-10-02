@@ -188,7 +188,7 @@ export async function exportSubjectData(
       status: row.status,
       startedAt: row.startedAt.toISOString(),
       completedAt: row.completedAt ? row.completedAt.toISOString() : null,
-      triggerContext: ((row.context as Record<string, unknown> | null)?.trigger ?? {}) as Record<string, unknown>,
+      triggerContext: (row.triggerContext ?? {}) as Record<string, unknown>,
     })),
     messages: messages.map((row) => ({
       campaignId: row.campaignId ?? null,
@@ -271,10 +271,14 @@ export type ErasureReport = {
  *  1. With the free-form columns handled, a row with no subject id identifies nobody — which is what
  *     erasure has to achieve. This module's own columns were designed to hold no name, address or phone
  *     number, but three places take text it does not control and they are cleared explicitly rather than
- *     assumed empty: the run context's `trigger` blob (an inbound hook puts whatever a partner sent in
- *     there), a send event's `link_url` (an author may interpolate `{{customer.email}}` into a link), and
- *     a dead letter's raw payload. The earlier version of this reasoning asserted the columns held nothing
+ *     assumed empty: the run's `trigger_context` (an inbound hook puts whatever a partner sent in there), a
+ *     send event's `link_url` (an author may interpolate `{{customer.email}}` into a link), and a dead
+ *     letter's raw payload. The earlier version of this reasoning asserted the columns held nothing
  *     identifying and stopped there, which was true of the schema and not of what goes into it.
+ *
+ *     `trigger_context` is nulled rather than emptied, and it is a column rather than a jsonb key because it
+ *     is encrypted at rest — which is also why this statement no longer touches a `trigger` key inside
+ *     `context`: there is not one any more.
  *  2. Deleting them would silently rewrite history. A campaign that reported 4,000 sends last quarter
  *     would start reporting 3,850, and every number an operator wrote down would quietly stop matching.
  *     Erasure is a duty to one person; falsifying an audit trail is a harm to everybody else.
@@ -391,8 +395,8 @@ async function eraseWithin(
    */
   await em.execute(
     `update marketing_campaign_runs
-        set context = jsonb_set(context, '{subjectEntityId}', 'null'::jsonb)
-                        || jsonb_build_object('trigger', '{}'::jsonb)
+        set context = jsonb_set(context, '{subjectEntityId}', 'null'::jsonb),
+            trigger_context = null
       where tenant_id = ? and organization_id = ?
         and context ->> 'subjectEntityId' = ?`,
     [scope.tenantId, scope.organizationId, subjectEntityId],
