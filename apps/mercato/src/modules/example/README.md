@@ -28,6 +28,8 @@ yarn db:migrate
 - Copy **one** capability at a time, from the exact file listed in the surface map.
 - Some files are marked `qa-only` and must not be used as a pattern at all — see below.
 
+For a search box over an encrypted field, start at [Encrypted-column list filtering](references/surface-map.md#encrypted-column-list-filtering); it requires a populated scoped query index, even when the encrypted field is excluded from fulltext/vector search.
+
 ## Start here: capability lookup
 
 Do not browse this directory. Look your capability up first:

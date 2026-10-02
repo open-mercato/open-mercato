@@ -9,9 +9,9 @@
   },
   "derived": {
     "ownerCount": 30,
-    "recordCount": 138,
-    "sourceRequiredCount": 113,
-    "renderedLinkCount": 115,
+    "recordCount": 143,
+    "sourceRequiredCount": 118,
+    "renderedLinkCount": 120,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -2818,6 +2818,157 @@
       ]
     },
     {
+      "topicId": "om-data-model-design/sensitive-data:api/todos/route.ts",
+      "referenceId": "om-data-model-design/sensitive-data:api/todos/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/todos/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/todos/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-query-engine-custom-fields",
+        "search.encrypted-column-list-filter"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
+        "src/modules/example/__integration__/todo-priority-validation.spec.ts",
+        "src/modules/example/api/__tests__/todos.encrypted-search.test.ts",
+        "src/modules/example/api/__tests__/todos.request-scope.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/api/todos/route.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:encryption.ts",
+      "referenceId": "om-data-model-design/sensitive-data:encryption.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/encryption.ts",
+      "targetAuthoringPath": "template/src/modules/example/encryption.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
+        "src/modules/example/__tests__/encryption-search-contract.test.ts",
+        "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/encryption.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "referenceId": "om-data-model-design/sensitive-data:node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/query/engine.ts"
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:search.ts",
+      "referenceId": "om-data-model-design/sensitive-data:search.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/search.ts",
+      "targetAuthoringPath": "template/src/modules/example/search.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "search.module-config"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-006-search.spec.ts",
+        "src/modules/example/__tests__/encryption-search-contract.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/search.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
       "topicId": "om-data-model-design:references/surface-map.md",
       "referenceId": "om-data-model-design:references/surface-map.md",
       "requirement": "source-required",
@@ -3334,6 +3485,43 @@
       ]
     },
     {
+      "topicId": "om-module-scaffold/api-and-domain:.ai/skills/om-data-model-design/references/sensitive-data.md",
+      "referenceId": "om-module-scaffold/api-and-domain:.ai/skills/om-data-model-design/references/sensitive-data.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "API and Domain Writes",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-219",
+        "OMH-222",
+        "OMH-223"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../om-data-model-design/references/sensitive-data.md#encrypted-list-search",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
       "topicId": "om-module-scaffold/api-and-domain:README.md",
       "referenceId": "om-module-scaffold/api-and-domain:README.md",
       "requirement": "source-required",
@@ -3597,6 +3785,7 @@
       "integrationTestPaths": [
         "src/modules/example/__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts",
         "src/modules/example/__integration__/TC-EXAMPLE-002-query-index-failure.spec.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts",
         "src/modules/example/__integration__/todo-priority-validation.spec.ts",
         "src/modules/example/api/__tests__/todos.encrypted-search.test.ts",
         "src/modules/example/api/__tests__/todos.request-scope.test.ts"
