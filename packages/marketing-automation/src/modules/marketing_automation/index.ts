@@ -27,6 +27,10 @@ export const metadata: ModuleInfo = {
    * this module reads another module's data at all — today it is raw SQL against their tables, which is the
    * finding this comment does not pretend to have fixed. The read-model decision belongs in the spec, and the
    * degrade-when-absent work follows it rather than preceding it.
+   *
+   * `customer_accounts` is declared for the same reason `catalog` was: the portal preference centre reads its
+   * session helpers (`api/portal/preferences/route.ts`), so the dependency existed undeclared. It carries none
+   * of the optionality question above — both module registries enable it unconditionally.
    */
-  requires: ['customers', 'sales', 'catalog', 'business_rules'],
+  requires: ['customers', 'customer_accounts', 'sales', 'catalog', 'business_rules'],
 }
