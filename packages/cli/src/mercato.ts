@@ -1154,6 +1154,13 @@ export async function run(argv = process.argv) {
       if (employeeEmailDerived && derivedSecrets.employeePassword) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
+      // Symmetrical with the passwords above: setupInitialTenant derives admin/employee
+      // emails from a hardcoded DEFAULT_DERIVED_EMAIL_DOMAIN ('acme.com') when these are
+      // unset, so without this the summary banner (which reads adminEmailDerived/
+      // employeeEmailDerived directly) and the actually-seeded accounts silently disagree
+      // for any --email domain other than acme.com (#5806).
+      if (adminEmailDerived) process.env.OM_INIT_ADMIN_EMAIL = adminEmailDerived
+      if (employeeEmailDerived) process.env.OM_INIT_EMPLOYEE_EMAIL = employeeEmailDerived
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
       const skipPasswordPolicyRaw = initArgs.find((arg) =>
         arg === '--skip-password-policy' ||
