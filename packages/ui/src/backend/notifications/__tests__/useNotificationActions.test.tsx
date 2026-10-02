@@ -32,7 +32,7 @@ type RunMutationInput = {
   mutationPayload: Record<string, unknown>
 }
 
-function makeNotification(id: string, status: 'unread' | 'read' = 'unread'): NotificationDto {
+function makeNotification(id: string, status: NotificationDto['status'] = 'unread'): NotificationDto {
   return {
     id,
     type: 'example',
@@ -132,6 +132,70 @@ describe('useNotificationActions guarded mutations', () => {
       '/api/notifications/n1/restore',
       expect.objectContaining({ method: 'PUT' }),
     )
+  })
+
+  it.each([
+    ['actioned', 'actioned'],
+    ['read', 'read'],
+    ['unread', 'unread'],
+  ] as const)('puts an undone %s notification back as %s', async (status, restoredStatus) => {
+    const setNotifications = jest.fn()
+    const setUnreadCount = jest.fn()
+    const notification = { ...makeNotification('n1', status), readAt: status === 'unread' ? null : '2026-01-01T10:00:00.000Z' }
+    const { result } = renderHook(() =>
+      useNotificationActions([notification], setNotifications, setUnreadCount),
+    )
+    await act(async () => {
+      await result.current.dismiss('n1')
+    })
+    setNotifications.mockClear()
+    await act(async () => {
+      await result.current.undoDismiss()
+    })
+
+    expect(setNotifications).toHaveBeenCalledTimes(1)
+    const restore = setNotifications.mock.calls[0][0] as (prev: NotificationDto[]) => NotificationDto[]
+    const [restored] = restore([])
+    expect(restored.id).toBe('n1')
+    expect(restored.status).toBe(restoredStatus)
+    expect(restored.readAt ?? null).toBe(notification.readAt)
+  })
+
+  it('marks the local notification actioned when the server reports the action already ran', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      result: { error: 'Notification action already executed', code: 'notification_action_already_executed' },
+    })
+    const setNotifications = jest.fn()
+    const setUnreadCount = jest.fn()
+    const notification = makeNotification('n1', 'read')
+    const { result } = renderHook(() =>
+      useNotificationActions([notification], setNotifications, setUnreadCount),
+    )
+    await act(async () => {
+      await result.current.executeAction('n1', 'approve')
+    })
+
+    expect(setNotifications).toHaveBeenCalledTimes(1)
+    const update = setNotifications.mock.calls[0][0] as (prev: NotificationDto[]) => NotificationDto[]
+    expect(update([notification, makeNotification('n2', 'read')]).map((n) => n.status)).toEqual(['actioned', 'read'])
+    expect(setUnreadCount).not.toHaveBeenCalled()
+  })
+
+  it('leaves the local notification alone when the action command itself answers 409', async () => {
+    apiCallMock.mockResolvedValue({ ok: false, status: 409, result: { error: 'Order was changed by someone else' } })
+    const setNotifications = jest.fn()
+    const setUnreadCount = jest.fn()
+    const { result } = renderHook(() =>
+      useNotificationActions([makeNotification('n1', 'read')], setNotifications, setUnreadCount),
+    )
+    await act(async () => {
+      await result.current.executeAction('n1', 'approve')
+    })
+
+    expect(setNotifications).not.toHaveBeenCalled()
+    expect(setUnreadCount).not.toHaveBeenCalled()
   })
 
   it('routes markAllRead through the guarded mutation path', async () => {

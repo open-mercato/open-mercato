@@ -3,7 +3,10 @@ import * as React from 'react'
 import { apiCall, apiCallOrThrow } from '../utils/apiCall'
 import { useGuardedMutation } from '../injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import {
+  NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
+  type NotificationDto,
+} from '@open-mercato/shared/modules/notifications/types'
 
 const NOTIFICATION_ACTIONS_CONTEXT_ID = 'notifications-actions'
 
@@ -68,7 +71,7 @@ export function useNotificationActions(
   const executeAction = React.useCallback(async (id: string, actionId: string) => {
     const result = await runMutation({
       operation: () =>
-        apiCall<{ ok: boolean; href?: string }>(
+        apiCall<{ ok?: boolean; href?: string; code?: string }>(
           `/api/notifications/${id}/action`,
           {
             method: 'POST',
@@ -87,6 +90,13 @@ export function useNotificationActions(
         ),
       )
       setUnreadCount((prev) => Math.max(0, prev - 1))
+    } else if (
+      result.status === 409 &&
+      result.result?.code === NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE
+    ) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, status: 'actioned' } : n)),
+      )
     }
 
     return { href: result.result?.href }
@@ -139,7 +149,8 @@ export function useNotificationActions(
       const next = [
         {
           ...dismissUndo.notification,
-          status: dismissUndo.previousStatus,
+          status:
+            dismissUndo.notification.status === 'actioned' ? 'actioned' : dismissUndo.previousStatus,
           readAt:
             dismissUndo.previousStatus === 'unread'
               ? null

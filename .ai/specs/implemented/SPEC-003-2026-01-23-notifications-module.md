@@ -2458,6 +2458,9 @@ External channels (email) link to a dedicated backend route (`/backend/notificat
 
 ## Changelog
 
+### 2026-10-02
+- An executed action stays executed across dismiss and restore: `executeAction` refuses (409, `code: notification_action_already_executed`) while `actioned_at` is set, restoring a dismissed notification whose action ran brings it back as `actioned`, and a failed command releases its claim by `actioned_at`/`action_taken` so a concurrent dismissal is kept.
+
 ### 2026-04-15
 - Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs).
 

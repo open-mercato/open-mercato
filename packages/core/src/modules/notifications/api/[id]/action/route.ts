@@ -88,6 +88,14 @@ export const openApi = {
           },
         },
       },
+      409: {
+        description: 'The notification action was already executed (`code: notification_action_already_executed`), or a mutation guard or the action command reported a conflict',
+        content: {
+          'application/json': {
+            schema: errorResponseSchema,
+          },
+        },
+      },
       400: {
         description: 'Action not found or failed',
         content: {
