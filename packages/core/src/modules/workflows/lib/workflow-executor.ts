@@ -15,6 +15,7 @@ import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgr
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  UserTask,
   WorkflowDefinition,
   WorkflowInstance,
   WorkflowEvent,
@@ -1507,9 +1508,41 @@ export async function completeWorkflow(
       break
   }
 
+  // A cancelled run has no recovery path, so its open tasks can never become
+  // actionable again: close them in the same flush as the status. CANCELLED
+  // only — a FAILED run parked on a task is retried against that same task.
+  const cancelledTasks =
+    status === 'CANCELLED'
+      ? await em.find(UserTask, {
+          workflowInstanceId: instance.id,
+          tenantId: instance.tenantId,
+          organizationId: instance.organizationId,
+          status: { $in: ['PENDING', 'IN_PROGRESS'] },
+        })
+      : []
+
+  for (const task of cancelledTasks) {
+    task.status = 'CANCELLED'
+    task.updatedAt = now
+  }
+
   await writeRunOutcome(em, instance, status)
 
   await em.flush()
+
+  // Logged before the terminal event so WORKFLOW_CANCELLED stays last in the
+  // run's timeline.
+  for (const task of cancelledTasks) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instanceId,
+      stepInstanceId: task.stepInstanceId,
+      ...(task.branchInstanceId ? { branchInstanceId: task.branchInstanceId } : {}),
+      eventType: 'USER_TASK_CANCELLED',
+      eventData: { taskId: task.id, taskName: task.taskName, reason: 'workflow-cancelled' },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
 
   // Log completion event
   const eventType =
@@ -2047,6 +2080,7 @@ async function logWorkflowEvent(
   event: {
     workflowInstanceId: string
     stepInstanceId?: string
+    branchInstanceId?: string
     eventType: string
     eventData: any
     userId?: string

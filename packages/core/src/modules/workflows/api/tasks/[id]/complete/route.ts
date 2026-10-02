@@ -161,6 +161,14 @@ export async function POST(
           { status: 409 }
         )
       }
+      // The run the task belongs to is closed. `code` lets a client tell this
+      // conflict apart from the other 409s this route answers.
+      if ((error as { code?: unknown }).code === 'WORKFLOW_NOT_ACTIVE') {
+        return NextResponse.json(
+          { error: error.message, code: 'WORKFLOW_NOT_ACTIVE' },
+          { status: 409 }
+        )
+      }
       if (error.message.includes('not found')) {
         return NextResponse.json(
           { error: error.message },
@@ -210,7 +218,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
         { status: 403, description: 'The task is visible to the caller but is not theirs to act on — it has no assignee and no role queue, so it must be reassigned first (§6.4: administration widens seeing, never acting).', schema: workflowErrorSchema },
         { status: 404, description: 'Task not found, or not visible to the caller', schema: workflowErrorSchema },
-        { status: 409, description: 'Task already completed', schema: workflowErrorSchema },
+        { status: 409, description: 'Task already completed, assigned to another user, or its workflow run is no longer active (`code: WORKFLOW_NOT_ACTIVE` — the run is completed, failed, cancelled, compensating or compensated)', schema: workflowErrorSchema },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
       ],
     },
