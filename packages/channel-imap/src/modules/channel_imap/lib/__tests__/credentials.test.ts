@@ -59,6 +59,12 @@ describe('imapCredentialsSchema', () => {
     expect(() => imapCredentialsSchema.parse({ ...valid, smtpHost: 'localhost' })).toThrow(/private or loopback/i)
   })
 
+  it('rejects IPv6-embedded internal IPv4 hosts (NAT64, 6to4, IPv4-compatible)', () => {
+    expect(() => imapCredentialsSchema.parse({ ...valid, imapHost: '64:ff9b::7f00:1' })).toThrow(/private or loopback/i)
+    expect(() => imapCredentialsSchema.parse({ ...valid, smtpHost: '2002:7f00:1::' })).toThrow(/private or loopback/i)
+    expect(() => imapCredentialsSchema.parse({ ...valid, imapHost: '::7f00:1' })).toThrow(/private or loopback/i)
+  })
+
   it('honors the OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS escape hatch', () => {
     const previous = process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS
     process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS = 'true'
@@ -103,6 +109,15 @@ describe('isInternalHost (SSRF guard)', () => {
     'fe80::1',
     '::ffff:127.0.0.1',
     '::ffff:169.254.169.254',
+    '64:ff9b::7f00:1',
+    '64:ff9b::127.0.0.1',
+    '[64:ff9b::a9fe:a9fe]',
+    '2002:7f00:1::',
+    '2002:a9fe:a9fe::1',
+    '[2002:a00:1::]',
+    '::7f00:1',
+    '::127.0.0.1',
+    '[::a9fe:a9fe]',
   ]
 
   const allowed = [
@@ -113,6 +128,9 @@ describe('isInternalHost (SSRF guard)', () => {
     '1.1.1.1',
     '203.0.113.10',
     '2001:4860:4860::8888',
+    '2606:4700:4700::1111',
+    '64:ff9b::808:808',
+    '2002:808:808::1',
   ]
 
   it.each(blocked)('blocks internal/obfuscated host %s', (host) => {
