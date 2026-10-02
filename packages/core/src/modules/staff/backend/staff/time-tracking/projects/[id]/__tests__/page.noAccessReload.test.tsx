@@ -71,6 +71,18 @@ jest.mock('../../../../../../lib/time-tracking-ui/ProjectTeamDrawer', () => ({
   ProjectTeamDrawer: () => null,
 }))
 
+const mockErrorRender = jest.fn()
+jest.mock('@open-mercato/ui/backend/detail', () => {
+  const actual = jest.requireActual('@open-mercato/ui/backend/detail')
+  return {
+    ...actual,
+    ErrorMessage: (props: { label: string }) => {
+      mockErrorRender(props.label)
+      return <div role="alert">{props.label}</div>
+    },
+  }
+})
+
 jest.mock('../../../../../../lib/time-tracking-ui/NoProjectAccess', () => ({
   NoProjectAccess: () => {
     const [sent, setSent] = React.useState(false)
@@ -151,6 +163,22 @@ describe('project detail no-access guard', () => {
 
     view.rerender(<TimesheetProjectDetailPage params={{ id: OTHER_PROJECT_ID }} />)
     expect(screen.queryByRole('button', { name: 'Request access' })).not.toBeInTheDocument()
+    expect(screen.getByText('Loading project...')).toBeInTheDocument()
+  })
+
+  // `rerender` flushes effects, so the page looks "loading" by the time it
+  // returns either way. What the guard prevents is the render BEFORE that
+  // effect: the previous project's outcome painted for the new id.
+  it('never renders the previous project\'s error for the project the route moved to', async () => {
+    const OTHER_PROJECT_ID = '22222222-2222-4222-8222-222222222222'
+    projectResponse = { ok: false, status: 500, result: {}, response: {} }
+    const view = render(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+    await settleProjectLoad()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load project.')
+
+    mockErrorRender.mockClear()
+    view.rerender(<TimesheetProjectDetailPage params={{ id: OTHER_PROJECT_ID }} />)
+    expect(mockErrorRender).not.toHaveBeenCalled()
     expect(screen.getByText('Loading project...')).toBeInTheDocument()
   })
 })

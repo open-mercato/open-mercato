@@ -19,7 +19,7 @@
   "example.calendar.visitAvailability.lookupFailed": "No se pudieron cargar las opciones. Vuelve a buscar.",
   "example.calendar.visitAvailability.missingScope": "No se puede comprobar la disponibilidad de esta selección.",
   "example.calendar.visitAvailability.namedReason": "{{name}}: {{reason}}",
-  "example.calendar.visitAvailability.noSchedule": "Ningún horario de disponibilidad cubre la visita.",
+  "example.calendar.visitAvailability.noSchedule": "Ningún horario de disponibilidad cubre este horario.",
   "example.calendar.visitAvailability.optionalModulesTitle": "Comprobaciones de disponibilidad opcionales",
   "example.calendar.visitAvailability.outsideHours": "Fuera del horario de trabajo disponible.",
   "example.calendar.visitAvailability.pending": "Comprobando la disponibilidad…",

@@ -63,7 +63,7 @@ function formatClock(date: Date): string {
 }
 
 // Debounced save-time conflict probe. Detection uses the SAME `findConflicts`
-// logic the grid uses (overlap + shared owner/participant) against a freshly
+// logic the grid uses (overlap + shared owner/participant/resource) against a freshly
 // fetched ±1-day window, so the editor warning is always consistent with the
 // conflict badges/rings the user sees on the calendar. The warning is
 // informational and never blocks saving.
@@ -150,6 +150,7 @@ export function useConflictProbe(
             participants: form.participants.map((participant) => ({ userId: participant.userId, name: participant.name })),
             status: form.status,
             resources: [...draftResources],
+            ownerLabel: draftOwnerUserId && draftOwnerUserId === form.assigneeUserId ? form.assigneeName : null,
           },
           others,
           excludeId,

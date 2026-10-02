@@ -6,9 +6,11 @@ import type { ConflictScope } from './preferences'
 export const EDITOR_DRAFT_CONFLICT_ID = '__draft__'
 
 export type FindConflictsOptions = {
-  // 'all' (default) flags any actor-sharing overlap; 'mine' only flags overlaps
-  // where `currentUserId` is an actor of BOTH events (the user is double-booked).
-  // 'mine' with no `currentUserId` degrades to 'all' — it cannot resolve "mine".
+  // 'all' (default) flags any overlap that shares a person or a resource. 'mine'
+  // narrows the PEOPLE overlaps to those where `currentUserId` is an actor of BOTH
+  // events (the user is double-booked); a shared resource is flagged in both
+  // scopes. 'mine' with no `currentUserId` degrades to 'all' — it cannot resolve
+  // "mine".
   scope?: ConflictScope
   currentUserId?: string | null
 }
@@ -123,6 +125,9 @@ export type EditorConflictDraft = {
   status?: CalendarItemStatus
   // Resources the draft books. Omitted when the type has no resources field.
   resources?: Array<{ id: string; label: string }>
+  // Display name of `ownerUserId`, when the editor knows it (a task's assignee).
+  // An owner who is not also a participant has no name on either event.
+  ownerLabel?: string | null
 }
 
 export type EditorConflict = { item: CalendarItem; shared: ConflictSubject[] }
@@ -180,7 +185,13 @@ export function findEditorConflicts(
   return conflictIds
     .map((id) => byId.get(id))
     .filter((item): item is CalendarItem => Boolean(item))
-    .map((item) => ({ item, shared: sharedConflictSubjects(draftItem, item) }))
+    .map((item) => ({
+      item,
+      shared: sharedConflictSubjects(draftItem, item).map((subject) =>
+        !subject.label && draft.ownerLabel && subject.key === `user:${draft.ownerUserId}`
+          ? { ...subject, label: draft.ownerLabel }
+          : subject),
+    }))
 }
 
 export function findEditorConflictItems(

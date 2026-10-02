@@ -77,7 +77,7 @@ describe('VisitPanel optional availability modules', () => {
     expect(warning.querySelectorAll('li')).toHaveLength(4)
     expect(warning).toHaveTextContent('Alex server: Outside available working hours.')
     expect(warning).toHaveTextContent('Sam: Already booked at this time.')
-    expect(warning).toHaveTextContent('Room: No availability schedule covers the visit.')
+    expect(warning).toHaveTextContent('Room: No availability schedule covers this time.')
     expect(warning).toHaveTextContent('Desk: Already booked at this time.')
     expect(warning).not.toHaveTextContent('11111111-1111-4111-8111-111111111111')
   })

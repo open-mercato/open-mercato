@@ -19,7 +19,7 @@
   "example.calendar.visitAvailability.lookupFailed": "옵션을 불러올 수 없습니다. 다시 검색하세요.",
   "example.calendar.visitAvailability.missingScope": "이 선택 항목의 가능 여부를 확인할 수 없습니다.",
   "example.calendar.visitAvailability.namedReason": "{{name}}: {{reason}}",
-  "example.calendar.visitAvailability.noSchedule": "방문 시간을 포함하는 가능 일정이 없습니다.",
+  "example.calendar.visitAvailability.noSchedule": "이 시간을 포함하는 가용성 일정이 없습니다.",
   "example.calendar.visitAvailability.optionalModulesTitle": "선택적 가용성 확인",
   "example.calendar.visitAvailability.outsideHours": "가능한 근무 시간 외입니다.",
   "example.calendar.visitAvailability.pending": "가능 여부를 확인하는 중…",

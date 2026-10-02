@@ -32,6 +32,7 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
     let token: string | null = null
     let personId: string | null = null
     let resourceId: string | null = null
+    let ruleId: string | null = null
     let bookingId: string | null = null
     try {
       token = await getAuthToken(request, 'admin')
@@ -52,6 +53,16 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
       // spans the next several hours overlaps it whenever the test runs.
       const bookingStart = new Date()
       bookingStart.setMinutes(0, 0, 0)
+      // An existing booking is only reported for a subject its schedule makes
+      // available, so the room is available around the clock from yesterday on.
+      const scheduleStart = new Date(bookingStart.getTime() - 24 * 60 * 60_000)
+      const scheduleAnchor = `${scheduleStart.toISOString().slice(0, 10).replace(/-/g, '')}T000000Z`
+      const rule = await apiRequest(request, 'POST', '/api/planner/availability', {
+        token, data: { subjectType: 'resource', subjectId: resourceId, timezone: 'UTC',
+          rrule: `DTSTART:${scheduleAnchor}\nDURATION:PT24H\nRRULE:FREQ=DAILY`, kind: 'availability', exdates: [] },
+      })
+      expect(rule.status(), await rule.text()).toBe(201)
+      ruleId = (await rule.json() as { id?: string }).id ?? null
       const booking = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token,
         data: {
@@ -82,10 +93,11 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
       // Example availability preview, advisory on every type that can book.
       const availability = dialog.getByTestId('example-availability-panel')
       await expect(availability).toBeVisible({ timeout: 20_000 })
-      await expect(availability).toContainText(resourceName)
+      await expect(availability).toContainText(`${resourceName}: Already booked at this time.`)
       await expect(dialog.getByTestId('example-visit-panel')).toHaveCount(0)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', bookingId)
+      await deleteEntityIfExists(request, token, '/api/planner/availability', ruleId)
       await deleteEntityIfExists(request, token, '/api/resources/resources', resourceId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }

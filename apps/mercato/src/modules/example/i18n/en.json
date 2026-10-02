@@ -19,7 +19,7 @@
   "example.calendar.visitAvailability.lookupFailed": "Options could not be loaded. Try the search again.",
   "example.calendar.visitAvailability.missingScope": "Availability cannot be checked for this selection.",
   "example.calendar.visitAvailability.namedReason": "{{name}}: {{reason}}",
-  "example.calendar.visitAvailability.noSchedule": "No availability schedule covers the visit.",
+  "example.calendar.visitAvailability.noSchedule": "No availability schedule covers this time.",
   "example.calendar.visitAvailability.optionalModulesTitle": "Optional availability checks",
   "example.calendar.visitAvailability.outsideHours": "Outside available working hours.",
   "example.calendar.visitAvailability.pending": "Checking availability…",

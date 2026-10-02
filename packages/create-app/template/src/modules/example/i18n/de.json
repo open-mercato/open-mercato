@@ -19,7 +19,7 @@
   "example.calendar.visitAvailability.lookupFailed": "Optionen konnten nicht geladen werden. Versuchen Sie die Suche erneut.",
   "example.calendar.visitAvailability.missingScope": "Die Verfügbarkeit kann für diese Auswahl nicht geprüft werden.",
   "example.calendar.visitAvailability.namedReason": "{{name}}: {{reason}}",
-  "example.calendar.visitAvailability.noSchedule": "Kein Verfügbarkeitsplan deckt den Besuch ab.",
+  "example.calendar.visitAvailability.noSchedule": "Kein Verfügbarkeitsplan deckt diese Zeit ab.",
   "example.calendar.visitAvailability.optionalModulesTitle": "Optionale Verfügbarkeitsprüfungen",
   "example.calendar.visitAvailability.outsideHours": "Außerhalb der verfügbaren Arbeitszeiten.",
   "example.calendar.visitAvailability.pending": "Verfügbarkeit wird geprüft…",

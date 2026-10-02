@@ -234,6 +234,18 @@ describe('resolveSavedOwnerUserId', () => {
     expect(result.map((conflict) => conflict.item.id)).toEqual(['booked'])
   })
 
+  it('names a shared owner who is not a participant when the editor knows the name', () => {
+    const others = [makeCalendarItem({ id: 'task', start: at(9, 30), end: at(10, 30), ownerUserId: 'owner-1' })]
+    const named = findEditorConflicts(
+      { start: at(9), end: at(10), ownerUserId: 'owner-1', participants: [], ownerLabel: 'Sam Assignee' },
+      others,
+      null,
+    )
+    expect(named[0]!.shared).toEqual([{ kind: 'person', key: 'user:owner-1', label: 'Sam Assignee' }])
+    const unnamed = findEditorConflicts({ start: at(9), end: at(10), ownerUserId: 'owner-1', participants: [] }, others, null)
+    expect(unnamed[0]!.shared).toEqual([{ kind: 'person', key: 'user:owner-1', label: '' }])
+  })
+
   it('rings two grid events that book the same resource', () => {
     const room = { id: 'room-1', type: 'resource', label: 'Focus Room 1' }
     const conflicts = findConflicts([

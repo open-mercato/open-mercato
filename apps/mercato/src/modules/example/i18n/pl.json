@@ -19,7 +19,7 @@
   "example.calendar.visitAvailability.lookupFailed": "Nie można wczytać opcji. Spróbuj wyszukać ponownie.",
   "example.calendar.visitAvailability.missingScope": "Nie można sprawdzić dostępności tego wyboru.",
   "example.calendar.visitAvailability.namedReason": "{{name}}: {{reason}}",
-  "example.calendar.visitAvailability.noSchedule": "Żaden harmonogram dostępności nie obejmuje wizyty.",
+  "example.calendar.visitAvailability.noSchedule": "Żaden harmonogram dostępności nie obejmuje tego czasu.",
   "example.calendar.visitAvailability.optionalModulesTitle": "Opcjonalne sprawdzanie dostępności",
   "example.calendar.visitAvailability.outsideHours": "Poza dostępnymi godzinami pracy.",
   "example.calendar.visitAvailability.pending": "Sprawdzanie dostępności…",

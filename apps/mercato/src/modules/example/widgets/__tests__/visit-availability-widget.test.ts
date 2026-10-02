@@ -76,7 +76,7 @@ describe('selected Visit availability widget', () => {
     const result = await widget.eventHandlers?.onBeforeSave?.({ ...values, id }, { sharedState: { get: () => createTranslator(dictionary) } })
     expect(result).toEqual({ ok: false, fieldErrors: {
       participants: 'Alex server: Outside available working hours.\nSam: Already booked at this time.',
-      resources: 'Room: No availability schedule covers the visit.',
+      resources: 'Room: No availability schedule covers this time.',
     } })
     const url = new URL(String(jest.mocked(apiCall).mock.calls[1]?.[0]), 'http://localhost')
     expect(url.searchParams.get('excludeInteractionId')).toBe(id)
