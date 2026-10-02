@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -31,7 +32,19 @@ export default function PriceWatchDemandPage() {
     setLoadFailed(false)
     try {
       const result = await apiCall<{ items?: DemandRow[] }>('/api/marketing_automation/watches?limit=200')
-      setRows(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
+      /**
+       * A non-ok response is not an empty list.
+       *
+       * `apiCall` resolves rather than throwing on 401/403/500, so the `catch` below only ever saw a
+       * transport error — an expired session or a server fault fell through to an empty array and the page
+       * rendered its "nothing here yet" state, which is the most reassuring possible lie.
+       */
+      if (!result.ok || !Array.isArray(result.result?.items)) {
+        setRows([])
+        setLoadFailed(true)
+        return
+      }
+      setRows(result.result.items)
     } catch {
       setLoadFailed(true)
     } finally {
@@ -64,23 +77,33 @@ export default function PriceWatchDemandPage() {
       <PageBody>
         {loadFailed ? (
           <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.demand.loadFailed', 'Could not load the price watches.')} />
+            <ErrorMessage
+              label={t('marketing_automation.demand.loadFailed', 'Could not load the price watches.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.demand.retry', 'Try again')}
+                </Button>
+              )}
+            />
           </div>
         ) : null}
         <div className="mb-3 text-xs text-muted-foreground">
           {t('marketing_automation.demand.hint', 'A customer watching a product is the clearest signal a shop gets. A drop of 5% or more starts the campaign triggered by "Watched product price dropped".')}
         </div>
-        <DataTable
-          columns={columns}
-          data={rows}
-          isLoading={loading}
-          emptyState={(
-            <ListEmptyState
-              title={t('marketing_automation.demand.emptyTitle', 'Nobody is watching a product yet')}
-              description={t('marketing_automation.demand.emptyBody', 'Watches are created through the API — a storefront or an app calls it when a customer asks to be told about a price.')}
-            />
-          )}
-        />
+        {/* Not under the error: an empty table there would still make a claim about data nobody read. */}
+        {loadFailed ? null : (
+          <DataTable
+            columns={columns}
+            data={rows}
+            isLoading={loading}
+            emptyState={(
+              <ListEmptyState
+                title={t('marketing_automation.demand.emptyTitle', 'Nobody is watching a product yet')}
+                description={t('marketing_automation.demand.emptyBody', 'Watches are created through the API — a storefront or an app calls it when a customer asks to be told about a price.')}
+              />
+            )}
+          />
+        )}
       </PageBody>
     </Page>
   )

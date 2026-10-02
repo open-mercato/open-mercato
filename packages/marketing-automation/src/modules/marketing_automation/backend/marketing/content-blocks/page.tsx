@@ -47,7 +47,19 @@ export default function ContentBlocksPage() {
     setLoadFailed(false)
     try {
       const result = await apiCall<{ items?: BlockRow[] }>('/api/marketing_automation/content-blocks?pageSize=100')
-      setRows(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
+      /**
+       * A non-ok response is not an empty list.
+       *
+       * `apiCall` resolves rather than throwing on 401/403/500, so the `catch` below only ever saw a
+       * transport error — an expired session or a server fault fell through to an empty array and the page
+       * rendered its "nothing here yet" state, which is the most reassuring possible lie.
+       */
+      if (!result.ok || !Array.isArray(result.result?.items)) {
+        setRows([])
+        setLoadFailed(true)
+        return
+      }
+      setRows(result.result.items)
     } catch {
       setLoadFailed(true)
     } finally {
@@ -159,23 +171,33 @@ export default function ContentBlocksPage() {
         {ConfirmDialogElement}
         {loadFailed ? (
           <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.blocks.loadFailed', 'Could not load the blocks.')} />
+            <ErrorMessage
+              label={t('marketing_automation.blocks.loadFailed', 'Could not load the blocks.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.blocks.retry', 'Try again')}
+                </Button>
+              )}
+            />
           </div>
         ) : null}
 
         <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
           <div>
-            <DataTable
-              columns={columns}
-              data={rows}
-              isLoading={loading}
-              emptyState={(
-                <ListEmptyState
-                  title={t('marketing_automation.blocks.emptyTitle', 'No content blocks yet')}
-                  description={t('marketing_automation.blocks.emptyBody', 'A block is a piece of HTML you reuse across messages — a footer, a header, a seasonal banner.')}
-                />
-              )}
-            />
+            {/* Not under the error: an empty table there would still make a claim about data nobody read. */}
+            {loadFailed ? null : (
+              <DataTable
+                columns={columns}
+                data={rows}
+                isLoading={loading}
+                emptyState={(
+                  <ListEmptyState
+                    title={t('marketing_automation.blocks.emptyTitle', 'No content blocks yet')}
+                    description={t('marketing_automation.blocks.emptyBody', 'A block is a piece of HTML you reuse across messages — a footer, a header, a seasonal banner.')}
+                  />
+                )}
+              />
+            )}
           </div>
 
           <aside className="space-y-3">

@@ -49,7 +49,19 @@ export default function MarketingJobsPage() {
     setLoadFailed(false)
     try {
       const result = await apiCall<{ items?: JobRow[] }>('/api/marketing_automation/jobs?limit=100')
-      setRows(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
+      /**
+       * A non-ok response is not an empty list.
+       *
+       * `apiCall` resolves rather than throwing on 401/403/500, so the `catch` below only ever saw a
+       * transport error — an expired session or a server fault fell through to an empty array and the page
+       * rendered its "nothing here yet" state, which is the most reassuring possible lie.
+       */
+      if (!result.ok || !Array.isArray(result.result?.items)) {
+        setRows([])
+        setLoadFailed(true)
+        return
+      }
+      setRows(result.result.items)
     } catch {
       setLoadFailed(true)
     } finally {
@@ -138,20 +150,30 @@ export default function MarketingJobsPage() {
         </div>
         {loadFailed ? (
           <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.jobs.loadFailed', 'Could not load the job history.')} />
+            <ErrorMessage
+              label={t('marketing_automation.jobs.loadFailed', 'Could not load the job history.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.jobs.retry', 'Try again')}
+                </Button>
+              )}
+            />
           </div>
         ) : null}
-        <DataTable
-          columns={columns}
-          data={rows}
-          isLoading={loading}
-          emptyState={(
-            <ListEmptyState
-              title={t('marketing_automation.jobs.emptyTitle', 'No job runs recorded yet')}
-              description={t('marketing_automation.jobs.emptyBody', 'Scheduled campaigns and waiting journeys are processed in the background. Each pass appears here with what it did.')}
-            />
-          )}
-        />
+        {/* Not under the error: an empty table there would still make a claim about data nobody read. */}
+        {loadFailed ? null : (
+          <DataTable
+            columns={columns}
+            data={rows}
+            isLoading={loading}
+            emptyState={(
+              <ListEmptyState
+                title={t('marketing_automation.jobs.emptyTitle', 'No job runs recorded yet')}
+                description={t('marketing_automation.jobs.emptyBody', 'Scheduled campaigns and waiting journeys are processed in the background. Each pass appears here with what it did.')}
+              />
+            )}
+          />
+        )}
       </PageBody>
     </Page>
   )

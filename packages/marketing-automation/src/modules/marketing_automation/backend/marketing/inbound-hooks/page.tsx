@@ -68,8 +68,20 @@ export default function InboundHooksPage() {
         apiCall<{ items?: HookRow[]; canManage?: boolean }>(`${HOOKS_PATH}?pageSize=100`),
         apiCall<{ items?: Array<{ id?: unknown; name?: unknown }> }>('/api/marketing_automation/campaigns?pageSize=100'),
       ])
-      setRows(hooks.ok && Array.isArray(hooks.result?.items) ? hooks.result.items : [])
-      setCanManage(hooks.ok && hooks.result?.canManage === true)
+      /**
+       * A non-ok response is not an empty list.
+       *
+       * `apiCall` resolves rather than throwing on 401/403/500, so only the `catch` below was ever reached
+       * by a transport error — an expired session or a server fault fell through to an empty array and the
+       * page rendered its "nothing here yet" state, which is the most reassuring possible lie.
+       */
+      if (!hooks.ok || !Array.isArray(hooks.result?.items)) {
+        setRows([])
+        setLoadFailed(true)
+        return
+      }
+      setRows(hooks.result.items)
+      setCanManage(hooks.result?.canManage === true)
       setCampaigns((campaignList.ok && Array.isArray(campaignList.result?.items) ? campaignList.result.items : [])
         .flatMap((item) => (typeof item.id === 'string' && typeof item.name === 'string' ? [{ id: item.id, name: item.name }] : [])))
     } catch {
@@ -205,9 +217,20 @@ export default function InboundHooksPage() {
     <Page>
       <PageBody>
         {ConfirmDialogElement}
+        {/*
+          * The retry matters here: the create form below is useless without the campaign list, which came
+          * from the same failed pass.
+          */}
         {loadFailed ? (
           <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.hooks.loadFailed', 'Could not load the hooks.')} />
+            <ErrorMessage
+              label={t('marketing_automation.hooks.loadFailed', 'Could not load the hooks.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.hooks.retry', 'Try again')}
+                </Button>
+              )}
+            />
           </div>
         ) : null}
 
@@ -253,17 +276,20 @@ export default function InboundHooksPage() {
         </div>
         ) : null}
 
-        <DataTable
-          columns={columns}
-          data={rows}
-          isLoading={loading}
-          emptyState={(
-            <ListEmptyState
-              title={t('marketing_automation.hooks.emptyTitle', 'No inbound hooks yet')}
-              description={t('marketing_automation.hooks.emptyBody', 'A hook is a signed URL another system posts to in order to start a campaign.')}
-            />
-          )}
-        />
+        {/* Not under the error: an empty table there would still claim there are no hooks. */}
+        {loadFailed ? null : (
+          <DataTable
+            columns={columns}
+            data={rows}
+            isLoading={loading}
+            emptyState={(
+              <ListEmptyState
+                title={t('marketing_automation.hooks.emptyTitle', 'No inbound hooks yet')}
+                description={t('marketing_automation.hooks.emptyBody', 'A hook is a signed URL another system posts to in order to start a campaign.')}
+              />
+            )}
+          />
+        )}
       </PageBody>
     </Page>
   )

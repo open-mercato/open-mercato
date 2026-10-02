@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -41,8 +42,20 @@ export default function LeadRoutingPage() {
         apiCall<{ items?: RepRow[]; windowDays?: number }>('/api/marketing_automation/lead-routing'),
         apiCall<{ items?: StaffRow[] }>('/api/staff/team-members/assignable?pageSize=100'),
       ])
-      setRows(routing.ok && Array.isArray(routing.result?.items) ? routing.result.items : [])
-      if (routing.ok && typeof routing.result?.windowDays === 'number') setWindowDays(routing.result.windowDays)
+      /**
+       * A non-ok response is not an empty list.
+       *
+       * `apiCall` resolves rather than throwing on 401/403/500, so only the `catch` below was ever reached
+       * by a transport error — an expired session or a server fault fell through to an empty array and the
+       * page rendered its "nothing here yet" state, which is the most reassuring possible lie.
+       */
+      if (!routing.ok || !Array.isArray(routing.result?.items)) {
+        setRows([])
+        setLoadFailed(true)
+        return
+      }
+      setRows(routing.result.items)
+      if (typeof routing.result?.windowDays === 'number') setWindowDays(routing.result.windowDays)
       const directory = new Map<string, StaffRow>()
       for (const member of (people.ok && Array.isArray(people.result?.items) ? people.result.items : [])) {
         if (member.userId) directory.set(member.userId, member)
@@ -64,13 +77,22 @@ export default function LeadRoutingPage() {
   return (
     <Page>
       <PageBody>
+        {/*
+          * The error REPLACES the content rather than sitting above it.
+          *
+          * An empty-state card under the banner still says "no sales reps in the pool", which is a claim about
+          * the data nobody managed to read.
+          */}
         {loadFailed ? (
-          <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.routing.loadFailed', 'Could not load lead routing.')} />
-          </div>
-        ) : null}
-
-        {rows.length === 0 ? (
+          <ErrorMessage
+            label={t('marketing_automation.routing.loadFailed', 'Could not load lead routing.')}
+            action={(
+              <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                {t('marketing_automation.routing.retry', 'Try again')}
+              </Button>
+            )}
+          />
+        ) : rows.length === 0 ? (
           <ListEmptyState
             title={t('marketing_automation.routing.emptyTitle', 'No sales reps in the pool')}
             description={t('marketing_automation.routing.emptyBody', 'Pick the reps on the marketing settings screen. The "Assign to a sales rep" step then gives each new lead to whoever has the fewest.')}
