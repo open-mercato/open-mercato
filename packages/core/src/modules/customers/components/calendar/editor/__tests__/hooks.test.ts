@@ -11,9 +11,10 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? _key,
-}))
+const mockTranslate = (key: string, fallback?: string, params?: Record<string, string>) =>
+  (fallback ?? key).replace(/\{(\w+)\}/g, (match, name: string) => params?.[name] ?? match)
+
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
 
 describe('useConflictProbe recurring candidates (#4735)', () => {
   beforeEach(() => {
@@ -35,6 +36,29 @@ describe('useConflictProbe recurring candidates (#4735)', () => {
     rerender({ timezone: 'UTC' })
     await act(async () => { await jest.advanceTimersByTimeAsync(500) })
     expect(result.current).toBeNull()
+    unmount()
+  })
+
+  test('warns about a shared resource and names who and what is double-booked', async () => {
+    apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { items: [{
+      id: 'booked', interactionType: 'visit', title: 'Site visit', status: 'planned', scheduledAt: '2026-09-29T07:15:00Z', durationMinutes: 60,
+      participants: [{ userId: 'alex', name: 'Alex Chen' }],
+      linkedEntities: [{ id: 'room-1', type: 'resource', label: 'Focus Room 1' }],
+    }] } })
+    const form = { ...createDefaultFormState(), timezone: 'Europe/Warsaw', date: '2026-09-29', startTime: '09:15', endDate: '2026-09-29', endTime: '10:15' }
+    const room = [{ id: 'room-1', label: 'Focus Room 1' }]
+    const { result, rerender, unmount } = renderHook(
+      ({ participants, resources }) => useConflictProbe(true, { ...form, participants }, KIND_CONFIG.event, null, null, 'all', null, resources),
+      { initialProps: { participants: [] as typeof form.participants, resources: [] as typeof room } },
+    )
+    await act(async () => { await jest.advanceTimersByTimeAsync(500) })
+    expect(result.current).toBeNull()
+    rerender({ participants: [], resources: room })
+    await act(async () => { await jest.advanceTimersByTimeAsync(500) })
+    expect(result.current).toContain('Site visit (Focus Room 1)')
+    rerender({ participants: [{ userId: 'alex', name: 'Alex Chen', isCustomer: false }], resources: room })
+    await act(async () => { await jest.advanceTimersByTimeAsync(500) })
+    expect(result.current).toContain('Site visit (Alex Chen, Focus Room 1)')
     unmount()
   })
 

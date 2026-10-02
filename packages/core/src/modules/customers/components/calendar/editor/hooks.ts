@@ -6,7 +6,7 @@ import { endOfDay } from 'date-fns/endOfDay'
 import { startOfDay } from 'date-fns/startOfDay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { computeDurationMinutes, type EditorFormState, type EditorKindConfig } from '../../../lib/calendar/editorPayload'
-import { findEditorConflictItems } from '../../../lib/calendar/conflicts'
+import { findEditorConflicts } from '../../../lib/calendar/conflicts'
 import type { ConflictScope } from '../../../lib/calendar/preferences'
 import { mapInteractionToCalendarItem } from '../../../lib/calendar/mapItem'
 import { participantActorKey } from '../../../lib/calendar/participantIdentity'
@@ -56,6 +56,8 @@ export function useEditorLabelResolution(
   }, [activeOrgId, open, form.relatedTo, form.dealId, form.dealLabel, form.assigneeUserId, form.assigneeName, update])
 }
 
+const NO_DRAFT_RESOURCES: ReadonlyArray<{ id: string; label: string }> = []
+
 function formatClock(date: Date): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
@@ -73,9 +75,11 @@ export function useConflictProbe(
   draftOwnerUserId: string | null,
   scope: ConflictScope,
   currentUserId: string | null,
+  draftResources: ReadonlyArray<{ id: string; label: string }> = NO_DRAFT_RESOURCES,
 ): string | null {
   const t = useT()
   const [conflict, setConflict] = React.useState<string | null>(null)
+  const resourcesKey = draftResources.map((resource) => resource.id).join(',')
   // Keys on the canonical actor key, not the raw userId — an external guest has
   // no userId, so a userId-only key never changes when guests are added or
   // removed and the probe would keep reporting the previous attendee set.
@@ -138,25 +142,32 @@ export function useConflictProbe(
           if (!item) continue
           others.push(...expandOccurrences(item, fetchWindow))
         }
-        const conflictItems = findEditorConflictItems(
+        const conflicts = findEditorConflicts(
           {
             start,
             end,
             ownerUserId: draftOwnerUserId,
             participants: form.participants.map((participant) => ({ userId: participant.userId, name: participant.name })),
             status: form.status,
+            resources: [...draftResources],
           },
           others,
           excludeId,
           { scope, currentUserId },
         )
         if (!active) return
-        if (conflictItems.length === 0) {
+        if (conflicts.length === 0) {
           setConflict(null)
           return
         }
-        const summary = conflictItems
-          .map((item) => `${formatClock(item.start)}–${formatClock(item.end)}: ${item.title || t('customers.calendar.grid.untitled', 'Untitled')}`)
+        // Name who and what is double-booked: an overlap alone does not tell the
+        // user which attendee or room to change.
+        const summary = conflicts
+          .map(({ item, shared }) => {
+            const names = shared.map((subject) => subject.label).filter(Boolean)
+            const entry = `${formatClock(item.start)}–${formatClock(item.end)}: ${item.title || t('customers.calendar.grid.untitled', 'Untitled')}`
+            return names.length ? `${entry} (${names.join(', ')})` : entry
+          })
           .join(', ')
         setConflict(summary ? t('customers.calendar.editor.conflictWarning', 'Overlaps with: {items}', { items: summary }) : null)
       } catch {
@@ -169,6 +180,6 @@ export function useConflictProbe(
       controller.abort()
     }
     // Re-probe when schedule-relevant inputs change (time window, all-day, attendees, owner, status, scope).
-  }, [open, form.date, form.timezone, form.startTime, form.endDate, form.endTime, form.allDay, form.status, participantsKey, config.hasAllDay, config.hasEnd, excludeId, draftOwnerUserId, scope, currentUserId, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, form.date, form.timezone, form.startTime, form.endDate, form.endTime, form.allDay, form.status, participantsKey, resourcesKey, config.hasAllDay, config.hasEnd, excludeId, draftOwnerUserId, scope, currentUserId, t]) // eslint-disable-line react-hooks/exhaustive-deps
   return conflict
 }
