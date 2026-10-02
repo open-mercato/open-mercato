@@ -244,6 +244,30 @@ export function renderEmail(
   }
 }
 
+
+/**
+ * The RFC 8058 one-click headers, which are the only reason the POST route exists.
+ *
+ * `api/unsubscribe/route.ts` has answered POST from the start, documented as the one-click path — and
+ * nothing ever told a mail client it was there. Gmail's and Yahoo's bulk-sender rules require both headers
+ * from anybody sending at volume, so without them the module's deliverability to the two largest mailboxes
+ * is capped whatever else it does right.
+ *
+ * Both or neither. `List-Unsubscribe-Post` alone means nothing, and `List-Unsubscribe` alone invites the
+ * client to show a one-click button that then performs a GET — which this module refuses to let change
+ * anything, so the recipient would press it and stay subscribed.
+ *
+ * The URL is already angle-bracketed per the RFC, and it carries no identity: it names the run, and the
+ * endpoint resolves the customer.
+ */
+function oneClickUnsubscribeHeaders(url: string | null): Record<string, string> | undefined {
+  if (!url) return undefined
+  return {
+    'List-Unsubscribe': `<${url}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  }
+}
+
 export const sendEmailStep: StepHandler<StepDeps> = {
   type: 'send_email',
   labelKey: 'marketing_automation.step.send_email.label',
@@ -336,6 +360,8 @@ export const sendEmailStep: StepHandler<StepDeps> = {
       await sendEmail({
         to,
         ...renderEmail(params, ctx, { blocks, recommendationsHtml, values }),
+        // Non-null by here: the guard above refuses a marketing send that cannot build one.
+        headers: oneClickUnsubscribeHeaders(unsubscribeLinkFor(ctx)),
         tenantId: deps.scope.tenantId,
         organizationId: deps.scope.organizationId,
       })
