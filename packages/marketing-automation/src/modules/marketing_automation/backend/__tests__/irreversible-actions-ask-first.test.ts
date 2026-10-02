@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -49,25 +49,11 @@ function handlerSource(file: string, handler: RegExp): string {
 }
 
 describe('actions nothing can undo', () => {
-  /**
-   * Pages this delivery does not contain are skipped, and the rule asserts it found some.
-   *
-   * The three pages belong to three different phases of the module's delivery, so no single phase holds all of
-   * them, and demanding all three would fail for the right reason in the wrong place. Skipping an absent page
-   * keeps the real assertion on every page that IS here, and the count below stops the rule going vacuous if
-   * the paths ever stop resolving.
-   */
-  const present = GUARDED.filter(({ file }) => existsSync(file))
-
-  it('finds at least one guarded page in this delivery', () => {
-    expect(present.length).toBeGreaterThan(0)
-  })
-
-  it.each(present)('asks before it acts: $file', ({ file, handler }) => {
+  it.each(GUARDED)('asks before it acts: $file', ({ file, handler }) => {
     expect(asksBeforeActing(handlerSource(file, handler))).toBe(true)
   })
 
-  it.each(present)('renders the dialog it opens: $file', ({ file }) => {
+  it.each(GUARDED)('renders the dialog it opens: $file', ({ file }) => {
     // A `confirm` whose element is never rendered resolves to nothing and the action silently never runs.
     const source = readFileSync(file, 'utf8')
     expect(source).toContain('useConfirmDialog')

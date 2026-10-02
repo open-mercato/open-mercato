@@ -91,27 +91,7 @@ describe('cross-module reads', () => {
         .filter((name): name is string => Boolean(name)),
     )
     for (const name of read) expect(usedInQueries.has(name)).toBe(true)
-    /**
-     * This direction can only be judged on the COMPLETE module, and says so rather than pretending otherwise.
-     *
-     * "Declares nothing it does not read" is a statement about the whole surface. A delivery containing part of
-     * the module legitimately declares tables whose only readers arrive later, so asserting it here would fail
-     * for the right reason in the wrong place — and quietly lowering the bar would be worse, because a stale
-     * declaration is exactly the kind of drift this file exists to prevent.
-     *
-     * So the assertion is deferred to the delivery that holds every reader, and until then the unused names are
-     * REPORTED rather than ignored: a human reading a failing-free run still sees the list.
-     */
     const unused = [...DECLARED_NAMES].filter((name) => !usedInQueries.has(name))
-    if (unused.length > 0) {
-      // eslint-disable-next-line no-console
-      console.info(
-        `[external-reads] ${unused.length} declared table(s) have no reader in this delivery: ${unused.join(', ')}` +
-          ' — expected while the module is delivered in phases; asserted empty once every reader is present.',
-      )
-    }
-    // What IS checkable here: nothing is read that was never declared, which the rule above covers, and every
-    // name the seam itself interpolates resolves to a declaration.
-    for (const name of read) expect(DECLARED_NAMES.has(name)).toBe(true)
+    expect(unused).toEqual([])
   })
 })

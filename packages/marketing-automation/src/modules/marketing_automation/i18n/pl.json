@@ -159,6 +159,8 @@
   "marketing_automation.errors.aiNotConfigured": "Ta instalacja nie ma skonfigurowanego modelu AI.",
   "marketing_automation.errors.aiUnusable": "Model nie zwrócił użytecznej treści. Spróbuj ponownie.",
   "marketing_automation.errors.blockKeyTaken": "Blok o takim odwołaniu już istnieje.",
+  "marketing_automation.errors.campaignNotFound": "Ta kampania już nie istnieje.",
+  "marketing_automation.errors.configUnavailable": "Ta instalacja nie ma magazynu ustawień.",
   "marketing_automation.errors.conflict": "Ktoś inny zapisał tę kampanię podczas Twojej edycji.",
   "marketing_automation.errors.emailChannelMissing": "Nie jest skonfigurowany żaden kanał e-mail, więc nie ma czym wysłać. Ustaw go w Kanałach komunikacji.",
   "marketing_automation.errors.eraseNotConfirmed": "Usunięcie nie zostało potwierdzone.",
