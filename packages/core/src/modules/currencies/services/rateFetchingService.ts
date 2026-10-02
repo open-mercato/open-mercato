@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
-import { RateProvider, RateProviderResult } from './providers/base'
+import type { ProviderSelectionMode, RateProvider, RateProviderResult, RateType } from './providers/base'
 import { Currency, ExchangeRate } from '../data/entities'
 
 export interface FetchResult {
@@ -39,6 +39,16 @@ export class RateFetchingService {
     this.providers.set(provider.source, provider)
   }
 
+  hasProvider(source: string): boolean {
+    return this.providers.has(source)
+  }
+
+  getProviderSources(selectionMode?: ProviderSelectionMode): string[] {
+    return Array.from(this.providers.values())
+      .filter((provider) => !selectionMode || this.selectionMode(provider) === selectionMode)
+      .map((provider) => provider.source)
+  }
+
   async fetchRatesForDate(
     date: Date,
     scope: { tenantId: string; organizationId: string },
@@ -56,8 +66,8 @@ export class RateFetchingService {
 
     // Determine which providers to use
     const providerList = options.providers?.length
-      ? options.providers
-      : Array.from(this.providers.keys())
+      ? [...options.providers]
+      : this.getProviderSources('default')
 
     // Fetch every provider concurrently: provider calls are independent network I/O,
     // so overlapping them caps total latency at the slowest provider instead of the sum
@@ -85,7 +95,7 @@ export class RateFetchingService {
       }
 
       try {
-        const stored = await this.storeRates(outcome.rates, scope)
+        const stored = await this.storeRates(this.validateBatch(outcome.rates), scope)
         result.byProvider[outcome.providerSource] = { count: stored }
         result.totalFetched += stored
       } catch (err) {
@@ -129,6 +139,34 @@ export class RateFetchingService {
       const message = err instanceof Error ? err.message : String(err)
       return { kind: 'failed', providerSource, error: message }
     }
+  }
+
+  private selectionMode(provider: RateProvider): ProviderSelectionMode {
+    return provider.selectionMode ?? 'default'
+  }
+
+  private validateBatch(rates: RateProviderResult[]): RateProviderResult[] {
+    const deduplicated = new Map<string, RateProviderResult>()
+    for (const rate of rates) {
+      const key = exchangeRateKey(rate.fromCurrencyCode, rate.toCurrencyCode, rate.date, rate.source)
+      const previous = deduplicated.get(key)
+      if (!previous) {
+        deduplicated.set(key, rate)
+        continue
+      }
+
+      const previousType: RateType | null = previous.type ?? null
+      const type: RateType | null = rate.type ?? null
+      const previousReference = previous.externalReference ?? null
+      const reference = rate.externalReference ?? null
+      if (previousType !== type) {
+        throw new Error(`Conflicting rate types for duplicate exchange rate key: ${key}`)
+      }
+      if (previous.rate !== rate.rate || previousReference !== reference) {
+        throw new Error(`Conflicting rates for duplicate exchange rate key: ${key}`)
+      }
+    }
+    return Array.from(deduplicated.values())
   }
 
   /**
@@ -192,6 +230,7 @@ export class RateFetchingService {
           // Update existing rate
           existing.rate = rate.rate
           existing.type = rate.type ?? null
+          existing.externalReference = rate.externalReference ?? null
           existing.updatedAt = now
           em.persist(existing)
         } else {
@@ -205,6 +244,7 @@ export class RateFetchingService {
             date: rate.date,
             source: rate.source,
             type: rate.type ?? null,
+            externalReference: rate.externalReference ?? null,
             isActive: true,
             createdAt: now,
             updatedAt: now,

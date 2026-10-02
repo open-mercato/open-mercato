@@ -79,6 +79,18 @@ const disabledRaiffeisen = {
   updatedAt: '2024-01-01',
 }
 
+const disabledNbpAverage = {
+  id: 'cfg-nbp-average',
+  provider: 'nbp_average',
+  isEnabled: false,
+  syncTime: '09:00',
+  lastSyncAt: null,
+  lastSyncStatus: null,
+  lastSyncMessage: null,
+  lastSyncCount: null,
+  updatedAt: '2024-01-01',
+}
+
 describe('CurrencyFetchingConfig', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -86,6 +98,16 @@ describe('CurrencyFetchingConfig', () => {
   })
 
   describe('design-system + i18n cleanup (#3192)', () => {
+    it('renders the separate NBP table-C and average-rate providers', async () => {
+      apiCallMock.mockResolvedValue({ result: { configs: [enabledNbp, disabledNbpAverage, disabledRaiffeisen] } })
+
+      renderWithProviders(<CurrencyFetchingConfig />)
+
+      expect(await screen.findByText('currencies.fetch.provider_nbp')).toBeInTheDocument()
+      expect(screen.getByText('currencies.fetch.provider_nbp_average')).toBeInTheDocument()
+      expect(screen.getByText('currencies.fetch.provider_nbp_average_description')).toBeInTheDocument()
+    })
+
     it('renders an enabled provider with DS primitives instead of raw controls and hardcoded status colors', async () => {
       apiCallMock.mockResolvedValue({ result: { configs: [enabledErrorConfig] } })
 
@@ -178,7 +200,11 @@ describe('CurrencyFetchingConfig', () => {
       runMutationMock.mockClear()
       fireEvent.click(screen.getByRole('button', { name: 'currencies.fetch.fetch_now' }))
       await waitFor(() => expect(runMutationMock).toHaveBeenCalled())
-      expect(runMutationMock.mock.calls.at(-1)?.[0]?.context?.resourceKind).toBe('currencies.fetch_rates')
+      const fetchCalls = runMutationMock.mock.calls.filter(
+        ([request]) => request?.context?.resourceKind === 'currencies.fetch_rates',
+      )
+      expect(fetchCalls).toHaveLength(1)
+      expect(fetchCalls[0]?.[0]?.mutationPayload).toEqual({ providers: ['NBP'] })
     })
 
     it('routes auto-initialized provider creation through the guarded mutation', async () => {
