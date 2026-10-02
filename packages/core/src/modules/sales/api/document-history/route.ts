@@ -126,7 +126,7 @@ export async function GET(req: Request) {
       userIds: allUserIds,
       tenantIds: [],
       organizationIds: [],
-    })
+    }, { translate })
 
     let items = buildHistoryEntries({ actionLogs: logs, notes, kind: query.kind, displayUsers: displayMaps.users })
     const typesFilter = parseDocumentHistoryTypes(query.types)

@@ -108,7 +108,7 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
                 <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                   {t('audit_logs.actions.columns.user')}
                 </dt>
-                <dd className="text-sm">{item.actorUserName || item.actorUserId || noneLabel}</dd>
+                <dd className="text-sm">{item.actorUserName || noneLabel}</dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-wide text-muted-foreground">
