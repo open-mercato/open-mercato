@@ -26,6 +26,14 @@ export type BulkImportSuppression = {
   skipEvents?: boolean
   /** Advisory: handlers that fan out per-record notifications SHOULD honor this and skip them. */
   skipNotifications?: boolean
+  /**
+   * Skip a command's own full-collection derived-data rebuild (e.g. category tree
+   * `parentId`/`treePath`/`depth`/ancestor-descendant rewrite). The caller MUST run that rebuild
+   * itself exactly once after the batch, in a `finally` that covers the completed, cancelled and
+   * failed paths — otherwise every record written under this context is left with a stale
+   * derived shape.
+   */
+  skipDerivedRebuild?: boolean
 }
 
 export type CommandRuntimeContext = {
