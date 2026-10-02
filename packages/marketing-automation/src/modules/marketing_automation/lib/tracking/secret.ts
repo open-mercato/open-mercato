@@ -1,47 +1,72 @@
 /**
  * The secret tracking tokens are signed with.
  *
- * Deliberately falls back to the platform's data-encryption key material rather than requiring a new
- * variable: tracking that only works after an operator reads a changelog is tracking that quietly
- * does nothing. The key is domain-separated before use (see `token.ts`), so sharing the secret with
- * encryption at rest cannot let one be derived from the other.
+ * A dedicated variable and nothing else. This used to fall back to `TENANT_DATA_ENCRYPTION_KEY` and
+ * `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` so that tracking worked without an operator reading a
+ * changelog, and that convenience was a forgery hole: `.env.example` publishes the fallback key as a
+ * constant, so on any install that kept it, anybody could mint a token this module would accept —
+ * a 302 to an arbitrary URL from the shop's own domain, writes into any scope, and forged
+ * unsubscribe, survey and inbound tokens. Convenience that hands out the signing key is not
+ * convenience. Unset means tracking is disabled, which is the safe way to be unconfigured.
  *
- * Session and JWT secrets are deliberately NOT candidates. A tracking token is handed to every
- * recipient and lives in mail archives forever; signing it with the secret that mints sessions would
- * widen the blast radius of that exposure from "somebody can forge an open event" to something far
- * worse.
+ * Session and JWT secrets are not candidates either, for the opposite reason: a tracking token is
+ * handed to every recipient and lives in mail archives forever, so signing it with the secret that
+ * mints sessions would widen the blast radius of that exposure enormously.
  */
-const CANDIDATE_ENV_NAMES = [
-  'OM_MARKETING_TRACKING_SECRET',
-  'TENANT_DATA_ENCRYPTION_KEY',
-  'TENANT_DATA_ENCRYPTION_FALLBACK_KEY',
-] as const
+const SIGNING_ENV_NAME = 'OM_MARKETING_TRACKING_SECRET'
+
+/**
+ * The previous secret, accepted on verification only.
+ *
+ * A tracking token has no expiry, deliberately: an unsubscribe link has to keep working for as long
+ * as the message carrying it sits in somebody's mailbox. Without this, rotating the secret would
+ * silently break every link already delivered, in the one place where failing is least acceptable —
+ * somebody trying to be left alone.
+ */
+const PREVIOUS_ENV_NAME = 'OM_MARKETING_TRACKING_SECRET_PREVIOUS'
+
+const CANDIDATE_ENV_NAMES = [SIGNING_ENV_NAME, PREVIOUS_ENV_NAME] as const
+
+/**
+ * Values this repository publishes, which therefore sign nothing.
+ *
+ * Refused rather than trusted because a published constant is a public key: an operator who pastes
+ * one here, or who copies `.env.example` forward, would otherwise get tokens anyone can forge. The
+ * `change-me` prefix is covered as a family, since no real secret begins with it.
+ */
+const PUBLISHED_PLACEHOLDER_SECRETS = new Set([
+  'dev-tenant-encryption-fallback-key-32chars',
+  'change-me-dev-secret',
+  'change-me-dev-auth-secret',
+])
+
+function isPublishedPlaceholder(value: string): boolean {
+  const normalized = value.toLowerCase()
+  return PUBLISHED_PLACEHOLDER_SECRETS.has(normalized) || normalized.startsWith('change-me')
+}
 
 export type EnvLike = Record<string, string | undefined>
 
-/** Null when nothing is configured, which disables tracking rather than signing with a constant. */
+/** Null when nothing usable is configured, which disables tracking rather than signing with a constant. */
 export function resolveTrackingSecret(env: EnvLike = process.env): string | null {
-  return resolveTrackingSecrets(env)[0] ?? null
+  const value = env[SIGNING_ENV_NAME]?.trim()
+  if (!value || isPublishedPlaceholder(value)) return null
+  return value
 }
 
 /**
- * EVERY configured secret, most current first — which is what makes rotating one survivable.
+ * The secrets verification accepts, current first.
  *
- * A tracking token has no expiry, deliberately: an unsubscribe link has to keep working for as long as the
- * message it is in exists in somebody's mailbox. So the moment `TENANT_DATA_ENCRYPTION_KEY` was rotated, every
- * unsubscribe and every survey link already delivered stopped verifying — silently, and in the one place where a
- * failure is least acceptable: a person trying to be left alone.
- *
- * Signing always uses the FIRST. Verification tries each in turn, so a rotation keeps yesterday's links working
- * while today's are minted with the new key. The platform already has a fallback-key variable for exactly this
- * reason; this module was simply reading only the first one that happened to be set.
+ * Signing always uses `resolveTrackingSecret`; only verification reads this, so a rotation keeps
+ * yesterday's links working while today's are minted with the new key.
  */
 export function resolveTrackingSecrets(env: EnvLike = process.env): string[] {
   const secrets: string[] = []
   for (const name of CANDIDATE_ENV_NAMES) {
     const value = env[name]?.trim()
-    // De-duplicated: the same key set in two variables must not cost two HMACs on every verification.
-    if (value && !secrets.includes(value)) secrets.push(value)
+    if (!value || isPublishedPlaceholder(value)) continue
+    // De-duplicated: the same key set in both variables must not cost two HMACs per verification.
+    if (!secrets.includes(value)) secrets.push(value)
   }
   return secrets
 }

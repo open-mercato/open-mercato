@@ -17,7 +17,17 @@ switch on deliberately rather than inherit.
 ```bash
 # apps/mercato/.env
 OM_ENABLE_MARKETING_AUTOMATION=true
+
+# Signs every token the module issues: tracking, unsubscribe, survey, inbound hooks.
+# Generate one per installation. There is no default, and no fallback to the platform's
+# encryption keys — those are published in .env.example, so a token signed with one could
+# be forged by anybody.
+OM_MARKETING_TRACKING_SECRET=$(openssl rand -hex 32)
 ```
+
+The secret is not optional in practice: it is also what builds the unsubscribe link, and a
+marketing send that cannot offer a way out is refused rather than delivered. `APP_URL` has to be
+set for the same reason. Both appear as a blocking item on the module's setup screen.
 
 Then `yarn generate` — the app's route registry is emitted from the enabled-module list, so a stale
 registry keeps the module hidden however the flag reads.

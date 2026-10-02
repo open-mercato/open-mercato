@@ -106,17 +106,35 @@ describe('isSafeRedirectTarget', () => {
 })
 
 describe('resolveTrackingSecret', () => {
-  test('prefers the dedicated variable', () => {
-    expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: 'a', TENANT_DATA_ENCRYPTION_KEY: 'b' })).toBe('a')
+  test('reads the dedicated variable', () => {
+    expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: 'a' })).toBe('a')
   })
 
-  test('falls back to platform key material so tracking works without new configuration', () => {
-    expect(resolveTrackingSecret({ TENANT_DATA_ENCRYPTION_KEY: 'b' })).toBe('b')
-    expect(resolveTrackingSecret({ TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'c' })).toBe('c')
+  /**
+   * The forgery hole this resolver used to have.
+   *
+   * `.env.example` publishes the fallback key as a constant, so accepting it as a signing candidate
+   * meant anyone could mint a token the public routes would honour.
+   */
+  test('never signs with platform encryption key material', () => {
+    expect(trackingSecretEnvNames()).not.toContain('TENANT_DATA_ENCRYPTION_KEY')
+    expect(trackingSecretEnvNames()).not.toContain('TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+    expect(resolveTrackingSecret({
+      TENANT_DATA_ENCRYPTION_KEY: 'b',
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'dev-tenant-encryption-fallback-key-32chars',
+    })).toBeNull()
+  })
+
+  test('refuses a secret this repository publishes, even in the dedicated variable', () => {
+    expect(resolveTrackingSecret({
+      OM_MARKETING_TRACKING_SECRET: 'dev-tenant-encryption-fallback-key-32chars',
+    })).toBeNull()
+    expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: 'change-me-dev-secret' })).toBeNull()
+    expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: 'CHANGE-ME-anything' })).toBeNull()
   })
 
   test('ignores an empty or whitespace value, which an env file has plenty of', () => {
-    expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: '   ', TENANT_DATA_ENCRYPTION_KEY: 'b' })).toBe('b')
+    expect(resolveTrackingSecret({ OM_MARKETING_TRACKING_SECRET: '   ' })).toBeNull()
   })
 
   test('returns null when nothing is configured, which disables tracking', () => {
@@ -221,26 +239,41 @@ describe('verifying across a key rotation', () => {
  * The resolver's own contract, which is what makes the rotation above possible.
  */
 describe('resolveTrackingSecrets', () => {
-  test('returns every configured candidate, most current first', () => {
+  test('accepts the current secret and the previous one, current first', () => {
     const secrets = resolveTrackingSecrets({
-      OM_MARKETING_TRACKING_SECRET: 'dedicated',
-      TENANT_DATA_ENCRYPTION_KEY: 'current',
-      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'previous',
+      OM_MARKETING_TRACKING_SECRET: 'current',
+      OM_MARKETING_TRACKING_SECRET_PREVIOUS: 'previous',
     })
-    expect(secrets).toEqual(['dedicated', 'current', 'previous'])
+    expect(secrets).toEqual(['current', 'previous'])
   })
 
   test('the first is the one signing uses, so the two cannot disagree', () => {
-    const env = { TENANT_DATA_ENCRYPTION_KEY: 'current', TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'previous' }
+    const env = {
+      OM_MARKETING_TRACKING_SECRET: 'current',
+      OM_MARKETING_TRACKING_SECRET_PREVIOUS: 'previous',
+    }
     expect(resolveTrackingSecret(env)).toBe(resolveTrackingSecrets(env)[0])
   })
 
-  test('the same key in two variables costs one HMAC, not two', () => {
+  test('the same key in both variables costs one HMAC, not two', () => {
     const secrets = resolveTrackingSecrets({
-      TENANT_DATA_ENCRYPTION_KEY: 'same',
-      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'same',
+      OM_MARKETING_TRACKING_SECRET: 'same',
+      OM_MARKETING_TRACKING_SECRET_PREVIOUS: 'same',
     })
     expect(secrets).toEqual(['same'])
+  })
+
+  /**
+   * Verification is the surface the hole was exploited through, so it refuses the published
+   * constants too: a rotation variable is not a way back in.
+   */
+  test('verifies against neither encryption key material nor a published placeholder', () => {
+    expect(resolveTrackingSecrets({
+      OM_MARKETING_TRACKING_SECRET: 'current',
+      OM_MARKETING_TRACKING_SECRET_PREVIOUS: 'dev-tenant-encryption-fallback-key-32chars',
+      TENANT_DATA_ENCRYPTION_KEY: 'b',
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'c',
+    })).toEqual(['current'])
   })
 
   test('nothing configured means no secrets, which disables tracking rather than signing with a constant', () => {
