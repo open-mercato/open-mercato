@@ -13,6 +13,7 @@ import {
   InventoryReservation,
   ProductInventoryProfile,
   Warehouse,
+  Asn,
 } from '../../data/entities'
 import {
   buildDailyBuckets,
@@ -310,6 +311,12 @@ describe('loadOperationalDashboard helpers', () => {
       ]),
     )
     expect(payload.recentActivity).toHaveLength(1)
+    expect(payload.recentActivity[0]).toMatchObject({
+      movementType: 'receipt',
+      referenceLabel: null,
+      reasonCode: null,
+      source: null,
+    })
     expect(payload.expiryLots).toEqual([])
     expect(findWithDecryptionMock).toHaveBeenCalledWith(
       expect.anything(),
@@ -324,6 +331,69 @@ describe('loadOperationalDashboard helpers', () => {
         tenantId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       }),
     )
+
+    jest.useRealTimers()
+  })
+
+  it('enriches ASN receive activity with reference label and reason code', async () => {
+    const now = new Date('2026-05-28T12:00:00.000Z')
+    jest.useFakeTimers()
+    jest.setSystemTime(now)
+
+    const asnId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01'
+    const movement = {
+      id: '99999999-9999-4999-8999-999999999999',
+      type: 'receipt',
+      quantity: '3',
+      catalogVariantId: '44444444-4444-4444-8444-444444444444',
+      referenceType: 'po',
+      referenceId: 'e351bb6a-3d96-4a1b-8c2d-1234567890ab',
+      reason: null,
+      reasonCode: null,
+      metadata: {
+        source: 'asn_receive',
+        asnId,
+      },
+      performedAt: now,
+      warehouse: { id: '11111111-1111-4111-8111-111111111111', code: 'MAIN', name: 'Main' },
+      locationFrom: null,
+      locationTo: { code: 'STAGING-01' },
+    } as InventoryMovement
+
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === ProductInventoryProfile) return []
+      if (entity === InventoryBalance) return []
+      if (entity === InventoryReservation) return [] as InventoryReservation[]
+      if (entity === InventoryMovement) return [movement]
+      if (entity === Asn) {
+        return [
+          {
+            id: asnId,
+            referenceNumber: 'ASN-1042',
+          },
+        ] as never
+      }
+      return []
+    })
+
+    const execute = jest.fn().mockResolvedValue([])
+    const em = {
+      getConnection: () => ({ execute }),
+    } as never
+
+    const payload = await loadOperationalDashboard(em, {
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      tenantId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    })
+
+    expect(payload.recentActivity[0]).toMatchObject({
+      movementType: 'receipt',
+      referenceType: 'po',
+      referenceId: 'e351bb6a-3d96-4a1b-8c2d-1234567890ab',
+      referenceLabel: 'ASN-1042',
+      reasonCode: 'asn_receive',
+      source: 'asn_receive',
+    })
 
     jest.useRealTimers()
   })

@@ -36,7 +36,8 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Receive inventory',
-      description: 'Records inbound inventory receipt and appends a receipt movement ledger row.',
+      description:
+        'Records inbound inventory receipt and appends a receipt movement ledger row. When `organizationId` is present it must be in the caller organization scope; otherwise the session-selected organization is used.',
       requestBody: { contentType: 'application/json', schema: inventoryReceiveSchema },
       responses: [{ status: 200, description: 'Inventory received', schema: successSchema }],
       errors: [

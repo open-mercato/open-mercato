@@ -25,6 +25,9 @@ export type InventoryMovementType =
   | 'cycle_count'
   | 'return_receive'
 export type InventoryMovementReferenceType = 'po' | 'so' | 'transfer' | 'manual' | 'qc' | 'rma'
+export type AsnStatus = 'draft' | 'in_transit' | 'received' | 'closed'
+export type ReceivingLineQcStatus = 'pending' | 'passed' | 'failed'
+export type PutawayTaskStatus = 'open' | 'in_progress' | 'done' | 'cancelled'
 type WmsOptionalProps = 'createdAt' | 'updatedAt' | 'deletedAt' | 'metadata'
 
 abstract class WmsScopedEntity {
@@ -433,4 +436,151 @@ export class InventoryMovement extends WmsScopedEntity {
 
   @Property({ name: 'idempotency_key', type: 'text', nullable: true })
   idempotencyKey?: string | null
+}
+
+@Entity({ tableName: 'wms_asns' })
+@Index({ name: 'wms_asns_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'wms_asns_org_warehouse_status_expected_idx',
+  properties: ['organizationId', 'warehouse', 'status', 'expectedAt'],
+})
+@Index({
+  name: 'wms_asns_org_vendor_expected_idx',
+  expression:
+    'create index "wms_asns_org_vendor_expected_idx" on "wms_asns" ("organization_id", "vendor_id", "expected_at" desc) where deleted_at is null',
+})
+@Index({
+  name: 'wms_asns_org_source_key_unique_idx',
+  expression:
+    'create unique index "wms_asns_org_source_key_unique_idx" on "wms_asns" ("organization_id", "source_key") where source_key is not null and deleted_at is null',
+})
+export class Asn extends WmsScopedEntity {
+  [OptionalProps]?: WmsOptionalProps | 'vendorId' | 'referenceNumber' | 'notes' | 'status' | 'sourceKey'
+
+  @ManyToOne(() => Warehouse, { fieldName: 'warehouse_id' })
+  warehouse!: Warehouse
+
+  @Property({ name: 'vendor_id', type: 'uuid', nullable: true })
+  vendorId?: string | null
+
+  @Property({ type: 'text', default: 'draft' })
+  status: AsnStatus = 'draft'
+
+  @Property({ name: 'expected_at', type: Date })
+  expectedAt!: Date
+
+  @Property({ name: 'reference_number', type: 'text', nullable: true })
+  referenceNumber?: string | null
+
+  /** Stable external linkage key (e.g. procurement goods receipt) for find-or-create. */
+  @Property({ name: 'source_key', type: 'text', nullable: true })
+  sourceKey?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @OneToMany(() => ReceivingLine, (line) => line.asn)
+  lines = new Collection<ReceivingLine>(this)
+}
+
+@Entity({ tableName: 'wms_receiving_lines' })
+@Index({ name: 'wms_receiving_lines_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'wms_receiving_lines_org_asn_idx', properties: ['organizationId', 'asn'] })
+@Index({
+  name: 'wms_receiving_lines_org_variant_qc_idx',
+  properties: ['organizationId', 'catalogVariantId', 'qcStatus'],
+})
+export class ReceivingLine extends WmsScopedEntity {
+  [OptionalProps]?:
+    | WmsOptionalProps
+    | 'lotNumber'
+    | 'serialNumbers'
+    | 'targetStagingLocationId'
+    | 'rejectionReason'
+    | 'receivedQty'
+    | 'qcStatus'
+
+  @ManyToOne(() => Asn, { fieldName: 'asn_id' })
+  asn!: Asn
+
+  @Property({ name: 'catalog_variant_id', type: 'uuid' })
+  catalogVariantId!: string
+
+  @Property({ name: 'expected_qty', type: 'numeric', precision: 16, scale: 4 })
+  expectedQty!: string
+
+  @Property({ name: 'received_qty', type: 'numeric', precision: 16, scale: 4, default: '0' })
+  receivedQty: string = '0'
+
+  @Property({ name: 'lot_number', type: 'text', nullable: true })
+  lotNumber?: string | null
+
+  @Property({ name: 'serial_numbers', type: 'jsonb', nullable: true })
+  serialNumbers?: string[] | null
+
+  @Property({ name: 'qc_status', type: 'text', default: 'pending' })
+  qcStatus: ReceivingLineQcStatus = 'pending'
+
+  @Property({ name: 'target_staging_location_id', type: 'uuid', nullable: true })
+  targetStagingLocationId?: string | null
+
+  @Property({ name: 'rejection_reason', type: 'text', nullable: true })
+  rejectionReason?: string | null
+}
+
+@Entity({ tableName: 'wms_putaway_tasks' })
+@Index({ name: 'wms_putaway_tasks_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'wms_putaway_tasks_org_warehouse_status_priority_idx',
+  properties: ['organizationId', 'warehouse', 'status', 'priority'],
+})
+@Index({
+  name: 'wms_putaway_tasks_org_assigned_status_idx',
+  properties: ['organizationId', 'assignedTo', 'status'],
+})
+@Index({
+  name: 'wms_putaway_tasks_org_putaway_key_unique_idx',
+  expression:
+    'create unique index "wms_putaway_tasks_org_putaway_key_unique_idx" on "wms_putaway_tasks" ("organization_id", "putaway_key") where putaway_key is not null and deleted_at is null and status <> \'cancelled\'',
+})
+export class PutawayTask extends WmsScopedEntity {
+  [OptionalProps]?:
+    | WmsOptionalProps
+    | 'targetLocationId'
+    | 'lotId'
+    | 'assignedTo'
+    | 'priority'
+    | 'status'
+    | 'putawayKey'
+
+  @ManyToOne(() => Warehouse, { fieldName: 'warehouse_id' })
+  warehouse!: Warehouse
+
+  @Property({ name: 'source_location_id', type: 'uuid' })
+  sourceLocationId!: string
+
+  @Property({ name: 'target_location_id', type: 'uuid', nullable: true })
+  targetLocationId?: string | null
+
+  @Property({ name: 'catalog_variant_id', type: 'uuid' })
+  catalogVariantId!: string
+
+  @Property({ name: 'lot_id', type: 'uuid', nullable: true })
+  lotId?: string | null
+
+  @Property({ type: 'numeric', precision: 16, scale: 4 })
+  quantity!: string
+
+  @Property({ type: 'text', default: 'open' })
+  status: PutawayTaskStatus = 'open'
+
+  @Property({ name: 'assigned_to', type: 'uuid', nullable: true })
+  assignedTo?: string | null
+
+  @Property({ type: 'integer', default: 5 })
+  priority: number = 5
+
+  /** Stable ASN-receive attempt key for find-or-create without scanning newest-N metadata. */
+  @Property({ name: 'putaway_key', type: 'text', nullable: true })
+  putawayKey?: string | null
 }

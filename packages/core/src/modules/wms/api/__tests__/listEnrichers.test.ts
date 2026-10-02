@@ -24,6 +24,7 @@ import {
   attachProductLabelsToListItems,
   attachReservationSourceLabelsToListItems,
   attachVariantLabelsToListItems,
+  attachVendorLabelsToListItems,
   attachWarehouseLabelsToListItems,
 } from '../listEnrichers'
 
@@ -292,6 +293,31 @@ describe('attachInventoryProfileCatalogLabelsToListItems', () => {
       variant_name: 'Red',
       variant_sku: 'RED-1',
     })
+  })
+})
+
+describe('attachVendorLabelsToListItems', () => {
+  it('decorates ASN rows with vendor_name from customers.customer_entity', async () => {
+    const queryEngine = createQueryEngine([
+      { id: 'vendor-1', display_name: 'Acme Supplies' },
+    ])
+    const payload = {
+      items: [{
+        id: 'asn-1',
+        vendor_id: 'vendor-1',
+      }] as Array<Record<string, unknown>>,
+    }
+
+    await attachVendorLabelsToListItems(payload, createCtx(queryEngine))
+
+    expect(queryEngine.query).toHaveBeenCalledWith(
+      E.customers.customer_entity,
+      expect.objectContaining({
+        filters: { id: { $in: ['vendor-1'] } },
+        fields: ['id', 'display_name'],
+      }),
+    )
+    expect(payload.items[0]).toMatchObject({ vendor_name: 'Acme Supplies' })
   })
 })
 

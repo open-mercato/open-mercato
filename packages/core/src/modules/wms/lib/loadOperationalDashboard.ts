@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  Asn,
   InventoryBalance,
   InventoryLot,
   InventoryMovement,
@@ -16,6 +17,8 @@ const TREND_DAYS = 7
 const MONTHLY_TREND_MONTHS = 6
 const ACTIVITY_LIMIT = 10
 const EXPIRY_CARD_LIMIT = 5
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type OperationalDashboardScope = {
   organizationId: string
@@ -52,8 +55,12 @@ export type OperationalDashboardActivityRow = {
   variantId: string
   referenceType: string | null
   referenceId: string | null
+  /** Human-readable reference (e.g. ASN reference number) — never the idempotency UUID. */
+  referenceLabel: string | null
   reason: string | null
   reasonCode: string | null
+  /** Movement metadata `source` (e.g. `asn_receive`) for activity label recovery. */
+  source: string | null
   locationLabel: string
   performedAt: string
 }
@@ -319,6 +326,66 @@ async function loadVariantSkus(
   const map = new Map<string, string>()
   for (const row of rows) {
     if (row.id && row.sku) map.set(row.id, row.sku)
+  }
+  return map
+}
+
+function readMovementMetadataRecord(
+  metadata: InventoryMovement['metadata'],
+): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  return metadata as Record<string, unknown>
+}
+
+export function extractActivityMovementSource(
+  metadata: InventoryMovement['metadata'],
+): string | null {
+  const record = readMovementMetadataRecord(metadata)
+  const source = record?.source
+  return typeof source === 'string' && source.trim() ? source.trim() : null
+}
+
+export function extractActivityAsnId(metadata: InventoryMovement['metadata']): string | null {
+  const record = readMovementMetadataRecord(metadata)
+  const asnId = record?.asnId
+  if (typeof asnId !== 'string') return null
+  const trimmed = asnId.trim()
+  return UUID_PATTERN.test(trimmed) ? trimmed : null
+}
+
+export function extractActivityAsnReferenceNumber(
+  metadata: InventoryMovement['metadata'],
+): string | null {
+  const record = readMovementMetadataRecord(metadata)
+  const value = record?.asnReferenceNumber
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+async function loadAsnReferenceNumbers(
+  em: EntityManager,
+  scope: OperationalDashboardScope,
+  asnIds: string[],
+): Promise<Map<string, string>> {
+  if (asnIds.length === 0) return new Map()
+  const decryptionScope = resolveDecryptionScope(scope)
+  const asns = await findWithDecryption(
+    em,
+    Asn,
+    {
+      id: { $in: asnIds },
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    decryptionScope,
+  )
+  const map = new Map<string, string>()
+  for (const asn of asns) {
+    const label = asn.referenceNumber?.trim()
+    if (label) map.set(asn.id, label)
   }
   return map
 }
@@ -737,8 +804,27 @@ export async function loadOperationalDashboard(
   const variantIds = Array.from(new Set(activityMovements.map((movement) => movement.catalogVariantId)))
   const variantSkus = await loadVariantSkus(em, scope, variantIds)
 
+  const asnIdsNeedingLookup = Array.from(
+    new Set(
+      activityMovements
+        .map((movement) => {
+          if (extractActivityAsnReferenceNumber(movement.metadata)) return null
+          return extractActivityAsnId(movement.metadata)
+        })
+        .filter((id): id is string => Boolean(id)),
+    ),
+  )
+  const asnReferenceNumbers = await loadAsnReferenceNumbers(em, scope, asnIdsNeedingLookup)
+
   const recentActivity: OperationalDashboardActivityRow[] = activityMovements.map((movement) => {
     const warehouseLabel = resolveWarehouseLabel(movement.warehouse, movement.warehouse.id)
+    const source = extractActivityMovementSource(movement.metadata)
+    const metadataAsnReference = extractActivityAsnReferenceNumber(movement.metadata)
+    const asnId = extractActivityAsnId(movement.metadata)
+    const referenceLabel =
+      metadataAsnReference ?? (asnId ? asnReferenceNumbers.get(asnId) ?? null : null)
+    const reasonCode =
+      movement.reasonCode?.trim() || (source === 'asn_receive' ? 'asn_receive' : null)
     return {
       id: movement.id,
       movementType: movement.type,
@@ -747,8 +833,10 @@ export async function loadOperationalDashboard(
       variantId: movement.catalogVariantId,
       referenceType: movement.referenceType ?? null,
       referenceId: movement.referenceId ?? null,
+      referenceLabel,
       reason: movement.reason ?? null,
-      reasonCode: movement.reasonCode ?? null,
+      reasonCode,
+      source,
       locationLabel: resolveLocationLabel(
         warehouseLabel,
         movement.locationFrom?.code,
