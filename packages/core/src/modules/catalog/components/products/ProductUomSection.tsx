@@ -92,7 +92,7 @@ function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
         unitCode: toTrimmedOrNull(row.unitCode) ?? "",
         // Stays raw while editing (issue #5828) — re-serializing on every render would drop
         // an in-progress decimal separator the instant it's typed.
-        toBaseFactor: toTrimmedOrNull(row.toBaseFactor) ?? "",
+        toBaseFactor: row.toBaseFactor ?? "",
         sortOrder: toTrimmedOrNull(row.sortOrder) ?? "",
         isActive: row.isActive !== false,
       } satisfies ProductUnitConversionDraft;
@@ -237,12 +237,12 @@ export function ProductUomSection({
   const defaultUnit = toTrimmedOrNull(values.defaultUnit) ?? "";
   const defaultSalesUnit = toTrimmedOrNull(values.defaultSalesUnit) ?? "";
   const defaultSalesQuantity =
-    toTrimmedOrNull(values.defaultSalesUnitQuantity) ?? "1";
+    values.defaultSalesUnitQuantity ?? "1";
   const unitPriceEnabled = Boolean(values.unitPriceEnabled);
   const unitPriceReferenceUnit =
     toTrimmedOrNull(values.unitPriceReferenceUnit) ?? "";
   const unitPriceBaseQuantity =
-    toTrimmedOrNull(values.unitPriceBaseQuantity) ?? "";
+    values.unitPriceBaseQuantity ?? "";
 
   const baseUnitLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
   const salesUnitLabel =
