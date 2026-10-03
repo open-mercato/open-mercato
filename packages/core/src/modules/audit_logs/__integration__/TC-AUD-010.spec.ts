@@ -69,9 +69,9 @@ async function collectVersionHistoryIds(page: Page, categoryId: string): Promise
   page.on('response', async (response) => {
     const url = new URL(response.url())
     if (url.pathname !== ACTIONS_PATH || url.searchParams.get('resourceId') !== categoryId) return
-    requests += 1
     const body = (await response.json()) as { items?: Array<{ id: string }> }
     for (const item of body.items ?? []) ids.push(item.id)
+    requests += 1
   })
 
   await page.goto(`/backend/catalog/categories/${encodeURIComponent(categoryId)}/edit`)
@@ -83,6 +83,7 @@ async function collectVersionHistoryIds(page: Page, categoryId: string): Promise
   await loadMore.click()
   await expect(loadMore, 'the second page is the last one').toBeHidden()
   await expect.poll(() => requests, { message: 'load more issues one request' }).toBe(2)
+  await expect.poll(() => ids.length, { message: 'both pages arrive' }).toBe(EXPECTED_TOTAL)
   return { ids, requests }
 }
 
