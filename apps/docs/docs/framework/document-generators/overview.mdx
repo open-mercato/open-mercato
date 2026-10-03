@@ -1,0 +1,128 @@
+---
+title: Document Generators
+description: Render PDF and Markdown documents from any module's records, with template versioning, access control, stored history and a reusable UI panel.
+---
+
+# Document Generators
+
+The `@open-mercato/document-generators` package provides the `document_generators` engine module. It renders documents (PDF via React-PDF, or Markdown) from records owned by other modules, stores each generated file privately, and records a history of every generation. Sales ships the reference templates (order invoice, quote offer); any module can add its own with a convention file and a small service class.
+
+## Concepts
+
+| Concept | Meaning |
+|---------|---------|
+| Template | A registered renderer identified by a globally unique `id` (for example `sales.order-invoice`) with a `format` (`pdf` or `md`), `documentType`, `tags` and an optional `requiredFeatures` list. |
+| Document service | A class extending `BaseDocumentService` that owns a `resourceKind`, loads the source record, normalizes it for templates and registers templates. |
+| Resource identity | `resourceKind` (for example `sales.order`) plus `resourceId`. The service derives it server-side through `resourceId()`; clients never choose it. |
+| Registry | `templateRegistry` collects entries from every module's `document-generators.ts` after `yarn generate`. |
+| History | One `GeneratedDocument` row per generation, scoped by tenant and organization, with the template id and version used. |
+
+## Convention file and generation
+
+A module contributes templates by exporting `templates` from `src/modules/<module>/document-generators.ts`:
+
+```ts
+import type { TemplateEntry } from '@open-mercato/shared/modules/document-generators'
+import { InvoicesDocumentService } from './document-generators/services/invoices-document-service'
+
+export const templates: TemplateEntry[] = [...new InvoicesDocumentService().getEntries()]
+```
+
+Run `yarn generate`. The engine's generator plugin writes `document-generators.generated.ts` and registers the entries into `templateRegistry` at bootstrap. Never edit the generated file.
+
+The engine module must be enabled in `src/modules.ts`: `{ id: 'document_generators', from: '@open-mercato/document-generators' }`.
+
+## Writing a document service
+
+Extend `BaseDocumentService` from `@open-mercato/shared/modules/document-generators` and implement:
+
+- `fetchData({ data }, { container, auth })` loads the source record. Always scope the query by `auth.tenantId` and `auth.orgId` and use `findOneWithDecryption`. Throw `CrudHttpError(404, ...)` when the record is absent and `CrudHttpError(403, { error: 'organization_scope_required' })` when the auth context has no organization.
+- `toTemplateData({ data, locale, translate })` converts the fetched source into the plain, format-neutral object every template for this service receives. Resolve labels here through `translate`.
+- `resourceId({ data })` returns the canonical identifier of the source record from the normalized data. `resourceLabel` optionally returns a display label (stored encrypted).
+- `registerTemplate(entry)` registers a template. `getEntries()` returns the registry entries for the convention file.
+
+A template entry declares `id`, `label` and `description` (translation keys), `documentType`, `format`, `tags`, `requiredFeatures`, `filename` and `load`. `load` returns either `{ type: 'react-pdf', component }` or `{ type: 'markdown', render }` and should use dynamic `import()` so template code stays out of unrelated bundles.
+
+## Access control
+
+Two layers apply:
+
+1. Engine features: `document_generators.documents.view` gates the catalogue, history and download; `document_generators.documents.generate` gates preview and generate.
+2. Template features: `requiredFeatures` on a template. `TemplateAccessPolicy` omits templates the caller cannot use from catalogue responses and rejects direct preview or generate calls with `403`. Wildcard grants (for example `sales.*`) are honored.
+
+Tenant and organization scoping is always taken from the authenticated session, never from the request body.
+
+## Versions and drafts
+
+Every template has a `version` (default `"1"`). Keep older renderers available by listing them in `archivedVersions` (`{ version, load }`). Requests may pass `template_version`; omitting it selects the current version. Unknown versions are rejected, and duplicate or empty version strings fail at registration. The version used is stored on each history row.
+
+Draft documents are marked with the `DraftWatermark` primitive from the shared templates barrel. Compute `isDraft` in `toTemplateData` (Sales treats draft statuses as drafts) and render the watermark with a translated label. Markdown templates render a bold quoted label instead.
+
+## Storage and retention
+
+Generated files are stored through the attachments module in the `privateAttachments` partition and linked to the history row. They are downloaded only through the engine route, never through a public attachment URL.
+
+Retention follows the source record. When a module emits the standard CRUD deleted event for the resource kind, `<resourceKind>.deleted` (for example `sales.order.deleted`), with a payload containing `{ id, tenantId, organizationId }`, the engine's `source-erasure` subscriber removes the stored files and anonymizes the matching history rows (label reset to the resource id, file reference cleared). A module that deletes records without emitting that event leaves its generated documents behind, so make sure it does.
+
+## API
+
+All routes are tenant and organization scoped and require authentication.
+
+| Method and path | Feature | Purpose |
+|-----------------|---------|---------|
+| `GET /api/document-generators/templates` | `document_generators.documents.view` | Template catalogue filtered by access policy. Query: `resource_kind`, `document_type`, `format`, `tags`. |
+| `GET /api/document-generators/templates/options` | `document_generators.documents.view` | Filter options for the catalogue. |
+| `POST /api/document-generators/preview` | `document_generators.documents.generate` | Render without storing. Body: `{ template_id, template_version?, data }`. |
+| `POST /api/document-generators/generate` | `document_generators.documents.generate` | Render, store the file and record history. Same body. |
+| `GET /api/document-generators/documents` | `document_generators.documents.view` | Paginated history. Query: `resource_kind` and `resource_id` together, `template_id`, `generated_by`, date range, `sort`, `sort_direction`, `page`, `pageSize` (max 100). |
+| `GET /api/document-generators/documents/{id}/file` | `document_generators.documents.view` | Download a stored file. |
+
+`data` is the request payload handed to the service's `fetchData` (for example `{ id: "<order uuid>" }`).
+
+## UI extension
+
+Import components from `@open-mercato/document-generators/modules/document_generators/components/*`:
+
+- `TemplatesList` lists accessible templates for a record with preview and generate actions.
+- `HistoryList` shows scoped history, filterable by resource.
+- `ResourceDocumentsPanel` combines both for one record: `<ResourceDocumentsPanel resourceKind="invoices.invoice" resourceId={id} />`.
+
+Embed the panel in another module's detail page with an injection widget on that page's `:tabs` spot, rendering the panel lazily. The example below does this.
+
+Preview renders PDFs in a `blob:` frame, so the app content security policy must allow `frame-src blob:`. The default app and the create-app template already do.
+
+Engine helpers are imported through explicit barrels:
+
+```ts
+import { formatDate, formatMoney, escapeInline } from '@open-mercato/document-generators/modules/document_generators/utils/index'
+import { documentTheme, DraftWatermark } from '@open-mercato/document-generators/modules/document_generators/templates/shared/index'
+import { Document, Page, Text, View, StyleSheet } from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf/index'
+```
+
+## Adding a template
+
+1. Add the template component (or Markdown `render`) under the owning module's `document-generators/templates/...`.
+2. Call `registerTemplate` in the service constructor with a unique `id`, `requiredFeatures` and a `load` that dynamically imports it.
+3. Add translation keys for the label, description and template labels.
+4. Run `yarn generate`.
+5. When you change a released template's output, bump `version` and move the previous renderer to `archivedVersions`.
+
+## Adding a new entity
+
+1. Create the service class with a new `resourceKind`, `fetchData`, `toTemplateData` and `resourceId`.
+2. Export its entries from the module's `document-generators.ts`.
+3. Emit the standard `<resourceKind>.deleted` event with `{ id, tenantId, organizationId }` when records are deleted.
+4. Add an injection widget and `injection-table.ts` entry that render `ResourceDocumentsPanel` on the record's detail `:tabs` spot, guarded by `document_generators.documents.view` plus your own view feature.
+5. Run `yarn generate`.
+
+## Working example
+
+A complete minimal invoice module is available under `apps/docs/static/examples/document-generators/invoices/`:
+
+- `document-generators.ts` convention file
+- `document-generators/services/invoices-document-service.ts`
+- `document-generators/templates/invoice.pdf.tsx` and `invoice.markdown.ts`
+- `widgets/injection/invoice-documents-tab/widget.ts` and `widget.client.tsx`
+- `widgets/injection-table.ts`
+
+The example assumes an `Invoice` entity with `number`, `currencyCode`, `totalAmount` and a related line list. Adapt the entity and field names to your module.
