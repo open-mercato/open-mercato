@@ -142,6 +142,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
+  { id: 'document_generators', from: '@open-mercato/document-generators' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
   // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
   // The package ships with the scaffold as an opt-in provider. Enabling it by
