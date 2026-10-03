@@ -38,6 +38,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 5 | 5.7 | History endpoint | dispatch | done | 59d63226c |
 | 6 | 6.1 | React Query data hooks | dispatch | done | f518ea49f |
 | 6 | 6.2 | Template cards and preview dialog | dispatch | done | 5e6d83919 |
+| 6 | 6.2-review-fix | Allow Blob PDF preview frames in CSP | inline | done | — |
 | 6 | 6.3 | Backend overview and catalogue pages | dispatch | done | ffde74b0e |
 | 6 | 6.4 | Shared history table and backend page | dispatch | done | 4dee2f319 |
 | 6 | 6.5 | Sales document tabs and scoped history | dispatch | done | 10c8138ca |
@@ -171,6 +172,10 @@ Add typed catalogue/facet/history queries, filter state and resource-aware keys;
 ### Step 6.2: Template cards and preview dialog
 
 Add reusable list/loading/error states, PDF blob iframe, Markdown text preview, keyboard controls and guarded generation/download.
+
+### Step 6.2-review-fix: Allow Blob PDF preview frames in CSP
+
+The preview dialog renders PDF bytes through a same-origin Blob URL in an iframe; the app-wide CSP only allowed `frame-src 'self'` plus Stripe, so the browser would block the preview. Add `blob:` to `frame-src` in `apps/mercato/next.config.ts` and the create-app template, as the spec's Browser Content Security Policy section prescribes.
 
 ### Step 6.3: Backend overview and catalogue pages
 
