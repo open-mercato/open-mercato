@@ -7,6 +7,7 @@ import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { downloadBlob } from '../utils'
 import { requestDocument } from './document-request'
@@ -32,6 +33,10 @@ export function PreviewPanel({ template, record, onClose, onGenerated }: Preview
   const [preview, setPreview] = React.useState<DocumentPreviewState>({ status: 'loading' })
   const [pending, setPending] = React.useState(false)
   const [generateError, setGenerateError] = React.useState<string | null>(null)
+  const versions = template.versions ?? []
+  const latestVersion = template.version ?? versions[0]
+  const [selectedVersion, setSelectedVersion] = React.useState<string | undefined>(undefined)
+  const requestedVersion = selectedVersion && selectedVersion !== latestVersion ? selectedVersion : undefined
   const { runMutation, retryLastMutation } = useGuardedMutation({
     contextId: 'document-generators-generate',
     blockedMessage: t('document_generators.generate.error'),
@@ -52,6 +57,7 @@ export function PreviewPanel({ template, record, onClose, onGenerated }: Preview
       action: 'preview',
       templateId: template.id,
       recordId: record.id,
+      templateVersion: requestedVersion,
       translate: translateRef.current,
       signal: controller.signal,
     })
@@ -78,7 +84,7 @@ export function PreviewPanel({ template, record, onClose, onGenerated }: Preview
       controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [template.id, record.id, kind])
+  }, [template.id, record.id, kind, requestedVersion])
 
   const generate = React.useCallback(async () => {
     if (pending) return
@@ -87,9 +93,9 @@ export function PreviewPanel({ template, record, onClose, onGenerated }: Preview
     try {
       const { blob, filename } = await runMutation({
         operation: () =>
-          requestDocument({ action: 'generate', templateId: template.id, recordId: record.id, translate: t }),
+          requestDocument({ action: 'generate', templateId: template.id, recordId: record.id, templateVersion: requestedVersion, translate: t }),
         context: mutationContext,
-        mutationPayload: { template_id: template.id, data: { id: record.id } },
+        mutationPayload: { template_id: template.id, template_version: requestedVersion, data: { id: record.id } },
       })
       downloadBlob(blob, filename)
       onGenerated?.()
@@ -98,7 +104,7 @@ export function PreviewPanel({ template, record, onClose, onGenerated }: Preview
     } finally {
       setPending(false)
     }
-  }, [pending, runMutation, template.id, record.id, t, mutationContext, onGenerated])
+  }, [pending, runMutation, template.id, record.id, requestedVersion, t, mutationContext, onGenerated])
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (!isSubmitShortcut(event)) return
@@ -111,6 +117,20 @@ export function PreviewPanel({ template, record, onClose, onGenerated }: Preview
       <DialogContent size="xl" className="flex h-dvh max-h-dvh flex-col sm:max-w-5xl" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>{template.label}</DialogTitle>
+          {versions.length > 1 ? (
+            <Select value={selectedVersion ?? latestVersion} onValueChange={(next) => setSelectedVersion(next || undefined)}>
+              <SelectTrigger className="w-56" aria-label={t('document_generators.preview.version')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {versions.map((version) => (
+                  <SelectItem key={version} value={version}>
+                    {version === latestVersion ? `${version} · ${t('document_generators.preview.latestVersion')}` : version}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-auto">
           {preview.status === 'loading' ? <Loader label={t('document_generators.preview.loading')} /> : null}

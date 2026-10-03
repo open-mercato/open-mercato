@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { DEFAULT_TEMPLATE_VERSION } from '@open-mercato/shared/modules/document-generators'
 import { GeneratedDocument } from '../../data/entities'
 import type { ListDocumentsQuery } from '../../data/validators'
 
@@ -16,6 +17,7 @@ export type GeneratedDocumentDto = {
   resourceLabel: string
   templateId: string
   templateLabel: string
+  templateVersion: string
   format: string
   generatedBy: string
   generatedAt: string
@@ -33,6 +35,7 @@ export type RecordGeneratedDocumentInput = GenerationHistoryScope & {
   resourceLabel?: string | null
   templateId: string
   templateLabel: string
+  templateVersion?: string
   format: string
   mimeType: string
   generatedBy: string
@@ -66,6 +69,7 @@ export function toGeneratedDocumentDto(entity: GeneratedDocument): GeneratedDocu
     resourceLabel: entity.resourceLabel,
     templateId: entity.templateId,
     templateLabel: entity.templateLabel,
+    templateVersion: entity.templateVersion ?? DEFAULT_TEMPLATE_VERSION,
     format: entity.format,
     generatedBy: entity.generatedBy,
     generatedAt: entity.generatedAt.toISOString(),
@@ -90,6 +94,7 @@ export class GenerationHistoryService {
     entity.resourceLabel = sealedLabel
     entity.templateId = input.templateId
     entity.templateLabel = input.templateLabel
+    entity.templateVersion = input.templateVersion ?? DEFAULT_TEMPLATE_VERSION
     entity.format = input.format
     entity.mimeType = input.mimeType
     entity.generatedBy = input.generatedBy

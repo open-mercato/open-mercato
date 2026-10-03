@@ -4,6 +4,7 @@ const trimmedNonEmpty = z.string().trim().min(1)
 
 const documentPayloadShape = {
   template_id: trimmedNonEmpty,
+  template_version: trimmedNonEmpty.max(64).optional(),
   data: z.record(z.string(), z.unknown()),
 }
 

@@ -66,7 +66,7 @@ export async function POST(request: Request): Promise<Response> {
     })
     await policy.requireAccess({ requiredFeatures: template.requiredFeatures })
     const loaded = await templateRegistry.load(
-      { id: parsed.data.template_id, data: parsed.data.data },
+      { id: parsed.data.template_id, data: parsed.data.data, version: parsed.data.template_version },
       { container, auth: organization.auth, locale, translate: toTemplateTranslate(translate) },
     )
     const rendered = await new DocumentRenderer().render(loaded.render)

@@ -35,6 +35,9 @@ export class GeneratedDocument {
   @Property({ name: 'template_label', type: 'text' })
   templateLabel!: string
 
+  @Property({ name: 'template_version', type: 'text', default: '1' })
+  templateVersion: string = '1'
+
   @Property({ name: 'format', type: 'text', default: 'pdf' })
   format: string = 'pdf'
 

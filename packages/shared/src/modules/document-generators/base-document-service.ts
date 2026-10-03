@@ -22,6 +22,7 @@ export abstract class BaseDocumentService {
       ...entry,
       tags: [...entry.tags],
       requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : undefined,
+      archivedVersions: entry.archivedVersions ? entry.archivedVersions.map((source) => ({ ...source })) : undefined,
     })
   }
 
@@ -30,6 +31,7 @@ export abstract class BaseDocumentService {
       ...entry,
       tags: [...entry.tags],
       requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : undefined,
+      archivedVersions: entry.archivedVersions ? entry.archivedVersions.map((source) => ({ ...source })) : undefined,
       module: this.module,
       resourceKind: this.resourceKind,
       fromRecord: (data, { locale, translate }) => this.toTemplateData({

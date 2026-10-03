@@ -1,4 +1,4 @@
-import type { TemplateEntry, TemplateMeta } from '@open-mercato/shared/modules/document-generators'
+import { DEFAULT_TEMPLATE_VERSION, type DocumentTemplateSource, type TemplateEntry, type TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 import type { TranslateWithFallbackFn as TranslateFn } from '@open-mercato/shared/lib/i18n/translate'
 import type { LoadedTemplate, TemplateFilter, TemplateFilterOptions, TemplateLoadContext } from './interfaces'
 
@@ -16,6 +16,36 @@ export class DuplicateTemplateError extends Error {
   }
 }
 
+export class UnknownTemplateVersionError extends Error {
+  constructor(readonly templateId: string, readonly version: string) {
+    super(`[internal] Unknown version ${version} of document template ${templateId}`)
+    this.name = 'UnknownTemplateVersionError'
+  }
+}
+
+function currentVersion(entry: TemplateEntry): string {
+  return entry.version ?? DEFAULT_TEMPLATE_VERSION
+}
+
+function availableVersions(entry: TemplateEntry): string[] {
+  return [currentVersion(entry), ...(entry.archivedVersions ?? []).map((source) => source.version)]
+}
+
+function assertDistinctVersions(entry: TemplateEntry): void {
+  const versions = availableVersions(entry)
+  if (new Set(versions).size !== versions.length || versions.some((version) => !version.trim())) {
+    throw new Error(`[internal] Document template ${entry.id} declares duplicate or empty versions`)
+  }
+}
+
+function resolveVersionSource(entry: TemplateEntry, version: string | undefined): { version: string; load: () => Promise<DocumentTemplateSource> } {
+  const current = currentVersion(entry)
+  if (version === undefined || version === current) return { version: current, load: entry.load }
+  const archived = entry.archivedVersions?.find((source) => source.version === version)
+  if (!archived) throw new UnknownTemplateVersionError(entry.id, version)
+  return archived
+}
+
 function metadata(entry: TemplateEntry, translate?: TranslateFn): TemplateMeta {
   return {
     id: entry.id,
@@ -28,6 +58,8 @@ function metadata(entry: TemplateEntry, translate?: TranslateFn): TemplateMeta {
     tags: [...entry.tags],
     ...(entry.note === undefined ? {} : { note: entry.note }),
     ...(entry.requiredFeatures === undefined ? {} : { requiredFeatures: [...entry.requiredFeatures] }),
+    version: currentVersion(entry),
+    versions: availableVersions(entry),
   }
 }
 
@@ -39,10 +71,12 @@ export class TemplateRegistry {
     for (const entry of entries) {
       const existing = next.get(entry.id)
       if (existing) throw new DuplicateTemplateError(entry.id, existing.module, entry.module)
+      assertDistinctVersions(entry)
       next.set(entry.id, {
         ...entry,
         tags: [...entry.tags],
         requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : undefined,
+        archivedVersions: entry.archivedVersions ? entry.archivedVersions.map((source) => ({ ...source })) : undefined,
       })
     }
     this.entries = next
@@ -68,18 +102,19 @@ export class TemplateRegistry {
     }
   }
 
-  async load(input: { id: string; data: unknown }, context: TemplateLoadContext): Promise<LoadedTemplate> {
+  async load(input: { id: string; data: unknown; version?: string }, context: TemplateLoadContext): Promise<LoadedTemplate> {
     const entry = this.getEntry(input.id)
+    const selected = resolveVersionSource(entry, input.version)
     const fetched = entry.fetchData ? await entry.fetchData({ data: input.data }, context) : input.data
     const data = entry.fromRecord(fetched, { locale: context.locale, translate: context.translate })
     const resourceId = entry.resourceId({ data })
     if (!resourceId) throw new Error('[internal] Document template did not resolve its source identity')
     const filename = entry.filename({ data })
-    const source = await entry.load()
+    const source = await selected.load()
     return {
       data,
       filename,
-      template: { id: entry.id, label: metadata(entry, context.translate).label },
+      template: { id: entry.id, label: metadata(entry, context.translate).label, version: selected.version },
       resource: { kind: entry.resourceKind, id: resourceId, label: entry.resourceLabel?.({ data }) },
       render: { format: entry.format, source, data },
     }

@@ -14,6 +14,7 @@ export const HISTORY_COLUMN_IDS = [
   'resourceKind',
   'resourceId',
   'templateId',
+  'templateVersion',
   'id',
 ] as const
 
@@ -83,6 +84,12 @@ export function buildHistoryColumns(t: Translate, visible?: readonly HistoryColu
       id: 'templateId',
       accessorKey: 'templateId',
       header: t('document_generators.history.templateId'),
+      enableSorting: false,
+    },
+    templateVersion: {
+      id: 'templateVersion',
+      accessorKey: 'templateVersion',
+      header: t('document_generators.history.version'),
       enableSorting: false,
     },
     id: {
