@@ -20,10 +20,10 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 2 | 2.2 | Template registry | dispatch | done | 69f48e8e9 |
 | 2 | 2.3 | Template authorization policy | dispatch | done | 6c2724a9f |
 | 2 | 2.4 | Generator discovery and bootstrap | dispatch | done | 2c729fb9e |
-| 3 | 3.1 | PDF rendering adapter | dispatch | done | this commit |
-| 3 | 3.2 | Markdown renderer and format dispatch | dispatch | done | this commit |
-| 3 | 3.3 | Document utility barrel | dispatch | done | this commit |
-| 3 | 3.4 | PDF authoring toolkit | dispatch | done | this commit |
+| 3 | 3.1 | PDF rendering adapter | dispatch | done | 42a05aba2 |
+| 3 | 3.2 | Markdown renderer and format dispatch | dispatch | done | f4e0fd28c |
+| 3 | 3.3 | Document utility barrel | dispatch | done | e894f7283 |
+| 3 | 3.4 | PDF authoring toolkit | dispatch | done | 1f0e7bd9e |
 | 4 | 4.1 | Quote data service | dispatch | todo | — |
 | 4 | 4.2 | Sales offer PDF template | dispatch | todo | — |
 | 4 | 4.3 | Order data service | dispatch | todo | — |

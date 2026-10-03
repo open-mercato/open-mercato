@@ -3,15 +3,15 @@
 **Last updated:** 2026-10-03T11:43:10.770526+00:00
 **Branch:** feat/document-generators-v2
 **PR:** https://github.com/open-mercato/open-mercato/pull/6892
-**Current phase/step:** 3.1
-**Last commit:** 2c729fb9e — generator integration
+**Current phase/step:** 4.1
+**Last commit:** 1f0e7bd9e — reusable PDF toolkit
 
 ## What just happened
 - Foundation and five-locale engine strings committed; 11 tests, package build/typecheck and generation passed.
 - Dependencies installed; local runner selected. Full build preparation running.
 
 ## Next concrete action
-- Step 3.1: PDF rendering adapter (dependency install underway).
+- Step 4.1: Sales quote data service with scoped decrypted queries and shared tenant contract tests.
 
 ## Blockers / open questions
 - Maintainer must apply labels/assignee (GitHub refused writes). All-tenant cache operation rejected by automatic approval review; leave shared tenant state untouched.
