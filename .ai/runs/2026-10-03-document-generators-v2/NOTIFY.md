@@ -25,3 +25,10 @@ Append-only UTC log.
 ## 2026-10-03T12:05:02.084568+00:00 — checkpoint 3
 - Renderers/utilities/toolkit passed 38 tests, build/typecheck and two real PDF renders.
 - Browser pass deferred: server toolkit only; no app UI route yet.
+
+## 2026-10-03T12:13:26Z — om-auto-continue-pr-loop resume
+- Resumed by: @kriss145 (Claude Code session taking over from the interrupted Codex om-auto-create-pr-loop session).
+- Resume point: 4.1 (source: HANDOFF.md + Tasks table, consistent). PR head SHA: 9caac9197.
+- Assignee/label writes still refused by GitHub (read-only contributor); claim recorded via PR comment only.
+- Decision: Sales gains @open-mercato/document-generators as a peer + dev dependency (same pattern as the existing optional @open-mercato/ai-assistant peer) when the first React-PDF template lands in Step 4.2; Step 4.1 depends on shared contracts only.
+- Decision: document seller block is optional and sourced from the source document's own SalesChannel (name, contact email/phone), keeping data inside Sales instead of importing directory entities.
