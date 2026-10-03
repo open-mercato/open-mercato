@@ -14,6 +14,7 @@ import { templateRegistry } from '../../../lib/template-registry'
 import { TemplateAccessPolicy, type TemplateFeatureAuthorizer } from '../../../lib/template-access-policy'
 import { DocumentRenderer } from '../../../services/document-renderer'
 import { GenerationHistoryService } from '../../../services/generation-history-service'
+import { resolveStoredDocumentAttachmentService, storeGeneratedDocument } from '../../../lib/stored-documents'
 import { documentResponse } from '../../_shared/document-response'
 import { errorResponse, mapDocumentError, parseJsonBody, requireOrganization, toTemplateTranslate } from '../../_shared/http'
 import { resolveDocumentRequestContext } from '../../_shared/request-context'
@@ -68,6 +69,41 @@ function reportHistoryFailure(error: unknown): void {
   } catch (telemetryError) {
     logger.error('Failed to report a history error to telemetry', { err: telemetryError as Error })
   }
+}
+
+function reportStorageFailure(error: unknown): void {
+  logger.error('Failed to store the generated document; recording history without a stored file', { err: error as Error })
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'document_generators', code: 'document_generators.document_storage_failed' })
+  } catch (telemetryError) {
+    logger.error('Failed to report a storage error to telemetry', { err: telemetryError as Error })
+  }
+}
+
+async function recordGeneratedDocument(input: {
+  history: GenerationHistoryService
+  prepared: Awaited<ReturnType<GenerationHistoryService['prepare']>>
+  resolve: (name: string) => unknown
+  buffer: Uint8Array
+  fileName: string
+  mimeType: string
+}): Promise<string> {
+  const attachmentService = resolveStoredDocumentAttachmentService(<T,>(name: string) => input.resolve(name) as T)
+  if (attachmentService) {
+    try {
+      const stored = await storeGeneratedDocument({
+        attachmentService,
+        prepared: input.prepared,
+        buffer: input.buffer,
+        fileName: input.fileName,
+        mimeType: input.mimeType,
+      })
+      return stored.historyId
+    } catch (error) {
+      reportStorageFailure(error)
+    }
+  }
+  return (await input.history.persist(input.prepared)).id
 }
 
 async function loadUserFeatures(
@@ -155,7 +191,14 @@ export async function POST(request: Request): Promise<Response> {
     })
     let recordedId: string | null = null
     try {
-      recordedId = (await history.persist(prepared)).id
+      recordedId = await recordGeneratedDocument({
+        history,
+        prepared,
+        resolve: (name) => container.resolve(name),
+        buffer: rendered.buffer,
+        fileName: loaded.filename,
+        mimeType: rendered.mimeType,
+      })
     } catch (error) {
       reportHistoryFailure(error)
     }

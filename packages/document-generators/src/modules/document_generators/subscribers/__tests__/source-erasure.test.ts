@@ -47,7 +47,7 @@ describe('source erasure subscriber', () => {
   it('erases generated documents for the deleted source record in its own scope', async () => {
     await handler(payload, { eventId: 'sales.order.deleted', resolve: resolve as never })
 
-    expect(ServiceMock).toHaveBeenCalledWith(em)
+    expect(ServiceMock).toHaveBeenCalledWith(em, undefined)
     expect(eraseForResource).toHaveBeenCalledWith({
       tenantId: payload.tenantId,
       organizationId: payload.organizationId,

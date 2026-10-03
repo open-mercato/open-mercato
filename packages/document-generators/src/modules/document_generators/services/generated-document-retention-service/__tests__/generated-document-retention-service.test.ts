@@ -73,7 +73,7 @@ describe('GeneratedDocumentRetentionService', () => {
   it('anonymizes the label to the source id and unlinks stored files', async () => {
     const { em, writeEm } = createEm()
     const first = record({ id: 'history-1', attachmentId: 'attachment-1' })
-    const second = record({ id: 'history-2', attachmentId: 'attachment-1' })
+    const second = record({ id: 'history-2', attachmentId: 'attachment-2' })
     const third = record({ id: 'history-3', attachmentId: null })
     findMock.mockResolvedValue([first, second, third])
     const remover = jest.fn(async () => undefined)
@@ -82,7 +82,10 @@ describe('GeneratedDocumentRetentionService', () => {
     const result = await service.eraseForResource(scope)
 
     expect(remover).toHaveBeenCalledWith({
-      attachmentIds: ['attachment-1'],
+      documents: [
+        { attachmentId: 'attachment-1', historyId: 'history-1', resourceId: scope.resourceId },
+        { attachmentId: 'attachment-2', historyId: 'history-2', resourceId: scope.resourceId },
+      ],
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     })
@@ -91,7 +94,29 @@ describe('GeneratedDocumentRetentionService', () => {
       expect(entry.attachmentId).toBeNull()
     }
     expect(writeEm.flush).toHaveBeenCalledTimes(1)
-    expect(result).toEqual({ anonymizedCount: 3, removedAttachmentIds: ['attachment-1'] })
+    expect(result).toEqual({ anonymizedCount: 3, removedAttachmentIds: ['attachment-1', 'attachment-2'] })
+  })
+
+  it('anonymizes history without stored files when no remover is wired', async () => {
+    const { em, writeEm } = createEm()
+    const entry = record({ attachmentId: null })
+    findMock.mockResolvedValue([entry])
+    const service = new GeneratedDocumentRetentionService(em as never)
+
+    await expect(service.eraseForResource(scope)).resolves.toEqual({ anonymizedCount: 1, removedAttachmentIds: [] })
+    expect(entry.resourceLabel).toBe(scope.resourceId)
+    expect(writeEm.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses to orphan stored files when no remover is available', async () => {
+    const { em, writeEm } = createEm()
+    const entry = record({ attachmentId: 'attachment-1' })
+    findMock.mockResolvedValue([entry])
+    const service = new GeneratedDocumentRetentionService(em as never)
+
+    await expect(service.eraseForResource(scope)).rejects.toThrow('refusing to orphan generated files')
+    expect(entry.attachmentId).toBe('attachment-1')
+    expect(writeEm.flush).not.toHaveBeenCalled()
   })
 
   it('keeps history untouched when removing stored files fails', async () => {

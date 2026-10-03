@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
@@ -79,6 +80,7 @@ export class GenerationHistoryService {
     const sealedLabel = await this.sealResourceLabel(plaintextResourceLabel, input)
 
     const entity = new GeneratedDocument()
+    entity.id = randomUUID()
     entity.tenantId = input.tenantId
     entity.organizationId = input.organizationId
     entity.resourceKind = input.resourceKind
