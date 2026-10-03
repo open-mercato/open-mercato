@@ -1,0 +1,11 @@
+{
+  "invoices.documents.generators.tabLabel": "Documents",
+  "invoices.documents.templates.invoice.description": "Printable PDF invoice for this record.",
+  "invoices.documents.templates.invoice.label": "Invoice (PDF)",
+  "invoices.documents.templates.invoice.labels.draftWatermark": "DRAFT",
+  "invoices.documents.templates.invoice.labels.number": "Number",
+  "invoices.documents.templates.invoice.labels.title": "Invoice",
+  "invoices.documents.templates.invoice.labels.total": "Total",
+  "invoices.documents.templates.invoiceMarkdown.description": "Plain-text Markdown version of the invoice.",
+  "invoices.documents.templates.invoiceMarkdown.label": "Invoice (Markdown)"
+}

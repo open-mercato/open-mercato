@@ -1,0 +1,11 @@
+{
+  "invoices.documents.generators.tabLabel": "문서",
+  "invoices.documents.templates.invoice.description": "이 레코드의 인쇄용 PDF 송장입니다.",
+  "invoices.documents.templates.invoice.label": "송장 (PDF)",
+  "invoices.documents.templates.invoice.labels.draftWatermark": "초안",
+  "invoices.documents.templates.invoice.labels.number": "번호",
+  "invoices.documents.templates.invoice.labels.title": "송장",
+  "invoices.documents.templates.invoice.labels.total": "합계",
+  "invoices.documents.templates.invoiceMarkdown.description": "송장의 Markdown 텍스트 버전입니다.",
+  "invoices.documents.templates.invoiceMarkdown.label": "송장 (Markdown)"
+}
