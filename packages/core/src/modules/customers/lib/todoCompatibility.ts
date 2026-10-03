@@ -3,6 +3,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CustomerInteraction,
   CustomerTodoLink,
@@ -10,6 +11,7 @@ import {
 import type { InteractionRecord } from './interactionCompatibility'
 import {
   CUSTOMER_INTERACTION_TASK_SOURCE,
+  CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
   resolveExampleIntegrationHref,
 } from './interactionCompatibility'
@@ -17,6 +19,36 @@ import { hydrateCanonicalInteractions, loadCustomerSummaries } from './interacti
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+export async function countCustomerTodos(
+  em: EntityManager,
+  scope: { entityId: string; tenantId: string; organizationId: string },
+  unified: boolean,
+): Promise<number> {
+  const entityScope = {
+    entity: scope.entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }
+  if (unified) {
+    return em.count(CustomerInteraction, { ...entityScope, interactionType: 'task', deletedAt: null })
+  }
+
+  const adapterInteractions = await findWithDecryption(
+    em,
+    CustomerInteraction,
+    { ...entityScope, interactionType: 'task', source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE },
+    { fields: ['id', 'deletedAt'] },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  const bridgeIds = adapterInteractions.map((interaction) => interaction.id)
+  const legacyCount = await em.count(CustomerTodoLink, {
+    ...entityScope,
+    ...(bridgeIds.length > 0 ? { todoId: { $nin: bridgeIds } } : {}),
+  })
+  const adapterCount = adapterInteractions.filter((interaction) => !interaction.deletedAt).length
+  return legacyCount + adapterCount
+}
 
 export type CustomerTodoRow = {
   id: string
