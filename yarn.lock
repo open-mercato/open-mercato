@@ -9054,6 +9054,7 @@ __metadata:
     "@mikro-orm/decorators": "npm:^7.1.14"
     "@mikro-orm/postgresql": "npm:^7.1.14"
     "@open-mercato/ai-assistant": "workspace:*"
+    "@open-mercato/document-generators": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@testing-library/dom": "npm:^10.4.1"
@@ -9091,6 +9092,7 @@ __metadata:
     zod: "npm:^4.4.3"
   peerDependencies:
     "@open-mercato/ai-assistant": "workspace:*"
+    "@open-mercato/document-generators": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     react: ^19.0.0

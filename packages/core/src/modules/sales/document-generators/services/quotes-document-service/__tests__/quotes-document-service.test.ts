@@ -73,11 +73,11 @@ describe('QuotesDocumentService', () => {
     findMock.mockReset()
   })
 
-  it('exposes identity and registers no templates', () => {
+  it('exposes identity and registers the offer template', () => {
     expect(service.id).toBe('quotes')
     expect(service.module).toBe('sales')
     expect(service.resourceKind).toBe('sales.quote')
-    expect(service.getEntries()).toEqual([])
+    expect(service.getEntries().map((entry) => entry.id)).toEqual(['sales.offer'])
   })
 
   it.each([[undefined], [{}], [{ id: 'not-a-uuid' }], [{ id: 42 }], [null]])(

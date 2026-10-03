@@ -9,6 +9,7 @@ import type {
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/filename'
 import { SalesChannel, SalesQuote, SalesQuoteLine } from '../../../data/entities'
 import {
   SALES_OFFER_LABEL_KEYS,
@@ -162,6 +163,24 @@ export class QuotesDocumentService extends BaseDocumentService {
   readonly label = 'Quotes'
   readonly module = 'sales'
   readonly resourceKind = 'sales.quote'
+
+  constructor() {
+    super()
+    this.registerTemplate({
+      id: 'sales.offer',
+      label: 'sales.documents.templates.offer.label',
+      description: 'sales.documents.templates.offer.description',
+      documentType: 'offer',
+      format: 'pdf',
+      tags: ['sales', 'quote'],
+      requiredFeatures: ['sales.quotes.view'],
+      filename: ({ data }) => buildDocumentFilename(data, 'offer', 'pdf'),
+      load: async () => ({
+        type: 'react-pdf',
+        component: (await import('../../templates/quotes/sales-offer/pdf/SalesOfferPdf')).default,
+      }),
+    })
+  }
 
   override async fetchData(
     { data }: { data: unknown },
