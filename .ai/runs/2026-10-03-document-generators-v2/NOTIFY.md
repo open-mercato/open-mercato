@@ -21,3 +21,7 @@ Append-only UTC log.
 - Steps2.1–2.4 verified; 24 engine and 5 shared tests passed, generated bootstrap inspected.
 - Main session continues execution after provider subagent usage limit under user instruction to continue.
 - Explicit all-tenant cache refresh rejected by automatic approval review; no bypass. UI not present, browser pass not applicable.
+
+## 2026-10-03T12:05:02.084568+00:00 — checkpoint 3
+- Renderers/utilities/toolkit passed 38 tests, build/typecheck and two real PDF renders.
+- Browser pass deferred: server toolkit only; no app UI route yet.
