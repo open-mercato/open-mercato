@@ -67,3 +67,8 @@ Append-only UTC log.
 - Steps 9.1, 9.2, 6.2-review-fix (CSP blob: frames), 10.1 done. Step test files pass; template:sync clean.
 - All implementation rows done (37/39). Remaining 10.2 (full gate) and 10.3 (integration run, review, UI evidence) need explicit user approval — heavy local load and a migrated database.
 - Standalone harness refresh not done (requires failing-first evals) — recorded in spec "Not yet verified".
+
+## 2026-10-03T19:26:45Z — final gate (configured validation) passed
+- Sequential local run; author ran typecheck/test/build:app in their terminal. Fixes during the gate: 0648cc031 (example module dictionaries), cc02607c4 (in-package type imports).
+- Manual app testing fixed bd405329f (idempotent registry on repeated bootstrap) and 9863f6ea7 (attachment owner assignment). Accidental WMS generator output committed in bd405329f was reverted in 7212b7746.
+- Unit tests scoped to changed packages (230 + 929 + 6). Integration suite, lint, client boundaries, DS guardian, screenshots remain.
