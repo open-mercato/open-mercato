@@ -1,20 +1,16 @@
 /** @jest-environment node */
 
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CustomerInteraction, CustomerTodoLink } from '../../data/entities'
+import 'reflect-metadata'
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
+import { MikroORM } from '@mikro-orm/postgresql'
+import { CustomerEntity, CustomerInteraction, CustomerTodoLink } from '../../data/entities'
 import { countCustomerTodos } from '../todoCompatibility'
-
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: jest.fn(),
-}))
 
 jest.mock('../interactionReadModel', () => ({
   hydrateCanonicalInteractions: jest.fn(),
   loadCustomerSummaries: jest.fn(),
 }))
 
-const findWithDecryptionMock = jest.mocked(findWithDecryption)
 const scope = {
   entityId: '00000000-0000-4000-8000-000000000001',
   tenantId: '00000000-0000-4000-8000-000000000002',
@@ -25,96 +21,88 @@ const entityScope = {
   tenantId: scope.tenantId,
   organizationId: scope.organizationId,
 }
-
-function createEm(total: number) {
-  const count = jest.fn(async () => total)
-  return { em: { count } as unknown as EntityManager, count }
-}
+const adapterScope = { ...entityScope, interactionType: 'task', source: 'adapter:todo' }
 
 describe('countCustomerTodos', () => {
-  beforeEach(() => {
-    findWithDecryptionMock.mockReset()
-    findWithDecryptionMock.mockResolvedValue([])
+  let orm: MikroORM
+
+  beforeAll(async () => {
+    orm = await MikroORM.init({
+      entities: [CustomerEntity, CustomerInteraction, CustomerTodoLink],
+      metadataProvider: ReflectMetadataProvider,
+      dbName: 'customer-todo-count-query-test',
+      connect: false,
+      allowGlobalContext: true,
+    })
   })
 
-  it('counts two adapter-created tasks without legacy links (#6068)', async () => {
-    const { em, count } = createEm(0)
-    findWithDecryptionMock.mockResolvedValue([
-      { id: 'adapter-1', deletedAt: null },
-      { id: 'adapter-2', deletedAt: null },
+  afterAll(async () => {
+    await orm?.close(true)
+  })
+
+  it.each([
+    { scenario: 'two adapter-created tasks without legacy links (#6068)', legacyTotal: 0, adapterTotal: 2, expected: 2 },
+    { scenario: 'legacy links without adapter tasks', legacyTotal: 5, adapterTotal: 0, expected: 5 },
+    { scenario: 'active bridges counted once and deleted bridges suppressed', legacyTotal: 1, adapterTotal: 1, expected: 2 },
+    { scenario: 'deleted adapter tasks without resurrecting legacy links', legacyTotal: 0, adapterTotal: 0, expected: 0 },
+    { scenario: 'adapter totals beyond the overview preview limit', legacyTotal: 2, adapterTotal: 125, expected: 127 },
+  ])('counts $scenario using database aggregates', async ({ legacyTotal, adapterTotal, expected }) => {
+    const em = orm.em.fork()
+    const count = jest.spyOn(em, 'count').mockImplementation(async (entityName) => {
+      return entityName === CustomerTodoLink ? legacyTotal : adapterTotal
+    })
+    const find = jest.spyOn(em, 'find')
+    const createQueryBuilder = jest.spyOn(em, 'createQueryBuilder')
+
+    await expect(countCustomerTodos(em, scope, false)).resolves.toBe(expected)
+
+    const adapterIds = createQueryBuilder.mock.results[0].value
+    expect(createQueryBuilder).toHaveBeenCalledWith(CustomerInteraction)
+    expect(adapterIds.getParams()).toEqual([
+      scope.entityId, scope.tenantId, scope.organizationId, 'task', 'adapter:todo',
     ])
-
-    await expect(countCustomerTodos(em, scope, false)).resolves.toBe(2)
-
-    expect(findWithDecryptionMock).toHaveBeenCalledWith(
-      em,
-      CustomerInteraction,
-      { ...entityScope, interactionType: 'task', source: 'adapter:todo' },
-      { fields: ['id', 'deletedAt'] },
-      { tenantId: scope.tenantId, organizationId: scope.organizationId },
-    )
+    expect(adapterIds.getQuery()).not.toContain('deleted_at')
     expect(count).toHaveBeenCalledWith(CustomerTodoLink, {
       ...entityScope,
-      todoId: { $nin: ['adapter-1', 'adapter-2'] },
+      todoId: { $nin: adapterIds },
     })
+    expect(count).toHaveBeenCalledWith(CustomerInteraction, { ...adapterScope, deletedAt: null })
+    expect(count).toHaveBeenCalledTimes(2)
+    expect(find).not.toHaveBeenCalled()
   })
 
-  it('preserves the scoped legacy-link total when no adapter tasks exist', async () => {
-    const { em, count } = createEm(5)
+  it('compiles a scoped SQL exclusion subquery without materializing historical task IDs', async () => {
+    const em = orm.em.fork()
+    const execute = jest.spyOn(em.getConnection(), 'execute').mockResolvedValue({ count: 0 })
 
-    await expect(countCustomerTodos(em, scope, false)).resolves.toBe(5)
+    try {
+      await expect(countCustomerTodos(em, scope, false)).resolves.toBe(0)
 
-    expect(count).toHaveBeenCalledWith(CustomerTodoLink, entityScope)
-  })
-
-  it('counts active bridges once and suppresses legacy links for deleted bridges', async () => {
-    const { em, count } = createEm(1)
-    findWithDecryptionMock.mockResolvedValue([
-      { id: 'active-bridge', deletedAt: null },
-      { id: 'deleted-bridge', deletedAt: new Date('2026-10-01T10:00:00.000Z') },
-    ])
-
-    await expect(countCustomerTodos(em, scope, false)).resolves.toBe(2)
-
-    expect(count).toHaveBeenCalledWith(CustomerTodoLink, {
-      ...entityScope,
-      todoId: { $nin: ['active-bridge', 'deleted-bridge'] },
-    })
-  })
-
-  it('does not count deleted adapter tasks or resurrect their legacy links', async () => {
-    const { em, count } = createEm(0)
-    findWithDecryptionMock.mockResolvedValue([
-      { id: 'deleted-bridge', deletedAt: new Date('2026-10-01T10:00:00.000Z') },
-    ])
-
-    await expect(countCustomerTodos(em, scope, false)).resolves.toBe(0)
-
-    expect(count).toHaveBeenCalledWith(CustomerTodoLink, {
-      ...entityScope,
-      todoId: { $nin: ['deleted-bridge'] },
-    })
-  })
-
-  it('counts beyond the overview preview limit', async () => {
-    const { em, count } = createEm(2)
-    const adapters = Array.from({ length: 125 }, (_, index) => ({
-      id: `adapter-${index}`,
-      deletedAt: null,
-    }))
-    findWithDecryptionMock.mockResolvedValue(adapters)
-
-    await expect(countCustomerTodos(em, scope, false)).resolves.toBe(127)
-
-    expect(findWithDecryptionMock.mock.calls[0][3]).toEqual({ fields: ['id', 'deletedAt'] })
-    expect(count).toHaveBeenCalledWith(CustomerTodoLink, {
-      ...entityScope,
-      todoId: { $nin: adapters.map((adapter) => adapter.id) },
-    })
+      expect(execute).toHaveBeenCalledTimes(2)
+      const legacyQuery = execute.mock.calls.find(([query]) => typeof query === 'string' && query.includes('customer_todo_links'))
+      const adapterQuery = execute.mock.calls.find(([query]) => typeof query === 'string' && !query.includes('customer_todo_links'))
+      expect(legacyQuery?.[0]).toBe(
+        'select count(*) as "count" from "customer_todo_links" as "c0" where "c0"."entity_id" = ? and "c0"."tenant_id" = ? and "c0"."organization_id" = ? and "c0"."todo_id" not in (select "c0"."id" from "customer_interactions" as "c0" where "c0"."entity_id" = ? and "c0"."tenant_id" = ? and "c0"."organization_id" = ? and "c0"."interaction_type" = ? and "c0"."source" = ?)',
+      )
+      expect(legacyQuery?.[1]).toEqual([
+        scope.entityId, scope.tenantId, scope.organizationId,
+        scope.entityId, scope.tenantId, scope.organizationId, 'task', 'adapter:todo',
+      ])
+      expect(adapterQuery?.[0]).toBe(
+        'select count(*) as "count" from "customer_interactions" as "c0" where "c0"."entity_id" = ? and "c0"."tenant_id" = ? and "c0"."organization_id" = ? and "c0"."interaction_type" = ? and "c0"."source" = ? and "c0"."deleted_at" is null',
+      )
+      expect(adapterQuery?.[1]).toEqual([
+        scope.entityId, scope.tenantId, scope.organizationId, 'task', 'adapter:todo',
+      ])
+    } finally {
+      execute.mockRestore()
+    }
   })
 
   it('counts all active canonical task sources with explicit scope in unified mode', async () => {
-    const { em, count } = createEm(205)
+    const em = orm.em.fork()
+    const count = jest.spyOn(em, 'count').mockResolvedValue(205)
+    const createQueryBuilder = jest.spyOn(em, 'createQueryBuilder')
 
     await expect(countCustomerTodos(em, scope, true)).resolves.toBe(205)
 
@@ -123,6 +111,7 @@ describe('countCustomerTodos', () => {
       interactionType: 'task',
       deletedAt: null,
     })
-    expect(findWithDecryptionMock).not.toHaveBeenCalled()
+    expect(count).toHaveBeenCalledTimes(1)
+    expect(createQueryBuilder).not.toHaveBeenCalled()
   })
 })

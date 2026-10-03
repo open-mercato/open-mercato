@@ -19,6 +19,7 @@ const mockEm = {
   findOne: jest.fn(),
   find: jest.fn(),
   count: jest.fn(),
+  createQueryBuilder: jest.fn(),
 }
 
 const mockContainer = {
@@ -128,6 +129,11 @@ describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)',
     mockEm.find.mockReset()
     mockEm.count.mockReset()
     mockEm.count.mockResolvedValue(0)
+    mockEm.createQueryBuilder.mockReset()
+    mockEm.createQueryBuilder.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+    })
     mockContainer.resolve.mockClear()
 
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1', isApiKey: false })
@@ -178,10 +184,8 @@ describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)',
   })
 
   it('counts adapter-created tasks without loading the task preview (#6068)', async () => {
-    mockFindWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, where: Record<string, unknown>) =>
-      where.source === 'adapter:todo'
-        ? [{ id: 'task-1', deletedAt: null }, { id: 'task-2', deletedAt: null }]
-        : [],
+    mockEm.count.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) =>
+      where.source === 'adapter:todo' ? 2 : 0,
     )
 
     const { GET } = await import('../route')

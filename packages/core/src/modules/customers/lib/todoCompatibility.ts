@@ -3,7 +3,6 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CustomerInteraction,
   CustomerTodoLink,
@@ -34,19 +33,16 @@ export async function countCustomerTodos(
     return em.count(CustomerInteraction, { ...entityScope, interactionType: 'task', deletedAt: null })
   }
 
-  const adapterInteractions = await findWithDecryption(
-    em,
-    CustomerInteraction,
-    { ...entityScope, interactionType: 'task', source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE },
-    { fields: ['id', 'deletedAt'] },
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
-  )
-  const bridgeIds = adapterInteractions.map((interaction) => interaction.id)
-  const legacyCount = await em.count(CustomerTodoLink, {
+  const adapterScope = {
     ...entityScope,
-    ...(bridgeIds.length > 0 ? { todoId: { $nin: bridgeIds } } : {}),
-  })
-  const adapterCount = adapterInteractions.filter((interaction) => !interaction.deletedAt).length
+    interactionType: 'task',
+    source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+  }
+  const adapterIds = em.createQueryBuilder(CustomerInteraction).select('id').where(adapterScope)
+  const [legacyCount, adapterCount] = await Promise.all([
+    em.count(CustomerTodoLink, { ...entityScope, todoId: { $nin: adapterIds } }),
+    em.count(CustomerInteraction, { ...adapterScope, deletedAt: null }),
+  ])
   return legacyCount + adapterCount
 }
 
