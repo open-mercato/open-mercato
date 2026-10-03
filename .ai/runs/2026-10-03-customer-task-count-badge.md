@@ -26,7 +26,8 @@ Compatibility mode uses database aggregates and a scoped subquery to suppress br
 - Final focused validation: 13 suites / 60 tests passed, including actual ORM SQL compilation, all eight profile-route suites, badge boundaries and task refresh callbacks.
 - Core package typecheck and both translation checks passed locally. The initial local fallback package-build / generation / package-build gate also passed.
 - Independent re-review found no actionable code findings after the database-aggregation fix. It also reviewed the typed-test cleanup, this plan correction and the pre-existing route-fixture updates required by the QueryBuilder subquery.
-- Remaining broad validation, app build and template parity use GitHub checks under the repository's checks-first review policy. Required CI is pending; human GitHub review and manual QA still gate merge.
+- CI on the complete customer implementation passed builds, generation, lint, translations and typecheck. The broad unit run passed 2020 core suites / 18308 tests and failed only two tests in an unchanged communication-channel sharing fixture that still used a removed column button. The test-only correction exercises the current real row menu; both tests pass locally and independent review found no issues.
+- Template parity passed locally. Final-head CI remains pending; human GitHub review and manual QA still gate merge.
 - Full browser QA was not run because no local test-environment descriptor is configured. The PR carries executable QA instructions.
 
 ## Progress
