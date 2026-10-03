@@ -8,6 +8,7 @@ import {
   COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID,
   type ReassignConversationInput,
   type ReassignConversationResult,
+  resolveThreadNotFoundMessage,
 } from '../../../../../commands/reassign-conversation'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
@@ -90,7 +91,7 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
   })
 
   if (result.status === 'access_denied') {
-    return NextResponse.json({ error: 'Thread not found' }, { status: 404 })
+    return NextResponse.json({ error: await resolveThreadNotFoundMessage() }, { status: 404 })
   }
   if (result.status === 'no_channel_link') {
     return NextResponse.json({ error: result.reason }, { status: 404 })

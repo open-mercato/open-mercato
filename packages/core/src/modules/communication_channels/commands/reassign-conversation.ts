@@ -8,6 +8,9 @@ import { ChannelThreadMapping, CommunicationChannel, ExternalConversation } from
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../lib/access-control'
 import { emitCommunicationChannelsEvent } from '../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('communication_channels').child({ component: 'reassign-conversation' })
 
@@ -50,7 +53,36 @@ async function resolveActorFeatures(
     return acl?.isSuperAdmin ? ['*'] : Array.isArray(acl?.features) ? acl.features : []
   } catch (err) {
     logger.warn('actor ACL lookup failed; denying shared-channel reassignment', { err })
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'communication_channels',
+        code: 'communication_channels.reassign_acl_lookup_failed',
+        attributes: {
+          actorUserId,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId ?? null,
+        },
+      })
+    } catch (reportErr) {
+      logger.warn('reassign ACL lookup failure could not be reported', { err: reportErr })
+    }
     return []
+  }
+}
+
+const THREAD_NOT_FOUND_FALLBACK = 'Thread not found'
+
+/**
+ * The generic "not found" message used to mask an authorization refusal, so a
+ * caller cannot tell a personal mailbox owned by someone else from a missing
+ * thread. Falls back to English when the i18n registry is unavailable.
+ */
+export async function resolveThreadNotFoundMessage(): Promise<string> {
+  try {
+    const { translate } = await resolveTranslations()
+    return translate('communication_channels.errors.threadNotFound', THREAD_NOT_FOUND_FALLBACK)
+  } catch {
+    return THREAD_NOT_FOUND_FALLBACK
   }
 }
 
@@ -267,6 +299,16 @@ const reassignConversationCommand: CommandHandler<
       payload: { undo: result.undo },
       snapshotBefore: result.undo,
     }
+  },
+  // A redo replays execute(); an authorization refusal there must surface as a
+  // domain error so the redo route leaves the source log undone instead of
+  // marking it redone with the assignment unchanged.
+  async redo({ input, ctx }) {
+    const result = await reassignConversationCommand.execute(input, ctx)
+    if (result.status === 'access_denied') {
+      throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+    }
+    return result
   },
   async undo({ ctx, logEntry }) {
     const snapshot = extractSnapshotFromLog(logEntry)

@@ -3,7 +3,20 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (key: string, fallback: string) =>
+      key === 'communication_channels.errors.threadNotFound' ? 'Wątek nie znaleziony' : fallback,
+  }),
+}))
+
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import reassignConversationCommand, {
   COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID,
 } from '../reassign-conversation'
@@ -269,7 +282,29 @@ describe('reassignConversationCommand execute (personal-mailbox privacy, #3832)'
     expect(em.flush).not.toHaveBeenCalled()
   })
 
-  it('denies a shared-channel thread when the ACL lookup fails', async () => {
+  it('denies a shared-channel thread when the ACL lookup fails and reports the failure', async () => {
+    mockReportError.mockClear()
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: null } as never)
+    const { promise, em } = run({ userId: OTHER, aclFails: true })
+    expect(await promise).toMatchObject({ status: 'access_denied' })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'rbac unavailable' }),
+      expect.objectContaining({
+        module: 'communication_channels',
+        code: 'communication_channels.reassign_acl_lookup_failed',
+        attributes: expect.objectContaining({ actorUserId: OTHER, tenantId: TENANT }),
+      }),
+    )
+  })
+
+  it('still fails closed when reporting the ACL lookup failure itself throws', async () => {
+    mockReportError.mockImplementationOnce(() => {
+      throw new Error('sink down')
+    })
     mockFindOne
       .mockResolvedValueOnce(mapping() as never)
       .mockResolvedValueOnce({ id: 'channel-1', userId: null } as never)
@@ -294,6 +329,50 @@ describe('reassignConversationCommand execute (personal-mailbox privacy, #3832)'
     const { promise, em } = run({ userId: OWNER, features: ASSIGN })
     expect(await promise).toMatchObject({ status: 'no_channel_link' })
     expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('reassignConversationCommand redo (personal-mailbox privacy, #3832)', () => {
+  const TENANT = '22222222-2222-4222-8222-222222222222'
+  const THREAD = '11111111-1111-4111-8111-111111111111'
+  const ASSIGNEE = '33333333-3333-4333-8333-333333333333'
+  const OWNER = '55555555-5555-4555-8555-555555555555'
+  const OTHER = '66666666-6666-4666-8666-666666666666'
+
+  function redo(actor: { userId?: string | null; features?: string[] }) {
+    const { ctx, em } = ctxFor(TENANT, actor)
+    const promise = reassignConversationCommand.redo!({
+      input: { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
+      ctx,
+      logEntry: { id: 'log-1' } as never,
+    })
+    return { promise, em }
+  }
+
+  beforeEach(() => {
+    mockFindOne.mockReset()
+  })
+
+  it('throws a masked, translated 404 domain error when a non-owner redoes a personal-mailbox reassignment', async () => {
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+    const { promise, em } = redo({ userId: OTHER, features: ['*'] })
+    const error = await promise.then(() => null, (err: unknown) => err)
+    expect(isCrudHttpError(error)).toBe(true)
+    expect(error).toMatchObject({ status: 404, body: { error: 'Wątek nie znaleziony' } })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('replays the reassignment when the mailbox owner redoes it', async () => {
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    const { promise, em } = redo({ userId: OWNER })
+    expect(await promise).toMatchObject({ status: 'reassigned', nextAssignedUserId: ASSIGNEE })
+    expect(em.flush).toHaveBeenCalledTimes(1)
   })
 })
 

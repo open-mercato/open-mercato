@@ -24,6 +24,7 @@ import {
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
   createTestSeedPlatformMessage,
+  deleteTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
   isTestEmailCaptureAccessAuthorized,
   isTestChannelSeedingEnabled,
@@ -190,10 +191,26 @@ const emitInboundSchema = z.object({
   createThreadMapping: z.boolean().optional(),
 })
 
+/**
+ * Teardown for `emit-inbound`: hard-delete the rows one seed created (thread
+ * mapping, channel link, synthetic conversation and the `messages` row), scoped
+ * to the caller's channel. Disconnecting a channel deliberately retains its
+ * conversations and messages, so without this every seed leaks into the shared
+ * integration database.
+ */
+const purgeInboundSchema = z.object({
+  action: z.literal('purge-inbound'),
+  channelId: z.string().uuid(),
+  channelLinkId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+})
+
 const bodySchema = z.discriminatedUnion('action', [
   connectChannelSchema,
   ingestInboundSchema,
   emitInboundSchema,
+  purgeInboundSchema,
   seedSystemChannelSchema,
   clearCaptureSchema,
   listCaptureSchema,
@@ -383,7 +400,7 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
 
-  // action === 'ingest-inbound' | 'emit-inbound' — both address an existing channel.
+  // action === 'ingest-inbound' | 'emit-inbound' | 'purge-inbound' — all address an existing channel.
   const em = (container.resolve('em') as EntityManager).fork()
   // Only the `emit-inbound` branch stamps a caller-chosen provider key onto the
   // rows it seeds; `ingest-inbound` takes the channel's own (see below).
@@ -437,6 +454,31 @@ export async function POST(req: Request): Promise<Response> {
       { error: err instanceof Error ? err.message : 'Access denied' },
       { status },
     )
+  }
+
+  if (body.action === 'purge-inbound') {
+    const rowScope = { tenantId, organizationId }
+    await em.nativeDelete(ChannelThreadMapping, {
+      externalConversationId: body.conversationId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    await em.nativeDelete(MessageChannelLink, {
+      id: body.channelLinkId,
+      externalConversationId: body.conversationId,
+      ...rowScope,
+    })
+    await em.nativeDelete(ExternalConversation, {
+      id: body.conversationId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    await deleteTestSeedPlatformMessage(em, {
+      messageId: body.messageId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    return NextResponse.json({ ok: true })
   }
 
   if (body.action === 'ingest-inbound') {

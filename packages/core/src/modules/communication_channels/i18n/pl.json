@@ -26,6 +26,7 @@
   "communication_channels.errors.missingChannelId": "Nie wybrano kanału.",
   "communication_channels.errors.pollNowPushDriven": "Kanał działa w trybie push — odpytywanie go nie dotyczy. Wiadomości przychodzące docierają połączeniem push dostawcy.",
   "communication_channels.errors.reactionFailed": "Reakcja nie powiodła się",
+  "communication_channels.errors.threadNotFound": "Nie znaleziono wątku",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Inny kanał jest teraz głównym dla tego użytkownika. Ustaw go jako niegłówny, zanim przywrócisz rozłączony kanał jako główny.",
   "communication_channels.infoPanel.aria": "Informacje o kanale",
   "communication_channels.infoPanel.assignedTo": "Przypisane do",
