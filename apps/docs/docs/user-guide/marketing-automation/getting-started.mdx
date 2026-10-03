@@ -1,0 +1,133 @@
+---
+title: Getting started
+description: Work through the readiness checklist, then build, preview and publish your first campaign.
+sidebar_label: Getting started
+---
+
+# Getting started
+
+Before a campaign can reach anybody, your installation needs a few things in place. **Marketing → Getting started** checks for each of them and tells you what is missing.
+
+## The readiness checklist
+
+The screen leads with one of two verdicts:
+
+- **Ready to send** — every required check passes.
+- **Nothing will be delivered yet** — at least one required check is outstanding.
+
+Each item is marked **Required** or **Recommended**, and most have an **Open** button that takes you straight to the screen where you fix it. Press **Check again** after you have changed something.
+
+The checks are asked fresh every time you open the screen. There is no "setup completed" flag to tick — a flag records what somebody clicked, and the question here is what is true right now. An installation whose email channel was deleted last week is not set up, however many boxes were ticked at the time.
+
+| Check | Required? | What it means |
+|---|---|---|
+| **Configure an email channel** | Required | Until a shop-wide email channel exists, every send fails at the point of delivery. See [Communication channels](../communication-channels.mdx) |
+| **Set a signing secret and a public URL** | Recommended | Needed for open and click tracking, one-click unsubscribe links, and inbound hooks. Messages still send without them — you simply cannot measure anything |
+| **Create a campaign** | Required | A trigger, an audience, and the steps that follow |
+| **Publish it** | Required | A campaign that is not enabled never runs, however complete it looks |
+| **Watch the first customer go through** | Recommended | One real run is the only proof the whole chain works end to end |
+| **Turn on the periodic jobs** | Recommended | See below — this one is easy to miss and expensive to miss |
+| **Name an audience you will reuse** | Recommended | A segment defined once can be targeted from every campaign |
+| **Write a reusable block** | Recommended | A footer or a banner written once, referenced everywhere |
+
+### The periodic jobs check
+
+:::warning Without this, scheduled campaigns never run — and nothing else tells you
+This module has two background jobs that run on a timer. They are registered automatically when the module is set up for an organization. An organization that already existed before the module was installed has neither, until somebody re-runs that setup.
+
+Nothing else notices. Campaigns still save. Campaigns triggered by an event — an order, a tag, a registration — still fire perfectly. But **every scheduled campaign silently never runs**: win-back, review requests, birthday greetings, reorder reminders. So does the safety net that picks a waiting customer back up if their delayed job was lost.
+
+The fix is to re-run the module setup for the organization; ask whoever administers your installation. The check links to [the scheduler screen](../scheduler.mdx) so you can confirm afterwards.
+:::
+
+If your installation does not have the scheduler at all, this check does not appear as outstanding. That is a legitimate configuration — an installation without it simply has no scheduled campaigns — rather than something to fix.
+
+## Your first campaign
+
+### Start from a template
+
+**Campaigns → Start from a template…** offers six worked examples. Each one arrives complete and **switched off**, so you can read it, change the copy, and publish it when you are happy.
+
+| Template | What it does | Needs |
+|---|---|---|
+| **Welcome a new customer** | A greeting when somebody registers, and a follow-up two days later | An email channel |
+| **Win back a lapsed customer** | Reaches people who have bought before and not for three months, with product recommendations | An email channel |
+| **Ask for a review** | Asks a week after an order was delivered, once per order ever | An email channel |
+| **Check satisfaction, and escalate** | Asks one rating question, then tells the customer's owner when the answer is poor | An email channel |
+| **Remind when it is time to reorder** | Uses each customer's own purchase interval, so nothing needs configuring per product | Customers who have bought the same product at least three times |
+| **Birthday greeting** | Sends on the day, once a year, matching the month and day only | The birth date field filled in on customer profiles |
+
+A template whose requirements are not met is still listed, with the requirement shown, so you know what to arrange first.
+
+### Or build one from scratch
+
+**New campaign** opens the canvas. Give it a name, then:
+
+1. **Add trigger** — pick from the palette. See [Triggers](./triggers.mdx).
+2. Click the **Audience** box to set conditions, or leave it empty to mean "everyone the trigger produces". See [Audiences and segments](./audiences.mdx).
+3. **Add step** — choose from the palette and fill in the form that appears beside it. See [Campaign steps](./steps.mdx).
+
+Reorder steps with the up and down arrows. **Auto-arrange** tidies the layout. **Save** writes the campaign; the canvas shows **Unsaved changes** until you do, and warns you if you try to leave with work outstanding.
+
+:::note The save is strict on purpose
+A campaign that looks saved and quietly does nothing is the worst possible outcome, so the save refuses anything it can tell is a mistake: no triggers at all, no steps at all, a step whose settings are incomplete, a wait as the very last step (it has nothing to wait for), a fixed send hour that falls inside the campaign's own quiet hours, or a campaign whose trigger is an event its own steps would cause.
+:::
+
+## Check it before you publish
+
+Four tools, all of which send nothing.
+
+### Estimate the audience
+
+**Estimate audience** on the canvas tells you how many customers currently match. The answer comes in one of two shapes:
+
+- **"420 customers match"** — every candidate was checked.
+- **"up to 420 customers"** — the count reached the ceiling of what one pass examines, and the rest is decided per customer when the campaign actually runs.
+
+The second form is honest rather than evasive. Some conditions cannot be answered in bulk, so the real figure is never higher than the number shown, and often lower.
+
+### Preview one customer's journey
+
+**Preview** asks you to pick a customer, then shows every step they would go through and when — with the send rules applied, so you can see a message being held until 8 a.m. or waiting for a quiet window to end. Nothing is sent.
+
+If the audience would not admit that customer, the preview says so instead of showing a journey they would never take.
+
+The preview drives the real engine rather than a simulation of it, which is why what it shows and what the campaign does cannot drift apart. It stops in three situations: a year ahead (the rest of the journey is further out than that), after sixty steps (which usually means the campaign loops), or at a step that would fail.
+
+### Render one message
+
+**Preview** on an email step shows the finished message: content blocks substituted, recommendations rendered, placeholders filled in from the customer you chose under **Preview for**. Without a chosen customer the placeholders come out empty, and the screen says so.
+
+### Send a test to yourself
+
+**Send a test to me** delivers the message to the email address on your own account. You cannot type in a different address — that is deliberate, because an endpoint that mailed anywhere you asked would be a spam relay with a campaign editor attached.
+
+A test send is not tracked and does not appear in the campaign's figures, so you are not polluting the results with your own opens.
+
+## Publish
+
+**Enable** takes the campaign live. Before it does, a dialog tells you the volume you are committing to:
+
+- For an event-triggered campaign: *"Nobody is messaged until the trigger fires. 1,284 people currently match this audience."*
+- For a scheduled one: *"The next scheduled pass will start this journey for 6 people."*
+- And in both cases: *"Each of them can receive up to 2 messages, subject to consent, quiet hours and the frequency cap."*
+
+:::note Why those two numbers are reported separately
+People and messages are not multiplied together to give you a single figure. A customer walks only one lane of an A/B split, and every send rule can still hold a message back — so the product of the two would be a confident number that is wrong in the direction that matters. You get the number of people, and the most messages any one person could receive.
+:::
+
+If the campaign has no sending step at all, the dialog says so: it will change data without messaging anybody, which is sometimes exactly what you want and sometimes a mistake.
+
+## Versions, import and export
+
+Every save is recorded. **Show saved versions** on the canvas lists them with their step and trigger counts, and **Restore** brings one back.
+
+A restore is replayed as a normal save: it is validated, it collides if somebody else edited the campaign in the meantime, and it becomes a *new* version rather than rewriting history. Versions also record when an A/B winner was promoted, and which variant won.
+
+**Export** downloads a campaign as a document; **Import** reads one back, and leaves it disabled. If the imported campaign refers to things that only exist in the installation it came from — a specific tag, for instance — the import tells you how many step settings need picking again rather than guessing.
+
+## Watching it work
+
+- **Campaigns → (a campaign) → Runs** — one row per customer, with the steps each has been through.
+- **Marketing → Background jobs** — every scheduled pass, what it did, and whether it finished. A job is logged *before* the work starts, so a pass that was killed halfway stays visible as **Running** rather than disappearing.
+- **Marketing this week** — a dashboard widget with sends, engagement and attributed revenue across every campaign.
