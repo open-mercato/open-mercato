@@ -64,12 +64,15 @@
     }
   },
   "peerDependencies": {
-    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/shared": "workspace:*",
+    "react": "^19.0.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
+    "@types/react": "^19.2.18",
     "jest": "^30.4.2",
+    "react": "19.2.8",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },
@@ -81,5 +84,8 @@
     "url": "https://github.com/open-mercato/open-mercato",
     "directory": "packages/document-generators"
   },
-  "description": "Format-neutral document generation for Open Mercato"
+  "description": "Format-neutral document generation for Open Mercato",
+  "dependencies": {
+    "@react-pdf/renderer": "^4.9.0"
+  }
 }
