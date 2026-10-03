@@ -8,14 +8,13 @@ import type {
 } from '@open-mercato/shared/modules/document-generators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/filename'
-import { SalesChannel, SalesQuote, SalesQuoteLine } from '../../../data/entities'
+import { SalesChannel, SalesOrder, SalesOrderLine } from '../../../data/entities'
 import {
-  SALES_OFFER_LABEL_KEYS,
-  type SalesOfferData,
-  type SalesOfferLabels,
-  type SalesOfferLine,
-} from '../../templates/quotes/sales-offer/types'
+  ORDER_INVOICE_LABEL_KEYS,
+  type OrderInvoiceData,
+  type OrderInvoiceLabels,
+  type OrderInvoiceLine,
+} from '../../templates/orders/order-invoice/types'
 import {
   buildLabels,
   firstText,
@@ -27,24 +26,27 @@ import {
   toText,
 } from '../../lib/normalization'
 
-const quoteRequestSchema = z.object({ id: z.string().uuid() })
+const orderRequestSchema = z.object({ id: z.string().uuid() })
 
-export interface QuoteDocumentQuoteRecord {
+export interface OrderDocumentOrderRecord {
   id: string
-  quoteNumber: string
+  orderNumber: string
   currencyCode: string
   customerSnapshot: unknown
   billingAddressSnapshot: unknown
   placedAt: string | null
   createdAt: string
-  validUntil: string | null
+  dueAt: string | null
   comments: string | null
   subtotalNetAmount: string
+  discountTotalAmount: string
   taxTotalAmount: string
   grandTotalGrossAmount: string
+  paidTotalAmount: string
+  outstandingAmount: string
 }
 
-export interface QuoteDocumentLineRecord {
+export interface OrderDocumentLineRecord {
   lineNumber: number
   name: string | null
   description: string | null
@@ -56,23 +58,23 @@ export interface QuoteDocumentLineRecord {
   totalGrossAmount: string
 }
 
-export interface QuoteDocumentChannelRecord {
+export interface OrderDocumentChannelRecord {
   name: string
   contactEmail: string | null
   contactPhone: string | null
 }
 
-export interface QuoteDocumentSource {
-  quote: QuoteDocumentQuoteRecord
-  lines: QuoteDocumentLineRecord[]
-  channel: QuoteDocumentChannelRecord | null
+export interface OrderDocumentSource {
+  order: OrderDocumentOrderRecord
+  lines: OrderDocumentLineRecord[]
+  channel: OrderDocumentChannelRecord | null
 }
 
-const LABEL_DEFAULTS: SalesOfferLabels = {
-  title: 'Offer',
-  number: 'Offer number',
+const LABEL_DEFAULTS: OrderInvoiceLabels = {
+  title: 'Invoice',
+  number: 'Order number',
   date: 'Date',
-  validUntil: 'Valid until',
+  dueDate: 'Due date',
   client: 'Client',
   seller: 'Seller',
   item: 'Item',
@@ -80,48 +82,33 @@ const LABEL_DEFAULTS: SalesOfferLabels = {
   unitPrice: 'Unit price',
   total: 'Total',
   subtotal: 'Subtotal',
+  discount: 'Discount',
   tax: 'Tax',
   grandTotal: 'Total due',
+  paid: 'Paid',
+  outstanding: 'Outstanding',
   notes: 'Notes',
 }
 
-function requireSource(data: unknown): QuoteDocumentSource {
-  const source = data as Partial<QuoteDocumentSource> | null
-  if (!source || typeof source !== 'object' || !source.quote || !Array.isArray(source.lines)) {
+function requireSource(data: unknown): OrderDocumentSource {
+  const source = data as Partial<OrderDocumentSource> | null
+  if (!source || typeof source !== 'object' || !source.order || !Array.isArray(source.lines)) {
     throw new CrudHttpError(400, { error: 'invalid_request' })
   }
-  return source as QuoteDocumentSource
+  return source as OrderDocumentSource
 }
 
-export class QuotesDocumentService extends BaseDocumentService {
-  readonly id = 'quotes'
-  readonly label = 'Quotes'
+export class OrdersDocumentService extends BaseDocumentService {
+  readonly id = 'orders'
+  readonly label = 'Orders'
   readonly module = 'sales'
-  readonly resourceKind = 'sales.quote'
-
-  constructor() {
-    super()
-    this.registerTemplate({
-      id: 'sales.offer',
-      label: 'sales.documents.templates.offer.label',
-      description: 'sales.documents.templates.offer.description',
-      documentType: 'offer',
-      format: 'pdf',
-      tags: ['sales', 'quote'],
-      requiredFeatures: ['sales.quotes.view'],
-      filename: ({ data }) => buildDocumentFilename(data, 'offer', 'pdf'),
-      load: async () => ({
-        type: 'react-pdf',
-        component: (await import('../../templates/quotes/sales-offer/pdf/SalesOfferPdf')).default,
-      }),
-    })
-  }
+  readonly resourceKind = 'sales.order'
 
   override async fetchData(
     { data }: { data: unknown },
     { container, auth }: DocumentFetchContext,
-  ): Promise<QuoteDocumentSource> {
-    const parsed = quoteRequestSchema.safeParse(data)
+  ): Promise<OrderDocumentSource> {
+    const parsed = orderRequestSchema.safeParse(data)
     if (!parsed.success) {
       throw new CrudHttpError(400, { error: 'invalid_request', details: parsed.error.flatten() })
     }
@@ -132,38 +119,41 @@ export class QuotesDocumentService extends BaseDocumentService {
     }
     const scope = { tenantId, organizationId }
     const em = (container.resolve('em') as EntityManager).fork()
-    const quote = await findOneWithDecryption(
+    const order = await findOneWithDecryption(
       em,
-      SalesQuote,
+      SalesOrder,
       { id: parsed.data.id, ...scope, deletedAt: null },
       {},
       scope,
     )
-    if (!quote) throw new CrudHttpError(404, { error: 'not_found' })
+    if (!order) throw new CrudHttpError(404, { error: 'not_found' })
     const lines = await findWithDecryption(
       em,
-      SalesQuoteLine,
-      { quote: quote.id, ...scope, deletedAt: null },
+      SalesOrderLine,
+      { order: order.id, ...scope, deletedAt: null },
       { orderBy: { lineNumber: 'asc' } },
       scope,
     )
-    const channel = quote.channelId
-      ? await findOneWithDecryption(em, SalesChannel, { id: quote.channelId, ...scope, deletedAt: null }, {}, scope)
+    const channel = order.channelId
+      ? await findOneWithDecryption(em, SalesChannel, { id: order.channelId, ...scope, deletedAt: null }, {}, scope)
       : null
     return {
-      quote: {
-        id: quote.id,
-        quoteNumber: quote.quoteNumber,
-        currencyCode: quote.currencyCode,
-        customerSnapshot: quote.customerSnapshot ?? null,
-        billingAddressSnapshot: quote.billingAddressSnapshot ?? null,
-        placedAt: toIso(quote.placedAt),
-        createdAt: toIso(quote.createdAt) ?? new Date(0).toISOString(),
-        validUntil: toIso(quote.validUntil),
-        comments: quote.comments ?? null,
-        subtotalNetAmount: quote.subtotalNetAmount,
-        taxTotalAmount: quote.taxTotalAmount,
-        grandTotalGrossAmount: quote.grandTotalGrossAmount,
+      order: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        currencyCode: order.currencyCode,
+        customerSnapshot: order.customerSnapshot ?? null,
+        billingAddressSnapshot: order.billingAddressSnapshot ?? null,
+        placedAt: toIso(order.placedAt),
+        createdAt: toIso(order.createdAt) ?? new Date(0).toISOString(),
+        dueAt: toIso(order.dueAt),
+        comments: order.comments ?? null,
+        subtotalNetAmount: order.subtotalNetAmount,
+        discountTotalAmount: order.discountTotalAmount,
+        taxTotalAmount: order.taxTotalAmount,
+        grandTotalGrossAmount: order.grandTotalGrossAmount,
+        paidTotalAmount: order.paidTotalAmount,
+        outstandingAmount: order.outstandingAmount,
       },
       lines: lines.map((line) => ({
         lineNumber: line.lineNumber,
@@ -186,15 +176,15 @@ export class QuotesDocumentService extends BaseDocumentService {
     }
   }
 
-  toTemplateData({ data, locale, translate }: TemplateNormalizationInput): SalesOfferData & Record<string, unknown> {
-    const { quote, lines, channel } = requireSource(data)
-    const customerSnapshot = toSnapshotRecord(quote.customerSnapshot)
-    const billingSnapshot = toSnapshotRecord(quote.billingAddressSnapshot)
+  toTemplateData({ data, locale, translate }: TemplateNormalizationInput): OrderInvoiceData & Record<string, unknown> {
+    const { order, lines, channel } = requireSource(data)
+    const customerSnapshot = toSnapshotRecord(order.customerSnapshot)
+    const billingSnapshot = toSnapshotRecord(order.billingAddressSnapshot)
     const customer = toSnapshotRecord(customerSnapshot?.customer)
     const contact = toSnapshotRecord(customerSnapshot?.contact)
     const companyProfile = toSnapshotRecord(customer?.companyProfile)
-    const currency = quote.currencyCode
-    const normalizedLines: SalesOfferLine[] = lines.map((line) => ({
+    const currency = order.currencyCode
+    const normalizedLines: OrderInvoiceLine[] = lines.map((line) => ({
       title: toText(line.name) ?? '',
       description: toText(line.description),
       quantity: toNumber(line.quantity),
@@ -205,12 +195,12 @@ export class QuotesDocumentService extends BaseDocumentService {
     const sellerName = toText(channel?.name)
     return {
       locale,
-      labels: buildLabels(SALES_OFFER_LABEL_KEYS, LABEL_DEFAULTS, 'sales.documents.templates.offer.labels', translate),
+      labels: buildLabels(ORDER_INVOICE_LABEL_KEYS, LABEL_DEFAULTS, 'sales.documents.templates.invoice.labels', translate),
       document: {
-        id: quote.id,
-        number: quote.quoteNumber,
-        date: quote.placedAt ?? quote.createdAt,
-        validUntil: quote.validUntil ?? undefined,
+        id: order.id,
+        number: order.orderNumber,
+        date: order.placedAt ?? order.createdAt,
+        dueDate: order.dueAt ?? undefined,
       },
       client: {
         name: resolveClientName(customerSnapshot),
@@ -227,12 +217,15 @@ export class QuotesDocumentService extends BaseDocumentService {
         : undefined,
       lines: normalizedLines,
       totals: {
-        subtotal: toNumber(quote.subtotalNetAmount),
-        tax: toNumber(quote.taxTotalAmount),
-        total: toNumber(quote.grandTotalGrossAmount),
+        subtotal: toNumber(order.subtotalNetAmount),
+        discount: toNumber(order.discountTotalAmount),
+        tax: toNumber(order.taxTotalAmount),
+        total: toNumber(order.grandTotalGrossAmount),
+        paid: toNumber(order.paidTotalAmount),
+        outstanding: toNumber(order.outstandingAmount),
         currency,
       },
-      notes: toText(quote.comments),
+      notes: toText(order.comments),
     }
   }
 
