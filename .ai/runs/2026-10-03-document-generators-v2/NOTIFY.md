@@ -39,3 +39,9 @@ Append-only UTC log.
 - Browser pass skipped: no UI touched in this window.
 - Invoice totals extended with shipping and surcharge so the totals block reconciles.
 - Step 5.4: migration generated with yarn db:generate against a throwaway postgres:17 Docker container (DATABASE_URL inline, stopped afterwards); unrelated wms output discarded; down() added by hand (generator emits none).
+
+## 2026-10-03T12:50:57Z — checkpoint 5
+- Steps 5.1–5.5 + 5.1-review-fix (23ae21dca..05cf126d8). 133 engine + 63 Sales tests, typecheck, build, generate and i18n sync passed. Browser pass skipped (no UI).
+- Decision: kept the spec's public URLs `/api/document-generators/*` via `metadata.path` (the router otherwise prefixes the module id `document_generators`).
+- Review fix: selected organization resolved through Directory `organizationScopeService` (super-admin-only cookie override in getAuthFromRequest would scope regular multi-org users to their home org).
+- Step 5.5 landed as two commits after an executor sed slip; no history rewrite.

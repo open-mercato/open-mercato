@@ -29,11 +29,11 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 4 | 4.3 | Order data service | dispatch | done | 18bf8a26a |
 | 4 | 4.4 | Order PDF and Markdown templates | dispatch | done | 0ec18287c |
 | 5 | 5.1 | API validators and response helpers | dispatch | done | 23ae21dca |
-| 5 | 5.1-review-fix | Selected organization scope resolution | inline | done | — |
-| 5 | 5.2 | Template catalogue and facet endpoints | dispatch | done | — |
-| 5 | 5.3 | Preview endpoint | dispatch | done | — |
-| 5 | 5.4 | History entity encryption and migration | dispatch | done | — |
-| 5 | 5.5 | History persistence and read service | dispatch | done | — |
+| 5 | 5.1-review-fix | Selected organization scope resolution | inline | done | 8e2c5c917 |
+| 5 | 5.2 | Template catalogue and facet endpoints | dispatch | done | 7d5ff252c |
+| 5 | 5.3 | Preview endpoint | dispatch | done | aa784f1bc |
+| 5 | 5.4 | History entity encryption and migration | dispatch | done | 145b7c2dc |
+| 5 | 5.5 | History persistence and read service | dispatch | done | ed19020b3, 05cf126d8 |
 | 5 | 5.6 | Generate endpoint and mutation guards | dispatch | todo | — |
 | 5 | 5.7 | History endpoint | dispatch | todo | — |
 | 6 | 6.1 | React Query data hooks | dispatch | todo | — |
