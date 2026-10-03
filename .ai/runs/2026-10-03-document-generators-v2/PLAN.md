@@ -17,7 +17,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 1 | 1.1 | Package scaffold and module metadata | dispatch | done | 1a830e59d |
 | 1 | 1.2 | ACL setup and engine translations | dispatch | done | 1d67c0f9d |
 | 2 | 2.1 | Shared template contracts and base service | dispatch | done | this commit |
-| 2 | 2.2 | Template registry | dispatch | todo | — |
+| 2 | 2.2 | Template registry | dispatch | done | this commit |
 | 2 | 2.3 | Template authorization policy | dispatch | todo | — |
 | 2 | 2.4 | Generator discovery and bootstrap | dispatch | todo | — |
 | 3 | 3.1 | PDF rendering adapter | dispatch | todo | — |
