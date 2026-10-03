@@ -6,8 +6,8 @@ import { expect, test, type APIRequestContext, type APIResponse } from '@playwri
 import '@open-mercato/core/modules/customers/commands/index';
 import type { BootstrapData } from '@open-mercato/shared/lib/bootstrap';
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container';
-import { createQueue } from '@open-mercato/queue';
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue';
+import { drainSyncQueue } from './helpers/syncQueueDrain';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
   createCompanyFixture,
@@ -150,36 +150,7 @@ function hasSyncWorkers(data: BootstrapData): boolean {
 }
 
 async function drainQueue(queueName: string): Promise<number> {
-  const data = await getBootstrapData();
-  const worker = data.modules
-    .flatMap((module) => module.workers ?? [])
-    .find((entry) => entry.queue === queueName);
-  if (!worker) {
-    return 0;
-  }
-
-  const container = await createRequestContainer();
-  const queue = createQueue(queueName, 'local', { baseDir: APP_QUEUE_BASE_DIR, concurrency: 1 });
-  const resolve = <T = unknown>(name: string): T => container.resolve(name) as T;
-
-  try {
-    let processedJobs = 0;
-    while (true) {
-      const result = await queue.process(
-        async (job, ctx) => {
-          await Promise.resolve(worker.handler(job, { ...ctx, resolve }));
-        },
-        { limit: 100 },
-      );
-      const handled = result.processed + result.failed;
-      processedJobs += handled;
-      if (handled === 0) {
-        return processedJobs;
-      }
-    }
-  } finally {
-    await queue.close();
-  }
+  return drainSyncQueue(queueName, (name) => drainIntegrationQueue(name, { appRoot: APP_ROOT }));
 }
 
 async function flushExampleCustomersSyncQueues(options: {
@@ -1083,16 +1054,16 @@ test.describe('TC-CRM-028: Example customer sync', () => {
       });
       await flushExampleCustomersSyncQueues({ outbound: true });
 
-      const mapping = await waitForMapping(request, superadminToken, { interactionId });
+      const mapping = await waitForMapping(request, superadminToken, { interactionId }, undefined, {
+        expectedStatus: 'synced',
+      });
       todoId = mapping.todoId;
 
-      await expect
-        .poll(async () => {
-          const rows = await listCanonicalInteractions(request, adminToken, companyId!);
-          const row = rows.find((item) => item.id === interactionId);
-          return typeof row?.customValues?.severity === 'string' ? row.customValues.severity : null;
-        }, { timeout: 15_000, intervals: [250, 500, 1_000] })
-        .toBe('critical');
+      await waitForExampleTodo(request, adminToken, todoId, (item) =>
+        item.cf_priority === 4 &&
+        item.cf_description === 'Keep me in sync' &&
+        item.cf_severity === 'high',
+      );
 
       const updateResponse = await apiRequest(request, 'PUT', '/api/example/todos', {
         token: adminToken,
