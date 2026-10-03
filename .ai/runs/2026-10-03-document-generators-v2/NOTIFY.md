@@ -16,3 +16,8 @@ Append-only UTC log.
 - Step 2.1 delegated and completed by step_2_1 (129c8e2e4). Step 2.2 executor hit provider usage limit before writing code.
 - User explicitly requested continued work; main session completed Step 2.2 instead of retrying unavailable executor service. Planned Exec cell retained for audit.
 - Step2.2 registry: 18 package tests and package typecheck passed.
+
+## 2026-10-03T11:56:05.807803+00:00 — checkpoint 2
+- Steps2.1–2.4 verified; 24 engine and 5 shared tests passed, generated bootstrap inspected.
+- Main session continues execution after provider subagent usage limit under user instruction to continue.
+- Explicit all-tenant cache refresh rejected by automatic approval review; no bypass. UI not present, browser pass not applicable.

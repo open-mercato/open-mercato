@@ -3,18 +3,18 @@
 **Last updated:** 2026-10-03T11:43:10.770526+00:00
 **Branch:** feat/document-generators-v2
 **PR:** https://github.com/open-mercato/open-mercato/pull/6892
-**Current phase/step:** 2.1
-**Last commit:** 1d67c0f9d — ACL and translations
+**Current phase/step:** 3.1
+**Last commit:** 2c729fb9e — generator integration
 
 ## What just happened
 - Foundation and five-locale engine strings committed; 11 tests, package build/typecheck and generation passed.
 - Dependencies installed; local runner selected. Full build preparation running.
 
 ## Next concrete action
-- Step 2.1: shared template contracts and BaseDocumentService.
+- Step 3.1: PDF rendering adapter (dependency install underway).
 
 ## Blockers / open questions
-- No implementation blocker. Maintainer must apply labels/assignee (GitHub refused writes).
+- Maintainer must apply labels/assignee (GitHub refused writes). All-tenant cache operation rejected by automatic approval review; leave shared tenant state untouched.
 - DS lint governance requires an exact reviewable override before permission request at UI step.
 - User approved retention/source erasure and code-owned versions.
 
