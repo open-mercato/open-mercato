@@ -167,4 +167,23 @@ describe('GET /api/customers/companies/[id] — parallel enrichment (issue #3203
     expect(body.company.id).toBe(COMPANY_ID)
     expect(maxInFlight).toBeGreaterThanOrEqual(2)
   })
+
+  it('counts adapter-created tasks without loading the task preview (#6068)', async () => {
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, where: Record<string, unknown>) =>
+      where.source === 'adapter:todo'
+        ? [{ id: 'task-1', deletedAt: null }, { id: 'task-2', deletedAt: null }]
+        : [],
+    )
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request(`http://localhost/api/customers/companies/${COMPANY_ID}`),
+      { params: { id: COMPANY_ID } },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.counts.todos).toBe(2)
+    expect(body.todos).toEqual([])
+  })
 })

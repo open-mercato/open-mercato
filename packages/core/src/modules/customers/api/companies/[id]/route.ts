@@ -36,6 +36,7 @@ import {
   mapInteractionRecordToTodoSummary,
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
+import { countCustomerTodos } from '../../../lib/todoCompatibility'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
@@ -893,19 +894,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       deletedAt: null,
       ...emailVisibilityFilter,
     }),
-    interactionFlags.unified
-      ? em.count(CustomerInteraction, {
-          entity: company.id,
-          organizationId: company.organizationId,
-          tenantId: company.tenantId,
-          deletedAt: null,
-          interactionType: 'task',
-        })
-      : em.count(CustomerTodoLink, {
-          entity: company.id,
-          organizationId: company.organizationId,
-          tenantId: company.tenantId,
-        }),
+    countCustomerTodos(em, {
+      entityId: company.id,
+      organizationId: company.organizationId,
+      tenantId: company.tenantId,
+    }, interactionFlags.unified),
     includeComments
       ? Promise.resolve(comments.length)
       : em.count(CustomerComment, {
