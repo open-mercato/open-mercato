@@ -5,7 +5,7 @@ import { templateRegistry } from '../../../lib/template-registry'
 import { TemplateAccessPolicy, type TemplateFeatureAuthorizer } from '../../../lib/template-access-policy'
 import { DocumentRenderer } from '../../../services/document-renderer'
 import { documentResponse } from '../../_shared/document-response'
-import { errorResponse, mapDocumentError, parseJsonBody, requireOrganization } from '../../_shared/http'
+import { errorResponse, mapDocumentError, parseJsonBody, requireOrganization, toTemplateTranslate } from '../../_shared/http'
 import { resolveDocumentRequestContext } from '../../_shared/request-context'
 
 const VIEW_FEATURE = 'document_generators.documents.view'
@@ -67,9 +67,7 @@ export async function POST(request: Request): Promise<Response> {
     await policy.requireAccess({ requiredFeatures: template.requiredFeatures })
     const loaded = await templateRegistry.load(
       { id: parsed.data.template_id, data: parsed.data.data },
-      { container, auth: organization.auth, locale, translate: (key, fallbackOrParams, params) => (
-          typeof fallbackOrParams === 'object' ? translate(key, undefined, fallbackOrParams) : translate(key, fallbackOrParams, params)
-        ) },
+      { container, auth: organization.auth, locale, translate: toTemplateTranslate(translate) },
     )
     const rendered = await new DocumentRenderer().render(loaded.render)
     return documentResponse({ buffer: rendered.buffer, filename: loaded.filename, mimeType: rendered.mimeType })

@@ -1,6 +1,8 @@
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { OrganizationScopeRequest, OrganizationScopeService } from '@open-mercato/shared/lib/auth/principal-service'
 import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
+import type { TranslateParams } from '@open-mercato/shared/lib/i18n/context'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -18,6 +20,14 @@ export type DocumentErrorCode =
   | 'organization_required'
   | 'not_found'
   | 'render_failed'
+
+export type TemplateTranslateFn = (key: string, fallbackOrParams?: string | TranslateParams, params?: TranslateParams) => string
+
+export function toTemplateTranslate(translate: TranslateWithFallbackFn): TemplateTranslateFn {
+  return (key, fallbackOrParams, params) => (
+    typeof fallbackOrParams === 'object' ? translate(key, undefined, fallbackOrParams) : translate(key, fallbackOrParams, params)
+  )
+}
 
 export type DocumentLogger = Pick<ReturnType<typeof createLogger>, 'error'>
 
