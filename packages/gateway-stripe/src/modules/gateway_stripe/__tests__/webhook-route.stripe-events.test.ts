@@ -55,8 +55,13 @@ const credentialsService = {
   })),
 }
 
-function signedRequest(type: string, object: Record<string, unknown>, secret = SECRET_A): Request {
-  const body = JSON.stringify({ id: `evt_${type}`, object: 'event', type, created: 1790000000, data: { object } })
+function signedRequest(
+  type: string,
+  object: Record<string, unknown>,
+  secret = SECRET_A,
+  apiVersion = '2025-02-24.acacia',
+): Request {
+  const body = JSON.stringify({ id: `evt_${type}`, object: 'event', api_version: apiVersion, type, created: 1790000000, data: { object } })
   const signature = new Stripe('sk_test_local').webhooks.generateTestHeaderString({ payload: body, secret })
   return new Request('http://localhost/api/payment_gateways/webhook/stripe', {
     method: 'POST',
@@ -172,6 +177,23 @@ describe('stripe webhooks through the payment gateway webhook route', () => {
   })
 
   it.each([
+    ['2025-02-24.acacia', 700, 'partially_refunded'],
+    ['2025-02-24.acacia', 400, 'unknown'],
+    ['2025-03-31.basil', 300, 'partially_refunded'],
+    ['2025-03-31.basil', 600, 'refunded'],
+  ])('reads a partial capture of 600 out of 1000 with the event API version %s (amount_refunded %d → %s)', async (apiVersion, amountRefunded, expected) => {
+    const response = await post(signedRequest(
+      'charge.refunded',
+      charge({ amount_captured: 600, amount_refunded: amountRefunded }),
+      SECRET_A,
+      apiVersion,
+    ))
+
+    expect(response.status).toBe(202)
+    expectSyncedStatus(expected, 'charge.refunded')
+  })
+
+  it.each([
     ['charge.refund.updated', { id: 're_1', object: 'refund', payment_intent: 'pi_tenant_a', charge: 'ch_1', amount: 400, status: 'succeeded' }],
     ['charge.dispute.created', { id: 'dp_1', object: 'dispute', payment_intent: 'pi_tenant_a', charge: 'ch_1', amount: 1000, status: 'needs_response' }],
     ['charge.dispute.closed', { id: 'dp_1', object: 'dispute', payment_intent: 'pi_tenant_a', charge: 'ch_1', amount: 1000, status: 'lost' }],
@@ -216,7 +238,7 @@ describe('stripe webhooks through the payment gateway webhook route', () => {
       providerKey: 'stripe',
       transactionId: 'txn_a',
       scope: TENANT_A,
-      event: expect.objectContaining({ eventType: 'charge.refunded' }),
+      event: expect.objectContaining({ eventType: 'charge.refunded', apiVersion: '2025-02-24.acacia' }),
     }))
     expect(paymentGatewayService.syncTransactionStatus).not.toHaveBeenCalled()
   })

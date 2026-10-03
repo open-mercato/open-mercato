@@ -49,5 +49,6 @@ export async function verifyStripeWebhook(input: VerifyWebhookInput): Promise<We
     data: event.data.object as unknown as Record<string, unknown>,
     idempotencyKey: event.id,
     timestamp: new Date(event.created * 1000),
+    ...(typeof event.api_version === 'string' ? { apiVersion: event.api_version } : {}),
   }
 }

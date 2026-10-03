@@ -74,7 +74,7 @@ describe('processPaymentGatewayWebhookJob status mapping', () => {
     clearGatewayAdapters()
   })
 
-  it('hands the adapter the event payload along with the provider status and event type', async () => {
+  it('hands the adapter the verified event along with the provider status and event type', async () => {
     const scope = { organizationId: 'o-1', tenantId: 't-1' }
     const mapStatus = jest.fn<GatewayAdapter['mapStatus']>(() => 'partially_refunded' as UnifiedPaymentStatus)
     registerGatewayAdapter({ providerKey: 'acme', mapStatus } as unknown as GatewayAdapter)
@@ -92,26 +92,65 @@ describe('processPaymentGatewayWebhookJob status mapping', () => {
       } as unknown as IntegrationLogService,
     }
     const data = { id: 'ch_1', status: 'succeeded', amount: 1000, amount_refunded: 400 }
+    const event = {
+      eventType: 'charge.refunded',
+      eventId: 'evt_1',
+      idempotencyKey: 'evt_1',
+      timestamp: new Date('2026-01-01T00:00:00.000Z'),
+      data,
+      apiVersion: '2025-03-31.basil',
+    }
 
     await processPaymentGatewayWebhookJob(deps, markQueueJobOrigin({
       providerKey: 'acme',
-      event: {
-        eventType: 'charge.refunded',
-        eventId: 'evt_1',
-        idempotencyKey: 'evt_1',
-        timestamp: new Date('2026-01-01T00:00:00.000Z'),
-        data,
-      },
+      event,
       transactionId: 'tx-1',
       scope,
     }, 'inbound-webhook'))
 
     expect(mapStatus).toHaveBeenCalledTimes(1)
-    expect(mapStatus).toHaveBeenCalledWith('succeeded', 'charge.refunded', data)
+    expect(mapStatus).toHaveBeenCalledWith('succeeded', 'charge.refunded', event)
+    const passedEvent = mapStatus.mock.calls[0][2]
+    expect(passedEvent?.timestamp).toBeInstanceOf(Date)
     expect(syncTransactionStatus).toHaveBeenCalledWith(
       'tx-1',
       expect.objectContaining({ unifiedStatus: 'partially_refunded', providerStatus: 'charge.refunded', providerData: data }),
       scope,
     )
+  })
+
+  it('hands the adapter a Date timestamp for an event revived from a queued JSON job', async () => {
+    const scope = { organizationId: 'o-1', tenantId: 't-1' }
+    const mapStatus = jest.fn<GatewayAdapter['mapStatus']>(() => 'unknown' as UnifiedPaymentStatus)
+    registerGatewayAdapter({ providerKey: 'acme', mapStatus } as unknown as GatewayAdapter)
+    const deps = {
+      em: {} as never,
+      paymentGatewayService: {
+        findTransaction: jest.fn(async () => ({ id: 'tx-1', ...scope })),
+        findTransactionBySessionId: jest.fn(),
+        syncTransactionStatus: jest.fn(async () => {}),
+      } as unknown as PaymentGatewayService,
+      integrationLogService: {
+        scoped: jest.fn(),
+        write: jest.fn(async () => {}),
+      } as unknown as IntegrationLogService,
+    }
+    const queued = JSON.parse(JSON.stringify(markQueueJobOrigin({
+      providerKey: 'acme',
+      event: {
+        eventType: 'charge.refunded',
+        eventId: 'evt_2',
+        idempotencyKey: 'evt_2',
+        timestamp: new Date('2026-01-01T00:00:00.000Z'),
+        data: { id: 'ch_1' },
+      },
+      transactionId: 'tx-1',
+      scope,
+    }, 'inbound-webhook')))
+
+    await processPaymentGatewayWebhookJob(deps, queued)
+
+    const passedEvent = mapStatus.mock.calls[0][2]
+    expect(passedEvent?.timestamp).toEqual(new Date('2026-01-01T00:00:00.000Z'))
   })
 })

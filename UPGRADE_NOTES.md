@@ -71,7 +71,7 @@ and its provider-executed tools such as `web_search`.
 uses Chat Completions. If its backend implements the Responses API and you rely on it, add
 `apiMode: 'responses'` to the preset.
 
-### Stripe `charge.*` webhooks are now accepted; `GatewayAdapter.mapStatus` gained an optional third argument
+### Stripe `charge.*` webhooks are now accepted; `GatewayAdapter.mapStatus` gained an optional third argument; a webhook refund implies the capture
 
 `POST /api/payment_gateways/webhook/stripe` used to answer every event whose `data.object` is not a
 PaymentIntent (for example `charge.refunded`, `charge.refund.updated`, `charge.dispute.created`,
@@ -83,9 +83,24 @@ such a reference are still answered with `401`. What changes on an existing inst
 - A refund made outside Open Mercato (for example in the Stripe dashboard) arrives as
   `charge.refunded`. When the Charge payload shows refunded captured funds, it now moves a `captured`
   or `partially_captured` gateway transaction to `partially_refunded` or `refunded`, and a
-  `partially_refunded` one to `refunded` once the charge is fully refunded. The move to `refunded`
-  emits `payment_gateways.payment.refunded`, so subscribers of that event start receiving it for
-  such refunds. The payment state machine still refuses the move from any other status.
+  `partially_refunded` one to `refunded` once the charge is fully refunded relative to the captured
+  amount. The move to `refunded` emits `payment_gateways.payment.refunded`, so subscribers of that
+  event start receiving it for such refunds.
+- After a partial capture, API versions before `2025-03-31.basil` report the uncaptured remainder
+  as refunded; from Basil on it is not in `amount_refunded`. The amounts decide which reading applies
+  when only one is possible (more refunded than captured means the remainder is counted, less than
+  the remainder means it is not); otherwise the event's `api_version` breaks the tie, and without a
+  version the event causes no status change.
+- A refund that arrives while the transaction is still `pending` or `authorized` (the capture
+  webhook is late) is no longer dropped: the transaction moves to the refund status through
+  `captured`, emitting `payment_gateways.payment.captured` and, when the result is `refunded`,
+  `payment_gateways.payment.refunded` (a partial refund emits no refund event, as before). The late
+  `payment_intent.succeeded` is refused by the state machine. `syncTransactionStatus` now reads and
+  writes the transaction under a row lock (`SELECT … FOR UPDATE`), so concurrent webhooks for one
+  transaction are applied one after another instead of overwriting each other. This rule lives in
+  `PaymentGatewayService.syncTransactionStatus` and applies to every gateway: an adapter must map an
+  event to `refunded` / `partially_refunded` only when the provider confirms captured funds were
+  refunded (a voided authorization is `cancelled`).
 - `charge.refund.updated`, the dispute events and any other non-PaymentIntent event that references
   a known PaymentIntent are accepted and never change the transaction's `unifiedStatus`. With the
   default inline processing they are recorded on the transaction like any webhook that causes no
@@ -97,11 +112,12 @@ such a reference are still answered with `401`. What changes on an existing inst
 - Signature verification and tenant resolution are unchanged: an event is accepted only when the
   credentials of a stored transaction for that PaymentIntent verify its signature.
 
-`GatewayAdapter.mapStatus(providerStatus, eventType?, eventData?)`
-(`@open-mercato/shared/modules/payment_gateways/types`) gained the optional `eventData` argument;
-the webhook processor passes the verified event payload. Adapters that declare one or two
-parameters need no change. The Stripe adapters use the payload when it is passed and keep the
-event-type table (`mapWebhookEventToStatus`) for calls without it.
+`GatewayAdapter.mapStatus(providerStatus, eventType?, event?)`
+(`@open-mercato/shared/modules/payment_gateways/types`) gained the optional `event` argument (the
+verified `WebhookEvent`), and `WebhookEvent` gained the optional `apiVersion`. The webhook processor
+passes the event. Adapters that declare one or two parameters need no change. The Stripe adapters
+use the event when it is passed and keep the event-type table (`mapWebhookEventToStatus`) for calls
+without it. Spec: `.ai/specs/2026-10-03-stripe-charge-webhook-refund-reconciliation.md`.
 
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 

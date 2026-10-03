@@ -39,10 +39,12 @@ export interface GatewayAdapter {
 
   /**
    * Map provider status to unified status. The core webhook processor also passes the verified
-   * event's type and payload, so an adapter can tell apart events that share a type or a provider status
-   * (for example a partial and a full refund). Both extra arguments are optional.
+   * event's type and the verified event itself, so an adapter can tell apart events that share a
+   * type or a provider status (for example a partial and a full refund). Both extra arguments are
+   * optional. Map an event to `refunded` / `partially_refunded` only when the provider confirms
+   * captured funds were refunded: webhook sync treats such a status as proof of capture.
    */
-  mapStatus(providerStatus: string, eventType?: string, eventData?: Record<string, unknown>): UnifiedPaymentStatus
+  mapStatus(providerStatus: string, eventType?: string, event?: WebhookEvent): UnifiedPaymentStatus
 }
 
 export type PaymentGatewayDescriptorFieldType =
@@ -249,6 +251,8 @@ export interface WebhookEvent {
   data: Record<string, unknown>
   idempotencyKey: string
   timestamp: Date
+  /** Provider API version the payload was rendered with, when the provider reports one */
+  apiVersion?: string
 }
 
 // ── Webhook Handler ─────────────────────────────────────────────────────────

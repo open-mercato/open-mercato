@@ -103,7 +103,7 @@ export async function processPaymentGatewayWebhookJob(
     }
 
     const providerStatus = typeof event.data.status === 'string' ? event.data.status : ''
-    const unifiedStatus = adapter.mapStatus(providerStatus, event.eventType, event.data)
+    const unifiedStatus = adapter.mapStatus(providerStatus, event.eventType, { ...event, timestamp: new Date(event.timestamp) })
     await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Payment gateway webhook received', {
       eventType: event.eventType,
       providerStatus,

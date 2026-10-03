@@ -81,7 +81,7 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       return
     }
 
-    const unifiedStatus = resolveStripeWebhookStatus(event.eventType, event.data)
+    const unifiedStatus = resolveStripeWebhookStatus(event.eventType, event.data, event.apiVersion)
 
     if (unifiedStatus !== 'unknown') {
       await paymentGatewayService.syncTransactionStatus(transaction.id, {

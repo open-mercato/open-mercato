@@ -356,7 +356,7 @@ Webhook events are processed asynchronously by dedicated workers. Each event inc
 
 ## Stripe webhook setup
 
-Stripe should send webhook events into Open Mercato so the hub can update transaction status, append webhook history, and keep refunds synchronized. A `charge.refunded` event whose Charge shows refunded captured funds moves the transaction to `partially_refunded` or `refunded`, depending on whether the charge is fully refunded (the payment state machine allows this from `captured` and `partially_captured`; from `partially_refunded` only the move to `refunded`); `charge.refund.updated` and dispute events are recorded without changing the unified status. Session creation can work without it, but a production Stripe integration should not stop there.
+Stripe should send webhook events into Open Mercato so the hub can update transaction status, append webhook history, and keep refunds synchronized. A `charge.refunded` event whose Charge shows refunded captured funds moves the transaction to `partially_refunded` or `refunded`, depending on whether the captured amount is fully refunded (from `partially_refunded` only the move to `refunded`; a refund that arrives before the capture webhook moves a `pending` or `authorized` transaction through `captured`); `charge.refund.updated` and dispute events are recorded without changing the unified status. Session creation can work without it, but a production Stripe integration should not stop there.
 
 ### Endpoint URL
 

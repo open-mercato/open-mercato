@@ -153,7 +153,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
     return verifyStripeWebhook(input)
   },
 
-  mapStatus(providerStatus: string, eventType?: string, eventData?: Record<string, unknown>): UnifiedPaymentStatus {
-    return mapStripeAdapterStatus(providerStatus, eventType, eventData)
+  mapStatus(providerStatus: string, eventType?: string, event?: WebhookEvent): UnifiedPaymentStatus {
+    return mapStripeAdapterStatus(providerStatus, eventType, event)
   },
 }
