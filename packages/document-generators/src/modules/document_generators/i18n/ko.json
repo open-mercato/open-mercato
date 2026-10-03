@@ -3,6 +3,7 @@
   "document_generators.errors.invalid_json": "JSON 본문이 올바르지 않습니다.",
   "document_generators.errors.invalid_query": "쿼리 매개변수가 올바르지 않습니다.",
   "document_generators.errors.invalid_request": "문서 요청이 올바르지 않습니다.",
+  "document_generators.errors.not_found": "문서 원본을 찾을 수 없습니다.",
   "document_generators.errors.organization_required": "문서를 생성하려면 조직을 선택하세요.",
   "document_generators.errors.render_failed": "문서를 렌더링할 수 없습니다.",
   "document_generators.errors.unknown_template": "문서 템플릿을 찾을 수 없습니다.",

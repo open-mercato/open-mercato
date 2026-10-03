@@ -9112,6 +9112,7 @@ __metadata:
     react: "npm:19.2.8"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
+    zod: "npm:^4.4.3"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0

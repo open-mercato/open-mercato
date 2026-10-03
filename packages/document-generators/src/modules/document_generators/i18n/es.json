@@ -3,6 +3,7 @@
   "document_generators.errors.invalid_json": "Cuerpo JSON no válido.",
   "document_generators.errors.invalid_query": "Parámetros de consulta no válidos.",
   "document_generators.errors.invalid_request": "Solicitud de documento no válida.",
+  "document_generators.errors.not_found": "No se encontró el origen del documento.",
   "document_generators.errors.organization_required": "Selecciona una organización para generar documentos.",
   "document_generators.errors.render_failed": "No se pudo renderizar el documento.",
   "document_generators.errors.unknown_template": "No se encontró la plantilla del documento.",

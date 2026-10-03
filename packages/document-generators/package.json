@@ -86,6 +86,7 @@
   },
   "description": "Format-neutral document generation for Open Mercato",
   "dependencies": {
-    "@react-pdf/renderer": "^4.9.0"
+    "@react-pdf/renderer": "^4.9.0",
+    "zod": "^4.4.3"
   }
 }
