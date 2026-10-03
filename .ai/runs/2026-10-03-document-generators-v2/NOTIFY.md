@@ -54,3 +54,7 @@ Append-only UTC log.
 ## 2026-10-03T13:13:04Z — checkpoint 7 (lightweight)
 - Steps 6.1–6.5 (f518ea49f..10c8138ca); Phase 6 closed. All Step test files pass (30 tests). Typecheck/lint/build/generate/client-boundaries and browser evidence deferred (reduced validation mode; browser pass needs app + migrated DB → user approval).
 - Dependency: @open-mercato/ui added to document-generators peer + dev deps (one light yarn install). @tanstack/react-query imported as the root-hoisted dependency, like packages/core.
+
+## 2026-10-03T13:17:53Z — resume paused
+- Step 7.1 (fe02a4262) authored TC-DOCUMENT-001..022 + helpers in the engine __integration__ folder; not executed (reduced validation mode).
+- Session paused because the user had to shut down the computer. 24 of 36 Tasks rows done; next: 8.1. PR stays draft, Status in-progress.
