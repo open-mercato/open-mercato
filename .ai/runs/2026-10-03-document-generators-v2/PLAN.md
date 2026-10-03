@@ -37,7 +37,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 5 | 5.6 | Generate endpoint and mutation guards | dispatch | done | cbc9d9275 |
 | 5 | 5.7 | History endpoint | dispatch | done | 59d63226c |
 | 6 | 6.1 | React Query data hooks | dispatch | done | — |
-| 6 | 6.2 | Template cards and preview dialog | dispatch | todo | — |
+| 6 | 6.2 | Template cards and preview dialog | dispatch | done | — |
 | 6 | 6.3 | Backend overview and catalogue pages | dispatch | todo | — |
 | 6 | 6.4 | Shared history table and backend page | dispatch | todo | — |
 | 6 | 6.5 | Sales document tabs and scoped history | dispatch | todo | — |
