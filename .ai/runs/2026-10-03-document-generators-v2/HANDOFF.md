@@ -1,18 +1,18 @@
 # Handoff — 2026-10-03-document-generators-v2
 
-**Last updated:** 2026-10-03T17:24:40Z
+**Last updated:** 2026-10-03T19:26:45Z
 **Branch:** feat/document-generators-v2
 **PR:** https://github.com/open-mercato/open-mercato/pull/6892
 **Current phase/step:** 10.2 (blocked on user approval)
-**Last commit:** 4e561f456 — docs and example module (checkpoint 9 commit follows)
+**Last commit:** cc02607c4 — typecheck fix (final gate record commit follows)
 
 ## What just happened
 - Every implementation row is done (Phases 1–10.1, plus review fixes 5.1-review-fix and 6.2-review-fix). 37 of 39 Tasks rows done.
 - Since Step 5.6 the run used reduced validation mode at the user's request (machine froze under full typecheck/build/generate): only each Step's own test files were executed.
 
-## Next concrete action (needs explicit user approval)
-- Step 10.2: run the full configured gate in order (`yarn build:packages`, `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, `yarn build:app`) plus `yarn db:generate` drift check for the hand-written `template_version` migration/snapshot, `yarn check:client-boundaries`, lint and DS guardian. Prefer a cloud session (claude.ai/code) or a moment when the machine can take the load.
-- Step 10.3: run TC-DOCUMENT-001..022 against a running app with the migrations applied (throwaway DB recommended), capture screenshots, run om-auto-review-pr (incl. explicit sign-off on the GenerationHistoryService constructor exception) and om-auto-qa-pr.
+## Next concrete action
+- Configured validation gate PASSED (see final-gate-checks.md; unit tests scoped to changed packages). Step 10.2 stays `todo` only for its remaining parts: integration suite, lint, client-boundaries and DS guardian.
+- Step 10.3 (needs user approval): run TC-DOCUMENT-001..022 against the running app (local DB already migrated), screenshots, om-auto-review-pr incl. GenerationHistoryService constructor-exception sign-off, om-auto-qa-pr.
 
 ## Known risks to check first in 10.2/10.3
 - Types since 5.6 were never compiled (routes, hooks, components, storage, versioning, watermark, docs example).
