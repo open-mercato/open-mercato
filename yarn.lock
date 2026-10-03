@@ -8638,6 +8638,7 @@ __metadata:
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/content": "workspace:*"
     "@open-mercato/core": "workspace:*"
+    "@open-mercato/document-generators": "workspace:*"
     "@open-mercato/documents": "workspace:*"
     "@open-mercato/enterprise": "workspace:*"
     "@open-mercato/events": "workspace:*"
@@ -9083,7 +9084,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/document-generators@workspace:packages/document-generators":
+"@open-mercato/document-generators@workspace:*, @open-mercato/document-generators@workspace:packages/document-generators":
   version: 0.0.0-use.local
   resolution: "@open-mercato/document-generators@workspace:packages/document-generators"
   dependencies:
