@@ -129,4 +129,29 @@ describe('resolveChannelThreadAccess (#5535)', () => {
       ),
     ).resolves.toBeNull()
   })
+
+  it.each([0, 1])('propagates a lookup failure at query %s in strict mode', async (queryIndex) => {
+    const error = new Error('connection terminated')
+    if (queryIndex === 1) mockFindOne.mockResolvedValueOnce(MAPPING as never)
+    mockFindOne.mockRejectedValueOnce(error)
+
+    await expect(resolveChannelThreadAccessSafely(
+      makeContainer(), SCOPE, { messageThreadId: 'thread-1' }, OPERATOR, { throwOnError: true },
+    )).rejects.toBe(error)
+  })
+
+  it('preserves a genuine missing mapping in strict mode', async () => {
+    mockFindOne.mockResolvedValue(null)
+
+    await expect(resolveChannelThreadAccessSafely(
+      makeContainer(), SCOPE, { messageThreadId: 'thread-1' }, OPERATOR, { throwOnError: true },
+    )).resolves.toBeNull()
+  })
+
+  it('does not query an empty reference in strict mode', async () => {
+    await expect(resolveChannelThreadAccessSafely(
+      makeContainer(), SCOPE, {}, OPERATOR, { throwOnError: true },
+    )).resolves.toBeNull()
+    expect(mockFindOne).not.toHaveBeenCalled()
+  })
 })

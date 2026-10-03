@@ -61,6 +61,8 @@ jest.mock('../../lib/routeHelpers', () => {
 })
 
 import { POST as composeMessage } from '../route'
+import { Message } from '../../data/entities'
+import { resolveChannelThreadAccessSafely } from '@open-mercato/core/modules/communication_channels/lib/channel-thread-access'
 
 function publicComposeBody(extra: Record<string, unknown> = {}) {
   return {
@@ -379,7 +381,24 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
       { tenantId, organizationId },
       { messageThreadId: CHANNEL_THREAD_ID },
       expect.objectContaining({ userId }),
+      { throwOnError: true },
     )
+  })
+
+  it('denies a public parented compose when the hub lookup fails', async () => {
+    resolveChannelTypeMock.mockResolvedValue('discord')
+    resolveChannelThreadAccessMock.mockImplementation(resolveChannelThreadAccessSafely)
+    em.findOne.mockImplementation(async (entity: unknown) => {
+      if (entity === Message) return { id: messageId, threadId: CHANNEL_THREAD_ID }
+      throw new Error('connection terminated')
+    })
+
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ parentMessageId: messageId })),
+    )
+
+    expect(response.status).toBe(403)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
   // #6432: the hub grants every shared channel regardless of features, so

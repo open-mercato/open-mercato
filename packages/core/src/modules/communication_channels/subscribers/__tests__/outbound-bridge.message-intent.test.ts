@@ -1,6 +1,8 @@
 import '@open-mercato/core/modules/messages/commands/messages'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { ChannelThreadMapping } from '../../data/entities'
+import { resolveChannelThreadAccessSafely } from '../../lib/channel-thread-access'
 import bridgeHandler from '../outbound-bridge'
 
 const enqueueMock = jest.fn(async () => 'job-id')
@@ -78,6 +80,7 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
   function makeMessagesContainer(
     original: Record<string, unknown>,
     recipientUserIds: string[] = [operatorUserId],
+    options: { channelThreadLookup?: 'failed' | 'missing' | 'absent' } = {},
   ) {
     const created: Record<string, unknown>[] = []
     const trx = {
@@ -101,6 +104,9 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
       // `message_recipients` row on the inbound message and lets them forward or
       // reply without the channel-thread fallback — the review's own scenario.
       findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === ChannelThreadMapping && options.channelThreadLookup === 'failed') {
+          throw new Error('[internal] channel thread lookup connection terminated')
+        }
         if (entity === Message) return where.id === original.id ? original : null
         if (entity === MessageRecipient && recipientUserIds.includes(where.recipientUserId as string)) {
           return { messageId: original.id, recipientUserId: where.recipientUserId, status: 'read', deletedAt: null }
@@ -112,21 +118,25 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
       fork: jest.fn(),
     }
     // The hub resolves this thread as channel-mapped, as it is in production.
-    const resolveChannelThreadAccess = jest.fn(async () => ({
-      messageThreadId: threadId,
-      externalConversationId,
-      channelId: 'ch-1',
-      channelType: 'discord',
-      canAccess: true,
-    }))
+    const resolveChannelThreadAccess = options.channelThreadLookup
+      ? jest.fn(resolveChannelThreadAccessSafely)
+      : jest.fn(async () => ({
+          messageThreadId: threadId,
+          externalConversationId,
+          channelId: 'ch-1',
+          channelType: 'discord',
+          canAccess: true,
+        }))
     const container = {
       resolve: (name: string) => {
         if (name === 'em') return { fork: () => emFork }
-        if (name === 'communicationChannelsResolveChannelThreadAccess') return resolveChannelThreadAccess
+        if (name === 'communicationChannelsResolveChannelThreadAccess') {
+          return options.channelThreadLookup === 'absent' ? undefined : resolveChannelThreadAccess
+        }
         return null
       },
     }
-    return { container, created }
+    return { container, created, resolveChannelThreadAccess, emFork }
   }
 
   /** Container the subscriber runs against — a shared channel with nothing delivered yet. */
@@ -277,6 +287,122 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
     )
     expect(enqueueMock).not.toHaveBeenCalled()
   })
+
+  it('keeps a forward and its replies internal when the real hub lookup fails (#6703)', async () => {
+    const original = inboundMessage({
+      senderUserId: operatorUserId,
+      sourceEntityType: null,
+      sourceEntityId: null,
+      externalEmail: 'customer@example.com',
+      externalName: 'Customer',
+    })
+    const { container, created, resolveChannelThreadAccess, emFork } = makeMessagesContainer(
+      original,
+      [],
+      { channelThreadLookup: 'failed' },
+    )
+
+    const result = await commandRegistry.get('messages.messages.forward')!.execute(
+      {
+        messageId: inboundMessageId,
+        recipients: [{ userId: colleagueUserId, type: 'to' }],
+        additionalBody: 'Discuss the refund with the team.',
+        sendViaEmail: true,
+        includeAttachments: false,
+        tenantId,
+        organizationId,
+        userId: operatorUserId,
+      },
+      { container, auth: { features: ['messages.compose'] } } as never,
+    )
+
+    expect(resolveChannelThreadAccess).toHaveBeenCalledWith(
+      container,
+      { tenantId, organizationId },
+      { messageThreadId: threadId },
+      { userId: operatorUserId, features: ['messages.compose'] },
+      { throwOnError: true },
+    )
+    expect(emFork.findOne).toHaveBeenCalledWith(
+      ChannelThreadMapping,
+      { messageThreadId: threadId, tenantId, organizationId },
+      undefined,
+    )
+    expect(created[0]).toMatchObject({
+      visibility: 'internal',
+      threadId,
+      sourceEntityType: null,
+      externalEmail: null,
+      externalName: null,
+    })
+    expect(result).toMatchObject({ externalEmail: null })
+    expect(sentEventPayload()).toMatchObject({
+      externalEmail: null,
+      forwardedFrom: inboundMessageId,
+    })
+    await bridgeHandler(sentEventPayload() as never, makeBridgeContainer(created[0]) as never)
+    expect(enqueueMock).not.toHaveBeenCalled()
+
+    const forwardRow = { ...created[0], id: '88888888-8888-4888-8888-888888888888' }
+    jest.clearAllMocks()
+    const replyHarness = makeMessagesContainer(forwardRow, [colleagueUserId])
+    await commandRegistry.get('messages.messages.reply')!.execute(
+      {
+        messageId: forwardRow.id,
+        body: 'The refund needs another review.',
+        bodyFormat: 'text',
+        sendViaEmail: false,
+        replyAll: false,
+        tenantId,
+        organizationId,
+        userId: colleagueUserId,
+      },
+      { container: replyHarness.container, auth: { features: ['messages.compose'] } } as never,
+    )
+
+    expect(replyHarness.created[0]).toMatchObject({ visibility: 'internal', threadId, externalEmail: null })
+    await bridgeHandler(sentEventPayload() as never, makeBridgeContainer(replyHarness.created[0]) as never)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'absent'] as const)(
+    'preserves a public forward when the channel mapping is %s (#6703)',
+    async (channelThreadLookup) => {
+      const original = inboundMessage({
+        senderUserId: operatorUserId,
+        sourceEntityType: null,
+        sourceEntityId: null,
+        externalEmail: 'customer@example.com',
+        externalName: 'Customer',
+      })
+      const { container, created, resolveChannelThreadAccess } = makeMessagesContainer(
+        original,
+        [],
+        { channelThreadLookup },
+      )
+
+      await commandRegistry.get('messages.messages.forward')!.execute(
+        {
+          messageId: inboundMessageId,
+          recipients: [{ userId: colleagueUserId, type: 'to' }],
+          sendViaEmail: false,
+          includeAttachments: false,
+          tenantId,
+          organizationId,
+          userId: operatorUserId,
+        },
+        { container, auth: { features: ['messages.compose'] } } as never,
+      )
+
+      expect(created[0]).toMatchObject({
+        visibility: 'public',
+        externalEmail: original.externalEmail,
+        externalName: original.externalName,
+      })
+      if (channelThreadLookup === 'absent') expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+      else expect(resolveChannelThreadAccess).toHaveBeenCalledTimes(1)
+    },
+  )
 
   it('does not deliver an internal-visibility message composed into the channel thread', async () => {
     const original = inboundMessage({ visibility: 'internal' })

@@ -125,20 +125,26 @@ export async function hasChannelThreadReadAccess(
  * needs both the hub's access rule and `messages.view`, because the hub grants
  * every shared channel regardless of features. Shared by the compose route and
  * the draft send transition so a draft cannot be used to skip the gate.
+ * A failed lookup denies the send rather than classifying the thread as internal.
  */
 export async function canPostToChannelThread(
   ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
   scope: MessageScope,
   messageThreadId: string,
 ): Promise<boolean> {
-  const channelThread = await resolveMessageChannelThreadAccess(
-    ctx.container,
-    { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
-    { messageThreadId },
-    { userId: scope.userId, features: resolveActorFeatures(ctx.auth) },
-  )
-  if (!channelThread) return true
-  return channelThread.canAccess && (await canUseChannelThreadFallback(ctx, scope))
+  try {
+    const channelThread = await resolveMessageChannelThreadAccess(
+      ctx.container,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      { messageThreadId },
+      { userId: scope.userId, features: resolveActorFeatures(ctx.auth) },
+      { throwOnError: true },
+    )
+    if (!channelThread) return true
+    return channelThread.canAccess && (await canUseChannelThreadFallback(ctx, scope))
+  } catch {
+    return false
+  }
 }
 
 export async function canUseMessageEmailFeature(

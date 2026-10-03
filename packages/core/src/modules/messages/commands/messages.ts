@@ -745,13 +745,18 @@ async function isOnChannelThread(
   original: Message,
 ): Promise<boolean> {
   if (original.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE) return true
-  const channelThread = await resolveMessageChannelThreadAccess(
-    ctx.container,
-    { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
-    { messageThreadId: original.threadId ?? original.id },
-    { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
-  )
-  return channelThread !== null
+  try {
+    const channelThread = await resolveMessageChannelThreadAccess(
+      ctx.container,
+      { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
+      { messageThreadId: original.threadId ?? original.id },
+      { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
+      { throwOnError: true },
+    )
+    return channelThread !== null
+  } catch {
+    return true
+  }
 }
 
 const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: string | null; recipientUserIds: string[] }> = {

@@ -1,4 +1,5 @@
 import { EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE } from './composeSourceChannelType'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 /**
  * The subset of a resolved channel thread this module consumes. Structurally
@@ -34,24 +35,32 @@ export type ChannelThreadReference = {
  */
 export const CHANNEL_THREAD_FALLBACK_FEATURE = 'messages.view'
 
-type ContainerLike = { resolve: <T = unknown>(name: string) => T }
+type ContainerLike = {
+  resolve: <T = unknown>(name: string, options?: { allowUnregistered?: boolean }) => T
+}
+
+type ChannelThreadLookupOptions = { throwOnError?: boolean }
 
 type ResolveChannelThreadAccessService = (
   container: ContainerLike,
   scope: ChannelThreadScope,
   reference: ChannelThreadReference,
   actor: { userId: string | null; features: string[] },
+  options?: ChannelThreadLookupOptions,
 ) => Promise<ChannelThreadAccessInfo | null>
 
 function tryResolveChannelThreadAccessService(
   container: ContainerLike,
+  options?: ChannelThreadLookupOptions,
 ): ResolveChannelThreadAccessService | undefined {
   try {
     const service = container.resolve<ResolveChannelThreadAccessService>(
       'communicationChannelsResolveChannelThreadAccess',
+      options?.throwOnError ? { allowUnregistered: true } : undefined,
     )
     return typeof service === 'function' ? service : undefined
-  } catch {
+  } catch (error) {
+    if (options?.throwOnError) throw error
     // `communication_channels` is optional: without it no thread can be
     // channel-linked, so "internal thread" is both correct and fail-closed.
     // A container that answers with a non-callable instead of throwing reads
@@ -85,17 +94,32 @@ export function resolveActorFeatures(auth: unknown): string[] {
  *
  * `actor.features` is a pass-through to the hub's own access rule, not an
  * authorization input — see {@link resolveActorFeatures}.
+ * `throwOnError` distinguishes lookup failures from a genuinely internal thread.
  */
 export async function resolveMessageChannelThreadAccess(
   container: ContainerLike,
   scope: ChannelThreadScope,
   reference: ChannelThreadReference,
   actor: { userId: string | null; features: string[] },
+  options?: ChannelThreadLookupOptions,
 ): Promise<ChannelThreadAccessInfo | null> {
   if (!reference.messageThreadId && !reference.externalConversationId) return null
-  const resolveChannelThreadAccess = tryResolveChannelThreadAccessService(container)
-  if (!resolveChannelThreadAccess) return null
-  return resolveChannelThreadAccess(container, scope, reference, actor)
+  try {
+    const resolveChannelThreadAccess = tryResolveChannelThreadAccessService(container, options)
+    if (!resolveChannelThreadAccess) return null
+    return options
+      ? await resolveChannelThreadAccess(container, scope, reference, actor, options)
+      : await resolveChannelThreadAccess(container, scope, reference, actor)
+  } catch (error) {
+    if (!options?.throwOnError) throw error
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'messages', code: 'messages.channel_thread_lookup_failed',
+      })
+    } finally {
+      throw error
+    }
+  }
 }
 
 export { EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE }
