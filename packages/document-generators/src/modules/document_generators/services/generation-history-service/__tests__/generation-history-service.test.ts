@@ -188,6 +188,6 @@ describe('GenerationHistoryService listAndCount', () => {
     stubResult()
     const { em } = createEm()
     await new GenerationHistoryService(em as never).listAndCount(scope, listQuery({ sort: 'resource_label' }))
-    expect(JSON.stringify(findMock.mock.calls[0][3].orderBy)).not.toContain('resourceLabel')
+    expect(findMock.mock.calls[0][3].orderBy).toEqual([{ generatedAt: 'desc' }, { id: 'desc' }])
   })
 })

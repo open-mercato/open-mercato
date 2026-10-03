@@ -118,7 +118,7 @@ export class GenerationHistoryService {
     if (query.generated_to) generatedAtRange.$lte = new Date(query.generated_to)
     if (Object.keys(generatedAtRange).length > 0) where.generatedAt = generatedAtRange
 
-    const sortProperty = SORT_PROPERTY_BY_FIELD[query.sort ?? 'generated_at']
+    const sortProperty = SORT_PROPERTY_BY_FIELD[query.sort] ?? SORT_PROPERTY_BY_FIELD.generated_at
     const direction = query.sort_direction === 'asc' ? 'asc' : 'desc'
     const page = query.page ?? 1
     const pageSize = query.pageSize ?? 20

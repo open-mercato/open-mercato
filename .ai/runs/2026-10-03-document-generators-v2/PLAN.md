@@ -33,7 +33,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 5 | 5.2 | Template catalogue and facet endpoints | dispatch | done | — |
 | 5 | 5.3 | Preview endpoint | dispatch | done | — |
 | 5 | 5.4 | History entity encryption and migration | dispatch | done | — |
-| 5 | 5.5 | History persistence and read service | dispatch | todo | — |
+| 5 | 5.5 | History persistence and read service | dispatch | done | — |
 | 5 | 5.6 | Generate endpoint and mutation guards | dispatch | todo | — |
 | 5 | 5.7 | History endpoint | dispatch | todo | — |
 | 6 | 6.1 | React Query data hooks | dispatch | todo | — |
@@ -69,6 +69,7 @@ Email delivery, public sharing links, bulk generation, event-triggered generatio
 - User approved retention without automatic expiry; deleting source data deletes generated files and anonymizes history. Template versions are defined in code, latest by default with explicit older-version selection and used version recorded in history.
 - Renderer dependency is explicitly required by the authorized spec. No local database migration application is authorized.
 - History service constructor exception requires explicit final review signoff per spec.
+- Review sign-off required: `GenerationHistoryService` is constructed with `new GenerationHistoryService(em)` per request (spec constructor exception, deliberately not in DI); the Step 10.3 reviewer must confirm this or require DI registration.
 - Source statuses and attachment APIs must be verified against current develop before dependent code.
 - User-facing and shared/schema changes require risk-high, needs-qa; automatic QA evidence does not grant qa-approved.
 - Runner: local (no running Docker app). Node 24.13.1, Yarn 4.17.1.
