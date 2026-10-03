@@ -1,6 +1,6 @@
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
-import type { GeneratedDocumentDto } from '@open-mercato/document-generators/modules/document_generators/services/generation-history-service'
+import type { GeneratedDocumentDto } from '../services/generation-history-service'
 import type { DocumentHistorySortField } from '../hooks/document-queries'
 
 type Translate = (key: string, fallback?: string) => string
