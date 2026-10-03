@@ -48,6 +48,8 @@ function buildOrder(overrides: Record<string, unknown> = {}) {
     comments: ' Thanks ',
     subtotalNetAmount: '100.0000',
     discountTotalAmount: '10.0000',
+    shippingNetAmount: '5.0000',
+    surchargeTotalAmount: '2.0000',
     taxTotalAmount: '20.7000',
     grandTotalGrossAmount: '110.7000',
     paidTotalAmount: '50.0000',
@@ -76,12 +78,12 @@ describe('OrdersDocumentService', () => {
     findMock.mockReset()
   })
 
-  it('exposes identity and registers no templates yet', () => {
+  it('exposes identity and registers the invoice templates', () => {
     expect(service.id).toBe('orders')
     expect(service.label).toBe('Orders')
     expect(service.module).toBe('sales')
     expect(service.resourceKind).toBe('sales.order')
-    expect(service.getEntries()).toEqual([])
+    expect(service.getEntries().map((entry) => entry.id)).toEqual(['sales.order-invoice', 'sales.order-invoice-markdown'])
   })
 
   it.each([[undefined], [{}], [{ id: 'not-a-uuid' }], [{ id: 42 }], [null]])(
@@ -160,6 +162,8 @@ describe('OrdersDocumentService', () => {
         comments: ' Thanks ',
         subtotalNetAmount: '100.0000',
         discountTotalAmount: '10.0000',
+        shippingNetAmount: '5.0000',
+        surchargeTotalAmount: '2.0000',
         taxTotalAmount: '20.7000',
         grandTotalGrossAmount: '110.7000',
         paidTotalAmount: '50.0000',
@@ -199,6 +203,8 @@ describe('OrdersDocumentService', () => {
       expect(result.totals).toEqual({
         subtotal: 100,
         discount: 10,
+        shipping: 5,
+        surcharge: 2,
         tax: 20.7,
         total: 110.7,
         paid: 50,
@@ -213,7 +219,7 @@ describe('OrdersDocumentService', () => {
       const result = service.toTemplateData({ data: source, locale: 'pl', translate })
       expect(result.labels.title).toBe('Faktura')
       expect(result.labels.grandTotal).toBe('Total due')
-      expect(Object.keys(result.labels)).toHaveLength(17)
+      expect(Object.keys(result.labels)).toHaveLength(19)
     })
 
     it('omits seller and dueDate, prefers placedAt and parses string customer snapshots', () => {

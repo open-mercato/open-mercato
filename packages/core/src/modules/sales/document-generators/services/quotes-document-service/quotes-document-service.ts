@@ -8,7 +8,7 @@ import type {
 } from '@open-mercato/shared/modules/document-generators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/filename'
+import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/index'
 import { SalesChannel, SalesQuote, SalesQuoteLine } from '../../../data/entities'
 import {
   SALES_OFFER_LABEL_KEYS,

@@ -40,4 +40,31 @@ describe('sales document generators declaration', () => {
     expect(source.type).toBe('react-pdf')
     expect(typeof (source as { component: unknown }).component).toBe('function')
   })
+
+  describe('order invoice templates', () => {
+    const cases = [
+      { id: 'sales.order-invoice', format: 'pdf', sourceType: 'react-pdf', ext: '.pdf' },
+      { id: 'sales.order-invoice-markdown', format: 'md', sourceType: 'markdown', ext: '.md' },
+    ]
+
+    it('declares exactly three sales entries with unique ids', () => {
+      const sales = templates.filter((entry) => entry.module === 'sales')
+      expect(sales.map((entry) => entry.id).sort()).toEqual(
+        ['sales.offer', 'sales.order-invoice', 'sales.order-invoice-markdown'].sort(),
+      )
+      expect(new Set(templates.map((entry) => entry.id)).size).toBe(templates.length)
+    })
+
+    it.each(cases)('declares $id owned by orders', async ({ id, format, sourceType, ext }) => {
+      const [entry] = templates.filter((candidate) => candidate.id === id)
+      expect(entry.resourceKind).toBe('sales.order')
+      expect(entry.format).toBe(format)
+      expect(entry.requiredFeatures).toEqual(['sales.orders.view'])
+      const name = entry.filename({ data: { document: { number: 'O-1/2026' } } } as never)
+      expect(name.endsWith(ext)).toBe(true)
+      expect(name).not.toContain('/')
+      const source = await entry.load()
+      expect(source.type).toBe(sourceType)
+    })
+  })
 })

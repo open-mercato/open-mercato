@@ -4,7 +4,7 @@ import {
   OpenMercatoLogo,
 } from '@open-mercato/document-generators/modules/document_generators/templates/shared/index'
 import { formatDate, formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/index'
-import type { SalesOfferData } from '../types'
+import type { OrderInvoiceData } from '../types'
 
 const { colors, spacing, fontSize, borderWidth, fontFamily } = documentTheme
 
@@ -73,9 +73,9 @@ function formatQuantity(value: number, locale: string): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 4 }).format(value)
 }
 
-export default function SalesOfferPdf({ data }: { data: Record<string, unknown> }) {
-  const offer = data as unknown as SalesOfferData
-  const { labels, document: documentInfo, client, seller, lines, totals, notes, locale } = offer
+export default function OrderInvoicePdf({ data }: { data: Record<string, unknown> }) {
+  const invoice = data as unknown as OrderInvoiceData
+  const { labels, document: documentInfo, client, seller, lines, totals, notes, locale } = invoice
 
   return (
     <Document title={`${labels.title} ${documentInfo.number}`}>
@@ -94,10 +94,10 @@ export default function SalesOfferPdf({ data }: { data: Record<string, unknown> 
               <Text style={styles.metaLabel}>{labels.date}</Text>
               <Text>{formatDate(documentInfo.date, locale)}</Text>
             </View>
-            {documentInfo.validUntil ? (
+            {documentInfo.dueDate ? (
               <View style={styles.metaRow}>
-                <Text style={styles.metaLabel}>{labels.validUntil}</Text>
-                <Text>{formatDate(documentInfo.validUntil, locale)}</Text>
+                <Text style={styles.metaLabel}>{labels.dueDate}</Text>
+                <Text>{formatDate(documentInfo.dueDate, locale)}</Text>
               </View>
             ) : null}
           </View>
@@ -144,6 +144,24 @@ export default function SalesOfferPdf({ data }: { data: Record<string, unknown> 
             <Text>{labels.subtotal}</Text>
             <Text>{formatMoney(totals.subtotal, totals.currency, locale)}</Text>
           </View>
+          {totals.discount !== 0 ? (
+            <View style={styles.totalRow}>
+              <Text>{labels.discount}</Text>
+              <Text>{formatMoney(-Math.abs(totals.discount), totals.currency, locale)}</Text>
+            </View>
+          ) : null}
+          {totals.shipping !== 0 ? (
+            <View style={styles.totalRow}>
+              <Text>{labels.shipping}</Text>
+              <Text>{formatMoney(totals.shipping, totals.currency, locale)}</Text>
+            </View>
+          ) : null}
+          {totals.surcharge !== 0 ? (
+            <View style={styles.totalRow}>
+              <Text>{labels.surcharge}</Text>
+              <Text>{formatMoney(totals.surcharge, totals.currency, locale)}</Text>
+            </View>
+          ) : null}
           <View style={styles.totalRow}>
             <Text>{labels.tax}</Text>
             <Text>{formatMoney(totals.tax, totals.currency, locale)}</Text>
@@ -152,6 +170,18 @@ export default function SalesOfferPdf({ data }: { data: Record<string, unknown> 
             <Text>{labels.grandTotal}</Text>
             <Text>{formatMoney(totals.total, totals.currency, locale)}</Text>
           </View>
+          {totals.paid > 0 ? (
+            <View style={styles.totalRow}>
+              <Text>{labels.paid}</Text>
+              <Text>{formatMoney(totals.paid, totals.currency, locale)}</Text>
+            </View>
+          ) : null}
+          {totals.paid > 0 ? (
+            <View style={styles.totalRow}>
+              <Text>{labels.outstanding}</Text>
+              <Text>{formatMoney(totals.outstanding, totals.currency, locale)}</Text>
+            </View>
+          ) : null}
         </View>
 
         {notes ? (
