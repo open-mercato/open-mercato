@@ -24,6 +24,16 @@ export interface DocumentRenderInput {
   data: Record<string, unknown>
 }
 
+export interface DocumentRenderOutput {
+  buffer: Uint8Array
+  format: string
+  mimeType: string
+}
+
+export interface DocumentRenderingService {
+  render(input: DocumentRenderInput): Promise<DocumentRenderOutput>
+}
+
 export interface LoadedDocumentTemplateBase {
   data: Record<string, unknown>
   filename: string
