@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { GeneratedDocument } from '../../data/entities'
@@ -19,6 +19,7 @@ export type GeneratedDocumentDto = {
   format: string
   generatedBy: string
   generatedAt: string
+  attachmentId: string | null
 }
 
 export type GenerationHistoryScope = {
@@ -68,6 +69,7 @@ export function toGeneratedDocumentDto(entity: GeneratedDocument): GeneratedDocu
     format: entity.format,
     generatedBy: entity.generatedBy,
     generatedAt: entity.generatedAt.toISOString(),
+    attachmentId: entity.attachmentId ?? null,
   }
 }
 
@@ -104,6 +106,16 @@ export class GenerationHistoryService {
       ...prepared.entity,
       resourceLabel: prepared.plaintextResourceLabel,
     } as GeneratedDocument)
+  }
+
+  async findOne(scope: GenerationHistoryScope, id: string): Promise<GeneratedDocument | null> {
+    return findOneWithDecryption(
+      this.em,
+      GeneratedDocument,
+      { id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      {},
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
   }
 
   async listAndCount(scope: GenerationHistoryScope, query: ListDocumentsQuery): Promise<GenerationHistoryPage> {

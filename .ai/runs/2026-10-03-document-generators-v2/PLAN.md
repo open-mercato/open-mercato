@@ -44,7 +44,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 7 | 7.1 | Core integration and browser coverage | dispatch | done | fe02a4262 |
 | 8 | 8.1 | Retention and erasure contract | inline | done | — |
 | 8 | 8.2 | Private attachment persistence | inline | done | — |
-| 8 | 8.3 | Stored document download | inline | todo | — |
+| 8 | 8.3 | Stored document download | inline | done | — |
 | 9 | 9.1 | Template versioning | inline | todo | — |
 | 9 | 9.2 | Draft watermark | inline | todo | — |
 | 10 | 10.1 | Documentation examples and harness coverage | inline | todo | — |
