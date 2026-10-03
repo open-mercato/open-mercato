@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import {
@@ -115,6 +116,7 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
     }),
     flush,
     transactional: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(em)),
+    fork: jest.fn(() => em),
   }
   const integrationCredentialsService = { resolve: jest.fn(async () => ({})) } as never
 
@@ -129,7 +131,7 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
   })
 
   const service = createPaymentGatewayService({ em: em as never, integrationCredentialsService })
-  return { service, captureFn, refundFn, cancelFn, flush }
+  return { service, captureFn, refundFn, cancelFn, flush, em }
 }
 
 function refundWithOperation(
@@ -583,4 +585,102 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
 
     expect(transaction.capturedAmount).toBe('0.3000')
   })
+})
+
+describe('payment gateway service — refund webhook that overtakes the capture', () => {
+  const emitted: Array<{ eventId: string; previousStatus: unknown }> = []
+
+  beforeAll(() => {
+    setGlobalEventBus({
+      emit: async (eventId: string, payload: unknown) => {
+        emitted.push({ eventId, previousStatus: (payload as { previousStatus?: unknown }).previousStatus })
+      },
+    } as never)
+  })
+
+  beforeEach(() => {
+    clearGatewayAdapters()
+    findOneMock.mockReset()
+    emitted.length = 0
+  })
+
+  afterEach(() => {
+    clearGatewayAdapters()
+  })
+
+  it.each<[UnifiedPaymentStatus, UnifiedPaymentStatus]>([
+    ['pending', 'refunded'],
+    ['pending', 'partially_refunded'],
+    ['authorized', 'refunded'],
+    ['authorized', 'partially_refunded'],
+  ])('passes a %s transaction through captured on its way to %s', async (initialStatus, refundStatus) => {
+    const transaction = makeTransaction(initialStatus)
+    const { service } = buildService(transaction, {})
+
+    await service.syncTransactionStatus(transaction.id, {
+      unifiedStatus: refundStatus,
+      providerStatus: 'charge.refunded',
+      webhookEvent: { eventType: 'charge.refunded', idempotencyKey: 'evt_1', processed: true },
+    }, scope)
+
+    expect(transaction.unifiedStatus).toBe(refundStatus)
+    expect(transaction.capturedAmount).toBe('100.0000')
+    const expectedEvents = [{ eventId: 'payment_gateways.payment.captured', previousStatus: initialStatus }]
+    if (refundStatus === 'refunded') {
+      expectedEvents.push({ eventId: 'payment_gateways.payment.refunded', previousStatus: 'captured' })
+    }
+    expect(emitted).toEqual(expectedEvents)
+  })
+
+  it('reads and writes the transaction under a row lock inside one database transaction', async () => {
+    const transaction = makeTransaction('captured', '100.0000')
+    const { service, em } = buildService(transaction, {})
+
+    await service.syncTransactionStatus(transaction.id, { unifiedStatus: 'refunded' }, scope)
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(findOneMock).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ id: transaction.id, organizationId: scope.organizationId, tenantId: scope.tenantId }),
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+      scope,
+    )
+    expect(transaction.unifiedStatus).toBe('refunded')
+  })
+
+  it('refuses the late capture once the refund is recorded', async () => {
+    const transaction = makeTransaction('pending')
+    const { service } = buildService(transaction, {})
+
+    await service.syncTransactionStatus(transaction.id, { unifiedStatus: 'partially_refunded' }, scope)
+    await service.syncTransactionStatus(transaction.id, { unifiedStatus: 'captured' }, scope)
+
+    expect(transaction.unifiedStatus).toBe('partially_refunded')
+    expect(emitted.map((entry) => entry.eventId)).toEqual(['payment_gateways.payment.captured'])
+  })
+
+  it('keeps the direct transition for an already captured payment', async () => {
+    const transaction = makeTransaction('partially_captured', '40.0000')
+    const { service } = buildService(transaction, {})
+
+    await service.syncTransactionStatus(transaction.id, { unifiedStatus: 'refunded' }, scope)
+
+    expect(transaction.unifiedStatus).toBe('refunded')
+    expect(transaction.capturedAmount).toBe('40.0000')
+    expect(emitted).toEqual([{ eventId: 'payment_gateways.payment.refunded', previousStatus: 'partially_captured' }])
+  })
+
+  it.each<UnifiedPaymentStatus>(['cancelled', 'failed', 'expired', 'refunded'])(
+    'leaves a %s transaction alone',
+    async (terminalStatus) => {
+      const transaction = makeTransaction(terminalStatus)
+      const { service } = buildService(transaction, {})
+
+      await service.syncTransactionStatus(transaction.id, { unifiedStatus: 'partially_refunded' }, scope)
+
+      expect(transaction.unifiedStatus).toBe(terminalStatus)
+      expect(emitted).toEqual([])
+    },
+  )
 })

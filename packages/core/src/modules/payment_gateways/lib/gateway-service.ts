@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -20,7 +21,7 @@ import type { IntegrationStateService } from '../../integrations/lib/state-servi
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
-import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
+import { canApplyManualAction, isValidTransition, resolveImpliedCaptureStatus, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
 import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
@@ -123,6 +124,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     transactionId: string,
     scope: { organizationId: string; tenantId: string },
     targetEm: EntityManager = em,
+    options?: { lockMode: LockMode.PESSIMISTIC_WRITE },
   ): Promise<GatewayTransaction> {
     const transaction = await findOneWithDecryption(
       targetEm,
@@ -133,7 +135,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         tenantId: scope.tenantId,
         deletedAt: null,
       },
-      undefined,
+      options,
       scope,
     )
     if (!transaction) {
@@ -738,42 +740,57 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         receivedAt?: string
       }
     }, scope: { organizationId: string; tenantId: string }): Promise<void> {
-      const transaction = await findTransactionOrThrow(transactionId, scope)
-      const currentStatus = transaction.unifiedStatus as UnifiedPaymentStatus
-      const canTransition = isValidTransition(currentStatus, update.unifiedStatus)
-      const shouldApplyStatus = canTransition && update.unifiedStatus !== currentStatus
-      const previousStatus = transaction.unifiedStatus
+      const { transaction, previousStatus, impliedCaptureStatus, shouldApplyStatus } = await em.fork().transactional(async (tx) => {
+        const locked = await findTransactionOrThrow(transactionId, scope, tx, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        const currentStatus = locked.unifiedStatus as UnifiedPaymentStatus
+        const implied = resolveImpliedCaptureStatus(currentStatus, update.unifiedStatus)
+        const canTransition = isValidTransition(currentStatus, update.unifiedStatus) || implied !== null
+        const applies = canTransition && update.unifiedStatus !== currentStatus
+        if (applies) {
+          if (implied) alignCapturedAmountWithStatus(locked, implied)
+          locked.unifiedStatus = update.unifiedStatus
+          alignCapturedAmountWithStatus(locked, update.unifiedStatus)
+        }
+        if (update.providerStatus) {
+          locked.gatewayStatus = update.providerStatus
+        }
+        if (update.providerData) {
+          locked.gatewayMetadata = { ...readGatewayMetadata(locked.gatewayMetadata), ...update.providerData }
+        }
+        if (update.webhookEvent) {
+          const webhookLog = readWebhookLog(locked.webhookLog)
+          webhookLog.push({
+            eventType: update.webhookEvent.eventType,
+            receivedAt: update.webhookEvent.receivedAt ?? new Date().toISOString(),
+            idempotencyKey: update.webhookEvent.idempotencyKey,
+            unifiedStatus: update.unifiedStatus,
+            processed: update.webhookEvent.processed,
+          })
+          locked.webhookLog = webhookLog
+        }
+        locked.lastWebhookAt = new Date()
+        await tx.flush()
+        return {
+          transaction: locked,
+          previousStatus: currentStatus,
+          impliedCaptureStatus: applies ? implied : null,
+          shouldApplyStatus: applies,
+        }
+      })
       if (shouldApplyStatus) {
-        transaction.unifiedStatus = update.unifiedStatus
-        alignCapturedAmountWithStatus(transaction, update.unifiedStatus)
-      }
-      if (update.providerStatus) {
-        transaction.gatewayStatus = update.providerStatus
-      }
-      if (update.providerData) {
-        transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), ...update.providerData }
-      }
-      if (update.webhookEvent) {
-        const webhookLog = readWebhookLog(transaction.webhookLog)
-        webhookLog.push({
-          eventType: update.webhookEvent.eventType,
-          receivedAt: update.webhookEvent.receivedAt ?? new Date().toISOString(),
-          idempotencyKey: update.webhookEvent.idempotencyKey,
-          unifiedStatus: update.unifiedStatus,
-          processed: update.webhookEvent.processed,
-        })
-        transaction.webhookLog = webhookLog
-      }
-      transaction.lastWebhookAt = new Date()
-      await em.flush()
-      if (shouldApplyStatus) {
-        await emitStatusEvent(update.unifiedStatus, {
+        const eventPayload = {
           transactionId: transaction.id,
           paymentId: transaction.paymentId,
           providerKey: transaction.providerKey,
-          previousStatus,
           organizationId: transaction.organizationId,
           tenantId: transaction.tenantId,
+        }
+        if (impliedCaptureStatus) {
+          await emitStatusEvent(impliedCaptureStatus, { ...eventPayload, previousStatus })
+        }
+        await emitStatusEvent(update.unifiedStatus, {
+          ...eventPayload,
+          previousStatus: impliedCaptureStatus ?? previousStatus,
         })
       }
       await writeTransactionLog(
@@ -784,6 +801,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         shouldApplyStatus ? 'Payment status synchronized from webhook' : 'Webhook received with no status transition',
         {
           previousStatus,
+          ...(impliedCaptureStatus ? { impliedStatus: impliedCaptureStatus } : {}),
           nextStatus: update.unifiedStatus,
           providerStatus: update.providerStatus ?? null,
           eventType: update.webhookEvent?.eventType ?? null,

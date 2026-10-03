@@ -224,8 +224,9 @@ interface GatewayAdapter {
 
   /**
    * Map a gateway-specific event/status to the unified payment status.
+   * Webhook processing also passes the verified event (2026-10-03, optional).
    */
-  mapStatus(gatewayStatus: string, eventType?: string): UnifiedPaymentStatus
+  mapStatus(gatewayStatus: string, eventType?: string, event?: WebhookEvent): UnifiedPaymentStatus
 }
 
 // --- Input/Output Types ---
@@ -1989,3 +1990,4 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-03-19 | Added the provider-owned embedded payment contract: `CreateSessionResult.clientSession`, generated `payments.client.generated.ts` bootstrap imports, and shared browser renderer registry lookup. |
 | 2026-03-20 | Generalized provider-owned payment presentation: renderer catalogs in descriptors, consumer `presentation` request, embedded renderer settings, redirect sessions, and widget-aligned renderer bootstrap entrypoints under `widgets/payments/client.ts(x)`. |
 | 2026-07-25 | Added §16.5 Amount Integrity: payment-session amounts are reconciled against the authoritative order amount due through the optional `PaymentOrderTotalResolver` contract (#4488), alongside the existing capture-amount guard (#4486). |
+| 2026-10-03 | `GatewayAdapter.mapStatus` receives the verified `WebhookEvent` as an optional third argument, `WebhookEvent` gains optional `apiVersion`, and webhook sync treats a refund status on a `pending`/`authorized` transaction as proof of capture. See `.ai/specs/2026-10-03-stripe-charge-webhook-refund-reconciliation.md`. |
