@@ -1,10 +1,10 @@
 import { GeneratedDocument } from '../../../data/entities'
-import { GenerationHistoryService } from '../generation-history-service'
-import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { GenerationHistoryService, toGeneratedDocumentDto } from '../generation-history-service'
+import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({ findAndCountWithDecryption: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({ findAndCountWithDecryption: jest.fn(), findOneWithDecryption: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({ resolveTenantEncryptionService: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/encryption/toggles', () => ({ isTenantDataEncryptionEnabled: jest.fn() }))
 
@@ -110,7 +110,7 @@ describe('GenerationHistoryService write path', () => {
     expect(forked.flush).toHaveBeenCalledTimes(1)
     expect(dto).toMatchObject({ resourceLabel: 'Order #1', generatedAt: '2026-10-01T10:00:00.000Z' })
     expect(dto).not.toHaveProperty('mimeType')
-    expect(dto).not.toHaveProperty('attachmentId')
+    expect(dto.attachmentId).toBeNull()
   })
 })
 
@@ -148,7 +148,7 @@ describe('GenerationHistoryService listAndCount', () => {
       page: 3,
       pageSize: 10,
     })
-    expect(result.items[0]).not.toHaveProperty('attachmentId')
+    expect(result.items[0].attachmentId).toBe('att')
   })
 
   it('applies every filter while keeping scope', async () => {
@@ -189,5 +189,32 @@ describe('GenerationHistoryService listAndCount', () => {
     const { em } = createEm()
     await new GenerationHistoryService(em as never).listAndCount(scope, listQuery({ sort: 'resource_label' }))
     expect(findMock.mock.calls[0][3].orderBy).toEqual([{ generatedAt: 'desc' }, { id: 'desc' }])
+  })
+})
+
+describe('GenerationHistoryService.findOne', () => {
+  it('reads one entry through the decrypting finder within the tenant and organization', async () => {
+    const entity = Object.assign(new GeneratedDocument(), { id: 'doc-1', attachmentId: 'attachment-1' })
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(entity)
+    const em = {}
+    const service = new GenerationHistoryService(em as never)
+
+    await expect(service.findOne(scope, 'doc-1')).resolves.toBe(entity)
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      em,
+      GeneratedDocument,
+      { id: 'doc-1', tenantId: scope.tenantId, organizationId: scope.organizationId },
+      {},
+      scope,
+    )
+  })
+
+  it('exposes the stored attachment id in the DTO', () => {
+    const entity = Object.assign(new GeneratedDocument(), {
+      id: 'doc-1', resourceKind: 'sales.order', resourceId: 'order-1', resourceLabel: 'ORD-1', templateId: 't', templateLabel: 'T',
+      format: 'pdf', generatedBy: 'user-1', generatedAt: new Date('2026-10-01T10:00:00.000Z'), attachmentId: 'attachment-1',
+    })
+    expect(toGeneratedDocumentDto(entity).attachmentId).toBe('attachment-1')
+    expect(toGeneratedDocumentDto(Object.assign(entity, { attachmentId: undefined })).attachmentId).toBeNull()
   })
 })

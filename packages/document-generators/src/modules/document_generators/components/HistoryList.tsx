@@ -3,17 +3,22 @@
 import * as React from 'react'
 import type { SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { FilterBar, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { documentHistoryFilterStateToQuery } from '../hooks/document-queries'
 import { useDocumentHistory } from '../hooks/history/useDocumentHistory'
 import { useDocumentHistoryFilters } from '../hooks/history/useDocumentHistoryFilters'
+import { downloadBlob } from '../utils'
+import { requestStoredDocument } from './document-request'
 import {
   HISTORY_SORT_FIELD_BY_COLUMN,
   buildHistoryColumns,
   historyColumnForSortField,
   type HistoryColumnId,
 } from './HistoryListTableColumns'
+import type { GeneratedDocumentDto } from '../services/generation-history-service'
 
 export type HistoryListProps = {
   resourceKind?: string
@@ -96,6 +101,21 @@ export function HistoryList({ resourceKind, resourceId, pageSize, columns, showF
     [setSort],
   )
 
+  const handleDownload = React.useCallback(async (historyId: string) => {
+    try {
+      const { blob, filename } = await requestStoredDocument({ historyId, translate: t })
+      downloadBlob(blob, filename)
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('document_generators.generate.error'), 'error')
+    }
+  }, [t])
+
+  const renderRowActions = React.useCallback((row: GeneratedDocumentDto) => (
+    row.attachmentId
+      ? <RowActions items={[{ id: 'download', label: t('document_generators.history.download'), onSelect: () => { void handleDownload(row.id) } }]} />
+      : null
+  ), [handleDownload, t])
+
   const items = history.data?.items ?? []
   const totalPages = Math.max(1, Math.ceil((history.data?.total ?? 0) / state.pageSize))
 
@@ -112,6 +132,7 @@ export function HistoryList({ resourceKind, resourceId, pageSize, columns, showF
         manualSorting
         sorting={sorting}
         onSortingChange={handleSortingChange}
+        rowActions={renderRowActions}
         isLoading={history.isFetching}
         error={history.isError ? t('document_generators.history.error') : null}
         emptyState={<p className="py-6 text-center text-sm text-muted-foreground">{t('document_generators.history.empty')}</p>}

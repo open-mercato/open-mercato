@@ -49,3 +49,17 @@ export async function requestDocument(input: DocumentRequestInput): Promise<Docu
   }
   return { blob: call.result, filename: getFilenameFromResponse(call.response) }
 }
+
+export async function requestStoredDocument(input: { historyId: string; translate: TranslateFn }): Promise<DocumentRequestResult> {
+  const call = await apiCall<Blob>(
+    `${DOCUMENT_GENERATORS_API_BASE}/documents/${encodeURIComponent(input.historyId)}/file`,
+    { method: 'GET' },
+    { parse: (response) => response.blob() },
+  )
+  if (!call.ok || !call.result) {
+    const payload = await readErrorPayload(call.result)
+    const fallback = call.status === 403 ? { error: 'forbidden' } : payload
+    throw new DocumentRequestError(resolveErrorMessage(fallback, input.translate))
+  }
+  return { blob: call.result, filename: getFilenameFromResponse(call.response) }
+}
