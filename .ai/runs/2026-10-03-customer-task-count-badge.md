@@ -26,6 +26,6 @@ Compatibility mode reads adapter task identities to suppress bridged legacy link
 
 ### Phase 1: Accurate task totals
 
-- [ ] 1.1 Add the scoped merged-task count helper with storage-mode, bridge and pagination regression coverage.
-- [ ] 1.2 Wire both profile overview APIs and cover the missing badge count through route and tab tests.
+- [x] 1.1 Add the scoped merged-task count helper with storage-mode, bridge and pagination regression coverage. — 4e189e0bc1
+- [x] 1.2 Wire both profile overview APIs and cover the missing badge count through route and tab tests.
 - [ ] 1.3 Validate, review and publish the completed implementation.
