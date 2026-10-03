@@ -13,10 +13,16 @@ import {
 
 type ReassignLog = { id: string; undoToken: string | null; executionState: string }
 
+/**
+ * Undo and redo append their own history entries under the same command id and
+ * resource, so pass `logId` to re-read the original reassignment entry rather
+ * than whichever entry is newest.
+ */
 async function findReassignLog(
   request: APIRequestContext,
   token: string,
   conversationId: string,
+  logId?: string,
 ): Promise<ReassignLog> {
   const query = new URLSearchParams({
     resourceKind: 'communication_channels.channel',
@@ -26,7 +32,9 @@ async function findReassignLog(
   const response = await apiRequest(request, 'GET', `/api/audit_logs/audit-logs/actions?${query.toString()}`, { token })
   expect(response.status(), 'action log list should load').toBe(200)
   const body = await readJsonSafe<{ items?: Array<ReassignLog & { commandId?: string }> }>(response)
-  const log = (body?.items ?? []).find((item) => item.commandId === 'communication_channels.conversation.reassign')
+  const log = (body?.items ?? []).find((item) =>
+    logId ? item.id === logId : item.commandId === 'communication_channels.conversation.reassign',
+  )
   expect(log, 'the owner reassignment should be recorded in the action log').toBeTruthy()
   return log as ReassignLog
 }
@@ -127,7 +135,7 @@ test.describe('TC-CHANNEL-API-008: personal-mailbox thread reassignment is owner
       })
       expect(deniedRedo.status(), 'a non-owner redo must be refused with the masked 404').toBe(404)
       expect(
-        (await findReassignLog(request, ownerToken, seeded.conversationId)).executionState,
+        (await findReassignLog(request, ownerToken, seeded.conversationId, reassignLog.id)).executionState,
         'a refused redo must leave the log undone',
       ).toBe('undone')
 
