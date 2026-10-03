@@ -2,7 +2,7 @@
 
 import 'reflect-metadata'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
-import { MikroORM } from '@mikro-orm/postgresql'
+import { MikroORM, type QueryBuilder } from '@mikro-orm/postgresql'
 import { CustomerEntity, CustomerInteraction, CustomerTodoLink } from '../../data/entities'
 import { countCustomerTodos } from '../todoCompatibility'
 
@@ -56,7 +56,7 @@ describe('countCustomerTodos', () => {
 
     await expect(countCustomerTodos(em, scope, false)).resolves.toBe(expected)
 
-    const adapterIds = createQueryBuilder.mock.results[0].value
+    const adapterIds: QueryBuilder<CustomerInteraction> = createQueryBuilder.mock.results[0].value
     expect(createQueryBuilder).toHaveBeenCalledWith(CustomerInteraction)
     expect(adapterIds.getParams()).toEqual([
       scope.entityId, scope.tenantId, scope.organizationId, 'task', 'adapter:todo',
