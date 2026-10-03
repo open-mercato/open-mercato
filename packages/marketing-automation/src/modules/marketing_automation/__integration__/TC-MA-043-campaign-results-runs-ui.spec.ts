@@ -293,7 +293,7 @@ test.describe('TC-MA-043 campaign results and runs screens', () => {
       await expect(page).toHaveURL(new RegExp(`/backend/marketing/customers/${personId}$`))
       await expect(page.getByText('Recent campaign runs')).toBeVisible({ timeout: 20_000 })
 
-      const backToRuns = page.getByRole('link', { name: 'customers.tag.assigned' })
+      const backToRuns = page.getByRole('link', { name: 'Tag added to a customer' })
       await expect(backToRuns).toHaveAttribute('href', `/backend/marketing/campaigns/${campaignId}/runs`)
       const relisted = page.waitForResponse((response) =>
         response.url().includes(`/api/marketing_automation/campaigns/${campaignId}/runs`) && response.request().method() === 'GET')

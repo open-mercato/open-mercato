@@ -142,7 +142,7 @@ test.describe('TC-MA-045 customer profile and demand screens', () => {
       await expect(page.getByText('+5', { exact: true })).toBeVisible()
 
       await expect(page.getByText('Recent campaign runs')).toBeVisible()
-      const runLink = page.getByRole('link', { name: 'customers.tag.assigned' })
+      const runLink = page.getByRole('link', { name: 'Tag added to a customer' })
       await expect(runLink).toBeVisible()
       await expect(runLink).toHaveAttribute('href', `/backend/marketing/campaigns/${campaignId}/runs`)
       await expect(page.getByRole('listitem').filter({ has: runLink })).toContainText('Completed')
