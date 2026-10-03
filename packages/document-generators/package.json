@@ -65,10 +65,12 @@
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
     "react": "^19.0.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
     "@types/jest": "^30.0.0",
     "@types/react": "^19.2.18",
     "jest": "^30.4.2",

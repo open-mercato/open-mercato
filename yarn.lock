@@ -9105,6 +9105,7 @@ __metadata:
   resolution: "@open-mercato/document-generators@workspace:packages/document-generators"
   dependencies:
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     "@react-pdf/renderer": "npm:^4.9.0"
     "@types/jest": "npm:^30.0.0"
     "@types/react": "npm:^19.2.18"
@@ -9115,6 +9116,7 @@ __metadata:
     zod: "npm:^4.4.3"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     react: ^19.0.0
   languageName: unknown
   linkType: soft
