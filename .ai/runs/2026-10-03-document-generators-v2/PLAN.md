@@ -41,7 +41,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 6 | 6.3 | Backend overview and catalogue pages | dispatch | done | ffde74b0e |
 | 6 | 6.4 | Shared history table and backend page | dispatch | done | 4dee2f319 |
 | 6 | 6.5 | Sales document tabs and scoped history | dispatch | done | 10c8138ca |
-| 7 | 7.1 | Core integration and browser coverage | dispatch | done | — |
+| 7 | 7.1 | Core integration and browser coverage | dispatch | done | fe02a4262 |
 | 8 | 8.1 | Retention and erasure contract | inline | todo | — |
 | 8 | 8.2 | Private attachment persistence | inline | todo | — |
 | 8 | 8.3 | Stored document download | inline | todo | — |
