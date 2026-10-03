@@ -23,9 +23,9 @@ Compatibility mode uses database aggregates and a scoped subquery to suppress br
 ## Validation and Review
 
 - Both overview regressions failed before the fix (expected 2, received 0).
-- Final focused validation: 7 suites / 43 tests passed, including actual ORM SQL compilation, both overview APIs, badge boundaries and task refresh callbacks.
+- Final focused validation: 13 suites / 60 tests passed, including actual ORM SQL compilation, all eight profile-route suites, badge boundaries and task refresh callbacks.
 - Core package typecheck and both translation checks passed locally. The initial local fallback package-build / generation / package-build gate also passed.
-- Independent re-review found no actionable code findings after the database-aggregation fix. It also reviewed the typed-test cleanup and this plan correction.
+- Independent re-review found no actionable code findings after the database-aggregation fix. It also reviewed the typed-test cleanup, this plan correction and the pre-existing route-fixture updates required by the QueryBuilder subquery.
 - Remaining broad validation, app build and template parity use GitHub checks under the repository's checks-first review policy. Required CI is pending; human GitHub review and manual QA still gate merge.
 - Full browser QA was not run because no local test-environment descriptor is configured. The PR carries executable QA instructions.
 
