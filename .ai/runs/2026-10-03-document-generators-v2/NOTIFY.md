@@ -45,3 +45,8 @@ Append-only UTC log.
 - Decision: kept the spec's public URLs `/api/document-generators/*` via `metadata.path` (the router otherwise prefixes the module id `document_generators`).
 - Review fix: selected organization resolved through Directory `organizationScopeService` (super-admin-only cookie override in getAuthFromRequest would scope regular multi-org users to their home org).
 - Step 5.5 landed as two commits after an executor sed slip; no history rewrite.
+
+## 2026-10-03T13:01:30Z — checkpoint 6 (lightweight)
+- Steps 5.6–5.7 (cbc9d9275, 59d63226c); Phase 5 closed. Step test files pass (41 tests).
+- User interrupted: machine froze under heavy validation. Switched to reduced validation mode — only per-Step test files; typecheck/build/generate/full suites/final gate deferred until the user asks.
+- 5.6 was finished in the main session from the interrupted executor's uncommitted work; fixed RBAC feature lookup to use auth.sub (CRUD factory parity).
