@@ -494,6 +494,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         "framework/webhooks/overview",
+        "framework/document-generators/overview",
         {
           type: "category",
           label: "Data Integrity",

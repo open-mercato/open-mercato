@@ -254,6 +254,7 @@
   },
   "peerDependencies": {
     "@open-mercato/ai-assistant": "workspace:*",
+    "@open-mercato/document-generators": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "react": "^19.0.0",
@@ -261,6 +262,7 @@
   },
   "devDependencies": {
     "@open-mercato/ai-assistant": "workspace:*",
+    "@open-mercato/document-generators": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@testing-library/dom": "^10.4.1",
