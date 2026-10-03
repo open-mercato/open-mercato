@@ -11,6 +11,13 @@ import { useDealAssociations } from '../../../backend/customers/deals/[id]/hooks
 import type { DealDetailPayload, GuardedMutationRunner } from '../../../backend/customers/deals/[id]/hooks/types'
 
 const flashMock = jest.fn()
+const reportErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({
+    reportError: (...args: unknown[]) => reportErrorMock(...args),
+  }),
+}))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
@@ -31,6 +38,7 @@ jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks()
+  reportErrorMock.mockReset()
 })
 
 jest.mock('next/link', () => ({
@@ -56,6 +64,9 @@ describe('DealLinkedEntitiesTab', () => {
   ] as const)('keeps the $kind dialog open after a refusal and closes it after a successful retry', async (association) => {
     const refusal = createCrudFormError('This contact cannot be linked to the deal.', undefined, { status: 422 })
     jest.mocked(updateCrud).mockRejectedValueOnce(refusal)
+    if (association.kind === 'companies') {
+      reportErrorMock.mockImplementationOnce(() => { throw new Error('Telemetry unavailable') })
+    }
     const onRefresh = jest.fn()
     const runMutationWithContext: GuardedMutationRunner = async (operation) => operation()
     const options = [
@@ -120,6 +131,9 @@ describe('DealLinkedEntitiesTab', () => {
 
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith(refusal.message, 'error'))
     expect(flashMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledWith(refusal, {
+      module: 'customers', code: 'customers.link_confirmation_failed',
+    })
     expect(screen.getByTestId('dialog-content')).toBeInTheDocument()
     expect(onRefresh).not.toHaveBeenCalled()
     expect(screen.getByText(`1 linked ${association.entityLabel.toLowerCase()}`)).toBeInTheDocument()
