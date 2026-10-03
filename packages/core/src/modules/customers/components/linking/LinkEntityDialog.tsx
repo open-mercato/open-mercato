@@ -467,6 +467,8 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
         linkSettings,
       })
       onOpenChange(false)
+    } catch {
+      return
     } finally {
       setSaving(false)
     }
