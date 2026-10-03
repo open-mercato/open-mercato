@@ -9083,6 +9083,20 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/document-generators@workspace:packages/document-generators":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/document-generators@workspace:packages/document-generators"
+  dependencies:
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.12"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    "@open-mercato/shared": "workspace:*"
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/documents@workspace:*, @open-mercato/documents@workspace:packages/documents":
   version: 0.0.0-use.local
   resolution: "@open-mercato/documents@workspace:packages/documents"

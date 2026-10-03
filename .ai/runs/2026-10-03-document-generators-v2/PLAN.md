@@ -14,8 +14,8 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Package scaffold and module metadata | dispatch | done | this commit |
-| 1 | 1.2 | ACL setup and engine translations | dispatch | done | this commit |
+| 1 | 1.1 | Package scaffold and module metadata | dispatch | done | 1a830e59d |
+| 1 | 1.2 | ACL setup and engine translations | dispatch | done | 1d67c0f9d |
 | 2 | 2.1 | Shared template contracts and base service | dispatch | todo | — |
 | 2 | 2.2 | Template registry | dispatch | todo | — |
 | 2 | 2.3 | Template authorization policy | dispatch | todo | — |
@@ -70,7 +70,7 @@ Email delivery, public sharing links, bulk generation, event-triggered generatio
 - History service constructor exception requires explicit final review signoff per spec.
 - Source statuses and attachment APIs must be verified against current develop before dependent code.
 - User-facing and shared/schema changes require risk-high, needs-qa; automatic QA evidence does not grant qa-approved.
-- Validation runner will be selected once before the first test gate.
+- Runner: local (no running Docker app). Node 24.13.1, Yarn 4.17.1.
 
 ## Implementation Plan
 
