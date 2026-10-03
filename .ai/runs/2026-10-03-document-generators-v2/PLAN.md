@@ -14,7 +14,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Package scaffold and module metadata | dispatch | todo | — |
+| 1 | 1.1 | Package scaffold and module metadata | dispatch | done | this commit |
 | 1 | 1.2 | ACL setup and engine translations | dispatch | todo | — |
 | 2 | 2.1 | Shared template contracts and base service | dispatch | todo | — |
 | 2 | 2.2 | Template registry | dispatch | todo | — |
