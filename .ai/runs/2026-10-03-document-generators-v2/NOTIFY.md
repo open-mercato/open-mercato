@@ -62,3 +62,8 @@ Append-only UTC log.
 ## 2026-10-03T17:13:56Z — checkpoint 8 (lightweight)
 - Resumed by @kriss145 after the pause; Steps 8.1–8.3 done inline (20f82cad2..c506a70f9). Step test files pass.
 - Decisions: retention via domain-neutral `<resourceKind>.deleted` subscriber; stored files in existing private `privateAttachments` partition through the attachmentService DI contract (peer modules may not create partitions); history row linked in the attachment transaction; engine-owned download route re-applies template requiredFeatures.
+
+## 2026-10-03T17:24:40Z — checkpoint 9 (lightweight) + run paused for approval
+- Steps 9.1, 9.2, 6.2-review-fix (CSP blob: frames), 10.1 done. Step test files pass; template:sync clean.
+- All implementation rows done (37/39). Remaining 10.2 (full gate) and 10.3 (integration run, review, UI evidence) need explicit user approval — heavy local load and a migrated database.
+- Standalone harness refresh not done (requires failing-first evals) — recorded in spec "Not yet verified".
