@@ -38,7 +38,7 @@ export function useVersionHistory(
   const activeResourceIdRef = React.useRef<string | null>(null)
   const fallbackTriedRef = React.useRef(false)
 
-  const fetchEntries = React.useCallback(async (opts: { before?: string; reset?: boolean; resourceId?: string }) => {
+  const fetchEntries = React.useCallback(async (opts: { offset?: number; reset?: boolean; resourceId?: string }) => {
     if (!config) return
     const resourceId = opts.resourceId
       ?? activeResourceIdRef.current
@@ -51,7 +51,7 @@ export function useVersionHistory(
     })
     if (config.organizationId) params.set('organizationId', config.organizationId)
     if (config.includeRelated !== false) params.set('includeRelated', 'true')
-    if (opts.before) params.set('before', opts.before)
+    if (opts.offset) params.set('offset', String(opts.offset))
     setIsLoading(true)
     setError(null)
     let shouldFallback = false
@@ -122,10 +122,8 @@ export function useVersionHistory(
       return
     }
     if (!hasMore) return
-    const lastEntry = entries[entries.length - 1]
-    if (!lastEntry?.createdAt) return
     void fetchEntries({
-      before: lastEntry.createdAt,
+      offset: entries.length,
       resourceId: activeResourceIdRef.current ?? config.resourceId,
     })
   }, [config, entries, fetchEntries, hasMore, isLoading])
