@@ -36,11 +36,11 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 5 | 5.5 | History persistence and read service | dispatch | done | ed19020b3, 05cf126d8 |
 | 5 | 5.6 | Generate endpoint and mutation guards | dispatch | done | cbc9d9275 |
 | 5 | 5.7 | History endpoint | dispatch | done | 59d63226c |
-| 6 | 6.1 | React Query data hooks | dispatch | done | — |
-| 6 | 6.2 | Template cards and preview dialog | dispatch | done | — |
-| 6 | 6.3 | Backend overview and catalogue pages | dispatch | done | — |
-| 6 | 6.4 | Shared history table and backend page | dispatch | done | — |
-| 6 | 6.5 | Sales document tabs and scoped history | dispatch | done | — |
+| 6 | 6.1 | React Query data hooks | dispatch | done | f518ea49f |
+| 6 | 6.2 | Template cards and preview dialog | dispatch | done | 5e6d83919 |
+| 6 | 6.3 | Backend overview and catalogue pages | dispatch | done | ffde74b0e |
+| 6 | 6.4 | Shared history table and backend page | dispatch | done | 4dee2f319 |
+| 6 | 6.5 | Sales document tabs and scoped history | dispatch | done | 10c8138ca |
 | 7 | 7.1 | Core integration and browser coverage | dispatch | todo | — |
 | 8 | 8.1 | Retention and erasure contract | inline | todo | — |
 | 8 | 8.2 | Private attachment persistence | inline | todo | — |

@@ -50,3 +50,7 @@ Append-only UTC log.
 - Steps 5.6–5.7 (cbc9d9275, 59d63226c); Phase 5 closed. Step test files pass (41 tests).
 - User interrupted: machine froze under heavy validation. Switched to reduced validation mode — only per-Step test files; typecheck/build/generate/full suites/final gate deferred until the user asks.
 - 5.6 was finished in the main session from the interrupted executor's uncommitted work; fixed RBAC feature lookup to use auth.sub (CRUD factory parity).
+
+## 2026-10-03T13:13:04Z — checkpoint 7 (lightweight)
+- Steps 6.1–6.5 (f518ea49f..10c8138ca); Phase 6 closed. All Step test files pass (30 tests). Typecheck/lint/build/generate/client-boundaries and browser evidence deferred (reduced validation mode; browser pass needs app + migrated DB → user approval).
+- Dependency: @open-mercato/ui added to document-generators peer + dev deps (one light yarn install). @tanstack/react-query imported as the root-hoisted dependency, like packages/core.
