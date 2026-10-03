@@ -17,7 +17,7 @@ test.describe('TC-DOCUMENT-017: preview rejects invalid request', () => {
       400,
       'unknown_template',
     )
-    const malformed = await dg.previewDocument(request, token, '{not json')
+    const malformed = await dg.previewDocument(request, token, Buffer.from('{not json'))
     expect(malformed.status()).toBe(400)
     expect((await readJsonSafe<{ error?: string }>(malformed))?.error).toBe('invalid_json')
   })
