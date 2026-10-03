@@ -38,7 +38,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 5 | 5.7 | History endpoint | dispatch | done | 59d63226c |
 | 6 | 6.1 | React Query data hooks | dispatch | done | f518ea49f |
 | 6 | 6.2 | Template cards and preview dialog | dispatch | done | 5e6d83919 |
-| 6 | 6.2-review-fix | Allow Blob PDF preview frames in CSP | inline | done | — |
+| 6 | 6.2-review-fix | Allow Blob PDF preview frames in CSP | inline | done | ce105adc3 |
 | 6 | 6.3 | Backend overview and catalogue pages | dispatch | done | ffde74b0e |
 | 6 | 6.4 | Shared history table and backend page | dispatch | done | 4dee2f319 |
 | 6 | 6.5 | Sales document tabs and scoped history | dispatch | done | 10c8138ca |
@@ -46,9 +46,9 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 8 | 8.1 | Retention and erasure contract | inline | done | 20f82cad2 |
 | 8 | 8.2 | Private attachment persistence | inline | done | 201594092 |
 | 8 | 8.3 | Stored document download | inline | done | c506a70f9 |
-| 9 | 9.1 | Template versioning | inline | done | — |
-| 9 | 9.2 | Draft watermark | inline | done | — |
-| 10 | 10.1 | Documentation examples and harness coverage | inline | done | — |
+| 9 | 9.1 | Template versioning | inline | done | 8c4b4a54c |
+| 9 | 9.2 | Draft watermark | inline | done | 524d99d7d |
+| 10 | 10.1 | Documentation examples and harness coverage | inline | done | 4e561f456 |
 | 10 | 10.2 | Full validation and design system verification | inline | todo | — |
 | 10 | 10.3 | Authoritative review and UI evidence | inline | todo | — |
 
