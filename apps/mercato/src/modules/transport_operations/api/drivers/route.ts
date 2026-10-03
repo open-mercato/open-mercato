@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { EXPIRY_WINDOW_DAYS } from '../../lib/expiry'
+import { expiryCutoff, withOrConditions } from '../../lib/crudFilters'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { TransportDriver } from '../../data/entities'
@@ -12,7 +15,11 @@ const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(25),
   id: z.string().uuid().optional(), ids: z.string().optional(),
   status: z.enum(['available', 'on_trip', 'on_leave', 'suspended']).optional(),
-  licenseExpiresBefore: z.string().optional(), sortField: z.string().optional(), sortDir: z.enum(['asc', 'desc']).optional(),
+  // `expired` is the compliance emergency; `within30` is what a dispatcher renews this week. The
+  // cut-off is computed on the server so every consumer filters on one definition of "expiring".
+  expiry: z.enum(['expired', 'within30']).optional(),
+  licenseExpiresBefore: z.string().optional(), search: z.string().optional(),
+  sortField: z.string().optional(), sortDir: z.enum(['asc', 'desc']).optional(),
 }).passthrough()
 
 const routeMetadata = {
@@ -31,12 +38,23 @@ const crud = makeCrudRoute({
     schema: listSchema, entityId: TRANSPORT_DRIVER_ENTITY_ID,
     fields: ['id', 'organization_id', 'tenant_id', 'employee_id', 'full_name', 'national_id', 'license_number', 'license_expiry', 'phone', 'status', 'created_at', 'updated_at'],
     sortFieldMap: { fullName: 'full_name', licenseExpiry: 'license_expiry', status: 'status', createdAt: 'created_at', updatedAt: 'updated_at' },
-    buildFilters: (query) => ({
-      ...(query.id ? { id: { $eq: query.id } } : {}),
-      ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
-      ...(query.status ? { status: { $eq: query.status } } : {}),
-      ...(query.licenseExpiresBefore ? { license_expiry: { $lte: query.licenseExpiresBefore } } : {}),
-    }),
+    buildFilters: (query) => {
+      const cutoff = expiryCutoff(query.expiry, { expired: 0, within30: EXPIRY_WINDOW_DAYS })
+      return withOrConditions({
+        ...(query.id ? { id: { $eq: query.id } } : {}),
+        ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
+        ...(query.status ? { status: { $eq: query.status } } : {}),
+        ...(query.licenseExpiresBefore ? { license_expiry: { $lte: query.licenseExpiresBefore } } : {}),
+      }, [
+        ...(query.search ? [{ $or: [
+          { full_name: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+          { national_id: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+          { license_number: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+          { phone: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        ] }] : []),
+        ...(cutoff ? [{ license_expiry: { $lte: cutoff, $ne: null } }] : []),
+      ])
+    },
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },
   actions: {

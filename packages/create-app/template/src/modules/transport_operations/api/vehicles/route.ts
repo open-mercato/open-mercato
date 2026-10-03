@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { withOrConditions } from '../../lib/crudFilters'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { TransportVehicle } from '../../data/entities'
@@ -14,6 +16,7 @@ const listSchema = z.object({
   id: z.string().uuid().optional(),
   ids: z.string().optional(),
   status: z.enum(['active', 'maintenance', 'out_of_service']).optional(),
+  search: z.string().optional(),
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
 }).passthrough()
@@ -36,11 +39,16 @@ const crud = makeCrudRoute({
     entityId: TRANSPORT_VEHICLE_ENTITY_ID,
     fields: ['id', 'organization_id', 'tenant_id', 'plate_number', 'vin', 'make', 'model', 'year', 'capacity', 'status', 'telematics_device_id', 'created_at', 'updated_at'],
     sortFieldMap: { plateNumber: 'plate_number', make: 'make', model: 'model', year: 'year', createdAt: 'created_at', updatedAt: 'updated_at' },
-    buildFilters: (query) => ({
+    buildFilters: (query) => withOrConditions({
       ...(query.id ? { id: { $eq: query.id } } : {}),
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
       ...(query.status ? { status: { $eq: query.status } } : {}),
-    }),
+    }, query.search ? [{ $or: [
+      { plate_number: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+      { vin: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+      { make: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+      { model: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+    ] }] : []),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },
   actions: {

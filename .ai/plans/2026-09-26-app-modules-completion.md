@@ -194,3 +194,53 @@ read `'false'` as `true`, so `?isActive=false` returned the active rows. The rou
 modules listed in the localization spec (`wms`, `workflows`, `agent_orchestrator`, `warranty_claims`, then
 the small admin surfaces, and `sales`/`customers`/`staff` in their own slices).
 
+## 2026-10-03 — `transport_operations` gets its screens
+
+The last UI-less sibling is finished. All four entities now have list, create and edit screens under
+`/backend/transport/{vehicles,drivers,routes,trips}` (`page.meta.ts` carrying `transport.read` for the
+lists and `transport.write` for the forms), one nav group, and dictionaries in six locales (163 keys;
+Arabic translated, `de/es/ko/pl` mirroring English like the siblings).
+
+**The trip screen owns the two state transitions.** Dispatch and complete are row actions that appear
+only in the state that allows them (`scheduled` → dispatch, `in_progress` → complete), each behind a
+confirm dialog, each wrapped in `useGuardedMutation` with the record's `updatedAt` in the mutation
+payload, and each surfacing the server's translated 409 (`trip_not_scheduled`,
+`assigned_driver_unavailable`, `trip_assignment_overlap`, …) instead of a generic failure. This is the
+first write path in these three modules that is not a `CrudForm`, so it is also the first to exercise the
+guard-context rule from `AGENTS.md` outside a form.
+
+**Three list filters would have filtered nothing.** `vehicles` and `drivers` accepted no `search`
+parameter at all and `drivers` had no expiry window, so the search boxes and the compliance dropdown
+these screens now render would have answered `200` with the full page — the same silent-empty-page class
+as the HR/fleet filter-key defect, which the `crud-filter-keys` guard cannot see because the key it
+would flag is never built in the first place. Both routes gained a `search` that ORs across their
+readable columns, `drivers` gained the `expiry=expired|within30` window computed server-side from the
+shared `lib/expiry.ts`, and `lib/crudFilters.ts` carries the `$or`-merging helper so a search combined
+with a status filter cannot drop one of them.
+
+**Two decisions worth recording.** The driver form neither shows nor sends `employee_id`: the transport
+module does not import HR's option hook (modules stay self-contained, and the ban on cross-module
+imports is why the sibling hook exists per module), and because the update schema is partial the stored
+link survives an edit rather than being nulled. And the trip form converts explicitly between the stored
+UTC instant and the wall clock a `datetime-local` input speaks — `toISOString().slice(0, 16)` compiles,
+passes in a UTC test runner, and shifts every trip by the operator's offset in production, so the
+conversion is a pure exported function with the boundary pinned.
+
+**Verification.** `cd apps/mercato; npx tsc -p .mercato/tsconfig-fleet.json` (now including transport)
+exit 0; 41/41 unit tests in `transport_operations` (vehicle/route/driver/trip mapping and payloads,
+`withOrConditions`/`expiryCutoff`, licence-state boundaries); `yarn generate` discovered all 12 backend
+routes (`backend-route-shard.058.transport.generated.ts`); `yarn i18n:check-sync` and the Arabic audit
+(`ar-audit/verify.mjs` → `keys=163 OK`) green; the repo-wide guards
+(`crud-filter-keys`, `crud-resource-path`, `check-client-boundaries`) report nothing new;
+`yarn template:sync:fix` mirrors all 69 files into the create-app template. Integration coverage ships as
+`__integration__/TC-TRANSPORT-001-list-filters.spec.ts` — every transport filter asserted in both
+directions against fixtures the spec creates and deletes (the trip is scheduled against the vehicle and
+driver it just created, which is also the availability rule under test).
+
+**Still open here:** the Arabic rollout continues with the modules listed in the localization spec
+(`wms`, `workflows`, `agent_orchestrator`, `warranty_claims`, then the small admin surfaces, and
+`sales`/`customers`/`staff` in their own slices); HR attendance records still cannot start a lateness
+permission from the list's own workflow picker; and the untracked
+`TRANSPORT_MODULE_STEP1_COMPLETE.md` at the repo root is stale — it stops at step 1 and points at step 2,
+both long since committed, so the plan file you are reading is the tracker to trust.
+
