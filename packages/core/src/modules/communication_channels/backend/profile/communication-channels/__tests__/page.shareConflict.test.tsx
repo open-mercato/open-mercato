@@ -7,8 +7,8 @@
 // click toasted the raw `record_modified` code instead of raising the conflict bar.
 
 import * as React from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { act, render, waitFor } from '@testing-library/react'
+import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { dismissRecordConflict, getRecordConflictForTest } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -22,7 +22,9 @@ type ChannelRow = {
   updatedAt: string | null
 }
 
-let capturedColumns: ColumnDef<ChannelRow>[] = []
+type RowActionsRenderer = (row: ChannelRow) => React.ReactElement<{ items: RowActionItem[] }>
+
+let capturedRowActions: RowActionsRenderer | null = null
 const runMutationMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
@@ -42,8 +44,8 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: (props: { columns: ColumnDef<ChannelRow>[] }) => {
-    capturedColumns = props.columns
+  DataTable: (props: { rowActions?: RowActionsRenderer }) => {
+    capturedRowActions = props.rowActions ?? null
     return <div data-testid="data-table-mock" />
   },
 }))
@@ -81,16 +83,17 @@ const privateMailbox: ChannelRow = {
 }
 
 async function clickShareWithTeam() {
-  const column = capturedColumns.find(
-    (candidate) => (candidate as { accessorKey?: string }).accessorKey === 'visibility',
-  )
-  if (!column || typeof column.cell !== 'function') {
-    throw new Error('[internal] visibility column has no cell renderer')
+  if (!capturedRowActions) {
+    throw new Error('[internal] DataTable received no rowActions renderer')
   }
-  const cell = column.cell as (context: { row: { original: ChannelRow } }) => React.ReactNode
-  render(<>{cell({ row: { original: privateMailbox } })}</>)
+  const shareItem = capturedRowActions(privateMailbox).props.items.find(
+    (item) => item.label === 'Share with team',
+  )
+  if (!shareItem?.onSelect) {
+    throw new Error('[internal] row actions menu has no "Share with team" item')
+  }
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Share with team' }))
+    shareItem.onSelect!()
   })
 }
 
@@ -98,12 +101,12 @@ describe('profile communication channels — share toggle conflict', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
     dismissRecordConflict()
-    capturedColumns = []
+    capturedRowActions = null
     apiCallMock.mockResolvedValue({ ok: true, result: { items: [] } } as never)
     await act(async () => {
       render(<ProfileCommunicationChannelsPage />)
     })
-    await waitFor(() => expect(capturedColumns.length).toBeGreaterThan(0))
+    await waitFor(() => expect(capturedRowActions).not.toBeNull())
   })
 
   it('raises the conflict bar instead of toasting the raw record_modified code on a 409', async () => {
