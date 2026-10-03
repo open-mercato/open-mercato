@@ -122,4 +122,14 @@ describe('BaseDocumentService', () => {
     ])
     expect(new ExampleDocumentService().getEntries()).toEqual([])
   })
+
+  it('binds archived template versions without sharing mutable state', async () => {
+    const archived = { version: '1', load: async () => ({ type: 'v1' }) }
+    const service = new ExampleDocumentService([{ ...template('pdf'), version: '2', archivedVersions: [archived] }])
+    const [entry] = service.getEntries()
+    expect(entry.version).toBe('2')
+    expect(entry.archivedVersions?.map((source) => source.version)).toEqual(['1'])
+    expect(entry.archivedVersions?.[0]).not.toBe(archived)
+    await expect(entry.archivedVersions?.[0].load()).resolves.toEqual({ type: 'v1' })
+  })
 })

@@ -9,6 +9,7 @@ export type DocumentRequestInput = {
   action: DocumentRequestAction
   templateId: string
   recordId: string
+  templateVersion?: string
   translate: TranslateFn
   signal?: AbortSignal
 }
@@ -37,7 +38,11 @@ export async function requestDocument(input: DocumentRequestInput): Promise<Docu
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ template_id: input.templateId, data: { id: input.recordId } }),
+      body: JSON.stringify({
+        template_id: input.templateId,
+        ...(input.templateVersion ? { template_version: input.templateVersion } : {}),
+        data: { id: input.recordId },
+      }),
       signal: input.signal,
     },
     { parse: (response) => response.blob() },

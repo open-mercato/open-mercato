@@ -6,7 +6,7 @@ import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/tran
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { UnknownTemplateError } from '../../lib/template-registry'
+import { UnknownTemplateError, UnknownTemplateVersionError } from '../../lib/template-registry'
 import { TemplateAccessDeniedError } from '../../lib/template-access-policy'
 
 export type TranslateFn = (key: string, fallback?: string) => string
@@ -16,6 +16,7 @@ export type DocumentErrorCode =
   | 'invalid_query'
   | 'invalid_request'
   | 'unknown_template'
+  | 'unknown_template_version'
   | 'forbidden'
   | 'organization_required'
   | 'not_found'
@@ -50,6 +51,7 @@ const DEFAULT_MESSAGES: Record<DocumentErrorCode, string> = {
   invalid_query: 'Invalid query parameters.',
   invalid_request: 'Invalid document request.',
   unknown_template: 'Document template not found.',
+  unknown_template_version: 'This template version is not available.',
   forbidden: 'You do not have permission to access this document.',
   organization_required: 'Select an organization to generate documents.',
   not_found: 'Document source not found.',
@@ -131,6 +133,7 @@ export function mapDocumentError(
   logger: DocumentLogger = defaultLogger,
 ): Response {
   if (error instanceof UnknownTemplateError) return errorResponse('unknown_template', 400, translate)
+  if (error instanceof UnknownTemplateVersionError) return errorResponse('unknown_template_version', 400, translate)
   if (error instanceof TemplateAccessDeniedError) {
     return errorResponse('forbidden', 403, translate, { requiredFeatures: error.requiredFeatures })
   }

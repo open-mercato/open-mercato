@@ -198,6 +198,7 @@ describe('generate route', () => {
       resourceLabel: undefined,
       templateId: 'sales.offer',
       templateLabel: 'Offer',
+      templateVersion: '1',
       format: 'md',
       mimeType: 'text/markdown',
       generatedBy: 'user-sub',

@@ -7,6 +7,7 @@
   "document_generators.errors.organization_required": "Wybierz organizację, aby generować dokumenty.",
   "document_generators.errors.render_failed": "Nie udało się wyrenderować dokumentu.",
   "document_generators.errors.unknown_template": "Nie znaleziono szablonu dokumentu.",
+  "document_generators.errors.unknown_template_version": "Ta wersja szablonu jest niedostępna.",
   "document_generators.generate.button": "Pobierz PDF",
   "document_generators.generate.buttonMarkdown": "Pobierz Markdown",
   "document_generators.generate.error": "Nie udało się wygenerować dokumentu.",

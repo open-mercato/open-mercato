@@ -3,7 +3,7 @@ import { SCOPED_HISTORY_COLUMNS, buildHistoryColumns } from '../HistoryListTable
 describe('HistoryListTableColumns', () => {
   const columns = buildHistoryColumns((key) => key)
 
-  it('builds the nine history columns in order', () => {
+  it('builds the history columns in order', () => {
     expect(columns.map((column) => column.id)).toEqual([
       'resource',
       'templateLabel',
@@ -13,6 +13,7 @@ describe('HistoryListTableColumns', () => {
       'resourceKind',
       'resourceId',
       'templateId',
+      'templateVersion',
       'id',
     ])
   })

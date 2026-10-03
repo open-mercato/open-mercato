@@ -14,6 +14,11 @@ describe('previewSchema / generateSchema', () => {
     expect(parsed).toEqual({ template_id: 'sales.offer', data: { id: 'o-1', nested: { a: 1 } } })
   })
 
+  it.each([['preview', previewSchema], ['generate', generateSchema]])('%s accepts an optional template_version', (_name, schema) => {
+    expect(schema.parse({ template_id: 'a', template_version: ' 2 ', data: {} }).template_version).toBe('2')
+    expect(schema.safeParse({ template_id: 'a', template_version: '', data: {} }).success).toBe(false)
+  })
+
   it.each([['preview', previewSchema], ['generate', generateSchema]])('%s rejects invalid bodies', (_name, schema) => {
     expect(schema.safeParse({ template_id: '', data: {} }).success).toBe(false)
     expect(schema.safeParse({ template_id: '   ', data: {} }).success).toBe(false)

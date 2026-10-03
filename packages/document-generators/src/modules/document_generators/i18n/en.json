@@ -7,6 +7,7 @@
   "document_generators.errors.organization_required": "Select an organization to generate documents.",
   "document_generators.errors.render_failed": "Unable to render the document.",
   "document_generators.errors.unknown_template": "Document template not found.",
+  "document_generators.errors.unknown_template_version": "This template version is not available.",
   "document_generators.generate.button": "Download PDF",
   "document_generators.generate.buttonMarkdown": "Download Markdown",
   "document_generators.generate.error": "Unable to generate the document.",

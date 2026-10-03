@@ -5,7 +5,7 @@ import {
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import { TemplateAccessDeniedError } from '../../../lib/template-access-policy'
-import { UnknownTemplateError } from '../../../lib/template-registry'
+import { UnknownTemplateError, UnknownTemplateVersionError } from '../../../lib/template-registry'
 import { errorResponse, mapDocumentError, parseJsonBody, requireOrganization } from '../http'
 
 const translate = (key: string, fallback?: string) => `T:${key}|${fallback ?? ''}`
@@ -116,6 +116,12 @@ describe('requireOrganization', () => {
 
 describe('mapDocumentError', () => {
   const logger = { error: jest.fn() }
+
+  it('maps an unknown template version to 400 unknown_template_version', async () => {
+    const response = mapDocumentError(new UnknownTemplateVersionError('sales.offer', '9'), translate, logger)
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe('unknown_template_version')
+  })
   const reportError = jest.fn()
 
   beforeEach(() => {

@@ -1093,6 +1093,7 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 ### Phase 8 — Advanced Templates (Planned)
 
 1. Template versioning — record which template version was used at generation time; archived versions remain renderable
+   - **Contract (approved by @kriss145, 2026-10-03; additive):** versions are defined in code. `DocumentTemplateEntry` / `TemplateRegistryEntry` gain optional `version` (current, default `DEFAULT_TEMPLATE_VERSION = '1'`) and `archivedVersions: { version, load }[]`; `TemplateMeta` exposes `version` and `versions` (current first). Registration rejects duplicate or empty version ids. `/preview` and `/generate` accept an optional `template_version`; omitted means the latest version, an unknown one answers `400 unknown_template_version` before any source data is fetched. Archived versions reuse the entry's normalization, identity and filename — only the renderer source differs. The rendered version is recorded in the new `GeneratedDocument.template_version` column (`text not null default '1'`, additive migration) and returned as `templateVersion` in the history DTO; the preview dialog offers a version selector only when a template has archived versions.
 2. Draft watermark — render a "DRAFT" overlay when the source resource is not in a final status
 
 ### Out of scope for this spec

@@ -1,6 +1,6 @@
 import { createContainer } from 'awilix'
 import type { TemplateEntry } from '@open-mercato/shared/modules/document-generators'
-import { DuplicateTemplateError, TemplateRegistry, UnknownTemplateError, templateRegistry } from '../template-registry'
+import { DuplicateTemplateError, TemplateRegistry, UnknownTemplateError, UnknownTemplateVersionError, templateRegistry } from '../template-registry'
 
 function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
   return {
@@ -80,6 +80,45 @@ describe('TemplateRegistry', () => {
     expect(load).not.toHaveBeenCalled()
     expect(() => registry.getTemplateMetadata('missing')).toThrow(UnknownTemplateError)
     await expect(registry.load({ id: 'missing', data: {} }, context)).rejects.toThrow(UnknownTemplateError)
+  })
+
+  it('projects the current version first and defaults to version 1', () => {
+    const registry = new TemplateRegistry()
+    registry.register([
+      makeEntry(),
+      makeEntry({ id: 'sales.versioned', version: '3', archivedVersions: [{ version: '2', load: async () => ({ type: 'v2' }) }] }),
+    ])
+    expect(registry.getTemplateMetadata('sales.offer')).toMatchObject({ version: '1', versions: ['1'] })
+    expect(registry.getTemplateMetadata('sales.versioned')).toMatchObject({ version: '3', versions: ['3', '2'] })
+  })
+
+  it('renders the latest version by default and an archived version on explicit request', async () => {
+    const registry = new TemplateRegistry()
+    registry.register([makeEntry({
+      version: '3',
+      load: async () => ({ type: 'current' }),
+      archivedVersions: [{ version: '2', load: async () => ({ type: 'archived' }) }],
+    })])
+    const latest = await registry.load({ id: 'sales.offer', data: { id: 'x' } }, context)
+    expect(latest.template.version).toBe('3')
+    expect(latest.render.source).toEqual({ type: 'current' })
+    const archived = await registry.load({ id: 'sales.offer', data: { id: 'x' }, version: '2' }, context)
+    expect(archived.template.version).toBe('2')
+    expect(archived.render.source).toEqual({ type: 'archived' })
+  })
+
+  it('rejects an unknown version before fetching any source data', async () => {
+    const fetchData = jest.fn()
+    const registry = new TemplateRegistry()
+    registry.register([makeEntry({ fetchData })])
+    await expect(registry.load({ id: 'sales.offer', data: { id: 'x' }, version: '9' }, context)).rejects.toThrow(UnknownTemplateVersionError)
+    expect(fetchData).not.toHaveBeenCalled()
+  })
+
+  it('rejects templates declaring duplicate versions at registration', () => {
+    const registry = new TemplateRegistry()
+    expect(() => registry.register([makeEntry({ version: '2', archivedVersions: [{ version: '2', load: async () => ({ type: 'x' }) }] })])).toThrow(/duplicate or empty versions/)
+    expect(registry.listTemplates()).toEqual([])
   })
 
   it('shares singleton state across isolated module instances', () => {

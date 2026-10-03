@@ -37,7 +37,7 @@ export interface DocumentRenderingService {
 export interface LoadedDocumentTemplateBase {
   data: Record<string, unknown>
   filename: string
-  template: { id: string; label: string }
+  template: { id: string; label: string; version: string }
   resource: { kind: string; id: string; label?: string }
 }
 

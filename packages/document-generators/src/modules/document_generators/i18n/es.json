@@ -7,6 +7,7 @@
   "document_generators.errors.organization_required": "Selecciona una organización para generar documentos.",
   "document_generators.errors.render_failed": "No se pudo renderizar el documento.",
   "document_generators.errors.unknown_template": "No se encontró la plantilla del documento.",
+  "document_generators.errors.unknown_template_version": "Esta versión de la plantilla no está disponible.",
   "document_generators.generate.button": "Descargar PDF",
   "document_generators.generate.buttonMarkdown": "Descargar Markdown",
   "document_generators.generate.error": "No se pudo generar el documento.",

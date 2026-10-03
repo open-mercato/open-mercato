@@ -7,6 +7,7 @@
   "document_generators.errors.organization_required": "Wählen Sie eine Organisation, um Dokumente zu erstellen.",
   "document_generators.errors.render_failed": "Das Dokument konnte nicht gerendert werden.",
   "document_generators.errors.unknown_template": "Dokumentvorlage nicht gefunden.",
+  "document_generators.errors.unknown_template_version": "Diese Vorlagenversion ist nicht verfügbar.",
   "document_generators.generate.button": "PDF herunterladen",
   "document_generators.generate.buttonMarkdown": "Markdown herunterladen",
   "document_generators.generate.error": "Das Dokument konnte nicht erstellt werden.",

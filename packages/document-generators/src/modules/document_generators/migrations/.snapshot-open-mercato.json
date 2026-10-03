@@ -229,6 +229,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "template_version": {
+          "name": "template_version",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'1'",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "tenant_id": {
           "name": "tenant_id",
           "type": "uuid",

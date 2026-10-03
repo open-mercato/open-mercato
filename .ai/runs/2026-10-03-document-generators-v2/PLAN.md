@@ -45,7 +45,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 8 | 8.1 | Retention and erasure contract | inline | done | 20f82cad2 |
 | 8 | 8.2 | Private attachment persistence | inline | done | 201594092 |
 | 8 | 8.3 | Stored document download | inline | done | c506a70f9 |
-| 9 | 9.1 | Template versioning | inline | todo | — |
+| 9 | 9.1 | Template versioning | inline | done | — |
 | 9 | 9.2 | Draft watermark | inline | todo | — |
 | 10 | 10.1 | Documentation examples and harness coverage | inline | todo | — |
 | 10 | 10.2 | Full validation and design system verification | inline | todo | — |
