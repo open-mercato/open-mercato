@@ -38,3 +38,4 @@ Append-only UTC log.
 - 63 Sales + 38 engine tests, core typecheck/build, i18n sync and an end-to-end dist render of all three Sales templates passed.
 - Browser pass skipped: no UI touched in this window.
 - Invoice totals extended with shipping and surcharge so the totals block reconciles.
+- Step 5.4: migration generated with yarn db:generate against a throwaway postgres:17 Docker container (DATABASE_URL inline, stopped afterwards); unrelated wms output discarded; down() added by hand (generator emits none).
