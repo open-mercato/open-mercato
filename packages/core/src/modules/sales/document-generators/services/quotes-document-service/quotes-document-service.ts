@@ -25,6 +25,7 @@ import {
   toNumber,
   toSnapshotRecord,
   toText,
+  isDraftDocumentStatus,
 } from '../../lib/normalization'
 
 const quoteRequestSchema = z.object({ id: z.string().uuid() })
@@ -32,6 +33,7 @@ const quoteRequestSchema = z.object({ id: z.string().uuid() })
 export interface QuoteDocumentQuoteRecord {
   id: string
   quoteNumber: string
+  status?: string | null
   currencyCode: string
   customerSnapshot: unknown
   billingAddressSnapshot: unknown
@@ -83,6 +85,7 @@ const LABEL_DEFAULTS: SalesOfferLabels = {
   tax: 'Tax',
   grandTotal: 'Total due',
   notes: 'Notes',
+  draftWatermark: 'DRAFT',
 }
 
 function requireSource(data: unknown): QuoteDocumentSource {
@@ -154,6 +157,7 @@ export class QuotesDocumentService extends BaseDocumentService {
       quote: {
         id: quote.id,
         quoteNumber: quote.quoteNumber,
+        status: quote.status ?? null,
         currencyCode: quote.currencyCode,
         customerSnapshot: quote.customerSnapshot ?? null,
         billingAddressSnapshot: quote.billingAddressSnapshot ?? null,
@@ -205,6 +209,7 @@ export class QuotesDocumentService extends BaseDocumentService {
     const sellerName = toText(channel?.name)
     return {
       locale,
+      isDraft: isDraftDocumentStatus(quote.status),
       labels: buildLabels(SALES_OFFER_LABEL_KEYS, LABEL_DEFAULTS, 'sales.documents.templates.offer.labels', translate),
       document: {
         id: quote.id,

@@ -18,6 +18,7 @@ export const ORDER_INVOICE_LABEL_KEYS = [
   'paid',
   'outstanding',
   'notes',
+  'draftWatermark',
 ] as const
 
 export type OrderInvoiceLabelKey = (typeof ORDER_INVOICE_LABEL_KEYS)[number]
@@ -35,6 +36,7 @@ export interface OrderInvoiceLine {
 
 export interface OrderInvoiceData {
   locale: string
+  isDraft: boolean
   labels: OrderInvoiceLabels
   document: {
     id: string

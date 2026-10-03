@@ -1,6 +1,7 @@
 import { Document, Page, Text, View, StyleSheet } from '@open-mercato/document-generators/modules/document_generators/providers/react-pdf/index'
 import {
   documentTheme,
+  DraftWatermark,
   OpenMercatoLogo,
 } from '@open-mercato/document-generators/modules/document_generators/templates/shared/index'
 import { formatDate, formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/index'
@@ -75,11 +76,12 @@ function formatQuantity(value: number, locale: string): string {
 
 export default function OrderInvoicePdf({ data }: { data: Record<string, unknown> }) {
   const invoice = data as unknown as OrderInvoiceData
-  const { labels, document: documentInfo, client, seller, lines, totals, notes, locale } = invoice
+  const { labels, document: documentInfo, client, seller, lines, totals, notes, locale, isDraft } = invoice
 
   return (
     <Document title={`${labels.title} ${documentInfo.number}`}>
       <Page size="A4" style={styles.page}>
+        {isDraft ? <DraftWatermark label={labels.draftWatermark} /> : null}
         <View style={styles.header}>
           <View>
             <OpenMercatoLogo />

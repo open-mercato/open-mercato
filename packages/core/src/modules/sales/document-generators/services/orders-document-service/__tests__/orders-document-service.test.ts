@@ -219,7 +219,22 @@ describe('OrdersDocumentService', () => {
       const result = service.toTemplateData({ data: source, locale: 'pl', translate })
       expect(result.labels.title).toBe('Faktura')
       expect(result.labels.grandTotal).toBe('Total due')
-      expect(Object.keys(result.labels)).toHaveLength(19)
+      expect(Object.keys(result.labels)).toHaveLength(20)
+      expect(result.labels.draftWatermark).toBe('DRAFT')
+    })
+
+    it('derives the draft watermark from the server-side status', () => {
+      const draftOf = (status: string | null) => service.toTemplateData({
+        data: { ...source, order: { ...source.order, status } },
+        locale: 'en',
+        translate,
+      }).isDraft
+      expect(draftOf('draft')).toBe(true)
+      expect(draftOf('pending_approval')).toBe(true)
+      expect(draftOf(null)).toBe(true)
+      expect(draftOf('sent')).toBe(false)
+      expect(draftOf('confirmed')).toBe(false)
+      expect(draftOf('custom_status')).toBe(false)
     })
 
     it('omits seller and dueDate, prefers placedAt and parses string customer snapshots', () => {

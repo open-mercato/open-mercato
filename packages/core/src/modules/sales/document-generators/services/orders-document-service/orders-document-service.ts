@@ -25,6 +25,7 @@ import {
   toNumber,
   toSnapshotRecord,
   toText,
+  isDraftDocumentStatus,
 } from '../../lib/normalization'
 
 const orderRequestSchema = z.object({ id: z.string().uuid() })
@@ -32,6 +33,7 @@ const orderRequestSchema = z.object({ id: z.string().uuid() })
 export interface OrderDocumentOrderRecord {
   id: string
   orderNumber: string
+  status?: string | null
   currencyCode: string
   customerSnapshot: unknown
   billingAddressSnapshot: unknown
@@ -93,6 +95,7 @@ const LABEL_DEFAULTS: OrderInvoiceLabels = {
   paid: 'Paid',
   outstanding: 'Outstanding',
   notes: 'Notes',
+  draftWatermark: 'DRAFT',
 }
 
 function requireSource(data: unknown): OrderDocumentSource {
@@ -178,6 +181,7 @@ export class OrdersDocumentService extends BaseDocumentService {
       order: {
         id: order.id,
         orderNumber: order.orderNumber,
+        status: order.status ?? null,
         currencyCode: order.currencyCode,
         customerSnapshot: order.customerSnapshot ?? null,
         billingAddressSnapshot: order.billingAddressSnapshot ?? null,
@@ -234,6 +238,7 @@ export class OrdersDocumentService extends BaseDocumentService {
     const sellerName = toText(channel?.name)
     return {
       locale,
+      isDraft: isDraftDocumentStatus(order.status),
       labels: buildLabels(ORDER_INVOICE_LABEL_KEYS, LABEL_DEFAULTS, 'sales.documents.templates.invoice.labels', translate),
       document: {
         id: order.id,

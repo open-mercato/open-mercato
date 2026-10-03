@@ -12,11 +12,12 @@ function formatQuantity(value: number, locale: string): string {
 
 export function render(data: Record<string, unknown>): string {
   const invoice = data as unknown as OrderInvoiceData
-  const { labels, document: documentInfo, client, seller, lines, totals, notes, locale } = invoice
+  const { labels, document: documentInfo, client, seller, lines, totals, notes, locale, isDraft } = invoice
   const money = (amount: number, currency: string) => escapeInline(formatMoney(amount, currency, locale))
   const out: string[] = []
 
   out.push(`# ${escapeInline(labels.title)} ${escapeInline(documentInfo.number)}`, '')
+  if (isDraft) out.push(`> **${escapeInline(labels.draftWatermark)}**`, '')
   out.push(`- **${escapeInline(labels.number)}:** ${escapeInline(documentInfo.number)}`)
   out.push(`- **${escapeInline(labels.date)}:** ${escapeInline(formatDate(documentInfo.date, locale))}`)
   if (documentInfo.dueDate) {
