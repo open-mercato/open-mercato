@@ -23,9 +23,9 @@ Reuse the task-list compatibility rules in a shared customers helper and call it
 
 Add a narrowly scoped count helper to `customers/lib/todoCompatibility.ts`. Both person and company detail APIs call it when assembling `counts.todos`. The person V2 page already forwards that total to `PersonDetailTabs`, which uses the shared `TabsTrigger` count badge and refreshes its overview after task mutations.
 
-In unified mode, preserve the existing count of non-deleted task interactions. In compatibility mode, read only the IDs and deletion timestamps of task interactions with `source: adapter:todo` for the current entity, tenant and organization. Count active adapter interactions plus legacy links whose `todoId` has no matching adapter interaction. Deleted adapter interactions still suppress their old links, as the task-list merge already does. Native interactions with another source remain excluded in compatibility mode. Do not derive totals from bounded task previews.
+In unified mode, preserve the existing count of non-deleted task interactions. In compatibility mode, count active task interactions with `source: adapter:todo` for the current entity, tenant and organization. Add a database count of legacy links whose `todoId` has no matching scoped adapter interaction, using an ORM subquery rather than materializing task identities. Deleted adapter interactions still suppress their old links, as the task-list merge already does. Native interactions with another source remain excluded in compatibility mode. Do not derive totals from bounded task previews.
 
-Use MikroORM filters and shared read helpers. No cross-module lookup, new dependency, tab primitive, or migration is needed. The existing optional example todo provider stays optional.
+Use MikroORM count filters and a scoped QueryBuilder subquery. No cross-module lookup, new dependency, tab primitive, or migration is needed. The existing optional example todo provider stays optional.
 
 ## Data Models and API Contracts
 
@@ -51,7 +51,7 @@ Missing adapter rows leave legacy counts unchanged. Deleted bridges suppress leg
 | Risk | Severity | Mitigation | Residual impact |
 | --- | --- | --- | --- |
 | Double counting or reviving bridged tasks | Medium | Match the task list's ID override rules, including deleted bridges; regression fixtures cover both. | None expected for the supported merge semantics. |
-| Slow profiles with many adapter tasks | Low | Select only ID/deletion metadata; retain count queries for legacy/unified data. | Compatibility counts require memory proportional to adapter-task identities. |
+| Slow profiles with many adapter tasks | Low | Aggregate in the database and suppress bridges through a scoped subquery; do not fetch task histories or expand ID lists. | Database work scales with the scoped task set; application memory and parameter count stay bounded. |
 | Tenant or organization leakage | High | Require and test explicit scope on every query. | Existing route scope remains authoritative. |
 
 Rollback is a code revert; no persisted state changes. No breaking API, event, schema, permission or replacement-handle change.
@@ -73,3 +73,4 @@ The design stays within the customers module, reuses existing list semantics and
 ## Changelog
 
 - 2026-10-03: Specified the task total correction after tracing the missing badge to compatibility-mode storage.
+- 2026-10-03: Incorporated independent review: aggregate compatibility totals in the database and suppress bridges with a scoped ORM subquery.
