@@ -3,6 +3,7 @@
   "document_generators.errors.invalid_json": "Ungültiger JSON-Inhalt.",
   "document_generators.errors.invalid_query": "Ungültige Abfrageparameter.",
   "document_generators.errors.invalid_request": "Ungültige Dokumentanfrage.",
+  "document_generators.errors.not_found": "Dokumentquelle nicht gefunden.",
   "document_generators.errors.organization_required": "Wählen Sie eine Organisation, um Dokumente zu erstellen.",
   "document_generators.errors.render_failed": "Das Dokument konnte nicht gerendert werden.",
   "document_generators.errors.unknown_template": "Dokumentvorlage nicht gefunden.",

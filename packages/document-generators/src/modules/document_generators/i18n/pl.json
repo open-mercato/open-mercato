@@ -3,6 +3,7 @@
   "document_generators.errors.invalid_json": "Nieprawidłowa treść JSON.",
   "document_generators.errors.invalid_query": "Nieprawidłowe parametry zapytania.",
   "document_generators.errors.invalid_request": "Nieprawidłowe żądanie dokumentu.",
+  "document_generators.errors.not_found": "Nie znaleziono źródła dokumentu.",
   "document_generators.errors.organization_required": "Wybierz organizację, aby generować dokumenty.",
   "document_generators.errors.render_failed": "Nie udało się wyrenderować dokumentu.",
   "document_generators.errors.unknown_template": "Nie znaleziono szablonu dokumentu.",

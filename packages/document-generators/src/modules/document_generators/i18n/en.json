@@ -3,6 +3,7 @@
   "document_generators.errors.invalid_json": "Invalid JSON body.",
   "document_generators.errors.invalid_query": "Invalid query parameters.",
   "document_generators.errors.invalid_request": "Invalid document request.",
+  "document_generators.errors.not_found": "Document source not found.",
   "document_generators.errors.organization_required": "Select an organization to generate documents.",
   "document_generators.errors.render_failed": "Unable to render the document.",
   "document_generators.errors.unknown_template": "Document template not found.",
