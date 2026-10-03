@@ -94,7 +94,7 @@ export async function GET(
         attachmentId: record.attachmentId,
         auth: organization.auth,
         expectedOwner: storedDocumentOwner(record.resourceId),
-        expectedAssignment: storedDocumentAssignment(record.id),
+        expectedAssignment: storedDocumentAssignment(record.resourceId),
         expectedPartitionCode: STORED_DOCUMENT_PARTITION,
         requirePrivatePartition: true,
         forceDownload: true,

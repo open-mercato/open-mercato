@@ -105,7 +105,7 @@ describe('stored document download route', () => {
       attachmentId: 'attachment-1',
       auth: expect.objectContaining({ orgId: 'org-selected' }),
       expectedOwner: { entityId: 'document_generators:document', recordId: 'order-1' },
-      expectedAssignment: { type: 'document_generators:generated_document', id: HISTORY_ID },
+      expectedAssignment: { type: 'document_generators:document', id: 'order-1' },
       expectedPartitionCode: 'privateAttachments',
       requirePrivatePartition: true,
       forceDownload: true,

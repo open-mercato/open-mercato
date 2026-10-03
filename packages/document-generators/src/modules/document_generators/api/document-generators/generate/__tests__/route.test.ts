@@ -245,8 +245,8 @@ describe('generate route', () => {
       organizationId: 'org-selected',
       partitionCode: 'privateAttachments',
       declaredMimeType: 'text/markdown',
-      assignments: [{ type: 'document_generators:generated_document', id: 'history-9' }],
     }))
+    expect(createScoped.mock.calls[0][0]).not.toHaveProperty('assignments')
     expect(txPersist).toHaveBeenCalledWith(expect.objectContaining({ id: 'history-9', attachmentId: 'attachment-1' }))
     expect(txFlush).toHaveBeenCalled()
     expect(persistSpy).not.toHaveBeenCalled()
