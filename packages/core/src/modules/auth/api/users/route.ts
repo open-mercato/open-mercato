@@ -255,6 +255,19 @@ export async function GET(req: Request) {
     if (superAdminUserIds.size) {
       filters.push({ id: { $nin: Array.from(superAdminUserIds) as any } })
     }
+    const scope = await resolveOrganizationScopeForRequest({
+      container,
+      auth,
+      request: req,
+      tenantId: actorTenantId,
+    })
+    effectiveSelectedOrganizationId = scope.selectedId
+    if (Array.isArray(scope.filterIds)) {
+      if (scope.filterIds.length === 0) {
+        return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+      }
+      effectiveOrganizationIds = scope.filterIds
+    }
   } else {
     const selectedTenantId = getSelectedTenantFromRequest(req)
     if (typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0) {

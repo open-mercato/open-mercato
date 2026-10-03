@@ -1141,6 +1141,70 @@ describe('GET /api/auth/users', () => {
     expect(body.isSuperAdmin).toBe(false)
   })
 
+  test('non-superadmin selected organization scopes the users list by organization descendants (#6803)', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: secondaryOrganizationId,
+      filterIds: [secondaryOrganizationId, descendantOrganizationId],
+      allowedIds: null,
+      tenantId,
+    })
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [{ id: '423e4567-e89b-12d3-a456-426614174010', email: 'org2@example.com', tenantId, organizationId: secondaryOrganizationId }],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=50', {
+      cookie: `om_selected_org=${encodeURIComponent(secondaryOrganizationId)}`,
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(expect.objectContaining({ tenantId }))
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId: { $in: [secondaryOrganizationId, descendantOrganizationId] } },
+    ]))
+    expect(mockLogCrudAccess).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      organizationId: secondaryOrganizationId,
+    }))
+    expect(body.isSuperAdmin).toBe(false)
+  })
+
+  test('non-superadmin role filter carries the selected organization scope into the role-link lookup', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: organizationId,
+      filterIds: [organizationId],
+      allowedIds: null,
+      tenantId,
+    })
+
+    await GET(makeRequest(`/api/auth/users?roleId=${roleId}&page=1&pageSize=50`))
+
+    const roleLinkFilter = findRoleLinkFilter(roleId)
+    expect(readUserScopeClauses(roleLinkFilter)).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId: { $in: [organizationId] } },
+    ]))
+  })
+
+  test('non-superadmin with no visible organizations gets an empty users list', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId,
+    })
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=50'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: false })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
   test('omits the active-organization filter when scopeToActiveOrganization is not requested', async () => {
     mockEm.findAndCount.mockResolvedValueOnce([[], 0])
 
