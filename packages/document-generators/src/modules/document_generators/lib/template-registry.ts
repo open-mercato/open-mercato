@@ -68,9 +68,13 @@ export class TemplateRegistry {
 
   register(entries: TemplateEntry[]): void {
     const next = new Map(this.entries)
+    const batchIds = new Set<string>()
     for (const entry of entries) {
       const existing = next.get(entry.id)
-      if (existing) throw new DuplicateTemplateError(entry.id, existing.module, entry.module)
+      if (batchIds.has(entry.id) || (existing && existing.module !== entry.module)) {
+        throw new DuplicateTemplateError(entry.id, existing?.module ?? entry.module, entry.module)
+      }
+      batchIds.add(entry.id)
       assertDistinctVersions(entry)
       next.set(entry.id, {
         ...entry,

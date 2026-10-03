@@ -17,13 +17,25 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
 const context = { container: createContainer(), auth: { sub: 'user', tenantId: 'tenant', orgId: 'org' }, locale: 'pl' }
 
 describe('TemplateRegistry', () => {
-  it('rejects duplicates atomically, including repeated registration of the same object', () => {
+  it('rejects an ID claimed by another module atomically', () => {
     const registry = new TemplateRegistry()
-    const original = makeEntry()
-    registry.register([original])
-    expect(() => registry.register([makeEntry({ id: 'sales.new' }), original])).toThrow(DuplicateTemplateError)
+    registry.register([makeEntry()])
+    expect(() => registry.register([makeEntry({ id: 'crm.new', module: 'crm' }), makeEntry({ module: 'crm' })])).toThrow(DuplicateTemplateError)
     expect(registry.listTemplates().map((entry) => entry.id)).toEqual(['sales.offer'])
+    expect(registry.getTemplateMetadata('sales.offer').module).toBe('sales')
+  })
+
+  it('rejects the same ID declared twice in one registration batch', () => {
+    const original = makeEntry()
     expect(() => new TemplateRegistry().register([original, original])).toThrow(/sales.*sales.*module-prefixed/)
+  })
+
+  it('lets a repeated bootstrap re-register its own module templates without failing', () => {
+    const registry = new TemplateRegistry()
+    registry.register([makeEntry({ description: 'first' })])
+    expect(() => registry.register([makeEntry({ description: 'second' })])).not.toThrow()
+    expect(registry.listTemplates()).toHaveLength(1)
+    expect(registry.getTemplateMetadata('sales.offer').description).toBe('second')
   })
 
   it('filters by metadata and any matching tag while returning only defensive projections', () => {
