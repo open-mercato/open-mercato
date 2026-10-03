@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import type { GeneratedDocumentDto } from '@open-mercato/document-generators/modules/document_generators/services/generation-history-service'
+import type { GeneratedDocumentDto } from '../../services/generation-history-service'
 import {
   buildDocumentHistoryUrl,
   documentHistoryQueryKey,
