@@ -40,24 +40,77 @@ describe('parseJsonBody', () => {
 })
 
 describe('requireOrganization', () => {
-  it('returns the tenant and organization pair', () => {
-    expect(requireOrganization({ sub: 'u', tenantId: 't', orgId: 'o' }, translate)).toEqual({
-      ok: true,
-      scope: { tenantId: 't', organizationId: 'o' },
-    })
-  })
+  const auth = { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-home' }
+  const request = new Request('http://localhost/x')
 
-  it.each([
-    ['null auth', null],
-    ['missing tenant', { sub: 'u', tenantId: null, orgId: 'o' }],
-    ['missing organization', { sub: 'u', tenantId: 't', orgId: null }],
-  ])('answers 409 organization_required for %s', async (_name, auth) => {
-    const result = requireOrganization(auth, translate)
+  function containerWith(scope: Record<string, unknown> | null) {
+    const resolveForRequest = jest.fn(async () => scope)
+    return {
+      resolveForRequest,
+      container: { resolve: (name: string) => (name === 'organizationScopeService' ? { resolveForRequest } : undefined) },
+    }
+  }
+
+  async function expectMissing(result: Awaited<ReturnType<typeof requireOrganization>>) {
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.response.status).toBe(409)
       expect((await result.response.json()).error).toBe('organization_required')
     }
+  }
+
+  it('scopes to the organization selected in the switcher and projects it onto auth', async () => {
+    const { container, resolveForRequest } = containerWith({
+      selectedId: 'org-selected',
+      filterIds: ['org-selected', 'org-home'],
+      allowedIds: ['org-selected', 'org-home'],
+      tenantId: 'tenant-1',
+    })
+    const result = await requireOrganization({ auth, container, request, translate })
+    expect(resolveForRequest).toHaveBeenCalledWith({ auth, request })
+    expect(result).toEqual({
+      ok: true,
+      scope: { tenantId: 'tenant-1', organizationId: 'org-selected' },
+      auth: { ...auth, orgId: 'org-selected' },
+    })
+  })
+
+  it('falls back to the active organization when nothing is selected', async () => {
+    const { container } = containerWith({ selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' })
+    const result = await requireOrganization({ auth, container, request, translate })
+    expect(result.ok && result.scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-home' })
+  })
+
+  it('uses the caller scope when the directory scope service is unavailable', async () => {
+    const container = { resolve: () => { throw new Error('not registered') } }
+    const result = await requireOrganization({ auth, container, request, translate })
+    expect(result.ok && result.scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-home' })
+  })
+
+  it('refuses a rejected organization selection instead of silently switching organizations', async () => {
+    const { container } = containerWith({
+      selectedId: 'org-home',
+      filterIds: ['org-home'],
+      allowedIds: ['org-home'],
+      tenantId: 'tenant-1',
+      selectionRejected: true,
+    })
+    await expectMissing(await requireOrganization({ auth, container, request, translate }))
+  })
+
+  it('refuses an organization outside the allowed scope', async () => {
+    const { container } = containerWith({ selectedId: null, filterIds: ['org-other'], allowedIds: ['org-other'], tenantId: 'tenant-1' })
+    await expectMissing(await requireOrganization({ auth, container, request, translate }))
+  })
+
+  it.each([
+    ['null auth', null],
+    ['missing subject', { sub: '', tenantId: 'tenant-1', orgId: 'org-home' }],
+    ['missing tenant', { sub: 'user-1', tenantId: null, orgId: 'org-home' }],
+    ['missing organization', { sub: 'user-1', tenantId: 'tenant-1', orgId: null }],
+  ])('answers 409 organization_required for %s', async (_name, candidate) => {
+    const { container } = containerWith(null)
+    await expectMissing(await requireOrganization({ auth: candidate, container, request, translate }))
   })
 })
 

@@ -1,4 +1,6 @@
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { OrganizationScopeRequest, OrganizationScopeService } from '@open-mercato/shared/lib/auth/principal-service'
+import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -26,8 +28,12 @@ export type JsonBodyResult =
   | { ok: false; response: Response }
 
 export type OrganizationResult =
-  | { ok: true; scope: OrganizationScope }
+  | { ok: true; scope: OrganizationScope; auth: NonNullable<AuthContext> }
   | { ok: false; response: Response }
+
+export type OrganizationScopeContainer = {
+  resolve: (name: string) => unknown
+}
 
 const DEFAULT_MESSAGES: Record<DocumentErrorCode, string> = {
   invalid_json: 'Invalid JSON body.',
@@ -68,11 +74,45 @@ export async function parseJsonBody(request: Request, translate: TranslateFn): P
   }
 }
 
-export function requireOrganization(auth: AuthContext, translate: TranslateFn): OrganizationResult {
-  if (!auth?.tenantId || !auth.orgId) {
-    return { ok: false, response: errorResponse('organization_required', 409, translate) }
+function resolveScopeService(container: OrganizationScopeContainer): OrganizationScopeService | null {
+  try {
+    const service = container.resolve('organizationScopeService') as Partial<OrganizationScopeService> | null
+    return service && typeof service.resolveForRequest === 'function' ? service as OrganizationScopeService : null
+  } catch {
+    return null
   }
-  return { ok: true, scope: { tenantId: auth.tenantId, organizationId: auth.orgId } }
+}
+
+function pickOrganization(candidates: Array<string | null | undefined>, allowed: string[] | null): string | null {
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    if (!allowed || allowed.includes(candidate)) return candidate
+  }
+  return null
+}
+
+export async function requireOrganization(input: {
+  auth: AuthContext
+  container: OrganizationScopeContainer
+  request?: OrganizationScopeRequest
+  translate: TranslateFn
+}): Promise<OrganizationResult> {
+  const { auth, container, request, translate } = input
+  const missing = (): OrganizationResult => ({ ok: false, response: errorResponse('organization_required', 409, translate) })
+  if (!auth?.sub) return missing()
+  const activeOrganizationId = resolveActiveOrganizationId(auth)
+  const scopeService = resolveScopeService(container)
+  const scope = scopeService ? await scopeService.resolveForRequest({ auth, request }) : null
+  if (scope?.selectionRejected) return missing()
+  const tenantId = scope?.tenantId ?? auth.tenantId
+  const allowed = scope ? scope.filterIds ?? scope.allowedIds : null
+  const organizationId = pickOrganization([scope?.selectedId, activeOrganizationId], allowed)
+  if (!tenantId || !organizationId) return missing()
+  return {
+    ok: true,
+    scope: { tenantId, organizationId },
+    auth: { ...auth, tenantId, orgId: organizationId },
+  }
 }
 
 export function mapDocumentError(
