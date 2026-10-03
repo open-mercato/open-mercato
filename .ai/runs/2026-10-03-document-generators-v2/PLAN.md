@@ -22,7 +22,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 2 | 2.4 | Generator discovery and bootstrap | dispatch | done | 2c729fb9e |
 | 3 | 3.1 | PDF rendering adapter | dispatch | done | this commit |
 | 3 | 3.2 | Markdown renderer and format dispatch | dispatch | done | this commit |
-| 3 | 3.3 | Document utility barrel | dispatch | todo | — |
+| 3 | 3.3 | Document utility barrel | dispatch | done | this commit |
 | 3 | 3.4 | PDF authoring toolkit | dispatch | todo | — |
 | 4 | 4.1 | Quote data service | dispatch | todo | — |
 | 4 | 4.2 | Sales offer PDF template | dispatch | todo | — |
