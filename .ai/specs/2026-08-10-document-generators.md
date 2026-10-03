@@ -249,7 +249,7 @@ class DuplicateTemplateError extends Error {} // thrown by register; message nam
 ```
 
 > Sales is registered through `packages/core/src/modules/sales/document-generators.ts`. Generated bootstrap code calls `register(...)`; route files do not import a domain registry for side effects.
-> Template IDs use the global `<module>.<template>` namespace. Duplicate registration is intentionally never idempotent: a second registration of the same ID, including the same entry, is treated as an invalid bootstrap graph and fails before the copied registry state is committed.
+> Template IDs use the global `<module>.<template>` namespace. An ID claimed by a **different** module, or declared twice within one registration batch, is an invalid bootstrap graph and fails atomically before the copied registry state is committed. A repeated registration of an ID by the **same** module replaces its entry: the generated `runBootstrapRegistrations()` runs at module evaluation and can execute several times per process (HMR, separate server bundles), while the registry state deliberately lives on `globalThis`, so strict non-idempotence would crash the second bootstrap with `Duplicate template sales.offer from sales; already registered by sales` (amended 2026-10-03 — the original "never idempotent, including the same entry" rule contradicted the required `globalThis` persistence and the platform convention that bootstrap registrations are idempotent).
 
 **Where catalogue data comes from.** Every read method is a pure derivation over the in-memory entry map — there is no database table, no configuration record and no server-side cache behind the catalogue or its filters:
 
