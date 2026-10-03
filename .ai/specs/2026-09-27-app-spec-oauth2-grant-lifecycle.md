@@ -1,1099 +1,710 @@
 # App Spec: OAuth2 Grant Lifecycle for Integrations (platform capability)
 
-> The App Spec is a business architecture document that sits above feature specs.
-> This one describes a **platform capability**, not an end-user app: the "app" is the
-> part of Open Mercato that lets an integration obtain, keep, refresh, and give up
-> delegated OAuth2 access to a third-party API on behalf of a tenant (or a user).
->
-> This document is the SINGLE SOURCE OF TRUTH for the capability. Feature specs are
-> generated from it. If a feature spec contradicts it, this document wins.
->
-> **Status:** Draft — for maintainer review. **Date:** 2026-09-27.
-> **Code baseline:** `develop` @ `67605e74f`; `open-mercato/official-modules`, all branches (`main` @ `2d548d6`):
-> no OAuth2 authorization-code clients (§1.4.1).
-
----
+> A business architecture document above feature specs, for a **platform capability**: the part of Open Mercato that lets an integration obtain, keep, refresh and give up delegated OAuth2 access to a third-party API on behalf of a tenant (or a user). It is the SINGLE SOURCE OF TRUTH for the capability; if a feature spec contradicts it, this document wins. It states the decisions; mechanics, line-level evidence, the commit plan and the labelled test criteria are in the Phase 1 feature spec (`2026-10-01-oauth2-grant-lifecycle-core.md`).\
+> **Status:** Draft — for maintainer review. **Date:** 2026-09-27. **Code baseline:** `develop` @ `4bdabd8bb`; `open-mercato/official-modules`, all branches (`main` @ `2d548d6`): no OAuth2 authorization-code clients (§1.4.1).
 
 ## 0. Executive summary
 
-**Question:** how should Open Mercato handle OAuth2 grants for integrations, meaning the tokens a third-party system issues when a tenant admin grants access? What should the platform own, and where should it live?
+**Question:** how should Open Mercato handle OAuth2 grants for integrations (the tokens a third-party system issues when a tenant admin grants access), what should the platform own, and where should it live?\
+**Answer:** the platform owns **one correct, tested way to hold and use an OAuth2 grant**: a narrow grant-lifecycle core (12 atomic commits) that every new OAuth integration builds on instead of re-implementing. It is not a full toolkit.
 
-**Answer:** the platform should own **one correct, tested way to hold and use an OAuth2 grant**: a narrow grant-lifecycle core (10 atomic commits) that every OAuth integration builds on instead of re-implementing. It is not a full toolkit.
+**Why a platform standard.** **It is the hard part:** cross-process-safe refresh (workers always run as separate processes), a failure classification that keeps "needs reconnect" trustworthy, token storage admin edits can't clobber, a disconnect that erases and revokes, and a PKCE-protected code exchange (RFC 7636; recommended by RFC 9700 for confidential clients, required by OAuth 2.1). None of it exists as a reusable core at the baseline. **The one implementation is not reusable:** the channel hub's token call and refresh (Gmail; Microsoft 365 in PR [#5898](https://github.com/open-mercato/open-mercato/pull/5898)) are per-user, channel-bound and coordinated within one process only. **The next integration is cheaper and safer:** a provider supplies a descriptor and its own screens, and inherits refresh, a trustworthy reconnect signal, PKCE and a real disconnect.
 
-**Why a platform standard rather than per-integration code:**
-- **It is the part that is hard to get right.** Correct grant handling needs four things:
-  - cross-process-safe refresh: workers always run as separate processes from the web app;
-  - a failure classification that keeps "needs reconnect" trustworthy;
-  - token storage that admin edits can't clobber;
-  - a disconnect that erases tokens and revokes them at the provider.
+**Why Phase 1:** with strict refresh-token rotation (RFC 9700 §4.14.2), two processes refreshing the same grant concurrently lose it. The hub coordinates within one process only; its two providers don't rotate strictly, so the defect is latent at the baseline and surfaces with the first strict-rotation provider (§1.4.6).
 
-  None of this exists today, and every integration that writes it itself is another chance to get it subtly wrong.
-- **The same logic is already duplicated.** The Gmail adapter (merged) and the Microsoft 365 adapter (open PR [open-mercato/open-mercato#5898](https://github.com/open-mercato/open-mercato/pull/5898)) each implement the token-endpoint call, expiry maths and refresh-and-persist on top of the channel hub. The next integration would be a third copy. One implementation, tested once, is the better practice.
-- **It makes the next integration cheaper and safer by default.** A new provider supplies a descriptor and its provider-specific screens, and inherits correct refresh, a trustworthy reconnect signal and a real disconnect.
+**Scope and reuse:** Gmail and Microsoft 365 don't change in Phase 1, so until the Phase 3 hub migration the platform has two refresh implementations and the core is the standard for new integrations. The first consumer is an official module in [`open-mercato/official-modules`](https://github.com/open-mercato/official-modules), specified separately; Phase 1 ships with no consumer in this repository, and a test provider built only on exported package paths is the in-tree proof (§7). The connect UX (routes, a generic Connect button, the `oauth` credential field type, account picking) stays provider-owned until Phase 3; the protocol pieces and a normative route contract (§1.4.3) are in the core.
 
-**Why now: the upcoming Xero integration will be the first consumer and makes it urgent.**
-- Xero rotates refresh tokens strictly: the old token dies after a 30-minute grace period.
-- Its sync jobs run in worker processes.
-
-Without a cross-process lock, Xero grants would get lost at random. The Xero integration (planned, not started yet) will need this logic either way; building it in the platform instead of the Xero package costs about 4 extra commits and gives every later integration the same guarantees.
-
-**Scope and honesty about reuse:**
-- Existing integrations (Gmail, Microsoft 365) **don't change now**. The race is harmless for them (§1.4.6), and they can move onto the core later (Phase 3).
-- When Phase 1 ships, the core has no consumer yet; Xero will be the first. Reuse is the design goal; it becomes real with the next OAuth integration after Xero.
-- The connect UX (initiate/callback routes, a generic "Connect" button, the declared-but-unrendered `oauth` credential field type, post-consent account picking) stays **provider-owned** for now. Only one planned integration (Xero) connects from the admin panel. The callback URL is an external contract each tenant pastes into the provider's console, so it should be standardized once a second such integration shows the right shape.
-
-**Key decisions:**
-- **Library.** Hand-roll the protocol and add no new dependency:
-  - the protocol surface is about 150 lines and a version already runs in production;
-  - libraries don't solve storage, locking or classification, which are the actual failure modes;
-  - `openid-client` and `oauth4webapi` are ESM-only and would need Jest config changes in core and in every provider package.
-- **SSO.** Kept deliberately separate (login is a different problem).
-- **Where it lives.** The generic advisory-lock helper goes in `packages/shared`; everything else in `packages/core/src/modules/integrations`.
-- **Footprint.** No DB migration, no new production API route, no new ACL feature.
-
-**The alternative is real** (§4.6): Xero implements all of this inside its own package, and the platform adds only a lock helper. That is about 4 commits cheaper today. The cost is that the next OAuth integration re-implements the hardest part again, without a shared tested standard.
-
----
+**Key decisions:** hand-roll the protocol with no new production dependency (§4.5.3); keep SSO separate (§4.5.4); the advisory-lock helper goes in `packages/shared`, everything else (including the fake authorization server) in `packages/core/src/modules/integrations`; no DB migration, no new production API route, no new ACL feature; one new required CI job for real-Postgres suites (Q3).\
+**The alternative is real** (§4.6 A): the first consumer implements all of this itself and the platform adds only the lock helper and an erase function, about 5 commits cheaper up front, but the next OAuth integration re-implements the hardest part.
 
 ## 1. Business Context `PM`
 
 ### 1.1 Business Model
 
-Open Mercato is an open-source commerce/ERP platform. The maintainers' revenue depends on adoption: a hosted offering, enterprise modules, and services. Integrations with systems customers already run (email, accounting, PIM, payments) are a primary adoption driver.
+Open Mercato is an open-source commerce/ERP platform; the maintainers' revenue depends on adoption (a hosted offering, enterprise modules, services), and integrations with systems customers already run are a primary driver. More and more of those systems offer only OAuth2 authorization-code access with long-lived refresh tokens (Google, Microsoft, most accounting and CRM SaaS APIs; Akeneo uses the password grant). An integration that gets OAuth wrong costs a support ticket ("sync stopped, says reconnect") and lost trust.
 
-More and more of those systems only offer OAuth2 authorization-code access with long-lived refresh tokens: Google, Microsoft and Xero do. Akeneo is the exception; it uses the password grant.
-
-Every integration that gets OAuth wrong costs the platform twice:
-- a support ticket ("sync stopped, says reconnect");
-- lost trust ("the integration is flaky").
-
-**Who pays:** the **upstream Open Mercato maintainers**. They carry the review, support and maintenance cost of every OAuth integration, and they decide whether this capability is accepted. What they get is one standard, tested implementation instead of a hand-written copy per integration. **First consumer:** the upcoming Xero accounting integration (specified, implementation not started). It is the forcing function, not the whole reason.
-
-**Flywheel:**
-```
-correct, shared grant lifecycle
-  → next OAuth integration is cheaper and ships without its own locking/refresh bugs
-    → more integrations, fewer "needs reconnect" false alarms
-      → more adopters trust background sync with their accounting/email data
-        → more contributors build integrations on the same core → (loop)
-```
+**Who pays:** the **upstream Open Mercato maintainers**. The capability has no direct payer: they carry the review, support and maintenance cost of every OAuth integration, decide whether this capability is accepted, and get one tested implementation instead of a copy per integration. **First consumer:** an official module in `open-mercato/official-modules`, specified separately.\
+**Flywheel:** a correct, shared grant lifecycle → the next OAuth integration is cheaper and ships without its own locking/refresh bugs → more integrations, fewer false "needs reconnect" → more adopters trust background sync → more contributors build on the same core.
 
 #### Checklist
-- [x] Paying customer identified
-- [x] Flywheel articulated
+
+- [x] Paying customer identified (cost-bearer for a platform capability); flywheel articulated
 
 ### 1.2 Business Goals
 
-**Primary goal: correct grant handling by default for every OAuth integration.** An integration built on the core never loses a valid grant because of the platform: no false "needs reconnect", and no lost rotated refresh token. This must hold with a web process plus worker processes, and with several replicas. Measured by:
-- **0** spurious `reauthRequired` flips;
-- **exactly 1** token-endpoint refresh per grant per expiry window in the concurrency test matrix (§7);
-- **0** "pool exhausted" failures with waiters ≥ pool size.
+**Primary goal: correct grant handling by default for every new OAuth integration.** An integration built on the core never loses a valid grant because of the platform (no false "needs reconnect", no lost rotated refresh token), with a web process plus worker processes and several replicas. Measured by **0** spurious invalidations (every `invalidated` grant in the test matrix traces to a terminal outcome of §1.4.5), **exactly 1** token-endpoint refresh per grant per expiry window in the concurrency test matrix (§7), and **0** "pool exhausted" failures with waiters ≥ pool size.
 
-**Secondary goal: reuse.** The OAuth part of any new tenant-level provider costs **≤ 5 atomic commits** on top of the core (descriptor and client fields; PKCE, authorize URL and connect routes; External Account picker and tab; adapter, health check and keep-alive; disconnect hook), with no provider-local lock or refresh code. Self-contained, it costs about **9** (§4.6). Xero will be the first provider measured against this.
+**Secondary goal: reuse.** The OAuth part of a new tenant-level provider costs **≤ 5 atomic commits** on top of the core, with no provider-local lock, refresh or PKCE code: (1) descriptor and client fields; (2) initiate and callback routes; (3) External Account picker and tab; (4) adapter, health check and keep-alive; (5) disconnect hook. Self-contained it costs about **9** (§4.6).
 
-**What is NOT in scope.** Only what the core must provide for integrations like Xero; nothing built speculatively for providers that don't exist yet.
-- User login / SSO / OIDC relying-party work (`packages/enterprise/src/modules/sso`). Only the boundary is covered (§4.5.4).
-- Acting as an OAuth *server*: `agent_orchestrator` identity and MCP OAuth 2.1 ([open-mercato/open-mercato#6218](https://github.com/open-mercato/open-mercato/issues/6218)).
-- The `client_credentials`, `password`, device-code and JWT-bearer grants. Xero's discovery document lists `client_credentials` for "Custom Connections", but Xero doesn't need it here.
-- Customer-portal users connecting accounts.
-- Generic connect routes, a generic admin Connect UI, rendering the `oauth` credential field type, and generalizing the hub's state cookie. All go to Phase 3, with a trigger.
-- Migrating the live Gmail/MS365 hub onto the core. This is Phase 3 and optional, because the race it would fix is benign for those providers today (§1.4.6).
-- DPoP, PAR, JAR, mTLS sender-constraining and dynamic client registration.
+**Not in scope** (nothing speculative): user login / SSO / OIDC relying-party work (`packages/enterprise/src/modules/sso`; only the boundary, §4.5.4); acting as an OAuth *server* (`agent_orchestrator`, MCP OAuth 2.1, [#6218](https://github.com/open-mercato/open-mercato/issues/6218)); the `client_credentials`, `password`, device-code and JWT-bearer grants; customer-portal users connecting accounts; generic connect routes, a generic Connect UI, rendering the `oauth` field type and generalizing the hub's state cookie (Phase 3, triggered); migrating the Gmail/MS365 hub (Phase 3, optional: the race is benign for them, §1.4.6); DPoP, PAR, JAR, mTLS sender-constraining, dynamic client registration; any specific provider.
 
 #### Checklist
-- [x] Measurable primary goal
-- [x] Scope exclusions listed
+
+- [x] Measurable primary goal; scope exclusions listed
 
 ### 1.3 Ubiquitous Language
 
-> One term = one meaning. Three collisions are resolved here: **"tenant"** (Open Mercato tenant vs
-> Xero tenant), **"connection"** (Xero's `/connections` resource vs "connected integration") and
-> **"organization"** (the Open Mercato organization in the Grant Owner key vs a Xero organisation, which
-> this spec always calls "Xero organisation" or External Account, never "org").
+> One term = one meaning. Two collisions are resolved here:
+> - **"tenant"** is always the Open Mercato tenant. A provider's own "tenant" or "organization" concept is an **External Account**.
+> - **"Disconnect"** (tenant-level grant: erases and revokes, not undoable) is not the hub's **channel disconnect** (per-user, keeps the row, undoable).
 
 | Term | Definition | Source of data | Period |
 |------|-----------|----------------|--------|
-| **Integration** | A registered `IntegrationDefinition` (e.g. `sync_xero`, `channel_gmail`). | `integration.ts` registry | — |
-| **Client Configuration** | The OAuth app registration the admin copied from the provider console: `clientId`, `clientSecret`, optional `scopes`. Tenant-wide and admin-edited. Read with `resolve()`, so the bundle fallthrough applies. | `integration_credentials` row, `integration_id = <integration>`, `user_id IS NULL` (or the bundle's row) | — |
-| **Grant Owner** | Who the delegated access belongs to: `(integrationId, tenantId, organizationId, userId \| null)`. `userId = null` means a tenant-level grant (Xero). `userId` set means a per-user grant (Gmail/MS365 mailbox). | `IntegrationScope` + integration id | — |
-| **OAuth Grant** | The aggregate for one Grant Owner: the Token Set plus status and metadata. There is at most one **live** grant row per Grant Owner. It is the **source of truth** for usability. In a bundle, the grant belongs to the child integration id, never to the bundle. | Grant Store | from Connect until Disconnect |
-| **Grant Status** | `active` or `invalidated`. `invalidated` = a terminal outcome was confirmed under the Grant Lock (the token endpoint returned `invalid_grant`, or a refresh was needed and no refresh token is stored); the grant is unusable until the next Connect. | OAuth Grant | — |
-| **Token Set** | `accessToken`, `refreshToken`, `expiresAt`, `grantedScopes`, `clientId` (the client that obtained it), `obtainedAt`, `refreshedAt`. | token endpoint response | access ≈ 30 min (Xero); refresh ≤ 60 days unused (Xero) |
-| **Grant Store** | Where an OAuth Grant is persisted: an encrypted `integration_credentials` row **separate from** the Client Configuration row (§1.4.2). | `integration_credentials` | — |
-| **Provider Descriptor** | Code-level declaration for each integration: endpoints, client-auth method, PKCE mode, scopes and hooks (§1.4.3). Never tenant-supplied. Passed per call; there is no global registry. | provider package | — |
-| **Refresh** | Exchanging the stored refresh token for a new Token Set at the token endpoint. Never sends `scope`. | token endpoint | — |
-| **Rotation** | The provider returns a new refresh token on Refresh. **Strict** = the old one stops working (Xero, after a 30-min retry grace). **Non-revoking** = the old one keeps working (Microsoft). **None** = no new token is returned (Google, typically). | provider docs | — |
-| **Grant Lock** | Cluster-wide mutual exclusion for one Grant Owner, taken by every grant write (Connect, External Account selection, Refresh, Disconnect, diagnostics). A transaction-scoped Postgres advisory lock, acquired with try-and-back-off so waiters hold no connection. Key: `hashtextextended('oauth_grant:' \|\| integrationId \|\| ':' \|\| tenantId \|\| ':' \|\| organizationId \|\| ':' \|\| coalesce(userId, '-'), 0)`. The explicit `oauth_grant:` namespace makes collisions with the other advisory-lock users (same bigint key space, some via `hashtext`) unlikely; a collision would only cause a spurious wait, never a wrong result. | Postgres | holder: ≤ one token-endpoint call (10 s default); waiter: ≤ 15 s |
-| **Token Provider** | The consumer-facing call: "give me an access token valid for at least N ms for this Grant Owner". Refreshes lazily under the Grant Lock. | `integrationOAuthGrantService` | per call |
-| **Token Failure** | The outcome of a failed Token Provider call, or of a resource-API failure the caller reports with `reportResourceChallenge`. Exactly one of `transient`, `grant_invalidated`, `client_misconfigured`, `scope_insufficient`, `not_connected`, `platform_unavailable` (§1.4.5). | Token Provider | — |
-| **Connect Failure** | The outcome of a failed Connect. Exactly one of `connect_cancelled`, `connect_state_invalid`, `connect_exchange_failed`, `client_misconfigured`, `organization_scope_required`, `oauth_base_url_not_configured`. Never sets `reauthRequired`. | provider callback | — |
-| **Reauth Flag** | `IntegrationState.reauthRequired`: a projection of Grant Status (`invalidated` ⇒ true, `active` or no grant ⇒ false) for tenant-level grants, written by the grant service in the same transaction as a status change, and only when the value actually changes. For OAuth-grant integrations the grant service is its only intended writer. It is not authoritative, and the banner doesn't read it (§3.5); it is kept for API compatibility. | `integration_states` | — |
-| **Connect** | The consent round trip: authorize redirect → callback → code exchange → grant persisted as `active`. The External Account may still be unselected at this point; it is chosen afterwards (`updateProviderData`). |
-| **Reconnect** | A Connect for a Grant Owner that already has a live grant (active or invalidated). It updates the live row in place under the Grant Lock; it never creates a second live row. | provider-owned routes (Phase 2) | ≤ 5 min state TTL |
-| **Disconnect** | Owner-initiated end of a grant. Local erasure happens under the lock; best-effort provider-side cleanup and revocation happen afterwards with the captured tokens. | admin action | — |
-| **External Account** | The provider-side thing the grant is used against, chosen after consent: a Xero organisation ("Xero tenant" in Xero's docs) or a Gmail mailbox. Never called "tenant" in this spec. | provider API | — |
-| **Provider Authorization** | The provider-side consent record behind a grant (Xero: the user's app authorization, visible as one or more Xero Connections). It can be **shared** by grants of different Grant Owners if the same provider user connects twice. | provider | — |
-| **Xero Connection** | Xero's `/connections` record linking a Provider Authorization to one Xero organisation (`id`, `tenantId`, `tenantType`, `tenantName`, `authEventId`). Provider-specific; owned by the Xero spec. | `GET https://api.xero.com/connections` | — |
+| **Integration** | A registered `IntegrationDefinition` (e.g. `channel_gmail`). | `integration.ts` registry | — |
+| **Client Configuration** | The OAuth app registration the admin copied from the provider console (`clientId`, `clientSecret`, optional `scopes`); tenant-wide, admin-edited, read with `resolve()` so the bundle fallthrough applies. | `integration_credentials` row, `user_id IS NULL` (or the bundle's) | — |
+| **Grant Owner** / **Tenant-level grant** | The Grant Owner is who the delegated access belongs to: `(integrationId, tenantId, organizationId, userId \| null)`, passed as an object so later dimensions are additive (§8). A tenant-level grant has `userId = null`: one per Open Mercato **organization** (`organizationId` is required). | `IntegrationScope` + integration id | — |
+| **OAuth Grant** | The aggregate for one Grant Owner (Token Set plus status and metadata): at most one **live** row per owner, the source of truth for usability, owned by the child integration in a bundle. | Grant Store | from Connect until Disconnect |
+| **Live grant / tombstone** | The grant row with `deleted_at IS NULL` / the blanked, soft-deleted row a Disconnect leaves. Tombstones are never read. | Grant Store | — |
+| **Grant Status** / **Grant Read Status** | Grant Status is `active` or `invalidated` (a terminal outcome confirmed under the Grant Lock; unusable until the next Connect). Grant Read Status is what a read reports, not stored: `active`, `invalidated`, `unavailable` (the grant can't be read; may be transient) or `none` (`null` in the API), via `readGrantStatus` (the only descriptor-free read) or `inspectGrant`. | OAuth Grant; reads | per read |
+| **Grant Revision** | `revisedAt`: the time of the last admin-driven change (Connect, External Account selection), never moved by Refresh; the optimistic-lock version for `updateProviderData` and Disconnect (§1.4.2). | OAuth Grant | — |
+| **Token Set** | `accessToken`, `refreshToken`, `expiresAt`, `tokenType`, `grantedScopes` from the token endpoint; the grant adds `clientId`, `obtainedAt` and `refreshedAt`. | token endpoint response | provider-defined |
+| **Grant Store** | An encrypted `integration_credentials` row **separate from** the Client Configuration row (§1.4.2). | `integration_credentials` | — |
+| **Provider Descriptor** | The code-level declaration per integration (endpoints, client auth, PKCE mode, scopes, hooks); never tenant-supplied, passed per call, no global registry (§1.4.3). | provider package | — |
+| **PKCE** | Proof Key for Code Exchange (RFC 7636): binds an authorization code to the session that requested it. | core helpers + provider state | per Connect |
+| **Refresh** / **Rotation** | Refresh exchanges the stored refresh token for a new Token Set and never sends `scope`. Rotation is the provider returning a new refresh token on Refresh: **strict** (the old one stops working, possibly after a reuse-grace window, RFC 9700 §4.14.2), **non-revoking** (it keeps working; Microsoft) or **none** (no new token; Google, typically). | token endpoint; provider docs | — |
+| **Grant Lock** | Cluster-wide mutual exclusion for one Grant Owner, taken by every grant write: a transaction-scoped Postgres advisory lock under the namespaced key of §10.1, whose waiters hold no connection. | Postgres | waiter ≤ 15 s (≤ 5 s for Disconnect) |
+| **Token Provider** / **Degraded token** | The Token Provider is the consumer-facing call "give me an access token valid for at least N ms for this Grant Owner" (`minValidityMs`, default the descriptor's `refreshSkewMs`), refreshing lazily under the Grant Lock. A degraded token is a stored access token still valid at call time but below `minValidityMs`, returned with `degraded: true` when no refresh is possible; an expired token is never returned. | `integrationOAuthGrantService` | per call |
+| **Token Failure** / **Resource Challenge outcome** | A Token Failure is the outcome of a failed Token Provider call: exactly one of `transient`, `grant_invalidated`, `client_misconfigured`, `not_connected`, `platform_unavailable` (§1.4.5). The Resource Challenge outcome `scope_insufficient` is the caller's classification (`classifyResourceChallenge`) of a resource-API `401`/`403` that signals insufficient scope, not a Token Failure. | Token Provider; provider adapter | per call |
+| **Connect Failure** | The outcome of a failed Connect: exactly one of `connect_cancelled`, `connect_state_invalid`, `connect_exchange_failed`, `connect_grant_unreadable`, `connect_persist_failed`, `client_misconfigured`, `organization_scope_required`, `oauth_base_url_not_configured`. Never changes an existing grant. | provider callback | — |
+| **Reauth Flag** | `IntegrationState.reauthRequired`, the existing column. Not written by the grant service and not read by the banner in Phase 1; the projection is Phase 3 (§1.4.2). | `integration_states` | — |
+| **Connect** / **Reconnect** | Connect is the consent round trip (PKCE authorize redirect → callback → code exchange → grant persisted as `active`), creating the live grant when none exists. Reconnect is a Connect over an existing live grant, updated in place under the Grant Lock (never a second live row); an unreadable grant is overwritten only with the admin's `replaceUnreadable` confirmation (§1.4.5). | provider-owned routes on core helpers | ≤ 5 min state TTL |
+| **Account pending** | A live `active` grant whose provider requires an External Account not yet chosen. The Token Provider works; the provider's adapter refuses to sync. | `providerData` empty | after Connect until selection |
+| **Connection State** | What the provider tab shows, derived by `inspectGrant`, never stored. In precedence order: `not_configured` > `not_connected` > `unavailable` > `invalidated` > `active`. A missing `APP_URL` is the separate flag `baseUrlMissing`, never a state. | `inspectGrant` | per read |
+| **Provider tab** | The provider-owned tab on the integration detail page with Connect, Reconnect, Disconnect, the redirect URI and the External Account picker; its id is `detailPage.connectTabId` (§3.5). | provider widget | — |
+| **Disconnect** | Admin-initiated end of a grant: local erasure under the lock, then best-effort provider cleanup and revocation. Aborts when the tokens can't be read unless `force: true` (§1.4.5). | admin action | — |
+| **External Account** / **Provider Authorization** | The External Account is the provider-side thing the grant is used against, chosen after consent (an organization in an accounting system, a mailbox), never called "tenant". The Provider Authorization is the provider-side consent record behind a grant; it can be **shared** by grants of different Grant Owners. | provider API | — |
+| **Keep-alive** | A provider-owned scheduled job that force-refreshes idle grants before the provider expires an unused refresh token (§1.4.4). | provider | provider-defined |
 
 #### Checklist
 - [x] Terms defined once; collisions resolved
 - [x] Sources and periods specified
-
+- 
 ### 1.4 Domain Model
 
 #### 1.4.1 Current state (from the code)
 
 | Question | Finding | Evidence |
 |---|---|---|
-| How many OAuth2 **client** flows exist? | **Three families, four implementations.** (a) Hub per-user auth-code: the `communication_channels` routes plus the Gmail adapter. MS365 (PR #5898) reuses the hub with "no packages/core changes". (b) Akeneo **password grant** + refresh; tokens live in memory per client instance and are never persisted, so Akeneo is not a consumer. (c) SSO OIDC login via `openid-client` v6 (enterprise). Separately, `agent_orchestrator` is an OAuth **server** (`client_credentials`, JWT-bearer). | `communication_channels/api/{post,get}/oauth/[provider]/*`; `channel-gmail/.../lib/oauth.ts`; `sync-akeneo/.../lib/client.ts:343-418`; `enterprise/src/modules/sso/lib/oidc-provider.ts` |
-| Consistent? | No. The token POST code differs: Gmail uses form-urlencoded via the hub's `requestOAuthToken`; Akeneo uses a JSON body with its own SSRF-guarded fetch; SSO uses a library. The hub's state cookie is a **port** of SSO's, because core may not import enterprise. | `communication_channels/lib/oauth-state.ts:1-22` |
-| Grant types (`grant_type` search) | `authorization_code` and `refresh_token` (Gmail/hub). `password` and `refresh_token` (Akeneo). `client_credentials` and `urn:ietf:params:oauth:grant-type:jwt-bearer` (agent_orchestrator, **server** side). | repo-wide search |
-| PKCE | **SSO: always** (S256). **Gmail: never.** The hub supports PKCE only as an adapter opt-in via the state `extra` field; MS365 opts in. | `sso/lib/state-cookie.ts:66`; `channel_gmail/lib/oauth.ts:64-76` |
-| OAuth/OIDC libraries | Only `packages/enterprise` has one: `openid-client ^6.8.4` (pulling in `oauth4webapi` and `jose`). Both are **ESM-only**, and neither is in core's Jest `transformIgnorePatterns`. | every `package.json`; `yarn.lock:29751`; `core/jest.config.cjs:44-46` |
-| Refresh handling | Hub `refreshCredentialsIfNeeded`: 60 s skew window. Single-flight uses an **in-process `Map`**. Refresh errors and persistence errors are both **swallowed**; the old credentials are returned. | `credential-refresh.ts:60,140,152-156` |
-| Correct across processes? | **No.** Workers run as a separate OS process: the eager default spawns one `queue worker --all` process, and opt-in lazy per-queue mode spawns one process per queue. A web route (`test-send`) also refreshes. The `Map` coordinates none of these, and there is no lock and no re-read. | `cli/src/mercato.ts:2354,2566`; `auto-spawn-workers.ts:19-42`; `api/post/channels/[id]/test-send/route.ts:217` |
-| Harmful today? | **Mostly benign for current providers.** Google documents refresh tokens as valid until revoked or expired, and the Gmail adapter keeps the old token when none is returned. Microsoft "doesn't revoke old refresh tokens when used". The code comment calling Gmail "rotating" is inaccurate. **Xero will be the first strict-rotation consumer.** | `credential-refresh.ts:52-59`; §12 |
-| Disconnect | The channel gets `status='disconnected'` and `credentialsRef=null`. The **token row stays, decryptable**. The comment says "the integrations module's retention policy sweeps it", but **no such sweep exists**: the only workers are the health probe and the log pruner. There is no provider-side revocation anywhere. `CredentialsService` has **no delete**. The disconnect command is *undoable*, and undo relies on the row surviving. | `commands/disconnect-channel.ts:48-57,135-138`; `integrations/workers/*` |
-| Generic admin UI for OAuth | **None.** `CredentialFieldType` declares `'oauth'` (with `authUrl`, `tokenUrl`, `scopes`, `clientIdField`, `clientSecretField`), and masking treats it as secret. The detail page and the bundle page both **silently filter it out**. No provider declares it; Gmail declares `clientId` as `text`. The hub's `useConnectChannel` hook is hard-wired to `/api/communication_channels/oauth/<provider>/initiate`, so it doesn't serve tenant-level providers. The detail page does support `type: 'custom'` fields, which a generic renderer could use. | `shared/src/modules/integrations/types.ts:37-102`; `integrations/backend/integrations/[id]/page.tsx:67-76,292,324`; `bundle/[id]/page.tsx:34-37`; `communication_channels/lib/use-connect-channel.ts:41` |
-| `IntegrationState.reauthRequired` | The column exists, the API returns it, and admin PUT can set it. `setReauthRequired()` exists but is **never called**, and **no UI renders the flag**. The live reauth signal is the per-channel `requires_reauth` status. `integrations.state.updated` is emitted only by the admin route. | `state-service.ts:125-127`; `api/[id]/state/route.ts:111-116` |
-| Real OAuth round-trip test | **None.** Unit tests stub `global.fetch`, and the in-process single-flight test is the only concurrency test. `TC-CHANNEL-EMAIL-A01` only checks that the initiate route doesn't return 404 or 5xx, and its comments still name the phantom `oauth_gmail` id. SSO's test mocks `openid-client` entirely. No fake OAuth/HTTP server fixture exists (`pushFake.ts` replaces SDKs; it doesn't run a server). | `TC-CHANNEL-EMAIL-A01-token-refresh.spec.ts`; `sso/lib/__tests__/oidc-provider.test.ts:1-4` |
-| Cluster-wide locking | `pg_advisory_xact_lock` is hand-rolled at **≥ 8 call sites**: attachments quota, notifications, query_index coverage, documents folders, sso config, record_locks (×2) and tillio. The only wrapper, `createTillioLock`, is package-private. It already holds the lock across remote HTTP calls. The scheduler's `LocalLockStrategy` locks only the *claim* and is single-instance. Cache has no lock primitive. | search `pg_advisory`; `tillio/lib/locking.ts`; `scheduler/lib/localLockStrategy.ts:7-43` |
-| DB constraints | `idle_in_transaction_session_timeout` defaults to 120 s. The pool defaults to **max 20** with a **6 s acquire timeout**. Worker concurrency is budgeted against the pool max on the assumption of one connection per in-flight job. `DB_STATEMENT_TIMEOUT_MS` is opt-in (57014). | `shared/src/lib/db/mikro.ts:118-133`; `cli/src/mercato.ts:575-590`; `worker-connection-budget.ts:58-66` |
-| Base URL / safe fetch | `getAppBaseUrl(req)` and `toAbsoluteUrl(req, path)` exist and are used by the hub callback. `safeOutboundFetch` exists. | `shared/src/lib/url.ts:240-250`; `shared/src/lib/url-safety.ts:223` |
-| Admin credential save | A **full replacement** (`{...incoming}`). Only *declared* secret fields are restored from the stored blob, so stored undeclared keys are dropped. The row's `updated_at` is the admin form's optimistic-lock version. So tokens stored beside `clientSecret` would be wiped by any admin save, and every refresh would 409 an open admin form. | `credentials-masking.ts:88-116`; `api/[id]/credentials/route.ts:185-228` |
-| Runtime-secret precedent | Tillio stores operator tokens under **its own integration id** (`tillio_operators`) in the same encrypted store. | `tillio/lib/operators-store.ts:5-8` |
-| Credential lookups | Tenant-level reads are strict: `buildCredentialsFilter` pins `userId = null`. `getRaw` falls back from the user row to the tenant row **only when `userId` is set**. There is no DB-level uniqueness for tenant-level rows: the partial unique index covers only `user_id IS NOT NULL`. | `credentials-service.ts:90-102,220-228`; `data/entities.ts:47-51` |
-| Health-check path | Providers declare `healthCheck.service`. Results persist via `health-service.ts`, a 15-min probe worker runs, and the detail page shows `details.code`. | `integrations/lib/health-service.ts`; `workers/health-probe.ts`; `page.tsx:953-956` |
-| Notification dedupe | `groupKey` dedupe runs under an advisory lock. There's an existing event → subscriber → notification pattern for channel reauth. | `notifications/lib/notificationService.ts:194-219`; `communication_channels/subscribers/channel-requires-reauth-notification.ts` |
-| data_sync consumer view | The engine resolves credentials **once per run** and passes a static blob. Import workers run at concurrency 5. Adapters already build their own container (`createRequestContainer()`), so they can resolve a Token Provider **without engine changes**. The run error taxonomy is pending upstream (PR #5450). | `data_sync/lib/sync-engine.ts:41-45,672-675`; `sync-akeneo/.../lib/adapter.ts:18` |
-| `official-modules` (all branches) | No OAuth2 authorization-code client and no persisted, background-refreshed tokens. `carrier-inpost` uses a static API token. `financial-pl` (KSeF, feature branch only) derives a short-lived access token per operation from a durable KSeF token or certificate; its `refreshToken` client method is never called and nothing is persisted. The DHL Parcel spec (no code yet) keeps its JWT pair in process memory and explicitly rejects persisting it. Neither is a consumer of this core; both follow the Akeneo shape. | `open-mercato/official-modules`: `packages/carrier-inpost/.../lib/client.ts`, `packages/financial-pl/.../lib/ksef-auth.ts` (branch `feat/financial-pl-invoice-ux`), `.ai/specs/SPEC-004-2026-03-25-carrier-dhl-parcel.md` |
+| OAuth2 **client** flows | Three families, four implementations, each with its own token POST: the hub's per-user auth-code (Gmail; MS365 PR #5898), Akeneo's in-memory password grant (not a consumer), SSO OIDC login via `openid-client` (enterprise, ESM-only). `agent_orchestrator` is a **server**. PKCE: SSO always, Gmail never, the hub only as an adapter opt-in; no reusable helper. | `communication_channels/lib/oauth-token.ts` |
+| Refresh across processes | The hub's single-flight is an in-process `Map` that swallows refresh and persistence errors, and workers are separate OS processes. Benign for Google and Microsoft (no strict rotation); the first strict-rotation provider is the first harmful case. | `credential-refresh.ts` |
+| Disconnect | The hub keeps the token row decryptable (no sweep exists), never revokes, and its disconnect is undoable; `CredentialsService` has no delete. | `commands/disconnect-channel.ts` |
+| Generic admin OAuth UI | None: the declared `oauth` field type is filtered out of the detail and bundle pages; `useConnectChannel` is hub-only. | `integrations/backend/integrations/[id]/page.tsx` |
+| `reauthRequired` and state `upsert` | The admin PUT writes the column, but `setReauthRequired()` is never called and no UI renders it. Latent defect: `upsert` creates a missing row with `isEnabled: false`, ignoring `defaultState.isEnabled`; a runtime `setReauthRequired` would make it common. Fixed separately (§4.1). | `state-service.ts` |
+| Advisory locks outside a transaction | Four sites run the lock SQL on the bare connection, so the xact lock is likely released at once. Out-of-scope follow-up. | `tillio/lib/locking.ts:19`; `sso/services/ssoConfigService.ts:366`; `record_locks/lib/recordLockService.ts:1558`; `scheduler/lib/localLockStrategy.ts:61`; contrast `documents/lib/folderHierarchySerialization.ts:26-27` |
+| Locking and DB constraints | `pg_advisory_xact_lock` is hand-rolled at ≥ 8 sites (the only wrapper is package-private and blocking). Pool max 20, 6 s acquire timeout, worker concurrency budgeted to the pool; `isTransientDbError` misses the pool timeout, `55P03` and `57014`. | `shared/src/lib/db/mikro.ts` |
+| Credential encryption and KMS | Each credentials call resolves the DEK separately; a Vault timeout looks like a missing DEK; a fallback hands out a derived key; a second, field-level layer has its own DEK cache. | `integrations/lib/credentials-service.ts:151-162`; `shared/src/lib/encryption/kms.ts:46-48,65-74`; `tenantDataEncryptionService.ts:43,273-275` |
+| Outbound timeouts | `fetchWithTimeout` bounds only the response headers; `withTimeout` doesn't bound a task that ignores its signal. | `shared/src/lib/http/fetchWithTimeout.ts:47-57,62-84` |
+| Access control | Logs, health and state PUT need `integrations.manage`; credentials `integrations.credentials.manage`; the detail page `integrations.view`. | `integrations/setup.ts` |
+| Base URL | `getAppBaseUrl` falls back to the request origin; `getSecurityEmailBaseUrl` reads `APP_URL` only. | `shared/src/lib/url.ts` |
+| Credential storage | The admin save is a full replacement that drops undeclared keys, versioned by the row's `updated_at`; Tillio keeps runtime tokens under its own integration id; tenant-level reads are strict (`userId = null`), with no DB uniqueness. | `credentials-masking.ts` |
+| Health and detail page | A provider `healthCheck.service`, a 15-min probe for enabled integrations, a badge from the stored result; a no-DEK read fails the run before the check; `?tab=<id>` opens any visible tab. | `integrations/lib/health-service.ts` |
+| Testing | No real OAuth round-trip test (unit tests stub `fetch`, no fake OAuth server); precedents exist for a flag-gated test-only route (`test-seed`) and a `testcontainers` real-Postgres suite in a required CI job (`packages/documents`). | `.github/workflows/ci.yml` |
+| Consumers | data_sync resolves credentials once per run, and adapters can call a Token Provider with no engine change; `official-modules` has no OAuth2 auth-code client and consumes core through published packages; Package Previews is maintainer-dispatched, same-repository only. | `data_sync/lib/sync-engine.ts` |
 
 #### 1.4.2 Entities
 
-**ClientConfiguration** (existing storage, unchanged). Read via `integrationCredentialsService.resolve()`, so the bundle fallthrough applies.
+**ClientConfiguration** (existing storage, unchanged), read via `integrationCredentialsService.resolve()`: `clientId` (text, required), `clientSecret` (secret, masked, required), `scopes` (text; blank → descriptor defaults).
 
-| Field | Type | Multi | Required | Notes |
-|---|---|---|---|---|
-| `clientId` | text | no | yes | declared `type: 'text'` |
-| `clientSecret` | secret | no | yes | masked on read |
-| `scopes` | text | no | no | blank → descriptor defaults |
+**OAuthGrant** (aggregate root; existing table, new row key), an encrypted blob in `integration_credentials`:
+- **Row key:** tenant-level `integration_id = '<integrationId>__oauth_grant'`, `user_id IS NULL` (a sibling key, as Tillio does; the admin credentials route can't address it). Per-user (hub, Phase 3): unchanged, so no data migration.
+- **Uniqueness and schema:** uniqueness among live rows is enforced by the Grant Lock around every write (I2; a partial unique index is Phase 3, R4); the blob schema is validated on every read, independently of the descriptor (`requiresRefreshToken` applies at Connect only).
+- **Lifecycle:** Connect updates the live row in place or inserts one, never restoring a tombstone; Disconnect blanks the blob and soft-deletes the row; every lookup filters `deleted_at IS NULL`.
 
-**OAuthGrant** (aggregate root; existing table, new row key). An encrypted blob in `integration_credentials`:
-- **Row key, tenant-level:** `integration_id = '<integrationId>__oauth_grant'`, `user_id IS NULL`. This is a sibling key, following the Tillio precedent. It isolates grant writes from the admin row's full-replace save, its masking merge and its optimistic-lock version. The admin credentials route cannot address it: `getIntegration` returns nothing, so the route answers 404.
-- **Row key, per-user (hub, Phase 3 only):** unchanged, `channel_<provider>` + `user_id`. Adopting the core therefore needs **no data migration**.
-- **Uniqueness:** there is no DB constraint for tenant-level rows. Uniqueness among **live** rows (`deleted_at IS NULL`) is enforced by the Grant Lock around every write (tested; see I2).
-- **Row lifecycle.**
-  - Disconnect blanks the blob and soft-deletes the row, which becomes a tombstone.
-  - `completeConnect` writes through `save()`, under the Grant Lock:
-    - **with a live row** (Reconnect), it updates that row in place (`credentials-service.ts:289-292`);
-    - **without one** (first Connect, or after a Disconnect), it inserts a new row.
+| Field | Type | Required |
+|---|---|---|
+| `version` / `status` | integer (starts at `1`) / `active` \| `invalidated` | yes |
+| `invalidatedReason` / `invalidatedAt` | `grant_rejected` \| `no_refresh_token` / datetime (UTC) | when `invalidated` |
+| `accessToken` / `refreshToken` | text (secret) | yes / at Connect, when `requiresRefreshToken` |
+| `expiresAt` / `tokenType` | datetime (UTC) / `Bearer` | yes |
+| `clientId` / `grantedScopes` | text / text, multi | yes / no |
+| `obtainedAt` / `refreshedAt` / `refreshCount` / `revisedAt` | datetime / datetime / integer / datetime (UTC) | yes / no / yes / yes |
+| `lastFailureClass` / `lastFailureAt` | `transient` \| `client_misconfigured` / datetime (UTC) | no |
+| `providerData` / `previousProviderData` | json / json | no |
 
-    It never restores a tombstone, because `save()` filters `deleted_at IS NULL` (`credentials-service.ts:95`).
-  - Every grant lookup filters `deleted_at IS NULL`, so tombstones are never read.
-  - Tombstones hold no secrets and accumulate one per disconnect cycle.
-
-| Field | Type | Multi | Required | Notes |
-|---|---|---|---|---|
-| `version` | integer | no | yes | blob schema version, starts at `1` |
-| `status` | select `active`\|`invalidated` | no | yes | source of truth for usability |
-| `invalidatedReason` | select `grant_rejected`\|`no_refresh_token` | no | when `invalidated` | |
-| `invalidatedAt` | datetime (UTC) | no | when `invalidated` | |
-| `accessToken` | text (secret) | no | yes | never returned by any admin API, never logged |
-| `refreshToken` | text (secret) | no | yes for offline grants | a Refresh response without `refresh_token` (rotation "None") keeps the stored one |
-| `expiresAt` | datetime (UTC) | no | yes | from `expires_in`, else the descriptor's default TTL |
-| `tokenType` | select `Bearer` | no | yes | case-insensitive compare |
-| `grantedScopes` | text | yes | no | at Connect: the response `scope`, else the requested scopes; on Refresh: the response `scope` if present, else the previous value (Refresh never sends `scope`) |
-| `clientId` | text | no | yes | the client that obtained the grant |
-| `obtainedAt` | datetime | no | yes | set at Connect; immutable |
-| `refreshedAt` | datetime | no | no | |
-| `refreshCount` | integer | no | yes | diagnostics |
-| `lastFailureClass` | select (Token Failure) | no | no | the most recent non-terminal failure (`transient`, `client_misconfigured`, `scope_insufficient`); diagnostics for `inspectGrant`/health. Never authoritative. Written only while the Grant Lock is held (a failed token-endpoint call, or `reportResourceChallenge`); a failure that prevents taking the lock or writing (lock deadline, DB, encryption) is not recorded. |
-| `lastFailureAt` | datetime (UTC) | no | no | set with `lastFailureClass`; **both** are cleared on the next successful Refresh or Connect |
-| `providerData` | json | no | no | provider-owned and non-secret (e.g. the chosen Xero organisation id and name). Empty after `completeConnect` until the provider sets it with `updateProviderData`. The core never interprets it. |
-
-**IntegrationState.reauthRequired** (existing). A projection written by the grant service **inside the same transaction** as a status change (Connect, invalidation, Disconnect), via `setReauthRequired` on a transaction-bound state service: `invalidated ⇒ true`, `active`/no grant ⇒ `false`.
-
-Rules for the projection write:
-- **Only on change.** Compare with the current value and skip the write if equal. Each write bumps `integration_states.updated_at`, which is the optimistic-lock version of the admin state PUT (`state/route.ts:94-97`). An admin who has the enable toggle open across a status change gets a 409 and retries; that residual is accepted.
-- **A missing state row is created with the definition defaults.** Today `setReauthRequired` → `upsert` creates a missing row with `isEnabled: input.isEnabled ?? false` (`state-service.ts:106`), ignoring `defaultState.isEnabled`, which only `resolveState` honours (`:22`). `sync_excel` and `webhooks` declare `defaultState.isEnabled: true`, so a first projection write would silently disable such an integration. P5 fixes `upsert` to create missing rows with the resolved defaults. It is a bug fix, not a contract change (§10.1).
-  - **Existing callers it also affects** (each omits `isEnabled` on a possibly missing row): the health service (`health-service.ts:130`), the API-version route (`api/[id]/version/route.ts:128`), the data_sync engine's health write (`data_sync/lib/sync-engine.ts:439`), run cancel (`data_sync/api/runs/[id]/cancel.ts:97`) and the admin state PUT when the body omits `isEnabled` (`state/route.ts:107`). For all of them, a missing row now gets the definition default instead of `false`; existing rows are unchanged.
-  - **No remediation of stored rows.** A row already created with `isEnabled = false` by one of these callers can't be told apart from a deliberate disable, so it is left as is.
-
-For integrations that hold an OAuth grant, the grant service is the only intended writer. The existing admin PUT can still write the flag (the API contract is STABLE: `updateStateSchema` accepts `reauthRequired`), but that **never changes the grant**. Because the banner reads the grant status and not the flag (§3.5), a manually written flag has no UI effect; it is overwritten at the next status change.
-
-The hot path (`getAccessToken` with a fresh token) never reads or writes state.
+Field rules: `providerData` is provider-owned and non-secret, cleared by every Connect (a non-empty value moves to `previousProviderData`) and set with `updateProviderData`; the core reads it only as empty or not (`hasExternalAccount`). A Refresh without `refresh_token` keeps the stored one, and without `scope` keeps `grantedScopes`. `lastFailureClass`/`lastFailureAt` are diagnostics, written only under the lock, never authoritative, cleared by the next successful Refresh or Connect. Per-field notes: Phase 1 feature spec.
 
 **Invariants**
-- **I1 Single refresher.** At most one Refresh per Grant Owner is in flight, cluster-wide.
-- **I2 Serialized writes.** Every grant write (Connect, `updateProviderData`, Refresh, Disconnect, diagnostics from `reportResourceChallenge`) takes the Grant Lock, re-reads the grant, and does all its DB I/O on the lock transaction's EntityManager. The grant write, the flag projection and the lock release commit atomically.
-- **I3 Trustworthy flag.** Grant Status becomes `invalidated` only from a terminal outcome observed while holding the lock: `invalid_grant` from the token endpoint, or a needed refresh with no stored refresh token (§1.4.5). It becomes `active` only through a successful Connect. The flag follows the status within the same commit.
-- **I4 Secret isolation.** Grant secrets never appear in the admin credentials API, in logs or telemetry, or in `sync_runs.parameters`.
-- **I5 Real disconnect (live database).** When Disconnect's lock section commits, the **live database** holds no decryptable refresh token for the owner (blob blanked, row soft-deleted), whatever happens to provider revocation.
-  - **Scope limit:** backups, snapshots and replicas taken earlier still hold the previous encrypted blob. It stays decryptable while the tenant's DEK exists, until backup retention expires.
-  - The platform does not purge backups. **Provider-side revocation is the only control over that residue**, which is why revocation is attempted and its outcome recorded (WF4).
-  - Security reviews should be told exactly this, not "tokens are gone".
+- **I1 Single refresher.** At most one Refresh of a live grant per Grant Owner is in flight, cluster-wide.
+- **I2 Serialized writes.** Every grant write (Connect, `updateProviderData`, Refresh, Disconnect) takes the Grant Lock, re-reads the grant and does all its DB I/O in the lock transaction; the write, its log entries and the lock release commit atomically.
+- **I3 Trustworthy status.** A grant becomes `invalidated` only from a terminal outcome observed under the lock (`invalid_grant`, or an expired access token with no stored refresh token), and `active` only through a successful Connect.
+- **I4 Secret isolation.** Grant secrets never appear in the admin credentials API, logs or telemetry, health `details`, or `sync_runs.parameters`.
+- **I5 Real disconnect (live database).** Once a Disconnect's lock section commits, the live database holds no decryptable refresh token for the owner, whatever happens to revocation; an unreadable grant is erased only with `force: true`. Earlier backups and replicas keep the encrypted blob until their retention expires; provider-side revocation is the only control over that residue, and security reviews are told exactly this.
 - **I6 Bounded lock.**
-  - The holder performs at most one external HTTP call (the token endpoint, 10 s timeout) while holding the lock.
-  - Waiters hold **no** connection while waiting (`pg_try_advisory_xact_lock` + back-off + re-read). The waiter deadline is 15 s, then the call fails `transient`.
-  - SQLSTATE `55P03` and `57014` both map to `transient`.
-  - The lock key always carries the `oauth_grant:` namespace (§1.3).
-  - **The lock transaction is never nested in a caller's transaction.** The container `em` is forked with `useContext: true`, so inside an open `em.transactional` MikroORM redirects every operation into that outer transaction (`workflows/lib/activity-executor.ts:1640-1659`). A nested lock transaction would become a savepoint: the lock would be held until the outer commit, and a rotated refresh token would commit only with the outer transaction, so an outer rollback would lose a token the provider has already rotated. The lock helper therefore always runs on a context-detached fork (`em.fork({ clear: true, freshEventManager: true, useContext: false })`, the query_index/webhooks/workflows convention) and commits on its own connection.
-  - A caller that is itself inside a transaction still holds that transaction's connection while it waits, and uses a second one for the lock transaction. Adapters call the Token Provider outside their own transactions; the worker connection budget (one connection per in-flight job) assumes this.
-- **I7 Strict ownership.** A grant lookup for owner X never returns owner Y's grant. Tenant-level lookups are strict by construction. Per-user grant lookups (Phase 3) must not use `getRaw`'s user→tenant fallback.
-- **Transaction-bound services.** Inside the lock, the grant service builds the credentials, state and log services from the core factories bound to the lock transaction's EntityManager. Consequences:
-  - DI overrides of `integrationCredentialsService` are **not** used for grant rows; this is deliberate, because the write must be in the lock transaction;
-  - `erase` is always present on that instance;
-  - if it were somehow missing, Disconnect fails closed instead of skipping the erase.
+  - The holder makes at most one token-endpoint call, bounded at 10 s for the whole exchange, body included; waiters hold no connection, and their deadline is 15 s (5 s for Disconnect), then `transient`.
+  - The DEK is pinned once per operation and resolved before the lock; the decrypt and the encrypt under the lock use the same DEK.
+  - No token call without a readable grant: the token endpoint is called only if the grant decrypted and validated with the pinned DEK.
+  - The lock fork is detached from the caller's context: never nested in a caller's transaction, it keeps the request's subscribers (including tenant field encryption) and runs the lock SQL in the lock transaction.
+  - The field-level encryption layer follows platform behaviour and isn't pinned (§1.4.6). Mechanics: Phase 1 feature spec.
+- **I7 Strict ownership.** A lookup for owner X never returns owner Y's grant; per-user lookups (Phase 3) must not use `getRaw`'s user→tenant fallback.
+- **Transaction-bound services.** Inside the lock the grant service builds the credentials and log services from the core factories bound to the lock transaction, so DI overrides of `integrationCredentialsService` don't apply to grant rows (a contract note, §10.1); Disconnect erases through `eraseIntegrationCredentials`.
+
+**Revision rule.** `updateProviderData` and `disconnect` take `expectedRevisedAt` (the value the admin's screen was built from) and compare it with the stored `revisedAt` under the lock, after decrypt, with the platform's `assertOptimisticLock` (`resourceKind: 'integrations.oauth_grant'`); a mismatch writes nothing and returns the standard 409 (`surfaceRecordConflict` on the tab). Connect is last-writer-wins and takes no revision; Refresh never moves `revisedAt`, so background refreshes don't invalidate open screens. A forced Disconnect over an unreadable blob erases without the check. Provider routes MUST send the value (§1.4.3). **`IntegrationState.reauthRequired`** is not written in Phase 1: the grant service never touches `integration_states` and the banner reads the grant status. Projecting Grant Status onto the flag is a Phase 3 item shipped with the notification, and depends on the independent `upsert` defaults fix; stored rows are not remediated.
 
 #### 1.4.3 Provider Descriptor
 
-This is the code-level contract; the values are provider-owned. It is passed to every grant-service call; there is no global registry.
+The code-level contract; values are provider-owned. Passed to every grant-service call except `readGrantStatus`; no global registry. Every descriptor-taking entry point validates the whole descriptor and checks `descriptor.integrationId === owner.integrationId`, throwing `OAuthDescriptorError` (a programming error, not a Connect Failure) before any I/O.
 
-| Field | Type | Required | Default | Xero value (Xero spec verifies) |
-|---|---|---|---|---|
-| `integrationId` | text | yes | — | `sync_xero` (name owned by the Xero spec) |
-| `authorizationEndpoint` | url | yes | — | `https://login.xero.com/identity/connect/authorize` |
-| `tokenEndpoint` | url | yes | — | `https://identity.xero.com/connect/token` |
-| `revocationEndpoint` | url | no | — | `https://identity.xero.com/connect/revocation` |
-| `clientAuthMethod` | select `client_secret_basic`\|`client_secret_post` | yes | `client_secret_basic` | basic (both advertised) |
-| `pkce` | select `S256`\|`none` | no | `S256` | `S256` (acceptance for web-app clients to be verified, Q2) |
-| `defaultScopes` | text, multi | yes | — | `offline_access` + granular accounting scopes (apps created on or after 2026-03-02 cannot get `accounting.transactions`) |
-| `extraAuthorizeParams` | json | no | `{}` | — |
-| `defaultAccessTokenTtlSec` | integer | no | `3600` | 1800 |
-| `refreshSkewMs` | integer | no | `120000` | 120000 |
-| `revokePreviousOnReconnect` | boolean | no | `false` | `false` (a shared Provider Authorization could be killed; Q8) |
-| `onAfterDisconnect(captured)` | hook | no | — | `DELETE https://api.xero.com/connections/{id}`, run after the lock is released |
+| Field | Type | Default |
+|---|---|---|
+| `integrationId` | text (= the Grant Owner's) | required |
+| `authorizationEndpoint`, `tokenEndpoint` / `revocationEndpoint` | url / url (RFC 7009; absent ⇒ `oauth_revocation_unsupported`) | required / — |
+| `clientAuthMethod` | `client_secret_basic` \| `client_secret_post` | `client_secret_basic` |
+| `pkce` | `S256` \| `none` (only for a provider that rejects PKCE) | `S256` |
+| `defaultScopes` / `extraAuthorizeParams` | text, multi / json | required / `{}` |
+| `requiresRefreshToken` | boolean (checked at Connect only) | `true` |
+| `defaultAccessTokenTtlSec` / `refreshSkewMs` | integer (TTL when `expires_in` is missing) / integer (default `minValidityMs`) | `3600` / `120000` |
+| `onAfterDisconnect(ctx)` | hook, run after release within an 8 s budget; MUST honour `ctx.signal` | — |
 
-**Relationship to `IntegrationCredentialFieldOauth`.** That exported type (`authUrl`, `tokenUrl`, `scopes`, `clientIdField`, `clientSecretField`) is a *form-field* declaration for the admin UI, and no one uses it. The descriptor is *runtime protocol* configuration (auth method, PKCE, hooks, TTLs) that the form cannot express. The two diverge deliberately. Phase 3's generic renderer derives the `oauth` field from a descriptor rather than the reverse. The type is left untouched (STABLE).
+The exported `IntegrationCredentialFieldOauth` is a form-field declaration and stays untouched (STABLE); Phase 3's generic renderer derives the `oauth` field from a descriptor. Endpoints are code constants, so the token and revoke calls need no SSRF guard; tenant-configurable endpoints would require `safeOutboundFetch` and a mix-up review (R1). Each call bounds the whole exchange, body included (Phase 1 feature spec). **Protocol helpers** (P2a): `createPkcePair()`, `resolveOAuthRedirectUri(req | undefined, path)` (`APP_URL` only, never the request origin, Q9), `buildAuthorizationUrl(...)` (requires a `codeChallenge` unless `pkce` is `none`), `exchangeAuthorizationCode(...)`. Signatures: Phase 1 feature spec.
 
-Endpoints are code constants, never tenant input, so the token client uses `fetch` with a timeout. A future descriptor with tenant-configurable endpoints must inject `safeOutboundFetch`.
+**Provider route contract (normative; the long-form contract is a P6 docs page).** The core owns the helpers; the provider owns the routes and the tab. Every provider implementation MUST:
+1. Require `integrations.credentials.manage` on initiate, callback, External Account save and Disconnect; run the integrations mutation guards (`runIntegrationMutationGuards`, `resourceKind: 'integrations.oauth_grant'`), which serve interceptors only; reject "all organizations" with `organizationScopeRequiredResponse()`.
+2. Bind the state to the Grant Owner: the callback takes the owner from the verified state, never the current organization selection, and checks the state's tenant and organization against the session (mismatch → `connect_state_invalid`).
+3. Verify the state with `expectedProviderKey` and `expectedState` set; it is single-use and expires after ≤ 5 min (single use depends on PR [#6267](https://github.com/open-mercato/open-mercato/pull/6267), a hard prerequisite of Phase 2).
+4. Store the PKCE verifier in the state `extra` and pass it to `exchangeAuthorizationCode`.
+5. Use a provider-specific cookie name, never the hub's `om_cc_oauth_state`.
+6. Build the redirect URI with `resolveOAuthRedirectUri(req, path)` in both legs, passing the request.
+7. On External Account save and Disconnect, carry the Grant Revision (`buildOptimisticLockHeader` → `readOptimisticLockExpected` → `expectedRevisedAt`) and return the grant service's standard 409 body.
+8. Show the redirect URI on the tab with a copy button; disable Connect and Reconnect while `inspectGrant().baseUrlMissing`.
+9. Not declare `defaultState.isEnabled: true` until the `upsert` defaults fix lands (it would silently disable the integration at its first health run).
+10. In state `unavailable`, offer "Replace unreadable connection" behind a confirm dialog; carry `replaceUnreadable` only in the encrypted state, strictly parsed from `extra`, never as a callback query parameter; every other Connect passes `false`.
 
 #### 1.4.4 Domain events and signals
 
-| Signal | Status | When | Notes |
+Deliberately **not** added (each ID is frozen once added, so each arrives with its first consumer in Phase 3):
+- `integrations.oauth_grant.invalidated`: the Phase 1 signals are the banner (`readGrantStatus`) and the health badge (`mapInspectionToHealth`).
+- `integrations.oauth_grant.connected` / `.disconnected`: no consumer yet; the integration log is the audit trail.
+- Notification `integrations.integration.reauth_required`: the banner and the badge cover Phase 1.
+- Emissions of `integrations.state.updated` and `integrations.credentials.updated`: grant writes emit neither.
+
+**Log codes:** written with `integrationLogService.write` under the plain `integrationId`, full code `integrations.oauth_<reason>`, no secrets (I4); every disconnect entry carries a `disconnectId`.
+
+| Log code | Level | Written by | On |
 |---|---|---|---|
-| `integrations.oauth_grant.invalidated` | **not added in Phase 1** | — | The banner (flag) is the Phase 1 signal. An event ID is frozen once added, so it arrives with its first consumer (the notification, Phase 3). |
-| `…oauth_grant.connected` / `…disconnected` | **not added** | — | No consumer yet, and an event ID is frozen once added. Add when a consumer appears (e.g. a data_sync subscriber pausing schedules on disconnect). The audit trail is covered by integration log entries. |
-| `integrations.state.updated` | existing | emitted **after commit** for every projection change of `reauthRequired` | Same payload shape and the same fields. Runtime emissions send `userId: null` (the admin route sends `auth.sub`); the field is never omitted, so subscribers see a new value, not a missing field. The event has no `clientBroadcast`, so it doesn't reach the browser; the detail page shows the new state on its next load. It is not `excludeFromTriggers`, so workflow triggers on it now also fire from workers. |
-| `integrations.credentials.updated` | existing | **not** emitted for grant writes | a refresh every ~30 min is not an admin credential edit |
-| Notification `integrations.integration.reauth_required` | **not added in Phase 1** | — | A new notification type is frozen once added. The banner covers Phase 1; the notification is a Phase 3 item. |
-| Integration log entries | existing (`integrationLogService.write`, append-only; `write` because the `scoped()` helpers take no `code`) | `oauth.connected`, `oauth.external_account_selected`, `oauth.invalidated`, `oauth.disconnected` + `oauth.revocation_pending` (written **in the erase transaction**), then one of `oauth.revocation_confirmed`, `oauth.revocation_failed`, `oauth.revocation_skipped_reconnected`, `oauth.revocation_skipped_invalidated` (after release) | A `revocation_pending` with no outcome entry **older than 5 minutes** means the process died between erase and revoke. It is shown as "revocation not confirmed" in the Logs tab and the provider tab, and can be found by query. Before the 5 minutes, the revoke may still be in flight. No secrets in payloads (I4). |
-| Health status | existing (provider `healthCheck.service`) | the provider's health check calls **`inspectGrant`** (below) and maps the result to `details.code` | **single writer:** the grant service never writes health |
+| `integrations.oauth_connected` / `integrations.oauth_external_account_selected` | info | `completeConnect` / `updateProviderData` | the lock transaction |
+| `integrations.oauth_connect_persist_failed` | warn | `completeConnect`, after a rollback or a failed DEK resolution | a context-detached fork |
+| `integrations.oauth_invalidated` | warn | the refresh that observed the terminal outcome, exactly once | the lock transaction |
+| `integrations.oauth_disconnected` + `integrations.oauth_revocation_pending` | info + warn | `disconnect` | the erase transaction |
+| `integrations.oauth_revocation_confirmed` / `integrations.oauth_revocation_unsupported` / `integrations.oauth_revocation_skipped_reconnected` / `integrations.oauth_revocation_skipped_invalidated` | info | `disconnect`, after release (the skips attempt nothing) | a context-detached fork |
+| `integrations.oauth_revocation_failed` | error | `disconnect`, after release: provider error, `hook_failed` or `undecryptable` | a context-detached fork |
 
-**Log codes and levels.** Each entry's `code` uses the `module.reason` shape that telemetry groups on (`shared/src/lib/telemetry/error-code.ts:12`): `integrations.oauth_connected`, `integrations.oauth_invalidated`, `integrations.oauth_revocation_failed`, and so on (the short names above are the reasons). An `error`-level entry is also reported to telemetry right after its flush (`log-service.ts:112-113`), so levels are chosen deliberately:
-- `info`: connected, external_account_selected, disconnected, revocation_confirmed, revocation_skipped_*;
-- `warn`: invalidated (an expected external event, e.g. the user removed the app) and revocation_pending;
-- `error`: only revocation_failed, which is written after the lock is released, outside any transaction that could still roll back.
+**Health codes** (`OAUTH_HEALTH_CODES`): the provider's health check returns `mapInspectionToHealth(await inspectGrant(...))`, a pure mapping that never puts a token in `details`; the grant service never writes health.
 
-**Health check is not a refresher.**
+| Health code | Status | From `inspectGrant` (precedence top to bottom) |
+|---|---|---|
+| `oauth.platform_unavailable` | unhealthy | `status: 'unavailable'` |
+| `oauth.not_connected` | unhealthy | `status: 'none'` |
+| `oauth.invalidated` | unhealthy | `status: 'invalidated'` |
+| `oauth.client_changed` | unhealthy | `clientChanged` |
+| `oauth.client_misconfigured` | unhealthy | `lastFailureClass: 'client_misconfigured'` |
+| `oauth.transient` | degraded | `lastFailureClass: 'transient'` |
+| `oauth.scope_drift` | degraded | `missingScopes` non-empty |
+| `oauth.connected` | healthy | otherwise |
+| `oauth.scope_insufficient` | unhealthy | never from `inspectGrant`; only from the provider's own resource call |
 
-The probe runs every 15 min, for **enabled** integrations only (`workers/health-probe.ts:49-50`). If the health check called `getAccessToken`, it would become a hidden refresher:
-- a 30-min Xero token would be refreshed about every 30 min for every enabled tenant, idle or not;
-- the probe would compete for the Grant Lock;
-- a 15 s lock wait plus a 10 s token call exceeds `HEALTH_CHECK_TIMEOUT_MS` (10 s), so the probe would report "timed out" while the refresh carried on in the background.
-
-So the health check calls **`inspectGrant(descriptor, owner)`** instead:
-- **No token-endpoint call, no blocking lock.**
-- It returns `{ status, expiresAt, refreshedAt, obtainedAt, lastFailureClass, clientChanged, hasExternalAccount }` and, only if the stored access token is still valid, that token (for an optional cheap provider call).
-- It takes no lock and writes nothing.
-- On a decrypt failure it returns `{ status: 'unavailable' }` rather than throwing.
-
-**Idle-grant keep-alive is explicit, not a side effect of the probe (Q6).** The provider owns a scheduled job, daily for Xero. When `inspectGrant().refreshedAt` is older than 7 days and the integration is enabled, it calls `getAccessToken({ forceRefresh: true })`. A disabled integration is not kept alive; its grant may idle out, and re-enabling it may then require a Reconnect. That keeps a Xero refresh token far from its 60-day idle expiry at a cost of about 1 refresh per week per idle tenant.
+A missing DEK shows through the existing platform path (the health run fails, the detail page shows `unconfigured`), not through these codes. The badge reads the last probe, so it can lag a grant change by up to 15 min. **The health check is not a refresher:** `inspectGrant` makes no token call, takes no lock and writes nothing (R10). **Keep-alive is explicit (Q6):** a provider-owned job calls `getAccessToken({ forceRefresh: true })` for enabled integrations whose grant has idled past a provider-chosen threshold; enumeration is the consumer's (`listGrantOwners` is Phase 3). **Revocation state** is derived, not stored: with no live grant, `inspectGrant` returns `lastDisconnect: { at, disconnectId, revocation: 'pending' | 'confirmed' | 'failed' | 'unsupported' | 'skipped' }` from the disconnect log entries; the tab treats `pending` older than 5 minutes as "revocation not confirmed".
 
 #### 1.4.5 Failure classification (the trust contract)
 
-**Token Provider (`getAccessToken`):**
+**Token Provider (`getAccessToken`).** Observations are made under the Grant Lock after a re-read, unless noted. "Unchanged" means status and tokens; diagnostics follow §1.4.2.
 
-"Grant after: unchanged" means **status and tokens** are unchanged. Diagnostics (`lastFailureClass`, `lastFailureAt`) follow the rule in §1.4.2.
+| Token Failure | Meaning | Grant effect | Retry |
+|---|---|---|---|
+| `grant_invalidated` | the grant is `invalidated` (no network call), or Refresh got `invalid_grant` (`grant_rejected`), or the access token expired with no refresh token stored (`no_refresh_token`) | `invalidated`, in the same commit as `oauth_invalidated` | no; Reconnect |
+| `client_misconfigured` | `invalid_client` / `unauthorized_client`; another permanent 4xx (`token_endpoint_rejected`, with the provider code); the grant's `clientId` differs from the Client Configuration (`client_changed`, on read); client credentials missing (`client_not_configured`) | unchanged, `active` | no; the admin fixes the configuration |
+| `transient` | network error, timeout, 5xx, 429, non-JSON, `temporarily_unavailable`, `server_error`, lock deadline, or a transient DB error | unchanged | back off; a stored token still valid at call time is returned `degraded` (never for a `rejectedAccessToken` call) |
+| `platform_unavailable` | no DEK, a field-level layer that couldn't be opened, or a blob that doesn't decrypt or validate; no token call (I6) | unchanged, never invalidated | fail closed; may be transient (a KMS outage) |
+| `not_connected` | no live grant | — | no; "Connect first", never "reconnect" |
 
-| Observation (under the Grant Lock after re-read, unless noted) | Token Failure | Grant after | Flag | Caller action |
-|---|---|---|---|---|
-| Grant `status = invalidated` (no network call; lock not needed) | `grant_invalidated` | unchanged | unchanged | stop; Reconnect |
-| Refresh → `400 invalid_grant` | `grant_invalidated` (`grant_rejected`) | `invalidated` | **true** (same commit) | stop; Reconnect |
-| Access token expired, no refresh token stored | `grant_invalidated` (`no_refresh_token`) | `invalidated` | **true** | Reconnect |
-| Refresh → `invalid_client` / `unauthorized_client` (400/401) | `client_misconfigured` | unchanged, `active` | unchanged | admin fixes Client ID/Secret |
-| Grant `clientId` ≠ current ClientConfiguration `clientId` (checked on read, no network call) | `client_misconfigured` (`client_changed`) | unchanged, `active` | unchanged | revert the Client ID, or Reconnect with the new client |
-| Network error, timeout, DNS, 5xx, 429, non-JSON, `temporarily_unavailable`, `server_error`, other 4xx `error` codes, lock deadline, `55P03`, `57014`, and any DB error for which `isTransientDbError` is true (connection loss, pool acquire timeout; `shared/src/lib/db/pg-errors.ts:137`) | `transient` | unchanged | unchanged | Back off. If the stored access token is still valid **now**, return it with `degraded: true`. It may be below the requested `minValidityMs`, so callers that can't accept that treat `degraded` as `transient`. |
-| `CredentialsEncryptionUnavailableError` (reasons `no-dek` and `sealed-while-disabled`), or a grant blob that decrypts to nothing or fails schema validation | `platform_unavailable` | unchanged | unchanged | Operator configuration problem; fail closed. Never treated as `not_connected`, because a corrupt or unreadable grant is not a disconnect. |
-| No live grant row | `not_connected` | — | unchanged | "Connect first", never "reconnect" |
-| Resource API `401` whose `WWW-Authenticate` carries `insufficient_scope` or Xero's `insufficent_scope`. Xero sends it as a bare token (`WWW-Authenticate:insufficent_scope`, `developer.xero.com/faq/granular-scopes`), not as RFC 6750 `Bearer error="insufficient_scope"`, so match both forms case-insensitively. The caller reports it with `reportResourceChallenge(descriptor, owner, challenge)`, which uses a non-blocking try-lock (skipped if busy) and records `lastFailureClass = scope_insufficient`. | `scope_insufficient` | unchanged, `active` — **no refresh** (the token is valid; refreshing re-grants the same too-narrow scopes) | unchanged | stop that call; health `oauth.scope_insufficient` ("this integration needs additional permissions — update scopes and reconnect"); not runtime-recoverable without a descriptor/config scope change |
-| Resource API `401` with token T (any other challenge) → the caller passes `rejectedAccessToken: T` | — | If, after the re-read under the lock, the stored `accessToken == T` **and** `refreshedAt` is earlier than the call's start: one forced Refresh. Otherwise return the stored token. | — | Retry once. A second `401` is a **resource error**, never `grant_invalidated`. A caller must not loop by passing each new token back as `rejectedAccessToken`. |
+- **After a resource `401`** the caller passes `rejectedAccessToken`: one forced Refresh only if the stored token still equals it and wasn't refreshed since the call started; a second `401` is a resource error, never `grant_invalidated`.
+- **One refresh per window:** no call refreshes if `refreshedAt ?? obtainedAt` is at or after its start, which bounds `forceRefresh`, `rejectedAccessToken` and a large `minValidityMs` alike (I1).
+- **No retry storm:** a waiter returns a holder's `transient` or `client_misconfigured` recorded after its own start, without calling the token endpoint.
+- **Anti-corruption:** token responses are validated at the boundary; a Refresh 200 carrying a `refresh_token` with an unusable access token persists only the refresh token and returns `transient`.
+- **Scope:** Refresh never sends `scope`; scope drift is advisory (`oauth.scope_drift`). An insufficient-scope challenge (`scope_insufficient`) triggers no refresh, leaves the grant `active` and is recorded nowhere in Phase 1.
 
-Notes:
-- Refresh never sends `scope`. **Scope drift** (configured scopes ⊄ `grantedScopes`) is *advisory*: the health check reports `oauth.scope_drift` ("reconnect to grant new permissions"). The grant stays usable.
-- Because every writer takes the lock and re-reads, "the stored refresh token changed while I waited" is handled by the re-read, not by a failure row.
-- **Forced refresh is bounded.** `forceRefresh` (keep-alive) and `rejectedAccessToken` refresh only if, after the re-read under the lock, `refreshedAt` is earlier than the start of the call. A refresh that happened meanwhile satisfies them, so I1 (one refresh per window) holds for forced calls too.
-- **Anti-corruption for token responses.** Token responses are parsed and validated at the boundary; a response without `access_token` or with a non-`Bearer` `token_type` is `connect_exchange_failed` (Connect) or `transient` (Refresh), and nothing partial is stored.
-- Current hub defects this contract avoids:
-  - `isReauthError` matches `/unauthorized/`, and so also `unauthorized_client`.
-  - A swallowed transient refresh error lets an expired token reach the API, whose `401` is then read as reauth.
+**Connect Failures** (provider initiate and callback); none changes an existing grant:
+- `connect_cancelled`: `error=access_denied`. `connect_state_invalid`: missing, expired, replayed or mismatched state (rule 2), or a missing PKCE verifier.
+- `connect_exchange_failed`: the code exchange fails (`invalid_grant`, a verifier or redirect-URI mismatch, network, an invalid response), or no `refresh_token` while `requiresRefreshToken`, except on a Reconnect over an `active` grant with the same `clientId`, which keeps the stored one (over an `invalidated` grant it stays `invalidated`).
+- `connect_grant_unreadable`: a plain Reconnect over a grant whose blob envelope doesn't decrypt or validate with the pinned DEK. `connect_persist_failed`: the exchange succeeded but `completeConnect` couldn't commit (lock deadline, no DEK, an unopened field-level layer, DB); logged on a context-detached fork.
+- `client_misconfigured`: `invalid_client` / `unauthorized_client` on the exchange, or no Client Configuration at initiate. `organization_scope_required`: "all organizations" selected. `oauth_base_url_not_configured`: no `APP_URL` in production, or a request origin that isn't an allowed app origin (Q9).
+- Tokens obtained by a failed Connect are discarded, not revoked: revoking could also revoke a Provider Authorization shared with an existing grant (Q8).
 
-  (`error-classification.ts:125-129`, `credential-refresh.ts:140`.)
+**`replaceUnreadable`.** Only a blob envelope that doesn't decrypt or validate with the pinned DEK counts as an unreadable grant, and only the admin's explicit confirmation, `completeConnect(..., { replaceUnreadable: true })` carried in the verified state (rule 10), overwrites it like a first Connect (no refresh token kept, no `previousProviderData`). An unopened field-level layer or a missing DEK is never overwritten, flag or not: Connect fails `connect_persist_failed`, and only a forced Disconnect followed by a Connect replaces such a grant. How the read tells the layers apart: Phase 1 feature spec (layered read).
 
-**Connect (provider callback):**
-- `connect_cancelled`: `error=access_denied`.
-- `connect_state_invalid`: missing, expired, replayed or mismatched state.
-- `connect_exchange_failed`:
-  - `invalid_grant` on the code exchange;
-  - a redirect-URI mismatch;
-  - a network failure;
-  - an invalid token response;
-  - a response without `refresh_token` when the descriptor's scopes request offline access (for Xero, `offline_access`). Otherwise that grant would "expire" 30 minutes later with a misleading reconnect prompt.
-- `client_misconfigured`: `invalid_client`.
-- `organization_scope_required`.
-- `oauth_base_url_not_configured`: neither `NEXT_PUBLIC_APP_URL` nor `APP_URL` is set (Q9).
+**Grant writes** (`updateProviderData`, `disconnect`), in check order: DEK (before the lock), lock, live row, decrypt and validate, revision. With readable tokens, `force` changes nothing; the provider decides whether its UI exposes it.
 
-None of these touches an existing grant or the flag.
+| Operation | Observation | Result | Grant after |
+|---|---|---|---|
+| both | lock deadline (15 s; 5 s for `disconnect`) or a transient DB error | `transient` | unchanged |
+| `updateProviderData` / `disconnect` | no live grant | `not_connected` (for `disconnect` a no-op with no log entries) | — |
+| `updateProviderData` | no DEK, unopened field-level layer, or unreadable blob | `platform_unavailable` | unchanged |
+| `disconnect` (default) | no DEK, unopened field-level layer, or unreadable blob | `disconnect_tokens_unreadable` (retryable; nothing erased, no revoke) | unchanged |
+| `disconnect({ force: true })` | same | erased without the tokens and without a revision check; `oauth_revocation_failed` (`undecryptable`) | tombstone |
+| both | readable grant, stale `expectedRevisedAt` | 409 (standard conflict body) | unchanged |
 
 #### 1.4.6 Provider rotation semantics (provider documentation)
 
-| Provider | Access TTL | Refresh token on refresh | Old refresh token after use | Concurrent-refresh race |
+| Rotation | Access TTL | Refresh token on refresh | Old refresh token after use | Concurrent-refresh race |
 |---|---|---|---|---|
-| Xero | 30 min | a new one every time | usable for a **30-min retry grace**, then invalid; unused tokens expire after **60 days** | **Harmful / undocumented.** Xero does not document which child of the same parent survives; vendor reports describe sporadic `invalid_grant` under concurrent workers. Must lock. |
-| Microsoft (MS365 PR) | ~1 h | a new one every time | **not revoked**; 90-day lifetime | benign (a wasted call) |
-| Google (Gmail) | 1 h | usually none | valid until revoked or expired | benign (a wasted call) |
+| **Strict** (RFC 9700 §4.14.2) | provider-defined | a new one every time | invalid, possibly after a short reuse-grace window; some providers also expire unused refresh tokens | **Harmful.** Which child of the same parent survives a double redemption is generally undocumented, so two concurrent refreshes can lose the grant. Must lock. |
+| **Non-revoking** (Microsoft, MS365 PR) | ~1 h | a new one every time | **not revoked**; 90-day lifetime | benign (a wasted call) |
+| **None** (Google, Gmail) | 1 h | usually none | valid until revoked or expired | benign (a wasted call) |
 
-**Residual risk (depends on Q1).** A process that dies after a successful Refresh but before its commit loses the rotated token. Recovery relies on redeeming the old refresh token inside Xero's grace window. What Xero returns on that second redemption is undocumented. If it fails, the grant becomes `invalidated` (a correct, visible outcome, not silent corruption). Probability ≈ crash rate × the ~200 ms persist window.
+Residual risks (accepted; detail in the Phase 1 feature spec):
+- **Persist window (Q1):** a crash or DB failure between a successful Refresh and its commit loses the rotated token; recovery relies on the provider's reuse-grace window, otherwise the grant becomes `invalidated` (visible, not silent). Probability ≈ failure rate × the ~200 ms persist window.
+- **KMS fallback:** a Connect during a Vault outage with a fallback key seals the grant with the derived key; after recovery it reads `unavailable` and needs a Reconnect confirmed with `replaceUnreadable` (or a forced Disconnect). Pre-existing platform behaviour.
+- **Field-level layer:** not pinned; a fallback-derived DEK cached up to 15 minutes can make healthy grants read `unavailable` and seal writes with the derived key, after which only a forced Disconnect followed by a Connect replaces them. Without a fallback the layer may be skipped on write; the blob envelope still encrypts every secret.
+- **Stalled lock holder:** the backstop is `idle_in_transaction_session_timeout` (120 s), reachable only through a field-level KMS response whose body stalls; a Refresh in that transaction then loses its rotated token (the Q1 path).
 
 #### Checklist
-- [x] Entities with ownership (grant aggregate: grant service; client config: admin; flag: projection)
-- [x] Invariants I1–I7; failure contract
-- [x] Precise fields
-- [x] Access control (§2); data ownership stated
 
----
+- [x] Entities with ownership; invariants I1–I7; failure contract; precise fields; access control (§2)
 
 ## 2. Identity Model `PM`
 
 | Persona | Role key | Identity | Org scope | Sees | Does |
 |---|---|---|---|---|---|
-| Tenant Admin | feature `integrations.credentials.manage` (+ `integrations.view`) | internal | the active organization (never "all organizations") | integration detail, reauth banner, the provider's Connect tab | enters the Client Configuration; Connect / Reconnect / Disconnect |
-| Integration Viewer | `integrations.view` | internal | active organization | status, banner, logs; no secrets | nothing mutating |
+| Tenant Admin | features `integrations.view` + `integrations.manage` + `integrations.credentials.manage` (default `admin` role) | internal | the active organization (never "all organizations") | integration detail, reauth banner, the provider tab, logs, health | enters the Client Configuration; enables the integration; Connect / Reconnect / Disconnect; chooses the External Account |
+| Integration Viewer | `integrations.view` (default `employee` role) | internal | active organization | status, the health badge and the banner (without the Reconnect link); no logs, no secrets | nothing mutating |
+| Operator | n/a (deployment) | — | — | health `details.code`, server logs | configures `APP_URL`, KMS/Vault and the encryption keys |
 | Background Worker | system (job scope) | internal (no user) | the job payload's scope | — | calls the Token Provider |
 | Integration Developer | n/a (code author) | — | — | core APIs, AGENTS.md | writes a descriptor, provider routes and a health check |
 | Mailbox User (Phase 3 only) | `communication_channels.connect_user_channel` | internal | own user | own channels | per-user connect (hub unchanged) |
 
-There is a single authenticated surface (the backend). **Portal: NOT USED.** No external persona connects providers.
-
-Decision log:
-- Connecting a tenant's accounting system is an administrative act, gated by the existing, immutable `integrations.credentials.manage`.
-- No new ACL feature is added: it would be FROZEN and would need role backfills.
-- If the admin's selection is "all organizations", Connect returns `organizationScopeRequiredResponse()` (400). A grant is always scoped to one Open Mercato organization.
+A single authenticated surface (the backend); **Portal: NOT USED.** Connecting a tenant's third-party system is an administrative act gated by the existing `integrations.credentials.manage` (403 otherwise); no new ACL feature (it would be FROZEN and need role backfills); a grant is always scoped to one organization ("all organizations" → 400 `organization_scope_required`).
 
 #### Checklist
-- [x] One identity type per persona; justified; organization scoping; single surface recorded
 
----
+- [x] One identity type per persona; justified; organization scoping; single surface recorded
 
 ## 3. Workflows `PM`
 
 ### WF1: Connect a provider (tenant-level)
 
 **Journey:**
-1. The admin enters the Client ID and Secret and saves.
-2. The admin clicks Connect on the provider tab.
-3. The provider shows its consent screen.
-4. The callback exchanges the code and calls `completeConnect` under the Grant Lock.
-   - The grant is stored as `active`, with no External Account yet.
-   - `reauthRequired` is projected to `false` if it was set, and an `oauth.connected` log entry is written.
-   - With a live grant, it is updated in place (Reconnect); otherwise a new row is inserted.
-5. A provider post-consent step runs. For Xero, the admin chooses the Xero organisation (the External Account). If Xero reports exactly one, it is chosen automatically.
-6. The provider stores the choice with `updateProviderData` under the Grant Lock, and an `oauth.external_account_selected` log entry is written. `completeConnect` returned the previous `providerData`, so the provider can detect a different Xero organisation than before (Q10).
-7. The first sync can run.
+1. The admin copies the redirect URI shown on the provider tab, registers the app in the provider console, then enters the Client ID and Secret and enables the integration.
+2. Connect: the provider's initiate route creates a PKCE pair, stores the verifier and the Grant Owner in the single-use state, and redirects to the provider's consent screen.
+3. The callback verifies the state, takes the Grant Owner from it, exchanges the code with the verifier and calls `completeConnect` under the Grant Lock: the grant is stored `active` (in place over a live grant), `providerData` is cleared, `revisedAt` is set, `oauth_connected` is logged.
+4. If the provider has External Accounts, the admin chooses one (automatically when there is one), stored with `updateProviderData(..., { expectedRevisedAt })`; the first sync runs and succeeds.
 
-**ROI:** time-to-first-sync ≤ 5 min once the admin has provider credentials, with no manual token handling. Today, a tenant-level OAuth integration is impossible without bespoke code.
-
-**Boundaries:**
-- Starts when Connect is clicked with a saved Client Configuration.
-- Ends when the grant is persisted **and** the External Account is chosen.
-- NOT this workflow: editing the Client Configuration; running syncs.
-
+**ROI:** time-to-first-sync ≤ 5 min (Phase 2 sandbox QA, excluding the provider's screens), with no manual token handling.\
+**Boundaries:** starts when the admin opens the provider tab; ends when the first sync after the Connect succeeds. NOT this: sync scheduling and retry (data_sync); changing the External Account later (provider-owned, via `updateProviderData`).\
 **Edge cases:**
-1. The admin abandons consent. The state expires in 5 min and nothing is written. (Risk: an orphaned half-grant.)
-2. The admin abandons the Xero organisation choice after consent.
-   - The grant exists (`active`) with no External Account.
-   - The provider tab shows "Connected — choose a Xero organisation to finish".
-   - The provider's adapter refuses to sync with its own precondition error ("no Xero organisation selected"). That is not a Token Failure and never a reauth.
-   - (Risk: syncs run against no organisation.)
-3. A callback is replayed. The state is single-use (aligned with PR #6267): `connect_state_invalid`. (Risk: a grant bound to the wrong session.)
-4. Reconnect while a grant exists. The live row is updated in place under the lock. The previous refresh token is **not** revoked by default (`revokePreviousOnReconnect=false`), because the same Provider Authorization may back the new grant. (Risk: killing the grant just created.)
-5. The selection is "all organizations": 400 `organization_scope_required`.
-6. The redirect URI differs behind a proxy. The OAuth routes require a configured base URL (Q9), otherwise `oauth_base_url_not_configured`. Any exchange failure is `connect_exchange_failed`, never `grant_invalidated`.
-
-**Platform readiness:**
-
-| Step | Capability | Gap? | Notes |
-|---|---|---|---|
-| Save client config | integrations credentials form + masking | no | existing |
-| State cookie | hub `oauth-state.ts`: provider-agnostic `providerKey` + `extra`, userId-bound | **no** (reuse) | single-use arrives with PR #6267; generalization is Phase 3 |
-| Authorize URL + PKCE | none generic (~20 lines) | yes | provider-owned in Phase 2; moves to core in Phase 3 |
-| Callback + exchange | the hub route is per-user and channel-specific | yes | provider-owned route calling `grantService.completeConnect` |
-| Persist grant under the lock | none | **yes** | P1 + P4 (`completeConnect`) |
-| External Account picker | none | yes | UI provider-owned (Xero spec); persistence through `updateProviderData` (P4) |
+1. Abandoned consent or a wrongly registered redirect URI: the state expires in 5 min, nothing is written. An abandoned account choice leaves the grant Account pending (the adapter refuses with its own precondition error, never a reauth).
+2. A replayed callback fails `connect_state_invalid` (single-use state, #6267); an injected code without the verifier fails `connect_exchange_failed`. Reconnect updates the live row in place and doesn't revoke the previous refresh token (the Provider Authorization may be shared); over an `invalidated` grant, a response without a refresh token fails `connect_exchange_failed`.
+3. Concurrent admins: a selection against a since-reconnected grant gets 409; two Reconnects are last-writer-wins; the owner comes from the state, so an organization switch mid-consent doesn't matter.
+4. `connect_persist_failed`, or an unreadable live grant (`connect_grant_unreadable` unless confirmed with `replaceUnreadable`): the existing grant is untouched.
 
 ### WF2: Obtain a valid access token in background work
 
 **Journey:**
-1. A sync worker (any process) calls `getAccessToken(descriptor, owner, {minValidityMs})`.
-2. If the grant is `active` and the token is fresh, it is returned with no lock.
-3. Otherwise the worker tries the lock:
-   - acquired → re-read → still stale? → Refresh → commit grant + projection;
-   - not acquired → back off → re-read (usually refreshed by then).
-4. The token is returned and the API call is made.
-5. On a `401`, the worker calls once with `rejectedAccessToken`, or, for an `insufficient_scope` challenge, calls `reportResourceChallenge` and stops.
+1. A sync worker (any process) calls `getAccessToken(descriptor, owner, { minValidityMs })`; the DEK is resolved and pinned once (none → `platform_unavailable`, no lock), and an `active`, fresh token is returned with no lock.
+2. Otherwise the worker tries the lock: acquired → re-read → still stale and not refreshed since the call started → Refresh → commit; not acquired → back off and re-read, holding no connection.
+3. The token is returned and used; on a `401` the worker calls once more with `rejectedAccessToken`, and on an insufficient-scope challenge it stops that call.
 
-**ROI:**
-- exactly one token-endpoint call per grant per expiry window, whatever the number of processes;
-- 0 false flag flips;
-- syncs longer than 30 min never fail on token expiry;
-- 0 pool exhaustion caused by waiting.
-
-**Boundaries:**
-- Starts at any API call that needs a token.
-- Ends when a token is returned or a Token Failure is raised.
-- NOT this workflow: sync retry policy (data_sync engine).
-
+**ROI:** exactly one token-endpoint call per grant per expiry window whatever the number of processes; 0 false invalidations; 0 pool exhaustion from waiting.\
+**Boundaries:** starts at any API call that needs a token; ends when a token is returned or a Token Failure is raised. NOT this: sync retry policy (data_sync).\
 **Edge cases:**
-1. Five import workers across two processes hit expiry together, with pool max 20. One refresher; the rest back off without holding connections.
-2. A process dies after Refresh but before commit: residual risk (§1.4.6).
-3. The token endpoint hangs: 10 s timeout → `transient`. A still-valid stored token is returned `degraded`.
-4. The DB fails at commit: `transient`; same recovery path as case 2.
-5. A run spans token expiry. The adapter calls the provider per request or batch, not once per run.
-6. The keep-alive job forces a refresh while a worker refreshes because of expiry. Whichever takes the lock second sees `refreshedAt` later than its call start and skips (§1.4.5, forced refresh is bounded).
+1. Five import workers across two processes hit expiry together (pool max 20): one refresher, the rest wait without connections; a keep-alive colliding with an expiry refresh skips (one refresh per window).
+2. The token endpoint hangs: the 10 s whole-exchange bound gives `transient`; a still-valid token is returned `degraded`, and waiters don't retry the call. A failure between Refresh and commit is the §1.4.6 residual risk.
+3. Vault times out, or the grant was sealed with another key: no token call, `platform_unavailable`, grant unchanged.
+4. The token endpoint answers `invalid_grant`: the grant is invalidated under the lock (start of WF3).
 
-### WF3: Detect lost consent and recover
+### WF3: Lost consent, from provider rejection to resumed sync
 
 **Journey:**
-1. The Token Provider observes a terminal outcome under the lock.
-2. It sets `invalidated` and projects the flag in one commit.
-3. After commit, `integrations.state.updated` is emitted; an `oauth.invalidated` integration log entry is written in the transaction.
-4. The banner appears on the integration detail page (it reads `oauthGrant.status`).
-5. The admin reconnects (WF1), which sets `active` and clears the flag.
+1. A refresh under the lock gets a terminal outcome; the grant becomes `invalidated` with `oauth_invalidated` in that transaction; the call returns `grant_invalidated`.
+2. The banner appears on the integration detail page, and the health check reports `oauth.invalidated` (the badge follows within one probe interval).
+3. The admin follows the banner's link (`?tab=<connectTabId>`) and reconnects (WF1); the provider pre-selects the previous External Account from `previousProviderData`; the next sync succeeds.
 
-**ROI:**
-- Signal precision is 100%: every invalidation traces to one of two causes in §1.4.5 (`invalid_grant` from the token endpoint, or a needed refresh with no stored refresh token).
-- The grant is invalidated within one sync interval of the revocation and shown on the integration page, instead of the problem surfacing only in logs. Today the flag is dead for tenant integrations. Active push to the admin (notification) is Phase 3.
-
-**Boundaries:**
-- Starts at the first confirmed terminal outcome.
-- Ends at a successful Connect.
-- NOT this workflow: transient outages and misconfiguration (both go to health and logs).
-
+**ROI:** every invalidation is a provider-confirmed terminal response or a missing refresh token, shown within one sync interval for scheduled integrations; recovery time is unbounded in Phase 1 (no push notification until Phase 3).\
+**Boundaries:** starts at the provider's terminal response; ends when the first sync after the Reconnect succeeds. NOT this: transient outages and misconfiguration (US-3.2, US-3.3).\
 **Edge cases:**
-1. The Xero user removes the app in Xero. The next refresh returns `invalid_grant` and the grant is invalidated.
-2. The refresh token sits idle for more than 60 days: same as case 1. Prevented for enabled integrations by the explicit weekly keep-alive (§1.4.4, Q6), not by the health probe.
-3. The admin mistypes the Client ID. On read this gives `client_misconfigured` (`client_changed`), with no persistent state; fixing the typo recovers.
-4. The admin rotates only the secret. If Xero revokes the old secret: `client_misconfigured`, not reauth.
-5. Flapping (transient ↔ ok) never touches the grant status or the flag.
-6. Scheduled syncs keep running after invalidation. Each run fails fast with `grant_invalidated` (no token-endpoint call; §1.4.5 first row) and is logged. Pausing schedules on invalidation needs the Phase 3 event.
+1. The user removes the app at the provider, or the refresh token idles out (prevented for enabled integrations by the keep-alive): `invalid_grant`, invalidated. A mistyped Client ID or a revoked secret gives `client_misconfigured`, never reauth; flapping never touches the status.
+2. Scheduled syncs keep running and fail fast with `grant_invalidated` (no token call); pausing them needs the Phase 3 event.
+3. A Viewer sees the banner without the link ("ask an administrator").
+4. An unreadable grant shows no banner: the tab shows `unavailable` and offers the confirmed replacement (rule 10).
 
 ### WF4: Disconnect
 
 **Journey:**
-1. The admin clicks Disconnect and confirms. The provider's Disconnect route runs the integrations mutation guards like `api/[id]/state/route.ts`. It is deliberately **exempt from optimistic locking**: the grant row's `updated_at` moves on every refresh (about every 30 min for Xero), so a version header would cause spurious 409s, and Disconnect is idempotent and serialized by the Grant Lock.
-2. **Under the lock, one transaction:**
-   - capture the tokens;
-   - blank the blob and soft-delete the row;
-   - project the flag to `false` if it was set;
-   - append `oauth.disconnected` and `oauth.revocation_pending` log entries (tx-bound log service, no secrets);
-   - commit. I5 holds from here.
-3. **After release (best-effort):** re-read the owner's grant first.
-   - **If a live grant exists again** (a Reconnect committed in between), skip provider cleanup and log `oauth.revocation_skipped_reconnected`. Revoking or deleting could destroy the new grant's Provider Authorization.
-   - **If the captured grant was already `invalidated`**, skip the hook's refresh and Connections delete (access is already dead), attempt only the RFC 7009 revoke, and log `oauth.revocation_skipped_invalidated` if that isn't possible.
-   - **Otherwise**, run the provider hook with the captured tokens. For Xero: refresh once if the access token has expired, then `DELETE /connections/{id}`. Then RFC 7009-revoke the **most recent** refresh token (the one the hook's refresh returned, if it refreshed).
-4. Append `oauth.revocation_confirmed` or `oauth.revocation_failed` (with the provider error code) unless step 3 already logged a skip.
+1. The admin confirms Disconnect; the route requires `integrations.credentials.manage`, runs the mutation guards and passes the Grant Revision as `expectedRevisedAt`. The DEK is pinned before the lock; with none, a default Disconnect returns `disconnect_tokens_unreadable`.
+2. Under the lock (5 s waiter deadline), in one transaction: no live grant → `not_connected` no-op; read the tokens (unreadable → `disconnect_tokens_unreadable` unless `force: true`); check the revision; blank and soft-delete the row; log `oauth_disconnected` + `oauth_revocation_pending` with a new `disconnectId`. I5 holds from the commit.
+3. After release, within budgets (hook ≤ 8 s, revoke ≤ 8 s), re-read before each external call: skip if a live grant exists again (`oauth_revocation_skipped_reconnected`) or the captured grant was `invalidated` (`oauth_revocation_skipped_invalidated`); a forced erase without tokens logs `oauth_revocation_failed` (`undecryptable`).
+4. Otherwise run `onAfterDisconnect(ctx)`, then RFC 7009-revoke the most recent refresh token, even if the hook failed (core never persists a token `ctx.refresh` returned), and log the outcome (`oauth_revocation_confirmed`, `oauth_revocation_failed` with the provider code or `hook_failed`, or `oauth_revocation_unsupported`); the response carries it.
 
-**ROI:** 0 decryptable refresh tokens in the live database after disconnect (today, 100% are retained indefinitely). Backups keep older encrypted copies until their retention expires (I5), so provider-side access actually ending, whenever the provider is reachable, is the part that removes the residual risk.
-
-**Boundaries:**
-- Starts when the admin confirms Disconnect.
-- Ends when the local erase has committed and the provider cleanup has either finished or been logged as failed or skipped.
-- NOT this workflow: deleting the integration's business data, disabling the integration (`isEnabled` is unchanged), pausing schedules.
-
+**ROI:** 0 decryptable refresh tokens in the live database once Disconnect commits, and a recorded revocation outcome on every Disconnect; the hub's mailbox tokens are unchanged until Phase 3 (Q5).\
+**Boundaries:** starts when the admin confirms; ends when the erase has committed and cleanup has finished or been logged, or the Disconnect aborted with nothing changed. NOT this: deleting business data, disabling the integration, pausing schedules.\
 **Edge cases:**
-1. The provider is unreachable. The local erase is already committed. The log says `oauth.revocation_failed`, and the UI copy says so too.
-2. The process dies between the erase commit and the revoke. The captured tokens are lost with it, so revocation cannot be retried by the platform. After 5 minutes, the `oauth.revocation_pending` entry without an outcome makes this **detectable**: the UI and the Logs tab show "revocation not confirmed", and the admin is pointed to the provider's Connected Apps screen.
-3. A sync is running. Its next `getAccessToken` gets `not_connected`, and the run fails with a clear code, never reauth.
-4. Disconnect races a refresh. Whichever gets the lock second re-reads: a refresh after the erase finds no live row and returns `not_connected`, so an erased grant is never resurrected.
-5. Disconnect, then quick Reconnect.
-   - The Reconnect inserts a **new** row; the tombstone is never read (it's filtered by `deleted_at IS NULL`).
-   - A refresh right after sees exactly one live row (I2 test).
-   - The post-release cleanup of the old grant sees the new live grant and skips (step 3).
-6. Undo: tenant-level Disconnect is **not undoable** (the secrets are gone). This differs from the hub's undoable channel disconnect, which stays unchanged (Q5).
-7. Two OM organizations connected the same Xero organisation through the same Provider Authorization. Revocation for one OM organization may break the other (Q8). The UI warns when `providerData` shows a shared authorization, and Xero verifies in its sandbox.
-8. The grant was already `invalidated` (e.g. the app was removed in Xero). The local erase happens as usual, and provider cleanup is skipped as in step 3, so the admin doesn't see a misleading "could not confirm revocation".
+1. The provider is unreachable, or the process dies after the erase: the erase stands; `oauth_revocation_failed`, or `revocation: 'pending'` shown as "revocation not confirmed" after 5 minutes.
+2. Disconnect races a refresh: whichever is second re-reads, so an erased grant is never resurrected. A quick Connect (or one whose consent started before the Disconnect) inserts a new row and the cleanup skips: the newer consent wins.
+3. Not undoable, unlike the hub's channel disconnect (Q5); a Provider Authorization shared by two organizations may break for both (Q8, detected only through the provider's API, never another owner's grant, I7).
+4. Unreadable tokens abort with `disconnect_tokens_unreadable` (a forced Disconnect erases and logs `undecryptable`); scheduled runs afterwards fail `not_connected`.
 
 ### WF5: Build a new OAuth provider integration (developer journey)
 
 **Journey:**
-1. Declare the Client Configuration fields and a Provider Descriptor.
-2. Write the initiate and callback routes (≈ 60 lines) using the hub state cookie plus the core's `completeConnect`. Write routes (callback, External Account save, Disconnect) run the integrations mutation guards like `api/[id]/state/route.ts`; the tab wraps its writes in `useGuardedMutation`, and the Disconnect confirm dialog handles Cmd/Ctrl+Enter and Escape.
-3. Inject a Connect tab via `detailPage.widgetSpotId`; if the provider has an External Account, add the picker and persist the choice with `updateProviderData`.
-4. Implement the health check via `inspectGrant` (never `getAccessToken`) and, if needed, a keep-alive job.
-5. Have the adapter call the Token Provider (and `reportResourceChallenge` on `insufficient_scope`).
-6. Test against the fake authorization server.
+1. Declare the Client Configuration fields and a Provider Descriptor; write the initiate and callback routes (≈ 30 lines each) on the core helpers and `completeConnect`, under the route contract (§1.4.3).
+2. Inject the provider tab (`detailPage.widgetSpotId`), declare its id as `detailPage.connectTabId`, show the redirect URI, and add the External Account picker if needed.
+3. Implement the health check as `mapInspectionToHealth(await inspectGrant(...))` and, if needed, a keep-alive; the adapter calls the Token Provider outside its own transactions and `classifyResourceChallenge` on a `401`/`403`.
+4. Test in Jest against the published fake authorization server, and run the round trip in the provider's E2E suite (Phase 1 feature spec).
 
-**ROI:** ≤ 5 commits for the OAuth part (vs about 9 self-contained); 0 provider-local lock or refresh code.
-
-**Boundaries:**
-- Starts when a provider package needs delegated OAuth2 access with a refresh token.
-- Ends when its connect, token use, health check and disconnect run on the core with tests against the fake authorization server.
-- NOT this workflow: providers that authenticate with a static key or a password grant (Akeneo, InPost, KSeF); user login (SSO).
-
+**ROI:** ≤ 5 commits for the OAuth part (vs about 9 self-contained); 0 provider-local lock, refresh or PKCE code.\
+**Boundaries:** starts when a provider package needs delegated OAuth2 access with a refresh token; ends when connect, token use, health and disconnect run on the core with tests. NOT this: static-key or password-grant providers (Akeneo, InPost, KSeF); user login (SSO).\
 **Edge cases:**
-1. The provider doesn't rotate refresh tokens (Google-like). No descriptor change needed; a refresh without `refresh_token` keeps the stored one.
-2. The provider has no revocation endpoint. `revocationEndpoint` is omitted; Disconnect erases locally and logs `oauth.revocation_failed` with reason `unsupported`. The UI says access was cleared locally only.
-3. The provider rejects PKCE for confidential clients. The descriptor sets `pkce: 'none'` (Q2 for Xero).
-4. The provider needs no External Account. The developer never calls `updateProviderData`, and `hasExternalAccount` is irrelevant.
-5. The provider's token response omits `expires_in`. `defaultAccessTokenTtlSec` applies.
+1. No rotation (Google-like): no descriptor change; a refresh without `refresh_token` keeps the stored one.
+2. No revocation endpoint: Disconnect erases locally and logs `oauth_revocation_unsupported`.
+3. The provider rejects PKCE: `pkce: 'none'` (Q2). No External Account: `updateProviderData` is never called.
+4. A provider in `official-modules` consumes the published packages, so it starts only after a release containing Phase 1.
 
 #### Checklist
-- [x] 5 workflows with journey, ROI, boundaries, edge cases. Per-step platform readiness is tabulated for WF1; for WF2–WF5 it is the commit mapping in §4.2.
-- [x] > 200 lines of new code only for WF2 (grant service ≈ 300 lines incl. classification). Justified: no existing capability does cross-process refresh; it reuses the P1 helper.
 
----
+- [x] 5 workflows with journey, ROI, boundaries, edge cases (per-step readiness: §4.2); > 200 new lines only for WF2 (the grant service), justified
 
 ## 3.5 UI Architecture `PM + UX`
 
-- **Navigation:** unchanged (Settings → Integrations → *provider*).
-- **Dashboard widgets:** none.
-- **Custom pages:** none owned by the platform.
+Navigation unchanged (Settings → Integrations → *provider*); no dashboard widgets; no platform-owned custom pages. **Widget injection (provider-owned):** the provider tab (Connect / Reconnect / Disconnect, the redirect URI with a copy button, the External Account picker) is injected into the integration detail page at `buildIntegrationDetailWidgetSpotId('<integrationId>')`, as a tab whose id is `detailPage.connectTabId`.
 
-**Widget injections (provider-owned):**
+**Platform UI change: a reauth banner** in the integration detail header, shown only when the integration's live OAuth grant is `invalidated`:
+- **Data source:** the detail API gains an optional `oauthGrant: { status: 'active' | 'invalidated' | 'unavailable' } | null`, read with `readGrantStatus` (no lock, no provider call, no writes; `unavailable` instead of a 500). It never reads `reauthRequired`, so integrations without a grant never show it.
+- **Copy and styling:** "Access to <title> was revoked or expired. Reconnect to resume.", the `Alert` primitive (status `error`), DS tokens only; keys `integrations.detail.oauthGrant.{invalidated,reconnect,askAdmin}` in all five locale files.
+- **Link:** to `/backend/integrations/<id>?tab=<connectTabId>` when the definition declares `detailPage.connectTabId` (already returned with `detailPage`), the tab is visible and the viewer has `integrations.credentials.manage`; otherwise no link, and Viewers read "ask an administrator to reconnect".
+- **`unavailable`:** no banner (a plain Reconnect doesn't replace an unreadable grant); the tab and health show it. **Bundles:** the banner is on the child's page. The `oauth` field type stays unrendered (Phase 3).
 
-| Widget | Injects into | Spot | Owner |
+| Key flows: persona | Task | Flow (from the Integrations list; the detail page opens on the Credentials tab) | Clicks |
 |---|---|---|---|
-| Connect / Reconnect / Disconnect + External Account picker | integration detail page (tab) | `buildIntegrationDetailWidgetSpotId('<integrationId>')` | provider (Xero spec) |
+| Tenant Admin | first connect | *provider* → provider tab (copy URI, register) → Credentials (ID, Secret) → Save → enable → provider tab → Connect (→ consent → account) | 9 + typing + provider screens |
+| Tenant Admin | recover | *provider* → banner link → Reconnect (→ consent) → confirm the pre-selected account | 4 + provider screens |
+| Tenant Admin | disconnect | *provider* → provider tab → Disconnect → confirm | 4 |
+| Tenant Admin | replace an unreadable connection | *provider* → provider tab → Replace unreadable connection → confirm (→ consent → account) | 4 + provider screens |
+| Integration Viewer | check status | health badge on the list; *provider* for the banner | 0–1 |
 
-**Platform UI change:** a **reauth banner** in the integration detail header, shown only when the integration's live OAuth grant has `status = invalidated`.
-- **Data source:** the detail API gains an optional response field `oauthGrant: { status: 'active' | 'invalidated' | 'unavailable' } | null` (additive; `null` = no live grant). The generic route has no Provider Descriptor (there is no registry, §1.4.3), so it reads the status with **`readGrantStatus(integrationId, scope)`**: a descriptor-free read of the grant row's `status`, with no lock, no network call and no writes. It returns `'unavailable'` instead of throwing, so a decrypt failure never turns the detail GET into a 500. `inspectGrant(descriptor, owner)` stays the provider's health-check read, because `clientChanged` needs the descriptor's Client Configuration.
-- **Not the flag:** the banner doesn't read `reauthRequired`. Integrations without a grant (Stripe, S3, the channel hub, …) never show it, whatever their stored flag. A manually written flag can't show or hide it.
-- **Copy:** "Access to <title> was revoked or expired. Reconnect to resume."
-- **Link:** to the provider tab when the integration declares a `detailPage.widgetSpotId`, otherwise plain text.
-- **Styling:** `role=alert`, DS status tokens only.
-
-The `oauth` field type stays unrendered (Phase 3 decides whether to render it or remove it from docs).
-
-**Key flows:**
-
-| Persona | Task | Flow | Clicks |
-|---|---|---|---|
-| Tenant Admin | first connect | Integrations → Xero → Connect tab → Connect (→ consent → choose Xero organisation) | 3 + provider screens |
-| Tenant Admin | recover | Integrations → Xero (banner) → Reconnect | 3 |
-| Tenant Admin | disconnect | Integrations → Xero → Disconnect → confirm | 3–4 |
-| Integration Viewer | check status | Integrations → Xero (status, banner, logs) | 2 |
-
-**Empty states:**
-- Connect tab without a Client Configuration: "Add your Client ID and Secret on the Credentials tab first."
-- Connect tab without a grant: "Not connected."
-- Connect tab with a grant but no External Account: "Connected — choose a Xero organisation to finish."
+**Provider tab states**, headed by the Connection State in precedence order:
+- `not_configured`: register the redirect URI, then add the Client ID and Secret. `not_connected`: "Not connected." with the redirect URI. `unavailable`: "This connection can't be read right now", with "Replace unreadable connection" behind a confirm dialog (rule 10).
+- `invalidated`: "Access was revoked or expired. Reconnect." `active`, refined by the provider: account pending, or `client_changed` ("revert the Client ID or reconnect").
+- After a Disconnect, `revocation` `failed` or `pending` for over 5 minutes: "The provider could not confirm revocation — remove the app in its connected-apps screen." `baseUrlMissing`, in any state: Connect and Reconnect disabled with "Set APP_URL before connecting"; a working grant keeps its state.
 
 #### Checklist
-- [x] Flows ≤ 3 clicks; platform building blocks only; empty states; portal N/A
 
----
+- [x] Click counts from the Integrations list; recovery via the `?tab=` deep link; platform building blocks only; empty states; portal N/A
 
 ## 4. Workflow Gap Analysis `Architect`
 
 ### 4.1 Platform commit plan (Phase 1)
 
+The detailed plan (scope, files and tests per commit) is in the Phase 1 feature spec. **Related, independent:** the `upsert` defaults fix is a separate bug fix with its own issue, PR and regression test; the Phase 3 `reauthRequired` projection depends on it, Phase 1 doesn't.
+
 | ID | Commit | Package | Score |
 |---|---|---|---|
-| P1 | `withAdvisoryXactLock(em, key, fn, { waitDeadlineMs, tryOnce? })`. Callers pass a namespaced key (`<namespace>:<parts>`); the helper rejects keys without a namespace prefix. Always runs on a context-detached fork (`useContext: false`), never nested in a caller's transaction (I6). Explicit `exports` entry in `packages/shared/package.json`. Uses `pg_try_advisory_xact_lock(hashtextextended(key,0))` with jittered back-off (no connection held while waiting), an optional `onWait` re-check callback, and a single-attempt mode (`tryOnce`, used by `reportResourceChallenge`). `fn(txEm)` must do all DB I/O on `txEm`. `55P03`/`57014` and `isTransientDbError` → typed `transient`. Tests: Jest unit tests of the loop, back-off, deadline and error mapping on a mocked connection; real contention (2 connections, waiters ≥ pool size) is covered by the P4 Playwright suite. | `shared/src/lib/db/advisoryLock.ts` | 1 |
-| P2 | Token-endpoint client (basic/post, timeout, RFC 6749 §5.2 structured error) + RFC 7009 revoke. No hub changes. | `core/.../integrations/lib/oauth/token-endpoint.ts` | 1 |
-| P3 | `integrationCredentialsService.erase(integrationId, scope)`: blank + soft-delete. The exported `CredentialsService` type becomes an explicit type (today `ReturnType<typeof createCredentialsService>`) declaring `erase?` as optional; a type-level test asserts the factory's return type still satisfies it, so the explicit type can't drift narrower. DI overrides and test doubles typed as `CredentialsService` keep compiling. The grant service always uses the core factory bound to the lock transaction, where `erase` exists (§1.4.2). | `integrations/lib/credentials-service.ts` | 1 |
-| P4 | `integrationOAuthGrantService` (DI, scoped). Operations: `getAccessToken` (options `minValidityMs`, `rejectedAccessToken`, `forceRefresh`, all bounded by the `refreshedAt`-vs-call-start rule), `inspectGrant` (no network, no lock, no writes; never throws on decrypt failure), `readGrantStatus` (descriptor-free status read for the detail route), `completeConnect` (update in place over a live grant, insert otherwise; returns the previous `providerData`), `updateProviderData`, `reportResourceChallenge` (non-blocking), and `disconnect` (erase + `revocation_pending` log in one tx; after release, re-read and skip cleanup if reconnected or already invalidated). Implements the §1.4.5 contract. It builds tx-bound credentials, state and log services inside the lock. Includes a fake authorization-server fixture (rotation none / non-revoking / strict + grace; error injection; counters). Classification and ordering tests run in Jest. Concurrency, interleaving, crash (fault-injection hook), outer-transaction rollback and ownership tests run against real Postgres through test-only routes, which use a dedicated small ORM pool (`poolMax=4`) for the pool test (see §7, "How the criteria are verified"). Decoupling test (no `.tsx` import). | `integrations/lib/oauth/grant-service.ts`, `core/src/helpers/integration/fakeOAuthServer.ts` | 5 |
-| P5 | Projection + banner: `setReauthRequired` only on change, in the same transaction as each status change; fix `upsert` so a missing state row is created with the definition defaults (`defaultState.isEnabled`); `integrations.state.updated` emitted after commit. Optional `oauthGrant: { status }` field on the integration detail response, read with `readGrantStatus`. Detail-page reauth banner gated on `oauthGrant.status === 'invalidated'`; i18n. No new event or notification type. | `integrations` | 1 |
-| P6 | Docs: integrations `AGENTS.md` "OAuth grants" section (budget check) + docs page. | docs | 1 |
-| | **Phase 1 total** | | **10** |
+| P1a | `withAdvisoryXactLock` helper: namespaced key, context-detached fork, back-off without a held connection, exported transient-DB matcher | `shared/src/lib/db/advisoryLock.ts` | 1 |
+| P1b | Real-Postgres lock suite (`testcontainers`, `OM_PG_INTEGRATION`) and a new required CI job | `packages/shared`, `.github/workflows/ci.yml` | 1 |
+| P2a | Hand-rolled protocol client: token endpoint, revoke, PKCE, authorization URL, code exchange, resource challenge, descriptor validation, redirect URI | `core/.../integrations/lib/oauth/*` | 1 |
+| P2b | Fake authorization server and the `oauthGrantFixtures` re-export | `integrations/lib/oauth/testing`, `core/src/helpers/integration` | 1 |
+| P3 | `eraseIntegrationCredentials`, optional `kms` on `createCredentialsService`, the layered read, the latest-log-by-code query | `integrations/lib/{credentials,log}-service.ts` | 1 |
+| P4a | Test-only route `POST /api/integrations/test-oauth-grants`, flag-gated test integration, Playwright wrapper | `integrations`, `cli`, `.github/workflows/ci.yml` | 1 |
+| P4b | `integrationOAuthGrantService` with `completeConnect`; core's first real-Postgres suite | `integrations/lib/oauth/grant-service.ts` | 1 |
+| P4c | `getAccessToken` and Refresh under the lock with the full classification | `integrations/lib/oauth/grant-service.ts` | 1 |
+| P4d | `updateProviderData`, `inspectGrant`, `readGrantStatus`, `OAUTH_HEALTH_CODES`, `mapInspectionToHealth` | `integrations/lib/oauth/{grant-service,health}.ts` | 1 |
+| P4e | `disconnect` with `force` and the `onAfterDisconnect` hook | `integrations/lib/oauth/grant-service.ts` | 1 |
+| P5 | Detail GET `oauthGrant` field, reauth banner, i18n | `integrations` (+ `IntegrationDetailPageConfig` in `shared`) | 1 |
+| P6 | Docs page (route contract, health mapping, test harness), BC section, publish-shape check | docs, `scripts`, `.github/workflows/ci.yml` | 1 |
 
 ### 4.2–4.5 Per-workflow totals
 
-| Workflow | Platform | Provider (Xero) |
+| Workflow | Platform | First provider (official module) |
 |---|---|---|
-| WF1 Connect | P1, P4 | 3: PKCE + authorize URL + initiate/callback routes (1); Xero organisation picker + tab (1); descriptor + client fields (1) |
-| WF2 Token | P1, P2, P4 | 1: adapter + health check via Token Provider |
-| WF3 Reauth | P5 | 0 |
-| WF4 Disconnect | P3, P4 | 1: `onAfterDisconnect` Connections delete + disconnect button |
-| WF5 Developer | P6 | — |
-| | **10** | **~5** |
+| WF1 Connect | P1a, P2a, P4b, P4d | 3: routes on the core helpers; External Account picker + tab; descriptor + client fields |
+| WF2 Token | P1a, P1b, P2a, P3 (KMS), P4c | 1: adapter via the Token Provider; health check via `inspectGrant`; keep-alive if needed |
+| WF3 Lost consent | P4c (invalidation), P4d (health map), P5 (banner) | 0 |
+| WF4 Disconnect | P1a, P3, P4e | 1: `onAfterDisconnect` cleanup + disconnect button |
+| WF5 Developer | P2b (fake server), P4a (fixtures), P6 | — |
+| | **12** | **~5** |
 
 ### 4.6 Options compared
 
-| Option | Platform | Xero OAuth | Next tenant-level provider | Risk |
+| Option | Platform | First provider's OAuth | Next tenant-level provider | Risk |
 |---|---|---|---|---|
-| **A. Narrow fix.** Platform adds only P1 (lock) and P3 (erase). Xero is self-contained: its own token client, lock-and-re-read refresh, classification and in-tab reauth UI. | 2 | ~9 | ~9 (copy of Xero) | third copy of the token POST; `reauthRequired` stays dead for everyone else; the hardest code (I1–I3, I6 pool behaviour) re-implemented per provider |
-| **B. Grant-lifecycle core (recommended)** | 10 | ~5 | ~5 | one DI service + one import surface to maintain |
-| **C. Full toolkit.** B + generic `/api/integrations/[id]/oauth/*`, generic Connect UI honouring `oauth`, hub migration, state generalization. | ~15 | ~2 | ~2 | a generic account-picking abstraction and an externally registered callback URL, both fixed from a single example |
+| **A. Narrow fix:** the platform adds only the lock (P1a/P1b) and erase (P3); the first provider is self-contained | 3 | ~9 | ~9 (a copy) | the hardest code (I1–I3, I6) re-implemented per provider; no shared reauth banner or health mapping |
+| **B. Grant-lifecycle core (recommended)** | 12 | ~5 | ~5 | one DI service + one import surface to maintain |
+| **C. Full toolkit:** B + generic routes and Connect UI, hub migration, state generalization | ~17 | ~2 | ~2 | account picking and an external callback URL fixed from a single example |
 
-- **A** costs 11 commits in total vs 15 for B. It is the right choice only if maintainers don't want new platform surface before a second tenant-level consumer.
-- **B** makes correct grant handling a platform standard: the correctness-critical parts live in one tested place, and every later provider inherits them and saves about 4 commits.
-- **C** standardizes the connect UX from a single example; premature.
-
-Detailed plan: `app-spec-notes/commits-oauth2-core.md`.
+A is right only if maintainers want no new platform surface before a second tenant-level consumer; B makes correct grant handling the standard and saves about 4 commits per later provider; C is premature. Detailed plan: Phase 1 feature spec.
 
 #### Checklist
-- [x] Every step scored
-- [x] Architect checkpoint done
 
----
+- [x] Every step scored; architect checkpoint done
 
 ## 4.5 Module Architecture `Architect`
 
 ### 4.5.1 Platform capabilities used
 
-| Capability | Usage | Extension points |
-|---|---|---|
-| integrations credential store (encryption, KMS) | extend: optional `erase`, explicit exported type, sibling key | DI `integrationCredentialsService` for everyone else; grant rows use the core factory bound to the lock transaction (DI overrides deliberately not used there) |
-| integrations state (`setReauthRequired`) | use (currently dead code); fix `upsert` defaults | DI `integrationStateService`, event `integrations.state.updated` |
-| integrations health (`healthCheck.service`, probe worker, `details.code`) | use as-is | provider-declared health check |
-| integrations logs | use as-is | `integrationLogService.write` (with `code`; §1.4.4) |
-| Integration detail page | extend (banner) + provider tab | `detailPage.widgetSpotId` |
-| Hub state cookie | use as-is (Phase 2) | `communication_channels/lib/oauth-state` |
-| `shared/lib/url` | use as-is | — |
-| data_sync | use as-is | adapter calls the Token Provider via `createRequestContainer()` |
-| Error reporting | use | `reportError` for swallowed/best-effort paths |
+- **Credential store, DI `kmsService`:** extended with the erase function, the optional `kms` parameter, the layered read and the sibling key; grant rows use the core factory bound to the lock transaction, with one KMS instance per operation in the internal `pinTenantDek` adapter (I6).
+- **Health, logs, state:** used; core adds `OAUTH_HEALTH_CODES`, `mapInspectionToHealth` and a latest-entries-by-code query; `setReauthRequired` is unused in Phase 1. **Detail page:** extended with the banner and `detailPage.connectTabId`; the provider tab uses `detailPage.widgetSpotId` and `?tab=`.
+- **Optimistic locking:** `assertOptimisticLock` on `revisedAt` in the grant service (the only source of the 409), with `buildOptimisticLockHeader`, `readOptimisticLockExpected` and `surfaceRecordConflict`.
+- **Used as-is:** the hub state cookie (`communication_channels/lib/oauth-state`), `getSecurityEmailBaseUrl`, the tenant encryption subscriber (carried into each lock transaction), data_sync (adapters call the Token Provider), `reportError`; CI gains a required real-Postgres job (P1b).
 
 ### 4.5.2 Where it lives, justified against each charter
 
-| Candidate | Charter (own AGENTS.md) | Fit | Decision |
-|---|---|---|---|
-| `packages/shared` | "infrastructure only… zero domain dependencies"; already hosts server-only `lib/db` | Fits the advisory-lock helper: pure DB infrastructure with ≥ 8 potential users. Protocol code could fit too, but its only consumers already depend on core, and it would create a shared cross-package contract (an "Ask First" item) with no consumer outside core. Grant storage **cannot** live here: it needs a core module's service. | **lock helper only** |
-| `packages/core` → `integrations` | "foundation layer for all external connectors… Credentials API"; "providers import from integrations" | Owns the credential store, state, health, logs and detail page. | **everything else** |
-| `communication_channels` | channel hub | Xero isn't a channel. Phase 1 leaves the hub untouched (Phase 2 imports its state cookie read-only). | untouched |
-| New `@open-mercato/oauth` package | — | Justified only for isolating a third-party dependency, and hand-rolling removes that need. | rejected |
+| Candidate | Decision | Why |
+|---|---|---|
+| `packages/shared` | **lock helper only** | pure DB infrastructure with ≥ 8 potential users; grant storage needs a core module's service, and protocol code has no consumer outside core |
+| `packages/core` → `integrations` | **everything else** | owns the credential store, state, health, logs and detail page; the fake server follows the runtime-fake precedent (module code never imports `helpers/`) |
+| `packages/core` → `helpers/integration` | **fixtures only** | `oauthGrantFixtures` (re-export, free of `@playwright/test`) and `oauthGrantTestRoute` (Playwright wrappers) |
+| `communication_channels`; a new `@open-mercato/oauth` package | untouched; rejected | not a channel concern (provider routes import its state cookie read-only); a package is justified only to isolate a third-party dependency, which hand-rolling removes |
 
-**Client-side reachability:** `shared` subpaths and core `.tsx` pages reach client bundles. Both new surfaces are server-only: they use `node:crypto` and MikroORM and sit under `lib/`. P4 adds a test asserting that no `.tsx` imports `integrations/lib/oauth`.
+The new runtime surfaces are server-only (under `lib/`); a test asserts that no `.tsx` imports `integrations/lib/oauth`.
 
 ### 4.5.3 Library vs hand-rolled
 
-**Hand-roll** the client side of authorization-code + refresh + revoke.
-- *What we need:* an authorize URL, a PKCE S256 pair, a form POST with basic or post client authentication, RFC 6749 §5.2 error parsing, and an RFC 7009 revoke. That is about 150 lines, and the existing `requestOAuthToken` (81 lines) is already in production.
-- *What libraries add that we don't need:* discovery, ID-token/JWT validation, DPoP, PAR, JAR, JARM.
-- *What libraries don't solve:* storage, cross-process locking, classification.
-- *Cost of adopting one:*
-  - `openid-client` and `oauth4webapi` are ESM-only, and none of core's or the provider packages' Jest `transformIgnorePatterns` allowlist them. That's doable (precedent: `ai`, `kysely`) but touches every provider's config.
-  - Core would gain a production dependency (an "Ask First" item).
-  - The build is not a blocker (esbuild ESM, `bundle:false`).
-  - SSO's only test mocks the whole library.
-- **Revisit trigger:** a consumer needs DPoP, PAR, `private_key_jwt` or ID-token validation. Then adopt `oauth4webapi` behind the same interface.
+**Hand-roll** the client side of authorization-code + PKCE + refresh + revoke (≈ 150 lines; `requestOAuthToken` already runs in production). Libraries add what isn't needed (discovery, ID tokens, DPoP, PAR, JAR, JARM), don't solve storage, locking or classification, and `openid-client`/`oauth4webapi` are ESM-only (a Jest config change in core and every provider package, plus a production dependency). **Revisit trigger:** a consumer needs DPoP, PAR, `private_key_jwt`, ID-token validation or tenant-configurable endpoints; then adopt `oauth4webapi` behind the same interface. The hub's `requestOAuthToken` stays untouched until the Phase 3 migration.
 
 ### 4.5.4 Boundary with SSO: two deliberate layers
 
-The two layers do different jobs:
-- **SSO** (enterprise) is an OIDC relying party for **login**. It handles discovery against tenant-supplied issuers with SSRF guards, nonce and ID-token validation, sessions and JIT provisioning.
-- **The grant core** is an OAuth client for **delegated API access**. It handles persisted refresh tokens, background use, locking and revocation.
-
-What they would share is about 40 lines (PKCE and the state cookie), and core may not import enterprise anyway. **Keep them separate.** A later option: extract the AES-GCM state-cookie crypto into `shared` for both (Phase 3).
+SSO (enterprise) is an OIDC relying party for **login**; the grant core is an OAuth client for **delegated API access**. They would share about 40 lines (PKCE, the state cookie), and core may not import enterprise. **Keep them separate**; extracting the PKCE and state-cookie crypto into `shared` is a Phase 3 option.
 
 ### 4.5.5 Shared modules
 
-| Module | Status | Usage | Rationale |
-|---|---|---|---|
-| `shared/lib/db/advisoryLock` | PROPOSED | create | generic; existing hand-rolled sites may adopt it opportunistically |
-| `integrations/lib/oauth` | PROPOSED | create | integration-generic, no provider logic |
+PROPOSED, all new: `shared/lib/db/advisoryLock` (generic; existing sites may adopt it), `integrations/lib/oauth` (integration-generic, no provider logic), and the published test infrastructure `integrations/lib/oauth/testing/fakeAuthorizationServer` + `core/helpers/integration/oauthGrantFixtures` + `core/helpers/integration/oauthGrantTestRoute`.
 
 ### 4.5.6 App modules
-None. The Xero module (owned by the Xero spec, not started yet) will be the first consumer.
+
+None in this repository; the first consumer is an official module with its own spec. Delivery order under the recommended gate (Q7, pending sign-off): the Phase 1 PR, kept open → a package preview of `@open-mercato/shared` and `@open-mercato/core` (maintainer-dispatched, same-repository branch only; otherwise `yarn pack` tarballs or Verdaccio) → an official-module draft PR passing against it → the Phase 1 merge → a release → the official module bumps its peer dependencies and merges.
 
 #### Checklist
-- [x] All items; the modifications to `integrations` are the upstream contribution itself (flagged)
 
----
+- [x] All items; the modifications to `integrations` are the upstream contribution itself (flagged)
 
 ## 5. User Stories `PM`
 
-> Stories use Xero, the planned first consumer, as the concrete example. Everything except the Xero-specific details (Xero organisation picker, Connections API) applies to any tenant-level OAuth integration built on the core.
+> Stories describe a generic tenant-level provider; a provider-specific spec adds its External Account and cleanup details. Every write story fails with 403 without `integrations.credentials.manage`. Full alternate and failure paths: Phase 1 feature spec.
 
 ### WF1
 
-**US-1.1** As a Tenant Admin, I connect Xero for my Open Mercato organization so that scheduled syncs can run.
-**Success:**
-- After consent, exactly one live `active` grant row exists for `(sync_xero, tenant, organization, null)`.
-- `reauthRequired=false`, and one `oauth.connected` log entry is written.
-- After the Xero organisation is chosen, `providerData` holds it and one `oauth.external_account_selected` entry is written.
-
-**Happy path:** Connect → Xero consent → choose the Xero organisation → "Connected to <Xero organisation name>".
-**Alternate paths:**
-- Exactly one Xero organisation: it is chosen automatically.
-- Reconnect over a live grant: the live row is updated in place under the lock. The previous refresh token is kept unrevoked (default). The log entry records `reconnect: true`.
-- Reconnect after a disconnect: a new row is inserted; the tombstone stays unread.
-- The admin abandons the Xero organisation choice: the grant stays `active` without an External Account. The tab shows "Connected — choose a Xero organisation to finish", and syncs are refused by the provider with "no Xero organisation selected" (not a reauth).
-- A different Xero organisation than last time: `completeConnect` returned the previous `providerData`, so the provider warns before `updateProviderData` (Q10).
-
-**Failure paths:**
-- `connect_cancelled`: "Connection cancelled".
-- `connect_state_invalid`: "Connection expired, try again".
-- `client_misconfigured`: "Client ID or Secret rejected by Xero".
-- `connect_exchange_failed`: "Xero did not complete the connection" (logged with the provider error code), including a response without a refresh token.
-- `organization_scope_required` ("All organizations" selected): 400.
-- `oauth_base_url_not_configured`: "Set APP_URL before connecting" (operator error).
-
-In every failure case, any existing grant and the flag are untouched.
-
-**US-1.2** As an Integration Developer, I build the initiate and callback routes from core primitives, so that I write no token-POST, lock or storage code.
-**Success:** each route is ≤ ~60 lines, and every grant write goes through `completeConnect` or `updateProviderData`.
-**Happy path:** the callback exchanges the code, calls `completeConnect`, and redirects to the picker.
-**Alternate:**
-- `pkce: 'none'` in the descriptor for a provider that rejects PKCE.
-- No External Account step for a provider that doesn't need one.
-
-**Failure:** a malformed descriptor (missing `tokenEndpoint`) throws on first use with a typed error (unit-tested). Nothing is written.
+| Story | Happy outcome | Key failure | Commits |
+|---|---|---|---|
+| **US-1.1** As a Tenant Admin, I connect a provider for my organization so that scheduled syncs can run. | exactly one live `active` grant and one `oauth_connected` entry; the chosen External Account in `providerData` with one `oauth_external_account_selected` entry | any Connect Failure leaves an existing grant untouched; a selection against a since-reconnected grant gets 409 | P1a, P2a, P4b, P4d + 3 provider |
+| **US-1.2** As an Integration Developer, I build the initiate and callback routes from core primitives so that I write no PKCE, token-POST, lock or storage code. | each route ≤ ~30 lines under the route contract; every grant write via `completeConnect` / `updateProviderData` | a malformed or mismatched descriptor throws `OAuthDescriptorError` before consent and any I/O | P2a, P4b, P6 |
 
 ### WF2
 
-**US-2.1** As the Background Worker, I get a valid access token no matter how many processes ask at once, so that a rotation race never costs the tenant its grant.
-**Success:**
-- The strict-rotation fake sees exactly 1 refresh for 20 concurrent callers over 2 connections.
-- All callers get the same new token.
-- There are 0 `invalid_grant` responses.
-- With `poolMax=4` and 10 waiters, there are 0 acquire timeouts.
-
-**Happy path:** the token is fresh and is returned without the lock.
-**Alternate:** the token is stale and another process already refreshed it. The back-off re-read returns the new token with no network call.
-**Failure paths:**
-- Token-endpoint timeout → `transient`. If the stored token is still valid now, it is returned with `degraded: true`; the grant status and tokens are unchanged.
-- Wait deadline or a transient DB error → `transient`; nothing is written.
-- Commit failure after Refresh → `transient` (residual risk, §1.4.6).
-- The grant can't be decrypted → `platform_unavailable`; nothing is written.
-
-**US-2.2** As the Background Worker, after an API `401` I retry once with a fresh token, so that an early-revoked access token doesn't fail the batch.
-**Success:** a forced refresh happens only if, after the re-read, the stored token still equals `rejectedAccessToken` and `refreshedAt` is earlier than the call's start.
-**Happy path:** API `401` → `getAccessToken({ rejectedAccessToken })` → one refresh → the retry succeeds.
-**Alternate paths:**
-- Another process refreshed meanwhile: the stored newer token is returned without a refresh.
-- The `401` carries `insufficient_scope` / `insufficent_scope`: no refresh. The caller calls `reportResourceChallenge` and stops that call (§1.4.5).
-
-**Failure paths:**
-- A second `401` is a resource error; the grant status and flag are untouched.
-- The forced refresh returns `invalid_grant` → `grant_invalidated` (US-3.1).
+| Story | Happy outcome | Key failure | Commits |
+|---|---|---|---|
+| **US-2.1** As the Background Worker, I get a valid access token however many processes ask, so that a rotation race never costs the grant. | 1 refresh for 20 concurrent callers over ≥ 2 sessions, all get the same token, 0 `invalid_grant`, 0 acquire timeouts with `poolMax=4` and 10 waiters | timeout → `transient` (a valid token `degraded`); unreadable grant → `platform_unavailable`, no token call | P1a, P1b, P2a, P3, P4c + 1 provider |
+| **US-2.2** As the Background Worker, after an API `401` I retry once with a fresh token, so that an early-revoked token doesn't fail the batch. | one forced refresh only if the stored token still equals `rejectedAccessToken` and is older than the call | the forced refresh fails `transient` → `transient`, never the rejected token; an insufficient-scope challenge stops the call without refresh | same as US-2.1 |
 
 ### WF3
 
-**US-3.1** As a Tenant Admin, I'm told when Xero access was revoked, so that I reconnect before data goes stale.
-**Success:** on the first confirmed terminal outcome:
-- the grant is `invalidated` and the flag projected, in one commit;
-- an `oauth.invalidated` log entry is written;
-- the banner shows on the integration page (it reads `oauthGrant.status`).
-
-**Alternate:** several workers hit it at once. The first under the lock invalidates; the others see `invalidated` on read, so there is one log entry.
-**Failure:** the state write fails. It's in the same transaction as the invalidation, so neither commits, and no event is emitted (the event goes out after commit). The next call re-evaluates.
-
-**US-3.2** As a Tenant Admin, a Xero outage never tells me to reconnect.
-**Success:** every `transient` row in §1.4.5 is tested to leave the grant status, the tokens and the flag untouched.
-**Happy path:** Xero returns 503 → the call is `transient`; a still-valid token is used `degraded`; the next scheduled run succeeds.
-**Alternate:** the outage outlasts the access token → runs fail `transient` until Xero recovers, then the next refresh succeeds with the stored refresh token.
-**Failure:** if the outage exceeds the refresh token's lifetime, the next refresh returns `invalid_grant` → US-3.1 (a genuine expiry, not a false alarm).
-
-**US-3.3** As a Tenant Admin, a bad Client ID or Secret tells me to fix the configuration, not to reconnect.
-**Success:**
-- `invalid_client` on a real refresh records `lastFailureClass = client_misconfigured`, and `client_changed` is computed on read.
-- `inspectGrant` exposes both, and the health check reports `oauth.client_misconfigured` without calling the token endpoint.
-- The grant status stays `active`, and the flag is unchanged.
-
-**Happy path:** the admin fixes the secret → the next refresh succeeds and clears `lastFailureClass`/`lastFailureAt`.
-**Alternate:** the admin changed the Client ID on purpose → Reconnect with the new client replaces the grant.
-**Failure:** the admin never fixes it → runs keep failing `client_misconfigured` and the health check stays unhealthy; no reauth banner is shown, because reconnecting would not help.
+| Story | Happy outcome | Key failure | Commits |
+|---|---|---|---|
+| **US-3.1** As a Tenant Admin, the integration page and the health badge show when access was revoked, so that I reconnect before data goes stale. | grant `invalidated` and one `oauth_invalidated` in one commit; banner at once, badge at the next probe | the log write fails → neither commits, `transient` | P4c, P4d, P5 |
+| **US-3.2** As a Tenant Admin, a provider outage never tells me to reconnect. | every `transient` row leaves status and tokens untouched | an outage beyond the refresh token's life ends in a genuine `invalid_grant` (US-3.1) | P4c, P4d + provider health check |
+| **US-3.3** As a Tenant Admin, a bad Client ID or Secret tells me to fix the configuration, not to reconnect. | `client_misconfigured` / `client_changed` via `inspectGrant` and health; status stays `active` | never fixed → runs fail `client_misconfigured`, health unhealthy, no banner | P4c, P4d + provider health check |
 
 ### WF4
 
-**US-4.1** As a Tenant Admin, I disconnect Xero so that Open Mercato no longer holds access to my books.
-**Success:**
-- In one commit: the grant row is blanked and soft-deleted, the flag cleared if set, and `oauth.disconnected` + `oauth.revocation_pending` logged.
-- After that, the Xero Connection is deleted and the refresh token revoked when reachable, and the outcome entry is appended.
-- In the live database no decryptable refresh token remains; backups are covered by revocation, not by erasure (I5).
-
-**Alternate paths:**
-- No grant exists → no-op success.
-- The grant was already `invalidated` → local erase; provider cleanup skipped (`oauth.revocation_skipped_invalidated`).
-- A Reconnect committed before the cleanup ran → cleanup skipped (`oauth.revocation_skipped_reconnected`).
-
-**Failure paths:**
-- Xero is unreachable. Local erase is done; the UI says: "Disconnected here. Xero could not confirm revocation — remove the app in Xero's Connected Apps to be sure."
-- The process crashes after the erase commit: after 5 minutes, `revocation_pending` with no outcome → same UI message.
+| Story | Happy outcome | Key failure | Commits |
+|---|---|---|---|
+| **US-4.1** As a Tenant Admin, I disconnect a provider so that Open Mercato no longer holds access to my data there. | blank + soft-delete and `oauth_disconnected` + `oauth_revocation_pending` in one commit; then hook, revoke and an outcome entry | stale screen → 409; unreadable tokens → `disconnect_tokens_unreadable` (or erased with `force`); provider unreachable → erased locally, "revocation not confirmed" | P1a, P3, P4e + 1 provider |
 
 ### WF5
 
-**US-5.1** As an Integration Developer, I test my provider against a fake authorization server so that CI covers a full round trip.
-**Success:** the fixture supports auth-code, refresh (none / non-revoking / strict + grace), revoke, error injection and call counters. It is used by the P4 tests and by the Xero integration tests.
-**Happy path:** a provider test runs connect → getAccessToken → disconnect against the fixture.
-**Alternate:** the fixture runs in rotation-"none" mode to mimic a Google-like provider.
-**Failure:** a fixture configured to return `invalid_grant` makes the test observe `grant_invalidated` and the banner status; a fixture delay beyond the timeout makes it observe `transient`.
+| Story | Happy outcome | Key failure | Commits |
+|---|---|---|---|
+| **US-5.1** As an Integration Developer, I test my provider against a fake authorization server so that CI covers the protocol and a full round trip. | Jest against the published fake server (PKCE, three rotation modes, revoke, error and delay injection); E2E connect → token → disconnect | an injected `invalid_grant` → `grant_invalidated`; a delay beyond the timeout → `transient`; a wrong verifier → `connect_exchange_failed` | P2b, P4a, P6 |
 
 ### Default stories
-**US-0.1 and US-0.2: N/A.** This is a platform capability with no demo users or demo data; the fixtures (US-5.1) take their place.
+
+**US-0.1 and US-0.2: N/A.** A platform capability with no demo users or data; the fixtures (US-5.1) take their place.
 
 ### Cross-story impact matrix
 
 | Story | State changed | Stories affected | Impact | Mitigation |
 |---|---|---|---|---|
-| US-1.1 reconnect | live grant updated in place, `active` | US-2.1 refresh in flight | refresh writes the old chain | I2: the refresh re-reads under the lock; the second writer sees the new grant |
-| US-1.1 reconnect | Provider Authorization | the same Xero organisation in another OM organization | revoking the previous token kills the other grant | `revokePreviousOnReconnect=false` by default; Q8 |
-| US-1.1 abandoned picker | grant `active`, no External Account | scheduled syncs | syncs against no organisation | the provider adapter refuses with its own precondition error; the tab asks to finish |
-| US-1.2 malformed descriptor | none | every operation of that provider | runtime failure mid-connect | typed error on first use, before any write |
-| US-2.1 refresh | rotated tokens | US-4.1 disconnect | refresh resurrects an erased grant | shared lock + re-read: no live row → `not_connected` |
-| US-2.2 forced refresh / keep-alive | rotated tokens | US-2.1 | double refresh in one window | forced refresh skips if `refreshedAt` is later than the call's start |
-| US-3.1 invalidated | grant status + flag | admin PUT clears the flag (API only) | the flag disagrees with the grant | no effect: the banner reads the grant status, and `getAccessToken` still returns `grant_invalidated` |
-| Admin PUT sets `reauthRequired=true` (API only) | flag | grant `active` | a stale flag in the API | no UI effect (the banner reads the grant status); overwritten at the next status change |
-| US-3.1 invalidated | status | scheduled data_sync runs | a failed run every interval | each run fails fast with `grant_invalidated` (no token call) and is logged; pausing schedules needs the Phase 3 event |
-| US-3.2 transient | `lastFailureClass`/`At` only | US-3.3 health | a stale "misconfigured" after recovery | both diagnostics are cleared on the next successful Refresh |
-| Health probe (existing, every 15 min) | none on tokens | US-2.1 | a probe that refreshed would compete for the lock and exceed its 10 s timeout | the health check calls `inspectGrant` only (no refresh); keep-alive is an explicit weekly job |
-| Keep-alive job | rotated tokens | disabled integrations | an idle grant expires while the integration is disabled | keep-alive skips disabled integrations by design; re-enabling may need a Reconnect (§1.4.4) |
-| Admin state PUT `isEnabled=false` (existing) | integration disabled | US-2.1, keep-alive | tokens stop being used and refreshed | intended; the grant is kept; Disconnect is the way to erase it |
-| Projection write (runtime) | `integration_states.updated_at` | admin state PUT open in a browser | a 409 on the enable toggle | written only on change; the residual 409 is accepted (§1.4.2) |
-| Projection on a missing state row | new `integration_states` row | integrations enabled by definition default | silently disabled | `upsert` creates missing rows with the definition defaults (P5) |
-| US-4.1 disconnect → US-1.1 reconnect | tombstone + new row | US-2.1 | a stale row read as live | every lookup filters `deleted_at IS NULL`; I2 test covers disconnect → reconnect → refresh |
-| US-4.1 post-release cleanup → US-1.1 quick reconnect | Provider Authorization | the new grant | revoking the old token or deleting the Connection kills the new grant | cleanup re-reads and skips when a live grant exists (`revocation_skipped_reconnected`) |
-| US-3.1 invalidated | status | US-1.1 | a stale flag after reconnect | `completeConnect` sets `active` and clears the flag in the same commit |
-| US-4.1 disconnect | grant erased | running data_sync | a run fails mid-way | `not_connected`, an explicit run error, never reauth |
-| Admin credential save (existing), Client ID changed | client config | US-2.1 | the client id changed under a live grant | `client_changed` on read (non-persistent) |
-| Admin credential save (existing), secret only | client config | US-2.1 | the next refresh uses the new secret | works if the secret is valid; `client_misconfigured` if not (US-3.3); never reauth |
-| US-5.1 fixture | none | all P4 tests | tests depend on fixture fidelity | the fixture covers the three rotation modes documented in §1.4.6 |
-| Health probe (existing) | health status | US-3.3 | two writers | only the health service writes health; the grant service never does |
+| US-1.1 reconnect | live grant updated in place | US-2.1 refresh in flight | refresh writes the old chain | I2: re-read under the lock |
+| US-1.1 reconnect / concurrent choice | `providerData`, `revisedAt` | another admin's open picker | a selection on the wrong grant | `expectedRevisedAt` → 409 |
+| US-1.1 reconnect | Provider Authorization | another organization's grant | revoking kills the other grant | the previous token is never revoked on Reconnect; Q8 |
+| US-1.1 reconnect over an unreadable grant | live grant replaced | the stored refresh token | a healthy grant overwritten on a transient key problem | only an envelope failure counts, and only with confirmed `replaceUnreadable` |
+| US-2.1 refresh | rotated tokens | US-4.1 disconnect | an erased grant resurrected | shared lock + re-read → `not_connected` |
+| US-2.1 refresh with Vault down | none | lock waiters | a rotation sealed with another key | DEK pinned once before the lock; no token call without a readable grant (I6) |
+| US-4.1 cleanup → US-1.1 quick connect | Provider Authorization | the new grant | revocation kills the new grant | re-read before each external call and skip |
 
 #### Checklist
-- [x] All stories complete with alternate and failure paths; matrix covers all stories and the existing platform behaviours they touch
 
----
+- [x] All stories with happy outcome, key failure and commits; matrix trimmed to the highest-impact rows (full matrix: Phase 1 feature spec)
 
 ## 6. User Story Gap Analysis `Architect`
 
-| Story | Platform match | Commits |
-|---|---|---|
-| US-1.1 | P1, P4 (`completeConnect`, `updateProviderData`) + Xero routes/picker/tab | (P) + 3 Xero |
-| US-1.2 | P4 `completeConnect` | (P4) |
-| US-2.1 / 2.2 | P1, P2, P4 (incl. `reportResourceChallenge`) | (P) |
-| US-3.1 | P5 | (P5) |
-| US-3.2 / 3.3 | P4 + provider health check | (P4) + (Xero 1) |
-| US-4.1 | P3, P4 + Xero hook | (P) + 1 Xero |
-| US-5.1 | P4 fixture | (P4) |
-
-**Upstream dependencies / merge order** (read-only tracker check, 2026-09-27):
-- [#6333](https://github.com/open-mercato/open-mercato/issues/6333), PR [#6478](https://github.com/open-mercato/open-mercato/pull/6478) and PR [#6433](https://github.com/open-mercato/open-mercato/pull/6433) change `credential-refresh.ts`. Phase 1 doesn't touch the hub; Phase 3 rebases on them.
-- PR [#6267](https://github.com/open-mercato/open-mercato/pull/6267) (single-use state cookie) should merge before Xero's Phase 2 routes rely on the hub cookie.
-- PR [#6266](https://github.com/open-mercato/open-mercato/pull/6266): independent.
-- PR [#5898](https://github.com/open-mercato/open-mercato/pull/5898) (MS365): second hub consumer; a Phase 3 candidate.
-- PR [#5450](https://github.com/open-mercato/open-mercato/pull/5450): error-taxonomy alignment for data_sync runs:
-  - `transient` → run-transient;
-  - `grant_invalidated`, `client_misconfigured`, `scope_insufficient`, `not_connected` and `platform_unavailable` → run-terminal.
+The story-to-commit mapping is the **Commits** column of the §5 tables; "provider" commits are the first consumer's (§4.2). **Upstream dependencies / merge order:**
+- Recommended gate (Q7, pending sign-off) for the Phase 1 merge: an official-module draft PR passes against a package preview built from the Phase 1 PR (§4.5.6). Hard gate for Phase 2: PR [#6267](https://github.com/open-mercato/open-mercato/pull/6267) (single-use state cookie). The `upsert` defaults fix gates the Phase 3 projection, not Phase 1.
+- [#6333](https://github.com/open-mercato/open-mercato/issues/6333), PR [#6478](https://github.com/open-mercato/open-mercato/pull/6478) and PR [#6433](https://github.com/open-mercato/open-mercato/pull/6433) change `credential-refresh.ts` (Phase 3 rebases on them); PR [#6266](https://github.com/open-mercato/open-mercato/pull/6266) is independent; PR [#5898](https://github.com/open-mercato/open-mercato/pull/5898) is a Phase 3 candidate.
+- PR [#5450](https://github.com/open-mercato/open-mercato/pull/5450) run taxonomy: `transient` and `platform_unavailable` → run-transient; `grant_invalidated`, `client_misconfigured`, `not_connected` and `scope_insufficient` → run-terminal.
 
 #### Checklist
-- [x] Mapped; architect checkpoint done
 
----
+- [x] Mapped; architect checkpoint done
 
 ## 7. Phasing & Rollout `PM`
 
-### Phase 1: Grant-lifecycle core (platform) — 10 commits
+### Phase 1: Grant-lifecycle core (platform) — 12 commits
 
-**Goal:** any integration can hold a tenant-level grant that:
-- refreshes safely across processes without starving the pool;
-- reports a trustworthy reauth signal;
-- can be truly disconnected.
+**Goal:** any integration can hold a tenant-level grant that is obtained through a PKCE-protected code exchange, refreshes safely across processes without starving the pool, reports a trustworthy status (banner and health badge), and can be truly disconnected. **Why this order:** it sets the standard before a second copy of the logic appears and before the first strict-rotation provider makes the race real.\
+It ships **dark**: no existing integration holds a grant (the only always-on path is one existence lookup in the detail GET); the banner renders only for an `invalidated` grant; no migration, no new production route, no new ACL feature, one new required CI job (Q3); no consumer in this repository, and under the recommended gate (Q7) the merge waits for the official module's draft PR.
 
-**Why this order:** it sets the platform's standard way to hold and use a grant before a second copy of that logic appears. Xero, the planned first consumer, can't ship reliably without it.
+**Business-level acceptance** (the labelled test criteria and where each runs: Phase 1 feature spec):
+- [ ] 20 concurrent callers over ≥ 2 DB sessions against a strict-rotation fake cause exactly one refresh (I1).
+- [ ] Interleaved Connect, Refresh and Disconnect never store an older refresh token, resurrect an erased grant or create a second live row (I2).
+- [ ] Every §1.4.5 outcome is tested for its class, grant status and stored tokens; nothing else invalidates a grant (I3).
+- [ ] No token value reaches the admin credentials API, logs, health `details`, error reports or the `oauthGrant` field (I4).
+- [ ] After Disconnect the live database holds no decryptable refresh token, even with revocation down; a crash after the erase leaves `revocation: 'pending'` (I5).
+- [ ] Waiters hold no connection (0 acquire timeouts with `poolMax=4` and 10 waiters); the lock commits independently of an outer rollback; rows written under the lock are encrypted like admin rows at both layers (I6).
+- [ ] No token call without a readable grant; no-DEK outcomes return without taking the lock; the DEK is resolved once per operation (I6). Owners differing only by organization, tenant or integration are independent (I7).
+- [ ] An unreadable grant is never overwritten without `replaceUnreadable`, and an unopened field-level layer or a missing DEK never is; a stale Grant Revision gets the standard 409 on External Account selection and Disconnect.
+- [ ] `inspectGrant` makes no token call, takes no lock and writes nothing; `mapInspectionToHealth` follows the §1.4.4 precedence.
+- [ ] PKCE matches the RFC 7636 Appendix B vector, and the redirect URI never comes from the request origin; a Disconnect hook that ignores its signal can't hold the Disconnect past its budget, and the revoke is still attempted.
+- [ ] A minimal test provider is built from exported package paths alone, and every §10.1 import path resolves against the built packages.
+- [ ] The admin sees the banner for an invalidated grant with a link to `?tab=<connectTabId>`, a Viewer sees it without the link, and a flag set through the state PUT without a grant shows no banner.
 
-It ships **dark**:
-- Nothing existing calls the new code.
-- The banner renders only for an integration whose live OAuth grant is `invalidated`, and no integration has one until a provider adopts the core.
-- There is no migration, no new production route and no new ACL feature.
+**Value delivered:** one tested standard for new OAuth integrations. **ROI metric:** the OAuth part of a tenant-level provider falls from ~9 to ~5 commits. **Copy test:** a provider copied from this teaches "descriptor + two thin routes on core helpers + health check + Token Provider", not "write your own refresh".\
+**PM's challenges to the DDD criteria:** cross-session locking is verified with several connections in one process (advisory locks are per session, so it is the same mechanism); pool starvation is tested on real Postgres; deferred to Phase 3 because none has a consumer and each would become STABLE: `reportResourceChallenge`, a `tryOnce` lock mode, revoking the previous refresh token on Reconnect, `listGrantOwners`, the `reauthRequired` projection.
 
-**Domain criteria** `DDD`:
-- [ ] I1: 20 concurrent callers over 2 connections against a strict-rotation fake → exactly 1 refresh.
-- [ ] I2: interleaved reconnect/refresh/disconnect (injected delays) never leaves an older refresh token stored, never resurrects an erased grant, and never creates a second **live** tenant-level row. Explicit case: disconnect → reconnect → refresh leaves exactly one live row plus one tombstone, and the refresh uses the new row.
-- [ ] I3:
-  - each §1.4.5 row has a test asserting the class, the grant status and the flag;
-  - the grant and flag always agree after every grant-service commit;
-  - a first projection write on an integration without a state row and with `defaultState.isEnabled: true` leaves it enabled.
-- [ ] I4:
-  - the admin credentials GET for `<integrationId>__oauth_grant` answers 404;
-  - the `oauthGrant` response field carries only `{ status }`;
-  - integration log payloads, error reports and `sync_runs.parameters` written during the P4 suites contain no token value (asserted by scanning for the fake server's issued tokens).
-- [ ] I5:
-  - after `disconnect`, a raw query on the live database finds no decryptable refresh token for the owner, even when the fake revocation endpoint is down;
-  - a crash injected right after the erase commit (test-only fault-injection hook) leaves `revocation_pending` without an outcome entry;
-  - a quick Reconnect before the cleanup makes the cleanup log `revocation_skipped_reconnected` and leaves the new grant working.
-- [ ] `inspectGrant` on a grant whose access token has expired makes **no** token-endpoint call (fake AS counter = 0), takes no lock and writes nothing.
-- [ ] Forced refresh: `forceRefresh` and `rejectedAccessToken` issued concurrently with an expiry refresh produce exactly one token-endpoint refresh.
-- [ ] I6: with `poolMax=4` (a dedicated pool created by the test-only route) and 10 waiters, there are 0 acquire timeouts; the holder performs exactly one external call under the lock; `55P03`/`57014` are classified `transient`; a `getAccessToken` that refreshes inside an outer transaction which then rolls back still leaves the rotated token persisted.
-- [ ] I7: two owners that differ only by organization, and two that differ only by tenant, are refreshed and disconnected independently; neither operation reads, changes or erases the other's row.
-- [ ] Reconnect over a live grant updates that row in place (still one live row); `updateProviderData` is serialized with refresh under the Grant Lock.
+### Phase 2: First consumer (official module, owned by its own spec) — ~5 commits
 
-**How the criteria are verified.** Classification and ordering run as Jest unit tests against an in-process fake authorization server (a real HTTP server, not a stubbed `fetch`). The database-bound criteria (I1, I2, I3, I4, I5, I6, I7 and the reconnect/forced-refresh criteria) run as Playwright integration tests against real Postgres (in `packages/core/src/modules/integrations/__integration__/`), through **test-only routes**. The routes:
-- register a test OAuth provider;
-- expose the fake authorization server's endpoints and counters;
-- offer a fault-injection hook (e.g. "crash after the erase commit");
-- run the pool test on a dedicated small ORM pool. They are gated by an environment flag and return 404 without it, following the `communication_channels` `test-seed` precedent (`OM_ENABLE_TEST_CHANNEL_SEEDING`). Concurrent requests use separate DB connections, which exercises the same advisory-lock mechanism as separate processes. The detailed test design belongs to the feature spec.
-
-**Business criteria** `PM`:
-- [ ] A minimal provider (fake AS) can be built from exported APIs alone, following the integrations `AGENTS.md`.
-- [ ] The admin sees the banner when a grant is invalidated (component test + one Playwright check that invalidates a test grant through the test-only routes), and a flag set through the existing state PUT on an integration **without** a grant shows no banner.
-
-**Value delivered:** the platform has one tested standard for OAuth grants (refresh, reconnect signal, disconnect), and `reauthRequired` means something.
-**ROI metric:** the OAuth part of a tenant-level provider falls from ~9 to ~5 commits (Xero will be the first, every later provider after it); 0 new hand-rolled locks or refresh loops.
-**Copy test:** a provider copied from this teaches "descriptor + two thin routes + health check + Token Provider", not "write your own refresh".
-**PM's challenges to the DDD criteria:**
-- The multi-*process* test is cut in favour of multiple DB connections in one process. Advisory locks are per-session, so the mechanism is identical at a fraction of the CI cost.
-- The pool-starvation test is **kept**: waiters holding pooled connections is a real failure mode under the default pool (§1.4.1, DB constraints).
-
-### Phase 2: Xero on the core (owned by the Xero spec) — ~5 commits
-
-**Goal:** the admin connects Xero, chooses a Xero organisation, and syncs run on schedule and survive token expiry.
-**Commits:**
-1. descriptor + client fields;
-2. PKCE + authorize URL + initiate/callback (require a configured base URL, Q9);
-3. Xero organisation picker + tab (persisted with `updateProviderData`);
-4. adapter + health check (`inspectGrant`) + daily keep-alive job (Q6);
-5. disconnect hook.
-**Acceptance:** integration tests against the fake AS; manual sandbox QA of connect → a sync longer than 35 minutes → disconnect.
+**Goal:** an admin connects the first tenant-level OAuth provider, chooses an External Account where needed, and syncs run on schedule and survive token expiry. **Shape:** the five provider commits of §1.2 in `open-mercato/official-modules`, merged after a release containing Phase 1 and after #6267.\
+**Acceptance:** the OAuth part takes ≤ 5 commits; no `pg_advisory`, `grant_type=refresh_token` or `code_challenge` construction in the provider package; Jest tests for route-contract rules 1–10 against the published fake server; an E2E connect → token → disconnect round trip; timed sandbox QA (time-to-first-sync ≤ 5 min, a sync longer than the access-token lifetime, a disconnect).
 
 ### Phase 3: Triggered extractions (not scheduled)
 
 | Item | Trigger | Est. |
 |---|---|---|
-| Generic `/api/integrations/[id]/oauth/*`, generic Connect UI deriving the `oauth` field from the descriptor, and PKCE/authorize-URL/state-cookie moved to core with hub bridges | a second tenant-level OAuth provider is committed (e.g. the Google Workspace spec) | ~5 |
-| Hub delegates to the grant service; fix `isReauthError`; per-user strict reads | a strict-rotation per-user provider appears, or maintainers want consolidation; after #6478/#6433 merge | ~3 |
-| Existing hand-rolled locks adopt `withAdvisoryXactLock` | opportunistic | 0–8 |
-| Notification on invalidation (`integrations.oauth_grant.invalidated` event + `integrations.integration.reauth_required` notification type) and automatic repair of manually set `reauthRequired` | admins miss revoked grants in practice, or a second consumer needs the event | ~1–2 |
-| Operator guidance: register a **separate OAuth client** (client ID) for integrations and for login (SSO) at the same provider. Reasons: login needs only `openid email profile` while an integration needs API scopes (e.g. mail), so users aren't asked for mailbox access at every login; Google's verification of restricted scopes (Gmail, with a third-party security assessment) can't block login; a leaked secret of one client doesn't open the other area. The core already stores the two configurations separately (§4.5.4); this is documentation only | the first provider that offers both login and an integration (Google Workspace, Microsoft 365) | 0 (docs, within that provider's commits) |
+| Generic `/api/integrations/[id]/oauth/*` routes (provider in the path), a generic Connect UI deriving the `oauth` field from the descriptor, the state cookie moved to core with hub bridges | a second tenant-level OAuth provider is committed (e.g. the Google Workspace spec) | ~5 |
+| Hub delegates to the grant service; fix `isReauthError`; per-user strict reads; PKCE for Gmail | a strict-rotation per-user provider, or consolidation; after #6478/#6433 | ~3 |
+| `reportResourceChallenge` (`tryOnce` lock mode), `revokePreviousOnReconnect`, `listGrantOwners` | a consumer needs them | ~1–2 |
+| `integrations.oauth_grant.invalidated` event + `integrations.integration.reauth_required` notification, with the `reauthRequired` projection and its runtime `integrations.state.updated` emission | admins miss revoked grants, or a second consumer needs the event; the projection after the `upsert` fix | ~2–3 |
+| `integrations.oauth_grant.connected` / `.disconnected` events with a data_sync subscriber that pauses schedules | a consumer needs schedules paused | ~1–2 |
+| A partial unique index on live `…__oauth_grant` rows (R4); PKCE and state-cookie crypto moved into `shared` (§4.5.4) | grants exist in production; the generic routes, or a third PKCE user | ~2 |
+| Hand-rolled locks: the four bare-connection sites as a separate follow-up issue; others may adopt `withAdvisoryXactLock` | the follow-up issue; opportunistic | 0–8 |
+| Operator guidance: a separate OAuth client for integrations and for login at the same provider (scopes, verification, blast radius) | the first provider offering both (Google Workspace, Microsoft 365) | 0 (docs) |
 
 ### Rollout summary
+
 ```
-Phase 1: grant-lifecycle core  10 commits    WF2, WF3, WF4 (+ WF1/WF5 primitives)
-Phase 2: Xero consumer          ~5 commits   WF1 end-to-end (Xero spec)
-Phase 3: triggered          ~9–18 commits   each item only when its trigger fires (many are optional)
-                                ----------
-                                ~15 commits to production-ready (Phases 1–2)
+Related: upsert defaults fix         1 PR        (independent bug fix; gates the Phase 3 projection)
+Phase 1: grant-lifecycle core      12 commits   capabilities for WF2–WF4 (+ WF1/WF5 primitives incl. PKCE)
+Phase 2: first consumer            ~5 commits   WF1–WF4 end-to-end (official module, own spec)
+Phase 3: triggered            ~14–25 commits   each item only when its trigger fires (many are optional)
+Total to production-ready:         ~17 commits  (Phases 1–2)
 ```
 
 #### Checklist
-- [x] Ordered by priority × gap × blockers. Phase 1 is complete but dark: it has testable acceptance and no user-facing half-state, but its business ROI is realized only with Phase 2 (a deliberate deviation for a platform capability).
-- [x] Workarounds (§4.6 A); commits; DDD + PM criteria; ROI
 
----
+- [x] Ordered by priority × gap × blockers; Phase 1 complete but dark (ROI realized with Phase 2, a deliberate deviation); workarounds (§4.6 A); DDD + PM criteria
 
 ## 8. Cross-Spec Conflicts `PM`
 
 | Conflict | Specs | Resolution |
 |---|---|---|
-| Google Workspace lists "Generic core OAuth renderer" as out of scope and plans provider-owned OAuth (`oauth.ts`, `oauth-session.ts`) | `2026-03-29-google-workspace-integration.md` | Consistent: connect UX stays provider-owned here too. Google Workspace should use the Phase 1 core for tokens. Its arrival is the Phase 3 trigger. |
+| **Integration projects** (Draft): a project dimension, `UNIQUE(project_id)` (one credential row per project) and projects scoped at the bundle level | `2026-03-29-integration-projects.md` §"Modified Entity: IntegrationCredentials" | **Conflict, resolved by shape.** A sibling grant row per project would violate `UNIQUE(project_id)`, and the Grant Owner gains a dimension. This spec keeps the owner an object, so a later `projectId?` is additive, and the lock key appends it only when it is set (the Phase 1 key of an owner without a project is unchanged). The integration-projects owners must keep `integration_id` in the uniqueness (so a project can hold its Client Configuration row and its `__oauth_grant` row) and keep grants on the child integration. Whichever lands second records the merge in its changelog. |
+| Google Workspace (Draft) plans provider-owned OAuth (`oauth.ts`, `oauth-session.ts`), stores `oauthTokens` inside the project credentials row, and shares one Google connection across the bundle's children | `2026-03-29-google-workspace-integration.md` | **Conflict.** Connect UX staying provider-owned is consistent. Tokens in the credentials row are this spec's R3 (lost updates under the admin full-replace save), and a bundle-shared grant contradicts "a grant belongs to the child integration, never the bundle". When it is implemented, Google Workspace should use the Phase 1 core: the sibling grant row, child ownership, PKCE and the Token Provider. Child ownership means one consent per child for the same Google account; whether a bundle may share one grant is Q11. Until Q11 is answered, one child holds the grant and its siblings call the Token Provider with that child's Grant Owner. Its arrival is the Phase 3 trigger. |
+| Integration commands and events (Draft) plans per-project Google account connections shared by the bundle's children | `2026-03-29-integration-commands-events.md` (lines 1166-1169) | Same resolution as Google Workspace: child ownership, Q11. |
+| Workflow integration flows (Draft) needs project-aware OAuth and account resolution in the provider runtime | `2026-03-29-workflow-integration-flows.md` (line 554) | Consistent: the Grant Owner gains `projectId?` additively (see integration projects); account resolution stays provider-owned through `providerData`. |
 | The email foundation made the hub the OAuth home | `2026-05-21-email-integration-foundation.md` | Phase 1 doesn't touch the hub; Phase 3 migrates with bridges. |
 | Disconnect retention: the hub keeps tokens (for undo), this spec erases | email specs vs. this spec | Different aggregates: channel disconnect stays undoable and unchanged; tenant-level grant disconnect erases. Q5 goes to the hub owners. |
 | data_sync error taxonomy | PR #5450 series | mapped in §6 |
-| Xero integration spec (implementation not started) | Xero spec | This spec owns the descriptor contract, Token Provider, failure contract and disconnect semantics. The Xero spec owns routes, PKCE/URL, picker, health check, keep-alive and Xero API specifics. |
+| First consumer in `official-modules` | its own spec (not yet written) | This spec owns the descriptor contract, the protocol helpers, the provider route contract, the Token Provider, the failure contract and disconnect semantics. The consumer's spec owns its routes, picker, health check, keep-alive, its Playwright seam, provider API specifics and Q1, Q2, Q8 and the Q10 UX. |
 
 #### Checklist
-- [x] All resolved
 
----
+- [x] All identified; conflicts resolved by shape or routed to the owning spec
 
 ## 9. Reference App Quality Gate `Architect`
 
-N/A: this is a platform capability. Anti-patterns to avoid:
-- provider-local refresh locks, or an in-process `Map` as the only guard;
-- tokens stored in the admin-edited credentials row;
-- any `401` or "unauthorized" text mapped to reauth;
-- lock waiters that hold a pooled connection;
-- DB I/O inside a lock section on a non-transaction EntityManager;
-- a lock transaction nested in a caller's transaction (a context-bound fork);
-- round-trip tests with stubbed `fetch` and no fake authorization server.
-
----
+N/A: this is a platform capability. Anti-patterns to avoid (full list: Phase 1 feature spec): provider-local refresh locks or an in-process `Map` as the only guard; lock waiters holding a pooled connection, or a lock section not detached from the caller's context; tokens in the admin-edited credentials row, logs, error reports or run parameters; any `401` or "unauthorized" text mapped to reauth; a health check that calls `getAccessToken`; a token or revoke call bounded only up to the response headers; a token call before the grant decrypted with the DEK that will seal the result; overwriting an unreadable grant without the verified `replaceUnreadable`; a redirect URI from the request origin, or a Grant Owner from the current organization selection; a code exchange without PKCE where the provider supports it; round-trip tests with stubbed `fetch`.
 
 ## 10. Open Questions `PM`
 
 | # | Question | Options | Impact | Owner | Status |
 |---|---|---|---|---|---|
-| Q1 | Xero: when one refresh token is redeemed twice within the grace window, which child stays valid? | sandbox test | the residual-risk recovery path (§1.4.6); the design doesn't depend on it | Xero spec | OPEN — not stated in Xero's documentation |
-| Q2 | Does Xero accept S256 PKCE from a *web app* client that also sends a secret? | yes → `S256`; no → `none` | low (a descriptor flag) | Xero spec (sandbox) | OPEN |
-| Q3 | Maintainer sign-off on new contract surfaces (§10.1): new import paths `@open-mercato/shared/lib/db/advisoryLock` and `@open-mercato/core/modules/integrations/lib/oauth/*`; DI name `integrationOAuthGrantService`; the explicit exported `CredentialsService` type with optional `erase`; the optional `oauthGrant` response field; runtime emission of `integrations.state.updated` with `userId: null`; the `upsert` defaults fix | approve / trim | **BLOCKER** for the Phase 1 merge | maintainers | OPEN |
-| Q4 | Merge order vs. #6267, #6478, #6433 | per §6 | medium | contributor | OPEN |
+| Q1 | For a strict-rotation provider: when one refresh token is redeemed twice within its reuse-grace window, which child stays valid? | sandbox test per provider | the residual-risk recovery path (§1.4.6); the design doesn't depend on it | the provider's spec | OPEN per provider |
+| Q2 | Does a given provider accept S256 PKCE from a confidential client that also sends a secret? | yes → `S256`; no → `none` | low (a descriptor flag) | the provider's spec (sandbox) | OPEN per provider |
+| Q3 | Maintainer sign-off on the new contract surfaces listed in §10.1 (every row marked "yes"), including the new required CI job and the CI runner env change | approve / trim | **BLOCKER** for the Phase 1 merge | maintainers | OPEN |
+| Q4 | Merge order vs. #6267, #6478, #6433 and the `upsert` fix | — | medium | contributor | **Decided** per §6 (the recommended gate (Q7, pending sign-off) before the Phase 1 merge; hard gates: #6267 before Phase 2, the `upsert` fix before the Phase 3 projection); re-checked at merge |
 | Q5 | Should the hub's channel disconnect erase tokens? (It conflicts with undo.) | keep / erase-on-delete / erase after N days | privacy | hub owners | OPEN (out of scope) |
-| Q6 | Idle-grant keep-alive: a Xero refresh token dies after 60 days unused | explicit scheduled refresh / health probe as implicit keep-alive | medium | provider (Xero spec) | **Decided:** an explicit provider-owned daily job refreshes a grant whose `refreshedAt` is older than 7 days, via `getAccessToken({ forceRefresh: true })`. The health probe is deliberately **not** a keep-alive (§1.4.4): it would refresh every ~30 min, compete for the lock, and exceed the 10 s health timeout. |
-| Q7 | Option A vs. B | A / B | scope | maintainers | RECOMMEND B |
-| Q8 | Provider Authorization shared across Grant Owners: does revoking or deleting a Xero Connection for one Open Mercato organization break another? | sandbox test; UI warning | data availability | Xero spec | OPEN |
-| Q9 | `redirect_uri` falls back to the request origin when `NEXT_PUBLIC_APP_URL`/`APP_URL` are unset (`shared/src/lib/url.ts:240-250`); RFC 9700 requires exact matching | require a configured base URL / keep fallback | connect breaks behind proxies | Xero spec implements; Phase 3 generic routes inherit | **Decided:** OAuth initiate and callback routes **require** `NEXT_PUBLIC_APP_URL` or `APP_URL`. Without either, they fail with an explicit configuration error (`oauth_base_url_not_configured`) and never fall back to the request origin. Other routes are unchanged. |
-| Q10 | Reconnect selects a **different** External Account (another Xero organisation) → existing external-id mappings point at the old one | `completeConnect` returns the previous `providerData`; the provider compares at selection time and warns or refuses before `updateProviderData` | data integrity | Xero spec (detection and UX) | **Decided** for the core (return value + serialized `updateProviderData`); the Xero UX is open |
+| Q6 | Idle-grant keep-alive for providers that expire unused refresh tokens | explicit scheduled refresh / health probe as implicit keep-alive | medium | core (rule) / the provider's spec (threshold, enumeration) | **Decided:** an explicit provider-owned job refreshes a grant whose `refreshedAt ?? obtainedAt` is older than a provider-chosen threshold, via `getAccessToken({ forceRefresh: true })`. The health probe is deliberately **not** a keep-alive (§1.4.4): it would refresh on most probes, compete for the lock, and exceed the 10 s health timeout. |
+| Q7 | Option A vs. B, and whether to gate the Phase 1 merge on the first consumer | A / B; gate (the core PR merges only after an official-module draft PR passes against a package preview of core: the maintainer-dispatched Package Previews workflow on a same-repository branch, or `yarn pack` tarballs / Verdaccio, §4.5.6) / no gate | scope; the published surface is frozen only after a real provider has used it | maintainers | OPEN (with Q3); RECOMMEND B with the gate |
+| Q8 | Provider Authorization shared across Grant Owners: does revoking or deleting provider-side authorization for one Open Mercato organization break another? | sandbox test per provider; UI warning from the provider's own API | data availability | the provider's spec | OPEN per provider |
+| Q9 | `getAppBaseUrl` falls back to the request origin when no base URL is configured (`shared/src/lib/url.ts:240-250`); RFC 9700 requires exact redirect-URI matching | require a configured base URL / keep fallback | connect breaks behind proxies | core (`resolveOAuthRedirectUri`, P2a) | **Decided:** OAuth initiate and callback routes build the redirect URI with `resolveOAuthRedirectUri`, built on `getSecurityEmailBaseUrl` (`url.ts:252-263`): `APP_URL` only, required in production, `http://localhost:3000` outside production, never the request origin. In production without `APP_URL`, or when the request's origin isn't an allowed app origin, they fail with `oauth_base_url_not_configured`; the provider tab shows a missing `APP_URL` before Connect. Other routes are unchanged. |
+| Q10 | Reconnect selects a **different** External Account → existing external-id mappings point at the old one | `previousProviderData` kept by the core; the provider compares at selection time and warns or refuses before `updateProviderData` | data integrity | core + the provider's spec (detection and UX) | **Decided** for the core: Reconnect clears `providerData` into `previousProviderData`; `updateProviderData` is serialized under the lock with `expectedRevisedAt`. The UX is the provider's. |
+| Q11 | Bundle-shared grant vs per-child grant: should one consent serve all children of a bundle (Google Workspace, integration commands and events)? | per-child (one consent per child; the Phase 1 rule) / an additive `bundleId` Grant Owner dimension | consent UX for bundles; Provider Authorization sharing (Q8) | this spec + the Google Workspace and integration-projects spec owners | OPEN. Until answered, one child holds the grant and its siblings call the Token Provider with that child's Grant Owner. |
 
 ### 10.1 Migration & Backward Compatibility
 
-Contract surfaces touched (`BACKWARD_COMPATIBILITY.md`). All changes are additive. **Migration path: none required**; there is no data migration and no deprecation, and existing integrations behave as before (except the `upsert` defaults fix below).
+Contract surfaces touched (`BACKWARD_COMPATIBILITY.md`). All changes are additive; **migration path: none required** (no data migration, no deprecation; existing integrations behave as before). P6 adds a dated additive section to `BACKWARD_COMPATIBILITY.md`. Full signatures and paths: Phase 1 feature spec.
 
-| Surface | Change | Class | Sign-off? |
+| Surface | What | Class | Sign-off? |
 |---|---|---|---|
-| Import paths (§4) | new `@open-mercato/shared/lib/db/advisoryLock` (with an explicit `exports` entry), new `@open-mercato/core/modules/integrations/lib/oauth/*` | ADDITIVE | **yes**: shared "Ask First" (a shared public type becomes a cross-package contract) |
-| DI names (§9) | new `integrationOAuthGrantService` | ADDITIVE | yes (becomes STABLE) |
-| Service interface (§9) | `integrationCredentialsService.erase`, declared optional in the exported `CredentialsService` type (BACKWARD_COMPATIBILITY.md §9: "MAY add optional methods") | ADDITIVE | integrations "Ask First" (credential semantics) |
-| Event IDs (§5) | none new in Phase 1. `integrations.state.updated` is now also emitted by runtime code, after commit, with the same fields; runtime emissions carry `userId: null` (no field is removed). No in-repo subscribers today | ADDITIVE (new emitter; a new value for an existing field) | yes (workflow triggers see new emissions) |
-| Notification types (§11) | none new in Phase 1 | — | — |
-| Types (§2) | `IntegrationCredentialFieldOauth` untouched. The exported `CredentialsService` becomes an explicit type (was `ReturnType<typeof createCredentialsService>`) that stays a superset of the factory return, with `erase?` optional; a type-level test guards it | ADDITIVE (no member removed or narrowed) | yes (DI interface, §9) |
-| API routes (§7) | no new production route; `GET /api/integrations/:id` gains an optional response field `oauthGrant: { status: 'active' \| 'invalidated' \| 'unavailable' } \| null` | ADDITIVE (new optional response field) | — |
-| DB schema, ACL features, CLI | none | — | — |
-| Test-only routes | flag-gated routes for the test OAuth provider and fake authorization server; 404 unless the test flag is set | not a contract (like `test-seed`) | — |
-| Production dependencies | none | — | avoided |
-| Behaviour | `reauthRequired` written by runtime code for OAuth-grant integrations (only on change); the banner reads `oauthGrant.status`, so a flag stored earlier on any integration changes nothing in the UI. `upsert` now creates a missing state row with the definition defaults instead of `isEnabled: false`: a bug fix that also protects `sync_excel`/`webhooks`-style default-enabled integrations and changes the missing-row case for the existing callers listed in §1.4.2; stored rows are not remediated | behaviour addition on OAuth-grant integrations; defaults fix | yes (integrations "Ask First") |
+| Auto-discovery files (§1), Generated files (§14) | test-only route file, `integrations/integration.ts` (flag-gated test integration), DI registration; additive registry regeneration | ADDITIVE | — |
+| Types (§2) | descriptor, Grant Owner, results, inspection, hook context, error classes, closed unions (consumers keep a default branch), `IntegrationDetailPageConfig.connectTabId`; `CredentialsService` and `IntegrationCredentialFieldOauth` unchanged | ADDITIVE | **yes** (shared "Ask First") |
+| Function signatures (§3) | lock helper and its transient-DB matcher (`isTransientLockDbError`), protocol helpers, erase function, log query, grant service, hook, health map, fake server; optional `kms` on `createCredentialsService`; `pinTenantDek` and `readCredentialRowLayered` are internal | ADDITIVE (STABLE once released) | **yes** |
+| Import paths (§4) | `@open-mercato/shared/lib/db/advisoryLock`; exact file paths under `@open-mercato/core/modules/integrations/lib/oauth/`; `oauthGrantFixtures`; `integrations/api/guards` becomes STABLE | ADDITIVE; `integrations/api/guards` STABLE | **yes** |
+| API routes (§7) | `GET /api/integrations/:id` gains optional `oauthGrant` and returns `detailPage.connectTabId` | ADDITIVE | **yes** |
+| DI names (§9) | `integrationOAuthGrantService`; credentials DI overrides don't apply to grant rows | ADDITIVE (becomes STABLE) + contract note | **yes** |
+| Unchanged: Event IDs (§5), Widget spot IDs (§6), DB schema (§8), ACL features (§10), Notification types (§11), AI agent and tool IDs (§12), CLI commands (§13) | none new | — | — |
+| Log and health codes | `integrations.oauth_<reason>`, `OAUTH_HEALTH_CODES`, `mapInspectionToHealth` | ADDITIVE (STABLE once released) | **yes** |
+| Persisted formats | `__oauth_grant` suffix, blob `version`, lock-key string `oauth_grant:<integrationId>:<tenantId>:<organizationId>:<userId or ->`, `resourceKind` `integrations.oauth_grant` | ADDITIVE-ONLY | **yes** |
+| Behaviour; External dependency | OAuth routes require `APP_URL` in production (Q9); provider routes import the hub-owned `communication_channels/lib/oauth-state` | behaviour addition for OAuth routes; dependency on an existing path | **yes** (the dependency: hub owners) |
+| CI: new required job | real-Postgres job in `merge-coverage.needs`; `OM_ENABLE_TEST_OAUTH_GRANTS` in the integration job env | pipeline change (root "Ask First") | **yes** |
+| Test-only route and flag; Dependencies | `POST /api/integrations/test-oauth-grants`, `OM_ENABLE_TEST_OAUTH_GRANTS`; dev dependencies `testcontainers`, `cross-env` | not a contract (like `test-seed`); dev only | — |
 
 #### Checklist
-- [x] Options, impact, owner, status
-- [ ] Q3 resolved before the Phase 1 merge
 
----
+- [x] Options, impact, owner, status
+- [ ] Q3 and Q7 resolved before the Phase 1 merge
 
 ## 11. Rejected Alternatives `Architect`
 
-| # | Alternative | Why rejected |
+| # | Alternative | Why rejected (full rationale: Phase 1 feature spec) |
 |---|---|---|
-| R1 | Adopt `openid-client` (or `oauth4webapi`) in core | The failure modes are storage, locking and classification, and no library addresses them. Both libraries are ESM-only: core **and** every provider package that imports the toolkit in tests would need a Jest `transformIgnorePatterns` change, and core would gain a production dependency (Ask First). The one in-repo use (SSO) is tested only with the library fully mocked (`sso/lib/__tests__/oidc-provider.test.ts:1-4`). The main extra protection, RFC 9207 `iss` checking, doesn't apply to Xero: its discovery document doesn't advertise `authorization_response_iss_parameter_supported`. The mix-up precondition (an attacker-influenced AS among the client's ASes) doesn't hold when endpoints are code constants bound to a provider key in the encrypted state. Revisit trigger: §4.5.3. |
-| R2 | Generic `/api/integrations/oauth/[provider]/*` routes, a generic `oauth` field renderer and an account-selection hook now | Xero is the only tenant-level consumer. The callback URL is pasted into each tenant's provider console, so it is an external contract that can't be changed later without every tenant re-registering. It should be fixed when a second shape exists (Phase 3 trigger). |
-| R3 | Store tokens inside the admin-edited credentials row (with compare-and-set on a refresh generation) | The admin PUT is a full replace (`credentials-masking.ts:98`) that reads `existing` and saves **without the grant lock**. An admin saving a new secret can therefore write back a refresh token a worker rotated milliseconds earlier: a lost update, and for Xero a lost grant. Every refresh would also bump the admin row's `updated_at`, the admin form's optimistic-lock version, causing spurious 409s. The sibling row (§1.4.2) removes the whole class; Tillio already uses the pattern (`tillio/lib/operators-store.ts:5-8`). |
-| R4 | A partial unique index for tenant-level `integration_credentials` rows now | It would touch every tenant-level credential row in every deployment (Stripe, Akeneo, S3…) and needs duplicate reconciliation first. The grant lock already enforces uniqueness for the only writer. DB-level uniqueness is stronger defence in depth, so it stays a reasonable follow-up, not a Phase 1 prerequisite. |
-| R5 | A descriptor field for the refresh grace window, with "persist failure outside the window ⇒ reauth" | For providers that don't rotate (Google), the old token keeps working, so such a rule produces a **false** "needs reconnect". It would also set a DB flag at the moment a DB write just failed. Instead, persistence happens in the lock transaction: on failure the stored token is still the old one, the next caller retries with it, and the grant is invalidated only on an actual `invalid_grant` (§1.4.6). |
-| R6 | Migrate Gmail/MS365 onto the core now (with per-user reauth on `IntegrationState`) | The concurrent-refresh race is benign for Google and Microsoft (§1.4.6). Behaviour is preserved unless a change is requested. PRs #6478, #6433 and #6266 are changing the same file. A per-user reauth column would be a migration on a shared entity needed only for the migration itself. Phase 3, triggered. |
-| R7 | Blocking lock waiters, or an in-process `Map` as a first tier | Pool max 20, a 6 s acquire timeout, and worker concurrency budgeted to the pool max (`mikro.ts:118-121`, `worker-connection-budget.ts:58-66`). Waiters that hold connections, plus a holder that needs a second connection, can starve the pool. Waiters must hold no connection, and the holder does all I/O on the transaction EM (I2, I6). |
-| R8 | `IntegrationState.reauthRequired` as the source of truth, or as the banner's input | The admin PUT can write it without the lock (`state/route.ts:111`), and it sits in a different aggregate from the tokens. Grant `status` is authoritative and drives the banner; the flag is a projection kept for API compatibility (§1.4.2). |
-| R9 | Events (`oauth_grant.invalidated`, `.connected`, `.disconnected`) and a reauth notification in Phase 1 | The banner is enough of a signal for Phase 1. Event IDs and notification types are frozen once added and each needs sign-off, so they arrive with their first consumer (Phase 3). The audit trail is the integration log (§1.4.4). |
-| R10 | The health probe as an implicit keep-alive | It would refresh every ~30 min for every enabled tenant, compete for the lock, and exceed the 10 s health timeout. The keep-alive is explicit and weekly (Q6). |
-| R11 | Disconnect performing provider HTTP calls inside the lock | Two or three external calls exceed the waiters' 15 s deadline (I6). Erase under the lock; revoke after release, with `revocation_pending` recorded (WF4). |
-
----
+| R1 | Adopt `openid-client` (or `oauth4webapi`) in core | Wrong problem (storage, locking, classification), ESM tooling cost and a production dependency, and its mix-up defence doesn't apply to code-constant endpoints; revisit per §4.5.3. |
+| R2 | Generic `/api/integrations/oauth/[provider]/*` routes, an `oauth` field renderer and an account-selection hook in Phase 1 | The callback URL is an external contract fixed in every tenant's provider console; it waits for a second shape (Phase 3). |
+| R3 | Tokens inside the admin-edited credentials row | The admin full-replace save would overwrite rotated tokens (a lost grant) and every refresh would 409 the admin form; the sibling row removes the class. |
+| R4 | A partial unique index for tenant-level rows in Phase 1 | Across all rows it touches every deployment; a narrow index on grant rows is Phase 3 defence in depth, and the lock enforces uniqueness. |
+| R5 | A refresh-grace descriptor field with "persist failure ⇒ reauth" | It produces false reconnects for non-rotating providers; persisting in the lock transaction makes the next call retry with the old token. |
+| R6 | Migrating Gmail/MS365 onto the core in Phase 1 | The race is benign for them, the same file is under change in other PRs, and per-user reauth would need a migration. |
+| R7 | Blocking lock waiters, or an in-process `Map` first tier | Waiters holding connections can starve the 20-connection pool. |
+| R8 | `reauthRequired` as the source of truth or the banner's input | The admin PUT writes it without the lock, in another aggregate; grant `status` is authoritative. |
+| R9 | Events and a reauth notification in Phase 1 | The banner and badge suffice; frozen IDs arrive with their first consumer. |
+| R10 | The health probe as an implicit keep-alive | It would refresh on most probes, compete for the lock and exceed the 10 s health timeout. |
+| R11 | Provider HTTP calls inside the Disconnect lock | Two or three external calls exceed the waiters' deadline; erase under the lock, revoke after release. |
+| R12 | The fake authorization server in the Playwright process, or in `helpers/integration` imported by module code | The app would accept test endpoint URLs, loopback breaks in containers, and `@playwright/test` could reach the app bundle. |
+| R13 | An optional `erase` method on the `CredentialsService` type | A standalone `eraseIntegrationCredentials` adds the capability without changing an exported DI type. |
+| R14 | A dedicated `integration_oauth_grants` table | A migration, a new encryption map and a second credential store to cover; revisit when grant enumeration or status queries must avoid decryption. |
 
 ## Production Readiness `PM`
 
 | Workflow | Deployable after | Blocker | What the client would say |
 |---|---|---|---|
-| WF1 Connect | Phase 2 | Xero routes and picker | "Where's the Connect button?" (until Phase 2) |
-| WF2 Token | Phase 1 | — | — |
-| WF3 Reauth | Phase 1 (signal); Phase 2 (reachable) | — | "It told me exactly when and why to reconnect." |
-| WF4 Disconnect | Phase 1 + the Xero hook | Q5 for channels | "Did it really cut access?" The copy states the revocation outcome. |
-| WF5 Developer journey | Phase 1 (validated by Phase 2) | — | "I only wrote the provider-specific parts." |
-
----
+| WF1 Connect | Phase 2 | Q3 sign-off; the recommended gate (Q7, pending sign-off); #6267; the provider routes and picker | "Where's the Connect button?" (until Phase 2) |
+| WF2 Token | Phase 1 (capability); Phase 2 (a caller) | Q3 sign-off; the recommended gate (Q7, pending sign-off) | — |
+| WF3 Lost consent | Phase 1 (signal); Phase 2 (reachable) | Q3 sign-off; the recommended gate (Q7, pending sign-off); the provider's health check | "It told me exactly when and why to reconnect." |
+| WF4 Disconnect | Phase 1 + the provider's route, button and hook | Q3 sign-off; the recommended gate (Q7, pending sign-off) | "Did it really cut access?" The copy states the revocation outcome. |
+| WF5 Developer journey | Phase 1 (validated by Phase 2) | Q3 sign-off; the recommended gate (Q7, pending sign-off); a release containing Phase 1 for official modules | "I only wrote the provider-specific parts." |
 
 ## 12. Sources
 
-Repository evidence: file references in §1.4.1. External sources:
-- Xero OAuth FAQ (30-min access token, 60-day refresh expiry, rotation, 30-min retry grace): https://developer.xero.com/faq/oauth2
-- Xero discovery document (endpoints, `client_secret_basic`/`post`, S256, revocation, grant types): https://identity.xero.com/.well-known/openid-configuration
-- Xero identity OpenAPI (`/connections` GET/DELETE; Connection schema): https://github.com/XeroAPI/Xero-OpenAPI/blob/master/xero-identity.yaml
-- Xero Node SDK (openid-client, `/connections`, revoke): https://github.com/XeroAPI/xero-node/blob/master/src/XeroClient.ts
-- Xero granular scopes (apps created on or after 2026-03-02; `offline_access`): https://developer.xero.com/faq/granular-scopes , https://www.apideck.com/blog/xero-scopes
-- Vendor report on Xero concurrent-refresh `invalid_grant` (non-authoritative): https://nango.dev/blog/xero-oauth-refresh-token-invalid-grant/
+Repository evidence: file references in §1.4.1 (line-level in the Phase 1 feature spec). Upstream tracker: #5450, #5898, #6218, #6266, #6267, #6333, #6433, #6478. External sources:
+- RFC 6749 (OAuth 2.0; §2.3.1 client authentication, §5.2 error response): https://www.rfc-editor.org/rfc/rfc6749.html
+- RFC 7636 (PKCE; §4.1 verifier, Appendix B test vector): https://www.rfc-editor.org/rfc/rfc7636.html
+- RFC 7009 (token revocation; §2.2 200 for an invalid token): https://www.rfc-editor.org/rfc/rfc7009.html
+- RFC 6750 (bearer tokens; §3.1 `insufficient_scope`, SHOULD be 403): https://www.rfc-editor.org/rfc/rfc6750.html
+- RFC 9700 (OAuth 2.0 Security BCP, Jan 2025; §2.1 exact redirect matching, §2.1.1 PKCE, §4.4 mix-up, §4.14.2 refresh-token rotation for public clients): https://www.rfc-editor.org/rfc/rfc9700.html
+- OAuth 2.1, draft-ietf-oauth-v2-1-16 (2026-09-03), §4.1.1 (`code_challenge` REQUIRED unless §7.5.1): https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/
 - Microsoft refresh tokens: https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens
 - Google OAuth web-server flow: https://developers.google.com/identity/protocols/oauth2/web-server
-- RFC 9700 §2.1.1 (PKCE: public clients MUST, confidential clients RECOMMENDED), Jan 2025: https://www.rfc-editor.org/rfc/rfc9700.html
-- OAuth 2.1, draft-ietf-oauth-v2-1-16 (2026-09-03), §4.1.1 (`code_challenge` REQUIRED unless §7.5.1): https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/
-- Upstream tracker: #5450, #5898, #6218, #6266, #6267, #6333, #6433, #6478
 
-**PKCE policy:** **on (S256) by default** for every auth-code grant, including confidential clients:
-- RFC 9700 recommends it, and OAuth 2.1 (draft) requires it.
-- All three providers advertise S256.
-- It costs one verifier in the already-encrypted state cookie.
-
-Providers can opt out via the descriptor. Gmail (hub) keeps its current behaviour until Phase 3.
-
----
+**PKCE policy:** **on (S256) by default** for every auth-code grant, including confidential clients. RFC 9700 §2.1.1 recommends it for confidential clients (and requires it for public ones) and OAuth 2.1 (draft) requires it; it binds the authorization code to the session that requested it, so an intercepted or injected code can't be redeemed; it costs one verifier in the already-encrypted state. Providers can opt out via the descriptor only when the provider rejects PKCE. Gmail (hub) keeps its current behaviour until Phase 3.
 
 ## Changelog
 
 ### 2026-09-27
+
 - Initial App Spec.
