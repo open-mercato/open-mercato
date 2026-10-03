@@ -11,6 +11,8 @@ export const ORDER_INVOICE_LABEL_KEYS = [
   'total',
   'subtotal',
   'discount',
+  'shipping',
+  'surcharge',
   'tax',
   'grandTotal',
   'paid',
@@ -55,6 +57,8 @@ export interface OrderInvoiceData {
   totals: {
     subtotal: number
     discount: number
+    shipping: number
+    surcharge: number
     tax: number
     total: number
     paid: number

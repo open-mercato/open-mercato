@@ -3,8 +3,7 @@ import {
   documentTheme,
   OpenMercatoLogo,
 } from '@open-mercato/document-generators/modules/document_generators/templates/shared/index'
-import { formatDate } from '@open-mercato/document-generators/modules/document_generators/utils/formatDate'
-import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/formatMoney'
+import { formatDate, formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/index'
 import type { SalesOfferData } from '../types'
 
 const { colors, spacing, fontSize, borderWidth, fontFamily } = documentTheme

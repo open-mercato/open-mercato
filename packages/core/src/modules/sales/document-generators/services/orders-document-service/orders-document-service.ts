@@ -8,6 +8,7 @@ import type {
 } from '@open-mercato/shared/modules/document-generators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/index'
 import { SalesChannel, SalesOrder, SalesOrderLine } from '../../../data/entities'
 import {
   ORDER_INVOICE_LABEL_KEYS,
@@ -40,6 +41,8 @@ export interface OrderDocumentOrderRecord {
   comments: string | null
   subtotalNetAmount: string
   discountTotalAmount: string
+  shippingNetAmount: string
+  surchargeTotalAmount: string
   taxTotalAmount: string
   grandTotalGrossAmount: string
   paidTotalAmount: string
@@ -83,6 +86,8 @@ const LABEL_DEFAULTS: OrderInvoiceLabels = {
   total: 'Total',
   subtotal: 'Subtotal',
   discount: 'Discount',
+  shipping: 'Shipping',
+  surcharge: 'Surcharge',
   tax: 'Tax',
   grandTotal: 'Total due',
   paid: 'Paid',
@@ -103,6 +108,38 @@ export class OrdersDocumentService extends BaseDocumentService {
   readonly label = 'Orders'
   readonly module = 'sales'
   readonly resourceKind = 'sales.order'
+
+  constructor() {
+    super()
+    this.registerTemplate({
+      id: 'sales.order-invoice',
+      label: 'sales.documents.templates.invoice.label',
+      description: 'sales.documents.templates.invoice.description',
+      documentType: 'invoice',
+      format: 'pdf',
+      tags: ['sales', 'order'],
+      requiredFeatures: ['sales.orders.view'],
+      filename: ({ data }) => buildDocumentFilename(data, 'invoice', 'pdf'),
+      load: async () => ({
+        type: 'react-pdf',
+        component: (await import('../../templates/orders/order-invoice/pdf/OrderInvoicePdf')).default,
+      }),
+    })
+    this.registerTemplate({
+      id: 'sales.order-invoice-markdown',
+      label: 'sales.documents.templates.invoiceMarkdown.label',
+      description: 'sales.documents.templates.invoiceMarkdown.description',
+      documentType: 'invoice',
+      format: 'md',
+      tags: ['sales', 'order', 'markdown'],
+      requiredFeatures: ['sales.orders.view'],
+      filename: ({ data }) => buildDocumentFilename(data, 'invoice', 'md'),
+      load: async () => ({
+        type: 'markdown',
+        render: (await import('../../templates/orders/order-invoice/markdown/order-invoice-markdown')).render,
+      }),
+    })
+  }
 
   override async fetchData(
     { data }: { data: unknown },
@@ -150,6 +187,8 @@ export class OrdersDocumentService extends BaseDocumentService {
         comments: order.comments ?? null,
         subtotalNetAmount: order.subtotalNetAmount,
         discountTotalAmount: order.discountTotalAmount,
+        shippingNetAmount: order.shippingNetAmount,
+        surchargeTotalAmount: order.surchargeTotalAmount,
         taxTotalAmount: order.taxTotalAmount,
         grandTotalGrossAmount: order.grandTotalGrossAmount,
         paidTotalAmount: order.paidTotalAmount,
@@ -219,6 +258,8 @@ export class OrdersDocumentService extends BaseDocumentService {
       totals: {
         subtotal: toNumber(order.subtotalNetAmount),
         discount: toNumber(order.discountTotalAmount),
+        shipping: toNumber(order.shippingNetAmount),
+        surcharge: toNumber(order.surchargeTotalAmount),
         tax: toNumber(order.taxTotalAmount),
         total: toNumber(order.grandTotalGrossAmount),
         paid: toNumber(order.paidTotalAmount),
