@@ -58,3 +58,7 @@ Append-only UTC log.
 ## 2026-10-03T13:17:53Z — resume paused
 - Step 7.1 (fe02a4262) authored TC-DOCUMENT-001..022 + helpers in the engine __integration__ folder; not executed (reduced validation mode).
 - Session paused because the user had to shut down the computer. 24 of 36 Tasks rows done; next: 8.1. PR stays draft, Status in-progress.
+
+## 2026-10-03T17:13:56Z — checkpoint 8 (lightweight)
+- Resumed by @kriss145 after the pause; Steps 8.1–8.3 done inline (20f82cad2..c506a70f9). Step test files pass.
+- Decisions: retention via domain-neutral `<resourceKind>.deleted` subscriber; stored files in existing private `privateAttachments` partition through the attachmentService DI contract (peer modules may not create partitions); history row linked in the attachment transaction; engine-owned download route re-applies template requiredFeatures.
