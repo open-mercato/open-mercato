@@ -28,7 +28,8 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 4 | 4.2 | Sales offer PDF template | dispatch | done | 53ecc0ab7 |
 | 4 | 4.3 | Order data service | dispatch | done | 18bf8a26a |
 | 4 | 4.4 | Order PDF and Markdown templates | dispatch | done | 0ec18287c |
-| 5 | 5.1 | API validators and response helpers | dispatch | done | — |
+| 5 | 5.1 | API validators and response helpers | dispatch | done | 23ae21dca |
+| 5 | 5.1-review-fix | Selected organization scope resolution | inline | done | — |
 | 5 | 5.2 | Template catalogue and facet endpoints | dispatch | todo | — |
 | 5 | 5.3 | Preview endpoint | dispatch | todo | — |
 | 5 | 5.4 | History entity encryption and migration | dispatch | todo | — |
@@ -133,6 +134,10 @@ Add invoice variants sharing normalized data, escaped Markdown and required file
 ### Step 5.1: API validators and response helpers
 
 Implement strict request/query schemas, shared translated error codes, organization guards, RFC5987 filenames and no-store/nosniff responses.
+
+### Step 5.1-review-fix: Selected organization scope resolution
+
+`getAuthFromRequest` applies the organization switcher cookie only for super-admins, so `requireOrganization` resolves scope through the Directory-owned `organizationScopeService.resolveForRequest` (shared `OrganizationScopeService` contract, no core dependency), refuses rejected selections, and projects the selected organization onto the auth passed to source services and RBAC.
 
 ### Step 5.2: Template catalogue and facet endpoints
 
