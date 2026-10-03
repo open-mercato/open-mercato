@@ -1,17 +1,16 @@
 # Handoff — 2026-10-03-document-generators-v2
 
-**Last updated:** 2026-10-03T13:17:53Z
+**Last updated:** 2026-10-03T17:13:56Z
 **Branch:** feat/document-generators-v2
 **PR:** https://github.com/open-mercato/open-mercato/pull/6892
-**Current phase/step:** 8.1
-**Last commit:** fe02a4262 — integration tests authored (not executed)
+**Current phase/step:** 9.1
+**Last commit:** c506a70f9 — stored document download (checkpoint 8 commit follows)
 
 ## What just happened
 - Phase 4 done (checkpoint 4). Phase 5 steps 5.1–5.5 + 5.1-review-fix done (checkpoint 5): validators, error envelope, RFC 5987 document response, selected-organization scope, catalogue/options/preview routes, GeneratedDocument entity/encryption/migration, GenerationHistoryService.
 
 ## Next concrete action
-- Step 8.1: Retention and erasure contract (inline). User-approved policy: no automatic expiry; deleting source data deletes generated files and anonymizes history. Then 8.2, 8.3, 9.1, 9.2, 10.1 (all inline), then 10.2 full gate + 10.3 review/QA — both need explicit user approval (heavy validation; app + migrated DB for browser evidence).
-- Session paused at user request (computer shutdown). Resume with `/om-auto-continue-pr-loop 6892`.
+- Step 9.1: template versioning (code-defined immutable versions, latest by default, explicit older-version selection, used version recorded in history — needs a `template_version` column + migration; without heavy tooling, write the migration in the generated format and update the snapshot by hand per the coding-agent exception). Then 9.2 draft watermark, 10.1 docs. 10.2/10.3 need user approval.
 
 ## Reduced validation mode (user request, 2026-10-03)
 - The user's machine froze under repeated full typecheck/build/generate runs. Run only each Step's own test file (`npx jest --runInBand <file>`); defer package typecheck, builds, `yarn generate`, full suites and the final gate until the user asks.
