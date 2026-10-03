@@ -930,6 +930,7 @@
   "sales.documents.form.submit": "생성",
   "sales.documents.form.success": "판매 문서가 생성되었습니다.",
   "sales.documents.form.title": "판매 문서 생성",
+  "sales.documents.generators.tabLabel": "문서",
   "sales.documents.history.actor.system": "체계",
   "sales.documents.history.changedFields": "변경된 필드: {fields}",
   "sales.documents.history.empty": "아직 이력이 없습니다.",
