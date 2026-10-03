@@ -24,4 +24,4 @@
 - Maintainer must apply labels/assignee (GitHub refuses writes for this account).
 
 ## Worktree
-- Path: /private/tmp/om-document-generators-v2
+- The temporary worktree /private/tmp/om-document-generators-v2 was removed at the user's request; the branch is checked out in the main repository folder. A resuming run should create its own isolated worktree from the PR head.
