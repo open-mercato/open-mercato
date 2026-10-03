@@ -1,28 +1,32 @@
 # Handoff — 2026-10-03-document-generators-v2
 
-**Last updated:** 2026-10-03T11:43:10.770526+00:00
+**Last updated:** 2026-10-03T12:31:11Z
 **Branch:** feat/document-generators-v2
 **PR:** https://github.com/open-mercato/open-mercato/pull/6892
-**Current phase/step:** 4.1
-**Last commit:** 1f0e7bd9e — reusable PDF toolkit
+**Current phase/step:** 5.1
+**Last commit:** 0ec18287c — order invoice PDF and Markdown templates (checkpoint 4 commit follows)
 
 ## What just happened
-- Foundation and five-locale engine strings committed; 11 tests, package build/typecheck and generation passed.
-- Dependencies installed; local runner selected. Full build preparation running.
+- Resumed by om-auto-continue-pr-loop (Claude Code) after the Codex session was interrupted.
+- Phase 4 complete: QuotesDocumentService / OrdersDocumentService (scoped decrypted fetch, strict id validation, normalized localized data), `sales.offer` PDF, `sales.order-invoice` PDF, `sales.order-invoice-markdown`, Sales convention file `sales/document-generators.ts`.
+- Checkpoint 4 passed (see checkpoint-4-checks.md).
 
 ## Next concrete action
-- Step 4.1: Sales quote data service with scoped decrypted queries and shared tenant contract tests.
+- Step 5.1: API validators and response helpers (strict request/query schemas, translated error codes, organization guards, RFC 5987 filenames, no-store/nosniff).
+
+## Notes for Phase 5
+- Sales services throw `CrudHttpError` with codes `invalid_request` (400), `organization_scope_required` (403), `not_found` (404); routes must map them to the spec's stable error contract (409 organization_required is guarded before fetch).
+- Services read scope from `auth.tenantId` / `auth.orgId`; routes must pass an auth whose `orgId` is the selected organization.
+- Engine helpers must be imported via explicit `/index` barrel paths.
 
 ## Blockers / open questions
-- Maintainer must apply labels/assignee (GitHub refused writes). All-tenant cache operation rejected by automatic approval review; leave shared tenant state untouched.
+- Maintainer must apply labels/assignee (GitHub refuses writes for this account).
 - DS lint governance requires an exact reviewable override before permission request at UI step.
-- User approved retention/source erasure and code-owned versions.
+- History service constructor exception requires explicit final review signoff per spec.
 
 ## Environment caveats
-- Local Node 24.13.1/Yarn 4.17.1 installed. App not launched.
-- No database migrations applied. Generated example .env is ignored and contains no live configuration.
-- Prior read-only research subagent hit service usage limit; implementer completed normally.
+- Local runner; no Docker app container. App not launched; no migrations applied.
+- Local `dist` for shared/document-generators/core rebuilt during checkpoint 4.
 
 ## Worktree
 - Path: /private/tmp/om-document-generators-v2
-- Created this run: yes

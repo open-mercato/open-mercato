@@ -32,3 +32,9 @@ Append-only UTC log.
 - Assignee/label writes still refused by GitHub (read-only contributor); claim recorded via PR comment only.
 - Decision: Sales gains @open-mercato/document-generators as a peer + dev dependency (same pattern as the existing optional @open-mercato/ai-assistant peer) when the first React-PDF template lands in Step 4.2; Step 4.1 depends on shared contracts only.
 - Decision: document seller block is optional and sourced from the source document's own SalesChannel (name, contact email/phone), keeping data inside Sales instead of importing directory entities.
+
+## 2026-10-03T12:31:11Z — checkpoint 4
+- Steps 4.1–4.4 (fad1ca91f..0ec18287c) dispatched sequentially to executor subagents (standard tier → Sonnet); each commit verified clean and pushed.
+- 63 Sales + 38 engine tests, core typecheck/build, i18n sync and an end-to-end dist render of all three Sales templates passed.
+- Browser pass skipped: no UI touched in this window.
+- Invoice totals extended with shipping and surcharge so the totals block reconciles.
