@@ -4,7 +4,6 @@ import type { StoredDocumentRemover } from '../services/generated-document-reten
 import type { PreparedGeneratedDocument } from '../services/generation-history-service'
 
 export const STORED_DOCUMENT_ENTITY_ID = 'document_generators:document'
-export const STORED_DOCUMENT_ASSIGNMENT_TYPE = 'document_generators:generated_document'
 export const STORED_DOCUMENT_PARTITION = 'privateAttachments'
 
 type StoredDocumentOwner = { entityId: string; recordId: string }
@@ -56,8 +55,8 @@ export function storedDocumentOwner(resourceId: string): StoredDocumentOwner {
   return { entityId: STORED_DOCUMENT_ENTITY_ID, recordId: resourceId }
 }
 
-export function storedDocumentAssignment(historyId: string): StoredDocumentAssignment {
-  return { type: STORED_DOCUMENT_ASSIGNMENT_TYPE, id: historyId }
+export function storedDocumentAssignment(resourceId: string): StoredDocumentAssignment {
+  return { type: STORED_DOCUMENT_ENTITY_ID, id: resourceId }
 }
 
 export async function storeGeneratedDocument(input: {
@@ -77,7 +76,6 @@ export async function storeGeneratedDocument(input: {
     fileName: input.fileName,
     declaredMimeType: input.mimeType,
     buffer: Buffer.from(input.buffer),
-    assignments: [storedDocumentAssignment(entity.id)],
     persistLink: async (tx, attachmentId) => {
       const linked = Object.assign(new GeneratedDocument(), entity, { attachmentId })
       await tx.persist(linked).flush()
@@ -103,7 +101,7 @@ export function createStoredDocumentRemover(attachmentService: StoredDocumentAtt
           tenantId,
           organizationId,
           expectedOwner: storedDocumentOwner(document.resourceId),
-          expectedAssignment: storedDocumentAssignment(document.historyId),
+          expectedAssignment: storedDocumentAssignment(document.resourceId),
           expectedPartitionCode: STORED_DOCUMENT_PARTITION,
         })
       } catch (error) {
