@@ -3,6 +3,7 @@ import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/mod
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { resolveChannelThreadAccessSafely } from '@open-mercato/core/modules/communication_channels/lib/channel-thread-access'
 
 const resolveMessageContextMock = jest.fn()
 const hasOrganizationAccessMock = jest.fn(() => true)
@@ -629,7 +630,11 @@ describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', (
     const commandBus = {
       execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
     }
-    const rbacService = { userHasAllFeatures: jest.fn(async () => options.hasView) }
+    const rbacService = {
+      userHasAllFeatures: jest.fn(async (_userId: string, required: string[]) => authorizeFeatures(required, {
+        grantedFeatures: ['messages.email', ...(options.hasView ? ['messages.view'] : [])],
+      })),
+    }
     const resolveChannelThreadAccess = jest.fn(async () => (options.channelThread
       ? {
         messageThreadId: channelThreadId,
@@ -871,7 +876,11 @@ describe('messages /api/messages/[id] optimistic locking', () => {
   const messageId = '22222222-2222-4222-8222-222222222222'
   const currentUpdatedAt = new Date('2026-02-24T10:00:00.000Z')
 
-  function setupDraft(overrides: Record<string, unknown> = {}) {
+  function setupDraft(
+    overrides: Record<string, unknown> = {},
+    grantedFeatures: string[] = ['messages.*'],
+    channelThreadResolver?: typeof resolveChannelThreadAccessSafely,
+  ) {
     const draftMessage = {
       id: messageId,
       tenantId,
@@ -889,10 +898,17 @@ describe('messages /api/messages/[id] optimistic locking', () => {
     const commandBus = {
       execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
     }
+    const rbacService = {
+      userHasAllFeatures: jest.fn(async (_userId: string, required: string[]) => (
+        authorizeFeatures(required, { grantedFeatures })
+      )),
+    }
     const container = {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'commandBus') return commandBus
+        if (name === 'rbacService') return rbacService
+        if (name === 'communicationChannelsResolveChannelThreadAccess') return channelThreadResolver ?? null
         return null
       },
     }
@@ -900,12 +916,72 @@ describe('messages /api/messages/[id] optimistic locking', () => {
       ctx: { container, auth: null },
       scope: { tenantId, organizationId, userId },
     })
-    return { commandBus }
+    return { commandBus, rbacService }
   }
 
   beforeEach(() => {
     jest.clearAllMocks()
     hasOrganizationAccessMock.mockReturnValue(true)
+  })
+
+  async function sendDraft(input: Record<string, unknown>) {
+    return PATCH(new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    }), { params: { id: messageId } })
+  }
+
+  it.each([
+    [{ visibility: 'internal' }, { visibility: 'public', isDraft: false }],
+    [{ visibility: 'public' }, { isDraft: false }],
+  ])('requires messages.email for a public draft send', async (draft, input) => {
+    const { commandBus, rbacService } = setupDraft(draft, ['messages.compose'])
+
+    expect((await sendDraft(input)).status).toBe(403)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(userId, ['messages.email'], {
+      tenantId, organizationId,
+    })
+  })
+
+  it.each(['messages.email', 'messages.*', '*'])('honors %s for a public draft send', async (feature) => {
+    const { commandBus } = setupDraft({ visibility: 'public' }, ['messages.compose', feature])
+
+    expect((await sendDraft({ isDraft: false })).status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { isDraft: false },
+    { isDraft: false, visibility: 'public' },
+  ])('denies a public draft send when the hub lookup fails', async (input) => {
+    const { commandBus } = setupDraft({ visibility: 'public' }, ['messages.*'], resolveChannelThreadAccessSafely)
+    findOneWithDecryptionMock.mockRejectedValueOnce(new Error('connection terminated'))
+
+    expect((await sendDraft(input)).status).toBe(403)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('allows a public draft send when the hub confirms there is no mapping', async () => {
+    const { commandBus } = setupDraft({ visibility: 'public' }, ['messages.*'], resolveChannelThreadAccessSafely)
+    findOneWithDecryptionMock.mockResolvedValueOnce(null)
+
+    expect((await sendDraft({ isDraft: false })).status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [{ visibility: 'public' }, { subject: 'Updated draft' }],
+    [{ visibility: 'public' }, { visibility: 'public' }],
+    [{ visibility: 'public' }, { isDraft: false, visibility: 'internal' }],
+    [{ visibility: 'internal' }, { isDraft: false }],
+  ])('allows draft edits and internal sends without messages.email', async (draft, input) => {
+    const { commandBus, rbacService } = setupDraft(draft, ['messages.compose'])
+
+    expect((await sendDraft(input)).status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    expect(rbacService.userHasAllFeatures).not.toHaveBeenCalled()
   })
 
   it('rejects a stale draft PATCH with a structured 409 and leaves the message untouched', async () => {
