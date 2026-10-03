@@ -6,9 +6,8 @@ import type {
   DocumentFetchContext,
   TemplateNormalizationInput,
 } from '@open-mercato/shared/modules/document-generators'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/filename'
 import { SalesChannel, SalesQuote, SalesQuoteLine } from '../../../data/entities'
 import {
@@ -17,10 +16,18 @@ import {
   type SalesOfferLabels,
   type SalesOfferLine,
 } from '../../templates/quotes/sales-offer/types'
+import {
+  buildLabels,
+  firstText,
+  resolveClientAddress,
+  resolveClientName,
+  toIso,
+  toNumber,
+  toSnapshotRecord,
+  toText,
+} from '../../lib/normalization'
 
 const quoteRequestSchema = z.object({ id: z.string().uuid() })
-
-type SnapshotRecord = Record<string, unknown>
 
 export interface QuoteDocumentQuoteRecord {
   id: string
@@ -78,78 +85,6 @@ const LABEL_DEFAULTS: SalesOfferLabels = {
   notes: 'Notes',
 }
 
-function toIso(value: Date | string | null | undefined): string | null {
-  if (!value) return null
-  const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date.toISOString()
-}
-
-function toSnapshotRecord(value: unknown): SnapshotRecord | null {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as SnapshotRecord
-  if (typeof value !== 'string') return null
-  const parsed = parseDecryptedFieldValue(value)
-  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as SnapshotRecord) : null
-}
-
-function toText(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : undefined
-}
-
-function toNumber(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value ?? ''))
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function firstText(...values: unknown[]): string | undefined {
-  for (const value of values) {
-    const text = toText(value)
-    if (text) return text
-  }
-  return undefined
-}
-
-function resolveClientName(snapshot: SnapshotRecord | null): string {
-  const customer = toSnapshotRecord(snapshot?.customer)
-  const contact = toSnapshotRecord(snapshot?.contact)
-  const companyProfile = toSnapshotRecord(customer?.companyProfile)
-  const contactName = [toText(contact?.firstName), toText(contact?.lastName)].filter(Boolean).join(' ')
-  return (
-    firstText(
-      customer?.displayName,
-      companyProfile?.legalName,
-      companyProfile?.brandName,
-      contact?.preferredName,
-      contactName,
-    ) ?? ''
-  )
-}
-
-function resolveClientAddress(snapshot: SnapshotRecord | null): string | undefined {
-  if (!snapshot) return undefined
-  const street = [toText(snapshot.addressLine1), toText(snapshot.buildingNumber)].filter(Boolean).join(' ')
-  const flat = toText(snapshot.flatNumber)
-  const streetWithFlat = flat ? `${street}/${flat}` : street
-  const locality = [toText(snapshot.postalCode), toText(snapshot.city)].filter(Boolean).join(' ')
-  const parts = [
-    streetWithFlat,
-    toText(snapshot.addressLine2),
-    locality,
-    toText(snapshot.region),
-    toText(snapshot.country),
-  ].filter((part): part is string => Boolean(part))
-  return parts.length > 0 ? parts.join(', ') : undefined
-}
-
-function buildLabels(translate: TemplateNormalizationInput['translate']): SalesOfferLabels {
-  const entries = SALES_OFFER_LABEL_KEYS.map((key) => [
-    key,
-    translate(`sales.documents.templates.offer.labels.${key}`, LABEL_DEFAULTS[key]),
-  ])
-  return Object.fromEntries(entries) as SalesOfferLabels
-}
-
 function requireSource(data: unknown): QuoteDocumentSource {
   const source = data as Partial<QuoteDocumentSource> | null
   if (!source || typeof source !== 'object' || !source.quote || !Array.isArray(source.lines)) {
@@ -204,7 +139,7 @@ export class QuotesDocumentService extends BaseDocumentService {
       {},
       scope,
     )
-    if (!quote) throw notFound('Quote not found')
+    if (!quote) throw new CrudHttpError(404, { error: 'not_found' })
     const lines = await findWithDecryption(
       em,
       SalesQuoteLine,
@@ -270,7 +205,7 @@ export class QuotesDocumentService extends BaseDocumentService {
     const sellerName = toText(channel?.name)
     return {
       locale,
-      labels: buildLabels(translate),
+      labels: buildLabels(SALES_OFFER_LABEL_KEYS, LABEL_DEFAULTS, 'sales.documents.templates.offer.labels', translate),
       document: {
         id: quote.id,
         number: quote.quoteNumber,
