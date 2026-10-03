@@ -22,6 +22,7 @@ import type {
   ProductUnitConversionDraft,
 } from "./productForm";
 import { createProductUnitConversionDraft } from "./productForm";
+import { translateCatalogUnitLabel } from "../../lib/unitLabels";
 import { REFERENCE_UNIT_CODES } from "@open-mercato/shared/lib/units/unitCodes";
 import { toTrimmedOrNull } from "./productFormUtils";
 import { useUnitPriceDisplayEnabled } from "./hooks/useUnitPriceDisplayEnabled";
@@ -111,7 +112,9 @@ function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
 }
 
 function buildUnitOptions(
-  entries: UnitDictionaryEntry[] | undefined,
+  entries: UnitDictionaryEntry[],
+  t: ReturnType<typeof useT>,
+  locale: string,
 ): UnitOption[] {
   const list = Array.isArray(entries) ? entries : [];
   const options = list
@@ -120,11 +123,11 @@ function buildUnitOptions(
       if (!value) return null;
       return {
         value,
-        label: toTrimmedOrNull(entry.label) ?? value,
+        label: translateCatalogUnitLabel(value, toTrimmedOrNull(entry.label) ?? value, t),
       } satisfies UnitOption;
     })
     .filter((entry): entry is UnitOption => Boolean(entry));
-  return options.sort((left, right) => left.label.localeCompare(right.label));
+  return options.sort((left, right) => left.label.localeCompare(right.label, locale));
 }
 
 export function ProductUomSection({
@@ -136,7 +139,11 @@ export function ProductUomSection({
   const t = useT();
   const locale = useLocale();
   const { enabled: unitPriceDisplayEnabled } = useUnitPriceDisplayEnabled();
-  const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
+  const [unitEntries, setUnitEntries] = React.useState<UnitDictionaryEntry[]>([]);
+  const unitOptions = React.useMemo(
+    () => buildUnitOptions(unitEntries, t, locale),
+    [unitEntries, t, locale],
+  );
   const [loadingUnits, setLoadingUnits] = React.useState(false);
   const [errorLoadingUnits, setErrorLoadingUnits] = React.useState(false);
   const conversions = React.useMemo(
@@ -156,10 +163,10 @@ export function ProductUomSection({
           { fallback: { entries: [] } },
         );
         if (cancelled) return;
-        setUnitOptions(buildUnitOptions(response.result?.entries));
+        setUnitEntries(response.result?.entries ?? []);
       } catch {
         if (!cancelled) {
-          setUnitOptions([]);
+          setUnitEntries([]);
           setErrorLoadingUnits(true);
         }
       } finally {
