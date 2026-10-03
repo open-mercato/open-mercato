@@ -6,6 +6,7 @@ const labels = Object.fromEntries(ORDER_INVOICE_LABEL_KEYS.map((key) => [key, `L
 function build(overrides: Partial<OrderInvoiceData> = {}): Record<string, unknown> {
   const data: OrderInvoiceData = {
     locale: 'en',
+    isDraft: false,
     labels,
     document: { id: 'id-1', number: 'O-100', date: '2026-01-02T10:00:00.000Z', dueDate: '2026-02-01T00:00:00.000Z' },
     client: { name: 'Acme Ltd', email: 'info@acme.test', company: 'Acme Billing', address: 'Main St 5, Warsaw' },
@@ -31,6 +32,11 @@ describe('order invoice markdown', () => {
       expect(md).toContain(`L\\-${key}`)
     }
     expect(md.endsWith('\n')).toBe(true)
+  })
+
+  it('marks drafts with an escaped banner and leaves final documents unmarked', () => {
+    expect(render(build({ isDraft: true }))).toContain('> **L\\-draftWatermark**')
+    expect(render(build())).not.toContain('draftWatermark')
   })
 
   it('omits optional rows when zero or absent', () => {

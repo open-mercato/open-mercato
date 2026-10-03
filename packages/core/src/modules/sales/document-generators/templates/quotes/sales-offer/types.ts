@@ -13,6 +13,7 @@ export const SALES_OFFER_LABEL_KEYS = [
   'tax',
   'grandTotal',
   'notes',
+  'draftWatermark',
 ] as const
 
 export type SalesOfferLabelKey = (typeof SALES_OFFER_LABEL_KEYS)[number]
@@ -30,6 +31,7 @@ export interface SalesOfferLine {
 
 export interface SalesOfferData {
   locale: string
+  isDraft: boolean
   labels: SalesOfferLabels
   document: {
     id: string

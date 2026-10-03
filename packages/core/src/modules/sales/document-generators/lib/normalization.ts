@@ -75,3 +75,10 @@ export function buildLabels<Key extends string>(
   const entries = keys.map((key) => [key, translate(`${translationPrefix}.${key}`, defaults[key])])
   return Object.fromEntries(entries) as Record<Key, string>
 }
+
+const DRAFT_DOCUMENT_STATUSES = new Set(['draft', 'pending_approval', 'rejected'])
+
+export function isDraftDocumentStatus(status: unknown): boolean {
+  const value = toText(status)
+  return !value || DRAFT_DOCUMENT_STATUSES.has(value)
+}
