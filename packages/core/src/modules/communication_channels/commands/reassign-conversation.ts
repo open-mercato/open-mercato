@@ -60,7 +60,7 @@ async function resolveActorFeatures(
         attributes: {
           actorUserId,
           tenantId: scope.tenantId,
-          organizationId: scope.organizationId ?? null,
+          organizationId: scope.organizationId ?? undefined,
         },
       })
     } catch (reportErr) {
