@@ -1,5 +1,5 @@
 import type { TemplateEntry, TemplateMeta } from '@open-mercato/shared/modules/document-generators'
-import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import type { TranslateWithFallbackFn as TranslateFn } from '@open-mercato/shared/lib/i18n/translate'
 import type { LoadedTemplate, TemplateFilter, TemplateFilterOptions, TemplateLoadContext } from './interfaces'
 
 export class UnknownTemplateError extends Error {

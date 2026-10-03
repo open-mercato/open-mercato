@@ -30,7 +30,7 @@ Authoritative status table. The first non-done row is the resume point. Step IDs
 | 4 | 4.4 | Order PDF and Markdown templates | dispatch | done | 0ec18287c |
 | 5 | 5.1 | API validators and response helpers | dispatch | done | 23ae21dca |
 | 5 | 5.1-review-fix | Selected organization scope resolution | inline | done | — |
-| 5 | 5.2 | Template catalogue and facet endpoints | dispatch | todo | — |
+| 5 | 5.2 | Template catalogue and facet endpoints | dispatch | done | — |
 | 5 | 5.3 | Preview endpoint | dispatch | todo | — |
 | 5 | 5.4 | History entity encryption and migration | dispatch | todo | — |
 | 5 | 5.5 | History persistence and read service | dispatch | todo | — |
