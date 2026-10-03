@@ -42,12 +42,15 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
   }
 }
 
+let attachmentServiceMock: Record<string, unknown> | undefined
+
 function setContext(auth: Record<string, unknown> | null) {
   const container = {
     resolve: (name: string) => {
       if (name === 'rbacService') return { userHasAllFeatures, getGrantedFeatures }
       if (name === 'organizationScopeService') return { resolveForRequest }
       if (name === 'em') return {}
+      if (name === 'attachmentService' && attachmentServiceMock) return attachmentServiceMock
       throw new Error(`unknown ${name}`)
     },
   }
@@ -87,6 +90,7 @@ beforeEach(() => {
   renderSpy.mockReset().mockResolvedValue({ buffer: new TextEncoder().encode('# Offer'), format: 'md', mimeType: 'text/markdown' })
   prepareSpy.mockReset().mockImplementation(async (input) => ({ entity: { ...input } as never, plaintextResourceLabel: input.resourceLabel || input.resourceId }))
   persistSpy.mockReset().mockResolvedValue({ id: 'history-1' } as never)
+  attachmentServiceMock = undefined
   setContext(baseAuth)
 })
 
@@ -217,6 +221,43 @@ describe('generate route', () => {
     expect(mockLogger.error).toHaveBeenCalled()
     expect(mockReportError).toHaveBeenCalledTimes(1)
     expect(guard.afterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('stores the document as a private attachment linked to its history row in one transaction', async () => {
+    const txPersist = jest.fn()
+    const txFlush = jest.fn(async () => undefined)
+    const tx = { persist: jest.fn((entity: unknown) => { txPersist(entity); return { flush: txFlush } }) }
+    const createScoped = jest.fn(async (input: { persistLink: (tx: unknown, id: string) => Promise<void> }) => {
+      await input.persistLink(tx, 'attachment-1')
+      return { id: 'attachment-1' }
+    })
+    attachmentServiceMock = { createScoped, readScoped: jest.fn() }
+    prepareSpy.mockImplementation(async (input) => ({ entity: { ...input, id: 'history-9' } as never, plaintextResourceLabel: input.resourceId }))
+    const guard = makeGuard({ afterSuccess: jest.fn(), validate: jest.fn().mockResolvedValue({ ok: true, shouldRunAfterSuccess: true }) })
+    registerMutationGuards([{ moduleId: 'test', guards: [guard] }])
+
+    expect((await call(valid)).status).toBe(200)
+    expect(createScoped).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: 'document_generators:document',
+      recordId: 'q-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-selected',
+      partitionCode: 'privateAttachments',
+      declaredMimeType: 'text/markdown',
+      assignments: [{ type: 'document_generators:generated_document', id: 'history-9' }],
+    }))
+    expect(txPersist).toHaveBeenCalledWith(expect.objectContaining({ id: 'history-9', attachmentId: 'attachment-1' }))
+    expect(txFlush).toHaveBeenCalled()
+    expect(persistSpy).not.toHaveBeenCalled()
+    expect(guard.afterSuccess).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'history-9' }))
+  })
+
+  it('falls back to history without a stored file when storage fails', async () => {
+    attachmentServiceMock = { createScoped: jest.fn().mockRejectedValue(new Error('quota exceeded')), readScoped: jest.fn() }
+    const response = await call(valid)
+    expect(response.status).toBe(200)
+    expect(persistSpy).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ code: 'document_generators.document_storage_failed' }))
   })
 
   it('runs afterSuccess callbacks after the row commits with the history id', async () => {

@@ -9,8 +9,14 @@ export type GeneratedDocumentResourceScope = {
   resourceId: string
 }
 
+export type StoredDocumentReference = {
+  attachmentId: string
+  historyId: string
+  resourceId: string
+}
+
 export type StoredDocumentRemover = (input: {
-  attachmentIds: string[]
+  documents: StoredDocumentReference[]
   tenantId: string
   organizationId: string
 }) => Promise<void>
@@ -42,12 +48,17 @@ export class GeneratedDocumentRetentionService {
     )
     if (records.length === 0) return { anonymizedCount: 0, removedAttachmentIds: [] }
 
-    const attachmentIds = [...new Set(records
-      .map((record) => record.attachmentId)
-      .filter((attachmentId): attachmentId is string => typeof attachmentId === 'string' && attachmentId.length > 0))]
-    if (attachmentIds.length > 0 && this.removeStoredDocuments) {
+    const documents: StoredDocumentReference[] = records.flatMap((record) => (
+      typeof record.attachmentId === 'string' && record.attachmentId.length > 0
+        ? [{ attachmentId: record.attachmentId, historyId: record.id, resourceId: record.resourceId }]
+        : []
+    ))
+    if (documents.length > 0) {
+      if (!this.removeStoredDocuments) {
+        throw new Error('[internal] stored document removal is unavailable; refusing to orphan generated files')
+      }
       await this.removeStoredDocuments({
-        attachmentIds,
+        documents,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       })
@@ -60,7 +71,7 @@ export class GeneratedDocumentRetentionService {
     await writeEm.flush()
     return {
       anonymizedCount: records.length,
-      removedAttachmentIds: this.removeStoredDocuments ? attachmentIds : [],
+      removedAttachmentIds: documents.map((document) => document.attachmentId),
     }
   }
 }

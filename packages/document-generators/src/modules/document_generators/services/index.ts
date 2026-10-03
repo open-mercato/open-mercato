@@ -14,5 +14,6 @@ export { GeneratedDocumentRetentionService } from './generated-document-retentio
 export type {
   GeneratedDocumentResourceScope,
   ResourceErasureResult,
+  StoredDocumentReference,
   StoredDocumentRemover,
 } from './generated-document-retention-service'

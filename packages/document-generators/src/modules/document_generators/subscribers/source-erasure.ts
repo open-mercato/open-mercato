@@ -3,6 +3,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { templateRegistry } from '../lib/template-registry'
 import { GeneratedDocumentRetentionService } from '../services/generated-document-retention-service'
+import { createStoredDocumentRemover, resolveStoredDocumentAttachmentService } from '../lib/stored-documents'
 
 const DELETED_SUFFIX = '.deleted'
 
@@ -46,7 +47,9 @@ export default async function handler(payload: Record<string, unknown>, ctx: Era
 
   try {
     const em = resolve<EntityManager>('em')
-    const service = new GeneratedDocumentRetentionService(em)
+    const attachmentService = resolveStoredDocumentAttachmentService(resolve)
+    const remover = attachmentService ? createStoredDocumentRemover(attachmentService) : undefined
+    const service = new GeneratedDocumentRetentionService(em, remover)
     await service.eraseForResource({ tenantId, organizationId, resourceKind, resourceId })
   } catch (error) {
     logger.error('Failed to erase generated documents for a deleted source record', {
