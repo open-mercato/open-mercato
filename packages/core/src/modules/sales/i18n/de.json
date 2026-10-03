@@ -930,6 +930,7 @@
   "sales.documents.form.submit": "Erstellen",
   "sales.documents.form.success": "Verkaufsdokument erstellt.",
   "sales.documents.form.title": "Verkaufsdokument erstellen",
+  "sales.documents.generators.tabLabel": "Dokumente",
   "sales.documents.history.actor.system": "System",
   "sales.documents.history.changedFields": "Geänderte Felder: {fields}",
   "sales.documents.history.empty": "Noch keine Verlaufseinträge.",

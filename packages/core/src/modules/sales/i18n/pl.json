@@ -930,6 +930,7 @@
   "sales.documents.form.submit": "Utwórz",
   "sales.documents.form.success": "Dokument sprzedaży utworzony.",
   "sales.documents.form.title": "Utwórz dokument sprzedaży",
+  "sales.documents.generators.tabLabel": "Dokumenty",
   "sales.documents.history.actor.system": "System",
   "sales.documents.history.changedFields": "Zmienione pola: {fields}",
   "sales.documents.history.empty": "Brak wpisów w historii.",
