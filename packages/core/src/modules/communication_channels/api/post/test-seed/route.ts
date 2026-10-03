@@ -43,7 +43,7 @@ import {
  * production default) every request returns 404, so this route is invisible and
  * inert in production. See `lib/test-seed.ts` for the full rationale.
  *
- * Three actions, all scoped to the caller's tenant/org:
+ * Actions, all scoped to the caller's tenant/org:
  *   - `connect-channel`: connect a network-free stub channel owned by the caller
  *     (delegates to the real connect-credential command so the channel persists
  *     credentials + lands in `status='connected'`). Enables the outbound
@@ -61,6 +61,8 @@ import {
  *     the inbound auto-link tests (TC-CRM-EMAIL-002..005). NOTE: this action
  *     deliberately bypasses `messages.messages.compose` — it can never prove that
  *     the hub accepts a message, only that downstream subscribers fire.
+ *   - `purge-inbound`: hard-delete the rows one `emit-inbound` call seeded, for
+ *     integration teardown.
  */
 type RbacServiceLike = {
   loadAcl: (
@@ -659,7 +661,7 @@ export const openApi = {
   methods: {
     POST: {
       summary:
-        'Test-only: seed a connected channel, ingest a real inbound message, or emit a seeded inbound link (env-gated)',
+        'Test-only: seed a connected channel, ingest a real inbound message, emit a seeded inbound link, or purge one (env-gated)',
       tags: ['CommunicationChannels'],
       responses: [
         { status: 201, description: 'Channel seeded / inbound message emitted' },
