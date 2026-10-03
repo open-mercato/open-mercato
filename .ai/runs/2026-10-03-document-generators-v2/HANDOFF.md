@@ -1,32 +1,27 @@
 # Handoff — 2026-10-03-document-generators-v2
 
-**Last updated:** 2026-10-03T12:31:11Z
+**Last updated:** 2026-10-03T12:50:57Z
 **Branch:** feat/document-generators-v2
 **PR:** https://github.com/open-mercato/open-mercato/pull/6892
-**Current phase/step:** 5.1
-**Last commit:** 0ec18287c — order invoice PDF and Markdown templates (checkpoint 4 commit follows)
+**Current phase/step:** 5.6
+**Last commit:** 05cf126d8 — generation history service (checkpoint 5 commit follows)
 
 ## What just happened
-- Resumed by om-auto-continue-pr-loop (Claude Code) after the Codex session was interrupted.
-- Phase 4 complete: QuotesDocumentService / OrdersDocumentService (scoped decrypted fetch, strict id validation, normalized localized data), `sales.offer` PDF, `sales.order-invoice` PDF, `sales.order-invoice-markdown`, Sales convention file `sales/document-generators.ts`.
-- Checkpoint 4 passed (see checkpoint-4-checks.md).
+- Phase 4 done (checkpoint 4). Phase 5 steps 5.1–5.5 + 5.1-review-fix done (checkpoint 5): validators, error envelope, RFC 5987 document response, selected-organization scope, catalogue/options/preview routes, GeneratedDocument entity/encryption/migration, GenerationHistoryService.
 
 ## Next concrete action
-- Step 5.1: API validators and response helpers (strict request/query schemas, translated error codes, organization guards, RFC 5987 filenames, no-store/nosniff).
+- Step 5.6: POST /document-generators/generate — same flow as preview + mutation guards (create) + `historyService.prepare` OUTSIDE and `persist` INSIDE the best-effort catch; afterSuccess callbacks with try/catch logging (factory pattern), never turning a rendered document into a 500.
 
-## Notes for Phase 5
-- Sales services throw `CrudHttpError` with codes `invalid_request` (400), `organization_scope_required` (403), `not_found` (404); routes must map them to the spec's stable error contract (409 organization_required is guarded before fetch).
-- Services read scope from `auth.tenantId` / `auth.orgId`; routes must pass an auth whose `orgId` is the selected organization.
-- Engine helpers must be imported via explicit `/index` barrel paths.
+## Notes
+- Routes: files under `api/document-generators/**` with `metadata.path = '/document-generators/...'` (router prefixes module id otherwise).
+- Use `resolveDocumentRequestContext`, `requireOrganization` (returns scoped auth), `mapDocumentError`, `documentResponse`. Preview route passes an inline translate adapter to `templateRegistry.load`.
+- No local Postgres; throwaway Docker Postgres on :55432 used only for `db:generate`.
 
 ## Blockers / open questions
+- Before Step 7.1 / UI evidence: needs user approval to run migrations against a database (local or throwaway) for the running app.
 - Maintainer must apply labels/assignee (GitHub refuses writes for this account).
-- DS lint governance requires an exact reviewable override before permission request at UI step.
-- History service constructor exception requires explicit final review signoff per spec.
-
-## Environment caveats
-- Local runner; no Docker app container. App not launched; no migrations applied.
-- Local `dist` for shared/document-generators/core rebuilt during checkpoint 4.
+- DS lint governance override must be shown to the user before applying at UI steps.
+- GenerationHistoryService constructor exception needs explicit review sign-off (10.3).
 
 ## Worktree
 - Path: /private/tmp/om-document-generators-v2
