@@ -265,9 +265,25 @@ export async function seedInboundMessage(
 }
 
 /**
- * Best-effort delete of a seeded channel via the owner-scoped DELETE route.
- * Safe to call with a null id in `finally`.
+ * Best-effort hard delete of the rows one {@link seedInboundMessage} call created
+ * (thread mapping, channel link, conversation and message). Run it before
+ * {@link deleteChannelIfExists}: the purge is authorized against the live channel,
+ * and disconnecting a channel deliberately retains its conversations and messages.
+ * Safe to call with null ids in `finally`.
  */
+export async function purgeSeededInboundMessage(
+  request: APIRequestContext,
+  token: string | null,
+  channelId: string | null,
+  seeded: { channelLinkId: string; messageId: string; conversationId: string } | null,
+): Promise<void> {
+  if (!token || !channelId || !seeded) return;
+  await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'purge-inbound', channelId, ...seeded },
+  }).catch(() => undefined);
+}
+
 /**
  * Ingest an inbound chat message through the REAL `ingest_inbound_message`
  * command: the stub adapter normalizes the frame and the hub composes the
@@ -325,6 +341,10 @@ export async function ingestInboundChatMessage(
   };
 }
 
+/**
+ * Best-effort delete of a seeded channel via the owner-scoped DELETE route.
+ * Safe to call with a null id in `finally`.
+ */
 export async function deleteChannelIfExists(
   request: APIRequestContext,
   token: string | null,
