@@ -1,0 +1,11 @@
+{
+  "invoices.documents.generators.tabLabel": "Dokumenty",
+  "invoices.documents.templates.invoice.description": "Faktura PDF do wydruku dla tego rekordu.",
+  "invoices.documents.templates.invoice.label": "Faktura (PDF)",
+  "invoices.documents.templates.invoice.labels.draftWatermark": "WERSJA ROBOCZA",
+  "invoices.documents.templates.invoice.labels.number": "Numer",
+  "invoices.documents.templates.invoice.labels.title": "Faktura",
+  "invoices.documents.templates.invoice.labels.total": "Razem",
+  "invoices.documents.templates.invoiceMarkdown.description": "Tekstowa wersja faktury w formacie Markdown.",
+  "invoices.documents.templates.invoiceMarkdown.label": "Faktura (Markdown)"
+}
