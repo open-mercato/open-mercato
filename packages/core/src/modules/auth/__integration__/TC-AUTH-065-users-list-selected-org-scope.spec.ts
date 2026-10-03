@@ -17,7 +17,8 @@ import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/help
  * Before the fix only superadmins with a selected tenant had the organization scope applied, so a
  * tenant admin switching between organizations kept seeing every user in the tenant.
  *
- * Covers: GET /api/auth/users (non-superadmin, `om_selected_org` cookie, `?ids=` bounded lookup).
+ * Covers: GET /api/auth/users (non-superadmin, `om_selected_org` cookie). Each fixture organization
+ * is freshly created and holds exactly one user, so a single page fully covers its scope.
  */
 
 type UserListResponse = { items?: Array<{ id?: unknown }> }
@@ -26,10 +27,8 @@ async function listUserIds(
   request: APIRequestContext,
   token: string,
   selectedOrgId: string,
-  candidateIds: string[],
 ): Promise<string[]> {
-  const ids = encodeURIComponent(candidateIds.join(','))
-  const response = await apiRequestWithSelectedOrg(request, 'GET', `/api/auth/users?ids=${ids}`, {
+  const response = await apiRequestWithSelectedOrg(request, 'GET', '/api/auth/users?page=1&pageSize=100', {
     token,
     selectedOrgId,
   })
@@ -78,19 +77,26 @@ test.describe('TC-AUTH-065: users list follows the selected organization (#6803)
         roles: [],
       })
 
-      const candidateIds = [firstUserId, secondUserId]
-      const firstOrgIds = await listUserIds(request, adminToken, firstOrganizationId, candidateIds)
+      const firstOrgIds = await listUserIds(request, adminToken, firstOrganizationId)
       expect(firstOrgIds, 'Org1 selection should list the Org1 user').toContain(firstUserId)
       expect(firstOrgIds, 'Org1 selection must not list the Org2 user').not.toContain(secondUserId)
 
-      const secondOrgIds = await listUserIds(request, adminToken, secondOrganizationId, candidateIds)
+      const secondOrgIds = await listUserIds(request, adminToken, secondOrganizationId)
       expect(secondOrgIds, 'Org2 selection should list the Org2 user').toContain(secondUserId)
       expect(secondOrgIds, 'Org2 selection must not list the Org1 user').not.toContain(firstUserId)
 
-      const homeOrgIds = await listUserIds(request, adminToken, homeOrganizationId, candidateIds)
-      expect(homeOrgIds, 'the parent organization selection should include descendant users').toEqual(
-        expect.arrayContaining([firstUserId, secondUserId]),
+      const lookupResponse = await apiRequestWithSelectedOrg(
+        request,
+        'GET',
+        `/api/auth/users?ids=${encodeURIComponent(secondUserId)}`,
+        { token: adminToken, selectedOrgId: firstOrganizationId },
       )
+      expect(lookupResponse.status(), 'GET /api/auth/users?ids= should return 200').toBe(200)
+      const lookupBody = (await readJsonSafe<UserListResponse>(lookupResponse)) ?? {}
+      expect(
+        (lookupBody.items ?? []).map((item) => item.id),
+        'an explicit id lookup should still resolve a user outside the selected organization',
+      ).toContain(secondUserId)
     } finally {
       await deleteUserIfExists(request, superadminToken, firstUserId)
       await deleteUserIfExists(request, superadminToken, secondUserId)

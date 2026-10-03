@@ -1189,6 +1189,30 @@ describe('GET /api/auth/users', () => {
     ]))
   })
 
+  test('non-superadmin id lookups stay tenant-wide regardless of the selected organization', async () => {
+    const lookedUpUserId = '423e4567-e89b-12d3-a456-426614174011'
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: secondaryOrganizationId,
+      filterIds: [secondaryOrganizationId],
+      allowedIds: null,
+      tenantId,
+    })
+
+    await GET(makeRequest(`/api/auth/users?ids=${lookedUpUserId}`, {
+      cookie: `om_selected_org=${encodeURIComponent(secondaryOrganizationId)}`,
+    }))
+
+    expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { id: { $in: [lookedUpUserId] } },
+    ]))
+    expect(where.$and).not.toEqual(expect.arrayContaining([
+      { organizationId: expect.anything() },
+    ]))
+  })
+
   test('non-superadmin with no visible organizations gets an empty users list', async () => {
     mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
       selectedId: null,
