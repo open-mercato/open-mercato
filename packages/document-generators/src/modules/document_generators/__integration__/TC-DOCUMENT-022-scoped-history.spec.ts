@@ -5,9 +5,9 @@ import * as dg from './helpers/document-generators-api'
 
 async function openDocumentsTab(page: Page, url: string): Promise<void> {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
-  const tab = page.getByRole('tab', { name: 'Documents', exact: true }).or(page.getByRole('button', { name: 'Documents', exact: true }))
-  await expect(tab.first()).toBeVisible({ timeout: 30_000 })
-  await tab.first().click()
+  const tab = page.locator('#main-content').getByRole('button', { name: 'Documents', exact: true })
+  await expect(tab).toBeVisible({ timeout: 30_000 })
+  await tab.click()
 }
 
 async function generateFromCard(page: Page, templateLabel: string, downloadLabel: string): Promise<void> {
@@ -20,7 +20,8 @@ async function generateFromCard(page: Page, templateLabel: string, downloadLabel
   const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
   await downloadButton.click()
   await downloadPromise
-  await dialog.getByRole('button', { name: 'Close' }).click()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
 }
 
 test.describe('TC-DOCUMENT-022: scoped history on Sales Documents tabs', () => {

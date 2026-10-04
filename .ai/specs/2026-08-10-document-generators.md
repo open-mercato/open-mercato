@@ -1197,8 +1197,9 @@ A design-time review of Phase 6's plan against Phase 5's plan, conducted while t
 
 Verified on 2026-10-03: the configured validation gate (`build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `build:app`) passed with unit tests scoped to the changed packages (document-generators 230, core Sales + module decoupling 929, shared 6); `yarn db:generate` reports no changes for `document_generators`, so the hand-written `template_version` migration matches the entity; manual end-to-end preview/generate/history/storage was exercised in the dev app (it surfaced and fixed the repeated-bootstrap registration and attachment-assignment defects).
 
+Integration tests `TC-DOCUMENT-001`–`022` ran against the local dev app on 2026-10-04: 25 passed, 1 skipped by design (persistence fault injection), 0 failed.
+
 Still pending:
-- Integration tests `TC-DOCUMENT-001` to `TC-DOCUMENT-022` are authored but have not been executed.
 - Browser/UI evidence (screenshots) and the design-system guardian pass are pending (`yarn lint` and `check:client-boundaries` passed).
 - The full monorepo unit suite (`yarn test`) was not run; only the changed packages were tested.
 - `GenerationHistoryService` constructor-exception sign-off is pending.
