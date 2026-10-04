@@ -100,6 +100,26 @@ describe('PhoneNumberField', () => {
   })
 })
 
+describe('PhoneNumberField external label', () => {
+  it('names the number input by the element a host points it at', () => {
+    render(
+      <div>
+        <span id="phone-label">Primary phone</span>
+        <PhoneFieldHarness ariaLabelledBy="phone-label" placeholder="+00 000 000 000" />
+      </div>,
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Primary phone' })).toHaveAttribute('aria-labelledby', 'phone-label')
+    expect(screen.getByRole('combobox', { name: 'Country code' })).toBeInTheDocument()
+  })
+
+  it('adds no label reference when the host supplies none', () => {
+    render(<PhoneFieldHarness />)
+
+    expect(screen.getByRole('textbox')).not.toHaveAttribute('aria-labelledby')
+  })
+})
+
 describe('PhoneNumberField country dictionary', () => {
   it('exposes a complete, well-formed geographic dictionary', () => {
     expect(PHONE_COUNTRIES.length).toBeGreaterThan(200)

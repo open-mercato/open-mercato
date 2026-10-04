@@ -485,6 +485,8 @@ export type PhoneNumberFieldProps = {
   disabled?: boolean
   autoFocus?: boolean
   ariaLabel?: string
+  /** Id of a visible label rendered by the host; it names the number input. */
+  ariaLabelledBy?: string
   ariaDescribedBy?: string
   placeholder?: string
   minDigits?: number
@@ -518,6 +520,7 @@ export function PhoneNumberField({
   disabled = false,
   autoFocus,
   ariaLabel,
+  ariaLabelledBy,
   ariaDescribedBy,
   placeholder,
   minDigits = DEFAULT_MIN_DIGITS,
@@ -749,6 +752,7 @@ export function PhoneNumberField({
           disabled={disabled}
           id={id}
           aria-label={ariaLabel}
+          aria-labelledby={ariaLabelledBy}
           aria-describedby={describedBy}
           aria-invalid={errorMessage ? 'true' : undefined}
           data-crud-focus-target=""
