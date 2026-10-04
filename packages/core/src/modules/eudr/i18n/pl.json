@@ -239,7 +239,7 @@
   "eudr.lifecycle.amendWindowClosed": "Okno zmiany zamknięte",
   "eudr.lifecycle.amendWindowRemaining": "Pozostały czas okna zmiany: {hours} godz. {minutes} min",
   "eudr.lifecycle.confirmArchive": "Zarchiwizować oświadczenie?",
-  "eudr.lifecycle.confirmArchiveBody": "Oświadczenie zostanie zarchiwizowane.",
+  "eudr.lifecycle.confirmArchiveBody": "Oświadczenie zostanie zarchiwizowane. Zarchiwizowane oświadczenia są tylko do odczytu i nie można ich edytować, przywrócić ani usunąć.",
   "eudr.lifecycle.confirmMarkAvailable": "Oznaczyć oświadczenie jako dostępne?",
   "eudr.lifecycle.confirmMarkAvailableBody": "Szczegóły referencji są wymagane, zanim oświadczenie stanie się dostępne.",
   "eudr.lifecycle.confirmReturnToDraft": "Przywrócić oświadczenie do wersji roboczej?",
@@ -313,7 +313,8 @@
   "eudr.mitigation_actions.update": "Zaktualizuj działanie ograniczające ryzyko EUDR",
   "eudr.nav.group": "Zgodność",
   "eudr.nav.mappings": "Mapowania produktów",
-  "eudr.nav.overview": "Przegląd",
+  "eudr.nav.module": "EUDR",
+  "eudr.nav.overview": "Przegląd EUDR",
   "eudr.nav.plots": "Działki",
   "eudr.nav.riskAssessments": "Oceny ryzyka",
   "eudr.nav.statements": "Oświadczenia",
@@ -743,5 +744,8 @@
   "eudr.supplierPanel.viewSubmissions": "Zobacz zgłoszenia",
   "eudr.supplierPanel.warnings": "Z ostrzeżeniami",
   "eudr.warnings.harvestBeforeCutoff": "Zbiory przed datą graniczną EUDR",
-  "eudr.warnings.speciesMissing": "W powiązanym mapowaniu drewna brakuje naukowej lub zwyczajowej nazwy gatunku"
+  "eudr.warnings.speciesMissing": "W powiązanym mapowaniu drewna brakuje naukowej lub zwyczajowej nazwy gatunku",
+  "search.entityType.eudr.eudr_due_diligence_statement": "Oświadczenie DDS",
+  "search.entityType.eudr.eudr_evidence_submission": "Zgłoszenie dowodów",
+  "search.entityType.eudr.eudr_plot": "Działka"
 }

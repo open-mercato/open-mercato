@@ -162,6 +162,150 @@ describe('LookupSelect keyboard accessibility', () => {
     expect(input.value).toBe('')
     expect(escapeSpy).not.toHaveBeenCalled()
   })
+
+  // Issue #5456 item 3: a `minQuery` of 0 makes `shouldSearch` true for the empty
+  // query, so the full option list renders before any interaction. Callers that
+  // want the collapsed "start typing" affordance must keep minQuery >= 1.
+  it('renders pre-expanded with minQuery=0 and collapsed with minQuery=1', async () => {
+    const expanded = render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={0} />,
+    )
+    expect(await expanded.findAllByRole('option')).toHaveLength(2)
+    expanded.unmount()
+
+    const collapsed = render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={1} />,
+    )
+    expect(collapsed.queryByRole('listbox')).toBeNull()
+    expect(collapsed.getByText('Start typing to search.')).toBeInTheDocument()
+
+    fireEvent.change(getInput(collapsed.container), { target: { value: 'F' } })
+    expect(await collapsed.findAllByRole('option')).toHaveLength(2)
+  })
+
+  // A selection must never be invisible. Before this, `shouldSearch` only made an
+  // exception for a set `value` when the caller ALSO passed `options`, so a
+  // minQuery >= 1 lookup without that prop collapsed over its own selection: no
+  // selected row, no checkmark and no clear control — the user could not see or
+  // undo what was chosen (review of #5481, order-line Status field).
+  it('keeps a made selection visible while collapsed, without an options prop', async () => {
+    const onChange = jest.fn()
+    const view = render(
+      <LookupSelect
+        value="plot-1"
+        onChange={onChange}
+        fetchItems={async () => ITEMS}
+        minQuery={1}
+      />,
+    )
+
+    const selected = await view.findByRole('option', { selected: true })
+    expect(selected).toHaveTextContent(ITEMS[0].title)
+
+    const clear = view.getByRole('button', { name: 'Clear selection' })
+    fireEvent.click(clear)
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('stays collapsed at minQuery >= 1 once the selection is cleared', async () => {
+    const view = render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={1} />,
+    )
+    expect(view.queryByRole('listbox')).toBeNull()
+    expect(view.getByText('Start typing to search.')).toBeInTheDocument()
+  })
+})
+
+describe('LookupSelect selected value display', () => {
+  const RECORD_ID = 'd7f88312-f4b3-44b7-b03a-dc10e561cf8e'
+
+  it('shows the selected item once the list is collapsed', () => {
+    // The visible input is the search box and reverts to its placeholder, so
+    // without this the control looked empty after a selection even though the
+    // form held the id — the user could not tell what they had picked.
+    render(
+      <LookupSelect
+        value="cust-1"
+        onChange={() => {}}
+        fetchItems={async () => []}
+        selectedHintLabel={(id) => (id === 'cust-1' ? 'ExcelMed' : id)}
+      />,
+    )
+
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
+  })
+
+  it('never renders the raw id when no label resolver is given', () => {
+    const { container } = render(
+      <LookupSelect value={RECORD_ID} onChange={() => {}} fetchItems={async () => []} />,
+    )
+
+    expect(screen.queryByTestId('lookup-select-selected')).not.toBeInTheDocument()
+    expect(container.textContent ?? '').not.toContain(RECORD_ID)
+  })
+
+  it('adds no second summary when the consumer renders its own selected label', () => {
+    // Mirrors eudr's LookupSelectField: the host already prints the resolved
+    // order label above the picker, so the collapsed block would both duplicate
+    // it and expose the uuid (TC-EUDR-013).
+    const { container } = render(
+      <div>
+        <p>Order ORDER-20260820-0000</p>
+        <LookupSelect value={RECORD_ID} onChange={() => {}} fetchItems={async () => []} />
+      </div>,
+    )
+
+    expect(screen.queryByTestId('lookup-select-selected')).not.toBeInTheDocument()
+    expect(container.textContent ?? '').not.toContain(RECORD_ID)
+    expect(screen.getAllByText(/ORDER-20260820-0000/)).toHaveLength(1)
+  })
+
+  it('shows the fetched title when the resolver has not resolved the id yet', async () => {
+    // The staff CustomerPicker resolves names from a map it fills
+    // asynchronously and falls back to `id` until then — that fallback must not
+    // put a uuid on screen once the list collapses.
+    function CustomerPickerHarness() {
+      const [value, setValue] = React.useState<string | null>(null)
+      return (
+        <LookupSelect
+          value={value}
+          onChange={setValue}
+          fetchItems={async () => [{ id: RECORD_ID, title: 'ExcelMed' }]}
+          selectedHintLabel={(id) => id}
+        />
+      )
+    }
+
+    const { container } = render(<CustomerPickerHarness />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Exc' } })
+    fireEvent.click(await screen.findByRole('option'))
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
+    expect(container.textContent ?? '').not.toContain(RECORD_ID)
+  })
+
+  it('clears the selection from the collapsed summary', () => {
+    const onChange = jest.fn()
+    render(
+      <LookupSelect
+        value="cust-1"
+        onChange={onChange}
+        fetchItems={async () => []}
+        selectedHintLabel={() => 'ExcelMed'}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /clear/i }))
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('renders nothing selected when there is no value', () => {
+    render(<LookupSelect value={null} onChange={() => {}} fetchItems={async () => []} />)
+    expect(screen.queryByTestId('lookup-select-selected')).not.toBeInTheDocument()
+  })
 })
 
 // `disabled` used to gate only the search box, so a caller that locked the

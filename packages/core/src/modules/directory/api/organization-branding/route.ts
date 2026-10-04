@@ -19,6 +19,7 @@ import { organizationUpdateSchema } from '@open-mercato/core/modules/directory/d
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import '@open-mercato/core/modules/directory/commands/organizations'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('directory').child({ component: 'organization-branding' })
 
@@ -267,6 +268,10 @@ export async function PUT(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Organization branding update failed', { err })
     return NextResponse.json(

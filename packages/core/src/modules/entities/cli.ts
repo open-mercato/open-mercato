@@ -16,12 +16,14 @@ import { createKmsService, type KmsService, type TenantDek } from '@open-mercato
 import {
   decryptWithAesGcm,
   decryptWithAesGcmStrict,
+  isEncryptedPayloadShape,
   TenantDataEncryptionError,
   TenantDataEncryptionErrorCode,
 } from '@open-mercato/shared/lib/encryption/aes'
 import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
+  resolveEncryptionKeyId,
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
@@ -447,12 +449,6 @@ function resolveMapMeta(
   return { entityId, meta, fields, tenantId }
 }
 
-function isEncryptedPayload(value: unknown): boolean {
-  if (typeof value !== 'string') return false
-  const parts = value.split(':')
-  return parts.length === 4 && parts[3] === 'v1'
-}
-
 function formatValueForColumn(prop: any, value: unknown): unknown {
   if (value === null || value === undefined) return value
   const types = Array.isArray(prop?.columnTypes) ? prop.columnTypes : []
@@ -549,6 +545,31 @@ const rotateEncryptionKey: ModuleCli = {
     }
 
     const oldDekCache = new Map<string, TenantDek | null>()
+    // Rows this run could not rotate because their ciphertext opens under neither
+    // --old-key nor the current tenant key — surfaced in the closing summary so an
+    // operator does not have to grep console.warn output for a batch of thousands.
+    const unrecoverableRows: Array<{ entityId: string; field: string; rowId: unknown }> = []
+    // A dry run must not provision key material. `encryptEntityPayload` creates and
+    // persists a tenant DEK in KMS/Vault the first time it runs for a tenant, so a
+    // read-only preview would silently mutate KMS state (#5950). Probe read-only
+    // once per tenant instead, and report what a real run would rewrite.
+    //
+    // The tenant id IS the key id here: this command skips every system-scoped
+    // entity above, and its service is built without `defaultEncryptionMaps`, so
+    // no map it sees can resolve to a `system:<entityId>` key.
+    const dekAvailability = new Map<string, boolean>()
+    const hasExistingDek = async (tenantId: string): Promise<boolean> => {
+      const cached = dekAvailability.get(tenantId)
+      if (cached !== undefined) return cached
+      const available = Boolean(await encryptionService.getDek(tenantId))
+      dekAvailability.set(tenantId, available)
+      if (!available) {
+        console.warn(
+          `[dry-run] Tenant ${tenantId} has no data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
+        )
+      }
+      return available
+    }
     const processScope = async (
       entityId: string,
       meta: any,
@@ -576,6 +597,9 @@ const rotateEncryptionKey: ModuleCli = {
       const rows = await conn.execute(selectSql, [scope.tenantId, scope.organizationId])
       const list = Array.isArray(rows) ? rows : []
       if (!list.length) return 0
+      const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
+      // The scope pins one tenant, so the current DEK is the same for every row here.
+      const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
       let updated = 0
       for (const row of list) {
         const payload: Record<string, unknown> = {}
@@ -584,7 +608,13 @@ const rotateEncryptionKey: ModuleCli = {
           const col = resolved?.columnName
           if (!col) continue
           const rawValue = row[col]
-          if (rotate && !isEncryptedPayload(rawValue)) {
+          // Rotate mode only touches values that look like an envelope (candidates to
+          // re-key); encrypt mode only touches values that do not (plaintext to seal).
+          // A shape-valid envelope encountered in encrypt mode is either already
+          // correctly encrypted or sealed under a foreign DEK — either way, handing it
+          // to encryptEntityPayload would either no-op or throw WRONG_KEY and abort the
+          // whole run (#5951); mirror the filter the update path already applies below.
+          if (isEncryptedPayloadShape(rawValue) ? !rotate : rotate) {
             continue
           }
           payload[rule.field] = rawValue
@@ -605,17 +635,46 @@ const rotateEncryptionKey: ModuleCli = {
           }
           for (const rule of fields) {
             const value = payload[rule.field]
-            if (typeof value !== 'string' || !isEncryptedPayload(value)) continue
+            if (typeof value !== 'string' || !isEncryptedPayloadShape(value)) continue
             const decrypted = decryptWithOldKey(value, oldDek)
-            if (decrypted === null) continue
-            payload[rule.field] = parseDecryptedFieldValue(decrypted)
+            if (decrypted !== null) {
+              payload[rule.field] = parseDecryptedFieldValue(decrypted)
+              continue
+            }
+            // The old key did not open it. If the current key does, the row was already
+            // rotated (a resumed run) — leave it in the payload, where the service's own
+            // already-encrypted check skips it. Otherwise no key we hold can open it, and
+            // handing it to the encrypt path would abort the whole batch (#5951). Drop the
+            // field so this row is reported and skipped instead.
+            if (currentDek && decryptWithAesGcm(value, currentDek.key) !== null) continue
+            delete payload[rule.field]
+            if (rule.hashField) delete payload[rule.hashField]
+            unrecoverableRows.push({ entityId, field: rule.field, rowId: row[pk] })
+            console.warn(
+              `Skipping ${entityId}.${rule.field} for row ${row[pk]}: its ciphertext opens under neither --old-key nor the current tenant key. Re-run with the key that sealed it.`,
+            )
           }
+        }
+        if (!dekAvailable) {
+          // Nothing was encrypted because no key exists and this run refuses to
+          // create one. Count the rows a real run would rewrite by applying the
+          // same plaintext/ciphertext filters the update path uses below.
+          const wouldChange = fields.some((rule) => {
+            const col = resolveProperty(meta, rule.field)?.columnName
+            if (!col) return false
+            const value = row[col]
+            if (value === null || value === undefined) return false
+            return rotate ? isEncryptedPayloadShape(value) : !isEncryptedPayloadShape(value)
+          })
+          if (wouldChange) updated += 1
+          continue
         }
         const encrypted = await encryptionService.encryptEntityPayload(
           entityId,
           payload,
           scope.tenantId,
           scope.organizationId,
+          { createMissingDek: !dryRun },
         )
         const updates: Record<string, unknown> = {}
         for (const rule of fields) {
@@ -624,7 +683,7 @@ const rotateEncryptionKey: ModuleCli = {
           if (!col) continue
           const nextValue = (encrypted as any)[rule.field]
           if (nextValue !== undefined && nextValue !== row[col]) {
-            if (!rotate && isEncryptedPayload(row[col])) continue
+            if (!rotate && isEncryptedPayloadShape(row[col])) continue
             updates[col] = formatValueForColumn(resolved?.prop, nextValue)
           }
           if (rule.hashField) {
@@ -670,6 +729,20 @@ const rotateEncryptionKey: ModuleCli = {
       console.log(`Encrypted ${total} record(s) across mapped entities.`)
     } else {
       console.log('All mapped entity fields already encrypted for the selected scope.')
+    }
+    if (unrecoverableRows.length) {
+      const maxListed = 20
+      console.log(
+        `\n⚠️  ${unrecoverableRows.length} field(s) could not be rotated — their ciphertext opens under neither `
+          + '--old-key nor the current tenant key, so they were left untouched. See '
+          + '"Key management" in apps/docs/docs/architecture/data-encryption.mdx for how to resolve these manually.',
+      )
+      for (const row of unrecoverableRows.slice(0, maxListed)) {
+        console.log(`  - ${row.entityId}.${row.field} row=${String(row.rowId)}`)
+      }
+      if (unrecoverableRows.length > maxListed) {
+        console.log(`  ... and ${unrecoverableRows.length - maxListed} more`)
+      }
     }
   },
 }
@@ -1129,6 +1202,17 @@ const backfillSystemEncryption: ModuleCli = {
       const columnList = Array.from(columns)
       const selectList = columnList.map((column) => `"${column}"`).join(', ')
 
+      // Same dry-run guarantee as rotate-encryption-key: previewing must not make
+      // the KMS provision this entity's system DEK as a side effect (#5950).
+      const systemDekAvailable = dryRun
+        ? Boolean(await encryptionService.getDek(resolveEncryptionKeyId(entityId, 'system', null)))
+        : true
+      if (!systemDekAvailable) {
+        console.warn(
+          `[dry-run] ${entityId} has no system data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
+        )
+      }
+
       let cursor: unknown = null
       let entityRowsScanned = 0
       let entityRowsUpdated = 0
@@ -1152,16 +1236,32 @@ const backfillSystemEncryption: ModuleCli = {
             const resolved = resolveProperty(meta, rule.field)
             if (!resolved.columnName) continue
             const rawValue = row[resolved.columnName]
+            // Only plaintext belongs in the payload. An already-encrypted column produced no
+            // update anyway (the service skips what decrypts under the current key), but if the
+            // system key ever changed, passing its ciphertext through would abort the whole
+            // backfill rather than let the row's genuinely-plaintext fields through (#5951).
+            if (rawValue !== null && rawValue !== undefined && isEncryptedPayloadShape(rawValue)) continue
             payload[rule.field] = rawValue
-            if (rawValue !== null && rawValue !== undefined && !isEncryptedPayload(rawValue)) hasPlaintext = true
+            if (rawValue !== null && rawValue !== undefined) hasPlaintext = true
             if (rule.hashField) {
               const resolvedHash = resolveProperty(meta, rule.hashField)
               if (resolvedHash.columnName) payload[rule.hashField] = row[resolvedHash.columnName]
             }
           }
           if (!hasPlaintext) continue
+          if (!systemDekAvailable) {
+            // `hasPlaintext` already means a real run would rewrite this row.
+            entityRowsUpdated += 1
+            continue
+          }
 
-          const encrypted = await encryptionService.encryptEntityPayload(entityId, payload, null, null)
+          const encrypted = await encryptionService.encryptEntityPayload(
+            entityId,
+            payload,
+            null,
+            null,
+            { createMissingDek: !dryRun },
+          )
           const updates: Record<string, unknown> = {}
           for (const rule of map.fields) {
             const resolved = resolveProperty(meta, rule.field)

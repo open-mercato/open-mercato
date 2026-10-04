@@ -7,6 +7,8 @@ export const metadata = {
   pageGroupKey: 'eudr.nav.group',
   navHidden: true,
   breadcrumb: [
+    { label: 'EUDR', labelKey: 'eudr.nav.module', href: '/backend/eudr' },
     { label: 'Risk assessments', labelKey: 'eudr.nav.riskAssessments', href: '/backend/eudr/risk-assessments' },
+    { label: 'Edit risk assessment', labelKey: 'eudr.riskAssessments.edit.title' },
   ],
 }

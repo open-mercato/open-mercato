@@ -41,7 +41,7 @@ packages/cli/src/
 
 The CLI auto-discovers module files across all packages and `apps/mercato/src/modules/`. It scans for:
 
-- `index.ts` (metadata), `cli.ts`, `di.ts`, `acl.ts`, `setup.ts`, `encryption.ts`, `ce.ts`
+- `index.ts` (metadata), `cli.ts`, `di.ts`, `acl.ts`, `setup.ts`, `runtime.ts`, `encryption.ts`, `ce.ts`
 - `search.ts`, `events.ts`, `notifications.ts`, `ai-tools.ts`
 - `generators.ts` — module-level generator plugin declarations (see below)
 - `data/entities.ts`, `data/extensions.ts`
@@ -95,6 +95,8 @@ Default workflow: update ORM entities in `data/entities.ts`, then run `yarn db:g
 Coding-agent exception: if `yarn db:generate` emits unrelated migrations because another module's snapshot is stale, do not commit the noise. Delete unrelated generated files, keep or write only the SQL for the intended entity change, and update the affected module's `migrations/.snapshot-open-mercato.json` to the post-change schema. The snapshot update is mandatory; without it, standalone apps will regenerate already-committed migrations.
 
 Do not run `yarn db:migrate` as part of generation unless the user explicitly asks to apply migrations. A PR should normally include the migration file plus snapshot, not depend on local DB state.
+
+After every module has migrated, `dbMigrate` collects the `queryIndexReindexEntityTypes` declarations exported by the migrations it just applied and queues one persistent `query_index.reindex` per entity type (`packages/cli/src/lib/db/migration-reindex.ts`). This step MUST stay non-fatal: an unreachable event bus degrades to printing the equivalent `mercato query_index rebuild --entity <type> --global`, and `OM_MIGRATION_REINDEX=off` disables it. A migration that rewrites a query-indexed column without declaring leaves `entity_indexes.doc` stale permanently.
 
 ## Standalone App Considerations
 

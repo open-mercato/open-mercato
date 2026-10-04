@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter, useParams, usePathname } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -251,6 +251,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
       <PageBody>
         <CrudForm
           title={t('currencies.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/currencies"
           versionHistory={{ resourceKind: 'currencies.currency', resourceId: currency.id }}
           extraActions={(

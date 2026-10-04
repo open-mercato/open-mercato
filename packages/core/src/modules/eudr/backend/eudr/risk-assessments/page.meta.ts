@@ -8,5 +8,8 @@ export const metadata = {
   pagePriority: 10,
   pageOrder: 40,
   icon: 'shield-alert',
-  breadcrumb: [{ label: 'Risk assessments', labelKey: 'eudr.nav.riskAssessments' }],
+  breadcrumb: [
+    { label: 'EUDR', labelKey: 'eudr.nav.module', href: '/backend/eudr' },
+    { label: 'Risk assessments', labelKey: 'eudr.nav.riskAssessments' },
+  ],
 }

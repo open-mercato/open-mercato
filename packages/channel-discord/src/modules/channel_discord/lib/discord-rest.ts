@@ -172,7 +172,16 @@ class FetchDiscordRestClient implements DiscordRestClient {
       allowed_mentions: input.allowedMentions ?? { parse: [] },
     }
     if (input.messageReferenceId) {
-      body.message_reference = { message_id: input.messageReferenceId }
+      // `fail_if_not_exists` defaults to `true` on Discord's side: a reference to
+      // a message that has since been deleted makes the API reject the send
+      // outright (a 400, which `request` classifies as non-transient, so the hub
+      // marks the link `failed` and the reply is never delivered). Users delete
+      // messages routinely and the AI producers reference the thread ROOT — the
+      // oldest and likeliest-deleted message in a conversation. Opting out makes
+      // Discord fall back to a plain channel message, the same degradation
+      // `outbound-reply-ref.ts` already applies to the cases the hub can detect:
+      // an unthreaded delivery always beats a failed one.
+      body.message_reference = { message_id: input.messageReferenceId, fail_if_not_exists: false }
     }
     return this.request<DiscordMessageObject>(
       auth,

@@ -2,6 +2,8 @@ import type {
   ChannelNativeContent,
   ConvertOutboundInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
+import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
+import { sanitizeRichTextHtml } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DISCORD_MAX_BODY_LENGTH } from './capabilities'
 
@@ -10,26 +12,18 @@ const logger = createLogger('channel_discord').child({ component: 'convert-outbo
 /**
  * Very small HTML → markdown down-converter for the common inline tags the hub's
  * `html` body format produces. Discord content is markdown-native, so we map the
- * handful of tags that have a markdown equivalent and strip the rest rather than
- * pulling in a full HTML parser dependency.
+ * handful of tags that have a markdown equivalent, then reuse the shared HTML
+ * sanitizer and parser for the remainder.
  */
 function htmlToMarkdown(html: string): string {
-  return html
-    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
-    .replace(/<\s*\/\s*p\s*>/gi, '\n\n')
-    .replace(/<\s*p[^>]*>/gi, '')
-    .replace(/<\s*(strong|b)\s*>(.*?)<\s*\/\s*\1\s*>/gis, '**$2**')
-    .replace(/<\s*(em|i)\s*>(.*?)<\s*\/\s*\1\s*>/gis, '*$2*')
-    .replace(/<\s*code\s*>(.*?)<\s*\/\s*code\s*>/gis, '`$1`')
-    .replace(/<\s*a[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\s*\/\s*a\s*>/gis, '[$2]($1)')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  const markdownHtml = sanitizeRichTextHtml(html)
+    .replace(/<(strong|b)>(.*?)<\/\1>/gis, '**$2**')
+    .replace(/<(em|i)>(.*?)<\/\1>/gis, '*$2*')
+    .replace(/<code>(.*?)<\/code>/gis, '`$1`')
+    .replace(/<a href="([^"]+)"[^>]*>(.*?)<\/a>/gis, '[$2]($1)')
+    .replace(/<img\b[^>]*>/gi, '')
+
+  return htmlToPlainText(markdownHtml)
 }
 
 /**
@@ -75,14 +69,34 @@ export async function convertOutboundForDiscord(input: ConvertOutboundInput): Pr
     metadata: {
       allowedMentions,
       droppedAttachmentCount,
-      // Reply threading, dormant: no hub producer writes `replyToExternalId`
-      // into outbound metadata today, which is why `capabilities.threading` is
-      // declared `false`. Kept so that flag flips back with the hub-side
-      // producer and nothing else.
-      messageReferenceId:
-        typeof input.channelMetadata?.replyToExternalId === 'string'
-          ? (input.channelMetadata.replyToExternalId as string)
-          : undefined,
+      messageReferenceId: resolveMessageReferenceId(input.channelMetadata),
     },
   }
+}
+
+/**
+ * Resolve the id of the message an outbound reply attaches to. Order of
+ * precedence:
+ *   1. `replyToExternalId` — what the hub writes on the outbound path
+ *      (`communication_channels/lib/outbound-reply-ref.ts`) when the message
+ *      being delivered answers one that already reached this channel.
+ *   2. `messageReferenceId` — our own already-converted key, which survives the
+ *      hub's convert→send double-conversion: `deliver-outbound-message` calls
+ *      `convertOutbound` and then hands `converted.metadata` to `sendMessage`,
+ *      which re-converts it. Without accepting the converted key on that second
+ *      pass the rename `replyToExternalId` → `messageReferenceId` is one-way and
+ *      the reference is silently dropped before it reaches Discord (#5541).
+ *      `channel-gmail/lib/convert-outbound.ts` keeps `threadId` stable across
+ *      the same seam for the same reason.
+ *
+ * Both are absent on a non-reply, which sends a plain channel message.
+ */
+function resolveMessageReferenceId(
+  channelMetadata: ConvertOutboundInput['channelMetadata'],
+): string | undefined {
+  const fromHub = channelMetadata?.replyToExternalId
+  if (typeof fromHub === 'string' && fromHub.length > 0) return fromHub
+  const alreadyConverted = channelMetadata?.messageReferenceId
+  if (typeof alreadyConverted === 'string' && alreadyConverted.length > 0) return alreadyConverted
+  return undefined
 }

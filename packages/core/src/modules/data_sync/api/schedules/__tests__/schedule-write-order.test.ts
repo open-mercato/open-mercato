@@ -1,6 +1,10 @@
 /** @jest-environment node */
 
+import { createInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
+
 const mockGetAuthFromRequest = jest.fn()
+const mockLoggerError = jest.fn()
+const mockReportError = jest.fn()
 
 const mockEm = {
   create: jest.fn(),
@@ -14,29 +18,29 @@ const mockScheduler = {
   exists: jest.fn(),
 }
 
-const mockLoggerError = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/logger', () => ({
-  createLogger: jest.fn(() => ({
-    child: jest.fn(() => ({
-      error: (...args: unknown[]) => mockLoggerError(...args),
-    })),
-  })),
-}))
-
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((req: Request) => mockGetAuthFromRequest(req)),
 }))
 
-const mockFindOneWithDecryption = jest.fn()
+const mockFindOneWithDecryption = jest.fn(async () => null as unknown)
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn(async (...args: unknown[]) => mockFindOneWithDecryption(...args)),
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
   findAndCountWithDecryption: jest.fn(async () => [[], 0]),
 }))
 
 jest.mock('@open-mercato/shared/lib/http/readJsonSafe', () => ({
   readJsonSafe: jest.fn((req: Request) => req.json()),
+}))
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: jest.fn(() => ({
+    child: jest.fn(() => ({ error: mockLoggerError })),
+  })),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => ({ reportError: mockReportError })),
 }))
 
 const { createSyncScheduleService } = jest.requireActual('../../../lib/sync-schedule-service')
@@ -65,23 +69,6 @@ function updateRequest(scheduleValue = '1h') {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ scheduleValue }),
-  })
-}
-
-function request(scheduleValue = '3600') {
-  return new Request('http://localhost/api/data_sync/schedules', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      integrationId: 'sync_excel',
-      entityType: 'customers.person',
-      direction: 'import',
-      scheduleType: 'interval',
-      scheduleValue,
-      timezone: 'UTC',
-      fullSync: false,
-      isEnabled: true,
-    }),
   })
 }
 
@@ -119,7 +106,37 @@ function existingRow(scheduledJobId: string | null) {
   }
 }
 
+function request(overrides: Record<string, unknown> = {}) {
+  return new Request('http://localhost/api/data_sync/schedules', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      integrationId: 'sync_excel',
+      entityType: 'customers.person',
+      direction: 'import',
+      scheduleType: 'interval',
+      scheduleValue: '1h',
+      timezone: 'UTC',
+      fullSync: false,
+      isEnabled: true,
+      ...overrides,
+    }),
+  })
+}
+
 describe('data_sync schedule save write ordering', () => {
+  const invalidCron = { scheduleType: 'cron', scheduleValue: 'not a cron' }
+
+  function rejectInvalidCron() {
+    mockScheduler.register.mockImplementation(async () => {
+      throw createInvalidScheduleValueError(
+        'cron',
+        'not a cron',
+        'Failed to calculate next run time for schedule: some-id',
+      )
+    })
+  }
+
   beforeEach(() => {
     jest.clearAllMocks()
     mockFindOneWithDecryption.mockImplementation(async () => null)
@@ -137,15 +154,11 @@ describe('data_sync schedule save write ordering', () => {
   })
 
   it('does not persist the schedule when the scheduler rejects an unparseable value', async () => {
-    mockScheduler.register.mockImplementation(async () => {
-      throw new Error('Failed to calculate next run time for schedule: some-id')
-    })
+    rejectInvalidCron()
 
-    const res = await POST(request())
+    const res = await POST(request(invalidCron))
 
     expect(res.status).toBe(422)
-    const body = await res.json()
-    expect(body.error).toContain('Failed to calculate next run time')
 
     expect(mockScheduler.register).toHaveBeenCalledTimes(1)
     expect(mockEm.create).not.toHaveBeenCalled()
@@ -154,8 +167,34 @@ describe('data_sync schedule save write ordering', () => {
     expect(mockScheduler.unregister).not.toHaveBeenCalled()
   })
 
+  it('reports a scheduler-rejected value as a scheduleValue field error instead of the internal message', async () => {
+    rejectInvalidCron()
+
+    const res = await POST(request(invalidCron))
+    const body = await res.json()
+
+    expect(body.error).toBe('Invalid payload')
+    expect(body.details.fieldErrors.scheduleValue).toHaveLength(1)
+    expect(JSON.stringify(body)).not.toContain('Failed to calculate next run time')
+    expect(JSON.stringify(body)).not.toContain('some-id')
+  })
+
+  it('rejects an unparseable interval at the schema layer, before the scheduler is reached', async () => {
+    const res = await POST(request({ scheduleType: 'interval', scheduleValue: '3600' }))
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.error).toBe('Invalid payload')
+    expect(body.details.fieldErrors.scheduleValue).toHaveLength(1)
+
+    expect(mockScheduler.register).not.toHaveBeenCalled()
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
   it('registers the scheduled job before flushing the schedule row on the success path', async () => {
-    const res = await POST(request('1h'))
+    const res = await POST(request())
 
     expect(res.status).toBe(201)
     expect(mockScheduler.register).toHaveBeenCalledTimes(1)
@@ -171,7 +210,7 @@ describe('data_sync schedule save write ordering', () => {
       throw flushError
     })
 
-    const res = await POST(request('1h'))
+    const res = await POST(request())
 
     expect(res.status).toBe(422)
     const body = await res.json()
@@ -188,7 +227,7 @@ describe('data_sync schedule save write ordering', () => {
       throw new Error('could not serialize access due to concurrent update')
     })
 
-    const res = await POST(request('1h'))
+    const res = await POST(request())
 
     expect(res.status).toBe(422)
     expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }))
@@ -201,7 +240,7 @@ describe('data_sync schedule save write ordering', () => {
       throw new Error('connection terminated unexpectedly')
     })
 
-    const res = await POST(request('1h'))
+    const res = await POST(request())
 
     expect(res.status).toBe(422)
     expect(mockScheduler.exists).toHaveBeenCalledWith('schedule-1')
@@ -217,7 +256,7 @@ describe('data_sync schedule save write ordering', () => {
       throw new Error('connection terminated unexpectedly')
     })
 
-    const res = await POST(request('1h'))
+    const res = await POST(request())
 
     expect(res.status).toBe(422)
     expect(mockScheduler.exists).toHaveBeenCalledWith('schedule-1')
@@ -230,7 +269,7 @@ describe('data_sync schedule save write ordering', () => {
       throw new Error('connection terminated unexpectedly')
     })
 
-    const res = await POST(request('1h'))
+    const res = await POST(request())
 
     expect(res.status).toBe(422)
     expect(mockScheduler.exists).not.toHaveBeenCalled()
@@ -263,7 +302,7 @@ describe('data_sync schedule save write ordering', () => {
       throw new Error('scheduler unavailable')
     })
 
-    const res = await POST(request('1h'))
+    const res = await POST(request())
 
     expect(res.status).toBe(422)
     const body = await res.json()
@@ -280,7 +319,7 @@ describe('data_sync schedule save write ordering', () => {
       throw compensationError
     })
 
-    await POST(request('1h'))
+    await POST(request())
 
     const registeredJobId = mockScheduler.register.mock.calls[0][0].id
     expect(mockLoggerError).toHaveBeenCalledTimes(1)
@@ -292,6 +331,20 @@ describe('data_sync schedule save write ordering', () => {
         organizationId: 'org-1',
         tenantId: 'tenant-1',
         err: compensationError,
+      }),
+    )
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      compensationError,
+      expect.objectContaining({
+        module: 'data_sync',
+        code: 'data_sync.schedule_save_compensation_failed',
+        attributes: expect.objectContaining({
+          scheduledJobId: registeredJobId,
+          scheduleId: registeredJobId,
+          organizationId: 'org-1',
+          tenantId: 'tenant-1',
+        }),
       }),
     )
   })
@@ -322,5 +375,108 @@ describe('data_sync schedule save write ordering', () => {
     expect(res.status).toBe(422)
     expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }))
     expect(mockScheduler.unregister).not.toHaveBeenCalled()
+  })
+})
+
+describe('data_sync schedule delete compensation', () => {
+  const scope = { organizationId: 'org-1', tenantId: 'tenant-1' }
+
+  function makeRow() {
+    return {
+      id: 'schedule-1',
+      scheduledJobId: 'job-1',
+      integrationId: 'sync_excel',
+      entityType: 'customers.person',
+      direction: 'import' as const,
+      scheduleType: 'interval' as const,
+      scheduleValue: '3600',
+      timezone: 'UTC',
+      fullSync: false,
+      isEnabled: true,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+      updatedAt: null,
+    }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('re-registers the job and still propagates the original error when the flush fails', async () => {
+    const row = makeRow()
+    mockFindOneWithDecryption.mockResolvedValueOnce(row)
+    const flushError = new Error('connection lost')
+    mockEm.flush.mockRejectedValueOnce(flushError)
+    mockScheduler.unregister.mockResolvedValueOnce(undefined)
+    mockScheduler.register.mockResolvedValueOnce(undefined)
+
+    await expect(scheduleService.deleteSchedule(row.id, scope)).rejects.toThrow('connection lost')
+
+    expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
+    expect(mockScheduler.unregister).toHaveBeenCalledWith('job-1')
+    expect(mockScheduler.register).toHaveBeenCalledTimes(1)
+    expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'job-1',
+      isEnabled: true,
+      scheduleType: 'interval',
+      scheduleValue: '3600',
+      timezone: 'UTC',
+    }))
+    expect(mockLoggerError).not.toHaveBeenCalled()
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  it('does not mask the original error when the compensation register also fails', async () => {
+    const row = makeRow()
+    mockFindOneWithDecryption.mockResolvedValueOnce(row)
+    const flushError = new Error('connection lost')
+    mockEm.flush.mockRejectedValueOnce(flushError)
+    mockScheduler.unregister.mockResolvedValueOnce(undefined)
+    const compensationError = new Error('scheduler unavailable')
+    mockScheduler.register.mockRejectedValueOnce(compensationError)
+
+    await expect(scheduleService.deleteSchedule(row.id, scope)).rejects.toThrow('connection lost')
+
+    expect(mockScheduler.register).toHaveBeenCalledTimes(1)
+    expect(mockLoggerError).toHaveBeenCalledTimes(1)
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Failed to restore scheduled job after a failed schedule delete',
+      expect.objectContaining({
+        scheduledJobId: 'job-1',
+        scheduleId: 'schedule-1',
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      }),
+    )
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      compensationError,
+      expect.objectContaining({
+        module: 'data_sync',
+        code: 'data_sync.schedule_delete_compensation_failed',
+        attributes: expect.objectContaining({
+          scheduledJobId: 'job-1',
+          scheduleId: 'schedule-1',
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        }),
+      }),
+    )
+  })
+
+  it('does not re-register the job when the delete succeeds', async () => {
+    const row = makeRow()
+    mockFindOneWithDecryption.mockResolvedValueOnce(row)
+    mockEm.flush.mockResolvedValueOnce(undefined)
+    mockScheduler.unregister.mockResolvedValueOnce(undefined)
+
+    await expect(scheduleService.deleteSchedule(row.id, scope)).resolves.toBe(true)
+
+    expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
+    expect(mockScheduler.register).not.toHaveBeenCalled()
+    expect(mockLoggerError).not.toHaveBeenCalled()
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 })

@@ -96,6 +96,7 @@ export default function CreateRuleSetPage() {
       <PageBody>
         <CrudForm
           title={t('business_rules.sets.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/sets"
           schema={ruleSetFormSchema}
           fields={fields}

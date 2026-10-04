@@ -239,7 +239,7 @@
   "eudr.lifecycle.amendWindowClosed": "수정 기간 종료",
   "eudr.lifecycle.amendWindowRemaining": "남은 수정 기간: {hours}시간 {minutes}분",
   "eudr.lifecycle.confirmArchive": "진술서를 보관하시겠습니까?",
-  "eudr.lifecycle.confirmArchiveBody": "진술서가 보관됩니다.",
+  "eudr.lifecycle.confirmArchiveBody": "진술서가 보관됩니다. 보관된 진술서는 읽기 전용이며 수정, 복원 또는 삭제할 수 없습니다.",
   "eudr.lifecycle.confirmMarkAvailable": "진술서를 사용 가능으로 표시하시겠습니까?",
   "eudr.lifecycle.confirmMarkAvailableBody": "진술서가 사용 가능해지기 전에 참조 세부 정보가 필요합니다.",
   "eudr.lifecycle.confirmReturnToDraft": "진술서를 초안으로 되돌리시겠습니까?",
@@ -313,7 +313,8 @@
   "eudr.mitigation_actions.update": "EUDR 완화 조치 업데이트",
   "eudr.nav.group": "준수",
   "eudr.nav.mappings": "제품 매핑",
-  "eudr.nav.overview": "개요",
+  "eudr.nav.module": "EUDR",
+  "eudr.nav.overview": "EUDR 개요",
   "eudr.nav.plots": "구획",
   "eudr.nav.riskAssessments": "위험 평가",
   "eudr.nav.statements": "진술서",
@@ -743,5 +744,8 @@
   "eudr.supplierPanel.viewSubmissions": "제출물 보기",
   "eudr.supplierPanel.warnings": "경고 있음",
   "eudr.warnings.harvestBeforeCutoff": "EUDR 기준일 이전 수확",
-  "eudr.warnings.speciesMissing": "연결된 목재 매핑에 학명 또는 일반명이 누락되었습니다"
+  "eudr.warnings.speciesMissing": "연결된 목재 매핑에 학명 또는 일반명이 누락되었습니다",
+  "search.entityType.eudr.eudr_due_diligence_statement": "DDS 진술서",
+  "search.entityType.eudr.eudr_evidence_submission": "증거 제출물",
+  "search.entityType.eudr.eudr_plot": "구획"
 }

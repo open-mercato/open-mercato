@@ -24,11 +24,18 @@ import {
  * - POST /api/workflows/definitions, /api/workflows/instances
  * - POST /api/workflows/tasks/[id]/claim, /complete
  * - POST /api/workflows/instances/[id]/signal
+ * - GET  /api/workflows/work-inbox        (gated on `workflows.tasks.view`)
+ * - POST /api/workflows/work-inbox/next   (gated on `workflows.tasks.claim`)
  *
  * The restricted role gets view-only workflows features, so it clears the declarative view
  * guards and we exercise the create-specific inner checks (definitions/instances) as well as
  * the declarative mutation guards (claim/complete/signal). A wildcard-granted admin is the
  * positive control. Fabricated UUIDs are used because the gates run before any record lookup.
+ *
+ * The work inbox is a READ of the same tasks under a new route, so it must gate exactly like
+ * the task list it projects: reading is `workflows.tasks.view` (the view-only role clears it)
+ * and claim-next is `workflows.tasks.claim` (it does not). Claim-next in particular MUST NOT
+ * be reachable from a read grant — it takes a row.
  */
 const FABRICATED_ID = '00000000-0000-4000-8000-000000000000'
 
@@ -97,6 +104,14 @@ test.describe('TC-WF-028: workflow permission gate enforcement (#2462)', () => {
         data: { signalName: 'approval' },
       })
       expect(signal.status(), 'signal without workflows.instances.signal is forbidden').toBe(403)
+
+      // The work inbox reads the same tasks under a new route: reading is allowed by the
+      // view grant the role already holds, claiming the next item is not.
+      const workInbox = await apiRequest(request, 'GET', '/api/workflows/work-inbox', { token: userToken })
+      expect(workInbox.status(), 'reading the work inbox needs only workflows.tasks.view').toBe(200)
+
+      const claimNext = await apiRequest(request, 'POST', '/api/workflows/work-inbox/next', { token: userToken })
+      expect(claimNext.status(), 'claim-next without workflows.tasks.claim is forbidden').toBe(403)
 
       // Unauthenticated requests are rejected before any feature check.
       const unauthenticated = await apiRequest(request, 'GET', '/api/workflows/definitions', {

@@ -38,8 +38,10 @@ jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
   getRedisUrlOrThrow: jest.fn(() => 'redis://localhost:6379'),
 }))
 
+const emitSchedulerEvent = jest.fn(async () => undefined)
+
 jest.mock('../../events', () => ({
-  emitSchedulerEvent: jest.fn(async () => undefined),
+  emitSchedulerEvent: (...args: unknown[]) => emitSchedulerEvent(...(args as [])),
 }))
 
 const scheduleId = '11111111-1111-4111-8111-111111111111'
@@ -132,6 +134,135 @@ describe('executeScheduleWorker command scope', () => {
     ).rejects.toBeInstanceOf(CrudHttpError)
 
     expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('executeScheduleWorker command actor attribution', () => {
+  function runWorker(
+    schedule: ScheduledJob,
+    payloadOverrides: Record<string, unknown> = {},
+    context = buildWorkerContext(schedule),
+  ) {
+    return {
+      context,
+      promise: executeScheduleWorker(
+        {
+          id: 'queued-job-1',
+          queue: 'scheduler-execution',
+          payload: {
+            scheduleId,
+            tenantId: schedule.tenantId,
+            organizationId: schedule.organizationId,
+            scopeType: schedule.scopeType,
+            ...payloadOverrides,
+          },
+          attempts: 0,
+          createdAt: Date.now(),
+        },
+        context.context,
+      ),
+    }
+  }
+
+  beforeEach(() => {
+    mockCommandExecute.mockReset()
+    emitSchedulerEvent.mockClear()
+    mockCommandExecute.mockResolvedValue({ result: { ok: true }, logEntry: null })
+  })
+
+  it('runs a manual trigger as the user who triggered it, not the creator', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'manual',
+      triggeredByUserId: 'user-b',
+    })
+    await promise
+
+    // The gate authorizes the identity that will execute...
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-b',
+      ['scheduler.jobs.manage'],
+      { tenantId: 'tenant-a', organizationId: 'org-a' },
+    )
+    // ...and the command context carries that same identity.
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-b', userId: 'user-b' })
+  })
+
+  it('keeps running an unattended run as the schedule creator', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule)
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      ['scheduler.jobs.manage'],
+      { tenantId: 'tenant-a', organizationId: 'org-a' },
+    )
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-a', userId: 'user-a' })
+  })
+
+  it('ignores a triggering user carried on a scheduled (non-manual) run', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'scheduled',
+      triggeredByUserId: 'user-b',
+    })
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('refuses a manual trigger whose triggering user lacks the target features, even when the creator holds them', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const context = buildWorkerContext(schedule)
+    context.rbacService.userHasAllFeatures.mockImplementation(async (userId: string) => userId === 'user-a')
+
+    const { promise } = runWorker(schedule, { triggerType: 'manual', triggeredByUserId: 'user-b' }, context)
+
+    // The refusal is permanent, so it ends the job rather than throwing: a throw
+    // is indistinguishable from an outage and BullMQ would retry a decision no
+    // attempt can change, leaving no trace but a log line.
+    await expect(promise).resolves.toBeUndefined()
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(schedule.lastRunAt).toBeUndefined()
+    expect(emitSchedulerEvent).toHaveBeenCalledWith(
+      'scheduler.job.failed',
+      expect.objectContaining({ id: scheduleId, error: 'Scheduled command actor is not authorized' }),
+    )
+  })
+
+  it('still throws when the authorization lookup itself fails, so a genuine outage is retried', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const context = buildWorkerContext(schedule)
+    context.rbacService.userHasAllFeatures.mockRejectedValue(new Error('rbac store unavailable'))
+
+    const { promise } = runWorker(schedule, {}, context)
+
+    await expect(promise).rejects.toThrow('rbac store unavailable')
+    expect(emitSchedulerEvent).not.toHaveBeenCalledWith('scheduler.job.failed', expect.anything())
+  })
+
+  it('falls back to the creator when a manual trigger carries no user (API-key caller)', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'manual',
+      triggeredByUserId: null,
+    })
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      expect.anything(),
+      expect.anything(),
+    )
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-a' })
   })
 })
 

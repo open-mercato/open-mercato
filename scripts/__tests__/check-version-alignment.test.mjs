@@ -1,10 +1,11 @@
 /**
  * PR-path guard for the release-time version-alignment gate.
  *
- * `scripts/check-version-alignment.sh` asserts that every public `packages/*` manifest carries
- * the monorepo version, and it is load-bearing at release time and nowhere else:
- * `scripts/bump-version.sh:17` and `:29`, `scripts/release-existing.sh:13`, and
- * `.github/workflows/release.yml:72`. No PR-triggered workflow invoked it, so a misaligned
+ * `scripts/check-version-alignment.sh` asserts that every public `packages/*` manifest and every
+ * `apps/*` manifest carries the monorepo version, and it is load-bearing at release time and
+ * nowhere else:
+ * `scripts/bump-version.sh:17` and `:37`, `scripts/release-existing.sh:13`, and
+ * `.github/workflows/release.yml:78`. No PR-triggered workflow invoked it, so a misaligned
  * workspace passed CI and first failed days later at the release's very first gate, detached
  * from the merge that caused it (#5018).
  *
@@ -39,6 +40,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '../..')
 const packagesDir = path.join(rootDir, 'packages')
+const appsDir = path.join(rootDir, 'apps')
 const referenceManifest = path.join(packagesDir, 'shared', 'package.json')
 const alignmentScript = path.join(rootDir, 'scripts', 'check-version-alignment.sh')
 
@@ -67,6 +69,22 @@ async function readPublicPackages() {
   return packages
 }
 
+async function readAppWorkspaces() {
+  const entries = await readdir(appsDir, { withFileTypes: true })
+  const apps = []
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+
+    const manifest = await readManifest(path.join(appsDir, entry.name, 'package.json'))
+    if (!manifest) continue
+
+    apps.push({ dir: entry.name, name: manifest.name, version: manifest.version })
+  }
+
+  return apps
+}
+
 test('every public package is aligned with the monorepo version', async () => {
   const reference = await readManifest(referenceManifest)
   assert.ok(reference, 'packages/shared/package.json is the reference manifest and must exist')
@@ -87,6 +105,29 @@ test('every public package is aligned with the monorepo version', async () => {
     [],
     `Not aligned with the monorepo version (${reference.version}) from packages/shared/package.json. ` +
       'Fix their package.json versions — otherwise the next release fails at its first gate.',
+  )
+})
+
+test('every app workspace is aligned with the monorepo version', async () => {
+  const reference = await readManifest(referenceManifest)
+  const apps = await readAppWorkspaces()
+
+  assert.ok(
+    apps.some((app) => app.dir === 'mercato'),
+    'Expected the scan to reach apps/mercato. A scan that silently stopped finding manifests ' +
+      'would report alignment over nothing at all',
+  )
+
+  const mismatched = apps
+    .filter((app) => app.version !== reference.version)
+    .map((app) => `${app.name}@${app.version} (expected ${reference.version})`)
+
+  assert.deepEqual(
+    mismatched,
+    [],
+    `Not aligned with the monorepo version (${reference.version}) from packages/shared/package.json. ` +
+      'apps/* are private so `yarn workspaces foreach --no-private version` never touches them; ' +
+      'scripts/bump-version.sh syncs them explicitly instead.',
   )
 })
 
@@ -121,5 +162,23 @@ test('the release-time gate still declares the scope this guard mirrors', async 
     /\.private != true/,
     'This guard skips private manifests because the script does — packages/eslint-plugin-ds ' +
       'is versioned independently',
+  )
+  assert.match(
+    script,
+    /find apps -maxdepth 2 -name package\.json/,
+    'This guard scans the direct children of apps/ because that is the script scope. apps/* are ' +
+      'private but ship as the release app shell, so they are checked without the private filter',
+  )
+})
+
+test('the bump script moves the app workspaces too', async () => {
+  const script = await readFile(path.join(rootDir, 'scripts', 'bump-version.sh'), 'utf8')
+
+  assert.match(
+    script,
+    /find apps -maxdepth 2 -name package\.json/,
+    '`yarn workspaces foreach --no-private version` skips apps/* because they are private, so ' +
+      'scripts/bump-version.sh must sync them explicitly — otherwise the alignment gate above ' +
+      'fails on the very release PR that is supposed to fix it',
   )
 })

@@ -46,7 +46,7 @@ describe('StatusFilterPopover', () => {
     setDictionaryEntries([
       { value: 'open', label: 'Open', color: '#2563eb' },
       { value: 'win', label: 'Win', color: '#22c55e' },
-      { value: 'loose', label: 'Loose', color: '#ef4444' },
+      { value: 'lost', label: 'Lost', color: '#ef4444' },
     ])
 
     render(<StatusFilterPopover values={[]} onApply={jest.fn()} />)
@@ -56,7 +56,7 @@ describe('StatusFilterPopover', () => {
 
     expect(await screen.findByText('Open')).toBeInTheDocument()
     expect(screen.getByText('Win')).toBeInTheDocument()
-    expect(screen.getByText('Loose')).toBeInTheDocument()
+    expect(screen.getByText('Lost')).toBeInTheDocument()
   })
 
   it('falls back to hard-coded pills when dictionary is empty', async () => {
@@ -75,7 +75,7 @@ describe('StatusFilterPopover', () => {
     setDictionaryEntries([
       { value: 'open', label: 'Open', color: '#2563eb' },
       { value: 'win', label: 'Win', color: '#22c55e' },
-      { value: 'loose', label: 'Loose', color: '#ef4444' },
+      { value: 'lost', label: 'Lost', color: '#ef4444' },
     ])
 
     render(<StatusFilterPopover values={['won']} onApply={jest.fn()} />)
@@ -154,7 +154,7 @@ describe('StatusFilterPopover', () => {
     setDictionaryEntries([
       { value: 'win', label: 'Win', color: '#22c55e' },
       { value: 'open', label: 'Open', color: '#2563eb' },
-      { value: 'loose', label: 'Lost', color: '#ef4444' },
+      { value: 'lost', label: 'Lost', color: '#ef4444' },
     ])
 
     render(<StatusFilterPopover values={[]} onApply={jest.fn()} />)

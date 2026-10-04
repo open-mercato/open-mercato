@@ -31,7 +31,8 @@ import {
 } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
 import * as stepHandler from './step-handler'
-import { branchToken } from './execution-token'
+import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
+import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -392,10 +393,29 @@ async function advanceOneBranch(
       token,
       selected.fromStepId,
       selected.toStepId,
-      evalContext,
+      { ...evalContext, transitionId: selected.transitionId },
     )
 
     if (!transitionResult.success) {
+      // Error routing (spec 5.9) inside a branch: a wired error route is taken
+      // in the branch itself, so only unhandled failures propagate to the
+      // instance. The failure-queue directive is deliberately instance-level and
+      // is not honored per branch — such a branch keeps failing as it does today.
+      const routed = await followBranchErrorRoute(
+        em,
+        container,
+        instance,
+        branch,
+        token,
+        transitionResult,
+        evalContext,
+      )
+      if (routed) {
+        if (branch.currentStepId === branch.joinStepId) {
+          await completeBranchAtJoin(em, instance, branch)
+        }
+        return 'advanced'
+      }
       await failBranch(em, instance, branch, transitionResult.error || 'Branch transition failed')
       return 'failed'
     }
@@ -411,6 +431,63 @@ async function advanceOneBranch(
     await failBranch(em, instance, branch, message)
     return 'failed'
   }
+}
+
+/**
+ * Follow a branch step's wired error route with the branch token, so the branch
+ * keeps its own cursor and context namespace. Returns false when the transition
+ * result carries no route or the route could not be taken.
+ */
+async function followBranchErrorRoute(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  branch: WorkflowBranchInstance,
+  token: ExecutionToken,
+  transitionResult: { failedStepId?: string; errorRoute?: { transitionId?: string; toStepId: string }; error?: string },
+  evalContext: { workflowContext: Record<string, any>; userId?: string },
+): Promise<boolean> {
+  const { failedStepId, errorRoute } = transitionResult
+  if (!failedStepId || !errorRoute) return false
+
+  const error = transitionResult.error || 'Branch transition failed'
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instance.id,
+    branchInstanceId: branch.id,
+    eventType: 'ERROR_ROUTED',
+    eventData: {
+      failedStepId,
+      toStepId: errorRoute.toStepId,
+      transitionId: errorRoute.transitionId,
+      branchKey: branch.branchKey,
+      error,
+    },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  const errorEntry = buildErrorContextEntry(failedStepId, error)
+  mergeTokenContext(token, { [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry })
+  await em.flush()
+
+  const transitionHandler = await import('./transition-handler')
+  const routedResult = await transitionHandler.executeTransitionForToken(
+    em,
+    container,
+    token,
+    failedStepId,
+    errorRoute.toStepId,
+    {
+      ...evalContext,
+      workflowContext: {
+        ...evalContext.workflowContext,
+        [WORKFLOW_ERROR_CONTEXT_KEY]: errorEntry,
+      },
+      transitionId: errorRoute.transitionId,
+    },
+  )
+
+  return routedResult.success === true
 }
 
 async function completeBranchAtJoin(

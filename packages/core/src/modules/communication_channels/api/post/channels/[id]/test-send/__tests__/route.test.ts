@@ -83,6 +83,17 @@ function invoke(to: unknown) {
   return POST(request, { params: { id: CHANNEL_ID } })
 }
 
+// Distinct from `invoke(undefined)` on purpose: this is the request shape the
+// Discord spec's outbound smoke test documents — a body that names no recipient
+// at all, so the adapter posts to its configured default channel.
+function invokeWithoutRecipient() {
+  const request = new Request(
+    `http://localhost/api/communication_channels/channels/${CHANNEL_ID}/test-send`,
+    { method: 'POST', body: JSON.stringify({ body: 'Ping from QA' }) },
+  )
+  return POST(request, { params: { id: CHANNEL_ID } })
+}
+
 describe('POST /api/communication_channels/channels/[id]/test-send — recipient validation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -161,6 +172,39 @@ describe('POST /api/communication_channels/channels/[id]/test-send — recipient
       await expect(response.json()).resolves.toEqual({
         error: 'Recipient may only contain letters, digits, and the characters . _ : @ + -',
       })
+      expect(adapter.sendMessage).not.toHaveBeenCalled()
+      expect(afterSuccessMock).not.toHaveBeenCalled()
+    })
+  })
+
+  // The half of #4976 that #5261 did not reach: the route made `to` mandatory,
+  // so the smoke test the spec documents — no recipient, adapter posts to
+  // `defaultChannelId` — had no request shape and 422'd at the schema.
+  describe('a request that names no recipient', () => {
+    it('reaches a provider-native adapter with no `metadata.to` at all', async () => {
+      const adapter = buildAdapter('provider-native')
+      getChannelAdapterMock.mockReturnValue(adapter)
+
+      const response = await invokeWithoutRecipient()
+
+      expect(response.status).toBe(200)
+      expect(adapter.sendMessage).toHaveBeenCalledTimes(1)
+      const metadata = adapter.sendMessage.mock.calls[0][0].metadata as Record<string, unknown>
+      expect('to' in metadata).toBe(false)
+      expect(afterSuccessMock).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+      ['declared explicitly', 'email' as const],
+      ['left to the default', undefined],
+    ])('is still refused with 422 when recipientFormat is %s', async (_label, format) => {
+      const adapter = buildAdapter(format)
+      getChannelAdapterMock.mockReturnValue(adapter)
+
+      const response = await invokeWithoutRecipient()
+
+      expect(response.status).toBe(422)
+      await expect(response.json()).resolves.toEqual({ error: 'Recipient is required' })
       expect(adapter.sendMessage).not.toHaveBeenCalled()
       expect(afterSuccessMock).not.toHaveBeenCalled()
     })

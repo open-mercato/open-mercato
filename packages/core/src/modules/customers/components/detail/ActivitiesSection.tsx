@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
+import { resolveAuthorUserNames } from './authorUserLookup'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -314,25 +315,14 @@ export function ActivitiesSection({
     }
     if (unresolvedIds.size === 0) return
 
-    for (const uid of unresolvedIds) resolvedUserIdsRef.current.add(uid)
-
     const controller = new AbortController()
-    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-      `/api/auth/users?ids=${[...unresolvedIds].join(',')}`,
-      { signal: controller.signal },
-    )
-      .then((data) => {
-        const users = Array.isArray(data?.items) ? data.items : []
-        const nameMap = new Map<string, string>()
-        for (const user of users) {
-          const userId = typeof user.id === 'string' ? user.id : null
-          const name = typeof user.display_name === 'string' && user.display_name.trim()
-            ? user.display_name.trim()
-            : typeof user.email === 'string'
-              ? user.email
-              : null
-          if (userId && name) nameMap.set(userId, name)
-        }
+    resolveAuthorUserNames([...unresolvedIds], controller.signal)
+      .then(({ names: nameMap, resolvedIds }) => {
+        if (controller.signal.aborted) return
+        // Only ids the server actually answered for are remembered. Marking an id whose request
+        // failed — or one the server silently dropped past its `?ids=` cap — would leave that
+        // author blank for the life of the component, even though the next attempt would work.
+        for (const uid of resolvedIds) resolvedUserIdsRef.current.add(uid)
         if (nameMap.size > 0) {
           setActivities((prev) =>
             prev.map((a) => {

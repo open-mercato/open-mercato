@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
 import type { RoleAssignment } from './RoleAssignmentRow'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchAssignableStaffMembersPage } from './assignableStaff'
 
 const MANAGE_ROLE_TYPES_HREF = '/backend/config/customers'
@@ -65,6 +66,7 @@ export function AssignRoleDialog({
   canManageRoleTypes = false,
 }: AssignRoleDialogProps) {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [step, setStep] = React.useState<StepId>(1)
   const [selectedRoleType, setSelectedRoleType] = React.useState('')
   const [selectedUser, setSelectedUser] = React.useState<StaffMember | null>(null)
@@ -144,6 +146,7 @@ export function AssignRoleDialog({
         const result = await fetchAssignableStaffMembersPage(query, {
           page,
           pageSize: ASSIGNABLE_STAFF_PAGE_SIZE,
+          activeOrgId,
         })
         if (requestSequenceRef.current !== requestId) return
 
@@ -187,7 +190,7 @@ export function AssignRoleDialog({
         }
       }
     },
-    [t],
+    [activeOrgId, t],
   )
 
   React.useEffect(() => {
@@ -640,13 +643,18 @@ export function AssignRoleDialog({
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 border-t border-border/70 px-6 py-4 sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            {t(
-              'customers.roles.dialog.footerNote',
-              'One person per role · can be changed at any time',
-            )}
-          </p>
+        <DialogFooter
+          bordered={false}
+          className="shrink-0 border-t border-border/70 px-6 py-4"
+          leading={
+            <p className="text-xs text-muted-foreground sm:max-w-2xs">
+              {t(
+                'customers.roles.dialog.footerNote',
+                'One person per role · can be changed at any time',
+              )}
+            </p>
+          }
+        >
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
               {t('customers.roles.cancelAdd', 'Cancel')}

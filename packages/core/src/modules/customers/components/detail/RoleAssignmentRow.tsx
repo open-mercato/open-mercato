@@ -11,6 +11,7 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchAssignableStaffMembers } from './assignableStaff'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -61,13 +62,14 @@ export function RoleAssignmentRow({
   onUpdated,
 }: RoleAssignmentRowProps) {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [removing, setRemoving] = React.useState(false)
   const [changingUser, setChangingUser] = React.useState(false)
 
   const searchUsers = React.useCallback(async (query: string): Promise<LookupSelectItem[]> => {
     try {
-      const members = await fetchAssignableStaffMembers(query, { pageSize: 20 })
+      const members = await fetchAssignableStaffMembers(query, { pageSize: 20, activeOrgId })
       return members.map((member) => ({
         id: member.userId,
         title: member.displayName,
@@ -77,7 +79,7 @@ export function RoleAssignmentRow({
       logger.error('customers.roles.searchUsers failed', { err: error })
       return []
     }
-  }, [])
+  }, [activeOrgId])
 
   const handleUserChange = React.useCallback(async (userId: string | null) => {
     if (!userId || userId === role.userId) return

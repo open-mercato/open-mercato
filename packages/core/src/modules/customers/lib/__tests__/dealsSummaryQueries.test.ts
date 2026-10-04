@@ -84,6 +84,15 @@ describe('loadDealsSummaryQueryRows', () => {
     }
     expect(normalizedSql(executeMock.mock.calls[5])).toContain('status IN (?) AND closure_outcome IS NULL')
     expect(normalizedSql(executeMock.mock.calls[2])).toContain("status = 'win' OR closure_outcome = 'won'")
+    // calls[3] is winLossRows, the one statement carrying BOTH terminal predicates (calls[2]
+    // above is wonRows, the currency-totals query, which carries only the won half).
+    // The lost half must keep matching BOTH spellings: writers persist `lost` from 0.7.1, so
+    // narrowing this back to a single literal would silently drop every newly lost deal out of
+    // the quarter counters and the trend series - a zero, not an error.
+    expect(normalizedSql(executeMock.mock.calls[3])).toContain("status = 'win' OR closure_outcome = 'won'")
+    expect(normalizedSql(executeMock.mock.calls[3])).toContain("status IN ('lost', 'loose') OR closure_outcome = 'lost'")
+    // seriesRows carries the same pair for the monthly trend.
+    expect(normalizedSql(executeMock.mock.calls[4])).toContain("status IN ('lost', 'loose') OR closure_outcome = 'lost'")
     for (const queryCall of executeMock.mock.calls) {
       expect(normalizedSql(queryCall)).toContain('tenant_id = ? AND organization_id IN (?) AND deleted_at IS NULL')
     }

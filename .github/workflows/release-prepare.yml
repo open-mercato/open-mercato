@@ -100,11 +100,11 @@ jobs:
           if [ "${{ inputs.resume }}" = "true" ]; then
             BODY="**Recovery** release preparation for **v$VERSION**."
             BODY="$BODY"$'\n\n'"\`$VERSION\` is already published on npm — this PR brings the repository back in sync."
-            BODY="$BODY"$'\n\n'"- Bumps every public package and the root manifest to \`$VERSION\`"
+            BODY="$BODY"$'\n\n'"- Bumps every public package, the app workspaces (\`apps/*\`) and the root manifest to \`$VERSION\`"
             BODY="$BODY"$'\n'"- No build or publish happens here"
           else
             BODY="Automated release preparation for **v$VERSION**."
-            BODY="$BODY"$'\n\n'"- Bumps every public package and the root manifest to \`$VERSION\`"
+            BODY="$BODY"$'\n\n'"- Bumps every public package, the app workspaces (\`apps/*\`) and the root manifest to \`$VERSION\`"
             BODY="$BODY"$'\n'"- No build or publish happens here"
           fi
 

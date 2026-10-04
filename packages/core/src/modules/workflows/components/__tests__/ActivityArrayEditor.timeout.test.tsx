@@ -30,7 +30,7 @@ function renderEditor(activity: Activity) {
   fireEvent.click(screen.getByRole('button', { name: /Call API/ }))
   const input = container.querySelector<HTMLInputElement>('#activities-0-timeout')
   if (!input) throw new Error('[internal] timeout input not rendered')
-  return { input, setValue }
+  return { container, input, setValue }
 }
 
 const baseActivity: Activity = {
@@ -68,10 +68,27 @@ describe('ActivityArrayEditor timeout binding', () => {
   })
 
   it('resolves a duration string typed into the box', () => {
-    const { input, setValue } = renderEditor(baseActivity)
+    const { container, setValue } = renderEditor(baseActivity)
 
-    fireEvent.change(input, { target: { value: 'PT30S' } })
+    // An activity with no timeout yet renders the duration picker, whose
+    // amount box only accepts numbers; a raw duration string is typed through
+    // the picker's text escape hatch.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit as text' }))
+    const rawInput = container.querySelector<HTMLInputElement>('#activities-0-timeout')
+    if (!rawInput) throw new Error('[internal] timeout input not rendered')
+
+    fireEvent.change(rawInput, { target: { value: 'PT30S' } })
 
     expect(resolveActivityTimeoutMs(lastActivity(setValue))).toBe(30000)
+  })
+
+  it('writes both timeout fields when the duration picker sets an amount', () => {
+    const { input, setValue } = renderEditor(baseActivity)
+
+    fireEvent.change(input, { target: { value: '30' } })
+
+    const activity = lastActivity(setValue)
+    expect(activity.timeout).toBe('PT30M')
+    expect(resolveActivityTimeoutMs(activity)).toBe(30 * 60 * 1000)
   })
 })

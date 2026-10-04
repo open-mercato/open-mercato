@@ -20,6 +20,7 @@ import {
 import { ensureSalesDictionary } from '../../../lib/dictionaries'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('sales')
 
@@ -179,6 +180,10 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     const { translate } = await resolveTranslations()
     logger.error('sales.settings.order-editing.put failed', { err })
     return NextResponse.json(
@@ -225,6 +230,11 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Updated order editing guards', schema: settingsResponseSchema },
         { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
+        {
+          status: 403,
+          description: 'Changing a document-number counter requires sales.documents.number.edit',
+          schema: settingsErrorSchema,
+        },
         { status: 400, description: 'Invalid payload', schema: settingsErrorSchema },
       ],
     },

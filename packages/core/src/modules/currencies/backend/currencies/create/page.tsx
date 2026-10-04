@@ -95,6 +95,7 @@ export default function CreateCurrencyPage() {
       <PageBody>
         <CrudForm
           title={t('currencies.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/currencies"
           fields={[]}
           groups={groups}

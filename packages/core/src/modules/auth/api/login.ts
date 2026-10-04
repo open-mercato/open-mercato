@@ -15,6 +15,7 @@ import { checkAuthRateLimit, resetAuthRateLimit } from '@open-mercato/core/modul
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -84,7 +85,29 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
   }
 }
 
+// Resolving translations can itself be what failed, so the generic message is
+// recovered defensively — the error path must never throw a second time.
+async function resolveGenericLoginError(): Promise<string> {
+  try {
+    const { translate } = await resolveTranslations()
+    return translate('auth.login.errors.generic', 'An error occurred. Please try again.')
+  } catch {
+    return 'An error occurred. Please try again.'
+  }
+}
+
 export async function POST(req: Request) {
+  try {
+    return await handleLoginRequest(req)
+  } catch (error) {
+    return handleAuthRouteError(error, {
+      scope: 'auth.login',
+      message: await resolveGenericLoginError(),
+    })
+  }
+}
+
+async function handleLoginRequest(req: Request) {
   const { translate } = await resolveTranslations()
   const { email, password, remember, tenantIdRaw, requiredRoles, redirectTo } = await parseLoginForm(req)
   // Rate limit — two layers, both checked before validation and DB work

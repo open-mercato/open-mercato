@@ -1,7 +1,6 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -68,25 +67,12 @@ type BundleDetail = {
 
 type BundleConfigPageProps = {
   params?: {
-    id?: string | string[]
+    id?: string
   }
 }
 
-function resolveRouteId(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) return value[0]
-  return value
-}
-
-function resolvePathnameId(pathname: string): string | undefined {
-  const parts = pathname.split('/').filter(Boolean)
-  const bundleId = parts.at(-1)
-  if (!bundleId || bundleId === 'bundle' || bundleId === 'integrations') return undefined
-  return decodeURIComponent(bundleId)
-}
-
 export default function BundleConfigPage({ params }: BundleConfigPageProps) {
-  const pathname = usePathname()
-  const bundleId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
+  const bundleId = params?.id
   const t = useT()
 
   const [detail, setDetail] = React.useState<BundleDetail | null>(null)
@@ -107,17 +93,8 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     contextId: mutationContextId,
   })
 
-  const resolveCurrentBundleId = React.useCallback(() => {
-    return bundleId ?? (
-      typeof window !== 'undefined'
-        ? resolvePathnameId(window.location.pathname)
-        : undefined
-    )
-  }, [bundleId])
-
   const load = React.useCallback(async () => {
-    const currentBundleId = resolveCurrentBundleId()
-    if (!currentBundleId) {
+    if (!bundleId) {
       setError(t('integrations.detail.loadError'))
       setIsLoading(false)
       return
@@ -126,7 +103,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     setError(null)
     setIsNotFound(false)
     const call = await apiCall<BundleDetail>(
-      `/api/integrations/${encodeURIComponent(currentBundleId)}`,
+      `/api/integrations/${encodeURIComponent(bundleId)}`,
       undefined,
       { fallback: null },
     )
@@ -146,7 +123,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
       secretFieldsConfigured?: SecretFieldsConfigured
       updatedAt?: string | null
     }>(
-      `/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`,
+      `/api/integrations/${encodeURIComponent(bundleId)}/credentials`,
       undefined,
       { fallback: null },
     )
@@ -156,7 +133,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     }
     if (credCall.ok && credCall.result?.credentials) {
       const next = { ...credCall.result.credentials }
-      if (currentBundleId === 'storage_s3') {
+      if (bundleId === 'storage_s3') {
         const authMode = next.authMode
         if (authMode !== 'access_keys' && authMode !== 'ambient') {
           const hasKeys = Boolean(next.accessKeyId || next.secretAccessKey)
@@ -169,13 +146,12 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
       ))
     }
     setIsLoading(false)
-  }, [resolveCurrentBundleId, t])
+  }, [bundleId, t])
 
   React.useEffect(() => { void load() }, [load])
 
   const handleSaveCredentials = React.useCallback(async () => {
-    const currentBundleId = resolveCurrentBundleId()
-    if (!currentBundleId) return
+    if (!bundleId) return
     setIsSavingCreds(true)
     try {
       const savePayload = buildCredentialSavePayload(
@@ -184,19 +160,19 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
         secretFieldsConfigured,
       )
       const call = await runMutation({
-        mutationPayload: { bundleId: currentBundleId, ...savePayload },
+        mutationPayload: { bundleId, ...savePayload },
         context: {
           formId: mutationContextId,
           operation: 'update',
           actionId: 'save-credentials',
           resourceKind: 'integrations.bundle',
-          resourceId: currentBundleId,
-          bundleId: currentBundleId,
+          resourceId: bundleId,
+          bundleId,
           retryLastMutation,
         },
         operation: () => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(credentialsUpdatedAt),
-          () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
+          () => apiCall(`/api/integrations/${encodeURIComponent(bundleId)}/credentials`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(savePayload),
@@ -214,7 +190,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     } finally {
       setIsSavingCreds(false)
     }
-  }, [resolveCurrentBundleId, runMutation, mutationContextId, retryLastMutation, credValues, credentialsUpdatedAt, detail?.bundle?.credentials?.fields, load, secretFieldsConfigured, t])
+  }, [bundleId, runMutation, mutationContextId, retryLastMutation, credValues, credentialsUpdatedAt, detail?.bundle?.credentials?.fields, load, secretFieldsConfigured, t])
 
   const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean, updatedAt?: string | null) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))

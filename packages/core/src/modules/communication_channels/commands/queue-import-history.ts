@@ -10,6 +10,11 @@ import type {
 import { CommunicationChannel } from '../data/entities'
 import { getChannelAdapterRegistry } from '../lib/adapter-registry-singleton'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import {
+  IMPORT_HISTORY_MAX_CONTACT_EMAILS,
+  getImportHistoryLimits,
+  type ImportHistoryLimits,
+} from '../lib/import-history-limits'
 
 /**
  * Spec B § Phase B6 — operator-triggered backlog import.
@@ -24,17 +29,40 @@ import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '..
  * dropped guard is still safe.
  */
 
-export const queueImportHistorySchema = z.object({
-  channelId: z.string().uuid(),
-  sinceDays: z.number().int().min(1).max(365).default(30),
-  contactEmails: z
-    .array(z.string().email().max(255))
-    .max(200)
-    .optional(),
-  maxMessages: z.number().int().min(1).max(5000).default(1000),
-})
+export function createQueueImportHistorySchema(limits: ImportHistoryLimits = getImportHistoryLimits()) {
+  return z.object({
+    channelId: z.string().uuid(),
+    sinceDays: z.number().int().min(1).max(limits.maxSinceDays).default(limits.defaultSinceDays),
+    contactEmails: z
+      .array(z.string().email().max(255))
+      .max(IMPORT_HISTORY_MAX_CONTACT_EMAILS)
+      .optional(),
+    maxMessages: z.number().int().min(1).max(limits.maxMessages).default(limits.defaultMaxMessages),
+  })
+}
 
-export type QueueImportHistoryInput = z.infer<typeof queueImportHistorySchema>
+export type QueueImportHistorySchema = ReturnType<typeof createQueueImportHistorySchema>
+
+let cachedSchema: { key: string; schema: QueueImportHistorySchema } | null = null
+
+/**
+ * The ceilings come from env, which a test may change after this module was
+ * imported, so the schema is rebuilt whenever the effective limits differ from
+ * the ones the cached instance was built with.
+ */
+export function getQueueImportHistorySchema(): QueueImportHistorySchema {
+  const limits = getImportHistoryLimits()
+  const key = `${limits.maxSinceDays}:${limits.maxMessages}`
+  if (!cachedSchema || cachedSchema.key !== key) {
+    cachedSchema = { key, schema: createQueueImportHistorySchema(limits) }
+  }
+  return cachedSchema.schema
+}
+
+/** Retained for callers that need a statically typed schema instance. */
+export const queueImportHistorySchema = getQueueImportHistorySchema()
+
+export type QueueImportHistoryInput = z.infer<QueueImportHistorySchema>
 
 export interface QueueImportHistoryScope {
   tenantId: string
@@ -63,7 +91,7 @@ export async function queueImportHistory(params: {
   scope: QueueImportHistoryScope
   input: QueueImportHistoryInput
 }): Promise<QueueImportHistoryResult> {
-  const input = queueImportHistorySchema.parse(params.input)
+  const input = getQueueImportHistorySchema().parse(params.input)
   const { container, scope } = params
 
   const em = (container.resolve('em') as EntityManager).fork()
@@ -113,6 +141,26 @@ export async function queueImportHistory(params: {
     throw createCrudFormError(
       'History import is not supported on this provider',
       { channelId: `Provider "${channel.providerKey}" does not support history import yet` },
+      { status: 400 },
+    )
+  }
+
+  // The schema above validated against the deployment-wide ceiling; some
+  // providers (IMAP) have a lower ceiling of their own (see
+  // `import-history-limits.ts`). Reject rather than silently truncate — the
+  // adapter itself has no way to report back "I clamped your request".
+  const providerLimits = getImportHistoryLimits(channel.providerKey)
+  if (input.sinceDays > providerLimits.maxSinceDays) {
+    throw createCrudFormError(
+      'sinceDays exceeds the limit for this provider',
+      { sinceDays: `Provider "${channel.providerKey}" supports at most ${providerLimits.maxSinceDays} days` },
+      { status: 400 },
+    )
+  }
+  if (input.maxMessages > providerLimits.maxMessages) {
+    throw createCrudFormError(
+      'maxMessages exceeds the limit for this provider',
+      { maxMessages: `Provider "${channel.providerKey}" supports at most ${providerLimits.maxMessages} messages` },
       { status: 400 },
     )
   }
