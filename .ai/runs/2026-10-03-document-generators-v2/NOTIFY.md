@@ -76,3 +76,6 @@ Append-only UTC log.
 ## 2026-10-04T06:25:02Z — integration suite passed
 - TC-DOCUMENT-001..022 against the local dev app: 25 passed, 1 skipped (by design), 0 failed after test-only fixes (TC-017 raw malformed body; TC-022 tab locator scoped to #main-content, Escape to close the dialog).
 - Discovery tip recorded: set OM_INTEGRATION_MODULES=document_generators — unfiltered config hands Playwright 1295 globs and the 7.7 GB dev cache makes listing appear to hang.
+
+## 2026-10-04T06:27:38Z — DS guardian
+- om-ds-guardian ANALYZE on 33 changed UI/hook files: 0 findings; shared states present. Next: screenshots, then om-auto-review-pr.

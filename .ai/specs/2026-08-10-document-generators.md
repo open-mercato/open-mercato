@@ -1200,7 +1200,7 @@ Verified on 2026-10-03: the configured validation gate (`build:packages`, `gener
 Integration tests `TC-DOCUMENT-001`–`022` ran against the local dev app on 2026-10-04: 25 passed, 1 skipped by design (persistence fault injection), 0 failed.
 
 Still pending:
-- Browser/UI evidence (screenshots) and the design-system guardian pass are pending (`yarn lint` and `check:client-boundaries` passed).
+- Browser/UI evidence (screenshots) is pending (`yarn lint`, `check:client-boundaries` and the design-system guardian scan passed).
 - The full monorepo unit suite (`yarn test`) was not run; only the changed packages were tested.
 - `GenerationHistoryService` constructor-exception sign-off is pending.
 - Standalone harness coverage (`om-refresh-standalone-harness`) is not refreshed: it requires failing-first evaluations and the release suite, which were not run.
