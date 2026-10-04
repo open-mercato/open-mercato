@@ -1548,8 +1548,9 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                           </Link>
                         </BreadcrumbLink>
                       ) : (
-                        <BreadcrumbPage aria-label={home.label}>
+                        <BreadcrumbPage>
                           <Home className="size-4" aria-hidden="true" />
+                          <span className="sr-only">{home.label}</span>
                         </BreadcrumbPage>
                       )}
                     </BreadcrumbItem>

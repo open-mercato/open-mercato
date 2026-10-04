@@ -159,6 +159,24 @@ describe('AppShell', () => {
     }
   })
 
+  it('names the home crumb with text when the dashboard is the current page', () => {
+    mockPathname = '/backend'
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Dashboard content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    const breadcrumbNav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    const currentPage = breadcrumbNav.querySelector('[data-slot="breadcrumb-page"]') as HTMLElement
+    expect(currentPage).toHaveAttribute('aria-current', 'page')
+    // `aria-label` is not allowed on a span without a role, so it may be
+    // ignored and the icon-only crumb left without a name.
+    expect(currentPage).not.toHaveAttribute('aria-label')
+    expect(currentPage).toHaveTextContent('Dashboard')
+  })
+
   it('renders navigation and breadcrumbs with translations applied via ApplyBreadcrumb', async () => {
     renderWithProviders(
       <AppShell
