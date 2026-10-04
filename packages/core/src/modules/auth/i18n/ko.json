@@ -539,6 +539,8 @@
   "auth.profile.form.success": "프로필이 업데이트되었습니다.",
   "auth.profile.subtitle": "비밀번호 변경",
   "auth.profile.title": "프로필",
+  "auth.replay.errors.credentials": "비밀번호 변경은 다시 실행할 수 없습니다.",
+  "auth.replay.errors.stale": "대상이 변경되어 이 작업을 다시 실행할 수 없습니다.",
   "auth.reset.backToLogin": "로그인으로 돌아가기",
   "auth.reset.description": "재설정 링크를 받으려면 이메일을 입력하세요",
   "auth.reset.error": "문제가 발생했습니다",

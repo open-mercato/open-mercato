@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { IsolationLevel } from '@mikro-orm/core'
 import { createLogger } from '../logger'
+import {
+  beginTransactionLifetime,
+  completeTransactionLifetime,
+} from './transaction-lifetime'
 
 const logger = createLogger('shared').child({ component: 'commands' })
 
@@ -171,6 +175,7 @@ export async function withAtomicFlush(
   }
 
   await em.begin(options.isolationLevel ? { isolationLevel: options.isolationLevel } : undefined)
+  const transactionLifetime = beginTransactionLifetime(em)
   try {
     await runPhasesAndFlush()
     await em.commit()
@@ -180,6 +185,8 @@ export async function withAtomicFlush(
     } catch {
       // rollback failure should not mask the original error; intentionally swallowed
     }
+    await completeTransactionLifetime(em, transactionLifetime, 'rolled_back')
     throw err
   }
+  await completeTransactionLifetime(em, transactionLifetime, 'committed')
 }

@@ -2,7 +2,14 @@
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/redo/route'
 
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockReplayEm = {
+  find: jest.fn(async () => []),
+  findOne: jest.fn(async () => null),
+}
+const mockRbac = {
+  userHasAllFeatures: jest.fn(),
+  userHasAllFeaturesWithEntityManager: jest.fn(),
+}
 const mockLogs = {
   findById: jest.fn(),
   latestUndoneForActor: jest.fn(),
@@ -54,11 +61,21 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
       filterIds: ['org-1'],
       allowedIds: null,
     })
+    mockRbac.userHasAllFeaturesWithEntityManager.mockImplementation(
+      async (_em, _userId, features: string[]) => features[0]?.endsWith('_self') === true,
+    )
     mockRbac.userHasAllFeatures.mockResolvedValue(false)
     mockLogs.findById.mockResolvedValue(null)
     mockLogs.latestUndoneForActor.mockResolvedValue(null)
     mockLogs.markRedone.mockResolvedValue(undefined)
-    mockCommandBus.execute.mockResolvedValue({ logEntry: null })
+    mockCommandBus.execute.mockImplementation(async (_commandId, options) => {
+      await options.ctx.replayTransactionGuard?.({
+        operation: 'redo',
+        logEntry: options.redoLogEntry,
+        transactionalEm: mockReplayEm,
+      })
+      return { logEntry: null }
+    })
   })
 
   it('returns 401 when unauthenticated', async () => {
@@ -157,6 +174,49 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
     expect(mockLogs.markRedone).toHaveBeenCalledWith('log-undo')
   })
 
+  it('allows an API key with only redo_self to replay its canonical action log', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const keyId = '22222222-2222-4222-8222-222222222222'
+    const subject = `api_key:${keyId}`
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: subject,
+      keyId,
+      isApiKey: true,
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const log = {
+      id: 'api-key-undone',
+      commandId: 'demo.command',
+      actorUserId: keyId,
+      contextJson: { actorSubject: subject },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'demo.resource',
+      resourceId: 'res-1',
+      executionState: 'undone',
+      commandPayload: { __redoInput: {} },
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+
+    const res = await POST(makeRequest({ logId: log.id }))
+
+    expect(res.status).toBe(200)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith(
+      subject,
+      ['audit_logs.redo_tenant'],
+      expect.anything(),
+    )
+    expect(mockRbac.userHasAllFeaturesWithEntityManager).toHaveBeenCalledWith(
+      mockReplayEm,
+      subject,
+      ['audit_logs.redo_self'],
+      expect.anything(),
+    )
+    expect(mockLogs.latestUndoneForActor).toHaveBeenCalledWith(subject, expect.anything())
+  })
+
   it('uses tenant-level latest-undone scope for logs without organization id', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
@@ -236,8 +296,6 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
       organizationId: null,
       scope: { allowedIds: null },
     })
-    mockRbac.userHasAllFeatures.mockResolvedValue(false)
-
     const log = {
       id: 'log-2',
       commandId: 'demo.command',
@@ -256,6 +314,7 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
     const res = await POST(makeRequest({ logId: 'log-2' }))
     expect(res.status).toBe(400)
     expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    expect(mockRbac.userHasAllFeaturesWithEntityManager).not.toHaveBeenCalled()
   })
   it('surfaces the status and body of an interceptor rejection that carries one', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
