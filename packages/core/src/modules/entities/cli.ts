@@ -3,6 +3,7 @@ import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryptio
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from './data/entities'
+import { upsertCanonicalEncryptionMap } from './lib/encryption-maps'
 import {
   installCustomEntitiesFromModules,
   getAggregatedCustomEntityConfigs,
@@ -298,29 +299,14 @@ export async function upsertEncryptionMapSpecs(
       logger(`Skipping ${spec.entityId}: system-scoped map, resolved from module code rather than a tenant row.`)
       continue
     }
-    const existing = await em.findOne(EncryptionMap, {
+    await upsertCanonicalEncryptionMap(em, {
       entityId: spec.entityId,
       tenantId,
       organizationId,
-      deletedAt: null,
-    })
-    if (existing) {
-      existing.fieldsJson = spec.fields
-      existing.isActive = true
-      existing.updatedAt = new Date()
-      logger(`🔒 Updated encryption map for ${spec.entityId} ✨`)
-      await em.persist(existing).flush()
-      continue
-    }
-    const map = em.create(EncryptionMap, {
-      entityId: spec.entityId,
-      tenantId,
-      organizationId,
-      fieldsJson: spec.fields,
+      fields: spec.fields,
       isActive: true,
     })
-    await em.persist(map).flush()
-    logger(`Created encryption map for ${spec.entityId}`)
+    logger(`🔒 Seeded encryption map for ${spec.entityId} ✨`)
   }
 }
 

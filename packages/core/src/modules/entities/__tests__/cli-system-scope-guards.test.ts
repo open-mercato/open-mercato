@@ -137,10 +137,14 @@ describe('entities CLI system-scope guards', () => {
   })
 
   it('seed-encryption persists tenant-scoped maps only', async () => {
+    execute.mockResolvedValue([{ id: 'map-1', updated_at: new Date('2020-01-01T00:00:00.000Z') }])
+
     await loadCommand('seed-encryption').run(['--tenant', 'tenant-1'])
 
-    const persistedEntityIds = create.mock.calls.map(([, data]) => data.entityId)
-    expect(persistedEntityIds).toEqual(['customers:person'])
+    const seedCalls = execute.mock.calls.filter(([sql]) => String(sql).includes('insert into "encryption_maps"'))
+    expect(seedCalls).toHaveLength(1)
+    expect(seedCalls[0]?.[1]?.[0]).toBe('customers:person')
+    expect(String(seedCalls[0]?.[0])).toContain('on conflict ("entity_id", "tenant_id", "organization_id")')
     expect(logSpy.mock.calls.flat().join('\n')).toContain('Skipping onboarding:onboarding_request: system-scoped map')
   })
 })

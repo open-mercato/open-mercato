@@ -347,16 +347,24 @@ export class TenantDataEncryptionService {
         and organization_id is not distinct from ?
         and is_active = true
         and deleted_at is null
-      limit 1
+      order by created_at asc, id asc
     `
     const rows = await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null])
-    const row = Array.isArray(rows) && rows.length && rows[0] && typeof rows[0] === 'object'
-      ? rows[0] as Record<string, unknown>
-      : null
-    if (!row) return null
+    const records = Array.isArray(rows)
+      ? rows.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
+      : []
+    if (!records.length) return null
+    if (records.length > 1) {
+      logger.warn('Duplicate live encryption maps detected; merging field rules fail-safe', {
+        entityId: key.entityId,
+        tenantId: key.tenantId,
+        organizationId: key.organizationId,
+        count: records.length,
+      })
+    }
     return {
-      entityId: String(row.entity_id ?? row.entityId ?? key.entityId),
-      fields: readEncryptedFieldsJson(row),
+      entityId: String(records[0].entity_id ?? records[0].entityId ?? key.entityId),
+      fields: mergeEncryptedFieldRules(records.map((record) => normalizeEncryptedFieldRules(readEncryptedFieldsJson(record)))),
     }
   }
 
@@ -450,6 +458,7 @@ export class TenantDataEncryptionService {
         and organization_id is not null
         and is_active = true
         and deleted_at is null
+      order by organization_id asc, created_at asc, id asc
     `
     const rows = await conn.execute(sql, [entityId, tenantId])
     if (!Array.isArray(rows) || rows.length === 0) return []

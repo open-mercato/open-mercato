@@ -386,6 +386,72 @@ describe('TenantDataEncryptionService.getEncryptedFieldNames', () => {
   })
 })
 
+describe('TenantDataEncryptionService duplicate map fail-safe', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+  })
+
+  it('deterministically unions active duplicate rows so no declared field is stored as plaintext', async () => {
+    const entityId = 'test:duplicate_encryption_map'
+    const tenantId = 'tenant-duplicate-map'
+    const execute = jest.fn(async (sql: string) => {
+      expect(sql).toContain('order by created_at asc, id asc')
+      return [
+        {
+          entity_id: entityId,
+          fields_json: [
+            { field: 'email' },
+            { field: 'display_name', hashField: 'display_name_hash' },
+          ],
+        },
+        {
+          entity_id: entityId,
+          fields_json: [
+            { field: 'email', hashField: 'email_hash' },
+            { field: 'phone' },
+          ],
+        },
+      ]
+    })
+    const service = new TenantDataEncryptionService(
+      { getConnection: () => ({ execute }) } as never,
+      {
+        kms: {
+          getTenantDek: jest.fn(async () => ({ tenantId, key: fixedKey, fetchedAt: new Date() })),
+          createTenantDek: jest.fn(async () => null),
+          isHealthy: () => true,
+        },
+      } as never,
+    )
+
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      {
+        email: 'person@example.com',
+        email_hash: null,
+        display_name: 'Person',
+        display_name_hash: null,
+        phone: '+48123456789',
+      },
+      tenantId,
+      'org-1',
+    )
+
+    expect(decryptWithAesGcm(encrypted.email as string, fixedKey)).toBe('person@example.com')
+    expect(encrypted.email_hash).toBe(hashForLookup('person@example.com'))
+    expect(decryptWithAesGcm(encrypted.display_name as string, fixedKey)).toBe('Person')
+    expect(encrypted.display_name_hash).toBe(hashForLookup('Person'))
+    expect(decryptWithAesGcm(encrypted.phone as string, fixedKey)).toBe('+48123456789')
+  })
+})
+
 describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', () => {
   const originalToggle = process.env.TENANT_DATA_ENCRYPTION
   const tenantId = 'tenant-5949'
