@@ -113,11 +113,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      - name: Fetch base branch for change detection
-        # Needed so the scope step can diff against the PR base.
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
+        with:
+          # Depth 2 brings in the merge commit's first parent, which the scope
+          # step diffs against (see audit-scope for why not `origin/<base>`).
+          fetch-depth: 2
 
       - name: Compute integration scope
         # Determines which integration tests to run and whether to shard them.
@@ -138,7 +137,7 @@ jobs:
             exit 0
           fi
 
-          CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
+          CHANGED=$(git diff --name-only HEAD^1 HEAD)
 
           # These paths affect behaviour across all modules — run the full sharded suite.
           # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
