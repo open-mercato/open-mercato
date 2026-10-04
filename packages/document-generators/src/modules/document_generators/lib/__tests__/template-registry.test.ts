@@ -1,6 +1,7 @@
 import { createContainer } from 'awilix'
 import type { TemplateEntry } from '@open-mercato/shared/modules/document-generators'
-import { DuplicateTemplateError, TemplateRegistry, UnknownTemplateError, UnknownTemplateVersionError, templateRegistry } from '../template-registry'
+import { DuplicateTemplateError, UnknownTemplateError, UnknownTemplateVersionError } from '../template-errors'
+import { TemplateRegistry, templateRegistry } from '../template-registry'
 
 function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
   return {

@@ -1,7 +1,8 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveDocumentRequestContext } from '../../../../../_shared/request-context'
 import { GenerationHistoryService } from '../../../../../../services/generation-history-service'
-import { templateRegistry, UnknownTemplateError } from '../../../../../../lib/template-registry'
+import { UnknownTemplateError } from '../../../../../../lib/template-errors'
+import { templateRegistry } from '../../../../../../lib/template-registry'
 import { GET, metadata, openApi } from '../route'
 
 jest.mock('../../../../../_shared/request-context', () => ({ resolveDocumentRequestContext: jest.fn() }))

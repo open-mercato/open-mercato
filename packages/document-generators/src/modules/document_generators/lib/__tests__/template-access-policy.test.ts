@@ -1,5 +1,6 @@
 import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
-import { TemplateAccessDeniedError, TemplateAccessPolicy } from '../template-access-policy'
+import { TemplateAccessPolicy } from '../template-access-policy'
+import { TemplateAccessDeniedError } from '../template-errors'
 
 const auth = { sub: 'subject', tenantId: 'tenant', orgId: 'org' }
 
