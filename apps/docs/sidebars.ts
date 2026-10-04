@@ -494,7 +494,17 @@ const sidebars: SidebarsConfig = {
           ],
         },
         "framework/webhooks/overview",
-        "framework/document-generators/overview",
+        {
+          type: "category",
+          label: "Document Generators",
+          link: { type: "doc", id: "framework/document-generators/overview" },
+          items: [
+            "framework/document-generators/getting-started",
+            "framework/document-generators/authoring",
+            "framework/document-generators/api",
+            "framework/document-generators/contributing",
+          ],
+        },
         {
           type: "category",
           label: "Data Integrity",
