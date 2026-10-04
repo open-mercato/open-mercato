@@ -9,7 +9,7 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 
 import { resolveAttachmentOrganizationId } from '../requestScope'
 
-const container = { resolve: jest.fn() } as any
+const container = { resolve: jest.fn() } as unknown as Parameters<typeof resolveAttachmentOrganizationId>[0]
 const request = new Request('http://x/api/attachments')
 
 describe('resolveAttachmentOrganizationId', () => {
@@ -26,8 +26,10 @@ describe('resolveAttachmentOrganizationId', () => {
       allowedIds: ['home-org', 'selected-org'],
       tenantId: 't1',
     })
-    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' }
-    const resolved = await resolveAttachmentOrganizationId(container, auth as any, request)
+    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Parameters<
+      typeof resolveAttachmentOrganizationId
+    >[1]
+    const resolved = await resolveAttachmentOrganizationId(container, auth, request)
     expect(resolved).toBe('selected-org')
     expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(
       expect.objectContaining({ container, auth, request }),
@@ -41,9 +43,29 @@ describe('resolveAttachmentOrganizationId', () => {
       allowedIds: null,
       tenantId: 't1',
     })
-    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' }
-    const resolved = await resolveAttachmentOrganizationId(container, auth as any, request)
+    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Parameters<
+      typeof resolveAttachmentOrganizationId
+    >[1]
+    const resolved = await resolveAttachmentOrganizationId(container, auth, request)
     expect(resolved).toBe('home-org')
+  })
+
+  it('denies an explicit empty scope before any attachment data service can be resolved', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: 't1',
+    })
+    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Parameters<
+      typeof resolveAttachmentOrganizationId
+    >[1]
+
+    await expect(resolveAttachmentOrganizationId(container, auth, request)).rejects.toMatchObject({
+      status: 403,
+      body: { error: 'Forbidden' },
+    })
+    expect(container.resolve).not.toHaveBeenCalled()
   })
 
   it('returns null when there is no authenticated principal', async () => {

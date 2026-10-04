@@ -1,4 +1,33 @@
-import { resolveOrganizationScopeFilter } from '../organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '../organizationScopeFilter'
+
+describe('resolveSingleOrganizationIdOrDeny', () => {
+  const auth = { orgId: 'org-auth' }
+
+  it('prefers a selected organization', () => {
+    expect(resolveSingleOrganizationIdOrDeny(
+      { selectedId: 'org-selected', filterIds: ['org-selected'], allowedIds: ['org-selected'], tenantId: 't1' },
+      auth,
+    )).toBe('org-selected')
+  })
+
+  it('preserves the home-organization fallback for unrestricted and absent scopes', () => {
+    expect(resolveSingleOrganizationIdOrDeny(
+      { selectedId: null, filterIds: null, allowedIds: null, tenantId: 't1' },
+      auth,
+    )).toBe('org-auth')
+    expect(resolveSingleOrganizationIdOrDeny(undefined, auth)).toBe('org-auth')
+  })
+
+  it.each([
+    { selectedId: null, filterIds: [], allowedIds: [], tenantId: 't1' },
+    { selectedId: null, filterIds: [], allowedIds: null, tenantId: 't1' },
+    { selectedId: null, filterIds: null, allowedIds: [], tenantId: 't1' },
+  ])('denies an explicit finite empty scope before any home-organization fallback', (scope) => {
+    expect(() => resolveSingleOrganizationIdOrDeny(scope, auth)).toThrow(
+      expect.objectContaining({ status: 403, body: { error: 'Forbidden' } }),
+    )
+  })
+})
 
 describe('resolveOrganizationScopeFilter', () => {
   it('prefers scope.selectedId when present', () => {

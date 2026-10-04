@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 
 /**
  * Resolve the organization an attachment request should act within.
@@ -23,5 +24,5 @@ export async function resolveAttachmentOrganizationId(
 ): Promise<string | null> {
   if (!auth) return null
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
-  return scope?.selectedId ?? auth.orgId ?? null
+  return resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 }

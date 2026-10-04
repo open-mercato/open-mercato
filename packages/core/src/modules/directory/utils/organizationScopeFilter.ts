@@ -1,4 +1,5 @@
 import type { OrganizationScope } from './organizationScope'
+import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 
 export type OrganizationScopeFilter = {
   organizationIds: string[] | undefined
@@ -7,6 +8,20 @@ export type OrganizationScopeFilter = {
 }
 
 type OrgAuthLike = { orgId?: string | null } | null | undefined
+
+export function resolveSingleOrganizationIdOrDeny(
+  scope: OrganizationScope | null | undefined,
+  auth: OrgAuthLike,
+): string | null {
+  if (scope && (
+    (Array.isArray(scope.filterIds) && scope.filterIds.length === 0)
+    || (Array.isArray(scope.allowedIds) && scope.allowedIds.length === 0)
+  )) {
+    throw forbidden()
+  }
+  if (scope?.selectedId) return scope.selectedId
+  return auth?.orgId ?? null
+}
 
 export function resolveOrganizationScopeFilter(
   scope: OrganizationScope | null | undefined,

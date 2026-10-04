@@ -13,7 +13,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowInstance } from '../../data/entities'
 import {
   startWorkflowInputSchema,
@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!tenantId || !organizationId) {
       return NextResponse.json(

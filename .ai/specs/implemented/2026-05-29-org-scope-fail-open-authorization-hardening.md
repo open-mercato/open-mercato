@@ -169,6 +169,7 @@ No contract shape changes. Behavioral change only:
 |-----------------|--------|-------|
 | Customers detail GET routes (people/companies/deals + sub-resources, entity-roles) | Restricted user w/ empty allowed set could read cross-org record (`200`) | Returns `403 { error: 'Access denied' }` |
 | Domain command update/delete (customers, sales, catalog via `ensureOrganizationScope`) | Restricted user w/ `currentOrg=null` could write cross-org record | `403 { error: 'Forbidden' }` |
+| Single-organization routes using a resolved directory scope | Explicit empty scope could fall back to `auth.orgId` and read or mutate the home organization | `resolveSingleOrganizationIdOrDeny` returns the selected/home organization only for non-empty, unrestricted, or genuinely absent scope; explicit empty `filterIds` or `allowedIds` throws `403 { error: 'Forbidden' }` before the next data call |
 
 Error envelopes reuse existing `CrudHttpError(403)` shapes and i18n keys (`customers.errors.access_denied`). No new keys required.
 
@@ -224,6 +225,55 @@ None. (Q3-a: no feature flag; ship fail-closed.)
 2. Make `channelOrgScopeWhereFromFilter({ organizationIds: [] })` a no-row predicate shared by all six core/Discord read and mutation consumers while preserving unrestricted and absent-scope behavior.
 3. Version the organization-scope cache key/tag namespace so pre-fix cached home-organization widening is unreachable after deployment.
 4. Document the query-index status route's new `403` response and cover the channel read/mutation, cache-upgrade, and OpenAPI contracts with regressions.
+
+### Phase 5: Repository-wide single-organization fallback closure
+1. Add the additive `resolveSingleOrganizationIdOrDeny(scope, auth)` selector in `directory/utils/organizationScopeFilter.ts`.
+2. Check explicit finite emptiness before selection: `filterIds: []` **or** `allowedIds: []` throws the standard `forbidden()` `CrudHttpError`; no `auth.orgId` fallback is evaluated.
+3. Otherwise preserve existing order: a concrete `selectedId` wins, then `auth.orgId`, then `null`. Thus `filterIds: null` / `allowedIds: null` unrestricted scope and a genuinely absent scope preserve their previous home-organization fallback.
+4. Replace every audited production raw single-organization fallback with the selector. The selector throws synchronously, so all migrated call sites deny before their subsequent ORM, query-engine, service, command, or external call.
+5. Guard sales document history before RBAC and `ActionLogService.list`; unrestricted `null` still omits the organization predicate, while explicit empty can never reach the service.
+
+### Phase 5 audit inventory (2026-10-04)
+
+The alias-aware production sweep covered `packages/core`, `packages/enterprise`, `packages/channel-*`, and `apps/mercato`, excluding tests. It found 170 candidate expressions. Four are safe-by-construction framework/pre-resolution cases and remain unchanged; the other 166 raw fallbacks were migrated. The review reported 138 files; the reproducible current-tree sweep finds those package files plus one audited `apps/mercato` example module, for 139 migrated files total.
+
+| Classification | Sites | Evidence |
+|---|---:|---|
+| Migrated to `resolveSingleOrganizationIdOrDeny` | 166 | Zero raw production fallback matches remain outside the four classified exceptions |
+| Safe by construction, unchanged | 4 | Central resolver degraded-mode fallback; already deny-aware filter helper; fresh-ACL pre-resolution input; definition-scope input type that has no `filterIds`/`allowedIds` |
+| Additional non-raw leak fixed | 1 | Sales document history now denies before `ActionLogService.list`, so `organizationId: undefined` remains exclusive to unrestricted scope |
+
+| Migrated area | Sites |
+|---|---:|
+| `apps/mercato` | 1 |
+| `core/attachments` | 1 |
+| `core/configs` | 1 |
+| `core/customers` | 41 |
+| `core/devices` | 4 |
+| `core/dictionaries` | 1 |
+| `core/directory` | 1 |
+| `core/entities` | 8 |
+| `core/eudr` | 8 |
+| `core/planner` | 2 |
+| `core/push_notifications` | 1 |
+| `core/resources` | 2 |
+| `core/sales` | 5 |
+| `core/staff` | 34 |
+| `core/translations` | 1 |
+| `core/warranty_claims` | 18 |
+| `core/wms` | 4 |
+| `core/workflows` | 32 |
+| `enterprise/agent_orchestrator` | 1 |
+| **Total migrated** | **166** |
+
+The four unchanged candidates are:
+
+- `directory/utils/organizationScope.ts`: degraded-mode fallback runs only when the request container cannot supply the scope resolver dependencies, so no resolved finite scope exists.
+- `directory/utils/organizationScopeFilter.ts`: its existing `rbacOrganizationId` expression is explicitly guarded by `isExplicitlyEmpty` and returns `null`, not `auth.orgId`, for `[]`.
+- `directory/services/organizationScopeService.ts`: `resolveFresh` uses request `selectedId` to load the ACL before constructing an `OrganizationScope`; it cannot receive resolved `filterIds`/`allowedIds`.
+- `entities/lib/definition-scope.ts`: the helper's public input is intentionally only `{ tenantId?, selectedId? }`; it cannot carry explicit finite scope arrays.
+
+The excluded `progress` module contains no raw selected-ID fallback from this inventory. Its jobs/active APIs do contain direct `auth.orgId` scoping and are owned by the separate progress hardening task; no progress file was edited here.
 
 ### File Manifest
 | File | Action | Purpose |
@@ -329,6 +379,7 @@ None.
 | Phase 2 — Read-path guard + migration (#2245 + audit) | Done | 2026-05-29 | `isOrganizationReadAccessAllowed` predicate; all 10 fail-open guards migrated incl. `entity-roles-factory`; 6 guard unit tests green; core builds + typechecks |
 | Phase 3 — Integration coverage + verification | Partial | 2026-05-29 | Unit coverage complete & green. Fixture infra + `TC-CRM-072.spec.ts` written. Behavioral security change documented in Migration & Compatibility; `CHANGELOG.md` is release-tooling-managed so no manual mid-cycle entry. **Integration spec written but NOT yet validated in a coherent env** — see note below |
 | Phase 4 — Empty-scope propagation and cache namespace | Done | 2026-10-04 | Audited direct consumers now preserve deny-all, all six channel/Discord consumers share the no-row predicate, legacy cache keys are unreachable, and query-index documents `403` |
+| Phase 5 — Repository-wide raw fallback closure | Done | 2026-10-04 | Audited 170 candidates: 166 migrated, 4 safe-by-construction; fixed the additional document-history omission and added no-data regressions for all five confirmed paths |
 
 ### Phase 3 — integration test status
 Built reusable fixture infrastructure:
@@ -352,6 +403,7 @@ Built reusable fixture infrastructure:
 ## Changelog
 ### 2026-10-04
 - Completed the GHSA follow-up audit: preserved explicit empty scopes across direct query consumers, made channel/Discord reads and the AI auto-reply mutation no-row-safe, bumped the organization-scope cache namespace to `org-scope:v2:`, and documented query-index status `403` responses.
+- Closed the repository-wide single-organization fallback class with `resolveSingleOrganizationIdOrDeny`: 166 raw production sites migrated, four pre-resolution/framework candidates documented safe, sales document history guarded before `ActionLogService.list`, and WMS/EUDR/branding/attachments/document-history regressions prove explicit empty scope makes no data call.
 
 ### 2026-05-29
 - Initial specification (post Open-Questions gate: Q1-b full audit, Q2-b WHERE-scoping deferred, Q3-a ship fail-closed, Q4-a single PR closing #2239 + #2245).

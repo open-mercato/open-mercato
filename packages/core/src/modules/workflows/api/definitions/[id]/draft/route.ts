@@ -21,6 +21,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { WorkflowDefinition, WorkflowDefinitionDraft } from '../../../../data/entities'
 import {
@@ -100,7 +101,7 @@ async function resolveDraftContext(
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
   const tenantId = auth.tenantId
-  const organizationId = scope?.selectedId ?? auth.orgId
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
   if (!tenantId) {
     return { ok: false, response: NextResponse.json({ error: 'Missing tenant context' }, { status: 400 }) }

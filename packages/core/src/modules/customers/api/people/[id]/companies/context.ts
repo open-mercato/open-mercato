@@ -7,6 +7,7 @@ import {
   CustomerPersonProfile,
 } from '@open-mercato/core/modules/customers/data/entities'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -24,7 +25,7 @@ export async function loadPersonContext(req: Request, personId: string) {
   const em = (container.resolve('em') as EntityManager).fork()
   const decryptionScope = {
     tenantId: authenticatedAuth.tenantId,
-    organizationId: scope?.selectedId ?? authenticatedAuth.orgId ?? null,
+    organizationId: resolveSingleOrganizationIdOrDeny(scope, authenticatedAuth) ?? null,
   }
   const person = await findOneWithDecryption(
     em,
@@ -62,7 +63,7 @@ export async function loadPersonContext(req: Request, personId: string) {
   return {
     container,
     auth: authenticatedAuth,
-    selectedOrganizationId: scope?.selectedId ?? authenticatedAuth.orgId ?? null,
+    selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, authenticatedAuth) ?? null,
     em,
     person,
     profile,

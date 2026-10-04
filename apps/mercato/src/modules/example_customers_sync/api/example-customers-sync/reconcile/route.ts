@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { exampleTag } from '../../../../example/api/openapi'
 import { reconcileSchema } from '../../../data/validators'
 import { EXAMPLE_CUSTOMERS_SYNC_RECONCILE_QUEUE, getExampleCustomersSyncQueue } from '../../../lib/queue'
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
       : auth.orgId
         ? [auth.orgId]
         : []
-    const organizationId = body.organizationId ?? scope?.selectedId ?? auth.orgId ?? organizationIds[0] ?? null
+    const organizationId = body.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? organizationIds[0] ?? null
 
     if (!organizationId) {
       return NextResponse.json(

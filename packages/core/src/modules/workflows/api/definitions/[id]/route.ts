@@ -12,7 +12,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowDefinition, WorkflowInstance } from '../../../data/entities'
 import {
   updateWorkflowDefinitionInputSchema,
@@ -165,7 +165,7 @@ export async function PUT(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     // Check edit permission
     const rbacService = container.resolve('rbacService')
@@ -492,7 +492,7 @@ export async function DELETE(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     // Check delete permission
     const rbacService = container.resolve('rbacService')
