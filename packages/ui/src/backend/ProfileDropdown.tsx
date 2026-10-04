@@ -39,6 +39,7 @@ export function ProfileDropdown({
   const [mounted, setMounted] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
+  const languageButtonRef = React.useRef<HTMLButtonElement>(null)
   const [menuPosition, setMenuPosition] = React.useState<{ top: number; right: number } | null>(null)
   const { items: injectedItems } = useInjectedMenuItems('menu:topbar:profile-dropdown')
 
@@ -74,6 +75,32 @@ export function ProfileDropdown({
 
   const isDark = resolvedTheme === 'dark'
 
+  // The stops the keyboard walks through: every tabbable element in the menu,
+  // minus controls nested inside a menu item (the theme row's switch), which the
+  // row itself already operates.
+  const getFocusableItems = React.useCallback((): HTMLElement[] => {
+    const menu = menuRef.current
+    if (!menu) return []
+    return Array.from(
+      menu.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+    ).filter((element) => !element.parentElement?.closest('[role="menuitem"]'))
+  }, [])
+
+  // Move focus into the menu once the portal has rendered. The menu sits at the
+  // end of <body>, so without this a keyboard user had to Tab through the whole
+  // page to reach the first item. The ref keeps a later reposition (scroll,
+  // resize) from pulling focus back to the first item.
+  const focusedOnOpenRef = React.useRef(false)
+  React.useEffect(() => {
+    if (!open) {
+      focusedOnOpenRef.current = false
+      return
+    }
+    if (!menuPosition || focusedOnOpenRef.current) return
+    focusedOnOpenRef.current = true
+    getFocusableItems()[0]?.focus()
+  }, [open, menuPosition, getFocusableItems])
+
   // Close on click outside
   React.useEffect(() => {
     if (!open) return
@@ -92,22 +119,61 @@ export function ProfileDropdown({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
-  // Close on Escape
+  // Close on Escape; move between items with the arrow keys, Home, End and Tab
   React.useEffect(() => {
     if (!open) return
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         if (languageOpen) {
           setLanguageOpen(false)
+          languageButtonRef.current?.focus()
         } else {
           setOpen(false)
           buttonRef.current?.focus()
         }
+        return
       }
+      // The listener is on `document`, so only act while focus is in the menu
+      // or on its trigger; keys typed elsewhere on the page are left alone.
+      const active = document.activeElement
+      const focusWithin = Boolean(
+        active && (menuRef.current?.contains(active) || active === buttonRef.current),
+      )
+      if (!focusWithin) return
+      const focusables = getFocusableItems()
+      if (!focusables.length) return
+      const activeIndex = focusables.indexOf(active as HTMLElement)
+      const lastIndex = focusables.length - 1
+      let nextIndex: number
+      switch (event.key) {
+        case 'ArrowDown':
+          nextIndex = activeIndex < 0 || activeIndex === lastIndex ? 0 : activeIndex + 1
+          break
+        case 'ArrowUp':
+          nextIndex = activeIndex <= 0 ? lastIndex : activeIndex - 1
+          break
+        case 'Home':
+          nextIndex = 0
+          break
+        case 'End':
+          nextIndex = lastIndex
+          break
+        case 'Tab':
+          // The menu is portaled to the end of <body>, so letting Tab through
+          // would drop focus on the browser chrome or back onto the page.
+          nextIndex = event.shiftKey
+            ? (activeIndex <= 0 ? lastIndex : activeIndex - 1)
+            : (activeIndex < 0 || activeIndex === lastIndex ? 0 : activeIndex + 1)
+          break
+        default:
+          return
+      }
+      event.preventDefault()
+      focusables[nextIndex]?.focus()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, languageOpen])
+  }, [open, languageOpen, getFocusableItems])
 
   const handleThemeToggle = () => {
     setTheme(isDark ? 'light' : 'dark')
@@ -275,6 +341,7 @@ export function ProfileDropdown({
         return (
           <div key={id} className="contents">
             <button
+              ref={languageButtonRef}
               type="button"
               className={menuItemClass}
               role="menuitem"

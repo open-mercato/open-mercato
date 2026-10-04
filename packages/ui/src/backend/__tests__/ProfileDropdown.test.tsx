@@ -74,4 +74,135 @@ describe('ProfileDropdown', () => {
 
     expect(rendered).toEqual(['English', 'Polski', 'Deutsch'])
   })
+
+  describe('keyboard', () => {
+    function openMenu() {
+      renderWithProviders(
+        <ProfileDropdown email="user@example.com" notificationsHref="/backend/notifications" />,
+        { supportedLocales: ['en', 'pl'] },
+      )
+      const trigger = screen.getByTestId('profile-dropdown-trigger')
+      trigger.focus()
+      fireEvent.click(trigger)
+      const menu = screen.getByTestId('profile-dropdown')
+      const items = () => within(menu).getAllByRole('menuitem')
+      const press = (key: string, init: { shiftKey?: boolean } = {}) =>
+        fireEvent.keyDown(document.activeElement as Element, { key, ...init })
+      return { trigger, menu, items, press }
+    }
+
+    it('moves focus to the first menu item when the menu opens', () => {
+      const { items } = openMenu()
+
+      expect(document.activeElement).toBe(items()[0])
+    })
+
+    it('moves between items with the arrow keys, Home and End', () => {
+      const { items, press } = openMenu()
+      const last = items().length - 1
+
+      press('ArrowDown')
+      expect(document.activeElement).toBe(items()[1])
+      press('ArrowUp')
+      expect(document.activeElement).toBe(items()[0])
+      press('ArrowUp')
+      expect(document.activeElement).toBe(items()[last])
+      press('ArrowDown')
+      expect(document.activeElement).toBe(items()[0])
+      press('End')
+      expect(document.activeElement).toBe(items()[last])
+      press('Home')
+      expect(document.activeElement).toBe(items()[0])
+    })
+
+    it('keeps Tab inside the menu instead of leaving it for the page', () => {
+      const { items, press } = openMenu()
+      const last = items().length - 1
+
+      press('End')
+      expect(press('Tab')).toBe(false)
+      expect(document.activeElement).toBe(items()[0])
+      expect(press('Tab', { shiftKey: true })).toBe(false)
+      expect(document.activeElement).toBe(items()[last])
+    })
+
+    it('walks into the menu with ArrowDown when focus is back on the trigger', () => {
+      const { trigger, items, press } = openMenu()
+
+      trigger.focus()
+      press('ArrowDown')
+
+      expect(document.activeElement).toBe(items()[0])
+    })
+
+    it('reaches the language options once the list is expanded', () => {
+      const { menu, press } = openMenu()
+      const languageTrigger = within(menu).getByText('Language').closest('button') as HTMLElement
+
+      fireEvent.click(languageTrigger)
+      languageTrigger.focus()
+      press('ArrowDown')
+      expect(document.activeElement?.textContent?.trim()).toBe('English')
+      press('ArrowDown')
+      expect(document.activeElement?.textContent?.trim()).toBe('Polski')
+    })
+
+    it('returns focus to the language row when Escape collapses its options', () => {
+      const { menu, press } = openMenu()
+      const languageTrigger = within(menu).getByText('Language').closest('button') as HTMLElement
+
+      fireEvent.click(languageTrigger)
+      languageTrigger.focus()
+      press('ArrowDown')
+      press('Escape')
+
+      expect(screen.getByTestId('profile-dropdown')).toBeInTheDocument()
+      expect(languageTrigger).toHaveAttribute('aria-expanded', 'false')
+      expect(document.activeElement).toBe(languageTrigger)
+    })
+
+    it('does not stop on the switch nested in the theme row', () => {
+      const { menu, items, press } = openMenu()
+      const themeSwitch = within(menu).getByRole('switch')
+      const visited: Array<Element | null> = []
+
+      for (let index = 0; index < items().length; index += 1) {
+        visited.push(document.activeElement)
+        press('ArrowDown')
+      }
+
+      expect(visited).toEqual(items())
+      expect(visited).not.toContain(themeSwitch)
+    })
+
+    it('keeps focus where it is when the open menu repositions', () => {
+      const { items, press } = openMenu()
+
+      press('ArrowDown')
+      fireEvent(window, new Event('resize'))
+
+      expect(document.activeElement).toBe(items()[1])
+    })
+
+    it('returns focus to the trigger when Escape closes the menu', () => {
+      const { trigger, press } = openMenu()
+
+      press('Escape')
+
+      expect(screen.queryByTestId('profile-dropdown')).not.toBeInTheDocument()
+      expect(document.activeElement).toBe(trigger)
+    })
+
+    it('ignores arrow keys while focus is elsewhere on the page', () => {
+      const { items } = openMenu()
+      const outside = document.createElement('input')
+      document.body.appendChild(outside)
+      outside.focus()
+
+      expect(fireEvent.keyDown(outside, { key: 'ArrowDown' })).toBe(true)
+      expect(document.activeElement).toBe(outside)
+      expect(items().length).toBeGreaterThan(0)
+      outside.remove()
+    })
+  })
 })
