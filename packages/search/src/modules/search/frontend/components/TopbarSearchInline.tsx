@@ -62,6 +62,8 @@ import { resolveSearchMinTokenLength } from '@open-mercato/shared/lib/search/con
 import { fetchGlobalSearchResults } from '../utils'
 
 const MIN_QUERY_LENGTH = resolveSearchMinTokenLength()
+const RESULTS_LISTBOX_ID = 'topbar-search-listbox'
+const resultOptionId = (index: number) => `topbar-search-option-${index}`
 
 function normalizeLinks(links?: SearchResultLink[] | null): SearchResultLink[] {
   if (!Array.isArray(links)) return []
@@ -320,6 +322,10 @@ export function TopbarSearchInline({
   const showPopover =
     open && (loading || results.length > 0 || error !== null || tooShort || showVectorWarning)
   const showClear = query.length > 0
+  // The combobox popup is the list of results. The panel also shows hints,
+  // warnings and errors, which are not part of the listbox, so the field only
+  // counts as expanded while there are results to choose from.
+  const listboxVisible = showPopover && results.length > 0
 
   // The results panel is portaled to <body> so it escapes the sticky header's
   // stacking context (z-sticky) — rendered inline it stays trapped at the
@@ -393,10 +399,12 @@ export function TopbarSearchInline({
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder={t('search.dialog.actions.search', 'Search')}
-          aria-label={t('search.dialog.actions.openGlobalSearch', 'Search')}
+          role="combobox"
+          aria-label={t('search.dialog.actions.search', 'Search')}
           aria-autocomplete="list"
-          aria-expanded={open}
-          aria-controls="topbar-search-results"
+          aria-expanded={listboxVisible}
+          aria-controls={listboxVisible ? RESULTS_LISTBOX_ID : undefined}
+          aria-activedescendant={listboxVisible ? resultOptionId(selectedIndex) : undefined}
           className="flex-1 min-w-0 bg-transparent placeholder:text-muted-foreground/70 focus:outline-none"
           // Inline search; no need for native browser autocomplete or autocapitalize
           autoComplete="off"
@@ -428,7 +436,6 @@ export function TopbarSearchInline({
         <div
           ref={popoverRef}
           id="topbar-search-results"
-          role="listbox"
           style={{ position: 'fixed', top: anchor.top, left: anchor.left, width: anchor.width }}
           className="z-popover rounded-md border bg-popover text-popover-foreground shadow-md"
         >
@@ -466,7 +473,13 @@ export function TopbarSearchInline({
           ) : null}
 
           {results.length > 0 ? (
-            <div ref={listRef} className="max-h-[380px] overflow-y-auto p-1">
+            <div
+              ref={listRef}
+              id={RESULTS_LISTBOX_ID}
+              role="listbox"
+              aria-label={t('search.dialog.results.label', 'Search results')}
+              className="max-h-[380px] overflow-y-auto p-1"
+            >
               {results.map((result, index) => {
                 const presenter = result.presenter
                 const isActive = index === selectedIndex
@@ -476,11 +489,14 @@ export function TopbarSearchInline({
                   <button
                     key={`${result.entityId}:${result.recordId}`}
                     type="button"
+                    id={resultOptionId(index)}
                     data-active={isActive}
                     onClick={() => openResult(result)}
                     onMouseEnter={() => setSelectedIndex(index)}
                     role="option"
                     aria-selected={isActive}
+                    // Focus stays in the field; the arrows move the highlight.
+                    tabIndex={-1}
                     className={cn(
                       'flex w-full items-start gap-3 rounded-sm px-2 py-2 text-left transition-colors',
                       isActive ? 'bg-muted' : 'hover:bg-muted/60',

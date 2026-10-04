@@ -38,6 +38,7 @@
   "search.dialog.instructions": "Escribe para buscar en los registros indexados. Usa las flechas para navegar por los resultados.",
   "search.dialog.noLink": "Sin enlace",
   "search.dialog.noLinkHint": "No hay configuración search.ts para este tipo de entidad",
+  "search.dialog.results.label": "Resultados de búsqueda",
   "search.dialog.score.title": "Puntuación de relevancia",
   "search.dialog.shortcuts.hint": "Pulsa Cmd+K para alternar. Enter para abrir",
   "search.dialog.strategies.exact": "Exacta",
