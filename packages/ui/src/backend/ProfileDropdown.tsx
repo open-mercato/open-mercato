@@ -76,14 +76,13 @@ export function ProfileDropdown({
   const isDark = resolvedTheme === 'dark'
 
   // The stops the keyboard walks through: every tabbable element in the menu,
-  // minus controls nested inside a menu item (the theme row's switch), which the
-  // row itself already operates.
+  // minus anything nested inside a menu item, which the item itself operates.
   const getFocusableItems = React.useCallback((): HTMLElement[] => {
     const menu = menuRef.current
     if (!menu) return []
     return Array.from(
       menu.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
-    ).filter((element) => !element.parentElement?.closest('[role="menuitem"]'))
+    ).filter((element) => !element.parentElement?.closest('[role^="menuitem"]'))
   }, [])
 
   // Move focus into the menu once the portal has rendered. The menu sits at the
@@ -313,7 +312,8 @@ export function ProfileDropdown({
           <div
             key={id}
             className={cn(menuItemClass, 'justify-between')}
-            role="menuitem"
+            role="menuitemcheckbox"
+            aria-checked={isDark}
             onClick={handleThemeToggle}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
@@ -327,12 +327,14 @@ export function ProfileDropdown({
               {isDark ? <Moon className={menuIconClass} /> : <Sun className={menuIconClass} />}
               <span className="flex-1 truncate">{t('ui.profileMenu.theme', 'Theme')}</span>
             </span>
-            <Switch
-              checked={isDark}
-              onCheckedChange={handleThemeToggle}
-              aria-label={t('ui.profileMenu.theme', 'Theme')}
-              onClick={(e) => e.stopPropagation()}
-            />
+            {/* The row is the control. The switch only draws its state: it is
+                inert and hidden from assistive technology, so it cannot take
+                focus or clicks and the row stays one target, not two. The
+                negative tabindex and pointer-events cover React 18 hosts,
+                which drop the inert prop. */}
+            <span inert aria-hidden="true" className="pointer-events-none inline-flex">
+              <Switch checked={isDark} tabIndex={-1} />
+            </span>
           </div>
         )
       }

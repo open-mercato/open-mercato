@@ -18,8 +18,10 @@ jest.mock('../injection/useInjectedMenuItems', () => ({
   useInjectedMenuItems: () => ({ items: [], isLoading: false }),
 }))
 
+const mockSetTheme = jest.fn()
+
 jest.mock('@open-mercato/ui/theme', () => ({
-  useTheme: () => ({ theme: 'light', resolvedTheme: 'light', setTheme: jest.fn() }),
+  useTheme: () => ({ theme: 'light', resolvedTheme: 'light', setTheme: mockSetTheme }),
 }))
 
 import { ProfileDropdown } from '../ProfileDropdown'
@@ -85,7 +87,7 @@ describe('ProfileDropdown', () => {
       trigger.focus()
       fireEvent.click(trigger)
       const menu = screen.getByTestId('profile-dropdown')
-      const items = () => within(menu).getAllByRole('menuitem')
+      const items = () => Array.from(menu.querySelectorAll<HTMLElement>('[role^="menuitem"]'))
       const press = (key: string, init: { shiftKey?: boolean } = {}) =>
         fireEvent.keyDown(document.activeElement as Element, { key, ...init })
       return { trigger, menu, items, press }
@@ -161,9 +163,9 @@ describe('ProfileDropdown', () => {
       expect(document.activeElement).toBe(languageTrigger)
     })
 
-    it('does not stop on the switch nested in the theme row', () => {
+    it('does not stop on the switch drawn in the theme row', () => {
       const { menu, items, press } = openMenu()
-      const themeSwitch = within(menu).getByRole('switch')
+      const themeSwitch = menu.querySelector('[role="switch"]')
       const visited: Array<Element | null> = []
 
       for (let index = 0; index < items().length; index += 1) {
@@ -171,6 +173,7 @@ describe('ProfileDropdown', () => {
         press('ArrowDown')
       }
 
+      expect(themeSwitch).not.toBeNull()
       expect(visited).toEqual(items())
       expect(visited).not.toContain(themeSwitch)
     })
@@ -203,6 +206,56 @@ describe('ProfileDropdown', () => {
       expect(document.activeElement).toBe(outside)
       expect(items().length).toBeGreaterThan(0)
       outside.remove()
+    })
+  })
+
+  // The theme row used to be a menu item with a focusable switch inside it: two
+  // overlapping targets for one action, the inner one 32x20 px.
+  describe('theme row', () => {
+    function openMenu() {
+      mockSetTheme.mockClear()
+      renderWithProviders(<ProfileDropdown email="user@example.com" />)
+      fireEvent.click(screen.getByTestId('profile-dropdown-trigger'))
+      const menu = screen.getByTestId('profile-dropdown')
+      return { menu, row: within(menu).getByRole('menuitemcheckbox', { name: 'Theme' }) }
+    }
+
+    it('is one checkbox menu item that reports the current theme', () => {
+      const { menu, row } = openMenu()
+
+      expect(row).toHaveAttribute('aria-checked', 'false')
+      expect(within(menu).queryByRole('switch')).toBeNull()
+      expect(row.querySelectorAll('button:not([tabindex="-1"]), a[href], [tabindex="0"]')).toHaveLength(0)
+    })
+
+    // A negative tabindex still leaves the switch focusable by script or
+    // pointer, which is why axe reports the row as nested-interactive.
+    it('keeps the drawn switch inert so the row has no focusable descendant', () => {
+      const { menu, row } = openMenu()
+      const drawnSwitch = menu.querySelector('[role="switch"]') as HTMLElement
+
+      expect(drawnSwitch.closest('[inert]')).not.toBeNull()
+      expect(row.contains(drawnSwitch.closest('[inert]'))).toBe(true)
+      expect(row).not.toHaveAttribute('inert')
+    })
+
+    it('toggles the theme with a click, Enter and Space', () => {
+      const { row } = openMenu()
+
+      fireEvent.click(row)
+      fireEvent.keyDown(row, { key: 'Enter' })
+      fireEvent.keyDown(row, { key: ' ' })
+
+      expect(mockSetTheme).toHaveBeenCalledTimes(3)
+      expect(mockSetTheme).toHaveBeenCalledWith('dark')
+    })
+
+    it('toggles once when the drawn switch itself is clicked', () => {
+      const { menu } = openMenu()
+
+      fireEvent.click(menu.querySelector('[role="switch"]') as HTMLElement)
+
+      expect(mockSetTheme).toHaveBeenCalledTimes(1)
     })
   })
 })
