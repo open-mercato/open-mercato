@@ -334,13 +334,6 @@ export async function resolveOrganizationScope({
     allowedSet = expandWithDescendants(orgDescendants, accessibleList)
   }
 
-  if (allowedSet && allowedSet.size === 0 && fallbackOrgId) {
-    const computed = loadFallbackSet()
-    if (computed && computed.size > 0) {
-      allowedSet = computed
-    }
-  }
-
   const hasUnrestrictedAccess = effectiveSuperAdmin || (accessibleList === null)
   const noOrgSelection = normalizedSelectedId === null && !explicitAllOrgsChoice
   const widenToAllOrgs =
@@ -383,7 +376,7 @@ export async function resolveOrganizationScope({
     }
   }
 
-  if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !widenToAllOrgs) {
+  if (allowedSet === null && (!filterSet || filterSet.size === 0) && fallbackOrgId && !widenToAllOrgs) {
     const computed = loadFallbackSet()
     if (computed && computed.size > 0) {
       filterSet = computed

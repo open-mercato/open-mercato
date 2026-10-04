@@ -19,12 +19,12 @@ function createMockEm(orgs: Array<{ id: string; descendantIds: string[] }>) {
   return { find } as unknown as EntityManager
 }
 
-function createMockRbac() {
+function createMockRbac(organizations: string[] | null = ['org-home']) {
   return {
     loadAcl: jest.fn().mockResolvedValue({
       isSuperAdmin: false,
       features: [],
-      organizations: ['org-home'],
+      organizations,
     }),
   } as unknown as RbacService
 }
@@ -143,6 +143,29 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     await resolveOrganizationScopeForRequest({ container, auth: auth() })
     expect(cache.set).not.toHaveBeenCalled()
     expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(2)
+  })
+
+  it.each([
+    ['uncached', '0', 2],
+    ['cached', '60000', 1],
+  ])('preserves an explicit empty ACL as deny-all on the %s path', async (_path, ttl, expectedAclCalls) => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = ttl
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac([])
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: auth() })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: auth() })
+
+    expect(first).toEqual({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: 'tenant-1',
+    })
+    expect(second).toEqual(first)
+    expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(expectedAclCalls)
   })
 
   it('invalidateOrganizationScopeCacheForTenant drops entries tagged for that tenant', async () => {
