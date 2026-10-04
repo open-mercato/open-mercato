@@ -168,13 +168,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Redo data unavailable for this action' }, { status: 400 })
     }
     const commandInput = resolvedInput
-    const { logEntry } = await commandBus.execute(log.commandId, {
+    const { logEntry, replaySourceFinalized } = await commandBus.execute(log.commandId, {
       input: commandInput,
       ctx,
       metadata,
       redoLogEntry: log,
     })
-    await logs.markRedone(log.id)
+    if (replaySourceFinalized !== true) await logs.markRedone(log.id)
     const actionLog = asActionLog(logEntry)
     const response = NextResponse.json({
       ok: true,

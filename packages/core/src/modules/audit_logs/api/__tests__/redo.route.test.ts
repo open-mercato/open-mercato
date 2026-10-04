@@ -174,6 +174,68 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
     expect(mockLogs.markRedone).toHaveBeenCalledWith('log-undo')
   })
 
+  it('skips legacy source finalization when atomic replay already finalized it', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const log = {
+      id: 'log-atomic',
+      commandId: 'demo.command',
+      executionState: 'undone',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      commandPayload: { __redoInput: { foo: 'bar' } },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+    mockLogs.markRedone.mockRejectedValue(new Error('legacy finalization must not run'))
+    mockCommandBus.execute.mockResolvedValue({
+      logEntry: null,
+      replaySourceFinalized: true,
+    })
+
+    const res = await POST(makeRequest({ logId: log.id }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ ok: true, logId: null, undoToken: null })
+    expect(mockLogs.markRedone).not.toHaveBeenCalled()
+  })
+
+  it('keeps legacy source finalization when atomic replay did not finalize it', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const log = {
+      id: 'log-legacy',
+      commandId: 'demo.command',
+      executionState: 'undone',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      commandPayload: { __redoInput: {} },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+    mockCommandBus.execute.mockResolvedValue({
+      logEntry: null,
+      replaySourceFinalized: false,
+    })
+
+    const res = await POST(makeRequest({ logId: log.id }))
+
+    expect(res.status).toBe(200)
+    expect(mockLogs.markRedone).toHaveBeenCalledWith(log.id)
+  })
+
   it('allows an API key with only redo_self to replay its canonical action log', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const keyId = '22222222-2222-4222-8222-222222222222'

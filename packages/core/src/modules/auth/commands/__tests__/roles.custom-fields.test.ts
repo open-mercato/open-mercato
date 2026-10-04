@@ -223,6 +223,7 @@ function makeExecuteCtx(dataEngine: object, em: object): CommandRuntimeContext {
   if (typeof transactionEm.commit !== 'function') transactionEm.commit = jest.fn(async () => undefined)
   if (typeof transactionEm.rollback !== 'function') transactionEm.rollback = jest.fn(async () => undefined)
   if (typeof transactionEm.flush !== 'function') transactionEm.flush = jest.fn(async () => undefined)
+  if (typeof transactionEm.find !== 'function') transactionEm.find = jest.fn(async () => [])
   const container = {
     resolve: (token: string) => {
       switch (token) {
