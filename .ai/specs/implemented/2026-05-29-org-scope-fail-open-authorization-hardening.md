@@ -227,7 +227,7 @@ None. (Q3-a: no feature flag; ship fail-closed.)
 4. Document the query-index status route's new `403` response and cover the channel read/mutation, cache-upgrade, and OpenAPI contracts with regressions.
 
 ### Phase 5: Repository-wide single-organization fallback closure
-1. Add the additive `resolveSingleOrganizationIdOrDeny(scope, auth)` selector in `directory/utils/organizationScopeFilter.ts`.
+1. Add the additive, type-decoupled `resolveSingleOrganizationIdOrDeny(scope, auth)` selector in `@open-mercato/shared/lib/auth/organizationScope`; preserve the existing core import path through a re-export from `directory/utils/organizationScopeFilter.ts`.
 2. Check explicit finite emptiness before selection: `filterIds: []` **or** `allowedIds: []` throws the standard `forbidden()` `CrudHttpError`; no `auth.orgId` fallback is evaluated.
 3. Otherwise preserve existing order: a concrete `selectedId` wins, then `auth.orgId`, then `null`. Thus `filterIds: null` / `allowedIds: null` unrestricted scope and a genuinely absent scope preserve their previous home-organization fallback.
 4. Replace every audited production raw single-organization fallback with the selector. The selector throws synchronously, so all migrated call sites deny before their subsequent ORM, query-engine, service, command, or external call.
@@ -235,18 +235,23 @@ None. (Q3-a: no feature flag; ship fail-closed.)
 
 ### Phase 5 audit inventory (2026-10-04)
 
-The alias-aware production sweep covered `packages/core`, `packages/enterprise`, `packages/channel-*`, and `apps/mercato`, excluding tests. It found 170 candidate expressions. Four are safe-by-construction framework/pre-resolution cases and remain unchanged; the other 166 raw fallbacks were migrated. The review reported 138 files; the reproducible current-tree sweep finds those package files plus one audited `apps/mercato` example module, for 139 migrated files total.
+The final alias-aware production sweep covered every `packages/*` workspace, `apps/mercato`, and `packages/create-app/template`, excluding tests and the separately owned `packages/core/src/modules/progress`. `external/official-modules` was absent in the audited checkout. Multiline expressions and aliases returned by `resolveFeatureCheckContext` were included. It found 175 raw candidates: four are safe-by-construction framework/pre-resolution cases and remain unchanged; the other 171 were migrated. The migrated raw sites occupy 144 production files. The selector has 171 production call sites because the separately classified sales document-history closure also delegates to it.
 
 | Classification | Sites | Evidence |
 |---|---:|---|
-| Migrated to `resolveSingleOrganizationIdOrDeny` | 166 | Zero raw production fallback matches remain outside the four classified exceptions |
+| Migrated to `resolveSingleOrganizationIdOrDeny` | 170 | Includes the template mirror, webhooks, and the two aliased audit-log feature-context fallbacks |
+| Migrated structurally in shared CRUD context assembly | 1 | Home fallback is reachable only when no resolved scope exists; explicit empty remains `organizationIds: []` and short-circuits before data services |
 | Safe by construction, unchanged | 4 | Central resolver degraded-mode fallback; already deny-aware filter helper; fresh-ACL pre-resolution input; definition-scope input type that has no `filterIds`/`allowedIds` |
 | Additional non-raw leak fixed | 1 | Sales document history now denies before `ActionLogService.list`, so `organizationId: undefined` remains exclusive to unrestricted scope |
 
 | Migrated area | Sites |
 |---|---:|
 | `apps/mercato` | 1 |
+| `packages/create-app/template` | 1 |
+| `shared/crud` | 1 |
+| `webhooks` | 1 |
 | `core/attachments` | 1 |
+| `core/audit_logs` | 2 |
 | `core/configs` | 1 |
 | `core/customers` | 41 |
 | `core/devices` | 4 |
@@ -264,7 +269,21 @@ The alias-aware production sweep covered `packages/core`, `packages/enterprise`,
 | `core/wms` | 4 |
 | `core/workflows` | 32 |
 | `enterprise/agent_orchestrator` | 1 |
-| **Total migrated** | **166** |
+| **Total migrated** | **171** |
+
+Package-level reconciliation (raw candidates only):
+
+| Package/area | Candidates | Migrated | Safe by construction |
+|---|---:|---:|---:|
+| `apps/mercato` | 1 | 1 | 0 |
+| `packages/core` | 170 | 166 | 4 |
+| `packages/create-app/template` | 1 | 1 | 0 |
+| `packages/enterprise` | 1 | 1 | 0 |
+| `packages/shared` | 1 | 1 | 0 |
+| `packages/webhooks` | 1 | 1 | 0 |
+| Other `packages/*` workspaces | 0 | 0 | 0 |
+| `external/official-modules` | 0 | 0 | 0 |
+| **Total** | **175** | **171** | **4** |
 
 The four unchanged candidates are:
 
@@ -272,6 +291,8 @@ The four unchanged candidates are:
 - `directory/utils/organizationScopeFilter.ts`: its existing `rbacOrganizationId` expression is explicitly guarded by `isExplicitlyEmpty` and returns `null`, not `auth.orgId`, for `[]`.
 - `directory/services/organizationScopeService.ts`: `resolveFresh` uses request `selectedId` to load the ACL before constructing an `OrganizationScope`; it cannot receive resolved `filterIds`/`allowedIds`.
 - `entities/lib/definition-scope.ts`: the helper's public input is intentionally only `{ tenantId?, selectedId? }`; it cannot carry explicit finite scope arrays.
+
+The shared CRUD context builder is no longer an exception: its conditional now uses the home organization only in the `!scope` branch. A resolved scope with empty `filterIds`/`allowedIds` produces `organizationIds: []`; list returns an empty page and mutation routes return `403` before query/data-engine calls. Audit-log undo/redo likewise resolve the aliased feature-check scope through the shared selector before RBAC or action-log reads. Webhooks imports the same shared selector directly, avoiding a new dependency on core's filter helper while core retains its stable re-export path.
 
 The excluded `progress` module contains no raw selected-ID fallback from this inventory. Its jobs/active APIs do contain direct `auth.orgId` scoping and are owned by the separate progress hardening task; no progress file was edited here.
 
@@ -379,7 +400,7 @@ None.
 | Phase 2 — Read-path guard + migration (#2245 + audit) | Done | 2026-05-29 | `isOrganizationReadAccessAllowed` predicate; all 10 fail-open guards migrated incl. `entity-roles-factory`; 6 guard unit tests green; core builds + typechecks |
 | Phase 3 — Integration coverage + verification | Partial | 2026-05-29 | Unit coverage complete & green. Fixture infra + `TC-CRM-072.spec.ts` written. Behavioral security change documented in Migration & Compatibility; `CHANGELOG.md` is release-tooling-managed so no manual mid-cycle entry. **Integration spec written but NOT yet validated in a coherent env** — see note below |
 | Phase 4 — Empty-scope propagation and cache namespace | Done | 2026-10-04 | Audited direct consumers now preserve deny-all, all six channel/Discord consumers share the no-row predicate, legacy cache keys are unreachable, and query-index documents `403` |
-| Phase 5 — Repository-wide raw fallback closure | Done | 2026-10-04 | Audited 170 candidates: 166 migrated, 4 safe-by-construction; fixed the additional document-history omission and added no-data regressions for all five confirmed paths |
+| Phase 5 — Repository-wide raw fallback closure | Done | 2026-10-04 | Full workspace/template audit found 175 raw candidates: 171 migrated, 4 safe-by-construction; fixed the additional document-history omission and added no-data regressions for webhooks, shared CRUD, audit undo/redo, and the five earlier confirmed paths |
 
 ### Phase 3 — integration test status
 Built reusable fixture infrastructure:
@@ -404,6 +425,7 @@ Built reusable fixture infrastructure:
 ### 2026-10-04
 - Completed the GHSA follow-up audit: preserved explicit empty scopes across direct query consumers, made channel/Discord reads and the AI auto-reply mutation no-row-safe, bumped the organization-scope cache namespace to `org-scope:v2:`, and documented query-index status `403` responses.
 - Closed the repository-wide single-organization fallback class with `resolveSingleOrganizationIdOrDeny`: 166 raw production sites migrated, four pre-resolution/framework candidates documented safe, sales document history guarded before `ActionLogService.list`, and WMS/EUDR/branding/attachments/document-history regressions prove explicit empty scope makes no data call.
+- Finalized the full-workspace/template audit: moved the deny-aware selector to shared with a core compatibility re-export, mirrored the example sync route, closed webhooks plus aliased audit undo/redo fallbacks, prevented shared CRUD context widening, and reconciled the inventory to 175 raw candidates (171 migrated, four safe).
 
 ### 2026-05-29
 - Initial specification (post Open-Questions gate: Q1-b full audit, Q2-b WHERE-scoping deferred, Q3-a ship fail-closed, Q4-a single PR closing #2239 + #2245).

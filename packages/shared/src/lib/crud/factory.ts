@@ -1523,7 +1523,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           orgId: scopedOrgId ?? null,
         }
       : null
-    const fallbackOrgId = scopedOrgId ?? rawAuth?.orgId ?? null
+    const fallbackOrgId = scope ? scopedOrgId : (rawAuth?.orgId ?? null)
     const rawScopeIds = scope?.filterIds
     const scopedIds = Array.isArray(rawScopeIds) ? rawScopeIds.filter((id): id is string => typeof id === 'string' && id.length > 0) : null
     if (!scope) {
@@ -1537,7 +1537,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       let canUseFallback = false
       if (allowedIds === null) {
         canUseFallback = true
-      } else if (allowedIds.includes(fallbackOrgId) || allowedIds.length === 0) {
+      } else if (allowedIds.includes(fallbackOrgId)) {
         canUseFallback = true
       }
       if (canUseFallback) {

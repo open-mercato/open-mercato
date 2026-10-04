@@ -1,8 +1,20 @@
+import { forbidden } from '../crud/errors'
+
 type OrganizationScopedAuth = {
   orgId?: string | null
   actorOrgId?: unknown
   tenantId?: string | null
   actorTenantId?: unknown
+} | null | undefined
+
+type FiniteOrganizationScope = {
+  selectedId?: string | null
+  filterIds?: readonly string[] | null
+  allowedIds?: readonly string[] | null
+} | null | undefined
+
+type OrganizationHomeAuth = {
+  orgId?: string | null
 } | null | undefined
 
 function normalizeId(value: unknown): string | null {
@@ -45,6 +57,20 @@ export function resolveActiveOrganizationId(auth: OrganizationScopedAuth): strin
     if (!actorTenantId || actorTenantId !== effectiveTenantId) return null
   }
   return actorOrgId
+}
+
+export function resolveSingleOrganizationIdOrDeny(
+  scope: FiniteOrganizationScope,
+  auth: OrganizationHomeAuth,
+): string | null {
+  if (scope && (
+    (Array.isArray(scope.filterIds) && scope.filterIds.length === 0)
+    || (Array.isArray(scope.allowedIds) && scope.allowedIds.length === 0)
+  )) {
+    throw forbidden()
+  }
+  if (scope?.selectedId) return scope.selectedId
+  return auth?.orgId ?? null
 }
 
 export const ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE = 'organization_scope_required'

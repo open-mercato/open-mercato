@@ -74,6 +74,26 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
     expect(res.status).toBe(400)
   })
 
+  it('denies an explicit empty organization scope before RBAC or action-log access', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-home',
+    })
+    ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+      organizationId: null,
+      scope: { selectedId: null, filterIds: [], allowedIds: [], tenantId: 'tenant-1' },
+    })
+
+    const res = await POST(makeRequest({ undoToken: 'token-1' }))
+    expect(res.status).toBe(403)
+    expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
+    expect(mockLogs.findByUndoToken).not.toHaveBeenCalled()
+    expect(mockCommandBus.undo).not.toHaveBeenCalled()
+  })
+
   it('undoes latest action and returns ok', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({

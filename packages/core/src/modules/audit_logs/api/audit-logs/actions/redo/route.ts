@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -57,7 +58,14 @@ export async function POST(req: Request) {
     rbac = null
   }
 
-  const { organizationId } = await resolveFeatureCheckContext({ container, auth, request: req })
+  const { organizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  let singleOrganizationId: string | null
+  try {
+    singleOrganizationId = organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const canRedoTenant = rbac
     ? await rbac.userHasAllFeatures(auth.sub, ['audit_logs.redo_tenant'], {
@@ -66,7 +74,7 @@ export async function POST(req: Request) {
       })
     : false
 
-  const scopedOrgId = canRedoTenant ? organizationId ?? null : organizationId ?? auth.orgId ?? null
+  const scopedOrgId = canRedoTenant ? organizationId ?? null : singleOrganizationId
   const log = await logs.findById(logId)
 
   if (!log || log.executionState !== 'undone') {

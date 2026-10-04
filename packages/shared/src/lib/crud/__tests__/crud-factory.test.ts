@@ -1253,6 +1253,34 @@ describe('CRUD Factory', () => {
     }))
   })
 
+  it('does not call data services when the resolved organization scope is explicitly empty', async () => {
+    mockOrganizationScopeOverride = {
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: defaultTenantId,
+    }
+
+    const listResponse = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+    expect(listResponse.status).toBe(200)
+    await expect(listResponse.json()).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 10,
+      totalPages: 0,
+    })
+    expect(queryEngine.query).not.toHaveBeenCalled()
+
+    const createResponse = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Blocked' }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(createResponse.status).toBe(403)
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
   it('PUT mutation guard uses route resource identity instead of spoofed lock headers', async () => {
     crudMutationGuardService = {
       validateMutation: jest.fn().mockResolvedValue({
