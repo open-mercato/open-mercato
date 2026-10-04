@@ -12,6 +12,12 @@ import {
   createPagedListResponseSchema,
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { buildProgressOrganizationFilter } from '../../lib/organizationScope'
+import {
+  hasReadableProgressScope,
+  hasWritableProgressScope,
+  resolveProgressRequestScope,
+} from '../requestScope'
 
 const logger = createLogger('progress').child({ component: 'jobs' })
 
@@ -87,14 +93,16 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-
+  const scope = await resolveProgressRequestScope(container, auth, req)
   const { status, jobType, parentJobId, includeCompleted, completedSince, page, pageSize, search, sortField, sortDir } = parsed.data
-  const filter: FilterQuery<ProgressJob> = {
-    tenantId: auth.tenantId,
+
+  if (!hasReadableProgressScope(scope)) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
   }
 
-  if (auth.orgId) {
-    filter.organizationId = auth.orgId
+  const filter: Record<string, unknown> = {
+    tenantId: scope.tenantId,
+    ...buildProgressOrganizationFilter({ organizationIds: scope.filterIds }),
   }
 
   if (status) {
@@ -129,7 +137,7 @@ export async function GET(req: Request) {
     orderBy.createdAt = 'DESC'
   }
 
-  const [rows, total] = await em.findAndCount(ProgressJob, filter, {
+  const [rows, total] = await em.findAndCount(ProgressJob, filter as FilterQuery<ProgressJob>, {
     orderBy,
     limit: pageSize,
     offset: (page - 1) * pageSize,
@@ -155,10 +163,16 @@ export async function POST(req: Request) {
 
     const container = await createRequestContainer()
     const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
+    const scope = await resolveProgressRequestScope(container, auth, req)
+    const hasConcreteCreateTarget = scope.selectedId !== null || scope.filterIds === null
+    if (!hasWritableProgressScope(scope) || !hasConcreteCreateTarget) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const job = await progressService.createJob(parsed.data, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      tenantId: scope.tenantId,
+      organizationId: scope.selectedId,
+      organizationIds: scope.filterIds,
       userId: auth.sub,
     })
 
