@@ -136,18 +136,23 @@ document-generators: TemplateRegistry
 
 ```
 packages/shared/src/modules/
+├── document-generators.ts             # Barrel: BaseDocumentService, contract types, DEFAULT_TEMPLATE_VERSION, utils
 └── document-generators/
-    ├── index.ts
-    ├── lib/interfaces.ts
-    └── services/
-        ├── base-document-service.ts
+    ├── base-document-service.ts
+    ├── types.ts
+    └── utils/                         # Stateless declaration/normalization helpers, safe to import on the client
         ├── index.ts
-        └── types.ts
+        ├── values.ts                  # toText, firstText, toNumber, toIso
+        ├── snapshot.ts                # SnapshotRecord, toSnapshotRecord (plain JSON parsing, no encryption import)
+        ├── labels.ts                  # buildLabels(keys, defaults, translationPrefix, translate)
+        ├── status.ts                  # isDraftStatus(status, draftStatuses)
+        └── filename.ts                # buildDocumentFilename, sanitizeDocumentFilename
 
 packages/core/src/modules/sales/
 ├── document-generators.ts
 ├── document-generators/
 │   ├── services/{orders-document-service,quotes-document-service}/
+│   ├── utils/{client,status}.ts       # resolveClientName/Address, isDraftDocumentStatus (Sales draft statuses)
 │   └── templates/{orders,quotes}/...
 ├── widgets/injection/{document-generators-order-tab,document-generators-quote-tab}/
 ├── widgets/injection-table.ts
@@ -160,7 +165,9 @@ packages/document-generators/
     ├── lib/
     │   ├── interfaces.ts            # renderer, loaded-template, UI filter and registry runtime types
     │   ├── template-access-policy.ts # per-template requiredFeatures checks + catalogue filtering
-    │   └── template-registry.ts     # register/list/load module templates
+    │   ├── template-errors.ts       # UnknownTemplateError, UnknownTemplateVersionError, DuplicateTemplateError, TemplateAccessDeniedError
+    │   ├── template-registry.ts     # register/list/load module templates
+    │   └── template-versions.ts     # current/archived version resolution and validation
     ├── data/
     │   ├── entities.ts              # GeneratedDocument history entity
     │   └── validators.ts            # API schemas
@@ -195,10 +202,9 @@ packages/document-generators/
     │   ├── index.ts                 # Stable export surface — a package export path, so files can be renamed freely
     │   ├── downloadBlob.ts          # downloadBlob + revokeObjectUrlAfterNavigation
     │   ├── escape.ts                # escapeInline / escapeTableCell — Markdown escaping for template authors
-    │   ├── filename.ts              # buildDocumentFilename(data, prefix, extension)
     │   ├── formatDate.ts            # locale-aware, explicit UTC
     │   ├── formatMoney.ts           # Intl.NumberFormat with currency placement
-    │   ├── getFilenameFromResponse.ts # reads Content-Disposition on the client
+    │   ├── getFilenameFromResponse.ts # reads Content-Disposition on the client (sanitizer from shared utils/filename)
     │   ├── resolveErrorMessage.ts   # maps a failed render response to user-facing copy
     │   └── groupTemplatesByModule.ts # backend-catalogue only; deliberately outside the barrel
     ├── generators.ts                # GeneratorPlugin for document_generators.templates (code-gen)
@@ -242,8 +248,10 @@ interface TemplateRegistry {
   load({ id, data }, { container, auth, locale, translate }): Promise<LoadedTemplate> // fetchData → load source → normalize → derive metadata
 }
 
-// Named failures the routes map to HTTP status codes
+// Named failures the routes map to HTTP status codes — all live in lib/template-errors.ts,
+// together with TemplateAccessDeniedError (see "Template Access Policy")
 class UnknownTemplateError extends Error {}   // thrown by getTemplateMetadata/load → 400 unknown_template
+class UnknownTemplateVersionError extends Error {} // thrown by load (via lib/template-versions.ts) → 400 unknown_template_version
 class DuplicateTemplateError extends Error {} // thrown by register; message names both the already-registered
                                               // module and the incoming one, and points authors at namespacing
 ```
@@ -463,7 +471,7 @@ export class QuotesDocumentService extends BaseDocumentService {
 
 Because `resourceId` / `resourceLabel` / `fetchData` / `toTemplateData` live on the service while `filename` / `load` live on the entry, `getEntries()` is what merges the two halves into the flat `TemplateEntry` the registry stores — service-level identity and normalization bound to each per-template descriptor.
 
-`formatDate(iso, locale)`, `formatMoney(amount, currency, locale)`, and `buildDocumentFilename(data, prefix, extension)` remain standalone engine utilities, consumed — like `escapeInline` / `escapeTableCell` — from the stable `@open-mercato/document-generators/modules/document_generators/utils` barrel rather than from implementation filenames, so the engine can rename internals without a cross-module import migration. Dates use the locale's natural convention with an explicit UTC time zone; money uses `Intl.NumberFormat` for locale-correct separators, symbols, and currency placement; filenames use normalized `data.document.number` and fall back to `{prefix}.{extension}`. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Built-in template `label` and `description` values are standard dictionary keys resolved by the registry for the templates endpoint and generation history; literal values from external templates remain valid through translator fallback. User-facing route errors return stable codes plus translated messages, while structured server log messages remain stable English operator diagnostics. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
+Helpers split by when they run. Declaration and normalization helpers — `buildDocumentFilename(data, prefix, extension)` / `sanitizeDocumentFilename`, `toText` / `firstText` / `toNumber` / `toIso`, `toSnapshotRecord`, `buildLabels` and `isDraftStatus` — run inside the service (`filename`, `fetchData`, `toTemplateData`) whether or not the engine is enabled, so they live in `@open-mercato/shared/modules/document-generators` (re-exported from its barrel) and a domain module never imports the optional engine package at declaration time (Design Decisions: neutral contracts in shared). Domain-specific normalization stays with its owner, e.g. Sales' `document-generators/utils/{client,status}.ts`. Template-authoring helpers — `formatDate(iso, locale)`, `formatMoney(amount, currency, locale)`, `escapeInline` / `escapeTableCell` — run only inside templates loaded lazily through `load()`, i.e. only when the engine renders, so they stay in the stable `@open-mercato/document-generators/modules/document_generators/utils` barrel rather than implementation filenames, letting the engine rename internals without a cross-module import migration. Dates use the locale's natural convention with an explicit UTC time zone; money uses `Intl.NumberFormat` for locale-correct separators, symbols, and currency placement; filenames use normalized `data.document.number` and fall back to `{prefix}.{extension}`. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Built-in template `label` and `description` values are standard dictionary keys resolved by the registry for the templates endpoint and generation history; literal values from external templates remain valid through translator fallback. User-facing route errors return stable codes plus translated messages, while structured server log messages remain stable English operator diagnostics. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
 
 ### Persisted History Entity
 
@@ -672,7 +680,7 @@ Access is checked three times, by three different mechanisms, and each layer ans
 
 | Layer | Where | Enforces |
 |---|---|---|
-| Widget metadata | Owning module's `widgets/injection/<name>/widget.ts` — e.g. `features: ['document_generators.documents.view', 'sales.orders.view']` | Whether the tab renders at all; keeps a user without access from seeing an empty panel |
+| Widget metadata | Owning module's `widgets/injection/<name>/widget.ts` — e.g. `features: ['document_generators.documents.view', 'sales.orders.view']` plus `requiredModules: ['document_generators']` | Whether the tab renders at all; keeps a user without access from seeing an empty panel, and hides the tab entirely when the `document_generators` module is disabled in `modules.ts` (otherwise a wildcard user would get a panel calling routes that do not exist) |
 | Route guard | `metadata.<METHOD>.requireFeatures` on each API route | Whether the endpoint may be called at all — the module-level ACL |
 | `TemplateAccessPolicy` | `lib/template-access-policy.ts`, invoked inside every route handler | Whether *this* caller may see or render *this* template, using the owning module's `requiredFeatures` |
 
@@ -901,7 +909,7 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 4. `components/Preview.tsx` — iframe rendering a blob URL
 5. `components/Loader.tsx` — spinner
 6. `utils/downloadBlob.ts` — triggers browser file download
-7. Sales-owned `widgets/injection/document-generators-quote-tab/` — a thin adapter passing `record={{ id: record.id }}` and `filter={{ resourceKind: ctx.resourceKind }}`, both taken from the injection context; its `widget.ts` metadata declares `features: ['document_generators.documents.view', 'sales.quotes.view']`
+7. Sales-owned `widgets/injection/document-generators-quote-tab/` — a thin adapter passing `record={{ id: record.id }}` and `filter={{ resourceKind: ctx.resourceKind }}`, both taken from the injection context; its `widget.ts` metadata declares `features: ['document_generators.documents.view', 'sales.quotes.view']` and `requiredModules: ['document_generators']`, so the tab disappears when the engine module is disabled
 8. Sales-owned `widgets/injection-table.ts` adds this widget as an entry on the `sales.document.detail.quote:tabs` spot
 
 ### Phase 4.5 — External Template Code-Gen (Planned)
@@ -915,7 +923,7 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 1. Sales-owned `OrdersDocumentService` (`resourceKind: 'sales.order'`) with local validation
 2. Sales-owned `document-generators/templates/orders/order-invoice/` with PDF and Markdown implementations
 3. `sales/document-generators.ts` exports order and quote entries to the generated registry
-4. Sales-owned `widgets/injection/document-generators-order-tab/` filters by `sales.order`
+4. Sales-owned `widgets/injection/document-generators-order-tab/` filters by `sales.order` and, like the quote tab, declares `requiredModules: ['document_generators']`
 5. `sales/widgets/injection-table.ts` adds this widget as a second entry on the `sales.document.detail.order:tabs` spot, alongside the existing `sales.injection.document-history` entry
 6. Complete working invoice example for external template authors (`document-generators.ts`, service, template, widget, injection-table) lives under `apps/docs/static/examples/document-generators/` and is described in the Document Generators docs section
 
@@ -934,7 +942,7 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 Templates may load records owned by another module, so the engine ACL alone is not a sufficient authorization boundary. This phase adds the owning-module permission check as one component rather than repeating it per route.
 
 1. Optional `requiredFeatures?: string[]` on `TemplateMeta` and `DocumentTemplateEntry`; Sales order templates declare `sales.orders.view`, quote templates declare `sales.quotes.view`
-2. `lib/template-access-policy.ts` carrying `TemplateAccessPolicy`, the structural `TemplateFeatureAuthorizer` type, and `TemplateAccessDeniedError` — see "Template Access Policy" under Data Contracts for the full behavioral contract
+2. `lib/template-access-policy.ts` carrying `TemplateAccessPolicy` and the structural `TemplateFeatureAuthorizer` type, with `TemplateAccessDeniedError` in `lib/template-errors.ts` next to the other named template failures — see "Template Access Policy" under Data Contracts for the full behavioral contract
 3. Policy construction from `container.resolve('rbacService')` plus the request `auth` in the four template-facing routes (`/templates`, `/templates/options`, `/preview`, `/generate`; `/documents` reads history rows, not templates, and needs no policy): read endpoints filter, render endpoints call `requireAccess` and map `TemplateAccessDeniedError` to a `403` `forbidden` body carrying `requiredFeatures`
 4. Engine ACL IDs `document_generators.documents.view` / `document_generators.documents.generate` following the repo's `<module>.<resource>.<action>` convention, with the route guards split so only `/generate` requires the write-shaped feature
 
@@ -1259,3 +1267,4 @@ Still pending:
 | 2026-08-17 | Claude | Applied the three findings from the re-run `om-pre-implement-spec` audit (`.ai/specs/analysis/ANALYSIS-2026-08-10-document-generators.md`): `/generate`'s "Mutation guards" paragraph now explicitly excludes `sales/api/quotes/send/route.ts`'s `afterSuccessCallbacks` loop from the "follow this reference" instruction, since that loop has no per-callback try/catch and could turn a successful render into a client-facing `500` — points implementers to `packages/shared/src/lib/crud/factory.ts`'s try/catch-and-log version instead; the Encryption section now states `document_generators/encryption.ts` must participate in fail-closed bootstrap discovery, per `.ai/lessons/system-encryption-map-discovery-must-fail-closed.md`; and `/generate`'s contract now states best-effort persistence covers an absent history row only, never one written with an unencrypted `resource_label`, per `.ai/lessons/keep-fallible-document-preparation-outside-encryption.md`. |
 | 2026-08-18 | Claude | Applied the ten findings from the 2026-08-18 `om-auto-review-pr` re-review of head `e82d52daa`. **Blocker:** `resource_label` was required to be encrypted at rest while the same column was offered as a SQL-sortable field in the `GET /documents` allowlist, the backend history table and Phase 6's scoped panel — `ORDER BY` over ciphertext sorts nothing a user can read. Resolved by dropping `resource_label` from the `sort` allowlist rather than adopting the bounded in-memory sort (`packages/shared/src/lib/query/encrypted-sort.ts`), whose `OM_ENCRYPTED_SORT_MAX_ROWS` cap would make `total` and page boundaries approximate for a list whose natural order is `generated_at DESC`; the decision, its rationale and the escape hatch if the requirement returns are recorded in Data Contracts → Encryption and as a Design Decisions row, and the Resource column now sets `enableSorting: false` on both history surfaces. **Majors:** Phase 5's read path now specifies `findAndCountWithDecryption` instead of raw `em.findAndCount`, which would have rendered ciphertext into the history table; "Migration & Backward Compatibility" was rewritten for a from-scratch build — it prescribed deprecation re-exports for root exports that never shipped, so it now states that no released surface exists, keeps the closed branch's decisions as target contracts, and lists what becomes a frozen contract surface at first merge instead; `GET /documents`'s error envelope is specified as `400 invalid_query` with a translated message rather than recorded as a "known inconsistency" the client cannot branch on; and the stale `document-generators-decoupling.test.ts` reference now points at the real `packages/core/src/__tests__/module-decoupling.test.ts`. **Minors:** converted Phase 4.7 and 4.8's step lists from past-tense completed-work prose to the noun form every other phase uses; brought the TLDR scope list and Proposed Solution up to the five-route reality (`/templates/options` and `/preview` were missing); recorded the Email-delivery and auto-generation-trigger descoping as an explicit product decision with its provenance rather than as spec hygiene, per @kriss145's 2026-08-17 ask; made `listTemplateFilterOptions`' `templates` parameter **required** so a caller can no longer derive facets from the entire catalogue and silently disclose templates the user cannot see, with `TC-DOCUMENT-020` asserting the same guarantee behaviorally; and added a fifth "Out of scope" bullet distinguishing aggregate documents (one document about N records — an identity problem) from the already-parked bulk generation (N documents — a throughput problem), enumerating the seven places the 1:1 assumption is load-bearing, per @kriss145's 2026-08-17 follow-up. **Nits:** corrected "expression index" to composite b-tree index with a descending trailing column, and flagged `GenerationHistoryService`'s deliberate non-DI construction as requiring explicit sign-off at code-review time, closing the last open item from the `om-pre-implement-spec` audit. Added `TC-DOCUMENT-020` and `TC-DOCUMENT-021` to the required integration coverage. |
 | 2026-10-03 | Claude | Recorded the implementation on PR #6892 (branch `feat/document-generators-v2`) and replaced the Not Started status with per-phase implementation status plus an explicit list of what is unverified. Decisions: public URLs are `/api/document-generators/*` via route `metadata.path`; Sales scoping uses a selected-organization scope service; generated files go to the `privateAttachments` partition and are served only through the engine download route; retention follows the source record through the standard `<resourceKind>.deleted` event (files removed, history anonymized); templates are versioned through `version`/`archivedVersions` with `template_version` recorded in history; a document is a draft when the source status says so and is stamped with the translated `DraftWatermark`. Added the template author guide and a working invoice example module. |
+| 2026-10-04 | Claude | Synchronized the spec with the PR #6892 follow-up refactor. **Helper placement:** declaration and normalization helpers (`buildDocumentFilename` / `sanitizeDocumentFilename`, `toText` / `firstText` / `toNumber` / `toIso`, `toSnapshotRecord`, `buildLabels`, `isDraftStatus`) moved to `@open-mercato/shared/modules/document-generators/utils` and are re-exported from the shared barrel, resolving a conflict between the Design Decisions row (*domain modules declare entries without importing the optional runtime package*) and Document Services, which still routed `buildDocumentFilename` through the engine `utils` barrel; template-authoring helpers (`formatDate`, `formatMoney`, `escape*`) stay in the engine barrel because they run only inside lazily loaded templates. `toSnapshotRecord` parses JSON itself instead of importing the server-only encryption service, which keeps the barrel client-safe. Sales-specific normalization lives in `sales/document-generators/utils/{client,status}.ts`. **Engine structure:** the named failures (`UnknownTemplateError`, `UnknownTemplateVersionError`, `DuplicateTemplateError`, `TemplateAccessDeniedError`) moved to `lib/template-errors.ts` and version resolution to `lib/template-versions.ts`; the registry contract is unchanged. **Behaviour:** the Sales order and quote Documents tab widgets declare `requiredModules: ['document_generators']`, so disabling the module hides the tabs instead of rendering a panel whose routes do not exist. Also corrected the shared module tree, which still showed `index.ts` / `lib/` / `services/` instead of the `document-generators.ts` barrel, `base-document-service.ts`, `types.ts` and `utils/`. |
