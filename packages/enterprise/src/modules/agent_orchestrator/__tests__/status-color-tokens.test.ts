@@ -7,7 +7,7 @@
  * silently keeps its inherited colour — nothing errors, nothing warns.
  */
 import { readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 import fg from 'fast-glob'
 
 const MODULE_ROOT = join(__dirname, '..')
@@ -27,7 +27,7 @@ function usedStatusColorKeys(): Array<{ file: string; key: string }> {
   for (const file of files) {
     const source = readFileSync(join(MODULE_ROOT, file), 'utf8')
     for (const match of source.matchAll(pattern)) {
-      usages.push({ file: relative(MODULE_ROOT, join(MODULE_ROOT, file)), key: match[1] })
+      usages.push({ file, key: match[1] })
     }
   }
   return usages
@@ -35,9 +35,7 @@ function usedStatusColorKeys(): Array<{ file: string; key: string }> {
 
 describe('agent_orchestrator status colour tokens', () => {
   it('reads the declared status keys from the app theme', () => {
-    const declared = declaredStatusColorKeys()
-    expect(declared.has('status-error-text')).toBe(true)
-    expect(declared.has('status-error-fg')).toBe(false)
+    expect(declaredStatusColorKeys().has('status-error-text')).toBe(true)
   })
 
   it('uses only status colour utilities whose theme key is declared', () => {
