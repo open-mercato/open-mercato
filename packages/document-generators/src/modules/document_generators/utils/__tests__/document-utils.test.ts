@@ -1,4 +1,4 @@
-import { buildDocumentFilename, escapeInline, escapeTableCell, formatDate, formatMoney, getFilenameFromResponse, resolveErrorMessage } from '..'
+import { escapeInline, escapeTableCell, formatDate, formatMoney, getFilenameFromResponse, resolveErrorMessage } from '..'
 
 describe('document author utilities', () => {
   it('escapes Markdown structure, links, table cells and embedded HTML from source data', () => {
@@ -19,12 +19,6 @@ describe('document author utilities', () => {
     expect(escapeInline('1. ordered')).toBe('1\\. ordered')
     expect(escapeInline('2) ordered')).toBe('2\\) ordered')
     expect(escapeInline('Main St 5, Warsaw')).toBe('Main St 5, Warsaw')
-  })
-
-  it('uses server-normalized document numbers and makes path/control characters inert', () => {
-    expect(buildDocumentFilename({ document: { number: 'FV/2026\n01' } }, 'invoice', 'pdf')).toBe('invoice-FV-2026-01.pdf')
-    expect(buildDocumentFilename({}, 'offer', 'md')).toBe('offer.md')
-    expect(() => buildDocumentFilename({}, 'offer', '../')).toThrow('extension')
   })
 
   it('formats dates in UTC and money according to the requested locale', () => {

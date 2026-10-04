@@ -1,6 +1,15 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { BaseDocumentService } from '@open-mercato/shared/modules/document-generators'
+import {
+  BaseDocumentService,
+  buildDocumentFilename,
+  buildLabels,
+  firstText,
+  toIso,
+  toNumber,
+  toSnapshotRecord,
+  toText,
+} from '@open-mercato/shared/modules/document-generators'
 import type {
   DocumentDataInput,
   DocumentFetchContext,
@@ -8,7 +17,6 @@ import type {
 } from '@open-mercato/shared/modules/document-generators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/index'
 import { SalesChannel, SalesOrder, SalesOrderLine } from '../../../data/entities'
 import {
   ORDER_INVOICE_LABEL_KEYS,
@@ -16,17 +24,8 @@ import {
   type OrderInvoiceLabels,
   type OrderInvoiceLine,
 } from '../../templates/orders/order-invoice/types'
-import {
-  buildLabels,
-  firstText,
-  resolveClientAddress,
-  resolveClientName,
-  toIso,
-  toNumber,
-  toSnapshotRecord,
-  toText,
-  isDraftDocumentStatus,
-} from '../../lib/normalization'
+import { resolveClientAddress, resolveClientName } from '../../utils/client'
+import { isDraftDocumentStatus } from '../../utils/status'
 
 const orderRequestSchema = z.object({ id: z.string().uuid() })
 

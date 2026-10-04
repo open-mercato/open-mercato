@@ -1,4 +1,4 @@
-import { sanitizeDocumentFilename } from './filename'
+import { sanitizeDocumentFilename } from '@open-mercato/shared/modules/document-generators/utils/filename'
 
 export function getFilenameFromResponse(response: Pick<Response, 'headers'>, fallback = 'document'): string {
   const disposition = response.headers.get('content-disposition') ?? ''

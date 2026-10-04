@@ -1,6 +1,5 @@
 export { downloadBlob, revokeObjectUrlAfterNavigation } from './downloadBlob'
 export { escapeInline, escapeTableCell } from './escape'
-export { buildDocumentFilename, sanitizeDocumentFilename } from './filename'
 export { formatDate } from './formatDate'
 export { formatMoney } from './formatMoney'
 export { getFilenameFromResponse } from './getFilenameFromResponse'
