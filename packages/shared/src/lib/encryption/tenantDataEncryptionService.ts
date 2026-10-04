@@ -37,24 +37,11 @@ type SqlConnection = {
   execute(sql: string, params?: readonly unknown[]): Promise<unknown>
 }
 
-type InflightMapRead = {
-  epoch: number
-  promise: Promise<EncryptionMapRecord | null>
-}
-
-const MAP_MISS_TTL_MS = 5 * 60 * 1000
 // Mirror the Vault KMS default DEK TTL so a rotated/revoked tenant key is picked
 // up by long-lived processes without a restart (#2746). The service-level cache
 // previously had no TTL and shadowed the KMS's own 15-minute expiry.
 const DEK_CACHE_TTL_MS = 15 * 60 * 1000
-// Matches the `{ ttl: 300 }` passed to the `CacheStrategy` layer for the all-organizations
-// aggregate, so a process that only ever hits its own memory entry (no shared cache configured,
-// or already warm) still picks up a runtime map edit within the same bound (#6066).
-const AGGREGATE_CACHE_TTL_MS = 300 * 1000
 const globalEncryptionMapEpochs = new Map<string, number>()
-const globalEncryptionMapCacheMutations = new Map<string, Promise<void>>()
-const globalEncryptionMapCacheMutationFailures = new Set<string>()
-
 function cacheKey(key: MapCacheKey): string {
   return [
     'encmap',
@@ -73,46 +60,6 @@ function allOrganizationsCacheKey(entityId: string, tenantId: string | null): st
 
 export function encryptionMapPolicyVersionCacheKey(entityId: string): string {
   return ['encmap-policy-version', entityId.toLowerCase()].join(':')
-}
-
-export function getEncryptionMapCacheEpoch(tag: string): number {
-  return globalEncryptionMapEpochs.get(tag) ?? 0
-}
-
-export async function waitForEncryptionMapCacheMutation(tag: string): Promise<void> {
-  try {
-    await globalEncryptionMapCacheMutations.get(tag)
-  } catch {
-    throw new Error('[internal] Encryption map cache invalidation did not complete')
-  }
-  if (globalEncryptionMapCacheMutationFailures.has(tag)) {
-    throw new Error('[internal] Encryption map cache invalidation did not complete')
-  }
-}
-
-function advanceEncryptionMapCacheEpoch(tag: string): void {
-  globalEncryptionMapEpochs.set(tag, getEncryptionMapCacheEpoch(tag) + 1)
-}
-
-async function queueEncryptionMapCacheMutation(
-  tag: string,
-  mutation: () => Promise<void>,
-  options?: { failClosed?: boolean },
-): Promise<void> {
-  const previous = globalEncryptionMapCacheMutations.get(tag)
-  const current = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(mutation)
-  globalEncryptionMapCacheMutations.set(tag, current)
-  try {
-    await current
-    if (options?.failClosed) globalEncryptionMapCacheMutationFailures.delete(tag)
-  } catch (error) {
-    if (options?.failClosed) globalEncryptionMapCacheMutationFailures.add(tag)
-    throw error
-  } finally {
-    if (globalEncryptionMapCacheMutations.get(tag) === current) {
-      globalEncryptionMapCacheMutations.delete(tag)
-    }
-  }
 }
 
 function debug(event: string, payload: Record<string, unknown>) {
@@ -290,20 +237,12 @@ function getSqlConnection(em: EntityManager): SqlConnection | null {
 }
 
 export class TenantDataEncryptionService {
-  private static globalMemoryCache = new Map<string, EncryptionMapRecord>()
-  private static globalAggregateMemoryCache = new Map<string, { at: number; record: EncryptionMapRecord }>()
-  private static globalInflightMaps = new Map<string, InflightMapRead>()
   private static globalDekCache = new Map<string, TenantDek>()
   private static globalInflightDeks = new Map<string, Promise<TenantDek | null>>()
-  private static globalMissCache = new Map<string, number>()
   private readonly kms: KmsService
   private readonly cache?: CacheStrategy
-  private readonly memoryCache = TenantDataEncryptionService.globalMemoryCache
-  private readonly aggregateMemoryCache = TenantDataEncryptionService.globalAggregateMemoryCache
   private readonly dekCache = TenantDataEncryptionService.globalDekCache
   private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
-  private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
-  private readonly missCache = TenantDataEncryptionService.globalMissCache
   private readonly systemDefaultMaps: Map<string, ModuleEncryptionMap>
 
   constructor(
@@ -366,7 +305,6 @@ export class TenantDataEncryptionService {
     if (typeof this.kms.createTenantDek !== 'function') return existing ?? null
     // Dedupe concurrent first-time creation within this process so two callers
     // can't each generate a distinct DEK and overwrite one another (#2746).
-    // Mirrors the encryption-map inflight dedupe (`globalInflightMaps`).
     const pending = this.inflightDeks.get(tenantId)
     if (pending) return pending
     const creation = (async () => {
@@ -439,97 +377,33 @@ export class TenantDataEncryptionService {
     }
   }
 
-  private getMapEpoch(tag: string): number {
-    return getEncryptionMapCacheEpoch(tag)
-  }
-
-  private advanceMapEpoch(tag: string): void {
-    advanceEncryptionMapCacheEpoch(tag)
-  }
-
-  private async waitForCacheMutation(tag: string): Promise<void> {
-    await waitForEncryptionMapCacheMutation(tag)
-  }
-
-  private async queueCacheMutation(
-    tag: string,
-    mutation: () => Promise<void>,
-    options?: { failClosed?: boolean },
-  ): Promise<void> {
-    await queueEncryptionMapCacheMutation(tag, mutation, options)
-  }
-
+  /**
+   * Resolve policy from the canonical table for every decision. Results must not be retained or
+   * shared across calls: no invalidation protocol can make process-local state authoritative after
+   * an independent worker commits a map mutation.
+   */
   private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
-    const shouldSkipLookup = (tag: string) => {
-      const expiresAt = this.missCache.get(tag)
-      if (!expiresAt) return false
-      if (expiresAt > Date.now()) return true
-      this.missCache.delete(tag)
-      return false
-    }
-    const recordMiss = (tag: string) => {
-      this.missCache.set(tag, Date.now() + MAP_MISS_TTL_MS)
-    }
-
     const candidates: MapCacheKey[] = [
       key,
       { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
       { entityId: key.entityId, tenantId: null, organizationId: null },
     ]
+    const visited = new Set<string>()
     for (const candidate of candidates) {
       const tag = cacheKey(candidate)
-      let tryNextCandidate = false
-      while (!tryNextCandidate) {
-        const epoch = this.getMapEpoch(tag)
-        if (shouldSkipLookup(tag)) break
-        const inflight = this.inflightMaps.get(tag)
-        if (inflight?.epoch === epoch) {
-          try {
-            const resolved = await inflight.promise
-            if (this.getMapEpoch(tag) !== epoch) continue
-            if (resolved) return this.applySystemDefault(resolved, key.entityId)
-            recordMiss(tag)
-            break
-          } catch {
-            if (this.getMapEpoch(tag) !== epoch) continue
-          }
-        }
-        const mem = this.memoryCache.get(tag)
-        if (mem) return this.applySystemDefault(mem, key.entityId)
-        if (this.cache && typeof this.cache.get === 'function') {
-          await this.waitForCacheMutation(tag)
-          if (this.getMapEpoch(tag) !== epoch) continue
-          const cached = await this.cache.get(tag)
-          if (this.getMapEpoch(tag) !== epoch) continue
-          if (cached) return this.applySystemDefault(cached as EncryptionMapRecord, key.entityId)
-        }
-        const pending = this.fetchMap(candidate)
-        const inflightRead = { epoch, promise: pending }
-        this.inflightMaps.set(tag, inflightRead)
-        let loaded: EncryptionMapRecord | null
-        try {
-          loaded = await pending
-        } finally {
-          if (this.inflightMaps.get(tag) === inflightRead) this.inflightMaps.delete(tag)
-        }
-        if (this.getMapEpoch(tag) !== epoch) continue
-        if (!loaded) {
-          recordMiss(tag)
-          debug('🔍 encmap.miss', {
-            entityId: candidate.entityId,
-            tenantId: candidate.tenantId,
-            organizationId: candidate.organizationId,
-          })
-          tryNextCandidate = true
-          continue
-        }
-        this.missCache.delete(tag)
-        this.memoryCache.set(tag, loaded)
-        if (this.cache && typeof this.cache.set === 'function') {
-          await this.queueCacheMutation(tag, () => this.cache!.set(tag, loaded!, { ttl: 300 }))
-          if (this.getMapEpoch(tag) !== epoch) continue
-        }
-        return this.applySystemDefault(loaded, key.entityId)
+      if (visited.has(tag)) continue
+      visited.add(tag)
+      while (true) {
+        const epoch = globalEncryptionMapEpochs.get(tag) ?? 0
+        const loaded = await this.fetchMap(candidate)
+        if ((globalEncryptionMapEpochs.get(tag) ?? 0) !== epoch) continue
+        if (loaded) return this.applySystemDefault(loaded, key.entityId)
+        debug('🔍 encmap.miss', {
+          entityId: candidate.entityId,
+          tenantId: candidate.tenantId,
+          organizationId: candidate.organizationId,
+        })
+        break
       }
     }
     return this.applySystemDefault(null, key.entityId)
@@ -561,69 +435,17 @@ export class TenantDataEncryptionService {
     return mergeEncryptedFieldRules(groups)
   }
 
-  /**
-   * Cached aggregate of every organization-scoped map for an entity/tenant. `encryptEntityPayload`
-   * and `decryptEntityPayload` consult it on every row at the tenant-wide scope, so the uncached
-   * read this used to be would add a round-trip per flush and per load (#5949).
-   */
+  /** Canonical aggregate lookup; deliberately has no positive, negative, or shared-cache reuse. */
   private async getAllOrganizationFieldRules(
     entityId: string,
     tenantId: string | null,
   ): Promise<EncryptedFieldRule[]> {
     const tag = allOrganizationsCacheKey(entityId, tenantId)
     while (true) {
-      const epoch = this.getMapEpoch(tag)
-      const missExpiresAt = this.missCache.get(tag)
-      if (missExpiresAt) {
-        if (missExpiresAt > Date.now()) return []
-        this.missCache.delete(tag)
-      }
-      const mem = this.aggregateMemoryCache.get(tag)
-      if (mem) {
-        if (mem.at + AGGREGATE_CACHE_TTL_MS > Date.now()) return mem.record.fields
-        this.aggregateMemoryCache.delete(tag)
-      }
-      if (this.cache && typeof this.cache.get === 'function') {
-        await this.waitForCacheMutation(tag)
-        if (this.getMapEpoch(tag) !== epoch) continue
-        const cached = await this.cache.get(tag)
-        if (this.getMapEpoch(tag) !== epoch) continue
-        if (cached) {
-          const record = cached as EncryptionMapRecord
-          this.aggregateMemoryCache.set(tag, { at: Date.now(), record })
-          return record.fields
-        }
-      }
-      const inflight = this.inflightMaps.get(tag)
-      if (inflight?.epoch === epoch) {
-        const loaded = await inflight.promise
-        if (this.getMapEpoch(tag) !== epoch) continue
-        return loaded?.fields ?? []
-      }
-      const pending = (async (): Promise<EncryptionMapRecord | null> => {
-        const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId)
-        return fields.length ? { entityId, fields } : null
-      })()
-      const inflightRead = { epoch, promise: pending }
-      this.inflightMaps.set(tag, inflightRead)
-      let loaded: EncryptionMapRecord | null
-      try {
-        loaded = await pending
-      } finally {
-        if (this.inflightMaps.get(tag) === inflightRead) this.inflightMaps.delete(tag)
-      }
-      if (this.getMapEpoch(tag) !== epoch) continue
-      if (!loaded) {
-        this.missCache.set(tag, Date.now() + MAP_MISS_TTL_MS)
-        return []
-      }
-      this.missCache.delete(tag)
-      this.aggregateMemoryCache.set(tag, { at: Date.now(), record: loaded })
-      if (this.cache && typeof this.cache.set === 'function') {
-        await this.queueCacheMutation(tag, () => this.cache!.set(tag, loaded!, { ttl: 300 }))
-        if (this.getMapEpoch(tag) !== epoch) continue
-      }
-      return loaded.fields
+      const epoch = globalEncryptionMapEpochs.get(tag) ?? 0
+      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId)
+      if ((globalEncryptionMapEpochs.get(tag) ?? 0) !== epoch) continue
+      return fields
     }
   }
 
@@ -648,30 +470,18 @@ export class TenantDataEncryptionService {
   }
 
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
-    const exactAndAggregateTags = [
-      cacheKey({ entityId, tenantId, organizationId }),
-      allOrganizationsCacheKey(entityId, tenantId),
-    ]
-    const policyVersionTag = encryptionMapPolicyVersionCacheKey(entityId)
-    const tags = [...exactAndAggregateTags, policyVersionTag]
-    for (const tag of tags) {
-      this.advanceMapEpoch(tag)
-      this.memoryCache.delete(tag)
-      this.aggregateMemoryCache.delete(tag)
-      this.inflightMaps.delete(tag)
-      this.missCache.delete(tag)
+    const exactTag = cacheKey({ entityId, tenantId, organizationId })
+    const aggregateTag = allOrganizationsCacheKey(entityId, tenantId)
+    for (const tag of [exactTag, aggregateTag]) {
+      globalEncryptionMapEpochs.set(tag, (globalEncryptionMapEpochs.get(tag) ?? 0) + 1)
     }
-    const sharedCacheMutations = tags.map((tag) => {
-      if (!this.cache) return Promise.resolve()
-      return this.queueCacheMutation(tag, async () => {
-        if (tag === policyVersionTag) {
-          await this.cache!.set(tag, randomUUID(), { ttl: 0 })
-          return
-        }
-        await this.cache!.delete(tag)
-      }, { failClosed: true })
-    })
-    await Promise.all(sharedCacheMutations)
+    if (!this.cache) return
+    const policyVersionTag = encryptionMapPolicyVersionCacheKey(entityId)
+    await Promise.all([
+      this.cache.delete(exactTag),
+      this.cache.delete(aggregateTag),
+      this.cache.set(policyVersionTag, randomUUID(), { ttl: 0 }),
+    ])
   }
 
   // Force a flush of a tenant's cached DEK across the service-level cache and the

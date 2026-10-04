@@ -3,10 +3,7 @@ jest.mock('../fulltext/drivers', () => ({
 }))
 
 import { createEncryptionMapResolver } from '../di'
-import {
-  encryptionMapPolicyVersionCacheKey,
-  TenantDataEncryptionService,
-} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { encryptionMapPolicyVersionCacheKey } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type QueryResult = Array<Record<string, unknown>> | Error
 
@@ -129,6 +126,13 @@ describe('search encryption-map resolver', () => {
         created_at: '2026-01-01T00:00:00.000Z',
         fields_json: [{ field: 'new_secret' }],
       }],
+      [{
+        id: 'created-later',
+        tenant_id: 'tenant-1',
+        organization_id: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+        fields_json: [{ field: 'new_secret' }],
+      }],
     ])
     const { cache } = createPolicyVersionCache(entityId)
     const resolveMap = createEncryptionMapResolver(db as never, cache)
@@ -136,10 +140,11 @@ describe('search encryption-map resolver', () => {
     await expect(resolveMap(entityId)).resolves.toEqual([])
     await expect(resolveMap(entityId)).resolves.toEqual([{ field: 'new_secret', hashField: null }])
     await expect(resolveMap(entityId)).resolves.toEqual([{ field: 'new_secret', hashField: null }])
-    expect(query.execute).toHaveBeenCalledTimes(2)
+    expect(query.execute).toHaveBeenCalledTimes(3)
+    expect(cache.get).not.toHaveBeenCalled()
   })
 
-  it('drops a primed non-empty policy when map invalidation adds a protected field', async () => {
+  it('re-reads a positive policy when a protected field is added without a published version', async () => {
     const entityId = 'demo:versioned_policy'
     const { db, query } = createDatabase([
       [{
@@ -165,18 +170,31 @@ describe('search encryption-map resolver', () => {
     ])
     await expect(resolveMap(entityId)).resolves.toEqual([
       { field: 'old_secret', hashField: null },
-    ])
-
-    const invalidatingService = new TenantDataEncryptionService(
-      {} as never,
-      { cache: cache as never },
-    )
-    await invalidatingService.invalidateMap(entityId, 'tenant-1', 'org-1')
-
-    await expect(resolveMap(entityId)).resolves.toEqual([
-      { field: 'old_secret', hashField: null },
       { field: 'new_secret', hashField: null },
     ])
     expect(query.execute).toHaveBeenCalledTimes(2)
+    expect(cache.get).not.toHaveBeenCalled()
+  })
+
+  it('re-reads canonical policy while the legacy version cache is unavailable', async () => {
+    const { db, query } = createDatabase([[
+      {
+        id: 'current',
+        tenant_id: null,
+        organization_id: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+        fields_json: [{ field: 'protected' }],
+      },
+    ]])
+    const cache = {
+      get: jest.fn(async () => { throw new Error('cache unavailable') }),
+    }
+    const resolveMap = createEncryptionMapResolver(db as never, cache)
+
+    await expect(resolveMap('demo:cache_outage')).resolves.toEqual([
+      { field: 'protected', hashField: null },
+    ])
+    expect(query.execute).toHaveBeenCalledTimes(1)
+    expect(cache.get).not.toHaveBeenCalled()
   })
 })
