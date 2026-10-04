@@ -65,8 +65,11 @@ function runPreparer(fixture: ReturnType<typeof createFixture>, extraArguments: 
 
 function createFakeCodex(root: string): string {
   const binDirectory = path.join(root, 'bin')
-  const executablePath = path.join(binDirectory, 'codex')
+  const executablePath = path.join(binDirectory, process.platform === 'win32' ? 'fake-codex.mjs' : 'codex')
   fs.mkdirSync(binDirectory)
+  if (process.platform === 'win32') {
+    fs.writeFileSync(path.join(binDirectory, 'codex.cmd'), `@"${process.execPath}" "%~dp0fake-codex.mjs" %*\r\n`)
+  }
   fs.writeFileSync(
     executablePath,
     `#!/usr/bin/env node
@@ -153,7 +156,9 @@ test('Codex session exporter reads the requested native thread through app-serve
       'agentMessage',
       'agentMessage',
     ])
-    assert.equal(fs.statSync(outputPath).mode & 0o077, 0, 'native export must be owner-readable only')
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(outputPath).mode & 0o077, 0, 'native export must be owner-readable only')
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

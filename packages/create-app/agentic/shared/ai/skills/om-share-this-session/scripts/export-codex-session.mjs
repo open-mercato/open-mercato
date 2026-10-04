@@ -55,11 +55,27 @@ function validateThread(thread, expectedThreadId) {
   return thread
 }
 
+function startAppServer() {
+  const stdio = ['pipe', 'pipe', 'ignore']
+  if (process.platform === 'win32') {
+    return spawn('codex app-server --stdio', { stdio, shell: true, windowsHide: true })
+  }
+  return spawn('codex', ['app-server', '--stdio'], { stdio })
+}
+
+function stopAppServer(server) {
+  if (server.exitCode !== null || server.killed) return
+  if (process.platform === 'win32' && server.pid) {
+    spawn('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+      .on('error', () => server.kill())
+    return
+  }
+  server.kill()
+}
+
 function readThreadFromAppServer(threadId, timeoutMilliseconds = 30_000) {
   return new Promise((resolveThread, rejectThread) => {
-    const server = spawn('codex', ['app-server', '--stdio'], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-    })
+    const server = startAppServer()
     let settled = false
     let initialized = false
     let protocolBytes = 0
@@ -70,7 +86,7 @@ function readThreadFromAppServer(threadId, timeoutMilliseconds = 30_000) {
       settled = true
       clearTimeout(timeout)
       server.stdin.end()
-      if (server.exitCode === null && !server.killed) server.kill()
+      stopAppServer(server)
       if (error) rejectThread(error)
       else resolveThread(thread)
     }
