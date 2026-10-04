@@ -1,6 +1,12 @@
 import { asValue, createContainer, InjectionMode } from 'awilix'
 import { CommandBus, registerCommand, unregisterCommand } from '@open-mercato/shared/lib/commands'
 import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
+import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
 
 type ReplayState = {
   domain: string
@@ -39,7 +45,345 @@ describe('CommandBus atomic replay', () => {
     unregisterCommand('auth.test.atomic-undo')
     unregisterCommand('auth.test.atomic-redo')
     unregisterCommand('auth.test.feature-race')
+    unregisterCommand('auth.test.ambient-undo')
+    unregisterCommand('auth.test.ambient-redo')
     registerCommandInterceptors([])
+  })
+
+  it('fails closed before an atomic replay joins an ambient transaction without its owner lifetime', async () => {
+    const state: ReplayState = { domain: 'after', source: 'done', logs: 1 }
+    const em = buildTransactionalEm(state)
+    await em.begin()
+    const service = {
+      findByUndoToken: jest.fn(async () => ({
+        id: 'source-log',
+        commandId: 'auth.test.ambient-undo',
+        commandPayload: {},
+      })),
+      claimForUndo: jest.fn(async () => true),
+      markUndone: jest.fn(async () => undefined),
+    }
+    const undo = jest.fn(async () => {
+      state.domain = 'before'
+    })
+    registerCommand({
+      id: 'auth.test.ambient-undo',
+      atomicReplay: true,
+      execute: jest.fn(),
+      undo,
+    })
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      actionLogService: asValue(service),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn(async () => undefined) }),
+    })
+
+    await expect(new CommandBus().undo('undo-token', {
+      container,
+      auth: null,
+      transactionalEm: em as never,
+    } as never)).rejects.toThrow('Ambient atomic replay requires its outer transaction lifetime owner')
+
+    expect(service.claimForUndo).not.toHaveBeenCalled()
+    expect(service.markUndone).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+    await em.rollback()
+  })
+
+  it('defers ambient undo completion effects until the true outer commit', async () => {
+    const state: ReplayState = { domain: 'after', source: 'done', logs: 1 }
+    const em = buildTransactionalEm(state)
+    const afterUndo = jest.fn(async () => undefined)
+    const flushOrmEntityChanges = jest.fn(async () => undefined)
+    let replayLeaseHeld = false
+    registerCommandInterceptors([{
+      moduleId: 'auth',
+      interceptors: [{
+        id: 'auth.test.ambient-undo-interceptor',
+        targetCommand: 'auth.test.ambient-undo',
+        afterUndo,
+      }],
+    }])
+    const service = {
+      findByUndoToken: jest.fn(async () => ({
+        id: 'source-log',
+        commandId: 'auth.test.ambient-undo',
+        commandPayload: {},
+      })),
+      claimForUndo: jest.fn(async () => {
+        state.source = 'undoing'
+        return true
+      }),
+      markUndone: jest.fn(async () => {
+        state.source = 'undone'
+        state.logs += 1
+      }),
+    }
+    registerCommand({
+      id: 'auth.test.ambient-undo',
+      atomicReplay: true,
+      execute: jest.fn(),
+      stabilizeReplay: jest.fn(async ({ ctx }) => {
+        expect(ctx.transactionLifetime).toBe(getTransactionLifetime(em as never))
+        replayLeaseHeld = true
+        onTransactionLifetimeComplete(em as never, () => {
+          replayLeaseHeld = false
+        })
+      }),
+      undo: jest.fn(async () => {
+        state.domain = 'before'
+      }),
+    })
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      actionLogService: asValue(service),
+      dataEngine: asValue({ flushOrmEntityChanges }),
+    })
+
+    await withAtomicFlush(em as never, [async () => {
+      const transactionLifetime = getTransactionLifetime(em as never)
+      expect(transactionLifetime).not.toBeNull()
+      await new CommandBus().undo('undo-token', {
+        container,
+        auth: null,
+        transactionalEm: em as never,
+        transactionLifetime: transactionLifetime!,
+      } as never)
+
+      expect(state).toEqual({ domain: 'before', source: 'undone', logs: 2 })
+      expect(replayLeaseHeld).toBe(true)
+      expect(afterUndo).not.toHaveBeenCalled()
+      expect(flushOrmEntityChanges).not.toHaveBeenCalled()
+    }], { transaction: true })
+
+    expect(replayLeaseHeld).toBe(false)
+    expect(afterUndo).toHaveBeenCalledTimes(1)
+    expect(flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(afterUndo.mock.invocationCallOrder[0])
+    expect(state).toEqual({ domain: 'before', source: 'undone', logs: 2 })
+  })
+
+  it('releases the ambient undo lease and suppresses completion effects on outer rollback', async () => {
+    const state: ReplayState = { domain: 'after', source: 'done', logs: 1 }
+    const em = buildTransactionalEm(state)
+    const afterUndo = jest.fn(async () => undefined)
+    const flushOrmEntityChanges = jest.fn(async () => undefined)
+    const rollbackError = new Error('outer undo rollback')
+    let replayLeaseHeld = false
+    registerCommandInterceptors([{
+      moduleId: 'auth',
+      interceptors: [{
+        id: 'auth.test.ambient-undo-interceptor',
+        targetCommand: 'auth.test.ambient-undo',
+        afterUndo,
+      }],
+    }])
+    const service = {
+      findByUndoToken: jest.fn(async () => ({
+        id: 'source-log',
+        commandId: 'auth.test.ambient-undo',
+        commandPayload: {},
+      })),
+      claimForUndo: jest.fn(async () => {
+        state.source = 'undoing'
+        return true
+      }),
+      markUndone: jest.fn(async () => {
+        state.source = 'undone'
+        state.logs += 1
+      }),
+    }
+    registerCommand({
+      id: 'auth.test.ambient-undo',
+      atomicReplay: true,
+      execute: jest.fn(),
+      stabilizeReplay: jest.fn(async () => {
+        replayLeaseHeld = true
+        onTransactionLifetimeComplete(em as never, () => {
+          replayLeaseHeld = false
+        })
+      }),
+      undo: jest.fn(async () => {
+        state.domain = 'before'
+      }),
+    })
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      actionLogService: asValue(service),
+      dataEngine: asValue({ flushOrmEntityChanges }),
+    })
+
+    await expect(withAtomicFlush(em as never, [async () => {
+      const transactionLifetime = getTransactionLifetime(em as never)
+      await new CommandBus().undo('undo-token', {
+        container,
+        auth: null,
+        transactionalEm: em as never,
+        transactionLifetime: transactionLifetime!,
+      } as never)
+      expect(replayLeaseHeld).toBe(true)
+      throw rollbackError
+    }], { transaction: true })).rejects.toBe(rollbackError)
+
+    expect(replayLeaseHeld).toBe(false)
+    expect(afterUndo).not.toHaveBeenCalled()
+    expect(flushOrmEntityChanges).not.toHaveBeenCalled()
+    expect(state).toEqual({ domain: 'after', source: 'done', logs: 1 })
+  })
+
+  it('reports ambient redo finalization and runs effects only after the outer commit', async () => {
+    const state: ReplayState = { domain: 'before', source: 'undone', logs: 1 }
+    const em = buildTransactionalEm(state)
+    const afterExecute = jest.fn(async () => ({ modifiedResult: { committed: true } }))
+    const flushOrmEntityChanges = jest.fn(async () => undefined)
+    let replayLeaseHeld = false
+    let executionResult: CommandExecuteResult<{ ok: boolean; committed?: boolean }> | null = null
+    registerCommandInterceptors([{
+      moduleId: 'auth',
+      interceptors: [{
+        id: 'auth.test.ambient-redo-interceptor',
+        targetCommand: 'auth.test.ambient-redo',
+        afterExecute,
+      }],
+    }])
+    const service = {
+      claimForRedo: jest.fn(async () => {
+        state.source = 'redone'
+        return true
+      }),
+      log: jest.fn(async () => {
+        state.logs += 1
+        return { id: 'redo-log' }
+      }),
+    }
+    registerCommand({
+      id: 'auth.test.ambient-redo',
+      atomicReplay: true,
+      execute: jest.fn(),
+      stabilizeReplay: jest.fn(async () => {
+        replayLeaseHeld = true
+        onTransactionLifetimeComplete(em as never, () => {
+          replayLeaseHeld = false
+        })
+      }),
+      redo: jest.fn(async () => {
+        state.domain = 'after'
+        return { ok: true }
+      }),
+      undo: jest.fn(),
+      buildLog: () => ({}),
+    })
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      actionLogService: asValue(service),
+      dataEngine: asValue({ flushOrmEntityChanges }),
+    })
+
+    await withAtomicFlush(em as never, [async () => {
+      const transactionLifetime = getTransactionLifetime(em as never)
+      executionResult = await new CommandBus().execute('auth.test.ambient-redo', {
+        input: {},
+        ctx: {
+          container,
+          auth: null,
+          transactionalEm: em as never,
+          transactionLifetime: transactionLifetime!,
+        } as never,
+        redoLogEntry: { id: 'source-log', commandId: 'auth.test.ambient-redo' },
+      })
+
+      expect(executionResult.replaySourceFinalized).toBe(false)
+      expect(executionResult.result).toEqual({ ok: true })
+      expect(replayLeaseHeld).toBe(true)
+      expect(afterExecute).not.toHaveBeenCalled()
+      expect(flushOrmEntityChanges).not.toHaveBeenCalled()
+    }], { transaction: true })
+
+    expect(executionResult!.replaySourceFinalized).toBe(true)
+    expect(executionResult!.result).toEqual({ ok: true, committed: true })
+    expect(replayLeaseHeld).toBe(false)
+    expect(afterExecute).toHaveBeenCalledTimes(1)
+    expect(flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(afterExecute.mock.invocationCallOrder[0])
+    expect(state).toEqual({ domain: 'after', source: 'redone', logs: 2 })
+  })
+
+  it('keeps ambient redo unfinalized and suppresses effects after outer rollback', async () => {
+    const state: ReplayState = { domain: 'before', source: 'undone', logs: 1 }
+    const em = buildTransactionalEm(state)
+    const afterExecute = jest.fn(async () => ({ modifiedResult: { committed: true } }))
+    const flushOrmEntityChanges = jest.fn(async () => undefined)
+    const rollbackError = new Error('outer redo rollback')
+    let replayLeaseHeld = false
+    let executionResult: CommandExecuteResult<{ ok: boolean; committed?: boolean }> | null = null
+    registerCommandInterceptors([{
+      moduleId: 'auth',
+      interceptors: [{
+        id: 'auth.test.ambient-redo-interceptor',
+        targetCommand: 'auth.test.ambient-redo',
+        afterExecute,
+      }],
+    }])
+    const service = {
+      claimForRedo: jest.fn(async () => {
+        state.source = 'redone'
+        return true
+      }),
+      log: jest.fn(async () => {
+        state.logs += 1
+        return { id: 'redo-log' }
+      }),
+    }
+    registerCommand({
+      id: 'auth.test.ambient-redo',
+      atomicReplay: true,
+      execute: jest.fn(),
+      stabilizeReplay: jest.fn(async () => {
+        replayLeaseHeld = true
+        onTransactionLifetimeComplete(em as never, () => {
+          replayLeaseHeld = false
+        })
+      }),
+      redo: jest.fn(async () => {
+        state.domain = 'after'
+        return { ok: true }
+      }),
+      undo: jest.fn(),
+      buildLog: () => ({}),
+    })
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      actionLogService: asValue(service),
+      dataEngine: asValue({ flushOrmEntityChanges }),
+    })
+
+    await expect(withAtomicFlush(em as never, [async () => {
+      const transactionLifetime = getTransactionLifetime(em as never)
+      executionResult = await new CommandBus().execute('auth.test.ambient-redo', {
+        input: {},
+        ctx: {
+          container,
+          auth: null,
+          transactionalEm: em as never,
+          transactionLifetime: transactionLifetime!,
+        } as never,
+        redoLogEntry: { id: 'source-log', commandId: 'auth.test.ambient-redo' },
+      })
+      expect(executionResult.replaySourceFinalized).toBe(false)
+      throw rollbackError
+    }], { transaction: true })).rejects.toBe(rollbackError)
+
+    expect(executionResult!.replaySourceFinalized).toBe(false)
+    expect(executionResult!.result).toEqual({ ok: true })
+    expect(replayLeaseHeld).toBe(false)
+    expect(afterExecute).not.toHaveBeenCalled()
+    expect(flushOrmEntityChanges).not.toHaveBeenCalled()
+    expect(state).toEqual({ domain: 'before', source: 'undone', logs: 1 })
   })
 
   it('rolls back the undo mutation, source state, and trace log together', async () => {

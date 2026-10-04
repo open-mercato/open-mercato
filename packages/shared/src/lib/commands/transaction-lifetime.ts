@@ -3,27 +3,43 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 
 export type TransactionOutcome = 'committed' | 'rolled_back'
 
-type TransactionLifetime = {
+const transactionLifetimeBrand: unique symbol = Symbol('open-mercato.transaction-lifetime')
+
+export type TransactionLifetime = {
+  readonly [transactionLifetimeBrand]: true
+}
+
+type ActiveTransactionLifetime = TransactionLifetime & {
   completionCallbacks: Set<(outcome: TransactionOutcome) => void | Promise<void>>
 }
 
-const activeTransactionLifetimes = new AsyncLocalStorage<Map<object, TransactionLifetime>>()
+const activeTransactionLifetimes = new AsyncLocalStorage<Map<object, ActiveTransactionLifetime>>()
 
-export function beginTransactionLifetime(em: EntityManager): object {
+export function beginTransactionLifetime(em: EntityManager): TransactionLifetime {
   const key = em as object
   const currentLifetimes = activeTransactionLifetimes.getStore()
   if (currentLifetimes?.has(key)) {
     throw new Error('[internal] Transaction lifetime already active for EntityManager')
   }
-  const lifetime: TransactionLifetime = { completionCallbacks: new Set() }
+  const lifetime: ActiveTransactionLifetime = {
+    [transactionLifetimeBrand]: true,
+    completionCallbacks: new Set(),
+  }
   const scopedLifetimes = new Map(currentLifetimes)
   scopedLifetimes.set(key, lifetime)
   activeTransactionLifetimes.enterWith(scopedLifetimes)
   return lifetime
 }
 
-export function getTransactionLifetime(em: EntityManager): object | null {
+export function getTransactionLifetime(em: EntityManager): TransactionLifetime | null {
   return activeTransactionLifetimes.getStore()?.get(em as object) ?? null
+}
+
+export function ownsTransactionLifetime(
+  em: EntityManager,
+  lifetime: TransactionLifetime | null | undefined,
+): lifetime is TransactionLifetime {
+  return lifetime != null && activeTransactionLifetimes.getStore()?.get(em as object) === lifetime
 }
 
 export function onTransactionLifetimeComplete(
@@ -39,7 +55,7 @@ export function onTransactionLifetimeComplete(
 
 export async function completeTransactionLifetime(
   em: EntityManager,
-  lifetimeToken: object,
+  lifetimeToken: TransactionLifetime,
   outcome: TransactionOutcome,
 ): Promise<void> {
   const key = em as object

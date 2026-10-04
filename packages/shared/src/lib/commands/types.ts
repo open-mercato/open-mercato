@@ -4,6 +4,7 @@ import type { ZodTypeAny } from 'zod'
 import { randomUUID } from 'crypto'
 import type { AuthContext } from '../auth/server'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { TransactionLifetime } from './transaction-lifetime'
 
 /**
  * Bulk-import / backfill deferral flags. When a command runs under a context that
@@ -58,6 +59,15 @@ export type CommandRuntimeContext = {
    * surrounding work as a single atomic, single-locked operation.
    */
   transactionalEm?: EntityManager
+  /**
+   * Identifies the owner of an already-active {@link transactionalEm} lifetime.
+   * Atomic replay accepts an ambient EntityManager only when this is the exact
+   * token returned by `getTransactionLifetime(transactionalEm)` from the outer
+   * `withAtomicFlush` phase. The owner completes the token after its real commit
+   * or rollback, allowing replay leases and post-commit work to follow that
+   * boundary. Omit when the command bus opens and owns the transaction itself.
+   */
+  transactionLifetime?: TransactionLifetime
   /**
    * Optional request-level replay authorization that the command bus binds to
    * its replay EntityManager. Atomic handlers run this guard in the same
@@ -126,9 +136,12 @@ export type CommandExecuteResult<TResult> = {
   logEntry: any | null
   /**
    * True when an atomic redo finalized its source action log in the same
-   * transaction as the domain mutation and the newly persisted log entry.
-   * Callers that historically finalized redo themselves can use this additive
-   * signal to avoid a redundant post-commit write.
+   * transaction as the domain mutation and the newly persisted log entry, and
+   * that transaction has committed. An ambient replay returns this as false
+   * while its caller-owned transaction is still active; the returned result
+   * object is updated to true by the owner's commit callback. It remains false
+   * on rollback. Callers that historically finalized redo themselves can use
+   * this additive signal to avoid a redundant post-commit write.
    */
   replaySourceFinalized?: boolean
 }

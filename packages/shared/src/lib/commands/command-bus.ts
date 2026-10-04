@@ -35,6 +35,12 @@ import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+  ownsTransactionLifetime,
+  type TransactionLifetime,
+} from './transaction-lifetime'
 
 const logger = createLogger('shared').child({ component: 'commands' })
 
@@ -45,6 +51,37 @@ type CommandActionLogService = {
   markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
   claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
   log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
+}
+
+type AtomicReplayTransaction = {
+  em: EntityManager
+  joinsAmbient: boolean
+}
+
+function isInTransaction(em: EntityManager): boolean {
+  const probe = (em as { isInTransaction?: () => boolean }).isInTransaction
+  return typeof probe === 'function' && probe.call(em)
+}
+
+function resolveAtomicReplayTransaction(ctx: CommandRuntimeContext): AtomicReplayTransaction {
+  const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
+  const joinsAmbient = isInTransaction(em)
+  if (joinsAmbient && !ownsTransactionLifetime(em, ctx.transactionLifetime)) {
+    throw new Error('[internal] Ambient atomic replay requires its outer transaction lifetime owner')
+  }
+  return { em, joinsAmbient }
+}
+
+function bindReplayTransactionContext(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  expectedLifetime?: TransactionLifetime,
+): CommandRuntimeContext {
+  const transactionLifetime = getTransactionLifetime(em)
+  if (!transactionLifetime || (expectedLifetime && transactionLifetime !== expectedLifetime)) {
+    throw new Error('[internal] Atomic replay transaction lifetime owner changed before replay')
+  }
+  return { ...ctx, transactionalEm: em, transactionLifetime }
 }
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
@@ -375,14 +412,22 @@ export class CommandBus {
     let replaySourceFinalized = false
     let coreResult: Awaited<ReturnType<typeof executeCore>>
     const atomicSourceLog = options.redoLogEntry ?? null
+    let ambientReplay: AtomicReplayTransaction | null = null
+    let replayTransactionLifetime: TransactionLifetime | null = null
     if (atomicSourceLog && isAtomicReplay) {
-      const replayEm = options.ctx.transactionalEm
-        ?? (options.ctx.container.resolve('em') as EntityManager)
-      const transactionalBaseOptions: CommandExecutionOptions<TInput> = {
-        ...options,
-        ctx: { ...options.ctx, transactionalEm: replayEm },
-      }
+      ambientReplay = resolveAtomicReplayTransaction(options.ctx)
+      const replayEm = ambientReplay.em
       await withAtomicFlush(replayEm, [async () => {
+        const replayCtx = bindReplayTransactionContext(
+          options.ctx,
+          replayEm,
+          ambientReplay?.joinsAmbient ? options.ctx.transactionLifetime : undefined,
+        )
+        replayTransactionLifetime = replayCtx.transactionLifetime ?? null
+        const transactionalBaseOptions: CommandExecutionOptions<TInput> = {
+          ...options,
+          ctx: replayCtx,
+        }
         if (!atomicSourceLog.id) throw new Error('[internal] Atomic redo source log id is required')
         if (handler.stabilizeReplay) {
           await handler.stabilizeReplay({
@@ -415,39 +460,60 @@ export class CommandBus {
         if (!claimed) throw new Error('[internal] Redo source already consumed')
         coreResult = await executeCore(effectiveOptions)
       }], { transaction: true, label: `${commandId}.redo` })
-      replaySourceFinalized = true
+      replaySourceFinalized = !ambientReplay.joinsAmbient
     } else {
       coreResult = await executeCore(effectiveOptions)
     }
     const { result, mergedMeta, logEntry } = coreResult!
 
-    // Run afterExecute command interceptors
-    let finalResult = result
-    if (allInterceptors.length) {
-      const interceptorCtx: CommandInterceptorContext = {
-        commandId,
-        auth: effectiveOptions.ctx.auth ?? null,
-        selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
-        container: effectiveOptions.ctx.container,
+    const runPostCommit = async () => {
+      let finalResult = result
+      if (allInterceptors.length) {
+        const interceptorCtx: CommandInterceptorContext = {
+          commandId,
+          auth: effectiveOptions.ctx.auth ?? null,
+          selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
+          container: effectiveOptions.ctx.container,
+        }
+        const afterResult = await runCommandInterceptorsAfter(
+          allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
+          userFeatures, interceptorMetadata,
+        )
+        if (afterResult.modifiedResult && typeof result === 'object' && result) {
+          finalResult = { ...(result as object), ...afterResult.modifiedResult } as Awaited<TResult>
+        }
       }
-      const afterResult = await runCommandInterceptorsAfter(
-        allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
-        userFeatures, interceptorMetadata,
-      )
-      if (afterResult.modifiedResult && typeof result === 'object' && result) {
-        finalResult = { ...(result as object), ...afterResult.modifiedResult } as Awaited<TResult>
+
+      if (!effectiveOptions.skipCacheInvalidation) {
+        await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
       }
+      // Bulk-import backfills defer heavy per-record side effects: the ctx flags are read here and
+      // threaded as a local into the flush (never stored on the shared dataEngine), so a concurrent
+      // command with different flags can't observe them. Reindex is restored by the caller's
+      // end-of-run `query_index rebuild`. Mirrors `skipCacheInvalidation` above.
+      await this.flushCrudSideEffects(effectiveOptions.ctx.container, effectiveOptions.ctx?.bulkImport)
+      return finalResult
     }
 
-    if (!effectiveOptions.skipCacheInvalidation) {
-      await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
+    const executionResult: CommandExecuteResult<TResult> = {
+      result,
+      logEntry,
+      replaySourceFinalized,
     }
-    // Bulk-import backfills defer heavy per-record side effects: the ctx flags are read here and
-    // threaded as a local into the flush (never stored on the shared dataEngine), so a concurrent
-    // command with different flags can't observe them. Reindex is restored by the caller's
-    // end-of-run `query_index rebuild`. Mirrors `skipCacheInvalidation` above.
-    await this.flushCrudSideEffects(effectiveOptions.ctx.container, effectiveOptions.ctx?.bulkImport)
-    return { result: finalResult, logEntry, replaySourceFinalized }
+    if (ambientReplay?.joinsAmbient) {
+      if (!replayTransactionLifetime || !ownsTransactionLifetime(ambientReplay.em, replayTransactionLifetime)) {
+        throw new Error('[internal] Ambient atomic replay lost its outer transaction lifetime owner')
+      }
+      onTransactionLifetimeComplete(ambientReplay.em, async (outcome) => {
+        if (outcome !== 'committed') return
+        executionResult.result = await runPostCommit()
+        executionResult.replaySourceFinalized = true
+      })
+      return executionResult
+    }
+
+    executionResult.result = await runPostCommit()
+    return executionResult
   }
 
   async undo(undoToken: string, ctx: CommandRuntimeContext): Promise<void> {
@@ -528,10 +594,18 @@ export class CommandBus {
       }
     }
 
+    let ambientReplay: AtomicReplayTransaction | null = null
+    let replayTransactionLifetime: TransactionLifetime | null = null
     if (isAtomicReplay) {
-      const replayEm = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
-      const replayCtx = { ...ctx, transactionalEm: replayEm }
+      ambientReplay = resolveAtomicReplayTransaction(ctx)
+      const replayEm = ambientReplay.em
       await withAtomicFlush(replayEm, [async () => {
+        const replayCtx = bindReplayTransactionContext(
+          ctx,
+          replayEm,
+          ambientReplay?.joinsAmbient ? ctx.transactionLifetime : undefined,
+        )
+        replayTransactionLifetime = replayCtx.transactionLifetime ?? null
         if (handler.stabilizeReplay) {
           await handler.stabilizeReplay({
             operation: 'undo',
@@ -575,24 +649,38 @@ export class CommandBus {
       }
     }
 
-    // Post-commit hooks and side effects run only after an atomic replay has
-    // durably committed both the domain state and source/trace log state.
-    if (allInterceptors.length) {
-      const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
-      const interceptorCtx: CommandInterceptorContext = {
-        commandId: log.commandId,
-        auth: ctx.auth ?? null,
-        selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        container: ctx.container,
+    const runPostCommit = async () => {
+      // Post-commit hooks and side effects run only after an atomic replay has
+      // durably committed both the domain state and source/trace log state.
+      if (allInterceptors.length) {
+        const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
+        const interceptorCtx: CommandInterceptorContext = {
+          commandId: log.commandId,
+          auth: ctx.auth ?? null,
+          selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          container: ctx.container,
+        }
+        await runCommandInterceptorsAfterUndo(
+          allInterceptors, log.commandId, undoCtx, interceptorCtx,
+          userFeatures, undoInterceptorMetadata,
+        )
       }
-      await runCommandInterceptorsAfterUndo(
-        allInterceptors, log.commandId, undoCtx, interceptorCtx,
-        userFeatures, undoInterceptorMetadata,
-      )
+
+      await this.invalidateCacheAfterUndo(log, ctx)
+      await this.flushCrudSideEffects(ctx.container)
     }
 
-    await this.invalidateCacheAfterUndo(log, ctx)
-    await this.flushCrudSideEffects(ctx.container)
+    if (ambientReplay?.joinsAmbient) {
+      if (!replayTransactionLifetime || !ownsTransactionLifetime(ambientReplay.em, replayTransactionLifetime)) {
+        throw new Error('[internal] Ambient atomic replay lost its outer transaction lifetime owner')
+      }
+      onTransactionLifetimeComplete(ambientReplay.em, async (outcome) => {
+        if (outcome === 'committed') await runPostCommit()
+      })
+      return
+    }
+
+    await runPostCommit()
   }
 
   private buildUndoTraceLog(log: ActionLog, ctx: CommandRuntimeContext): ActionLogCreateInput | undefined {
