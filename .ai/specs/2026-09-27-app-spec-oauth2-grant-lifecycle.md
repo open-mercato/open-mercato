@@ -1,6 +1,6 @@
 # App Spec: OAuth2 Grant Lifecycle for Integrations (platform capability)
 
-> A business architecture document above feature specs, for a **platform capability**: the part of Open Mercato that lets an integration obtain, keep, refresh and give up delegated OAuth2 access to a third-party API on behalf of a tenant (or a user). It is the SINGLE SOURCE OF TRUTH for the capability; if a feature spec contradicts it, this document wins. It states the decisions; mechanics, line-level evidence, the commit plan and the labelled test criteria are in the Phase 1 feature spec (`2026-10-01-oauth2-grant-lifecycle-core.md`).\
+> A business architecture document above feature specs, for a **platform capability**: the part of Open Mercato that lets an integration obtain, keep, refresh and give up delegated OAuth2 access to a third-party API on behalf of a tenant (or a user). It is the SINGLE SOURCE OF TRUTH for the capability; if a feature spec contradicts it, this document wins. It states the decisions; mechanics, line-level evidence, the commit plan and the labelled test criteria are in the Phase 1 feature spec ([`2026-10-01-oauth2-grant-lifecycle-core.md`](2026-10-01-oauth2-grant-lifecycle-core.md), proposed in PR [#6910](https://github.com/open-mercato/open-mercato/pull/6910)).\
 > **Status:** Draft — for maintainer review. **Date:** 2026-09-27. **Code baseline:** `develop` @ `4bdabd8bb`; `open-mercato/official-modules`, all branches (`main` @ `2d548d6`): no OAuth2 authorization-code clients (§1.4.1).
 
 ## 0. Executive summary
@@ -14,7 +14,7 @@
 
 **Scope and reuse:** Gmail and Microsoft 365 don't change in Phase 1, so until the Phase 3 hub migration the platform has two refresh implementations and the core is the standard for new integrations. The first consumer is an official module in [`open-mercato/official-modules`](https://github.com/open-mercato/official-modules), specified separately; Phase 1 ships with no consumer in this repository, and a test provider built only on exported package paths is the in-tree proof (§7). The connect UX (routes, a generic Connect button, the `oauth` credential field type, account picking) stays provider-owned until Phase 3; the protocol pieces and a normative route contract (§1.4.3) are in the core.
 
-**Key decisions:** hand-roll the protocol with no new production dependency (§4.5.3); keep SSO separate (§4.5.4); the advisory-lock helper goes in `packages/shared`, everything else (including the fake authorization server) in `packages/core/src/modules/integrations`; no DB migration, no new production API route, no new ACL feature; one new required CI job for real-Postgres suites (Q3).\
+**Key decisions:** hand-roll the protocol with no new production dependency (§4.5.3); keep SSO separate (§4.5.4); the advisory-lock helper goes in `packages/shared`, everything else (including the fake authorization server) in `packages/core/src/modules/integrations`; no DB migration, no new production API route, no new ACL feature; real-Postgres suites run as steps of the existing `documents-multi-instance` CI job (Q3).\
 **The alternative is real** (§4.6 A): the first consumer implements all of this itself and the platform adds only the lock helper and an erase function, about 5 commits cheaper up front, but the next OAuth integration re-implements the hardest part.
 
 ## 1. Business Context `PM`
@@ -78,7 +78,7 @@ Open Mercato is an open-source commerce/ERP platform; the maintainers' revenue d
 #### Checklist
 - [x] Terms defined once; collisions resolved
 - [x] Sources and periods specified
-- 
+
 ### 1.4 Domain Model
 
 #### 1.4.1 Current state (from the code)
@@ -89,16 +89,16 @@ Open Mercato is an open-source commerce/ERP platform; the maintainers' revenue d
 | Refresh across processes | The hub's single-flight is an in-process `Map` that swallows refresh and persistence errors, and workers are separate OS processes. Benign for Google and Microsoft (no strict rotation); the first strict-rotation provider is the first harmful case. | `credential-refresh.ts` |
 | Disconnect | The hub keeps the token row decryptable (no sweep exists), never revokes, and its disconnect is undoable; `CredentialsService` has no delete. | `commands/disconnect-channel.ts` |
 | Generic admin OAuth UI | None: the declared `oauth` field type is filtered out of the detail and bundle pages; `useConnectChannel` is hub-only. | `integrations/backend/integrations/[id]/page.tsx` |
-| `reauthRequired` and state `upsert` | The admin PUT writes the column, but `setReauthRequired()` is never called and no UI renders it. Latent defect: `upsert` creates a missing row with `isEnabled: false`, ignoring `defaultState.isEnabled`; a runtime `setReauthRequired` would make it common. Fixed separately (§4.1). | `state-service.ts` |
+| `reauthRequired` and state `upsert` | The admin PUT writes the column, but `setReauthRequired()` is never called and no UI renders it. Defect: `upsert` creates a missing row with `isEnabled: false`, ignoring `defaultState.isEnabled`. Today it is reachable only through direct API calls in an organization without a state row (a state PUT carrying only `reauthRequired` disables `webhook_custom`); a runtime `setReauthRequired` would make it common. Fixed separately: issue [#6915](https://github.com/open-mercato/open-mercato/issues/6915), PR [#6916](https://github.com/open-mercato/open-mercato/pull/6916) (§4.1). | `state-service.ts` |
 | Advisory locks outside a transaction | Four sites run the lock SQL on the bare connection, so the xact lock is likely released at once. Out-of-scope follow-up. | `tillio/lib/locking.ts:19`; `sso/services/ssoConfigService.ts:366`; `record_locks/lib/recordLockService.ts:1558`; `scheduler/lib/localLockStrategy.ts:61`; contrast `documents/lib/folderHierarchySerialization.ts:26-27` |
 | Locking and DB constraints | `pg_advisory_xact_lock` is hand-rolled at ≥ 8 sites (the only wrapper is package-private and blocking). Pool max 20, 6 s acquire timeout, worker concurrency budgeted to the pool; `isTransientDbError` misses the pool timeout, `55P03` and `57014`. | `shared/src/lib/db/mikro.ts` |
-| Credential encryption and KMS | Each credentials call resolves the DEK separately; a Vault timeout looks like a missing DEK; a fallback hands out a derived key; a second, field-level layer has its own DEK cache. | `integrations/lib/credentials-service.ts:151-162`; `shared/src/lib/encryption/kms.ts:46-48,65-74`; `tenantDataEncryptionService.ts:43,273-275` |
+| Credential encryption and KMS | Each credentials call resolves the DEK separately; with tenant data encryption switched off (`TENANT_DATA_ENCRYPTION=no`) it stores plaintext by design, and a blob sealed earlier stays unreadable (`sealed-while-disabled`); a Vault timeout looks like a missing DEK; a fallback hands out a derived key; a second, field-level layer has its own DEK cache. | `integrations/lib/credentials-service.ts:151-162`; `shared/src/lib/encryption/kms.ts:46-48,65-74`; `tenantDataEncryptionService.ts:43,273-275` |
 | Outbound timeouts | `fetchWithTimeout` bounds only the response headers; `withTimeout` doesn't bound a task that ignores its signal. | `shared/src/lib/http/fetchWithTimeout.ts:47-57,62-84` |
 | Access control | Logs, health and state PUT need `integrations.manage`; credentials `integrations.credentials.manage`; the detail page `integrations.view`. | `integrations/setup.ts` |
 | Base URL | `getAppBaseUrl` falls back to the request origin; `getSecurityEmailBaseUrl` reads `APP_URL` only. | `shared/src/lib/url.ts` |
 | Credential storage | The admin save is a full replacement that drops undeclared keys, versioned by the row's `updated_at`; Tillio keeps runtime tokens under its own integration id; tenant-level reads are strict (`userId = null`), with no DB uniqueness. | `credentials-masking.ts` |
 | Health and detail page | A provider `healthCheck.service`, a 15-min probe for enabled integrations, a badge from the stored result; a no-DEK read fails the run before the check; `?tab=<id>` opens any visible tab. | `integrations/lib/health-service.ts` |
-| Testing | No real OAuth round-trip test (unit tests stub `fetch`, no fake OAuth server); precedents exist for a flag-gated test-only route (`test-seed`) and a `testcontainers` real-Postgres suite in a required CI job (`packages/documents`). | `.github/workflows/ci.yml` |
+| Testing | No real OAuth round-trip test (unit tests stub `fetch`, no fake OAuth server); precedents exist for a flag-gated test-only route (`test-seed`) and a `testcontainers` real-Postgres suite run by the `documents-multi-instance` CI job (`packages/documents`); `develop` requires no status checks. | `.github/workflows/ci.yml` |
 | Consumers | data_sync resolves credentials once per run, and adapters can call a Token Provider with no engine change; `official-modules` has no OAuth2 auth-code client and consumes core through published packages; Package Previews is maintainer-dispatched, same-repository only. | `data_sync/lib/sync-engine.ts` |
 
 #### 1.4.2 Entities
@@ -132,7 +132,8 @@ Field rules: `providerData` is provider-owned and non-secret, cleared by every C
 - **I6 Bounded lock.**
   - The holder makes at most one token-endpoint call, bounded at 10 s for the whole exchange, body included; waiters hold no connection, and their deadline is 15 s (5 s for Disconnect), then `transient`.
   - The DEK is pinned once per operation and resolved before the lock; the decrypt and the encrypt under the lock use the same DEK.
-  - No token call without a readable grant: the token endpoint is called only if the grant decrypted and validated with the pinned DEK.
+  - Encryption switched off (`TENANT_DATA_ENCRYPTION=no`) is a supported mode, not an outage: nothing is pinned, and the grant is written and read as plaintext at both layers, like the Client Configuration. "No DEK" in this document always means encryption is on and the KMS supplied no key. A grant sealed while encryption was on counts as "no DEK" once it is switched off: `platform_unavailable`, never overwritten by a Connect, replaced only by a forced Disconnect followed by a Connect (§1.4.5).
+  - No token call without a readable grant: the token endpoint is called only if the grant decrypted with the pinned DEK (or was stored as plaintext with encryption off) and validated.
   - The lock fork is detached from the caller's context: never nested in a caller's transaction, it keeps the request's subscribers (including tenant field encryption) and runs the lock SQL in the lock transaction.
   - The field-level encryption layer follows platform behaviour and isn't pinned (§1.4.6). Mechanics: Phase 1 feature spec.
 - **I7 Strict ownership.** A lookup for owner X never returns owner Y's grant; per-user lookups (Phase 3) must not use `getRaw`'s user→tenant fallback.
@@ -166,7 +167,7 @@ The exported `IntegrationCredentialFieldOauth` is a form-field declaration and s
 6. Build the redirect URI with `resolveOAuthRedirectUri(req, path)` in both legs, passing the request.
 7. On External Account save and Disconnect, carry the Grant Revision (`buildOptimisticLockHeader` → `readOptimisticLockExpected` → `expectedRevisedAt`) and return the grant service's standard 409 body.
 8. Show the redirect URI on the tab with a copy button; disable Connect and Reconnect while `inspectGrant().baseUrlMissing`.
-9. Not declare `defaultState.isEnabled: true` until the `upsert` defaults fix lands (it would silently disable the integration at its first health run).
+9. Not declare `defaultState.isEnabled: true` until the `upsert` defaults fix ([#6915](https://github.com/open-mercato/open-mercato/issues/6915), PR [#6916](https://github.com/open-mercato/open-mercato/pull/6916)) lands (otherwise the first health run, or any state write without `isEnabled`, silently disables the integration).
 10. In state `unavailable`, offer "Replace unreadable connection" behind a confirm dialog; carry `replaceUnreadable` only in the encrypted state, strictly parsed from `extra`, never as a callback query parameter; every other Connect passes `false`.
 
 #### 1.4.4 Domain events and signals
@@ -213,7 +214,7 @@ A missing DEK shows through the existing platform path (the health run fails, th
 | `grant_invalidated` | the grant is `invalidated` (no network call), or Refresh got `invalid_grant` (`grant_rejected`), or the access token expired with no refresh token stored (`no_refresh_token`) | `invalidated`, in the same commit as `oauth_invalidated` | no; Reconnect |
 | `client_misconfigured` | `invalid_client` / `unauthorized_client`; another permanent 4xx (`token_endpoint_rejected`, with the provider code); the grant's `clientId` differs from the Client Configuration (`client_changed`, on read); client credentials missing (`client_not_configured`) | unchanged, `active` | no; the admin fixes the configuration |
 | `transient` | network error, timeout, 5xx, 429, non-JSON, `temporarily_unavailable`, `server_error`, lock deadline, or a transient DB error | unchanged | back off; a stored token still valid at call time is returned `degraded` (never for a `rejectedAccessToken` call) |
-| `platform_unavailable` | no DEK, a field-level layer that couldn't be opened, or a blob that doesn't decrypt or validate; no token call (I6) | unchanged, never invalidated | fail closed; may be transient (a KMS outage) |
+| `platform_unavailable` | no DEK (including a grant sealed before encryption was switched off), a field-level layer that couldn't be opened, or a blob that doesn't decrypt or validate; no token call (I6) | unchanged, never invalidated | fail closed; may be transient (a KMS outage) |
 | `not_connected` | no live grant | — | no; "Connect first", never "reconnect" |
 
 - **After a resource `401`** the caller passes `rejectedAccessToken`: one forced Refresh only if the stored token still equals it and wasn't refreshed since the call started; a second `401` is a resource error, never `grant_invalidated`.
@@ -229,9 +230,9 @@ A missing DEK shows through the existing platform path (the health run fails, th
 - `client_misconfigured`: `invalid_client` / `unauthorized_client` on the exchange, or no Client Configuration at initiate. `organization_scope_required`: "all organizations" selected. `oauth_base_url_not_configured`: no `APP_URL` in production, or a request origin that isn't an allowed app origin (Q9).
 - Tokens obtained by a failed Connect are discarded, not revoked: revoking could also revoke a Provider Authorization shared with an existing grant (Q8).
 
-**`replaceUnreadable`.** Only a blob envelope that doesn't decrypt or validate with the pinned DEK counts as an unreadable grant, and only the admin's explicit confirmation, `completeConnect(..., { replaceUnreadable: true })` carried in the verified state (rule 10), overwrites it like a first Connect (no refresh token kept, no `previousProviderData`). An unopened field-level layer or a missing DEK is never overwritten, flag or not: Connect fails `connect_persist_failed`, and only a forced Disconnect followed by a Connect replaces such a grant. How the read tells the layers apart: Phase 1 feature spec (layered read).
+**`replaceUnreadable`.** Only a blob envelope that doesn't decrypt or validate with the pinned DEK counts as an unreadable grant, and only the admin's explicit confirmation, `completeConnect(..., { replaceUnreadable: true })` carried in the verified state (rule 10), overwrites it like a first Connect (no refresh token kept, no `previousProviderData`). An unopened field-level layer or a missing DEK (including a grant sealed before encryption was switched off) is never overwritten, flag or not: Connect fails `connect_persist_failed`, and only a forced Disconnect followed by a Connect replaces such a grant. How the read tells the layers apart: Phase 1 feature spec (layered read).
 
-**Grant writes** (`updateProviderData`, `disconnect`), in check order: DEK (before the lock), lock, live row, decrypt and validate, revision. With readable tokens, `force` changes nothing; the provider decides whether its UI exposes it.
+**Grant writes** (`updateProviderData`, `disconnect`), in check order: DEK (before the lock; nothing to pin with encryption off), lock, live row, decrypt and validate, revision. With readable tokens, `force` changes nothing; the provider decides whether its UI exposes it.
 
 | Operation | Observation | Result | Grant after |
 |---|---|---|---|
@@ -298,7 +299,7 @@ A single authenticated surface (the backend); **Portal: NOT USED.** Connecting a
 ### WF2: Obtain a valid access token in background work
 
 **Journey:**
-1. A sync worker (any process) calls `getAccessToken(descriptor, owner, { minValidityMs })`; the DEK is resolved and pinned once (none → `platform_unavailable`, no lock), and an `active`, fresh token is returned with no lock.
+1. A sync worker (any process) calls `getAccessToken(descriptor, owner, { minValidityMs })`; the DEK is resolved and pinned once (none → `platform_unavailable`, no lock; nothing to pin with encryption off), and an `active`, fresh token is returned with no lock.
 2. Otherwise the worker tries the lock: acquired → re-read → still stale and not refreshed since the call started → Refresh → commit; not acquired → back off and re-read, holding no connection.
 3. The token is returned and used; on a `401` the worker calls once more with `rejectedAccessToken`, and on an insufficient-scope challenge it stops that call.
 
@@ -328,7 +329,7 @@ A single authenticated surface (the backend); **Portal: NOT USED.** Connecting a
 ### WF4: Disconnect
 
 **Journey:**
-1. The admin confirms Disconnect; the route requires `integrations.credentials.manage`, runs the mutation guards and passes the Grant Revision as `expectedRevisedAt`. The DEK is pinned before the lock; with none, a default Disconnect returns `disconnect_tokens_unreadable`.
+1. The admin confirms Disconnect; the route requires `integrations.credentials.manage`, runs the mutation guards and passes the Grant Revision as `expectedRevisedAt`. The DEK is pinned before the lock (nothing to pin with encryption off); with none, a default Disconnect returns `disconnect_tokens_unreadable`.
 2. Under the lock (5 s waiter deadline), in one transaction: no live grant → `not_connected` no-op; read the tokens (unreadable → `disconnect_tokens_unreadable` unless `force: true`); check the revision; blank and soft-delete the row; log `oauth_disconnected` + `oauth_revocation_pending` with a new `disconnectId`. I5 holds from the commit.
 3. After release, within budgets (hook ≤ 8 s, revoke ≤ 8 s), re-read before each external call: skip if a live grant exists again (`oauth_revocation_skipped_reconnected`) or the captured grant was `invalidated` (`oauth_revocation_skipped_invalidated`); a forced erase without tokens logs `oauth_revocation_failed` (`undecryptable`).
 4. Otherwise run `onAfterDisconnect(ctx)`, then RFC 7009-revoke the most recent refresh token, even if the hook failed (core never persists a token `ctx.refresh` returned), and log the outcome (`oauth_revocation_confirmed`, `oauth_revocation_failed` with the provider code or `hook_failed`, or `oauth_revocation_unsupported`); the response carries it.
@@ -392,12 +393,12 @@ Navigation unchanged (Settings → Integrations → *provider*); no dashboard wi
 
 ### 4.1 Platform commit plan (Phase 1)
 
-The detailed plan (scope, files and tests per commit) is in the Phase 1 feature spec. **Related, independent:** the `upsert` defaults fix is a separate bug fix with its own issue, PR and regression test; the Phase 3 `reauthRequired` projection depends on it, Phase 1 doesn't.
+The detailed plan (scope, files and tests per commit) is in the Phase 1 feature spec. **Related, independent:** the `upsert` defaults fix is a separate bug fix with its own regression tests (issue [#6915](https://github.com/open-mercato/open-mercato/issues/6915), PR [#6916](https://github.com/open-mercato/open-mercato/pull/6916)); the Phase 3 `reauthRequired` projection depends on it, Phase 1 doesn't.
 
 | ID | Commit | Package | Score |
 |---|---|---|---|
 | P1a | `withAdvisoryXactLock` helper: namespaced key, context-detached fork, back-off without a held connection, exported transient-DB matcher | `shared/src/lib/db/advisoryLock.ts` | 1 |
-| P1b | Real-Postgres lock suite (`testcontainers`, `OM_PG_INTEGRATION`) and a new required CI job | `packages/shared`, `.github/workflows/ci.yml` | 1 |
+| P1b | Real-Postgres lock suite (`testcontainers`, `OM_PG_INTEGRATION`) and its step in the existing `documents-multi-instance` CI job | `packages/shared`, `.github/workflows/ci.yml` | 1 |
 | P2a | Hand-rolled protocol client: token endpoint, revoke, PKCE, authorization URL, code exchange, resource challenge, descriptor validation, redirect URI | `core/.../integrations/lib/oauth/*` | 1 |
 | P2b | Fake authorization server and the `oauthGrantFixtures` re-export | `integrations/lib/oauth/testing`, `core/src/helpers/integration` | 1 |
 | P3 | `eraseIntegrationCredentials`, optional `kms` on `createCredentialsService`, the layered read, the latest-log-by-code query | `integrations/lib/{credentials,log}-service.ts` | 1 |
@@ -535,7 +536,7 @@ None in this repository; the first consumer is an official module with its own s
 ## 6. User Story Gap Analysis `Architect`
 
 The story-to-commit mapping is the **Commits** column of the §5 tables; "provider" commits are the first consumer's (§4.2). **Upstream dependencies / merge order:**
-- Recommended gate (Q7, pending sign-off) for the Phase 1 merge: an official-module draft PR passes against a package preview built from the Phase 1 PR (§4.5.6). Hard gate for Phase 2: PR [#6267](https://github.com/open-mercato/open-mercato/pull/6267) (single-use state cookie). The `upsert` defaults fix gates the Phase 3 projection, not Phase 1.
+- Recommended gate (Q7, pending sign-off) for the Phase 1 merge: an official-module draft PR passes against a package preview built from the Phase 1 PR (§4.5.6). Hard gate for Phase 2: PR [#6267](https://github.com/open-mercato/open-mercato/pull/6267) (single-use state cookie). The `upsert` defaults fix (PR [#6916](https://github.com/open-mercato/open-mercato/pull/6916)) gates the Phase 3 projection, not Phase 1.
 - [#6333](https://github.com/open-mercato/open-mercato/issues/6333), PR [#6478](https://github.com/open-mercato/open-mercato/pull/6478) and PR [#6433](https://github.com/open-mercato/open-mercato/pull/6433) change `credential-refresh.ts` (Phase 3 rebases on them); PR [#6266](https://github.com/open-mercato/open-mercato/pull/6266) is independent; PR [#5898](https://github.com/open-mercato/open-mercato/pull/5898) is a Phase 3 candidate.
 - PR [#5450](https://github.com/open-mercato/open-mercato/pull/5450) run taxonomy: `transient` and `platform_unavailable` → run-transient; `grant_invalidated`, `client_misconfigured`, `not_connected` and `scope_insufficient` → run-terminal.
 
@@ -548,7 +549,7 @@ The story-to-commit mapping is the **Commits** column of the §5 tables; "provid
 ### Phase 1: Grant-lifecycle core (platform) — 12 commits
 
 **Goal:** any integration can hold a tenant-level grant that is obtained through a PKCE-protected code exchange, refreshes safely across processes without starving the pool, reports a trustworthy status (banner and health badge), and can be truly disconnected. **Why this order:** it sets the standard before a second copy of the logic appears and before the first strict-rotation provider makes the race real.\
-It ships **dark**: no existing integration holds a grant (the only always-on path is one existence lookup in the detail GET); the banner renders only for an `invalidated` grant; no migration, no new production route, no new ACL feature, one new required CI job (Q3); no consumer in this repository, and under the recommended gate (Q7) the merge waits for the official module's draft PR.
+It ships **dark**: no existing integration holds a grant (the only always-on path is one existence lookup in the detail GET); the banner renders only for an `invalidated` grant; no migration, no new production route, no new ACL feature, no new CI job (the real-Postgres suites run in `documents-multi-instance`, Q3); no consumer in this repository, and under the recommended gate (Q7) the merge waits for the official module's draft PR.
 
 **Business-level acceptance** (the labelled test criteria and where each runs: Phase 1 feature spec):
 - [ ] 20 concurrent callers over ≥ 2 DB sessions against a strict-rotation fake cause exactly one refresh (I1).
@@ -556,8 +557,9 @@ It ships **dark**: no existing integration holds a grant (the only always-on pat
 - [ ] Every §1.4.5 outcome is tested for its class, grant status and stored tokens; nothing else invalidates a grant (I3).
 - [ ] No token value reaches the admin credentials API, logs, health `details`, error reports or the `oauthGrant` field (I4).
 - [ ] After Disconnect the live database holds no decryptable refresh token, even with revocation down; a crash after the erase leaves `revocation: 'pending'` (I5).
-- [ ] Waiters hold no connection (0 acquire timeouts with `poolMax=4` and 10 waiters); the lock commits independently of an outer rollback; rows written under the lock are encrypted like admin rows at both layers (I6).
+- [ ] Waiters hold no connection (0 acquire timeouts with `poolMax=4` and 10 waiters); the lock commits independently of an outer rollback; rows written under the lock are stored like admin rows at both layers: encrypted, or plaintext with encryption switched off (I6).
 - [ ] No token call without a readable grant; no-DEK outcomes return without taking the lock; the DEK is resolved once per operation (I6). Owners differing only by organization, tenant or integration are independent (I7).
+- [ ] With encryption switched off, Connect, Refresh, `updateProviderData` and Disconnect work on a plaintext grant; a grant sealed before the switch reads `platform_unavailable`, is never overwritten by a Connect and is replaced only through a forced Disconnect followed by a Connect (I6).
 - [ ] An unreadable grant is never overwritten without `replaceUnreadable`, and an unopened field-level layer or a missing DEK never is; a stale Grant Revision gets the standard 409 on External Account selection and Disconnect.
 - [ ] `inspectGrant` makes no token call, takes no lock and writes nothing; `mapInspectionToHealth` follows the §1.4.4 precedence.
 - [ ] PKCE matches the RFC 7636 Appendix B vector, and the redirect URI never comes from the request origin; a Disconnect hook that ignores its signal can't hold the Disconnect past its budget, and the revoke is still attempted.
@@ -588,7 +590,7 @@ It ships **dark**: no existing integration holds a grant (the only always-on pat
 ### Rollout summary
 
 ```
-Related: upsert defaults fix         1 PR        (independent bug fix; gates the Phase 3 projection)
+Related: upsert defaults fix         1 PR        (#6916, independent bug fix; gates the Phase 3 projection)
 Phase 1: grant-lifecycle core      12 commits   capabilities for WF2–WF4 (+ WF1/WF5 primitives incl. PKCE)
 Phase 2: first consumer            ~5 commits   WF1–WF4 end-to-end (official module, own spec)
 Phase 3: triggered            ~14–25 commits   each item only when its trigger fires (many are optional)
@@ -626,8 +628,8 @@ N/A: this is a platform capability. Anti-patterns to avoid (full list: Phase 1 f
 |---|---|---|---|---|---|
 | Q1 | For a strict-rotation provider: when one refresh token is redeemed twice within its reuse-grace window, which child stays valid? | sandbox test per provider | the residual-risk recovery path (§1.4.6); the design doesn't depend on it | the provider's spec | OPEN per provider |
 | Q2 | Does a given provider accept S256 PKCE from a confidential client that also sends a secret? | yes → `S256`; no → `none` | low (a descriptor flag) | the provider's spec (sandbox) | OPEN per provider |
-| Q3 | Maintainer sign-off on the new contract surfaces listed in §10.1 (every row marked "yes"), including the new required CI job and the CI runner env change | approve / trim | **BLOCKER** for the Phase 1 merge | maintainers | OPEN |
-| Q4 | Merge order vs. #6267, #6478, #6433 and the `upsert` fix | — | medium | contributor | **Decided** per §6 (the recommended gate (Q7, pending sign-off) before the Phase 1 merge; hard gates: #6267 before Phase 2, the `upsert` fix before the Phase 3 projection); re-checked at merge |
+| Q3 | Maintainer sign-off on the new contract surfaces listed in §10.1 (every row marked "yes"), including the real-Postgres steps in the `documents-multi-instance` CI job and the CI runner env change | approve / trim | **BLOCKER** for the Phase 1 merge | maintainers | OPEN |
+| Q4 | Merge order vs. #6267, #6478, #6433 and the `upsert` fix (#6916) | — | medium | contributor | **Decided** per §6 (the recommended gate (Q7, pending sign-off) before the Phase 1 merge; hard gates: #6267 before Phase 2, the `upsert` fix before the Phase 3 projection); re-checked at merge |
 | Q5 | Should the hub's channel disconnect erase tokens? (It conflicts with undo.) | keep / erase-on-delete / erase after N days | privacy | hub owners | OPEN (out of scope) |
 | Q6 | Idle-grant keep-alive for providers that expire unused refresh tokens | explicit scheduled refresh / health probe as implicit keep-alive | medium | core (rule) / the provider's spec (threshold, enumeration) | **Decided:** an explicit provider-owned job refreshes a grant whose `refreshedAt ?? obtainedAt` is older than a provider-chosen threshold, via `getAccessToken({ forceRefresh: true })`. The health probe is deliberately **not** a keep-alive (§1.4.4): it would refresh on most probes, compete for the lock, and exceed the 10 s health timeout. |
 | Q7 | Option A vs. B, and whether to gate the Phase 1 merge on the first consumer | A / B; gate (the core PR merges only after an official-module draft PR passes against a package preview of core: the maintainer-dispatched Package Previews workflow on a same-repository branch, or `yarn pack` tarballs / Verdaccio, §4.5.6) / no gate | scope; the published surface is frozen only after a real provider has used it | maintainers | OPEN (with Q3); RECOMMEND B with the gate |
@@ -652,7 +654,7 @@ Contract surfaces touched (`BACKWARD_COMPATIBILITY.md`). All changes are additiv
 | Log and health codes | `integrations.oauth_<reason>`, `OAUTH_HEALTH_CODES`, `mapInspectionToHealth` | ADDITIVE (STABLE once released) | **yes** |
 | Persisted formats | `__oauth_grant` suffix, blob `version`, lock-key string `oauth_grant:<integrationId>:<tenantId>:<organizationId>:<userId or ->`, `resourceKind` `integrations.oauth_grant` | ADDITIVE-ONLY | **yes** |
 | Behaviour; External dependency | OAuth routes require `APP_URL` in production (Q9); provider routes import the hub-owned `communication_channels/lib/oauth-state` | behaviour addition for OAuth routes; dependency on an existing path | **yes** (the dependency: hub owners) |
-| CI: new required job | real-Postgres job in `merge-coverage.needs`; `OM_ENABLE_TEST_OAUTH_GRANTS` in the integration job env | pipeline change (root "Ask First") | **yes** |
+| CI | real-Postgres suites as named steps of the existing `documents-multi-instance` job (no new job; `develop` requires no status checks, so no branch-protection change); `OM_ENABLE_TEST_OAUTH_GRANTS` in the integration job env | pipeline change (root "Ask First") | **yes** |
 | Test-only route and flag; Dependencies | `POST /api/integrations/test-oauth-grants`, `OM_ENABLE_TEST_OAUTH_GRANTS`; dev dependencies `testcontainers`, `cross-env` | not a contract (like `test-seed`); dev only | — |
 
 #### Checklist
@@ -704,6 +706,21 @@ Repository evidence: file references in §1.4.1 (line-level in the Phase 1 featu
 **PKCE policy:** **on (S256) by default** for every auth-code grant, including confidential clients. RFC 9700 §2.1.1 recommends it for confidential clients (and requires it for public ones) and OAuth 2.1 (draft) requires it; it binds the authorization code to the session that requested it, so an intercepted or injected code can't be redeemed; it costs one verifier in the already-encrypted state. Providers can opt out via the descriptor only when the provider rejects PKCE. Gmail (hub) keeps its current behaviour until Phase 3.
 
 ## Changelog
+
+### 2026-10-04
+
+- Encryption switched off (`TENANT_DATA_ENCRYPTION=no`) is a supported mode: grants are stored and read as plaintext, and a grant sealed before the switch counts as "no DEK" (I6, §1.4.5, §7).
+- The real-Postgres suites run as steps of the existing `documents-multi-instance` CI job: no new job and no branch-protection change, since `develop` requires no status checks (§4.1 P1b, Q3, §10.1).
+- The `upsert` defaults defect is reachable today through direct API calls, not latent; its fix is issue #6915 and PR #6916 (§1.4.1, §4.1, rule 9).
+
+### 2026-10-03
+
+- Provider-neutral: no named provider; the first consumer is an official module in `open-mercato/official-modules`, specified separately (§0, §4.5.6, Q7).
+- The DEK is pinned once per operation before the lock, and no token call happens without a readable grant (I6).
+- An unreadable grant is overwritten only with the admin's confirmed `replaceUnreadable` (§1.4.5, rule 10).
+- The Grant Revision (`revisedAt`) gives the standard 409 on External Account selection and Disconnect (§1.4.2).
+- The `reauthRequired` projection moves to Phase 3; the banner reads grant status and links to `detailPage.connectTabId` (§3.5).
+- Mechanics, line-level evidence, the commit plan and the labelled test criteria move to the Phase 1 feature spec.
 
 ### 2026-09-27
 
