@@ -25,7 +25,7 @@ export type { OrganizationScope }
 // (every ACL/role grant change goes through it — see buildOrgScopeUserCacheTag)
 // and per-tenant entries by the directory.organization.* subscriber plus
 // RbacService.invalidateTenantCache (role-ACL changes).
-const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope'
+const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope:v2'
 // Phase 4 default-off until the same readiness probe (`GET /api/customers/people`)
 // stays green with the cache layer engaged. Set `OM_ORG_SCOPE_CACHE_TTL_MS=60000`
 // (or any positive integer) to opt in once cross-request safety is re-verified.

@@ -631,6 +631,7 @@ const queryIndexStatusDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Tenant or organization context required', schema: queryIndexErrorSchema },
     { status: 401, description: 'Authentication required', schema: queryIndexErrorSchema },
+    { status: 403, description: 'Organization access denied', schema: queryIndexErrorSchema },
   ],
 }
 

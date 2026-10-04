@@ -168,6 +168,45 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(expectedAclCalls)
   })
 
+  it('ignores a legacy cached home-org widening and caches the current deny-all scope', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac([])
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const actor = auth()
+    const legacyKey = `org-scope:${actor.sub}:tenant-1:none:none`
+    const currentKey = `org-scope:v2:${actor.sub}:tenant-1:none:none`
+    cache.store.set(legacyKey, {
+      value: {
+        selectedId: 'org-home',
+        filterIds: ['org-home'],
+        allowedIds: ['org-home'],
+        tenantId: 'tenant-1',
+      },
+      tags: [`org-scope:user:${actor.sub}`, 'org-scope:tenant:tenant-1'],
+    })
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: actor })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: actor })
+
+    const denyAllScope = {
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: 'tenant-1',
+    }
+    expect(first).toEqual(denyAllScope)
+    expect(second).toEqual(denyAllScope)
+    expect(cache.get).toHaveBeenNthCalledWith(1, currentKey)
+    expect(cache.get).toHaveBeenNthCalledWith(2, currentKey)
+    expect(cache.get).not.toHaveBeenCalledWith(legacyKey)
+    expect(cache.store.get(currentKey)?.value).toEqual(denyAllScope)
+    expect(cache.store.get(legacyKey)?.value).toMatchObject({ filterIds: ['org-home'] })
+    expect(cache.set).toHaveBeenCalledTimes(1)
+    expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(1)
+  })
+
   it('invalidateOrganizationScopeCacheForTenant drops entries tagged for that tenant', async () => {
     process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
     const em = createMockEm([{ id: 'org-home', descendantIds: [] }])

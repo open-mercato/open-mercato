@@ -186,6 +186,8 @@ None. (Q3-a: no feature flag; ship fail-closed.)
 - No DB migration.
 - **Behavioral breaking change** for the narrow precondition (restricted user, `auth.orgId = null`). This is the intended security fix. Documented in `RELEASE_NOTES.md` under a "Security" entry referencing #2239 and #2245.
 - Contract-surface review (`BACKWARD_COMPATIBILITY.md`): `ensureOrganizationScope` signature is unchanged (STABLE). Behavior tightens — this is an allowed security hardening, not an API break. The two new helpers are additive.
+- The follow-up empty-scope propagation keeps every public signature and response shape intact: `null`/`undefined` remains unrestricted, a genuinely absent resolved scope retains the home-organization fallback, and an explicit `[]` now consistently means deny-all.
+- The cross-request organization-scope cache namespace changes from `org-scope:` to `org-scope:v2:` (including user and tenant tags). Existing positive-TTL entries may remain in the cache backend until normal expiry, but the application no longer reads them; no operator cache flush or data migration is required.
 
 ### Follow-up issues (out of scope for this change)
 1. **Pattern C user-route scope population** — migrate `customers/api/people/[id]/companies[/[linkId]]/route.ts` and `sales/api/quotes/accept/route.ts` (and any other user-facing Pattern C command routes) to populate a real `organizationScope` from `resolveOrganizationScopeForRequest`, so they too benefit from the `allowedIds` check rather than relying solely on `selectedOrganizationId`.
@@ -216,6 +218,12 @@ None. (Q3-a: no feature flag; ship fail-closed.)
    - **Pattern C unaffected**: a Pattern C path (e.g. `sales.quotes.convert_to_order` via `/api/sales/quotes/accept`) continues to work for a valid in-scope user — proves the absent-scope legacy fallback was not broken.
 2. Run validation gate: `yarn workspace @open-mercato/shared test`, `yarn workspace @open-mercato/core test`, `yarn typecheck`, `yarn lint`, targeted integration suite.
 3. Document the behavioral security change (this spec's Migration & Compatibility section). `RELEASE_NOTES.md` does not exist in this repo; `CHANGELOG.md` is generated at release time by `om-auto-update-changelog` (PR-numbered, house format) — do not hand-edit mid-cycle.
+
+### Phase 4: Empty-scope propagation and deployment cache safety
+1. Preserve `filterIds: []` through the central resolver/filter and make every audited direct query builder emit an empty result, a no-row predicate, or an explicit denial instead of falling back to `auth.orgId` or omitting organization filtering.
+2. Make `channelOrgScopeWhereFromFilter({ organizationIds: [] })` a no-row predicate shared by all six core/Discord read and mutation consumers while preserving unrestricted and absent-scope behavior.
+3. Version the organization-scope cache key/tag namespace so pre-fix cached home-organization widening is unreachable after deployment.
+4. Document the query-index status route's new `403` response and cover the channel read/mutation, cache-upgrade, and OpenAPI contracts with regressions.
 
 ### File Manifest
 | File | Action | Purpose |
@@ -305,7 +313,7 @@ None. (Q3-a: no feature flag; ship fail-closed.)
 | API contracts match UI/UX section | Pass | 403 surfaced by existing error UI |
 | Risks cover all write operations | Pass | Command path + read path both covered |
 | Commands defined for all mutations | Pass | No new mutations introduced |
-| Cache strategy covers all read APIs | Pass | No cache changes; guard runs post-load |
+| Cache strategy covers all read APIs | Pass | `org-scope:v2:` prevents pre-fix positive-TTL entries from being read after deployment; current empty scopes are cached as deny-all |
 
 ### Non-Compliant Items
 None.
@@ -320,6 +328,7 @@ None.
 | Phase 1 — Shared predicate + write-path fix (#2239) | Done | 2026-05-29 | `isOrganizationAccessAllowed` + rewritten `ensureOrganizationScope`; 13 unit tests green; shared builds + typechecks |
 | Phase 2 — Read-path guard + migration (#2245 + audit) | Done | 2026-05-29 | `isOrganizationReadAccessAllowed` predicate; all 10 fail-open guards migrated incl. `entity-roles-factory`; 6 guard unit tests green; core builds + typechecks |
 | Phase 3 — Integration coverage + verification | Partial | 2026-05-29 | Unit coverage complete & green. Fixture infra + `TC-CRM-072.spec.ts` written. Behavioral security change documented in Migration & Compatibility; `CHANGELOG.md` is release-tooling-managed so no manual mid-cycle entry. **Integration spec written but NOT yet validated in a coherent env** — see note below |
+| Phase 4 — Empty-scope propagation and cache namespace | Done | 2026-10-04 | Audited direct consumers now preserve deny-all, all six channel/Discord consumers share the no-row predicate, legacy cache keys are unreachable, and query-index documents `403` |
 
 ### Phase 3 — integration test status
 Built reusable fixture infrastructure:
@@ -341,6 +350,9 @@ Built reusable fixture infrastructure:
 - [ ] `TC-CRM-072.spec.ts` validated in a coherent app+DB harness (`yarn test:integration:ephemeral`) — could not validate in-session (dev server DB ≠ fixtures DB)
 
 ## Changelog
+### 2026-10-04
+- Completed the GHSA follow-up audit: preserved explicit empty scopes across direct query consumers, made channel/Discord reads and the AI auto-reply mutation no-row-safe, bumped the organization-scope cache namespace to `org-scope:v2:`, and documented query-index status `403` responses.
+
 ### 2026-05-29
 - Initial specification (post Open-Questions gate: Q1-b full audit, Q2-b WHERE-scoping deferred, Q3-a ship fail-closed, Q4-a single PR closing #2239 + #2245).
 - Applied pre-implementation analysis findings (`.ai/specs/analysis/ANALYSIS-2026-05-29-org-scope-fail-open-authorization-hardening.md`): added **G1** Pattern C contract (load-bearing absent-scope legacy fallback; ~40 call sites enumerated), **G2** write-path closure-scope statement (Pattern A/B closed incl. #2239 example; Pattern C user routes deferred), and **G3** follow-up issues (Pattern C scope population, deferred WHERE-clause scoping, enterprise/provider re-audit). Strengthened unit/integration test requirements with the absent-scope-not-deny and allow-path regression assertions.
