@@ -2,9 +2,23 @@ import { buildDocumentFilename, escapeInline, escapeTableCell, formatDate, forma
 
 describe('document author utilities', () => {
   it('escapes Markdown structure, links, table cells and embedded HTML from source data', () => {
-    expect(escapeInline('[link](https://example.test)')).toBe('\\[link\\]\\(https://example\\.test\\)')
-    expect(escapeTableCell('| cell\n# heading <script>&')).toBe('\\| cell \\# heading &lt;script&gt;&amp;')
+    expect(escapeInline('[link](https://example.test)')).toBe('\\[link\\](https://example.test)')
+    expect(escapeTableCell('| cell\n# heading <script>&')).toBe('\\| cell # heading &lt;script&gt;&amp;')
+    expect(escapeInline('**bold** _em_ `code` ~~gone~~')).toBe('\\*\\*bold\\*\\* \\_em\\_ \\`code\\` \\~\\~gone\\~\\~')
     expect(escapeInline(null)).toBe('')
+  })
+
+  it('escapes line-start markers only at the start of a value and keeps ordinary punctuation readable', () => {
+    expect(escapeInline('ORDER-2026-00025')).toBe('ORDER-2026-00025')
+    expect(escapeInline('$10.00 (net)')).toBe('$10.00 (net)')
+    expect(escapeInline('- injected bullet')).toBe('\\- injected bullet')
+    expect(escapeInline('+ item')).toBe('\\+ item')
+    expect(escapeInline('# heading')).toBe('\\# heading')
+    expect(escapeInline('===')).toBe('\\===')
+    expect(escapeInline('---')).toBe('\\---')
+    expect(escapeInline('1. ordered')).toBe('1\\. ordered')
+    expect(escapeInline('2) ordered')).toBe('2\\) ordered')
+    expect(escapeInline('Main St 5, Warsaw')).toBe('Main St 5, Warsaw')
   })
 
   it('uses server-normalized document numbers and makes path/control characters inert', () => {

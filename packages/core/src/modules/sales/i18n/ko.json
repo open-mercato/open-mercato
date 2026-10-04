@@ -1140,6 +1140,7 @@
   "sales.documents.list.table.totalGross": "합계(세금 포함)",
   "sales.documents.list.table.totalNet": "합계(세금 제외)",
   "sales.documents.list.table.unassigned": "미지정",
+  "sales.documents.moduleLabel": "판매",
   "sales.documents.payments.add": "결제 추가",
   "sales.documents.payments.amount": "금액",
   "sales.documents.payments.amountInvalid": "금액을 숫자로 입력하세요.",

@@ -8,6 +8,7 @@ import { useDocumentTemplates } from '../../../../hooks/templates/useDocumentTem
 import { useDocumentTemplateOptions } from '../../../../hooks/templates/useDocumentTemplateOptions'
 import { useDocumentTemplateFilters } from '../../../../hooks/templates/useDocumentTemplateFilters'
 import { buildTemplateColumns, groupTemplatesForCatalogue } from './TemplatesListTableColumns'
+import { formatModuleLabel } from '../../../../utils/groupTemplatesByModule'
 
 export function TemplatesList() {
   const t = useT()
@@ -35,7 +36,7 @@ export function TemplatesList() {
         groups.map(([moduleId, moduleTemplates]) => (
           <DataTable
             key={moduleId}
-            title={moduleId}
+            title={formatModuleLabel(moduleId, t)}
             columns={columns}
             data={moduleTemplates}
             isLoading={templates.isFetching}

@@ -34,7 +34,11 @@ export function historyColumnForSortField(field: DocumentHistorySortField | null
   return entry ? (entry[0] as HistoryColumnId) : null
 }
 
-export function buildHistoryColumns(t: Translate, visible?: readonly HistoryColumnId[]): ColumnDef<GeneratedDocumentDto>[] {
+export function buildHistoryColumns(
+  t: Translate,
+  visible?: readonly HistoryColumnId[],
+  userDisplayNames: Record<string, string> = {},
+): ColumnDef<GeneratedDocumentDto>[] {
   const all: Record<HistoryColumnId, ColumnDef<GeneratedDocumentDto>> = {
     resource: {
       id: 'resource',
@@ -67,6 +71,7 @@ export function buildHistoryColumns(t: Translate, visible?: readonly HistoryColu
       accessorKey: 'generatedBy',
       header: t('document_generators.history.generatedBy'),
       enableSorting: true,
+      cell: ({ row }) => userDisplayNames[row.original.generatedBy] ?? row.original.generatedBy,
     },
     resourceKind: {
       id: 'resourceKind',

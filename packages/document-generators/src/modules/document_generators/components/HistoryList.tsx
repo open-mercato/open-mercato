@@ -10,6 +10,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { documentHistoryFilterStateToQuery } from '../hooks/document-queries'
 import { useDocumentHistory } from '../hooks/history/useDocumentHistory'
 import { useDocumentHistoryFilters } from '../hooks/history/useDocumentHistoryFilters'
+import { useUserDisplayNames } from '../hooks/users/useUserDisplayNames'
 import { downloadBlob } from '../utils'
 import { requestStoredDocument } from './document-request'
 import {
@@ -54,7 +55,9 @@ export function HistoryList({ resourceKind, resourceId, pageSize, columns, showF
     if (typeof total === 'number') clampToTotal(total)
   }, [total, clampToTotal])
 
-  const tableColumns = React.useMemo(() => buildHistoryColumns(t, columns), [t, columns])
+  const generatedByIds = React.useMemo(() => (history.data?.items ?? []).map((item) => item.generatedBy), [history.data])
+  const userDisplayNames = useUserDisplayNames(generatedByIds)
+  const tableColumns = React.useMemo(() => buildHistoryColumns(t, columns, userDisplayNames), [t, columns, userDisplayNames])
 
   const filterDefs = React.useMemo<FilterDef[]>(
     () => [

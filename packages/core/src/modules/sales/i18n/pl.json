@@ -1140,6 +1140,7 @@
   "sales.documents.list.table.totalGross": "Suma (brutto)",
   "sales.documents.list.table.totalNet": "Suma (netto)",
   "sales.documents.list.table.unassigned": "Nieprzypisany",
+  "sales.documents.moduleLabel": "Sprzedaż",
   "sales.documents.payments.add": "Dodaj płatność",
   "sales.documents.payments.amount": "Kwota",
   "sales.documents.payments.amountInvalid": "Podaj kwotę jako liczbę.",

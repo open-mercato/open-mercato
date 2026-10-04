@@ -34,3 +34,12 @@ describe('TemplatesListTableColumns', () => {
     expect(groups[1][1].map((entry) => entry.id)).toEqual(['b1', 'b2'])
   })
 })
+
+describe('formatModuleLabel', () => {
+  it('uses the owning module translation and falls back to a readable module id', async () => {
+    const { formatModuleLabel } = await import('../../../../../utils/groupTemplatesByModule')
+    const translate = (key: string, fallback?: string) => (key === 'sales.documents.moduleLabel' ? 'Sprzedaż' : fallback ?? key)
+    expect(formatModuleLabel('sales', translate)).toBe('Sprzedaż')
+    expect(formatModuleLabel('warranty_claims', translate)).toBe('Warranty claims')
+  })
+})
