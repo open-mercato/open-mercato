@@ -949,6 +949,7 @@
   "ui.forms.conflict.dismiss": "닫기",
   "ui.forms.conflict.refresh": "새로고침",
   "ui.forms.conflict.title": "레코드가 변경됨",
+  "ui.forms.errors.fieldAnnouncement": "{label}: {message}",
   "ui.forms.errors.highlighted": "강조 표시된 오류를 수정해 주세요.",
   "ui.forms.errors.required": "필수 입력 항목입니다",
   "ui.forms.errors.unexpected": "예기치 않은 오류",

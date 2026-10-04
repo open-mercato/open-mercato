@@ -949,6 +949,7 @@
   "ui.forms.conflict.dismiss": "Schließen",
   "ui.forms.conflict.refresh": "Aktualisieren",
   "ui.forms.conflict.title": "Datensatz geändert",
+  "ui.forms.errors.fieldAnnouncement": "{label}: {message}",
   "ui.forms.errors.highlighted": "Bitte behebe die markierten Fehler.",
   "ui.forms.errors.required": "Dieses Feld ist erforderlich",
   "ui.forms.errors.unexpected": "Unerwarteter Fehler",

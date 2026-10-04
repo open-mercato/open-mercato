@@ -4688,6 +4688,33 @@ const FieldControl = React.memo(function FieldControlImpl({
     field.type !== 'custom' && !usesContentEditableRichText && !usesGroupedCheckboxes
   const visibleLabelId = !hasLabelableControl && hasVisibleLabel ? labelId : undefined
   const labelHtmlFor = hasLabelableControl ? controlId : undefined
+  const errorId = `${controlId}-error`
+  const ownsErrorPresentation = !(field.type === 'custom' && field.rendersOwnError)
+  const wrapperError = ownsErrorPresentation && error ? error : undefined
+
+  // Mark the control invalid and tie it to its message. This is applied to the
+  // node that carries `controlId` rather than threaded through every renderer's
+  // props, so one path covers every field type that exposes a control with that
+  // id. Fields without one (custom, checkbox groups) are still announced below.
+  React.useEffect(() => {
+    if (!wrapperError || typeof document === 'undefined') return
+    const control = document.getElementById(controlId)
+    if (!control) return
+    const describedBy = (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+    if (!describedBy.includes(errorId)) {
+      control.setAttribute('aria-describedby', [...describedBy, errorId].join(' '))
+    }
+    control.setAttribute('aria-invalid', 'true')
+    return () => {
+      control.removeAttribute('aria-invalid')
+      const remaining = (control.getAttribute('aria-describedby') ?? '')
+        .split(/\s+/)
+        .filter((entry) => entry && entry !== errorId)
+      if (remaining.length) control.setAttribute('aria-describedby', remaining.join(' '))
+      else control.removeAttribute('aria-describedby')
+    }
+  }, [wrapperError, controlId, errorId])
+
   const singleSelectValue = Array.isArray(value)
     ? String(value[0] ?? '')
     : value == null
@@ -4970,7 +4997,7 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={visibleLabelId}>
+        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={visibleLabelId} aria-describedby={wrapperError ? errorId : undefined}>
           {options.map((opt) => {
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
@@ -5036,8 +5063,22 @@ const FieldControl = React.memo(function FieldControlImpl({
           <div>{field.description}</div>
         </div>
       ) : null}
-      {error && !(field.type === 'custom' && field.rendersOwnError) ? (
-        <div className="text-xs text-status-error-text">{error}</div>
+      {wrapperError ? (
+        <div id={errorId} className="text-xs text-status-error-text">{wrapperError}</div>
+      ) : null}
+      {/* Announces the message when it appears. The region is always mounted,
+          because a live region inserted together with its text is often not
+          read, and it names the field, since several can fail at once. It is
+          polite so a failed submit does not talk over the form-level alert.
+          Fields that render their own error own their announcement too. */}
+      {ownsErrorPresentation ? (
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {wrapperError
+            ? hasVisibleLabel
+              ? t('ui.forms.errors.fieldAnnouncement', '{label}: {message}', { label: field.label, message: wrapperError })
+              : wrapperError
+            : ''}
+        </div>
       ) : null}
     </div>
   )
