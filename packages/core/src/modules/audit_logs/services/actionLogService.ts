@@ -53,6 +53,8 @@ const SYSTEM_ACTOR_CONTEXT_KEY = 'systemActor'
 const SYSTEM_ACTOR_REFERENCE_MAX_LENGTH = 255
 const REPLAY_QUERY_BATCH_SIZE = 100
 
+type ApiKeyReplayEntryKind = 'canonical' | 'legacy' | 'invalid'
+
 function toNullableUuid(value: unknown): string | null {
   return typeof value === 'string' && UUID_REGEX.test(value) ? value : null
 }
@@ -585,11 +587,13 @@ export class ActionLogService {
     return { items, total, page, pageSize, totalPages }
   }
 
-  private replayEntryMatchesApiKey(entry: ActionLog, actorSubject: string): boolean {
-    if (entry.contextJson === null || entry.contextJson === undefined) return true
-    if (!isRecord(entry.contextJson)) return false
-    if (!Object.prototype.hasOwnProperty.call(entry.contextJson, ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY)) return true
-    return actionLogBelongsToSubject(entry, actorSubject)
+  private classifyApiKeyReplayEntry(entry: ActionLog, actorSubject: string): ApiKeyReplayEntryKind {
+    if (entry.contextJson === null || entry.contextJson === undefined) return 'legacy'
+    if (!isRecord(entry.contextJson)) return 'invalid'
+    if (!Object.prototype.hasOwnProperty.call(entry.contextJson, ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY)) {
+      return 'legacy'
+    }
+    return actionLogBelongsToSubject(entry, actorSubject) ? 'canonical' : 'invalid'
   }
 
   private async findLatestReplayEntry(
@@ -614,6 +618,7 @@ export class ActionLogService {
     }
 
     if (this.tenantEncryptionService?.isEnabled()) {
+      let legacyEntry: ActionLog | null = null
       for (let offset = 0; ; offset += REPLAY_QUERY_BATCH_SIZE) {
         const entries = await this.em.find(ActionLog, where as FilterQuery<ActionLog>, {
           limit: REPLAY_QUERY_BATCH_SIZE,
@@ -621,23 +626,34 @@ export class ActionLogService {
           orderBy,
         })
         await this.decryptEntries(entries)
-        const matchingEntry = entries.find((entry) => this.replayEntryMatchesApiKey(entry, actor.subject))
-        if (matchingEntry) return matchingEntry
-        if (entries.length < REPLAY_QUERY_BATCH_SIZE) return null
+        for (const entry of entries) {
+          const entryKind = this.classifyApiKeyReplayEntry(entry, actor.subject)
+          if (entryKind === 'canonical') return entry
+          if (entryKind === 'legacy' && !legacyEntry) legacyEntry = entry
+        }
+        if (entries.length < REPLAY_QUERY_BATCH_SIZE) return legacyEntry
       }
     }
 
-    where.$or = [
-      {
-        [raw(`"context_json" ->> '${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY}'`)]: actor.subject,
-      },
-      {
-        [raw(`("context_json" is null or (jsonb_typeof("context_json") = 'object' and not jsonb_exists("context_json", '${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY}')))`)]: true,
-      },
-    ]
-    const entry = await this.em.findOne(ActionLog, where as FilterQuery<ActionLog>, { orderBy })
-    await this.decryptEntries(entry)
-    return entry && this.replayEntryMatchesApiKey(entry, actor.subject) ? entry : null
+    const canonicalEntry = await this.em.findOne(ActionLog, {
+      ...where,
+      [raw(`"context_json" ->> '${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY}'`)]: actor.subject,
+    } as FilterQuery<ActionLog>, { orderBy })
+    if (canonicalEntry) {
+      await this.decryptEntries(canonicalEntry)
+      return this.classifyApiKeyReplayEntry(canonicalEntry, actor.subject) === 'canonical'
+        ? canonicalEntry
+        : null
+    }
+
+    const legacyEntry = await this.em.findOne(ActionLog, {
+      ...where,
+      [raw(`("context_json" is null or (jsonb_typeof("context_json") = 'object' and not jsonb_exists("context_json", '${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY}')))`)]: true,
+    } as FilterQuery<ActionLog>, { orderBy })
+    await this.decryptEntries(legacyEntry)
+    return legacyEntry && this.classifyApiKeyReplayEntry(legacyEntry, actor.subject) === 'legacy'
+      ? legacyEntry
+      : null
   }
 
   async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {

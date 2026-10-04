@@ -613,6 +613,13 @@ describe('ActionLogService API-key replay freshness queries', () => {
     const undoToken = executionState === 'done' ? 'token' : null
     const rows = [
       row('canonical', { executionState, undoToken }),
+      row('newer-legacy', {
+        contextJson: { source: 'api' },
+        createdAt: new Date('2026-10-04T10:03:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:03:00.000Z'),
+      }),
       row('same-uuid-user', {
         contextJson: { actorSubject: keyId },
         createdAt: new Date('2026-10-04T10:02:00.000Z'),
@@ -655,14 +662,14 @@ describe('ActionLogService API-key replay freshness queries', () => {
     await expect(invoke(service)).resolves.toBeNull()
   })
 
-  it('continues encrypted-history scanning when a full page of malformed rows precedes the canonical key row', async () => {
-    const malformedRows = Array.from({ length: 100 }, (_, index) => row(`malformed-${index}`, {
-      contextJson: { actorSubject: `${keySubject}:malformed` },
+  it('continues encrypted-history scanning when a full page of newer legacy rows precedes the canonical key row', async () => {
+    const legacyRows = Array.from({ length: 100 }, (_, index) => row(`legacy-${index}`, {
+      contextJson: { source: 'api' },
       createdAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
       updatedAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
     }))
     const { find, service } = buildActionLogQueryHarness([
-      ...malformedRows,
+      ...legacyRows,
       row('canonical'),
     ], { encryptionEnabled: true })
 
