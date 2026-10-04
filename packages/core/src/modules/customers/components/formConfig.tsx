@@ -294,7 +294,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
   id: 'primaryEmail',
   label: t('customers.people.form.primaryEmail'),
   type: 'custom',
-  component: function PrimaryEmailField({ value, setValue, error, autoFocus, disabled, recordId }: CrudCustomFieldRenderProps) {
+  component: function PrimaryEmailField({ value, setValue, error, autoFocus, disabled, recordId, labelId }: CrudCustomFieldRenderProps) {
     const [inputValue, setInputValue] = React.useState(() => (typeof value === 'string' ? value : ''))
     const trimmedInput = inputValue.trim()
     const isValidEmail = React.useMemo(
@@ -315,6 +315,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
     return (
       <div className="space-y-2">
         <EmailInput
+          aria-labelledby={labelId}
           value={inputValue}
           onChange={(event) => {
             const nextValue = event.target.value
@@ -448,7 +449,7 @@ const createPrimaryPhoneField = (
   label: t('customers.people.form.primaryPhone'),
   type: 'custom',
   rendersOwnError: true,
-  component: function PrimaryPhoneField({ value, setValue, error, autoFocus, disabled, recordId }: CrudCustomFieldRenderProps) {
+  component: function PrimaryPhoneField({ value, setValue, error, autoFocus, disabled, recordId, labelId }: CrudCustomFieldRenderProps) {
     const currentRecordId = React.useMemo(() => (typeof recordId === 'string' ? recordId : null), [recordId])
 
     const duplicateLookup = React.useCallback(
@@ -461,6 +462,7 @@ const createPrimaryPhoneField = (
 
     return (
       <PhoneNumberField
+        ariaLabelledBy={labelId}
         value={typeof value === 'string' ? value : null}
         onValueChange={(next) => setValue(typeof next === 'string' ? next : '')}
         externalError={error}
@@ -1298,8 +1300,9 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
       type: 'custom',
       rendersOwnError: true,
       layout: 'half',
-      component: ({ value, setValue, error, disabled, autoFocus }: CrudCustomFieldRenderProps) => (
+      component: ({ value, setValue, error, disabled, autoFocus, labelId }: CrudCustomFieldRenderProps) => (
         <PhoneNumberField
+          ariaLabelledBy={labelId}
           value={typeof value === 'string' ? value : null}
           onValueChange={(next) => setValue(typeof next === 'string' ? next : '')}
           externalError={error}
