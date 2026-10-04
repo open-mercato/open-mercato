@@ -37,6 +37,7 @@ import {
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { getTransactionLifetime } from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -76,6 +77,7 @@ import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
 const USER_REDO_LOG = Symbol('auth.users.redoLog')
+const replayProtectedRoleIdsByTenant = new WeakMap<object, ReadonlyMap<string, readonly string[]>>()
 
 type UserReplayRuntimeContext = CommandRuntimeContext & {
   [USER_REDO_LOG]?: CommandUndoLogEntry
@@ -409,7 +411,14 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
         // Undoing a create hard-deletes the user, so it can strip a tenant's last active
         // admin exactly like `auth.users.delete` can — promote a second admin, delete the
         // first, then undo the promotion's create. Same guard applies.
-        await enforceProtectedRoleFloor(em, floorTenantId, userId, { deleting: true }, ctx)
+        await enforceProtectedRoleFloor(
+          em,
+          floorTenantId,
+          userId,
+          { deleting: true },
+          ctx,
+          requireReplayProtectedRoleIds(em, floorTenantId),
+        )
 
         await lockUserRoleWriterAuthorizationState(em, { userIds: [userId], roleIds: [] })
         await em.nativeDelete(UserAcl, { user: userId })
@@ -728,12 +737,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           deactivating: parsed.isConfirmed === false || isTenantChanging,
           newRoles: parsed.roles,
         }
-        const protectedRoleIds = await discoverProtectedRoleIds(
-          em,
-          userTenantId,
-          floorOptions,
-          ctx,
-        )
+        const protectedRoleIds = redoLogEntry
+          ? requireReplayProtectedRoleIds(em, userTenantId)
+          : await discoverProtectedRoleIds(em, userTenantId, floorOptions, ctx)
         await lockUserRoleWriterAuthorizationState(em, {
           userIds: [parsed.id],
           roleIds: [
@@ -960,12 +966,19 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
         const currentTenantId = current?.tenantId ? String(current.tenantId) : null
 
-        await enforceProtectedRoleFloor(em, currentTenantId, userId, {
-          deactivating:
-            ('isConfirmed' in replayInput && before.isConfirmed === false)
-            || ('organizationId' in replayInput && restoredTenantId !== currentTenantId),
-          newRoles: Array.isArray(replayInput.roles) ? before.roles : undefined,
-        }, ctx)
+        await enforceProtectedRoleFloor(
+          em,
+          currentTenantId,
+          userId,
+          {
+            deactivating:
+              ('isConfirmed' in replayInput && before.isConfirmed === false)
+              || ('organizationId' in replayInput && restoredTenantId !== currentTenantId),
+            newRoles: Array.isArray(replayInput.roles) ? before.roles : undefined,
+          },
+          ctx,
+          requireReplayProtectedRoleIds(em, currentTenantId),
+        )
 
         updated = await de.updateOrmEntity({
           entity: User,
@@ -1075,12 +1088,9 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         }
         const userTenantId = existing.tenantId ? String(existing.tenantId) : null
         const floorOptions = { deleting: true }
-        const protectedRoleIds = await discoverProtectedRoleIds(
-          em,
-          userTenantId,
-          floorOptions,
-          ctx,
-        )
+        const protectedRoleIds = redoLogEntry
+          ? requireReplayProtectedRoleIds(em, userTenantId)
+          : await discoverProtectedRoleIds(em, userTenantId, floorOptions, ctx)
         await lockUserRoleWriterAuthorizationState(em, {
           userIds: [id],
           roleIds: protectedRoleIds,
@@ -1501,6 +1511,39 @@ async function stabilizeUserReplay(
   }
   const targetUserId = params.logEntry.resourceId ?? before?.id ?? after?.id ?? null
   const em = requireTransactionalReplayEntityManager(params.ctx)
+  const transactionLifetime = getTransactionLifetime(em)
+  if (!transactionLifetime) {
+    throw new Error('[internal] Replay protected-role locks require an explicit transaction lifetime')
+  }
+  const existingProtectedRoleIdsByTenant = replayProtectedRoleIdsByTenant.get(transactionLifetime)
+  const currentTarget = targetUserId
+    ? await findOneWithDecryption(
+        em,
+        User,
+        { id: targetUserId },
+        {},
+        { tenantId: null, organizationId: null },
+      )
+    : null
+  const currentTargetTenantId = normalizeTenantId(currentTarget?.tenantId) ?? null
+  const relevantTenantIds = existingProtectedRoleIdsByTenant
+    ? Array.from(existingProtectedRoleIdsByTenant.keys()).sort()
+    : Array.from(new Set([
+        normalizeTenantId(params.ctx.auth?.tenantId) ?? null,
+        normalizeTenantId(before?.tenantId) ?? null,
+        normalizeTenantId(after?.tenantId) ?? null,
+        normalizeTenantId(params.logEntry.tenantId) ?? null,
+        currentTargetTenantId,
+      ].filter((tenantId): tenantId is string => tenantId !== null))).sort()
+  const protectedRoleIdsByTenant = new Map(existingProtectedRoleIdsByTenant ?? [])
+  if (!existingProtectedRoleIdsByTenant) {
+    for (const tenantId of relevantTenantIds) {
+      protectedRoleIdsByTenant.set(
+        tenantId,
+        await discoverProtectedRoleIds(em, tenantId, { deleting: true }, params.ctx),
+      )
+    }
+  }
   const roleIds: string[] = []
   const seenRoleTokens = new Set<string>()
   for (const snapshot of [before, after]) {
@@ -1515,13 +1558,13 @@ async function stabilizeUserReplay(
   }
   await lockReplayAuthorizationState(em, params.ctx, {
     targetUserIds: targetUserId ? [targetUserId] : [],
-    targetRoleIds: roleIds,
-    targetTenantIds: [
-      ...(before?.tenantId ? [before.tenantId] : []),
-      ...(after?.tenantId ? [after.tenantId] : []),
-      ...(params.logEntry.tenantId ? [params.logEntry.tenantId] : []),
+    targetRoleIds: [
+      ...roleIds,
+      ...Array.from(protectedRoleIdsByTenant.values()).flat(),
     ],
+    targetTenantIds: relevantTenantIds,
   })
+  replayProtectedRoleIdsByTenant.set(transactionLifetime, protectedRoleIdsByTenant)
 }
 
 registerCommand(createUserCommand)
@@ -1780,6 +1823,22 @@ async function discoverProtectedRoleIds(
     deletedAt: null,
   }, { orderBy: { id: 'ASC' } }, { tenantId: normalizedTenantId, organizationId: null })
   return roles.map((role) => String(role.id))
+}
+
+function requireReplayProtectedRoleIds(
+  em: EntityManager,
+  tenantId: string | null,
+): readonly string[] {
+  const normalizedTenantId = normalizeTenantId(tenantId) ?? null
+  if (!normalizedTenantId) return []
+  const transactionLifetime = getTransactionLifetime(em)
+  const roleIds = transactionLifetime
+    ? replayProtectedRoleIdsByTenant.get(transactionLifetime)?.get(normalizedTenantId)
+    : undefined
+  if (!roleIds) {
+    throw new Error(`[internal] Replay protected-role lock footprint is missing tenant ${normalizedTenantId}`)
+  }
+  return roleIds
 }
 
 async function enforceProtectedRoleFloor(

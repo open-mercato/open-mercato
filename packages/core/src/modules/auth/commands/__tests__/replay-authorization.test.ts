@@ -63,10 +63,12 @@ const organizationB = '44444444-4444-4444-8444-444444444444'
 const actorId = '55555555-5555-4555-8555-555555555555'
 const userId = '66666666-6666-4666-8666-666666666666'
 const roleId = '77777777-7777-4777-8777-777777777777'
+const unrelatedProtectedRoleId = '88888888-8888-4888-8888-888888888888'
 
 type ReplayState = {
   user: Record<string, unknown> | null
   role: Record<string, unknown> | null
+  roles: Array<Record<string, unknown>>
   userRoles: Array<Record<string, unknown>>
   userAcls: Array<Record<string, unknown>>
   roleAcls: Array<Record<string, unknown>>
@@ -104,13 +106,19 @@ function makeHarness(
   const state: ReplayState = {
     user: null,
     role: null,
+    roles: [],
     userRoles: [],
     userAcls: [],
     roleAcls: [],
     ...initial,
   }
   const nativeDelete = jest.fn(async () => 0)
-  const deleteOrmEntity = jest.fn(async () => null)
+  const deleteOrmEntity = jest.fn(async ({ entity }: { entity: unknown }) => {
+    if (entity !== User || !state.user) return null
+    const deleted = state.user
+    state.user = null
+    return deleted
+  })
   const updateOrmEntity = jest.fn(
     async ({
       entity,
@@ -129,11 +137,30 @@ function makeHarness(
   const markOrmEntityChange = jest.fn()
   const flushOrmEntityChanges = jest.fn(async () => undefined)
   let inTransaction = false
+  const lockEvents: string[] = []
+  const entityName = (entity: unknown): string => {
+    if (entity === User) return 'User'
+    if (entity === Role) return 'Role'
+    if (entity === Tenant) return 'Tenant'
+    if (entity === Organization) return 'Organization'
+    if (entity === UserRole) return 'UserRole'
+    if (entity === UserAcl) return 'UserAcl'
+    if (entity === RoleAcl) return 'RoleAcl'
+    return 'Unknown'
+  }
   const em = {
     findOne: jest.fn(
-      async (entity: unknown, where: Record<string, unknown>) => {
+      async (entity: unknown, where: Record<string, unknown>, queryOptions?: Record<string, unknown>) => {
+        if (queryOptions?.lockMode) lockEvents.push(entityName(entity))
         if (entity === User) return state.user
-        if (entity === Role) return state.role
+        if (entity === Role) {
+          const candidates = [...state.roles, ...(state.role ? [state.role] : [])]
+          return candidates.find((role) => (
+            (typeof where?.id !== 'string' || role.id === where.id)
+            && (typeof where?.name !== 'string' || role.name === where.name)
+            && (typeof where?.tenantId !== 'string' || role.tenantId === where.tenantId)
+          )) ?? null
+        }
         if (entity === UserAcl) {
           return where?.isSuperAdmin === true
             ? (state.userAcls.find((acl) => acl.isSuperAdmin === true) ?? null)
@@ -159,11 +186,23 @@ function makeHarness(
         return null
       },
     ),
-    find: jest.fn(async (entity: unknown) => {
+    find: jest.fn(async (entity: unknown, where?: Record<string, unknown>, queryOptions?: Record<string, unknown>) => {
+      if (queryOptions?.lockMode) lockEvents.push(entityName(entity))
       if (entity === UserRole) return state.userRoles
       if (entity === UserAcl) return state.userAcls
       if (entity === RoleAcl) return state.roleAcls
-      if (entity === Role) return state.role ? [state.role] : []
+      if (entity === Role) {
+        const candidates = [...state.roles, ...(state.role ? [state.role] : [])]
+        const ids = where?.id && typeof where.id === 'object'
+          ? (where.id as { $in?: unknown }).$in
+          : undefined
+        return candidates.filter((role) => (
+          (typeof where?.tenantId !== 'string' || role.tenantId === where.tenantId)
+          && (!Array.isArray(ids) || ids.includes(role.id))
+          && (!where?.minActiveHolders || Number(role.minActiveHolders ?? 0) > 0)
+          && (where?.deletedAt !== null || role.deletedAt == null)
+        ))
+      }
       return []
     }),
     fork: () => em,
@@ -253,6 +292,7 @@ function makeHarness(
     updateOrmEntity,
     deleteOrmEntity,
     markOrmEntityChange,
+    lockEvents,
   }
 }
 
@@ -298,6 +338,100 @@ describe('auth command replay authorization', () => {
       refresh: true,
     })
   })
+
+  it.each(['create', 'update'] as const)(
+    'prelocks unrelated protected tenant roles before authorization children during %s undo',
+    async (commandKind) => {
+      const protectedRoles = [
+        { id: roleId, name: 'Protected A', tenantId: tenantA, minActiveHolders: 1, deletedAt: null },
+        { id: unrelatedProtectedRoleId, name: 'Protected B', tenantId: tenantA, minActiveHolders: 1, deletedAt: null },
+      ]
+      const current = userSnapshot({
+        passwordHash: null,
+        isConfirmed: true,
+      })
+      const harness = makeHarness({ user: current, roles: protectedRoles })
+      const before = userSnapshot({ passwordHash: null, isConfirmed: false })
+      const after = userSnapshot({ passwordHash: null, isConfirmed: true })
+      const log = commandKind === 'create'
+        ? {
+            id: 'create-protected-role-log',
+            commandId: 'auth.users.create',
+            resourceId: userId,
+            tenantId: tenantA,
+            commandPayload: {
+              __redoInput: { email: before.email, organizationId: organizationA, sendInviteEmail: true },
+              undo: { after },
+            },
+            snapshotAfter: after,
+          }
+        : {
+            id: 'update-protected-role-log',
+            commandId: 'auth.users.update',
+            resourceId: userId,
+            tenantId: tenantA,
+            commandPayload: {
+              __redoInput: { id: userId, isConfirmed: true },
+              undo: { before, after },
+            },
+          }
+      harness.actionLogService.findByUndoToken.mockResolvedValue(log)
+
+      await new CommandBus().undo(`${commandKind}-protected-role-token`, harness.ctx)
+
+      const lockedRoleIds = harness.em.findOne.mock.calls
+        .filter(([entity, , queryOptions]) => entity === Role && queryOptions?.lockMode)
+        .map(([, where]) => where.id)
+      expect(lockedRoleIds).toEqual([roleId, unrelatedProtectedRoleId])
+      expect(harness.lockEvents.indexOf('Role')).toBeLessThan(harness.lockEvents.indexOf('UserRole'))
+      expect(harness.em.find.mock.calls).not.toContainEqual([
+        Role,
+        expect.anything(),
+        expect.objectContaining({ lockMode: expect.anything() }),
+      ])
+    },
+  )
+
+  it.each(['update', 'delete'] as const)(
+    'reuses prelocked unrelated protected tenant roles during %s redo',
+    async (commandKind) => {
+      const protectedRoles = [
+        { id: roleId, name: 'Protected A', tenantId: tenantA, minActiveHolders: 1, deletedAt: null },
+        { id: unrelatedProtectedRoleId, name: 'Protected B', tenantId: tenantA, minActiveHolders: 1, deletedAt: null },
+      ]
+      const before = userSnapshot({ passwordHash: null, isConfirmed: true })
+      const after = userSnapshot({ passwordHash: null, isConfirmed: false })
+      const harness = makeHarness({ user: { ...before }, roles: protectedRoles })
+      const input = commandKind === 'update'
+        ? { id: userId, isConfirmed: false }
+        : { id: userId }
+      const sourceLog = {
+        id: `${commandKind}-protected-role-redo-log`,
+        commandId: `auth.users.${commandKind}`,
+        resourceId: userId,
+        tenantId: tenantA,
+        organizationId: organizationA,
+        commandPayload: commandKind === 'update'
+          ? { __redoInput: input, undo: { before, after } }
+          : { __redoInput: input, undo: { before } },
+        snapshotBefore: before,
+        snapshotAfter: commandKind === 'update' ? after : null,
+        executionState: 'undone',
+      }
+
+      await new CommandBus().execute(sourceLog.commandId, {
+        input,
+        ctx: harness.ctx,
+        redoLogEntry: sourceLog,
+      })
+
+      const lockedRoleIds = harness.em.findOne.mock.calls
+        .filter(([entity, , queryOptions]) => entity === Role && queryOptions?.lockMode)
+        .map(([, where]) => where.id)
+      expect(lockedRoleIds).toEqual([roleId, unrelatedProtectedRoleId])
+      expect(harness.lockEvents.indexOf('Role')).toBeLessThan(harness.lockEvents.indexOf('UserRole'))
+    },
+  )
 
   it('denies create undo after the user moved to a foreign tenant before claiming or deleting', async () => {
     const currentUser = userSnapshot({

@@ -23,6 +23,8 @@ type ReplayLogRow = {
   execution_state: string
 }
 
+const REPLAY_RACE_TIMEOUT_MS = 5_000
+
 async function createTenant(request: APIRequestContext, token: string, name: string): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/directory/tenants', {
     token,
@@ -72,8 +74,115 @@ async function undoAction(
   return apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
     token,
     data: { undoToken },
-    timeout: 5_000,
+    timeout: REPLAY_RACE_TIMEOUT_MS,
     retryTransport: false,
+  })
+}
+
+async function redoAction(
+  request: APIRequestContext,
+  token: string,
+  logId: string,
+): Promise<APIResponse> {
+  return apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/redo', {
+    token,
+    data: { logId },
+    timeout: REPLAY_RACE_TIMEOUT_MS,
+    retryTransport: false,
+  })
+}
+
+async function createReplayableUser(
+  request: APIRequestContext,
+  token: string,
+  input: { email: string; organizationId: string; roles: string[] },
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/auth/users', {
+    token,
+    data: { ...input, sendInviteEmail: true },
+  })
+  const body = await readJsonSafe<{ id?: string }>(response)
+  expect(response.status(), await response.text()).toBe(201)
+  return expectId(body?.id, 'Replayable user create response should include id')
+}
+
+async function deleteUser(
+  request: APIRequestContext,
+  token: string,
+  userId: string,
+): Promise<void> {
+  const response = await apiRequest(
+    request,
+    'DELETE',
+    `/api/auth/users?id=${encodeURIComponent(userId)}`,
+    { token },
+  )
+  expect(response.status(), await response.text()).toBe(200)
+}
+
+async function raceReplayWithProtectedRoleWriter(
+  token: string,
+  userId: string,
+  roleId: string,
+  replay: (request: APIRequestContext) => Promise<APIResponse>,
+): Promise<{
+  replayResponse: { body: string; status: number }
+  writerResponse: { body: string; status: number }
+}> {
+  return withCredentialIsolatedRequest(async (writerRequest) => (
+    withCredentialIsolatedRequest(async (replayRequest) => (
+      withClient(async (blocker) => {
+        await blocker.query('begin')
+        try {
+          const blockerPid = Number((await blocker.query<{ pid: number }>(
+            'select pg_backend_pid() as pid',
+          )).rows[0]?.pid)
+          await blocker.query('select id from roles where id = $1 for update', [roleId])
+          const pendingWriter = apiRequest(writerRequest, 'PUT', '/api/auth/users', {
+            token,
+            data: { id: userId, roles: [roleId] },
+            timeout: REPLAY_RACE_TIMEOUT_MS,
+            retryTransport: false,
+          })
+          await withClient((observer) => waitUntilBlockedBy(observer, blockerPid))
+          const pendingReplay = replay(replayRequest)
+          await withClient((observer) => waitUntilBlockedCount(observer, [blockerPid], 2))
+          await blocker.query('commit')
+          const [writerResponse, replayResponse] = await Promise.all([pendingWriter, pendingReplay])
+          return {
+            replayResponse: {
+              body: await replayResponse.text(),
+              status: replayResponse.status(),
+            },
+            writerResponse: {
+              body: await writerResponse.text(),
+              status: writerResponse.status(),
+            },
+          }
+        } catch (error) {
+          await blocker.query('rollback').catch(() => undefined)
+          throw error
+        }
+      })
+    ))
+  ))
+}
+
+async function readUserState(userId: string): Promise<{
+  exists: boolean
+  name: string | null
+  isConfirmed: boolean | null
+}> {
+  return withClient(async (client) => {
+    const result = await client.query<{ name: string | null; is_confirmed: boolean }>(
+      'select name, is_confirmed from users where id = $1',
+      [userId],
+    )
+    return {
+      exists: result.rowCount === 1,
+      name: result.rows[0]?.name ?? null,
+      isConfirmed: result.rows[0]?.is_confirmed ?? null,
+    }
   })
 }
 
@@ -901,6 +1010,112 @@ test.describe('TC-AUTH-065: transaction-bound auth replay concurrency', () => {
       await deleteRoleIfExists(request, superadminToken, roleAId)
     }
   })
+
+  for (const scenario of [
+    { commandKind: 'create', operation: 'undo' },
+    { commandKind: 'update', operation: 'undo' },
+    { commandKind: 'update', operation: 'redo' },
+    { commandKind: 'delete', operation: 'redo' },
+  ] as const) {
+    test(`serializes ${scenario.commandKind} ${scenario.operation} against a canonical protected-role writer`, async ({ request }) => {
+      const adminToken = await getAuthToken(request, 'admin')
+      const superadminToken = await getAuthToken(request, 'superadmin')
+      const scope = getTokenScope(adminToken)
+      const tenantId = expectId(scope.tenantId, 'Admin token should include tenant id')
+      const organizationId = expectId(scope.organizationId, 'Admin token should include organization id')
+      const actorUserId = expectId(scope.userId, 'Admin token should include user id')
+      const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+      let roleId: string | null = null
+      let holderUserId: string | null = null
+      let targetUserId: string | null = null
+
+      try {
+        roleId = await createRoleFixture(request, superadminToken, {
+          name: `Replay protected ${scenario.commandKind} ${scenario.operation} ${stamp}`,
+          tenantId,
+        })
+        await withClient((client) => client.query(
+          'update roles set min_active_holders = 1 where id = $1',
+          [roleId],
+        ))
+        holderUserId = await createUserFixture(request, superadminToken, {
+          email: `replay-protected-holder-${scenario.commandKind}-${scenario.operation}-${stamp}@example.com`,
+          password: 'StrongSecret123!',
+          organizationId,
+          roles: [roleId],
+        })
+        targetUserId = scenario.commandKind === 'create'
+          ? await createReplayableUser(request, adminToken, {
+              email: `replay-protected-target-create-undo-${stamp}@example.com`,
+              organizationId,
+              roles: [roleId],
+            })
+          : await createUserFixture(request, superadminToken, {
+              email: `replay-protected-target-${scenario.commandKind}-${scenario.operation}-${stamp}@example.com`,
+              password: 'StrongSecret123!',
+              organizationId,
+              roles: [roleId],
+            })
+
+        if (scenario.commandKind === 'update' && scenario.operation === 'undo') {
+          await withClient((client) => client.query(
+            'update users set is_confirmed = false where id = $1',
+            [targetUserId],
+          ))
+          const response = await apiRequest(request, 'PUT', '/api/auth/users', {
+            token: adminToken,
+            data: { id: targetUserId, isConfirmed: true },
+          })
+          expect(response.status(), await response.text()).toBe(200)
+        } else if (scenario.commandKind === 'update') {
+          const response = await apiRequest(request, 'PUT', '/api/auth/users', {
+            token: adminToken,
+            data: { id: targetUserId, isConfirmed: false },
+          })
+          expect(response.status(), await response.text()).toBe(200)
+        } else if (scenario.commandKind === 'delete') {
+          await deleteUser(request, adminToken, targetUserId)
+        }
+
+        const sourceLog = await latestReplayLog(targetUserId, actorUserId)
+        if (scenario.operation === 'redo') {
+          const undoResponse = await undoAction(request, adminToken, sourceLog.undo_token)
+          expect(undoResponse.status(), await undoResponse.text()).toBe(200)
+        }
+
+        const { replayResponse, writerResponse } = await raceReplayWithProtectedRoleWriter(
+          adminToken,
+          targetUserId,
+          roleId,
+          (isolatedRequest) => scenario.operation === 'undo'
+            ? undoAction(isolatedRequest, adminToken, sourceLog.undo_token)
+            : redoAction(isolatedRequest, adminToken, sourceLog.id),
+        )
+
+        expect(writerResponse.status, writerResponse.body).toBe(200)
+        expect(replayResponse.status, replayResponse.body).toBe(200)
+        const userState = await readUserState(targetUserId)
+        if (scenario.commandKind === 'create' || scenario.commandKind === 'delete') {
+          expect(userState.exists).toBe(false)
+        } else {
+          expect(userState.exists).toBe(true)
+          expect(userState.isConfirmed).toBe(false)
+        }
+        const replayState = await readReplayState(targetUserId, sourceLog.id)
+        expect(replayState.executionState).toBe(scenario.operation === 'undo' ? 'undone' : 'redone')
+      } finally {
+        if (roleId) {
+          await withClient((client) => client.query(
+            'update roles set min_active_holders = 0 where id = $1',
+            [roleId],
+          )).catch(() => undefined)
+        }
+        await deleteUserIfExists(request, superadminToken, targetUserId)
+        await deleteUserIfExists(request, superadminToken, holderUserId)
+        await deleteRoleIfExists(request, superadminToken, roleId)
+      }
+    })
+  }
 
   test('rejects replay when an organization reparent commits before the hierarchy lock', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
