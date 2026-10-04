@@ -576,3 +576,17 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+---
+
+## Integration State Upsert Keeps The Default Enabled State (2026-10-20)
+
+`IntegrationStateService.upsert` created a missing `integration_states` row with `isEnabled: false` whenever the input omitted `isEnabled`, although `resolveState` reports `defaultState.isEnabled` for that same missing row. The first such write — for example `PUT /api/integrations/:id/state` with only `reauthRequired`, or `data_sync` run telemetry — turned off a default-enabled integration (`sync_excel`, `webhook_custom`) ([#6915](https://github.com/open-mercato/open-mercato/issues/6915)). The row is now created with the state `resolveState` already reported:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function behaviour (`integrationStateService.upsert`, `setReauthRequired`) | A missing row written without `isEnabled` is created with `defaultState.isEnabled` (`false` without a `defaultState`). An explicit `isEnabled` and existing rows behave as before. `enabledAt` stays `null` on that path, because the resolved state does not change. Signature and return type unchanged | ⚠️ Behaviour change on a previously-corrupting path. Regression-tested in `state-service.test.ts` and `state-route.test.ts` |
+| API route (`PUT /api/integrations/:id/state`), `integrations.state.updated` event | Same URL, request schema, response and payload shape; `isEnabled` now reports `true` in that case | ✓ No shape change |
+| Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. Send `isEnabled: false` explicitly to create a disabled row. Rows already created disabled are not repaired (see UPGRADE_NOTES.md).

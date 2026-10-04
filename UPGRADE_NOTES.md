@@ -261,6 +261,21 @@ default.
   explicitly.
 - Price kinds already changed by a partial update are not repaired. Check the display mode in the
   catalog price kind settings and set it again where needed.
+### Integration state writes keep a default-enabled integration enabled (#6915)
+
+`integrationStateService.upsert` (and so `setReauthRequired`, `PUT /api/integrations/:id/state`,
+`PUT /api/integrations/:id/version`, health checks and `data_sync` run telemetry) used to create a
+missing integration state row with `isEnabled: false` when the write did not send `isEnabled`. For an
+integration that declares `defaultState: { isEnabled: true }` — `sync_excel` and `webhook_custom` —
+the first such write in an organization turned it off. The row is now created with the integration's
+default state, which is what `resolveState` and the integrations page reported before the write.
+
+- No caller change is needed. To create a disabled row, send `isEnabled: false` explicitly; that
+  worked before and still does.
+- Integrations already turned off this way are not repaired. Check **Excel / CSV Import** and
+  **Custom Webhooks** on the integrations page of each organization and enable them again where
+  needed.
+
 ### Reaction routes answer 404 for messages outside your personal mailbox (#3833)
 
 `POST /api/communication_channels/messages/:messageId/reactions` now answers
