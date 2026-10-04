@@ -26,7 +26,7 @@ export RECORD_ID="<entity record id you want to attach files to>"
 Open Mercato supports two text-extraction methods for attachments:
 
 1. **LLM-based OCR** (recommended) – uses OpenAI's GPT-4o vision capabilities for images and PDFs
-2. **Pure-JS extraction** – in-process fallback for plain text, PDFs, and DOCX files when LLM OCR is unavailable
+2. **Pure-JS extraction** – in-process fallback for plain text, PDFs, DOCX and XLSX files when LLM OCR is unavailable
 
 ### LLM-based OCR (images and PDFs)
 
@@ -61,9 +61,9 @@ Attachment env naming follows the standard `OM_*` prefix. Legacy `OPENMERCATO_*`
 - **Model selection**: Per-partition model override available in partition settings UI
 - **Extracted text**: Stored in `Attachment.content` field and shown in the metadata dialog
 - **Security**: No `pdf2pic`, GraphicsMagick, Ghostscript, or external binaries are used in any extraction path
-- **Fallback**: when LLM OCR is unavailable, plain text files are read directly, PDFs are parsed with `pdfjs-dist`, and DOCX files are parsed with `mammoth`
+- **Fallback**: when LLM OCR is unavailable, plain text files are read directly, PDFs are parsed with `pdfjs-dist`, DOCX files are parsed with `mammoth`, and XLSX/XLSM workbooks are read with `hucre`
 
-### Pure-JS extraction (plain text, PDF, DOCX)
+### Pure-JS extraction (plain text, PDF, DOCX, XLSX)
 
 No additional setup required — extraction runs in-process with no external binaries.
 
@@ -74,8 +74,11 @@ Supported formats and their extractors:
 | Plain text (`text/*`, `.txt`, `.md`, `.csv`, `.log`) | Direct UTF-8 read |
 | PDF (`.pdf`) | `pdfjs-dist` — text layer content |
 | Word document (`.docx`) | `mammoth` |
+| Excel workbook (`.xlsx`, `.xlsm`, `.xltx`, `.xltm`) | `hucre` — cell values (cached formula results; formulas and macros are never evaluated) |
 
-Formats **not** extracted (returned as no content): `.doc` (legacy binary Word), `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.msg`, and other Office/Outlook formats. LLM-based OCR remains available for these files where the partition is configured with an OCR model.
+Spreadsheet text is stored as one `## <sheet name>` line per non-empty sheet followed by tab-separated rows; dates are written as `YYYY-MM-DD` (or `YYYY-MM-DD HH:MM:SS` when they carry a time). Reading is bounded by `OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES`, `OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS`, `OM_ATTACHMENT_SPREADSHEET_MAX_CELLS` and `OM_ATTACHMENT_SPREADSHEET_MAX_TEXT_CHARS`, and at most `OM_ATTACHMENT_SPREADSHEET_MAX_CONCURRENCY` workbooks are parsed at once per replica (see [Attachment OCR resource bounds](../framework/security/rate-limiting#attachment-ocr-resource-bounds)): a workbook whose shared-strings table is over the size cap stores no content; any other cap, or a read error part-way through, keeps the text read up to that point; when the wait queue for a parsing slot is full, the file is stored without extracted text.
+
+Formats **not** extracted (returned as no content): `.doc` (legacy binary Word), `.xls`, `.xlsb`, `.ods`, `.pptx`, `.ppt`, `.msg`, and other Office/Outlook formats. LLM-based OCR remains available for these files where the partition is configured with an OCR model.
 
 ### Configuration
 

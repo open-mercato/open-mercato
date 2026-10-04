@@ -9057,6 +9057,7 @@ __metadata:
     chance: "npm:^1.1.13"
     date-fns: "npm:4.4.0"
     date-fns-tz: "npm:^3.2.0"
+    hucre: "npm:1.2.0"
     jest: "npm:^30.4.2"
     jest-environment-jsdom: "npm:^30.4.1"
     leaflet: "npm:^1.9.4"
@@ -24484,6 +24485,15 @@ __metadata:
     agent-base: "npm:9.0.0"
     debug: "npm:^4.3.4"
   checksum: 10/27457d671278c8c1074cc901fe305b70d1e340127433219124c4aefc44153a179a8921e4b16d67beb2868a3a39b6b7ec84d91d8f24f2ec1d39cf4ac385351a92
+  languageName: node
+  linkType: hard
+
+"hucre@npm:1.2.0":
+  version: 1.2.0
+  resolution: "hucre@npm:1.2.0"
+  bin:
+    hucre: dist/cli.mjs
+  checksum: 10/7d49e34247b0b27834eced0c8837fc97df9291fdfff081966eb9b02ac89e6068ab9450715b00351d6e9b4abd11193cb926f7b21b42462130e9147ce477c82d57
   languageName: node
   linkType: hard
 

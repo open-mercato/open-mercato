@@ -62,6 +62,36 @@ describe('ocrLimits', () => {
     expect(again.resolveMaxOcrPages()).toBe(50)
   })
 
+  it('defaults spreadsheet extraction bounds and honors env overrides', async () => {
+    delete process.env.OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES
+    delete process.env.OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS
+    delete process.env.OM_ATTACHMENT_SPREADSHEET_MAX_CELLS
+    delete process.env.OM_ATTACHMENT_SPREADSHEET_MAX_TEXT_CHARS
+    delete process.env.OM_ATTACHMENT_SPREADSHEET_MAX_CONCURRENCY
+    delete process.env.OM_ATTACHMENT_SPREADSHEET_MAX_WAIT_QUEUE
+
+    const defaults = await import('../ocrLimits')
+    expect(defaults.resolveSpreadsheetMaxUncompressedBytes()).toBe(5 * 1024 * 1024)
+    expect(defaults.resolveSpreadsheetMaxSheets()).toBe(10)
+    expect(defaults.resolveSpreadsheetMaxCells()).toBe(1_000_000)
+    expect(defaults.resolveSpreadsheetMaxTextChars()).toBe(1_000_000)
+    expect(defaults.resolveSpreadsheetMaxConcurrency()).toBe(2)
+    expect(defaults.resolveSpreadsheetMaxWaitQueue()).toBe(20)
+
+    process.env.OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES = '1024'
+    process.env.OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS = '3'
+    process.env.OM_ATTACHMENT_SPREADSHEET_MAX_CELLS = '10'
+    process.env.OM_ATTACHMENT_SPREADSHEET_MAX_TEXT_CHARS = 'not-a-number'
+    process.env.OM_ATTACHMENT_SPREADSHEET_MAX_CONCURRENCY = '1'
+    process.env.OM_ATTACHMENT_SPREADSHEET_MAX_WAIT_QUEUE = '-3'
+    expect(defaults.resolveSpreadsheetMaxUncompressedBytes()).toBe(1024)
+    expect(defaults.resolveSpreadsheetMaxSheets()).toBe(3)
+    expect(defaults.resolveSpreadsheetMaxCells()).toBe(10)
+    expect(defaults.resolveSpreadsheetMaxTextChars()).toBe(1_000_000)
+    expect(defaults.resolveSpreadsheetMaxConcurrency()).toBe(1)
+    expect(defaults.resolveSpreadsheetMaxWaitQueue()).toBe(20)
+  })
+
   it('exposes attachments upload rate-limit defaults', async () => {
     delete process.env.RATE_LIMIT_ATTACHMENTS_UPLOAD_POINTS
     delete process.env.RATE_LIMIT_ATTACHMENTS_UPLOAD_DURATION
