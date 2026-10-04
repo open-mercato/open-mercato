@@ -4634,6 +4634,47 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
   )
 })
 
+const CUSTOM_FIELD_CONTROL_SELECTOR = [
+  'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"])',
+  'select',
+  'textarea',
+  '[role="combobox"]',
+  '[role="switch"]',
+  '[role="checkbox"]',
+  '[role="spinbutton"]',
+  '[role="slider"]',
+  '[role="textbox"]',
+].join(', ')
+const AUTO_LABELLED_ATTRIBUTE = 'data-crud-auto-labelled'
+const NAME_FROM_CONTENT_ROLES = new Set(['switch', 'checkbox'])
+
+function hasOwnAccessibleName(control: HTMLElement): boolean {
+  if ((control.getAttribute('aria-label') ?? '').trim()) return true
+  if ((control.getAttribute('aria-labelledby') ?? '').trim()) return true
+  if ((control.getAttribute('title') ?? '').trim()) return true
+  if (control.closest('label')) return true
+  if (control.id && control.ownerDocument.querySelector(`label[for=${JSON.stringify(control.id)}]`)) return true
+  const role = control.getAttribute('role')
+  return Boolean(role && NAME_FROM_CONTENT_ROLES.has(role) && (control.textContent ?? '').trim())
+}
+
+function findUnnamedCustomFieldControls(root: HTMLElement, labelId: string): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(CUSTOM_FIELD_CONTROL_SELECTOR)).filter((control) => {
+    if (control.closest('[aria-hidden="true"], [inert]')) return false
+    if (control.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) {
+      if (control.getAttribute('aria-labelledby') === labelId) return true
+      control.removeAttribute(AUTO_LABELLED_ATTRIBUTE)
+    }
+    return !hasOwnAccessibleName(control)
+  })
+}
+
+function releaseAutoLabel(control: HTMLElement, labelId: string) {
+  if (!control.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) return
+  control.removeAttribute(AUTO_LABELLED_ATTRIBUTE)
+  if (control.getAttribute('aria-labelledby') === labelId) control.removeAttribute('aria-labelledby')
+}
+
 const FieldControl = React.memo(function FieldControlImpl({
   formId,
   field,
@@ -4720,6 +4761,38 @@ const FieldControl = React.memo(function FieldControlImpl({
     }
   }, [wrapperError, controlId, errorId])
 
+  // A custom field renders its own control, so the label above cannot point at
+  // it with `for`. A component that forwards `labelId` names itself. For the
+  // rest: when the field holds exactly one control without a name of its own,
+  // name it by the label. Several unnamed controls are left alone, because the
+  // label cannot say which one it describes.
+  const fieldRootRef = React.useRef<HTMLDivElement | null>(null)
+  const isCustomField = field.type === 'custom'
+  React.useEffect(() => {
+    const root = fieldRootRef.current
+    if (!isCustomField || !visibleLabelId || !root || typeof MutationObserver === 'undefined') return
+    const apply = () => {
+      const unnamed = findUnnamedCustomFieldControls(root, visibleLabelId)
+      const single = unnamed.length === 1 ? unnamed[0] : null
+      for (const control of Array.from(root.querySelectorAll<HTMLElement>(`[${AUTO_LABELLED_ATTRIBUTE}]`))) {
+        if (control !== single) releaseAutoLabel(control, visibleLabelId)
+      }
+      if (single && !single.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) {
+        single.setAttribute('aria-labelledby', visibleLabelId)
+        single.setAttribute(AUTO_LABELLED_ATTRIBUTE, '')
+      }
+    }
+    apply()
+    const observer = new MutationObserver(apply)
+    observer.observe(root, { childList: true, subtree: true })
+    return () => {
+      observer.disconnect()
+      for (const control of Array.from(root.querySelectorAll<HTMLElement>(`[${AUTO_LABELLED_ATTRIBUTE}]`))) {
+        releaseAutoLabel(control, visibleLabelId)
+      }
+    }
+  }, [isCustomField, visibleLabelId])
+
   const singleSelectValue = Array.isArray(value)
     ? String(value[0] ?? '')
     : value == null
@@ -4735,6 +4808,7 @@ const FieldControl = React.memo(function FieldControlImpl({
 
   return (
     <div
+      ref={fieldRootRef}
       className={rootClassName}
       data-crud-field-id={field.id}
       onBlur={validateOnWrapperBlur
