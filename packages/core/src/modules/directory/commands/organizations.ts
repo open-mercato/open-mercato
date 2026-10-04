@@ -1,4 +1,4 @@
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
@@ -6,7 +6,11 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import {
+  enforceTenantSelection,
+  normalizeTenantId,
+  resolveIsSuperAdmin,
+} from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { E } from '#generated/entities.ids.generated'
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import {
@@ -97,6 +101,17 @@ type OrganizationSnapshots = {
   undo: OrganizationUndoSnapshot
 }
 
+type OrganizationActorScope = {
+  isUnrestricted: boolean
+  tenantId: string | null
+}
+
+type AuthorizedOrganizationTarget = {
+  organization: Organization
+  scope: OrganizationActorScope
+  tenantId: string
+}
+
 export function resolveTenantIdFromEntity(entity: Organization): string | null {
   const shape = entity as unknown as OrganizationTenantShape
   const cached = toOptionalString(shape.__tenantId)
@@ -114,6 +129,54 @@ export function resolveTenantIdFromEntity(entity: Organization): string | null {
   }
   const fallback = toOptionalString(shape.tenantId) || toOptionalString(shape.tenant_id)
   return fallback
+}
+
+async function resolveOrganizationActorScope(ctx: CommandRuntimeContext): Promise<OrganizationActorScope> {
+  if (ctx.systemActor === true) return { isUnrestricted: true, tenantId: null }
+  const tenantId = normalizeTenantId(ctx.auth?.tenantId ?? null) ?? null
+  const isSuperAdmin = await resolveIsSuperAdmin(ctx)
+  return { isUnrestricted: isSuperAdmin, tenantId }
+}
+
+function buildOrganizationTargetFilter(
+  id: string,
+  scope: OrganizationActorScope,
+): FilterQuery<Organization> | null {
+  if (!scope.isUnrestricted && !scope.tenantId) return null
+  return {
+    id,
+    deletedAt: null,
+    ...(scope.isUnrestricted ? {} : { tenant: scope.tenantId }),
+  } as FilterQuery<Organization>
+}
+
+async function loadAuthorizedOrganizationTarget(
+  em: EntityManager,
+  id: string,
+  ctx: CommandRuntimeContext,
+): Promise<AuthorizedOrganizationTarget> {
+  const scope = await resolveOrganizationActorScope(ctx)
+  const filter = buildOrganizationTargetFilter(id, scope)
+  if (!filter) throw new CrudHttpError(404, { error: 'Not found' })
+  const organization = await em.findOne(Organization, filter)
+  if (!organization) throw new CrudHttpError(404, { error: 'Not found' })
+  const tenantId = resolveTenantIdFromEntity(organization)
+  if (!tenantId || (!scope.isUnrestricted && tenantId !== scope.tenantId)) {
+    throw new CrudHttpError(404, { error: 'Not found' })
+  }
+  return { organization, scope, tenantId }
+}
+
+function buildOrganizationMutationFilter(
+  id: string,
+  tenantId: string,
+  scope: OrganizationActorScope,
+): FilterQuery<Organization> {
+  return {
+    id,
+    deletedAt: null,
+    ...(scope.isUnrestricted ? {} : { tenant: tenantId }),
+  } as FilterQuery<Organization>
 }
 
 function serializeOrganization(entity: Organization, custom?: Record<string, unknown> | null) {
@@ -499,9 +562,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const current = await em.findOne(Organization, { id: parsed.id, deletedAt: null })
-    if (!current) throw new CrudHttpError(404, { error: 'Not found' })
-    const tenantId = resolveTenantIdFromEntity(current)
+    const { organization: current, tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
     const currentChildIds = Array.isArray(current.childIds) ? current.childIds : []
     const requestedChildIds = Array.isArray(parsed.childIds) ? parsed.childIds : []
     const combinedChildIds = new Set<string>([...currentChildIds.map(String), ...requestedChildIds.map(String)])
@@ -519,11 +580,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Organization, { id: parsed.id, deletedAt: null })
-    if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
-
-    const tenantId = await enforceTenantSelection(ctx, parsed.tenantId ?? resolveTenantIdFromEntity(existing))
-    if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
+    const { organization: existing, scope, tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
 
     const parentId = parsed.parentId ?? null
     if (parentId) {
@@ -572,7 +629,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       async () => {
         const organization = await de.updateOrmEntity({
           entity: Organization,
-          where: { id: parsed.id, deletedAt: null } as FilterQuery<Organization>,
+          where: buildOrganizationMutationFilter(parsed.id, tenantId, scope),
           apply: (entity) => {
             if (parsed.name !== undefined) entity.name = parsed.name
             if (resolvedSlug !== undefined) entity.slug = resolvedSlug
@@ -727,9 +784,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
   async prepare(input, ctx) {
     const id = requireId(input, 'Organization id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Organization, { id, deletedAt: null })
-    if (!existing) return {}
-    const tenantId = resolveTenantIdFromEntity(existing)
+    const { organization: existing, tenantId } = await loadAuthorizedOrganizationTarget(em, id, ctx)
     const childParentsBefore = tenantId
       ? await loadChildParentSnapshots(em, tenantId, Array.isArray(existing.childIds) ? existing.childIds : [])
       : []
@@ -744,11 +799,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
   async execute(input, ctx) {
     const id = requireId(input, 'Organization id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Organization, { id, deletedAt: null })
-    if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
-
-    const tenantId = await enforceTenantSelection(ctx, resolveTenantIdFromEntity(existing))
-    if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
+    const { organization: existing, scope, tenantId } = await loadAuthorizedOrganizationTarget(em, id, ctx)
 
     const parentId = existing.parentId ?? null
     const childSnapshotsBefore = await loadChildParentSnapshots(
@@ -764,7 +815,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
       async () => {
         const deleted = await de.deleteOrmEntity({
           entity: Organization,
-          where: { id, deletedAt: null } as FilterQuery<Organization>,
+          where: buildOrganizationMutationFilter(id, tenantId, scope),
           soft: true,
           softDeleteField: 'deletedAt',
         })
