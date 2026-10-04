@@ -12,3 +12,15 @@ export type {
   TemplateRegistryEntry,
   TemplateVersionSource,
 } from './document-generators/types'
+export {
+  buildDocumentFilename,
+  buildLabels,
+  firstText,
+  isDraftStatus,
+  sanitizeDocumentFilename,
+  toIso,
+  toNumber,
+  toSnapshotRecord,
+  toText,
+  type SnapshotRecord,
+} from './document-generators/utils/index'

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { BaseDocumentService } from '@open-mercato/shared/modules/document-generators'
+import { BaseDocumentService, buildDocumentFilename } from '@open-mercato/shared/modules/document-generators'
 import type {
   DocumentDataInput,
   DocumentFetchContext,
@@ -8,7 +8,6 @@ import type {
 } from '@open-mercato/shared/modules/document-generators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { buildDocumentFilename } from '@open-mercato/document-generators/modules/document_generators/utils/index'
 import { Invoice } from '../../data/entities'
 import type { InvoiceTemplateData } from '../templates/types'
 
