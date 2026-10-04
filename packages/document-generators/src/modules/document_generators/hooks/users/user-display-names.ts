@@ -8,7 +8,7 @@ export function normalizeUserIds(ids: ReadonlyArray<string | null | undefined>):
     const value = typeof id === 'string' ? id.trim() : ''
     if (value) unique.add(value)
   }
-  return [...unique].sort().slice(0, MAX_USER_IDS)
+  return [...unique].sort((left, right) => left.localeCompare(right)).slice(0, MAX_USER_IDS)
 }
 
 export function buildUserDisplayNamesUrl(ids: string[]): string {

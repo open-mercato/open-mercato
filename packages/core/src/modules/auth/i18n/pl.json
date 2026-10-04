@@ -169,6 +169,8 @@
   "auth.acl.features.directory.organizations.view": "Wyświetl organizacje",
   "auth.acl.features.directory.tenants.manage": "Zarządzaj najemcami",
   "auth.acl.features.directory.tenants.view": "Wyświetl najemców",
+  "auth.acl.features.document_generators.documents.generate": "Generuj dokumenty",
+  "auth.acl.features.document_generators.documents.view": "Wyświetl dokumenty",
   "auth.acl.features.documents.create": "Twórz dokumenty",
   "auth.acl.features.documents.delete": "Usuwaj dokumenty",
   "auth.acl.features.documents.edit": "Edytuj dokumenty",

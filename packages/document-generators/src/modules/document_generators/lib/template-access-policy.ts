@@ -22,7 +22,7 @@ export class TemplateAccessPolicy {
   async filterAuthorizedTemplates(input: { templates: TemplateMeta[] }): Promise<TemplateMeta[]> {
     const checks = new Map<string, Promise<boolean>>()
     const allowed = await Promise.all(input.templates.map((template) => {
-      const features = [...new Set(template.requiredFeatures ?? [])].sort()
+      const features = [...new Set(template.requiredFeatures ?? [])].sort((left, right) => left.localeCompare(right))
       const key = JSON.stringify(features)
       let check = checks.get(key)
       if (!check) {
