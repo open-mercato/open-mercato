@@ -375,7 +375,7 @@ export function LookupSelect({
                       <div className="text-xs text-muted-foreground truncate">{item.subtitle}</div>
                     ) : null}
                     {item.description ? (
-                      <div className="text-xs text-muted-foreground/70 truncate">{item.description}</div>
+                      <div className="text-xs text-muted-foreground truncate">{item.description}</div>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center justify-center">

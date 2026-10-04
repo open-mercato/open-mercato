@@ -1474,7 +1474,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   ? t('ui.sidebar.chevron.scrollTop', 'Scroll to top')
                   : t('ui.sidebar.chevron.scrollBottom', 'Scroll to bottom')
               }
-              className="pointer-events-auto text-muted-foreground/70 hover:text-foreground"
+              className="pointer-events-auto text-muted-foreground hover:text-foreground"
               onClick={() => handleSidebarChevronScroll(sidebarScrollState === 'up' ? 'top' : 'bottom')}
             >
               <span

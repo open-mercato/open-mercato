@@ -106,7 +106,7 @@ export function SectionNav({
     return (
       <div key={section.id} className="flex flex-col gap-1">
         {!collapsed && (
-          <div className="w-full px-1 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
+          <div className="w-full px-1 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {sectionLabel}
           </div>
         )}

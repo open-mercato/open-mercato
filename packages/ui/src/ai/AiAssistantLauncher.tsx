@@ -646,7 +646,7 @@ function AiAssistantLauncherContent({
                           {agent.description}
                         </span>
                       ) : null}
-                      <span className="block truncate font-mono text-[10px] text-muted-foreground/80">
+                      <span className="block truncate font-mono text-[10px] text-muted-foreground">
                         {agent.id}
                       </span>
                     </span>

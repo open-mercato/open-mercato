@@ -174,7 +174,7 @@ export function PortalNotificationPanel({
                     <p className="text-sm font-medium leading-snug">
                       {notification.title}
                     </p>
-                    <span className="shrink-0 text-overline text-muted-foreground/60">
+                    <span className="shrink-0 text-overline text-muted-foreground">
                       {formatTime(notification.createdAt)}
                     </span>
                   </div>

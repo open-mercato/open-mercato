@@ -64,15 +64,15 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
           <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
         )}
         <span className="font-medium text-muted-foreground">Step {step.stepIndex}</span>
-        <span className="font-mono text-muted-foreground/60">{step.modelId}</span>
+        <span className="font-mono text-muted-foreground">{step.modelId}</span>
         {hasTools ? (
           <span className="ml-auto flex items-center gap-1 text-muted-foreground">
             <Wrench className="size-3" aria-hidden />
             {step.toolCalls.length}
           </span>
         ) : null}
-        <span className="ml-auto font-mono text-muted-foreground/60">{step.finishReason}</span>
-        <span className="font-mono text-muted-foreground/60">
+        <span className="ml-auto font-mono text-muted-foreground">{step.finishReason}</span>
+        <span className="font-mono text-muted-foreground">
           {step.usage.inputTokens}↑ {step.usage.outputTokens}↓
         </span>
       </button>
@@ -100,7 +100,7 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono font-semibold">{tc.toolName}</span>
                       {tc.durationMs ? (
-                        <span className="text-muted-foreground/60">{formatMs(tc.durationMs)}</span>
+                        <span className="text-muted-foreground">{formatMs(tc.durationMs)}</span>
                       ) : null}
                       {tc.error ? (
                         <span className="text-status-error-fg">error: {tc.error.code}</span>
@@ -154,17 +154,17 @@ export function LoopTracePanel({ trace, className }: LoopTracePanelProps) {
           <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
         )}
         <span className="font-semibold text-muted-foreground">Loop trace</span>
-        <span className="ml-1 font-mono text-muted-foreground/60">
+        <span className="ml-1 font-mono text-muted-foreground">
           {trace.steps.length} step{trace.steps.length !== 1 ? 's' : ''}
         </span>
         <span
-          className="ml-auto font-mono text-muted-foreground/60"
+          className="ml-auto font-mono text-muted-foreground"
           data-loop-trace-stop-reason={trace.stopReason}
         >
           {trace.stopReason}
         </span>
-        <span className="font-mono text-muted-foreground/60">{formatMs(trace.totalDurationMs)}</span>
-        <span className="font-mono text-muted-foreground/60">
+        <span className="font-mono text-muted-foreground">{formatMs(trace.totalDurationMs)}</span>
+        <span className="font-mono text-muted-foreground">
           {trace.totalUsage.inputTokens + trace.totalUsage.outputTokens} tok
         </span>
       </button>
