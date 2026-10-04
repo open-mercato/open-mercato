@@ -96,6 +96,94 @@ describe('progress service', () => {
     )
   })
 
+  it('createJob — rejects an explicit empty organization scope before persistence', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const service = createProgressService(em as never, eventBus)
+
+    await expect(service.createJob(
+      { jobType: 'import', name: 'Import contacts' },
+      { ...baseCtx, organizationId: 'org-1', organizationIds: [] },
+    )).rejects.toThrow('[internal] Progress job creation is outside the allowed organization scope')
+
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('createJob — allows a concrete target inside a finite organization scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.create.mockImplementation((_entity, data) => ({ id: 'job-finite', ...data }))
+    const service = createProgressService(em as never, eventBus)
+
+    await service.createJob(
+      { jobType: 'import', name: 'Import contacts' },
+      { ...baseCtx, organizationId: 'org-2', organizationIds: ['org-1', 'org-2'] },
+    )
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: baseCtx.tenantId, organizationId: 'org-2' }),
+    )
+    expect(em.persist).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['outside the finite scope', 'org-3'],
+    ['null in a finite scope', null],
+    ['missing from a finite scope', undefined],
+  ])('createJob — rejects a target %s before persistence', async (_scenario, organizationId) => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const service = createProgressService(em as never, eventBus)
+
+    await expect(service.createJob(
+      { jobType: 'import', name: 'Import contacts' },
+      { ...baseCtx, organizationId, organizationIds: ['org-1', 'org-2'] },
+    )).rejects.toThrow('[internal] Progress job creation is outside the allowed organization scope')
+
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('createJob — preserves legacy single-organization behavior when organizationIds is undefined', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.create.mockImplementation((_entity, data) => ({ id: 'job-legacy', ...data }))
+    const service = createProgressService(em as never, eventBus)
+
+    await service.createJob(
+      { jobType: 'import', name: 'Import contacts' },
+      { ...baseCtx, organizationId: 'org-legacy' },
+    )
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ organizationId: 'org-legacy' }),
+    )
+    expect(em.persist).toHaveBeenCalledTimes(1)
+  })
+
+  it('createJob — preserves explicit null unrestricted system behavior', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.create.mockImplementation((_entity, data) => ({ id: 'job-system', ...data }))
+    const service = createProgressService(em as never, eventBus)
+
+    await service.createJob(
+      { jobType: 'maintenance', name: 'System maintenance' },
+      { ...baseCtx, organizationId: 'org-system', organizationIds: null },
+    )
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ organizationId: 'org-system' }),
+    )
+    expect(em.persist).toHaveBeenCalledTimes(1)
+  })
+
   it('startJob — transitions to running via a status-guarded update, emits JOB_STARTED', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }

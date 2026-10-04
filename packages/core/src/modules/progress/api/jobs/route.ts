@@ -172,6 +172,7 @@ export async function POST(req: Request) {
     const job = await progressService.createJob(parsed.data, {
       tenantId: scope.tenantId,
       organizationId: scope.selectedId,
+      organizationIds: scope.filterIds,
       userId: auth.sub,
     })
 

@@ -114,8 +114,33 @@ describe('progress jobs route', () => {
       {
         tenantId: 'tenant-1',
         organizationId: 'org-1',
+        organizationIds: ['org-1'],
         userId: 'user-1',
       },
+    )
+  })
+
+  it('pins and normalizes the authenticated tenant for request scope resolution', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: ' tenant-1 ',
+      orgId: 'org-1',
+    })
+    mockResolveForRequest.mockResolvedValue({
+      tenantId: ' tenant-1 ',
+      selectedId: 'org-1',
+      filterIds: ['org-1'],
+      allowedIds: ['org-1'],
+    })
+
+    const response = await listHandler(new Request('http://localhost/api/progress/jobs'))
+
+    expect(response.status).toBe(200)
+    expect(mockResolveForRequest).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-1' }))
+    expect(mockFindAndCount).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant-1' }),
+      expect.anything(),
     )
   })
 
@@ -197,6 +222,7 @@ describe('progress jobs route', () => {
       {
         tenantId: 'tenant-1',
         organizationId: null,
+        organizationIds: null,
         userId: 'superadmin-1',
       },
     )
@@ -380,6 +406,72 @@ describe('progress jobs route', () => {
     await expect(response.json()).resolves.toEqual({ active: [], recentlyCompleted: [] })
     expect(mockMarkStaleJobsFailed).not.toHaveBeenCalled()
     expect(mockGetActiveJobs).not.toHaveBeenCalled()
+  })
+
+  it('fails closed without data calls when initial request scope resolves to another tenant', async () => {
+    mockResolveForRequest.mockResolvedValue({
+      tenantId: 'tenant-2',
+      selectedId: 'org-2',
+      filterIds: ['org-2'],
+      allowedIds: ['org-2'],
+    })
+
+    const listResponse = await listHandler(new Request('http://localhost/api/progress/jobs'))
+    const activeResponse = await activeHandler(new Request('http://localhost/api/progress/active'))
+    const detailResponse = await detailGetHandler(
+      new Request('http://localhost/api/progress/jobs/job-1'),
+      { params: { id: 'job-1' } },
+    )
+    const updateResponse = await detailPutHandler(
+      new Request('http://localhost/api/progress/jobs/job-1', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ processedCount: 2 }),
+      }),
+      { params: { id: 'job-1' } },
+    )
+    const deleteResponse = await detailDeleteHandler(
+      new Request('http://localhost/api/progress/jobs/job-1', { method: 'DELETE' }),
+      { params: { id: 'job-1' } },
+    )
+    const createResponse = await postHandler(new Request('http://localhost/api/progress/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jobType: 'export', name: 'Export job' }),
+    }))
+
+    expect(listResponse.status).toBe(200)
+    await expect(listResponse.json()).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      totalPages: 1,
+    })
+    expect(activeResponse.status).toBe(200)
+    await expect(activeResponse.json()).resolves.toEqual({ active: [], recentlyCompleted: [] })
+    for (const response of [detailResponse, updateResponse, deleteResponse]) {
+      expect(response.status).toBe(404)
+      await expect(response.json()).resolves.toEqual({ error: 'Not found' })
+    }
+    expect(createResponse.status).toBe(403)
+    await expect(createResponse.json()).resolves.toEqual({ error: 'Forbidden' })
+
+    for (const [input] of mockResolveForRequest.mock.calls) {
+      expect(input).toEqual(expect.objectContaining({
+        auth: expect.objectContaining({ tenantId: 'tenant-1' }),
+        request: expect.any(Request),
+        tenantId: 'tenant-1',
+      }))
+    }
+    expect(mockFindAndCount).not.toHaveBeenCalled()
+    expect(mockCreateJob).not.toHaveBeenCalled()
+    expect(mockGetJob).not.toHaveBeenCalled()
+    expect(mockUpdateProgress).not.toHaveBeenCalled()
+    expect(mockCancelJob).not.toHaveBeenCalled()
+    expect(mockMarkStaleJobsFailed).not.toHaveBeenCalled()
+    expect(mockGetActiveJobs).not.toHaveBeenCalled()
+    expect(mockGetRecentlyCompletedJobs).not.toHaveBeenCalled()
   })
 
   it('does not leak the error message or stack in the 500 response (CWE-209)', async () => {

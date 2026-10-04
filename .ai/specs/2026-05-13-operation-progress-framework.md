@@ -76,9 +76,11 @@ For server-side bulk work:
 7. Support `isCancellationRequested` for cancellable jobs.
 8. Scope all reads and writes by `tenantId` and `organizationId`.
 
-Progress HTTP routes resolve the current tenant and organization access through the request-scoped public `OrganizationScopeService`; nullable token organization fields are not authorization scope. A finite `filterIds` list is applied to list, detail, update, cancellation, active/recent, and stale-sweep queries. An explicit empty list denies all access and must never be normalized to an omitted organization predicate. `filterIds: null` remains the canonical unrestricted scope for superadmins and explicitly unrestricted principals. Trusted worker/system callers that omit the finite list retain their exact `organizationId` or intentional tenant-wide behavior.
+Progress HTTP routes resolve the current tenant and organization access through the request-scoped public `OrganizationScopeService`; nullable token organization fields are not authorization scope. Every resolution pins the service's supported `tenantId` input to the normalized authenticated tenant and fails closed unless the normalized returned tenant matches it. A finite `filterIds` list is applied to list, detail, update, cancellation, active/recent, and stale-sweep queries. An explicit empty list denies all access and must never be normalized to an omitted organization predicate. `filterIds: null` remains the canonical unrestricted scope for superadmins and explicitly unrestricted principals. Trusted worker/system callers that omit the finite list retain their exact `organizationId` or intentional tenant-wide behavior.
 
 Creating a job requires a concrete resolved `selectedId` whenever the caller has finite organization access. A rejected explicit selection or finite scope without a concrete write target fails closed. Detail and mutation routes return non-disclosing not-found responses for inaccessible jobs; collection/active reads return empty payloads for deny-all scope.
+
+`ProgressService.createJob` enforces an explicitly supplied finite `organizationIds` set before entity construction or persistence: an empty set denies creation, and a non-empty set requires a concrete `organizationId` contained in it. An omitted `organizationIds` preserves legacy single-organization callers, while explicit `null` preserves canonical unrestricted/system callers.
 
 ### Multi-Instance Concurrency Rules
 
@@ -209,7 +211,9 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 - Unit: a lifecycle CAS loser reloads the winning terminal row and emits no duplicate event.
 - Unit: concurrent stale sweepers emit one failure event and a fresh heartbeat defeats the stale predicate.
 - Unit: explicit finite empty organization access remains an `$in: []` predicate across progress detail, update, cancellation, active/recent, cancellation polling, and stale-sweep queries.
+- Unit: job creation rejects empty, missing-target, and out-of-set finite scopes before persistence while allowing in-set, omitted legacy, and explicit-null unrestricted contexts.
 - Route: orgless non-superadmins use the request-resolved selected/multi-organization scope; disallowed or freshly revoked access returns empty/not-found responses, while same-organization and canonical superadmin access remain functional.
+- Route: a request-scope result whose normalized tenant differs from the authenticated tenant returns only empty/non-disclosing responses and performs no progress ORM/service data calls.
 - Unit: `runBulkDelete` emits start, step, and terminal progress events.
 - Unit: future `runBulkOperation` handles success, partial failure, full failure, and empty input.
 - Unit: `ProgressTopBar` hooks retain `client:*` jobs while merging `/api/progress/active` results.

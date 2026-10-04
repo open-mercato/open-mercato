@@ -7,11 +7,31 @@ import type {
 
 export async function resolveProgressRequestScope(
   container: AwilixContainer,
-  auth: AuthContext,
+  auth: NonNullable<AuthContext>,
   request: Request,
 ): Promise<OrganizationScope> {
+  const tenantId = normalizeScopeId(auth.tenantId)
+  if (tenantId === null) return deniedOrganizationScope()
+
   const organizationScopeService = container.resolve<OrganizationScopeService>('organizationScopeService')
-  return organizationScopeService.resolveForRequest({ auth, request })
+  const scope = await organizationScopeService.resolveForRequest({ auth, request, tenantId })
+  if (normalizeScopeId(scope.tenantId) !== tenantId) return deniedOrganizationScope()
+
+  return { ...scope, tenantId }
+}
+
+function normalizeScopeId(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function deniedOrganizationScope(): OrganizationScope {
+  return {
+    selectedId: null,
+    filterIds: [],
+    allowedIds: [],
+    tenantId: null,
+    selectionRejected: true,
+  }
 }
 
 export function hasReadableProgressScope(scope: OrganizationScope): scope is OrganizationScope & { tenantId: string } {

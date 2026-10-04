@@ -256,6 +256,15 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
   return {
     async createJob(input, ctx) {
+      if (Array.isArray(ctx.organizationIds)) {
+        const organizationId = typeof ctx.organizationId === 'string' && ctx.organizationId.trim().length > 0
+          ? ctx.organizationId
+          : null
+        if (organizationId === null || !ctx.organizationIds.includes(organizationId)) {
+          throw new Error('[internal] Progress job creation is outside the allowed organization scope')
+        }
+      }
+
       const job = em.create(ProgressJob, {
         jobType: input.jobType,
         name: input.name,
