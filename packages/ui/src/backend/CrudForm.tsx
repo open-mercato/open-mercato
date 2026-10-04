@@ -270,6 +270,10 @@ export type CrudBuiltinField = CrudFieldBase & {
 
 export type CrudCustomFieldRenderProps = {
   id: string
+  // DOM id of the field's visible label. A custom field renders its own control,
+  // so the wrapper cannot target it with `htmlFor`; pass this as `aria-labelledby`
+  // to name the control. Undefined when the field has no visible label.
+  labelId?: string
   value: unknown
   error?: string
   autoFocus?: boolean
@@ -5013,6 +5017,7 @@ const FieldControl = React.memo(function FieldControlImpl({
         <>
           {field.component({
             id: field.id,
+            labelId: visibleLabelId,
             value,
             error,
             setValue: fieldSetValue,
