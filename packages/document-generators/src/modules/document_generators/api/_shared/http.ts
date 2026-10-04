@@ -6,8 +6,7 @@ import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/tran
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { UnknownTemplateError, UnknownTemplateVersionError } from '../../lib/template-registry'
-import { TemplateAccessDeniedError } from '../../lib/template-access-policy'
+import { TemplateAccessDeniedError, UnknownTemplateError, UnknownTemplateVersionError } from '../../lib/template-errors'
 
 export type TranslateFn = (key: string, fallback?: string) => string
 

@@ -1,5 +1,6 @@
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { TemplateMeta } from '@open-mercato/shared/modules/document-generators'
+import { TemplateAccessDeniedError } from './template-errors'
 
 export interface TemplateFeatureAuthorizer {
   userHasAllFeatures(
@@ -7,16 +8,6 @@ export interface TemplateFeatureAuthorizer {
     requiredFeatures: string[],
     scope: { tenantId: string | null; organizationId: string | null },
   ): Promise<boolean>
-}
-
-export class TemplateAccessDeniedError extends Error {
-  readonly requiredFeatures: string[]
-
-  constructor(requiredFeatures: string[]) {
-    super('[internal] Document template access denied')
-    this.name = 'TemplateAccessDeniedError'
-    this.requiredFeatures = [...requiredFeatures]
-  }
 }
 
 export class TemplateAccessPolicy {

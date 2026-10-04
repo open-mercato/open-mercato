@@ -4,8 +4,7 @@ import {
   registerTelemetryRuntime,
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
-import { TemplateAccessDeniedError } from '../../../lib/template-access-policy'
-import { UnknownTemplateError, UnknownTemplateVersionError } from '../../../lib/template-registry'
+import { TemplateAccessDeniedError, UnknownTemplateError, UnknownTemplateVersionError } from '../../../lib/template-errors'
 import { errorResponse, mapDocumentError, parseJsonBody, requireOrganization } from '../http'
 
 const translate = (key: string, fallback?: string) => `T:${key}|${fallback ?? ''}`

@@ -2,7 +2,8 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { templateRegistry, UnknownTemplateError } from '../../../../../lib/template-registry'
+import { UnknownTemplateError } from '../../../../../lib/template-errors'
+import { templateRegistry } from '../../../../../lib/template-registry'
 import { TemplateAccessPolicy, type TemplateFeatureAuthorizer } from '../../../../../lib/template-access-policy'
 import {
   resolveStoredDocumentAttachmentService,

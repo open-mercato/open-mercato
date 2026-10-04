@@ -1,56 +1,25 @@
-import { DEFAULT_TEMPLATE_VERSION, type DocumentTemplateSource, type TemplateEntry, type TemplateMeta } from '@open-mercato/shared/modules/document-generators'
+import type { TemplateEntry, TemplateMeta } from '@open-mercato/shared/modules/document-generators'
 import type { TranslateWithFallbackFn as TranslateFn } from '@open-mercato/shared/lib/i18n/translate'
 import type { LoadedTemplate, TemplateFilter, TemplateFilterOptions, TemplateLoadContext } from './interfaces'
+import { DuplicateTemplateError, UnknownTemplateError } from './template-errors'
+import { assertDistinctVersions, availableVersions, currentVersion, resolveVersionSource } from './template-versions'
 
-export class UnknownTemplateError extends Error {
-  constructor(readonly templateId: string) {
-    super(`[internal] Unknown document template: ${templateId}`)
-    this.name = 'UnknownTemplateError'
-  }
+function translateText(key: string, translate?: TranslateFn): string {
+  return translate ? translate(key, key) : key
 }
 
-export class DuplicateTemplateError extends Error {
-  constructor(templateId: string, existingModule: string, incomingModule: string) {
-    super(`[internal] Duplicate template ${templateId} from ${incomingModule}; already registered by ${existingModule}. Use module-prefixed template IDs.`)
-    this.name = 'DuplicateTemplateError'
-  }
-}
-
-export class UnknownTemplateVersionError extends Error {
-  constructor(readonly templateId: string, readonly version: string) {
-    super(`[internal] Unknown version ${version} of document template ${templateId}`)
-    this.name = 'UnknownTemplateVersionError'
-  }
-}
-
-function currentVersion(entry: TemplateEntry): string {
-  return entry.version ?? DEFAULT_TEMPLATE_VERSION
-}
-
-function availableVersions(entry: TemplateEntry): string[] {
-  return [currentVersion(entry), ...(entry.archivedVersions ?? []).map((source) => source.version)]
-}
-
-function assertDistinctVersions(entry: TemplateEntry): void {
-  const versions = availableVersions(entry)
-  if (new Set(versions).size !== versions.length || versions.some((version) => !version.trim())) {
-    throw new Error(`[internal] Document template ${entry.id} declares duplicate or empty versions`)
-  }
-}
-
-function resolveVersionSource(entry: TemplateEntry, version: string | undefined): { version: string; load: () => Promise<DocumentTemplateSource> } {
-  const current = currentVersion(entry)
-  if (version === undefined || version === current) return { version: current, load: entry.load }
-  const archived = entry.archivedVersions?.find((source) => source.version === version)
-  if (!archived) throw new UnknownTemplateVersionError(entry.id, version)
-  return archived
+function matchesFilter(entry: TemplateEntry, filter: TemplateFilter): boolean {
+  return (!filter.resourceKind || entry.resourceKind === filter.resourceKind)
+    && (!filter.documentType || entry.documentType === filter.documentType)
+    && (!filter.format || entry.format === filter.format)
+    && (!filter.tags?.length || filter.tags.some((tag) => entry.tags.includes(tag)))
 }
 
 function metadata(entry: TemplateEntry, translate?: TranslateFn): TemplateMeta {
   return {
     id: entry.id,
-    label: translate ? translate(entry.label, entry.label) : entry.label,
-    description: translate ? translate(entry.description, entry.description) : entry.description,
+    label: translateText(entry.label, translate),
+    description: translateText(entry.description, translate),
     module: entry.module,
     resourceKind: entry.resourceKind,
     documentType: entry.documentType,
@@ -88,10 +57,7 @@ export class TemplateRegistry {
 
   listTemplates(filter: TemplateFilter = {}, translate?: TranslateFn): TemplateMeta[] {
     return [...this.entries.values()]
-      .filter((entry) => (!filter.resourceKind || entry.resourceKind === filter.resourceKind)
-        && (!filter.documentType || entry.documentType === filter.documentType)
-        && (!filter.format || entry.format === filter.format)
-        && (!filter.tags?.length || filter.tags.some((tag) => entry.tags.includes(tag))))
+      .filter((entry) => matchesFilter(entry, filter))
       .map((entry) => metadata(entry, translate))
   }
 
@@ -118,7 +84,7 @@ export class TemplateRegistry {
     return {
       data,
       filename,
-      template: { id: entry.id, label: metadata(entry, context.translate).label, version: selected.version },
+      template: { id: entry.id, label: translateText(entry.label, context.translate), version: selected.version },
       resource: { kind: entry.resourceKind, id: resourceId, label: entry.resourceLabel?.({ data }) },
       render: { format: entry.format, source, data },
     }
