@@ -2,7 +2,10 @@
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/redo/route'
 
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockReplayEm = {}
+const mockRbac = {
+  userHasAllFeaturesWithEntityManager: jest.fn(),
+}
 const mockLogs = {
   findById: jest.fn(),
   latestUndoneForActor: jest.fn(),
@@ -54,11 +57,20 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
       filterIds: ['org-1'],
       allowedIds: null,
     })
-    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.userHasAllFeaturesWithEntityManager.mockImplementation(
+      async (_em, _userId, features: string[]) => features[0]?.endsWith('_self') === true,
+    )
     mockLogs.findById.mockResolvedValue(null)
     mockLogs.latestUndoneForActor.mockResolvedValue(null)
     mockLogs.markRedone.mockResolvedValue(undefined)
-    mockCommandBus.execute.mockResolvedValue({ logEntry: null })
+    mockCommandBus.execute.mockImplementation(async (_commandId, options) => {
+      await options.ctx.replayTransactionGuard?.({
+        operation: 'redo',
+        logEntry: options.redoLogEntry,
+        transactionalEm: mockReplayEm,
+      })
+      return { logEntry: null }
+    })
   })
 
   it('returns 401 when unauthenticated', async () => {
@@ -236,8 +248,6 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
       organizationId: null,
       scope: { allowedIds: null },
     })
-    mockRbac.userHasAllFeatures.mockResolvedValue(false)
-
     const log = {
       id: 'log-2',
       commandId: 'demo.command',
@@ -255,7 +265,13 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
 
     const res = await POST(makeRequest({ logId: 'log-2' }))
     expect(res.status).toBe(400)
-    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).toHaveBeenCalled()
+    expect(mockRbac.userHasAllFeaturesWithEntityManager).toHaveBeenCalledWith(
+      mockReplayEm,
+      'user-1',
+      ['audit_logs.redo_self'],
+      { tenantId: 'tenant-1', organizationId: null },
+    )
   })
   it('surfaces the status and body of an interceptor rejection that carries one', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')

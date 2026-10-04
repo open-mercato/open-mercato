@@ -30,6 +30,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { Role, RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -148,7 +149,7 @@ function resolveEffect(before: AclSnapshot, after: AclSnapshot): AclChangeEffect
 }
 
 function resolveEm(ctx: CommandRuntimeContext): EntityManager {
-  return ctx.container.resolve('em') as EntityManager
+  return ctx.transactionalEm ?? ctx.container.resolve('em') as EntityManager
 }
 
 /**
@@ -223,6 +224,7 @@ type AclCommandConfig<TInput extends AclCommandInput> = {
   labelKey: string
   labelFallback: string
   resourceId: (input: TInput) => string
+  lockParent: (em: EntityManager, input: TInput) => Promise<void>
   loadAcl: (em: EntityManager, input: TInput) => Promise<AclRecord | null>
   persist: (params: { em: EntityManager; input: TInput; existing: AclRecord | null }) => Promise<void>
   invalidate: (params: { ctx: CommandRuntimeContext; input: TInput }) => Promise<void>
@@ -294,8 +296,11 @@ function createAclUpdateCommand<TInput extends AclCommandInput>(
     },
     async execute(input, ctx) {
       const em = resolveEm(ctx)
-      const existing = await config.loadAcl(em, input)
-      await config.persist({ em, input, existing })
+      await withAtomicFlush(em, [async () => {
+        await config.lockParent(em, input)
+        const existing = await config.loadAcl(em, input)
+        await config.persist({ em, input, existing })
+      }], { transaction: true, label: `${config.id}.locked` })
       // Cache invalidation runs only after the write commits, never inside the
       // atomic flush — and must never propagate. The command bus persists the
       // action log *after* `execute` returns, so a throw here would commit the
@@ -378,6 +383,13 @@ const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
   labelKey: 'auth.audit.roleAcl.update',
   labelFallback: 'Change role permissions',
   resourceId: (input) => input.roleId,
+  lockParent: async (em, input) => {
+    await em.findOne(
+      Role,
+      { id: input.roleId, deletedAt: null } as FilterQuery<Role>,
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    )
+  },
   loadAcl: (em, input) =>
     em.findOne(RoleAcl, { role: input.roleId as unknown as Role, tenantId: input.tenantId }),
   persist: async ({ em, input, existing }) => {
@@ -389,18 +401,10 @@ const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
         createdAt: new Date(),
         isSuperAdmin: false,
       })
-    await withAtomicFlush(
-      em,
-      [
-        () => {
-          acl.organizationsJson = input.organizations
-          acl.isSuperAdmin = input.isSuperAdmin
-          acl.featuresJson = input.features
-          em.persist(acl)
-        },
-      ],
-      { transaction: true, label: AUTH_ROLE_ACL_UPDATE_COMMAND_ID },
-    )
+    acl.organizationsJson = input.organizations
+    acl.isSuperAdmin = input.isSuperAdmin
+    acl.featuresJson = input.features
+    em.persist(acl)
   },
   invalidate: async ({ ctx, input }) => {
     // Every user in the tenant inherits this role's grants, so the whole tenant
@@ -427,21 +431,20 @@ const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
   labelKey: 'auth.audit.userAcl.update',
   labelFallback: 'Change user permissions',
   resourceId: (input) => input.userId,
+  lockParent: async (em, input) => {
+    await em.findOne(
+      User,
+      { id: input.userId, deletedAt: null } as FilterQuery<User>,
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    )
+  },
   loadAcl: (em, input) =>
     em.findOne(UserAcl, { user: input.userId as unknown as User, tenantId: input.tenantId }),
   persist: async ({ em, input, existing }) => {
     if (input.clear) {
       if (!existing) return
       const aclToRemove = existing as UserAcl
-      await withAtomicFlush(
-        em,
-        [
-          () => {
-            em.remove(aclToRemove)
-          },
-        ],
-        { transaction: true, label: AUTH_USER_ACL_UPDATE_COMMAND_ID },
-      )
+      em.remove(aclToRemove)
       return
     }
     const acl =
@@ -452,18 +455,10 @@ const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
         createdAt: new Date(),
         isSuperAdmin: false,
       })
-    await withAtomicFlush(
-      em,
-      [
-        () => {
-          acl.isSuperAdmin = input.isSuperAdmin
-          acl.featuresJson = input.features
-          acl.organizationsJson = input.organizations
-          em.persist(acl)
-        },
-      ],
-      { transaction: true, label: AUTH_USER_ACL_UPDATE_COMMAND_ID },
-    )
+    acl.isSuperAdmin = input.isSuperAdmin
+    acl.featuresJson = input.features
+    acl.organizationsJson = input.organizations
+    em.persist(acl)
   },
   invalidate: async ({ ctx, input }) => {
     const rbacService = ctx.container.resolve('rbacService') as RbacService

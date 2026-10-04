@@ -507,3 +507,18 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
 
 **Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
+
+## Atomic Auth Command Replay (2026-10-04)
+
+[`.ai/specs/2026-07-28-protected-roles-and-audit-seam.md`](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (`CommandHandler`, `CommandRuntimeContext`, `CommandExecuteResult`) | New optional `atomicReplay?: boolean` handler capability, optional `replayTransactionGuard` request guard, and optional `replaySourceFinalized?: boolean` result signal | ✓ ADDITIVE (optional fields; omitted handlers and contexts keep the prior flow) |
+| `ActionLogService` method signatures | `log`, `claimForUndo`, `releaseUndoClaim`, and `markUndone` accept an optional trailing transactional `EntityManager`; new `claimForRedo` method | ✓ ADDITIVE (optional parameters appended and a new method; existing calls retain behavior) |
+| `RbacService` | New `loadAclWithEntityManager`, `userHasAllFeaturesWithEntityManager`, and `getGrantedFeaturesWithEntityManager` methods bypass caches and bind every query to the supplied transaction | ✓ ADDITIVE (new methods; existing cache-backed methods are unchanged) |
+| Auth command replay behavior | Auth user/role handlers opt in so source-log state, domain changes, undo trace or new redo log, and redo source finalization commit or roll back together. Authorization is repeated after canonical parent/child locks using the same transaction | ⚠️ Intentional security hardening. A race that previously could replay with stale authority is rejected; successful, authorized replay keeps the same HTTP response contract |
+| Non-auth command replay | Handlers that omit `atomicReplay` retain the existing undo claim/release compensation and route-level redo finalization | ✓ Behavior-preserving |
+| API routes, response schemas, database schema, event IDs, ACL feature IDs, DI names, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; the command bus supplies it and owns commit/rollback. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.

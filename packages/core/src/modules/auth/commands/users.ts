@@ -67,8 +67,12 @@ import {
   denyCredentialReplay,
   extractStoredReplayInput,
   hasStoredPasswordInput,
+  lockAuthorizationRoleRows,
+  lockAuthorizationUserRows,
   lockReplayAuthorizationState,
+  rerunReplayTransactionGuardAfterLocks,
   requireCurrentReplayFeature,
+  requireTransactionalReplayEntityManager,
 } from '@open-mercato/core/modules/auth/lib/commandReplay'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
@@ -83,6 +87,12 @@ function withUserRedoLog(
   logEntry: CommandUndoLogEntry,
 ): UserReplayRuntimeContext {
   return { ...ctx, [USER_REDO_LOG]: logEntry }
+}
+
+function resolveCommandEm(ctx: CommandRuntimeContext, forkWhenUnbound = false): EntityManager {
+  if (ctx.transactionalEm) return ctx.transactionalEm
+  const em = ctx.container.resolve('em') as EntityManager
+  return forkWhenUnbound ? em.fork() : em
 }
 
 type SerializedUser = {
@@ -237,10 +247,11 @@ type CreateUserResult = { user: User; warning?: 'invite_email_failed' }
 
 const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResult> = {
   id: 'auth.users.create',
+  atomicReplay: true,
   authorizeReplay: (params) => authorizeUserReplay('create', params),
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
 
     const organization = await findOneWithDecryption(
       em,
@@ -330,7 +341,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     return { user, warning }
   },
   captureAfter: async (_input, { user }, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = resolveCommandEm(ctx, true)
     const roles = await loadUserRoleNames(em, String(user.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -342,7 +353,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
   },
   buildLog: async ({ input, result: { user }, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = resolveCommandEm(ctx, true)
     const roles = await loadUserRoleNames(em, String(user.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -373,7 +384,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     const userId = typeof logEntry?.resourceId === 'string' ? logEntry.resourceId : null
     if (!userId) return
     const snapshot = logEntry?.snapshotAfter as SerializedUser | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     // Evaluate the floor against the user's CURRENT tenant, not the one recorded at
@@ -447,7 +458,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
   redo: async ({ input, logEntry, ctx }) => {
     const after = resolveRedoSnapshot<UserUndoSnapshot>(logEntry)
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for user create' })
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const emailHash = computeEmailHash(after.email)
 
@@ -583,10 +594,11 @@ function isUniqueViolation(error: unknown): boolean {
 
 const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   id: 'auth.users.update',
+  atomicReplay: true,
   authorizeReplay: (params) => authorizeUserReplay('update', params),
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
     assertTargetTenantInScope(resolveActorTenantScope(ctx), existing.tenantId, 'User not found')
@@ -602,7 +614,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const actorTenantScope = resolveActorTenantScope(ctx)
     const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
@@ -704,6 +716,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
             logEntry: redoLogEntry,
           })
         }
+        await lockAuthorizationUserRows(em, [parsed.id])
         // Floor check must run inside the transaction so that LockMode.PESSIMISTIC_WRITE locks Role rows properly
         await enforceProtectedRoleFloor(em, userTenantId, parsed.id, {
           deactivating: parsed.isConfirmed === false || isTenantChanging,
@@ -827,7 +840,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = resolveCommandEm(ctx, true)
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -842,7 +855,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const beforeSnapshots = snapshots.before as UserSnapshots | undefined
     const before = beforeSnapshots?.view
     const beforeUndo = beforeSnapshots?.undo ?? null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = resolveCommandEm(ctx, true)
     const afterRoles = await loadUserRoleNames(em, String(result.id))
     const afterCustom = await loadUserCustomSnapshot(
       em,
@@ -891,7 +904,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const replayInput = Object.keys(storedReplayInput).length
       ? storedReplayInput
       : deriveUserUpdateReplayInput(before, after ?? null)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     // Reverting an update can drop the tenant below a protected role's floor just as the
@@ -975,10 +988,11 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
 const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, User> = {
   id: 'auth.users.delete',
+  atomicReplay: true,
   authorizeReplay: (params) => authorizeUserReplay('delete', params),
   async prepare(input, ctx) {
     const id = requireId(input, 'User id required')
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) return {}
     const actorTenantScope = resolveActorTenantScope(ctx)
@@ -998,7 +1012,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   },
   async execute(input, ctx) {
     const id = requireId(input, 'User id required')
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const actorTenantScope = resolveActorTenantScope(ctx)
 
@@ -1023,6 +1037,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
             logEntry: redoLogEntry,
           })
         }
+        await lockAuthorizationUserRows(em, [id])
         const userTenantId = existing.tenantId ? String(existing.tenantId) : null
         await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true }, ctx)
 
@@ -1083,7 +1098,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     let user: User | null = null
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
@@ -1268,11 +1283,11 @@ async function authorizeUserReplay(
     : commandKind === 'delete'
       ? operation === 'undo' ? 'auth.users.create' : 'auth.users.delete'
       : 'auth.users.edit'
+  const em = requireTransactionalReplayEntityManager(ctx)
   if (commandKind !== 'update' || !isSelfProfileReplay(replayInput, ctx, userId)) {
     await requireCurrentReplayFeature(ctx, requiredFeature)
   }
 
-  const em = ctx.container.resolve('em') as EntityManager
   const currentUser = await findOneWithDecryption(
     em,
     User,
@@ -1291,6 +1306,7 @@ async function authorizeUserReplay(
     await assertActorCanAccessUserTarget({
       em,
       rbacService,
+      requireBoundRbac: true,
       actorUserId: ctx.auth?.sub,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.auth?.orgId ?? null,
@@ -1300,6 +1316,7 @@ async function authorizeUserReplay(
     await assertActorCanModifySuperAdminUserTarget({
       em,
       rbacService,
+      requireBoundRbac: true,
       actorUserId: ctx.auth?.sub,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.auth?.orgId ?? null,
@@ -1351,6 +1368,7 @@ async function authorizeUserReplay(
     const roles = await assertActorCanGrantRoleTokens({
       em,
       rbacService,
+      requireBoundRbac: true,
       actorUserId: ctx.auth?.sub,
       tenantId: desiredState.tenantId,
       organizationId: desiredState.organizationId,
@@ -1359,6 +1377,7 @@ async function authorizeUserReplay(
     await assertActorCanAssignUserDestination({
       em,
       rbacService,
+      requireBoundRbac: true,
       actorUserId: ctx.auth?.sub,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.auth?.orgId ?? null,
@@ -1376,6 +1395,7 @@ async function authorizeUserReplay(
     await assertActorCanGrantAcl({
       em,
       rbacService,
+      requireBoundRbac: true,
       actorUserId: ctx.auth?.sub,
       tenantId: acl.tenantId,
       organizationId: desiredState.organizationId,
@@ -1395,9 +1415,14 @@ async function authorizeUserReplayAtMutation(
     ?? undoPayload?.before?.id
     ?? undoPayload?.after?.id
     ?? null
-  const em = params.ctx.container.resolve('em') as EntityManager
-  await lockReplayAuthorizationState(em, params.ctx, { targetUserId })
-  await authorizeUserReplay(commandKind, params)
+  const em = params.ctx.transactionalEm
+    ?? params.ctx.container.resolve('em') as EntityManager
+  const boundParams = params.ctx.transactionalEm
+    ? params
+    : { ...params, ctx: { ...params.ctx, transactionalEm: em } }
+  await lockReplayAuthorizationState(em, boundParams.ctx, { targetUserId })
+  await rerunReplayTransactionGuardAfterLocks(boundParams, em)
+  await authorizeUserReplay(commandKind, boundParams)
 }
 
 registerCommand(createUserCommand)
@@ -1422,6 +1447,8 @@ async function resolveRole(
 }
 
 async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string[], tenantId: string | null) {
+  const userId = String(user.id)
+  await lockAuthorizationUserRows(em, [userId])
   const unique = Array.from(new Set(desiredRoles.map((role) => role.trim()).filter(Boolean)))
   const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
 
@@ -1441,8 +1468,25 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
     throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
   }
 
-  const desiredIds = new Set(resolvedRoles.map((r) => String(r.id)))
-  const currentLinks = await findWithDecryption(em, UserRole, { user }, {}, { tenantId: null, organizationId: null })
+  const discoveredLinks = await findWithDecryption(
+    em,
+    UserRole,
+    { user },
+    { orderBy: { id: 'ASC' } },
+    { tenantId: null, organizationId: null },
+  )
+  const discoveredRoleIds = discoveredLinks
+    .map((link) => String(link.role?.id ?? (link.role as unknown as string) ?? ''))
+    .filter(Boolean)
+  const desiredIds = new Set(resolvedRoles.map((role) => String(role.id)))
+  await lockAuthorizationRoleRows(em, [...desiredIds, ...discoveredRoleIds])
+  const currentLinks = await findWithDecryption(
+    em,
+    UserRole,
+    { user },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
+    { tenantId: null, organizationId: null },
+  )
   const currentRoleIds = new Map(
     currentLinks.map((link) => {
       const roleId = String(link.role?.id ?? (link.role as unknown as string) ?? '')
@@ -1526,6 +1570,7 @@ async function loadUserAclSnapshots(em: EntityManager, userId: string): Promise<
 }
 
 async function restoreUserAcls(em: EntityManager, user: User, acls: UserAclSnapshot[]) {
+  await lockAuthorizationUserRows(em, [String(user.id)])
   await em.nativeDelete(UserAcl, { user: String(user.id) })
   for (const acl of acls) {
     const entity = em.create(UserAcl, {

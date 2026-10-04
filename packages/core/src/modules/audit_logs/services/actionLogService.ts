@@ -242,11 +242,17 @@ export class ActionLogService {
     }
   }
 
-  async log(input: ActionLogCreateInput): Promise<ActionLog | null> {
+  private async decryptDetachedEntry(entry: ActionLog): Promise<ActionLog> {
+    const detached = { ...(entry as unknown as Record<string, unknown>) }
+    return await this.decryptEntryPayload(detached) as unknown as ActionLog
+  }
+
+  async log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null> {
     const data = this.parseCreateInput(input)
-    const fork = this.em.fork()
-    const log = this.createLogEntity(fork, data)
-    await fork.persist(log).flush()
+    const operationEm = transactionalEm ?? this.em.fork()
+    const log = this.createLogEntity(operationEm, data)
+    await operationEm.persist(log).flush()
+    if (transactionalEm) return this.decryptDetachedEntry(log)
     await this.decryptEntries(log)
     return log
   }
@@ -577,8 +583,9 @@ export class ActionLogService {
     return entry
   }
 
-  async claimForUndo(id: string): Promise<boolean> {
-    const affected = await this.em.nativeUpdate(
+  async claimForUndo(id: string, transactionalEm?: EntityManager): Promise<boolean> {
+    const operationEm = transactionalEm ?? this.em
+    const affected = await operationEm.nativeUpdate(
       ActionLog,
       { id, executionState: 'done', deletedAt: null },
       { executionState: 'undoing' },
@@ -586,8 +593,9 @@ export class ActionLogService {
     return affected === 1
   }
 
-  async releaseUndoClaim(id: string): Promise<boolean> {
-    const affected = await this.em.nativeUpdate(
+  async releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean> {
+    const operationEm = transactionalEm ?? this.em
+    const affected = await operationEm.nativeUpdate(
       ActionLog,
       { id, executionState: 'undoing', deletedAt: null },
       { executionState: 'done' },
@@ -595,20 +603,21 @@ export class ActionLogService {
     return affected === 1
   }
 
-  async markUndone(id: string, traceInput?: ActionLogCreateInput) {
-    const fork = this.em.fork()
-    const log = await fork.findOne(ActionLog, { id, deletedAt: null })
+  async markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager) {
+    const operationEm = transactionalEm ?? this.em.fork()
+    const log = await operationEm.findOne(ActionLog, { id, deletedAt: null })
     if (!log) return null
 
     log.executionState = 'undone'
     log.undoToken = null
 
-    const traceLog = traceInput ? this.createLogEntity(fork, this.parseCreateInput(traceInput)) : null
+    const traceLog = traceInput ? this.createLogEntity(operationEm, this.parseCreateInput(traceInput)) : null
     if (traceLog) {
-      fork.persist(traceLog)
+      operationEm.persist(traceLog)
     }
 
-    await fork.flush()
+    await operationEm.flush()
+    if (transactionalEm) return this.decryptDetachedEntry(log)
     await this.decryptEntries(log)
     if (traceLog) await this.decryptEntries(traceLog)
 
@@ -672,6 +681,22 @@ export class ActionLogService {
     log.undoToken = null
     await this.em.flush()
     return log
+  }
+
+  /**
+   * Compare-and-set the source of a redo from `undone` to its final `redone`
+   * state. When supplied, `transactionalEm` is the same EntityManager used by
+   * the replayed command and its new action log, so a later failure restores
+   * the source row to `undone` automatically.
+   */
+  async claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean> {
+    const operationEm = transactionalEm ?? this.em
+    const affected = await operationEm.nativeUpdate(
+      ActionLog,
+      { id, executionState: 'undone', deletedAt: null },
+      { executionState: 'redone', undoToken: null },
+    )
+    return affected === 1
   }
 
   async backfillProjections(options: ActionLogProjectionBackfillOptions = {}): Promise<ActionLogProjectionBackfillResult> {

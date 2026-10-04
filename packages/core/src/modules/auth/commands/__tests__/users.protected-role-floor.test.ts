@@ -78,7 +78,13 @@ describe('auth.users protected role floor checks', () => {
           return {
             invalidateUserCache: jest.fn(async () => undefined),
             userHasAllFeatures: jest.fn(async () => true),
+            userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
             loadAcl: jest.fn(async () => ({
+              isSuperAdmin: false,
+              features: ['auth.users.*'],
+              organizations: null,
+            })),
+            loadAclWithEntityManager: jest.fn(async () => ({
               isSuperAdmin: false,
               features: ['auth.users.*'],
               organizations: null,

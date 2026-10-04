@@ -109,7 +109,9 @@ describe('auth.users.update undo custom fields', () => {
             return {
               invalidateUserCache: jest.fn(async () => {}),
               userHasAllFeatures: jest.fn(async () => true),
+              userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
               loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+              loadAclWithEntityManager: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
             }
           case 'cache':
             return { deleteByTags: jest.fn(async () => {}) }

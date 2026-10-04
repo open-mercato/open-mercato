@@ -121,10 +121,12 @@ describe('auth ACL audit commands', () => {
 
     const em = {
       fork: () => em,
-      findOne: async (entity: unknown, where: unknown) => {
+      findOne: async (entity: unknown, where: unknown, queryOptions?: { lockMode?: unknown }) => {
         if (entity === Role || entity === User) {
-          targetFilters.push(where)
-          if (options.failTargetLookup) throw new Error('target lookup failed')
+          if (!queryOptions?.lockMode) {
+            targetFilters.push(where)
+            if (options.failTargetLookup) throw new Error('target lookup failed')
+          }
           // `undefined` means "use the default row"; an explicit `null` is the
           // out-of-scope target the lookup must not resolve.
           const row = entity === Role

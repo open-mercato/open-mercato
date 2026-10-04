@@ -59,6 +59,18 @@ export type CommandRuntimeContext = {
    */
   transactionalEm?: EntityManager
   /**
+   * Optional request-level replay authorization that the command bus binds to
+   * its replay EntityManager. Atomic handlers run this guard in the same
+   * transaction as the source-log transition and domain mutation; legacy
+   * handlers run it in a dedicated read transaction before preserving their
+   * existing replay lifecycle.
+   */
+  replayTransactionGuard?: (args: {
+    operation: CommandReplayOperation
+    logEntry: CommandUndoLogEntry
+    transactionalEm: EntityManager
+  }) => Promise<void> | void
+  /**
    * On-behalf-of attribution for non-human principals (Agent Identity &
    * On-Behalf-Of, Wave 4 P2). When an agent runs on behalf of a human, the
    * orchestrator's `runAs` wrapper sets this so every `ActionLog` the command
@@ -112,6 +124,13 @@ export type CommandLogMetadata = {
 export type CommandExecuteResult<TResult> = {
   result: TResult
   logEntry: any | null
+  /**
+   * True when an atomic redo finalized its source action log in the same
+   * transaction as the domain mutation and the newly persisted log entry.
+   * Callers that historically finalized redo themselves can use this additive
+   * signal to avoid a redundant post-commit write.
+   */
+  replaySourceFinalized?: boolean
 }
 
 /**
@@ -169,6 +188,14 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
   readonly id: string
   readonly isUndoable?: boolean
   /**
+   * Opts replay into the command bus's transaction-bound lifecycle. The source
+   * action-log transition, handler mutation, and any new replay log share one
+   * EntityManager and commit or roll back together. Handlers that enable this
+   * MUST reuse `ctx.transactionalEm` for every replay-time database operation.
+   * Omitted preserves the legacy non-atomic replay path.
+   */
+  readonly atomicReplay?: boolean
+  /**
    * Optional Zod schema describing the command's return value. Feeds the
    * workflows context ledger so downstream activities can reason about the
    * shape a command produces; when absent the ledger renders the output as
@@ -181,9 +208,11 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown
   /**
    * Re-authorizes a stored command against the actor and resource state that
-   * exist at replay time. The command bus invokes this before claiming an undo
-   * log and before any redo interceptor, snapshot, mutation, event, or log write.
-   * Throwing aborts replay without domain side effects.
+   * exist at replay time. Legacy handlers are checked before claiming an undo
+   * log or beginning redo processing. Atomic handlers are checked inside their
+   * replay transaction before the guarded source transition; their mutation
+   * path can repeat the check after taking domain locks. Throwing aborts replay
+   * without committed domain side effects.
    */
   authorizeReplay?(params: CommandReplayAuthorizationArgs<TInput>): Promise<void> | void
   undo?(params: { input: TInput; ctx: CommandRuntimeContext; logEntry: CommandUndoLogEntry }): Promise<void> | void

@@ -2,7 +2,10 @@
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/undo/route'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockReplayEm = {}
+const mockRbac = {
+  userHasAllFeaturesWithEntityManager: jest.fn(),
+}
 const mockLogs = {
   findByUndoToken: jest.fn(),
   latestUndoableForResource: jest.fn(),
@@ -51,11 +54,19 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       filterIds: ['org-1'],
       allowedIds: null,
     })
-    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.userHasAllFeaturesWithEntityManager.mockImplementation(
+      async (_em, _userId, features: string[]) => features[0]?.endsWith('_self') === true,
+    )
     mockLogs.findByUndoToken.mockResolvedValue(null)
     mockLogs.latestUndoableForResource.mockResolvedValue(null)
     mockLogs.latestUndoableForActor.mockResolvedValue(null)
-    mockCommandBus.undo.mockResolvedValue(undefined)
+    mockCommandBus.undo.mockImplementation(async (_undoToken, ctx) => {
+      await ctx.replayTransactionGuard?.({
+        operation: 'undo',
+        logEntry: await mockLogs.findByUndoToken(_undoToken),
+        transactionalEm: mockReplayEm,
+      })
+    })
   })
 
   it('returns 401 when unauthenticated', async () => {
@@ -200,7 +211,7 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       scope: { allowedIds: null },
     })
     // Super-admin has audit_logs.undo_tenant via the wildcard grant.
-    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockRbac.userHasAllFeaturesWithEntityManager.mockResolvedValue(true)
 
     const target = {
       id: 'log-org-1',
@@ -277,8 +288,6 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       organizationId: null,
       scope: { allowedIds: null },
     })
-    mockRbac.userHasAllFeatures.mockResolvedValue(false)
-
     const target = {
       id: 'log-2',
       actorUserId: 'user-1',
@@ -294,7 +303,13 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
 
     const res = await POST(makeRequest({ undoToken: 'token-2' }))
     expect(res.status).toBe(400)
-    expect(mockCommandBus.undo).not.toHaveBeenCalled()
+    expect(mockCommandBus.undo).toHaveBeenCalled()
+    expect(mockRbac.userHasAllFeaturesWithEntityManager).toHaveBeenCalledWith(
+      mockReplayEm,
+      'user-1',
+      ['audit_logs.undo_self'],
+      { tenantId: 'tenant-1', organizationId: null },
+    )
   })
 
   // Issue #5045 — a beforeUndo interceptor that blocks with an explicit status is a deliberate

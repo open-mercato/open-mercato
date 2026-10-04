@@ -15,6 +15,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
 
 const logger = createLogger('audit_logs').child({ component: 'redo' })
 
@@ -114,6 +115,14 @@ export async function POST(req: Request) {
 
   try {
     const ctx = await createRuntimeContext(container, auth, req)
+    ctx.replayTransactionGuard = ({ logEntry, transactionalEm }) =>
+      authorizeAuditReplayWithEntityManager(transactionalEm, rbac, logEntry, {
+        auth,
+        organizationId,
+        selfFeature: 'audit_logs.redo_self',
+        tenantFeature: 'audit_logs.redo_tenant',
+        unavailableMessage: 'Redo target not available',
+      })
     const contextRecord = log.contextJson && typeof log.contextJson === 'object' ? (log.contextJson as Record<string, unknown>) : null
     const cacheAliasesRaw = Array.isArray(contextRecord?.cacheAliases as unknown[])
       ? (contextRecord!.cacheAliases as unknown[])

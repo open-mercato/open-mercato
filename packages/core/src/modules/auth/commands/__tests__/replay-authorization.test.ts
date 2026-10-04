@@ -52,6 +52,7 @@ import type {
   CommandHandler,
   CommandRuntimeContext,
 } from '@open-mercato/shared/lib/commands'
+import { lockReplayAuthorizationState } from '@open-mercato/core/modules/auth/lib/commandReplay'
 
 const tenantA = '11111111-1111-4111-8111-111111111111'
 const tenantB = '22222222-2222-4222-8222-222222222222'
@@ -125,6 +126,7 @@ function makeHarness(
   )
   const markOrmEntityChange = jest.fn()
   const flushOrmEntityChanges = jest.fn(async () => undefined)
+  let inTransaction = false
   const em = {
     findOne: jest.fn(
       async (entity: unknown, where: Record<string, unknown>) => {
@@ -164,9 +166,10 @@ function makeHarness(
     }),
     fork: () => em,
     flush: jest.fn(async () => undefined),
-    begin: jest.fn(async () => undefined),
-    commit: jest.fn(async () => undefined),
-    rollback: jest.fn(async () => undefined),
+    isInTransaction: jest.fn(() => inTransaction),
+    begin: jest.fn(async () => { inTransaction = true }),
+    commit: jest.fn(async () => { inTransaction = false }),
+    rollback: jest.fn(async () => { inTransaction = false }),
     nativeDelete,
     count: jest.fn(async () => 0),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => data),
@@ -175,7 +178,16 @@ function makeHarness(
   }
   const rbacService = {
     userHasAllFeatures: jest.fn(async () => options.featureAllowed ?? true),
+    userHasAllFeaturesWithEntityManager: jest.fn(async () => options.featureAllowed ?? true),
     loadAcl: jest.fn(async () => ({
+      isSuperAdmin: options.actorSuperAdmin ?? false,
+      features:
+        options.featureAllowed === false
+          ? []
+          : ['auth.users.*', 'auth.roles.manage', 'auth.acl.manage'],
+      organizations: null,
+    })),
+    loadAclWithEntityManager: jest.fn(async () => ({
       isSuperAdmin: options.actorSuperAdmin ?? false,
       features:
         options.featureAllowed === false
@@ -188,6 +200,7 @@ function makeHarness(
   const actionLogService = {
     findByUndoToken: jest.fn(),
     claimForUndo: jest.fn(async () => true),
+    claimForRedo: jest.fn(async () => true),
     releaseUndoClaim: jest.fn(async () => true),
     markUndone: jest.fn(async () => undefined),
     log: jest.fn(async () => ({ id: 'new-log' })),
@@ -242,6 +255,42 @@ function makeHarness(
 }
 
 describe('auth command replay authorization', () => {
+  it('locks authorization parents and children in the canonical anti-phantom order', async () => {
+    const harness = makeHarness({
+      userRoles: [
+        { user: { id: actorId }, role: { id: roleId } },
+      ],
+    })
+
+    await lockReplayAuthorizationState(harness.em as never, harness.ctx, {
+      targetUserId: userId,
+      targetRoleId: roleId,
+    })
+
+    const parentLockEntities = harness.em.findOne.mock.calls
+      .filter(([, , options]) => options?.lockMode)
+      .map(([entity]) => entity)
+    expect(parentLockEntities).toEqual([
+      User,
+      User,
+      Role,
+    ])
+    expect(harness.em.find.mock.calls.map(([entity]) => entity)).toEqual([
+      UserRole,
+      UserRole,
+      UserAcl,
+      RoleAcl,
+    ])
+    expect(harness.em.findOne.mock.calls[0]?.[2]).toMatchObject({
+      lockMode: expect.anything(),
+      refresh: true,
+    })
+    expect(harness.em.find.mock.calls[1]?.[2]).toMatchObject({
+      lockMode: expect.anything(),
+      refresh: true,
+    })
+  })
+
   it('denies create undo after the user moved to a foreign tenant before claiming or deleting', async () => {
     const currentUser = userSnapshot({
       tenantId: tenantB,
@@ -308,9 +357,9 @@ describe('auth command replay authorization', () => {
     expect(harness.em.begin).toHaveBeenCalledTimes(1)
     expect(harness.em.rollback).toHaveBeenCalledTimes(1)
     expect(harness.em.commit).not.toHaveBeenCalled()
-    expect(harness.em.find).toHaveBeenCalledWith(
+    expect(harness.em.findOne).toHaveBeenCalledWith(
       User,
-      expect.objectContaining({ id: expect.any(Object) }),
+      expect.objectContaining({ id: userId }),
       expect.objectContaining({ lockMode: expect.anything(), refresh: true }),
     )
     expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
@@ -678,7 +727,12 @@ describe('auth command replay authorization', () => {
       new CommandBus().undo('empty-acl-role-move-undo-token', harness.ctx),
     ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
 
-    expect(harness.rbacService.loadAcl).toHaveBeenCalled()
+    expect(harness.rbacService.loadAcl).not.toHaveBeenCalled()
+    expect(harness.rbacService.loadAclWithEntityManager).toHaveBeenCalledWith(
+      harness.em,
+      actorId,
+      expect.objectContaining({ tenantId: tenantB }),
+    )
     expect(harness.actionLogService.claimForUndo).not.toHaveBeenCalled()
     expect(harness.updateOrmEntity).not.toHaveBeenCalled()
   })
@@ -714,7 +768,12 @@ describe('auth command replay authorization', () => {
       }),
     ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
 
-    expect(harness.rbacService.loadAcl).toHaveBeenCalled()
+    expect(harness.rbacService.loadAcl).not.toHaveBeenCalled()
+    expect(harness.rbacService.loadAclWithEntityManager).toHaveBeenCalledWith(
+      harness.em,
+      actorId,
+      expect.objectContaining({ tenantId: tenantA }),
+    )
     expect(harness.updateOrmEntity).not.toHaveBeenCalled()
     expect(harness.actionLogService.log).not.toHaveBeenCalled()
   })

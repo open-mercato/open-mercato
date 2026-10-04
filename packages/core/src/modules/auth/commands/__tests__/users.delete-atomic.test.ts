@@ -109,7 +109,9 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
           return {
             invalidateUserCache: jest.fn(async () => undefined),
             userHasAllFeatures: jest.fn(async () => true),
+            userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
             loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+            loadAclWithEntityManager: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
           }
         }
         throw new Error(`Unexpected dependency: ${token}`)

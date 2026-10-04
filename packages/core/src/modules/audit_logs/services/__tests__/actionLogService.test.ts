@@ -588,4 +588,41 @@ describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () =
     expect(filter).toMatchObject({ id: 'log-1', executionState: 'undoing', deletedAt: null })
     expect(update).toEqual({ executionState: 'done' })
   })
+
+  it('uses the supplied transactional EntityManager for an undo claim', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+    const transactionalEm = { nativeUpdate: transactionalUpdate }
+
+    expect(await service.claimForUndo('log-1', transactionalEm as never)).toBe(true)
+    expect(transactionalUpdate).toHaveBeenCalledTimes(1)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('claimForRedo atomically consumes only an undone source on the supplied transaction', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+    const transactionalEm = { nativeUpdate: transactionalUpdate }
+
+    expect(await service.claimForRedo('log-1', transactionalEm as never)).toBe(true)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+    const [, filter, update] = transactionalUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'log-1', executionState: 'undone', deletedAt: null })
+    expect(update).toEqual({ executionState: 'redone', undoToken: null })
+  })
+})
+
+describe('ActionLogService transactional return isolation', () => {
+  it('decrypts a detached copy instead of mutating the transaction-managed log', async () => {
+    const service = new ActionLogService({} as never)
+    const managed = { id: 'log-1', executionState: 'done' }
+    const detached = await (
+      service as unknown as {
+        decryptDetachedEntry: (entry: typeof managed) => Promise<typeof managed>
+      }
+    ).decryptDetachedEntry(managed)
+
+    expect(detached).toEqual(managed)
+    expect(detached).not.toBe(managed)
+  })
 })

@@ -13,6 +13,7 @@ import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
 
 const logger = createLogger('audit_logs').child({ component: 'undo' })
 
@@ -127,6 +128,14 @@ export async function POST(req: Request) {
 
   try {
     const ctx = await createRuntimeContext(container, auth, req)
+    ctx.replayTransactionGuard = ({ logEntry, transactionalEm }) =>
+      authorizeAuditReplayWithEntityManager(transactionalEm, rbac, logEntry, {
+        auth,
+        organizationId,
+        selfFeature: 'audit_logs.undo_self',
+        tenantFeature: 'audit_logs.undo_tenant',
+        unavailableMessage: 'Undo token not available',
+      })
     await commandBus.undo(undoToken, ctx)
     return NextResponse.json({ ok: true, logId: target.id })
   } catch (err) {

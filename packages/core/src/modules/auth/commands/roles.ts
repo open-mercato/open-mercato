@@ -36,9 +36,12 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import {
   assertReplaySnapshotMatches,
   extractStoredReplayInput,
+  lockAuthorizationRoleRows,
   lockReplayAuthorizationState,
+  rerunReplayTransactionGuardAfterLocks,
   requireCurrentReplayFeature,
   requireCurrentReplaySuperAdmin,
+  requireTransactionalReplayEntityManager,
 } from '@open-mercato/core/modules/auth/lib/commandReplay'
 
 type SerializedRole = {
@@ -76,6 +79,12 @@ type RoleReplayRuntimeContext = CommandRuntimeContext & {
 
 function withRoleRedoLog(ctx: CommandRuntimeContext, logEntry: CommandUndoLogEntry): RoleReplayRuntimeContext {
   return { ...ctx, [ROLE_REDO_LOG]: logEntry }
+}
+
+function resolveCommandEm(ctx: CommandRuntimeContext, forkWhenUnbound = false): EntityManager {
+  if (ctx.transactionalEm) return ctx.transactionalEm
+  const em = ctx.container.resolve('em') as EntityManager
+  return forkWhenUnbound ? em.fork() : em
 }
 
 function resolveActorTenantScope(ctx: CommandRuntimeContext): string | null {
@@ -161,6 +170,7 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
+  atomicReplay: true,
   authorizeReplay: (params) => authorizeRoleReplay('create', params),
   async execute(rawInput, ctx) {
     const rawBody = rawInput && typeof rawInput === 'object' ? rawInput as Record<string, unknown> : {}
@@ -214,7 +224,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = resolveCommandEm(ctx, true)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -224,7 +234,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = resolveCommandEm(ctx, true)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -247,7 +257,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   undo: async ({ input, logEntry, ctx }) => {
     const undo = extractUndoPayload<RoleUndoPayload>(logEntry)?.after
     if (!undo) return
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await withAtomicFlush(em, [async () => {
       await authorizeRoleReplayAtMutation('create', {
@@ -281,7 +291,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   redo: async ({ input, logEntry, ctx }) => {
     const after = resolveRedoSnapshot<RoleUndoSnapshot>(logEntry)
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for role create' })
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let role: Role | null = null
     await withAtomicFlush(em, [async () => {
@@ -342,10 +352,11 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 
 const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.update',
+  atomicReplay: true,
   authorizeReplay: (params) => authorizeRoleReplay('update', params),
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const scope = await resolveActorScope(ctx)
     const existing = await findOneWithDecryption(em, Role, buildScopedRoleFilter(parsed.id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Role not found' })
@@ -360,7 +371,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const scope = await resolveActorScope(ctx)
     const current = await findOneWithDecryption(em, Role, buildScopedRoleFilter(parsed.id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
@@ -398,6 +409,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
           logEntry: redoLogEntry,
         })
       }
+      await lockAuthorizationRoleRows(em, [parsed.id])
       if (wantsTenantChange) {
         await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
       }
@@ -423,25 +435,26 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       transaction: true,
       label: redoLogEntry ? 'auth.roles.update.redo' : 'auth.roles.update',
     })
-    if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
+    const updatedRole = role as Role | null
+    if (!updatedRole) throw new CrudHttpError(404, { error: 'Role not found' })
 
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
-      entity: role,
+      entity: updatedRole,
       identifiers: {
-        id: String(role.id),
+        id: String(updatedRole.id),
         organizationId: null,
-        tenantId: role.tenantId ? String(role.tenantId) : null,
+        tenantId: updatedRole.tenantId ? String(updatedRole.tenantId) : null,
       },
       events: roleCrudEvents,
       indexer: roleCrudIndexer,
     })
 
-    return role
+    return updatedRole
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = resolveCommandEm(ctx, true)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -454,7 +467,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const beforeSnapshots = snapshots.before as RoleSnapshots | undefined
     const before = beforeSnapshots?.view
     const beforeUndo = beforeSnapshots?.undo ?? null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = resolveCommandEm(ctx, true)
     const afterAcls = await loadRoleAclSnapshots(em, String(result.id))
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
@@ -493,7 +506,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const replayInput = Object.keys(storedReplayInput).length
       ? storedReplayInput
       : deriveRoleUpdateReplayInput(before, after ?? null)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let updated: Role | null = null
     await withAtomicFlush(em, [async () => {
@@ -546,10 +559,11 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 
 const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, Role> = {
   id: 'auth.roles.delete',
+  atomicReplay: true,
   authorizeReplay: (params) => authorizeRoleReplay('delete', params),
   async prepare(input, ctx) {
     const id = requireId(input, 'Role id required')
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const scope = await resolveActorScope(ctx)
     const existing = await findOneWithDecryption(em, Role, buildScopedRoleFilter(id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!existing) return {}
@@ -568,7 +582,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Role id required')
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const scope = await resolveActorScope(ctx)
     const role = await findOneWithDecryption(em, Role, buildScopedRoleFilter(id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
@@ -588,6 +602,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           logEntry: redoLogEntry,
         })
       }
+      await lockAuthorizationRoleRows(em, [id])
       await em.nativeDelete(RoleAcl, { role: id })
       deleted = await de.deleteOrmEntity({
         entity: Role,
@@ -599,22 +614,23 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       transaction: true,
       label: redoLogEntry ? 'auth.roles.delete.redo' : 'auth.roles.delete',
     })
-    if (!deleted) throw new CrudHttpError(404, { error: 'Role not found' })
+    const deletedRole = deleted as Role | null
+    if (!deletedRole) throw new CrudHttpError(404, { error: 'Role not found' })
 
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'deleted',
-      entity: deleted,
+      entity: deletedRole,
       identifiers: {
         id,
         organizationId: null,
-        tenantId: deleted.tenantId ? String(deleted.tenantId) : null,
+        tenantId: deletedRole.tenantId ? String(deletedRole.tenantId) : null,
       },
       events: roleCrudEvents,
       indexer: roleCrudIndexer,
     })
 
-    return deleted
+    return deletedRole
   },
   buildLog: async ({ snapshots, input }) => {
     const { translate } = await resolveTranslations()
@@ -638,7 +654,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   undo: async ({ input, logEntry, ctx }) => {
     const before = extractUndoPayload<RoleUndoPayload>(logEntry)?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = resolveCommandEm(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let role: Role | null = null
     await withAtomicFlush(em, [async () => {
@@ -743,6 +759,7 @@ async function authorizeRoleReplay(
   params: CommandReplayAuthorizationArgs<unknown>,
 ): Promise<void> {
   const { operation, ctx, logEntry } = params
+  const em = requireTransactionalReplayEntityManager(ctx)
   await requireCurrentReplayFeature(ctx, 'auth.roles.manage')
 
   const undoPayload = extractUndoPayload<RoleUndoPayload>(logEntry)
@@ -754,7 +771,6 @@ async function authorizeRoleReplay(
     return
   }
 
-  const em = ctx.container.resolve('em') as EntityManager
   const currentRole = await findOneWithDecryption(
     em,
     Role,
@@ -769,6 +785,7 @@ async function authorizeRoleReplay(
     await assertActorCanAccessRoleTarget({
       em,
       rbacService,
+      requireBoundRbac: true,
       actorUserId: ctx.auth?.sub,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.auth?.orgId ?? null,
@@ -777,6 +794,7 @@ async function authorizeRoleReplay(
     await assertActorCanModifySuperAdminRoleTarget({
       em,
       rbacService,
+      requireBoundRbac: true,
       actorUserId: ctx.auth?.sub,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.auth?.orgId ?? null,
@@ -834,7 +852,7 @@ async function authorizeRoleReplay(
   if (desiredState && !currentRole && rbacService) {
     const actorUserId = ctx.auth?.sub
     if (!actorUserId) throw forbidden()
-    const actorAcl = await rbacService.loadAcl(actorUserId, {
+    const actorAcl = await rbacService.loadAclWithEntityManager(em, actorUserId, {
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.auth?.orgId ?? null,
     })
@@ -852,6 +870,7 @@ async function authorizeRoleReplay(
     await assertActorCanGrantAcl({
       em,
       rbacService,
+      requireBoundRbac: true,
       actorUserId: ctx.auth?.sub,
       tenantId: acl.tenantId,
       organizationId: null,
@@ -871,9 +890,14 @@ async function authorizeRoleReplayAtMutation(
     ?? undoPayload?.before?.id
     ?? undoPayload?.after?.id
     ?? null
-  const em = params.ctx.container.resolve('em') as EntityManager
-  await lockReplayAuthorizationState(em, params.ctx, { targetRoleId })
-  await authorizeRoleReplay(commandKind, params)
+  const em = params.ctx.transactionalEm
+    ?? params.ctx.container.resolve('em') as EntityManager
+  const boundParams = params.ctx.transactionalEm
+    ? params
+    : { ...params, ctx: { ...params.ctx, transactionalEm: em } }
+  await lockReplayAuthorizationState(em, boundParams.ctx, { targetRoleId })
+  await rerunReplayTransactionGuardAfterLocks(boundParams, em)
+  await authorizeRoleReplay(commandKind, boundParams)
 }
 
 registerCommand(createRoleCommand)
@@ -918,6 +942,7 @@ async function loadRoleAclSnapshots(em: EntityManager, roleId: string): Promise<
 }
 
 async function restoreRoleAcls(em: EntityManager, roleId: string, acls: RoleAclSnapshot[]) {
+  await lockAuthorizationRoleRows(em, [roleId])
   await em.nativeDelete(RoleAcl, { role: roleId as unknown as Role })
   if (!acls.length) {
     await em.flush()

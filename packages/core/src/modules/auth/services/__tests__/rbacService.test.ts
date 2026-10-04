@@ -56,6 +56,76 @@ describe('RbacService', () => {
     jest.restoreAllMocks()
   })
 
+  describe('transaction-bound ACL resolution', () => {
+    it('uses only the caller-supplied EntityManager and never forks the service manager', async () => {
+      const transactionalEm = createMockEm()
+      transactionalEm.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === User && where.id === baseUser.id) return baseUser
+        if (entity === UserAcl && where.tenantId === baseUser.tenantId) {
+          return {
+            isSuperAdmin: false,
+            featuresJson: ['auth.users.edit'],
+            organizationsJson: ['org-1'],
+          }
+        }
+        return null
+      })
+      transactionalEm.find.mockResolvedValue([])
+
+      await expect(service.loadAclWithEntityManager(
+        transactionalEm as never,
+        baseUser.id!,
+        { tenantId: baseUser.tenantId!, organizationId: null },
+      )).resolves.toEqual({
+        isSuperAdmin: false,
+        features: ['auth.users.edit'],
+        organizations: ['org-1'],
+      })
+      await expect(service.getGrantedFeaturesWithEntityManager(
+        transactionalEm as never,
+        baseUser.id!,
+        { tenantId: baseUser.tenantId!, organizationId: 'org-1' },
+      )).resolves.toEqual(['auth.users.edit'])
+
+      expect(em.fork).not.toHaveBeenCalled()
+      expect(em.find).not.toHaveBeenCalled()
+      expect(em.findOne).not.toHaveBeenCalled()
+      expect(transactionalEm.fork).not.toHaveBeenCalled()
+    })
+
+    it('preserves API-key empty-organization semantics on the supplied EntityManager', async () => {
+      const transactionalEm = createMockEm()
+      transactionalEm.findOne.mockImplementation(async (entity: unknown) => entity === ApiKey ? {
+        id: 'key-empty-organizations',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        rolesJson: ['role-a'],
+        deletedAt: null,
+      } : null)
+      transactionalEm.find.mockImplementation(async (entity: unknown) => entity === RoleAcl ? [{
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+        featuresJson: ['documents.view'],
+        organizationsJson: [],
+      }] : [])
+
+      await expect(service.loadAclWithEntityManager(
+        transactionalEm as never,
+        'api_key:key-empty-organizations',
+        { tenantId: 'tenant-1', organizationId: null },
+      )).resolves.toEqual({
+        isSuperAdmin: false,
+        features: ['documents.view'],
+        organizations: null,
+      })
+
+      expect(em.fork).not.toHaveBeenCalled()
+      expect(em.find).not.toHaveBeenCalled()
+      expect(em.findOne).not.toHaveBeenCalled()
+      expect(transactionalEm.fork).not.toHaveBeenCalled()
+    })
+  })
+
   describe('loadAcl', () => {
     it('returns empty ACL for unknown user', async () => {
       em.findOne.mockImplementation(async (entity: any) => {

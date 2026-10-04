@@ -1,11 +1,12 @@
 import type {
+  CommandReplayAuthorizationArgs,
   CommandRuntimeContext,
   CommandUndoLogEntry,
 } from '@open-mercato/shared/lib/commands'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   Role,
@@ -71,6 +72,7 @@ export async function requireCurrentReplayFeature(
   if (ctx.systemActor === true) return
   const actorUserId = ctx.auth?.sub
   if (!actorUserId) throw forbidden()
+  const transactionalEm = requireTransactionalReplayEntityManager(ctx)
 
   let rbacService: RbacService
   try {
@@ -78,11 +80,16 @@ export async function requireCurrentReplayFeature(
   } catch {
     throw forbidden()
   }
-  await rbacService.invalidateUserCache(actorUserId)
-  const allowed = await rbacService.userHasAllFeatures(actorUserId, [feature], {
+  const scope = {
     tenantId: ctx.auth?.tenantId ?? null,
     organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-  })
+  }
+  const allowed = await rbacService.userHasAllFeaturesWithEntityManager(
+    transactionalEm,
+    actorUserId,
+    [feature],
+    scope,
+  )
   if (!allowed) throw forbidden()
 }
 
@@ -92,6 +99,7 @@ export async function requireCurrentReplaySuperAdmin(
   if (ctx.systemActor === true) return
   const actorUserId = ctx.auth?.sub
   if (!actorUserId) throw forbidden()
+  const transactionalEm = requireTransactionalReplayEntityManager(ctx)
 
   let rbacService: RbacService
   try {
@@ -99,12 +107,31 @@ export async function requireCurrentReplaySuperAdmin(
   } catch {
     throw forbidden()
   }
-  await rbacService.invalidateUserCache(actorUserId)
-  const acl = await rbacService.loadAcl(actorUserId, {
+  const scope = {
     tenantId: ctx.auth?.tenantId ?? null,
     organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-  })
+  }
+  const acl = await rbacService.loadAclWithEntityManager(transactionalEm, actorUserId, scope)
   if (!acl.isSuperAdmin) throw forbidden()
+}
+
+export function requireTransactionalReplayEntityManager(
+  ctx: CommandRuntimeContext,
+): EntityManager {
+  if (ctx.transactionalEm) return ctx.transactionalEm
+  throw new Error('[internal] Auth replay authorization requires a transactional EntityManager')
+}
+
+export async function rerunReplayTransactionGuardAfterLocks(
+  params: CommandReplayAuthorizationArgs<unknown>,
+  em: EntityManager,
+): Promise<void> {
+  if (!params.ctx.replayTransactionGuard) return
+  await params.ctx.replayTransactionGuard({
+    operation: params.operation,
+    logEntry: params.logEntry,
+    transactionalEm: em,
+  })
 }
 
 type ReplayAuthorizationLockTargets = {
@@ -120,6 +147,38 @@ function relationId(value: unknown): string | null {
     : null
 }
 
+export async function lockAuthorizationUserRows(
+  em: EntityManager,
+  userIds: readonly string[],
+): Promise<void> {
+  const ids = Array.from(new Set(userIds.filter((value) => value.length > 0))).sort()
+  for (const id of ids) {
+    await findOneWithDecryption(
+      em,
+      User,
+      { id, deletedAt: null } as FilterQuery<User>,
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      { tenantId: null, organizationId: null },
+    )
+  }
+}
+
+export async function lockAuthorizationRoleRows(
+  em: EntityManager,
+  roleIds: readonly string[],
+): Promise<void> {
+  const ids = Array.from(new Set(roleIds.filter((value) => value.length > 0))).sort()
+  for (const id of ids) {
+    await findOneWithDecryption(
+      em,
+      Role,
+      { id, deletedAt: null } as FilterQuery<Role>,
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      { tenantId: null, organizationId: null },
+    )
+  }
+}
+
 export async function lockReplayAuthorizationState(
   em: EntityManager,
   ctx: CommandRuntimeContext,
@@ -129,6 +188,11 @@ export async function lockReplayAuthorizationState(
     ctx.auth?.sub ?? null,
     targets.targetUserId ?? null,
   ].filter((value): value is string => typeof value === 'string' && value.length > 0))).sort()
+
+  // UserRole/UserAcl writers take the same parent-user locks before inserting,
+  // deleting, or updating child rows. Once these canonical locks are held, the
+  // membership discovery below cannot acquire a phantom insert/delete gap.
+  await lockAuthorizationUserRows(em, userIds)
 
   const userRoles = userIds.length
     ? await findWithDecryption(
@@ -144,23 +208,13 @@ export async function lockReplayAuthorizationState(
     ...userRoles.map((link) => relationId(link.role)),
   ].filter((value): value is string => typeof value === 'string' && value.length > 0))).sort()
 
-  if (roleIds.length) {
-    await findWithDecryption(
-      em,
-      Role,
-      { id: { $in: roleIds }, deletedAt: null } as FilterQuery<Role>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
-  }
+  // RoleAcl writers lock their parent Role row. Lock the complete role set in
+  // canonical id order after user parents, matching membership writers and
+  // preventing a user<->role deadlock cycle.
+  await lockAuthorizationRoleRows(em, roleIds)
   if (userIds.length) {
-    await findWithDecryption(
-      em,
-      User,
-      { id: { $in: userIds }, deletedAt: null } as FilterQuery<User>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
+    // Recompute memberships only after both parent lock classes are stable, and
+    // lock the child rows before any authorization snapshot is evaluated.
     await findWithDecryption(
       em,
       UserRole,
