@@ -69,6 +69,7 @@ import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCache
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
+import { resolveApiInterceptorRoutePath } from '../modules/api-route-identity'
 import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
 import { buildQueryParams } from './query-params'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
@@ -790,17 +791,6 @@ function snapshotEntity(entity: unknown): Record<string, unknown> | undefined {
   return safeClone(entity) as Record<string, unknown>
 }
 
-function normalizeInterceptorRoutePath(request: Request): string {
-  try {
-    const pathname = new URL(request.url).pathname
-    if (pathname.startsWith('/api/')) return pathname.slice(5)
-    if (pathname === '/api') return ''
-    return pathname.replace(/^\/+/, '')
-  } catch {
-    return ''
-  }
-}
-
 function toInterceptorHeaders(headers: Headers): Record<string, string> {
   const output: Record<string, string> = {}
   headers.forEach((value, key) => {
@@ -1417,12 +1407,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!interceptorContext) {
       return { errorResponse: null, requestPayload, metadataByInterceptor: {} }
     }
+    const routePath = resolveApiInterceptorRoutePath(args.request)
+    if (routePath === null) {
+      return {
+        errorResponse: json({ error: 'Bad request' }, { status: 400 }),
+        requestPayload,
+        metadataByInterceptor: {},
+      }
+    }
     const contextWithHeaders = {
       ...interceptorContext,
       extensionHeaders: parseExtensionHeaders(requestPayload.headers),
     }
     const result = await runApiInterceptorsBefore({
-      routePath: normalizeInterceptorRoutePath(args.request),
+      routePath,
       method: args.method,
       request: requestPayload,
       context: contextWithHeaders,
@@ -1445,8 +1443,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }): Promise<{ ok: boolean; statusCode: number; body: Record<string, unknown>; headers: Record<string, string> } | null> {
     const interceptorContext = await buildInterceptorContext(args.ctx)
     if (!interceptorContext) return { ok: true, statusCode: args.statusCode, body: args.body, headers: args.headers ?? {} }
+    const routePath = resolveApiInterceptorRoutePath(args.request)
+    if (routePath === null) {
+      return { ok: false, statusCode: 400, body: { error: 'Bad request' }, headers: {} }
+    }
     const result = await runApiInterceptorsAfter({
-      routePath: normalizeInterceptorRoutePath(args.request),
+      routePath,
       method: args.method,
       request: args.requestPayload,
       response: {

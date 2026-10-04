@@ -17,6 +17,7 @@ import {
   getFrontendRouteManifests,
   resolvePageRouteMetadata,
 } from '../registry'
+import { getMatchedApiRoutePath } from '../../lib/modules/api-route-identity'
 
 describe('CLI Modules Registry', () => {
   // Clear the registry before each test
@@ -627,6 +628,58 @@ describe('findApiRouteManifestMatch — specificity (issue #1870)', () => {
     const unsorted = [apiEntry('/api/things/[id]'), apiEntry('/api/things/new')]
     const match = findApiRouteManifestMatch(unsorted, 'GET', '/api/things/new')
     expect(match?.route.path).toBe('/api/things/new')
+  })
+
+  it.each([
+    ['normal spelling', 'http://localhost/api/auth/users/AbC-123?view=full', '/auth/users/AbC-123'],
+    ['mixed-case alias', 'http://localhost/api/AUTH/users/AbC-123?view=full', '/AUTH/users/AbC-123'],
+    ['percent-encoded alias', 'http://localhost/api/%61uth/users/AbC-123?view=full', '/auth/users/AbC-123'],
+  ])('binds the authored static route as canonical identity for %s', (_label, url, dispatcherPath) => {
+    const request = new Request(url)
+    const routes = [apiEntry('/auth/users/[id]')]
+    const match = findApiRouteManifestMatch(routes, 'GET', dispatcherPath, request)
+
+    expect(match?.params).toEqual({ id: 'AbC-123' })
+    expect(getMatchedApiRoutePath(request)).toBe('/auth/users/AbC-123')
+    expect(new URL(request.url).searchParams.get('view')).toBe('full')
+  })
+
+  it('preserves catch-all parameter values in the canonical identity', () => {
+    const request = new Request('http://localhost/api/DOCS/guides/Getting-Started')
+    const routes = [apiEntry('/docs/[...slug]')]
+    const match = findApiRouteManifestMatch(
+      routes,
+      'GET',
+      '/DOCS/guides/Getting-Started',
+      request,
+    )
+
+    expect(match?.params).toEqual({ slug: ['guides', 'Getting-Started'] })
+    expect(getMatchedApiRoutePath(request)).toBe('/docs/guides/Getting-Started')
+  })
+
+  it('fails closed before binding a route when the request path has malformed encoding', () => {
+    const request = new Request('http://localhost/api/auth/%ZZ')
+    const match = findApiRouteManifestMatch(
+      [apiEntry('/auth/[id]')],
+      'GET',
+      '/auth/%ZZ',
+      request,
+    )
+
+    expect(match).toBeUndefined()
+    expect(getMatchedApiRoutePath(request)).toBeUndefined()
+  })
+
+  it('keeps the three-argument matcher contract for non-request consumers', () => {
+    const match = findApiRouteManifestMatch(
+      [apiEntry('/auth/users/[id]')],
+      'GET',
+      '/AUTH/users/AbC-123',
+    )
+
+    expect(match?.route.path).toBe('/auth/users/[id]')
+    expect(match?.params).toEqual({ id: 'AbC-123' })
   })
 })
 

@@ -161,6 +161,14 @@ Supports wildcards:
 - `'example/*'` — matches `example/todos`, `example/tags`, etc.
 - `'*'` — matches all routes
 
+Interceptor selection uses the API dispatcher's matched-route identity, not a second
+parse of the caller-controlled URL. Static segments retain their authored manifest
+spelling, while dynamic and catch-all parameter values retain the values returned by
+route matching. Consequently `/api/EXAMPLE/todos` and
+`/api/%65xample/todos` select the same exact and prefix interceptors as
+`/api/example/todos`; query parsing and handler params are unchanged. A malformed
+percent escape in the raw path fails route matching before the handler runs.
+
 ### 4. When to Use What
 
 | Concern | Use | NOT |
@@ -393,6 +401,10 @@ export const interceptors: ApiInterceptor[] = [
 - `validateCrudMutationGuard` position unchanged (deprecated in Phase M, bridged to guard registry)
 - New `api/interceptors.ts` is purely additive — modules without it have zero change
 - Phase M adds sync event subscribers and multi-guard registry between interceptors and CrudHooks — interceptor contract unchanged
+- Existing three-argument `findApiRouteManifestMatch(routes, method, pathname)` callers
+  are unchanged. The dispatcher passes the new optional `Request` argument to bind a
+  canonical identity for downstream policy lookup; this is additive and does not
+  change public route URLs, returned params, query semantics, or handler order.
 
 ## Implementation Status
 

@@ -360,6 +360,25 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ---
 
+## Canonical API Interceptor Route Identity (2026-10-04)
+
+API dispatch and API-interceptor selection now share the same matched-route identity.
+This closes a policy bypass where a mixed-case or percent-encoded spelling dispatched
+to a handler but did not select its exact `before` interceptor.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signature (`findApiRouteManifestMatch`) | New optional fourth parameter `request?: Request`; existing three-argument callers keep the same return value and matching behavior | ✓ ADDITIVE (optional parameter appended) |
+| API route URLs and handler context | No route is added, removed, or renamed; handler `params` and request query semantics are unchanged | ✓ No contract change |
+| Interceptor selection | Static segments use the matched manifest spelling, while matched dynamic/catch-all values stay concrete. Alternate spellings that already reached a route now run the same exact/prefix interceptors as its normal spelling; malformed percent encoding reaches no handler | ⚠️ Intentional security narrowing only (previous policy-bypass requests are denied or intercepted) |
+| Handler ordering | Authorization and interceptor `before`/`after` positions are unchanged | ✓ Behavior-preserving for normally spelled requests |
+
+**Migration path for existing modules**: none. Keep authored `targetRoute` values.
+Callers that dispatch through the framework catch-all receive canonical binding
+automatically; direct three-argument matcher consumers continue to work unchanged.
+
+---
+
 ## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
 
 Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:

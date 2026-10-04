@@ -346,7 +346,7 @@ async function handleRequest(
     receivedAt: new Date().toISOString(),
   }
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
-  const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname)
+  const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname, req)
   if (!match) {
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
