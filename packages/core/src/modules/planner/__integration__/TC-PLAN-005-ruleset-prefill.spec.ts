@@ -10,7 +10,7 @@ import {
   deleteStaffEntityIfExists,
 } from '@open-mercato/core/helpers/integration/staffFixtures'
 
-const CLEANUP_BATCH_SIZE = 25
+const CLEANUP_BATCH_SIZE = 10
 
 test.describe('TC-PLAN-005: Availability editor hydrates saved rule set', () => {
   test('shows the saved rule set when it is outside the first loaded options page', async ({ page, request }) => {
