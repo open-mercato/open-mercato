@@ -225,20 +225,12 @@ export class AccountLinkingService {
     const resolvedTenantId = tenantId || user.tenantId || ''
     if (!resolvedTenantId) return
 
-    const allRoles = await em.find(Role, { tenantId: resolvedTenantId, deletedAt: null } as FilterQuery<Role>)
-    const roleByNormalizedName = new Map<string, Role>()
-    for (const role of allRoles) {
-      const normalized = normalizeToken(role.name)
-      if (normalized) roleByNormalizedName.set(normalized, role)
-    }
-
-    // Resolve desired role IDs from IdP groups using merged mappings
     const desiredRoleNames = resolveRoleNamesFromIdpGroups(idpGroups, config.appRoleMappings)
-    const desiredRoleIds = new Set<string>()
-    for (const roleName of desiredRoleNames) {
-      const role = roleByNormalizedName.get(roleName)
-      if (role) desiredRoleIds.add(role.id)
-    }
+    let allRoles = await em.find(Role, {
+      tenantId: resolvedTenantId,
+      deletedAt: null,
+    } as FilterQuery<Role>)
+    let desiredRoleIds = resolveActiveRoleIds(allRoles, desiredRoleNames)
 
     // Query current SSO grants for this user+config
     let existingGrants = await em.find(SsoRoleGrant, {
@@ -252,10 +244,16 @@ export class AccountLinkingService {
         ...existingGrants.map((grant) => grant.roleId),
       ])),
     })
+    allRoles = await em.find(Role, {
+      tenantId: resolvedTenantId,
+      deletedAt: null,
+    } as FilterQuery<Role>, { refresh: true })
     existingGrants = await em.find(SsoRoleGrant, {
       userId: user.id,
       ssoConfigId: config.id,
     }, { refresh: true })
+
+    desiredRoleIds = resolveActiveRoleIds(allRoles, desiredRoleNames)
     const existingGrantedRoleIds = new Set(existingGrants.map((g) => g.roleId))
 
     // Compute diff
@@ -314,6 +312,21 @@ export class AccountLinkingService {
     const userRole = em.create(UserRole, { user, role, createdAt: new Date() })
     em.persist(userRole)
   }
+}
+
+function resolveActiveRoleIds(roles: Role[], desiredRoleNames: string[]): Set<string> {
+  const roleByNormalizedName = new Map<string, Role>()
+  for (const role of roles) {
+    const normalized = normalizeToken(role.name)
+    if (normalized) roleByNormalizedName.set(normalized, role)
+  }
+
+  const desiredRoleIds = new Set<string>()
+  for (const roleName of desiredRoleNames) {
+    const role = roleByNormalizedName.get(roleName)
+    if (role) desiredRoleIds.add(role.id)
+  }
+  return desiredRoleIds
 }
 
 function resolveRoleNamesFromIdpGroups(
