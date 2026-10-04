@@ -386,6 +386,383 @@ describe('TenantDataEncryptionService.getEncryptedFieldNames', () => {
   })
 })
 
+describe('TenantDataEncryptionService canonical map reads and invalidation', () => {
+  it('re-reads exact and all-organizations policies without waiting for invalidation', async () => {
+    const entityId = 'test:cache_invalidation_hit'
+    const tenantId = 'tenant-cache-invalidation-hit'
+    const organizationId = 'org-cache-invalidation-hit'
+    let exactFields = [{ field: 'existing_exact' }]
+    let aggregateFields = [{ field: 'existing_aggregate' }]
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 2) return [{ fields_json: aggregateFields }]
+      if (params[2] === organizationId) return [{ entity_id: entityId, fields_json: exactFields }]
+      return []
+    })
+    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['existing_aggregate'])
+
+    exactFields = [{ field: 'existing_exact' }, { field: 'fresh_exact' }]
+    aggregateFields = [{ field: 'existing_aggregate' }, { field: 'fresh_aggregate' }]
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact', 'fresh_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['existing_aggregate', 'fresh_aggregate'])
+
+    await service.invalidateMap(entityId, tenantId, organizationId)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact', 'fresh_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['existing_aggregate', 'fresh_aggregate'])
+  })
+
+  it('does not retain an exact miss after a map is committed', async () => {
+    const entityId = 'test:cache_invalidation_miss'
+    const tenantId = 'tenant-cache-invalidation-miss'
+    const organizationId = 'org-cache-invalidation-miss'
+    let exactFields: Array<{ field: string }> = []
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 3 && params[2] === organizationId && exactFields.length > 0) {
+        return [{ entity_id: entityId, fields_json: exactFields }]
+      }
+      return []
+    })
+    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId)).resolves.toEqual([])
+    exactFields = [{ field: 'fresh_after_miss' }]
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_after_miss'])
+
+    await service.invalidateMap(entityId, tenantId, organizationId)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_after_miss'])
+  })
+
+  it('retries an in-flight exact hit invalidated before the stale read completes', async () => {
+    const entityId = 'test:cache_epoch_exact_hit'
+    const tenantId = 'tenant-cache-epoch-exact-hit'
+    const organizationId = 'org-cache-epoch-exact-hit'
+    let fields = [{ field: 'stale' }]
+    let reads = 0
+    let signalReadStarted: (() => void) | undefined
+    let releaseStaleRead: (() => void) | undefined
+    const readStarted = new Promise<void>((resolve) => { signalReadStarted = resolve })
+    const staleReadReleased = new Promise<void>((resolve) => { releaseStaleRead = resolve })
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length !== 3 || params[2] !== organizationId) return []
+      reads += 1
+      const snapshot = fields
+      if (reads === 1) {
+        signalReadStarted?.()
+        await staleReadReleased
+      }
+      return [{ entity_id: entityId, fields_json: snapshot }]
+    })
+    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    const firstRead = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    await readStarted
+    fields = [{ field: 'fresh' }]
+    await service.invalidateMap(entityId, tenantId, organizationId)
+    releaseStaleRead?.()
+
+    await expect(firstRead).resolves.toEqual(['fresh'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId)).resolves.toEqual(['fresh'])
+    expect(reads).toBe(3)
+  })
+
+  it('retries an in-flight exact miss invalidated when a map is committed', async () => {
+    const entityId = 'test:cache_epoch_exact_miss'
+    const tenantId = 'tenant-cache-epoch-exact-miss'
+    const organizationId = 'org-cache-epoch-exact-miss'
+    let fields: Array<{ field: string }> = []
+    let reads = 0
+    let signalReadStarted: (() => void) | undefined
+    let releaseStaleRead: (() => void) | undefined
+    const readStarted = new Promise<void>((resolve) => { signalReadStarted = resolve })
+    const staleReadReleased = new Promise<void>((resolve) => { releaseStaleRead = resolve })
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length !== 3 || params[2] !== organizationId) return []
+      reads += 1
+      const snapshot = fields
+      if (reads === 1) {
+        signalReadStarted?.()
+        await staleReadReleased
+      }
+      return snapshot.length ? [{ entity_id: entityId, fields_json: snapshot }] : []
+    })
+    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    const firstRead = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    await readStarted
+    fields = [{ field: 'committed_after_miss' }]
+    await service.invalidateMap(entityId, tenantId, organizationId)
+    releaseStaleRead?.()
+
+    await expect(firstRead).resolves.toEqual(['committed_after_miss'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['committed_after_miss'])
+    expect(reads).toBe(3)
+  })
+
+  it('retries an in-flight all-organizations aggregate invalidated before completion', async () => {
+    const entityId = 'test:cache_epoch_aggregate'
+    const tenantId = 'tenant-cache-epoch-aggregate'
+    let aggregateFields = [{ field: 'stale_aggregate' }]
+    let aggregateReads = 0
+    let signalReadStarted: (() => void) | undefined
+    let releaseStaleRead: (() => void) | undefined
+    const readStarted = new Promise<void>((resolve) => { signalReadStarted = resolve })
+    const staleReadReleased = new Promise<void>((resolve) => { releaseStaleRead = resolve })
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 3) {
+        return [{ entity_id: entityId, fields_json: [{ field: 'base' }] }]
+      }
+      aggregateReads += 1
+      const snapshot = aggregateFields
+      if (aggregateReads === 1) {
+        signalReadStarted?.()
+        await staleReadReleased
+      }
+      return [{ fields_json: snapshot }]
+    })
+    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    const firstRead = service.getEncryptedFieldNames(entityId, tenantId, null)
+    await readStarted
+    aggregateFields = [{ field: 'fresh_aggregate' }]
+    await service.invalidateMap(entityId, tenantId, 'org-cache-epoch-aggregate')
+    releaseStaleRead?.()
+
+    await expect(firstRead).resolves.toEqual(['base', 'fresh_aggregate'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['base', 'fresh_aggregate'])
+    expect(aggregateReads).toBe(3)
+  })
+
+  it('never trusts stale exact or aggregate values from the shared cache', async () => {
+    const entityId = 'test:canonical_policy_over_shared_cache'
+    const tenantId = 'tenant-canonical-policy'
+    const organizationId = 'org-canonical-policy'
+    const exactTag = `encmap:${entityId}:${tenantId}:${organizationId}`
+    const aggregateTag = `encmap-all-orgs:${entityId}:${tenantId}`
+    const storage = new Map<string, unknown>([
+      [exactTag, { entityId, fields: [{ field: 'stale_exact' }] }],
+      [aggregateTag, { entityId, fields: [{ field: 'stale_aggregate' }] }],
+    ])
+    const cache = {
+      get: jest.fn(async (key: string) => storage.get(key) ?? null),
+      set: jest.fn(async (key: string, value: unknown) => { storage.set(key, value) }),
+      delete: jest.fn(async (key: string) => storage.delete(key)),
+    }
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 2) return [{ fields_json: [{ field: 'fresh_aggregate' }] }]
+      if (params[2] === organizationId) {
+        return [{ entity_id: entityId, fields_json: [{ field: 'fresh_exact' }] }]
+      }
+      return []
+    })
+    const service = new TenantDataEncryptionService(
+      { getConnection: () => ({ execute }) } as never,
+      { cache: cache as never },
+    )
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['fresh_aggregate'])
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+  })
+
+  it('registers exact and aggregate barriers before a blocked first shared-cache delete', async () => {
+    const entityId = 'test:cache_barrier_before_delete'
+    const tenantId = 'tenant-cache-barrier-before-delete'
+    const organizationId = 'org-cache-barrier-before-delete'
+    const exactTag = `encmap:${entityId}:${tenantId}:${organizationId}`
+    const aggregateTag = `encmap-all-orgs:${entityId}:${tenantId}`
+    const storage = new Map<string, unknown>([
+      [exactTag, { entityId, fields: [{ field: 'stale_exact' }] }],
+      [aggregateTag, { entityId, fields: [{ field: 'stale_aggregate' }] }],
+    ])
+    let signalExactDeleteStarted: (() => void) | undefined
+    let releaseExactDelete: (() => void) | undefined
+    const exactDeleteStarted = new Promise<void>((resolve) => { signalExactDeleteStarted = resolve })
+    const exactDeleteReleased = new Promise<void>((resolve) => { releaseExactDelete = resolve })
+    const cache = {
+      get: jest.fn(async (key: string) => storage.get(key) ?? null),
+      set: jest.fn(async (key: string, value: unknown) => { storage.set(key, value) }),
+      delete: jest.fn(async (key: string) => {
+        if (key === exactTag) {
+          signalExactDeleteStarted?.()
+          await exactDeleteReleased
+        }
+        return storage.delete(key)
+      }),
+    }
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 2) return [{ fields_json: [{ field: 'fresh_aggregate' }] }]
+      if (params[2] === organizationId) {
+        return [{ entity_id: entityId, fields_json: [{ field: 'fresh_exact' }] }]
+      }
+      return []
+    })
+    const makeService = () => {
+      const service = new TenantDataEncryptionService(
+        { getConnection: () => ({ execute }) } as never,
+        { cache: cache as never },
+      )
+      jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+      return service
+    }
+    const invalidatingService = makeService()
+    const racingReaderService = makeService()
+
+    const invalidation = invalidatingService.invalidateMap(entityId, tenantId, organizationId)
+    await exactDeleteStarted
+
+    const racingExactRead = racingReaderService.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    const racingAggregateRead = racingReaderService.getEncryptedFieldNames(entityId, tenantId, null)
+
+    await expect(racingAggregateRead).resolves.toEqual(['fresh_aggregate'])
+    releaseExactDelete?.()
+    await invalidation
+    await expect(racingExactRead).resolves.toEqual(['fresh_exact'])
+
+    const subsequentReaderService = makeService()
+    await expect(subsequentReaderService.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_exact'])
+    await expect(subsequentReaderService.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['fresh_aggregate'])
+    expect(cache.delete).toHaveBeenCalledWith(exactTag)
+    expect(cache.delete).toHaveBeenCalledWith(aggregateTag)
+  })
+
+  it('re-reads canonical policy after invalidation fails and still permits a cleanup retry', async () => {
+    const entityId = 'test:cache_invalidation_failure'
+    const tenantId = 'tenant-cache-invalidation-failure'
+    const organizationId = 'org-cache-invalidation-failure'
+    const exactTag = `encmap:${entityId}:${tenantId}:${organizationId}`
+    const storage = new Map<string, unknown>([
+      [exactTag, { entityId, fields: [{ field: 'stale_exact' }] }],
+    ])
+    let failExactDelete = true
+    const cache = {
+      get: jest.fn(async (key: string) => storage.get(key) ?? null),
+      set: jest.fn(async (key: string, value: unknown) => { storage.set(key, value) }),
+      delete: jest.fn(async (key: string) => {
+        if (key === exactTag && failExactDelete) throw new Error('sensitive backend endpoint')
+        return storage.delete(key)
+      }),
+    }
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => (
+      params.length === 3 && params[2] === organizationId
+        ? [{ entity_id: entityId, fields_json: [{ field: 'fresh_exact' }] }]
+        : []
+    ))
+    const makeService = () => {
+      const service = new TenantDataEncryptionService(
+        { getConnection: () => ({ execute }) } as never,
+        { cache: cache as never },
+      )
+      jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+      return service
+    }
+    const invalidatingService = makeService()
+    const readingService = makeService()
+
+    await expect(invalidatingService.invalidateMap(entityId, tenantId, organizationId))
+      .rejects.toThrow('sensitive backend endpoint')
+    await expect(readingService.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_exact'])
+    expect(cache.get).not.toHaveBeenCalledWith(exactTag)
+
+    failExactDelete = false
+    await invalidatingService.invalidateMap(entityId, tenantId, organizationId)
+    await expect(readingService.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_exact'])
+  })
+})
+
+describe('TenantDataEncryptionService duplicate map fail-safe', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+  })
+
+  it('deterministically unions active duplicate rows so no declared field is stored as plaintext', async () => {
+    const entityId = 'test:duplicate_encryption_map'
+    const tenantId = 'tenant-duplicate-map'
+    const execute = jest.fn(async (sql: string) => {
+      expect(sql).toContain('order by created_at asc, id asc')
+      return [
+        {
+          entity_id: entityId,
+          fields_json: [
+            { field: 'email' },
+            { field: 'display_name', hashField: 'display_name_hash' },
+          ],
+        },
+        {
+          entity_id: entityId,
+          fields_json: [
+            { field: 'email', hashField: 'email_hash' },
+            { field: 'phone' },
+          ],
+        },
+      ]
+    })
+    const service = new TenantDataEncryptionService(
+      { getConnection: () => ({ execute }) } as never,
+      {
+        kms: {
+          getTenantDek: jest.fn(async () => ({ tenantId, key: fixedKey, fetchedAt: new Date() })),
+          createTenantDek: jest.fn(async () => null),
+          isHealthy: () => true,
+        },
+      } as never,
+    )
+
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      {
+        email: 'person@example.com',
+        email_hash: null,
+        display_name: 'Person',
+        display_name_hash: null,
+        phone: '+48123456789',
+      },
+      tenantId,
+      'org-1',
+    )
+
+    expect(decryptWithAesGcm(encrypted.email as string, fixedKey)).toBe('person@example.com')
+    expect(encrypted.email_hash).toBe(hashForLookup('person@example.com'))
+    expect(decryptWithAesGcm(encrypted.display_name as string, fixedKey)).toBe('Person')
+    expect(encrypted.display_name_hash).toBe(hashForLookup('Person'))
+    expect(decryptWithAesGcm(encrypted.phone as string, fixedKey)).toBe('+48123456789')
+  })
+})
+
 describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', () => {
   const originalToggle = process.env.TENANT_DATA_ENCRYPTION
   const tenantId = 'tenant-5949'
@@ -494,29 +871,12 @@ describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', (
     expect(execute).not.toHaveBeenCalledWith(expect.anything(), [entityId, tenantId])
   })
 
-  it('caches the all-organizations aggregate across payload calls', async () => {
-    const entityId = 'test:parity_cached_entity'
+  it('re-reads the all-organizations aggregate across payload calls', async () => {
+    const entityId = 'test:parity_canonical_entity'
     const { service, execute } = makeService(entityId)
 
     await service.encryptEntityPayload(entityId, { description: 'first' }, tenantId, null)
     await service.encryptEntityPayload(entityId, { description: 'second' }, tenantId, null)
-
-    const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
-    expect(aggregateReads).toHaveLength(1)
-  })
-
-  it('re-reads the all-organizations aggregate once its memory entry passes the 300s TTL', async () => {
-    const entityId = 'test:parity_expired_cache_entity'
-    const { service, execute } = makeService(entityId)
-    const nowSpy = jest.spyOn(Date, 'now')
-
-    nowSpy.mockReturnValue(1_000_000)
-    await service.encryptEntityPayload(entityId, { description: 'first' }, tenantId, null)
-
-    nowSpy.mockReturnValue(1_000_000 + 300_000 + 1)
-    await service.encryptEntityPayload(entityId, { description: 'second' }, tenantId, null)
-
-    nowSpy.mockRestore()
 
     const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
     expect(aggregateReads).toHaveLength(2)
@@ -547,7 +907,7 @@ describe('TenantDataEncryptionService map read failures (issue #6334)', () => {
       .resolves.toEqual(['display_name'])
   })
 
-  it('lets a caller that joined a failing read fall back to its own read', async () => {
+  it('does not couple a concurrent reader to another failing read', async () => {
     const entityId = 'test:inflight_joined_rejection_entity'
     let rejectFirst: (error: Error) => void = () => {}
     const execute = jest.fn()
@@ -558,11 +918,11 @@ describe('TenantDataEncryptionService map read failures (issue #6334)', () => {
     const owner = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
     const joiner = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
     await new Promise((resolve) => setImmediate(resolve))
-    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(2)
+    await expect(joiner).resolves.toEqual(['display_name'])
     rejectFirst(new Error('statement timeout'))
 
     await expect(owner).rejects.toThrow('statement timeout')
-    await expect(joiner).resolves.toEqual(['display_name'])
     expect(execute).toHaveBeenCalledTimes(2)
   })
 })

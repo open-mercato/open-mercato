@@ -12,6 +12,10 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import {
+  resolveCanonicalEncryptionMap,
+  upsertCanonicalEncryptionMap,
+} from '@open-mercato/core/modules/entities/lib/encryption-maps'
 
 const ENCRYPTION_MAP_RESOURCE_KIND = 'entities.encryption_map'
 
@@ -49,11 +53,15 @@ export async function GET(req: Request) {
     { entityId, tenantId, organizationId: null },
     { entityId, tenantId: null, organizationId: null },
   ]
-  let record: any = null
+  let record: ReturnType<typeof resolveCanonicalEncryptionMap> = null
   for (const where of candidates) {
-    const found = await repo.findOne({ ...where, deletedAt: null })
-    if (found) {
-      record = found
+    const found = await repo.find(
+      { ...where, deletedAt: null },
+      { orderBy: { createdAt: 'asc', id: 'asc' } },
+    )
+    const canonical = resolveCanonicalEncryptionMap(found)
+    if (canonical) {
+      record = canonical
       break
     }
   }
@@ -94,7 +102,11 @@ export async function POST(req: Request) {
     const organizationId = scope.selectedId
     const em = container.resolve('em') as any
     const repo = em.getRepository(EncryptionMap)
-    const existing = await repo.findOne({ entityId: payload.entityId, tenantId, organizationId, deletedAt: null })
+    const existingRecords = await repo.find(
+      { entityId: payload.entityId, tenantId, organizationId, deletedAt: null },
+      { orderBy: { createdAt: 'asc', id: 'asc' } },
+    )
+    const existing = resolveCanonicalEncryptionMap(existingRecords)
 
     // Reject stale writes: a save started from an older tab must not silently
     // overwrite a newer encryption configuration. No-op when the client did not
@@ -125,23 +137,28 @@ export async function POST(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    let saved: any
-    if (existing) {
-      existing.fieldsJson = payload.fields
-      existing.isActive = payload.isActive ?? true
-      existing.updatedAt = new Date()
-      await em.persist(existing).flush()
-      saved = existing
-    } else {
-      const map = repo.create({
-        entityId: payload.entityId,
-        tenantId,
-        organizationId,
-        fieldsJson: payload.fields,
-        isActive: payload.isActive ?? true,
-      })
-      await em.persist(map).flush()
-      saved = map
+    const saved = await upsertCanonicalEncryptionMap(em, {
+      entityId: payload.entityId,
+      tenantId,
+      organizationId,
+      fields: payload.fields,
+      isActive: payload.isActive ?? true,
+    })
+
+    try {
+      const svc = container.resolve('tenantEncryptionService') as { invalidateMap?: (e: string, t: string | null, o: string | null) => Promise<void> }
+      if (!svc || typeof svc.invalidateMap !== 'function') {
+        throw new Error('[internal] Tenant encryption service cannot invalidate map caches')
+      }
+      await svc.invalidateMap(payload.entityId, tenantId, organizationId)
+    } catch {
+      return NextResponse.json(
+        {
+          error: 'The encryption policy update could not be finalized.',
+          code: 'encryption_map_invalidation_failed',
+        },
+        { status: 503 },
+      )
     }
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
@@ -150,7 +167,7 @@ export async function POST(req: Request) {
         organizationId,
         userId: auth.sub,
         resourceKind: ENCRYPTION_MAP_RESOURCE_KIND,
-        resourceId: saved?.id ?? payload.entityId,
+        resourceId: saved.id,
         operation: existing ? 'update' : 'create',
         requestMethod: req.method,
         requestHeaders: req.headers,
@@ -158,14 +175,7 @@ export async function POST(req: Request) {
       })
     }
 
-    try {
-      const svc = container.resolve('tenantEncryptionService') as { invalidateMap?: (e: string, t: string | null, o: string | null) => Promise<void> }
-      await svc?.invalidateMap?.(payload.entityId, tenantId, organizationId)
-    } catch {
-      // best-effort cache bust
-    }
-
-    return NextResponse.json({ ok: true, updatedAt: toIsoOrNull(saved?.updatedAt) })
+    return NextResponse.json({ ok: true, updatedAt: toIsoOrNull(saved.updatedAt) })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
@@ -186,6 +196,11 @@ const organizationSelectionInvalidResponseSchema = z.object({
   code: z.literal('organization_selection_invalid'),
 })
 
+const encryptionMapInvalidationFailedResponseSchema = z.object({
+  error: z.string(),
+  code: z.literal('encryption_map_invalidation_failed'),
+})
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Entities',
   summary: 'Manage encryption maps',
@@ -204,6 +219,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Saved', schema: z.object({ ok: z.boolean(), updatedAt: z.string().nullable().optional() }) },
         { status: 409, description: 'Optimistic-lock conflict (stale write)', schema: conflictResponseSchema },
         { status: 422, description: 'Selected organization is unavailable', schema: organizationSelectionInvalidResponseSchema },
+        { status: 503, description: 'Encryption policy invalidation failed', schema: encryptionMapInvalidationFailedResponseSchema },
       ],
     },
   },
