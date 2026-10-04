@@ -25,4 +25,6 @@ Integration suite (Playwright against the local dev app, `OM_INTEGRATION_MODULES
 - TC-022 selectors fixed (`#main-content`-scoped Documents tab instead of the sidebar group; dialog closed with Escape instead of an ambiguous "Close"); both order and quote tab cases pass.
 - Skipped by design: TC-022 "successful generate with no persisted row" (needs persistence fault injection; covered by the generate route unit test).
 
-Not run in this gate: DS guardian, browser screenshots, standalone harness refresh — remaining scope for Step 10.3 / follow-up.
+Design-system guardian (om-ds-guardian ANALYZE on all 33 changed UI/hook files; PDF templates excluded — they use the PDF theme, not web tokens): **0 findings** — no hardcoded status colors, arbitrary values, `dark:` overrides, hex colors, raw `fetch`, inline SVG, raw form controls, legacy Alert/Notice, arbitrary z-index or icon buttons without labels; every DataTable has empty/loading/error states; the public template list has loader, `ErrorMessage` and `EmptyState`; Sales tabs suspend with `Spinner`. `ds-health-check.sh` passed (its tracked report output was not committed).
+
+Not run in this gate: browser screenshots, standalone harness refresh — remaining scope for Step 10.3 / follow-up.
