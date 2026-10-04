@@ -1,6 +1,7 @@
 "use client"
 import { useEffect, useRef } from 'react'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
+import { subscribeOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { APP_EVENT_DOM_NAME } from './useAppEvent'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -82,6 +83,7 @@ export function useEventBridge(): void {
         sourceRef.current = source
 
         source.onopen = () => {
+          if (sourceRef.current !== source) return
           const shouldEmitReconnect = hasEverConnected.current && reconnectPending.current
           hasEverConnected.current = true
           reconnectPending.current = false
@@ -103,6 +105,7 @@ export function useEventBridge(): void {
         }
 
         source.onmessage = (event) => {
+          if (sourceRef.current !== source) return
           resetHeartbeatTimer()
           if (!event.data || event.data === ':heartbeat') return
 
@@ -121,6 +124,7 @@ export function useEventBridge(): void {
         }
 
         source.onerror = () => {
+          if (sourceRef.current !== source) return
           if (hasEverConnected.current) {
             reconnectPending.current = true
           }
@@ -173,12 +177,25 @@ export function useEventBridge(): void {
       connect()
     }
 
+    function handleOrganizationScopeChange() {
+      if (hasEverConnected.current) reconnectPending.current = true
+      disconnect()
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current)
+        reconnectTimer.current = null
+      }
+      reconnectAttempts.current = 0
+      connect()
+    }
+
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    const unsubscribeOrganizationScope = subscribeOrganizationScopeChanged(handleOrganizationScopeChange)
     connect()
 
     return () => {
       mounted = false
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      unsubscribeOrganizationScope()
       disconnect()
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current)
