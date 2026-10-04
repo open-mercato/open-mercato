@@ -371,11 +371,15 @@ to a handler but did not select its exact `before` interceptor.
 | Function signature (`findApiRouteManifestMatch`) | New optional fourth parameter `request?: Request`; existing three-argument callers keep the same return value and matching behavior | ✓ ADDITIVE (optional parameter appended) |
 | API route URLs and handler context | No route is added, removed, or renamed; handler `params` and request query semantics are unchanged | ✓ No contract change |
 | Interceptor selection | Static segments use the matched manifest spelling, while matched dynamic/catch-all values stay concrete. Alternate spellings that already reached a route now run the same exact/prefix interceptors as its normal spelling; malformed percent encoding reaches no handler | ⚠️ Intentional security narrowing only (previous policy-bypass requests are denied or intercepted) |
+| Request cloning/reconstruction | Dispatcher identity survives `Request.clone()` and `new Request(request.url, request)`. Unknown, forged, or evicted internal continuity metadata fails closed; unbound direct handlers retain legacy URL-derived matching | ✓ Behavior-preserving for valid dispatches; intentional security narrowing for forged metadata |
 | Handler ordering | Authorization and interceptor `before`/`after` positions are unchanged | ✓ Behavior-preserving for normally spelled requests |
 
 **Migration path for existing modules**: none. Keep authored `targetRoute` values.
 Callers that dispatch through the framework catch-all receive canonical binding
 automatically; direct three-argument matcher consumers continue to work unchanged.
+Synthetic dispatchers should pass the exact request they invoke as argument four.
+Request wrappers should retain headers when reconstructing the request, or pass an
+authored route constant directly to the interceptor runner.
 
 ---
 

@@ -405,6 +405,14 @@ export const interceptors: ApiInterceptor[] = [
   are unchanged. The dispatcher passes the new optional `Request` argument to bind a
   canonical identity for downstream policy lookup; this is additive and does not
   change public route URLs, returned params, query semantics, or handler order.
+- Dispatcher-bound identity survives native `Request.clone()` and
+  `new Request(request.url, request)` reconstruction. Continuity uses bounded,
+  process-local capability state; caller-supplied or evicted capability metadata
+  fails closed. Direct handlers with no bound identity keep their legacy URL-derived
+  interceptor lookup.
+- The in-process AI API operation runner constructs its synthetic request before
+  matching and supplies it as the optional fourth argument, so mixed-case and encoded
+  aliases receive the same authored static identity as HTTP-dispatched requests.
 
 ## Implementation Status
 

@@ -71,4 +71,11 @@ interceptor runner. Do not derive a policy key independently from `request.url`;
 so can make dispatch and policy matching disagree. This identity does not alter the
 request URL, query string, or `ctx.params` received by the handler.
 
+The identity survives `request.clone()` and `new Request(request.url, request)`.
+Wrappers that reconstruct a request with an explicit `RequestInit` must retain the
+original headers or pass an authored route constant to the interceptor runner. The
+framework overwrites caller-supplied identity metadata at dispatch, bounds its
+process-local continuity state, and rejects unknown or expired metadata rather than
+falling back to the raw URL.
+
 Mixing CRUD factories and bespoke endpoints gives you the flexibility to move fast while keeping the platform predictable.

@@ -1,6 +1,9 @@
 import type { RouteMatchParams } from '../../modules/registry'
 
 const matchedApiRoutePaths = new WeakMap<Request, string>()
+const ROUTE_IDENTITY_HEADER = 'x-open-mercato-route-identity'
+const MAX_ROUTE_IDENTITY_TOKENS = 4096
+const matchedApiRouteTokens = new Map<string, string>()
 
 function normalizePath(path: string): string {
   return (path.startsWith('/') ? path : `/${path}`).replace(/\/+$/, '') || '/'
@@ -47,6 +50,23 @@ function buildCanonicalMatchedPath(pattern: string, params: RouteMatchParams): s
   return `/${canonicalSegments.join('/')}`
 }
 
+function createRouteIdentityToken(): string | null {
+  const cryptoApi = globalThis.crypto
+  if (!cryptoApi) return null
+  if (typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID()
+  const bytes = cryptoApi.getRandomValues(new Uint8Array(24))
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+}
+
+function rememberRouteIdentity(token: string, canonicalPath: string): void {
+  matchedApiRouteTokens.set(token, canonicalPath)
+  while (matchedApiRouteTokens.size > MAX_ROUTE_IDENTITY_TOKENS) {
+    const oldestToken = matchedApiRouteTokens.keys().next().value
+    if (typeof oldestToken !== 'string') return
+    matchedApiRouteTokens.delete(oldestToken)
+  }
+}
+
 export function bindMatchedApiRoutePath(
   request: Request,
   pattern: string,
@@ -55,12 +75,24 @@ export function bindMatchedApiRoutePath(
   if (!hasValidPathEncoding(request)) return false
   const canonicalPath = buildCanonicalMatchedPath(pattern, params)
   if (canonicalPath === null) return false
+  const token = createRouteIdentityToken()
+  if (token === null) return false
+  try {
+    request.headers.set(ROUTE_IDENTITY_HEADER, token)
+  } catch {
+    return false
+  }
+  rememberRouteIdentity(token, canonicalPath)
   matchedApiRoutePaths.set(request, canonicalPath)
   return true
 }
 
 export function getMatchedApiRoutePath(request: Request): string | undefined {
-  return matchedApiRoutePaths.get(request)
+  const directPath = matchedApiRoutePaths.get(request)
+  if (directPath !== undefined) return directPath
+  const token = request.headers.get(ROUTE_IDENTITY_HEADER)
+  if (!token) return undefined
+  return matchedApiRouteTokens.get(token)
 }
 
 function toInterceptorRoutePath(pathname: string): string {
@@ -72,6 +104,7 @@ function toInterceptorRoutePath(pathname: string): string {
 export function resolveApiInterceptorRoutePath(request: Request): string | null {
   const matchedPath = getMatchedApiRoutePath(request)
   if (matchedPath !== undefined) return toInterceptorRoutePath(matchedPath)
+  if (request.headers.has(ROUTE_IDENTITY_HEADER)) return null
 
   try {
     const pathname = new URL(request.url).pathname

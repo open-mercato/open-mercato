@@ -128,9 +128,19 @@ describe('runTimesheetInterceptors', () => {
   })
 
   it.each([
-    ['mixed-case', 'https://app.test/api/STAFF/TIMESHEETS/MY-WORK', '/STAFF/TIMESHEETS/MY-WORK'],
-    ['percent-encoded', 'https://app.test/api/%73taff/%74imesheets/my-work', '/staff/timesheets/my-work'],
-  ])('uses the dispatcher identity to deny a %s alias', async (_label, url, dispatcherPath) => {
+    [
+      'cloned mixed-case',
+      'https://app.test/api/STAFF/TIMESHEETS/MY-WORK',
+      '/STAFF/TIMESHEETS/MY-WORK',
+      (source: Request) => source.clone(),
+    ],
+    [
+      'reconstructed percent-encoded',
+      'https://app.test/api/%73taff/%74imesheets/my-work',
+      '/staff/timesheets/my-work',
+      (source: Request) => new Request(source.url, source),
+    ],
+  ])('uses the dispatcher identity to deny a %s alias', async (_label, url, dispatcherPath, transform) => {
     const before = jest.fn(async () => ({ ok: false, statusCode: 403, message: 'Policy denied' }))
     registerApiInterceptors([{
       moduleId: 'test',
@@ -152,7 +162,7 @@ describe('runTimesheetInterceptors', () => {
     expect(findApiRouteManifestMatch(manifest, 'GET', dispatcherPath, aliasedRequest)).toBeDefined()
 
     const run = await runTimesheetInterceptors({
-      request: aliasedRequest,
+      request: transform(aliasedRequest),
       method: 'GET',
       scope: scopeFor(),
     })

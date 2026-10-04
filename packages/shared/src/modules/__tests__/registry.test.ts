@@ -17,7 +17,10 @@ import {
   getFrontendRouteManifests,
   resolvePageRouteMetadata,
 } from '../registry'
-import { getMatchedApiRoutePath } from '../../lib/modules/api-route-identity'
+import {
+  getMatchedApiRoutePath,
+  resolveApiInterceptorRoutePath,
+} from '../../lib/modules/api-route-identity'
 
 describe('CLI Modules Registry', () => {
   // Clear the registry before each test
@@ -641,6 +644,8 @@ describe('findApiRouteManifestMatch — specificity (issue #1870)', () => {
 
     expect(match?.params).toEqual({ id: 'AbC-123' })
     expect(getMatchedApiRoutePath(request)).toBe('/auth/users/AbC-123')
+    expect(resolveApiInterceptorRoutePath(request.clone())).toBe('auth/users/AbC-123')
+    expect(resolveApiInterceptorRoutePath(new Request(request.url, request))).toBe('auth/users/AbC-123')
     expect(new URL(request.url).searchParams.get('view')).toBe('full')
   })
 
@@ -656,6 +661,40 @@ describe('findApiRouteManifestMatch — specificity (issue #1870)', () => {
 
     expect(match?.params).toEqual({ slug: ['guides', 'Getting-Started'] })
     expect(getMatchedApiRoutePath(request)).toBe('/docs/guides/Getting-Started')
+    expect(resolveApiInterceptorRoutePath(request.clone())).toBe('docs/guides/Getting-Started')
+    expect(resolveApiInterceptorRoutePath(new Request(request.url, request))).toBe('docs/guides/Getting-Started')
+  })
+
+  it('fails closed for an attacker-supplied route identity token', () => {
+    const request = new Request('http://localhost/api/AUTH/users/AbC-123', {
+      headers: { 'x-open-mercato-route-identity': 'attacker-controlled' },
+    })
+
+    expect(resolveApiInterceptorRoutePath(request)).toBeNull()
+    expect(resolveApiInterceptorRoutePath(request.clone())).toBeNull()
+  })
+
+  it('bounds clone-capability state and fails closed after eviction', () => {
+    const routes = [apiEntry('/auth/users/[id]')]
+    let firstClone: Request | null = null
+    let lastClone: Request | null = null
+
+    for (let index = 0; index < 4200; index += 1) {
+      const request = new Request(`http://localhost/api/auth/users/user-${index}`)
+      expect(findApiRouteManifestMatch(
+        routes,
+        'GET',
+        `/auth/users/user-${index}`,
+        request,
+      )).toBeDefined()
+      if (index === 0) firstClone = request.clone()
+      if (index === 4199) lastClone = request.clone()
+    }
+
+    expect(firstClone).not.toBeNull()
+    expect(lastClone).not.toBeNull()
+    expect(resolveApiInterceptorRoutePath(firstClone!)).toBeNull()
+    expect(resolveApiInterceptorRoutePath(lastClone!)).toBe('auth/users/user-4199')
   })
 
   it('fails closed before binding a route when the request path has malformed encoding', () => {
