@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
 import { act, renderHook } from '@testing-library/react'
+import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { useEventBridge } from '../eventBridge'
 
 class EventSourceMock {
@@ -9,8 +10,14 @@ class EventSourceMock {
   onmessage: ((event: MessageEvent) => void) | null = null
   onerror: ((event: Event) => void) | null = null
   close = jest.fn()
+  readonly url: string
+  readonly options: EventSourceInit | undefined
+  readonly cookiesAtCreation: string
 
-  constructor() {
+  constructor(url: string | URL, options?: EventSourceInit) {
+    this.url = String(url)
+    this.options = options
+    this.cookiesAtCreation = document.cookie
     EventSourceMock.instances.push(this)
   }
 }
@@ -78,6 +85,29 @@ describe('useEventBridge connection lifecycle', () => {
       visibilityState = 'visible'
       document.dispatchEvent(new Event('visibilitychange'))
     })
+    expect(EventSourceMock.instances).toHaveLength(2)
+    unmount()
+  })
+
+  it('reconnects immediately with current cookies when organization scope changes', () => {
+    document.cookie = 'om_selected_org=org-before; path=/'
+    const { unmount } = renderHook(() => useEventBridge())
+    const firstSource = EventSourceMock.instances[0]
+    act(() => firstSource.onopen?.(new Event('open')))
+
+    document.cookie = 'om_selected_org=org-after; path=/'
+    act(() => {
+      emitOrganizationScopeChanged({ organizationId: 'org-after', tenantId: 'tenant-1' })
+    })
+
+    expect(firstSource.close).toHaveBeenCalledTimes(1)
+    expect(EventSourceMock.instances).toHaveLength(2)
+    const replacementSource = EventSourceMock.instances[1]
+    expect(replacementSource.url).toBe('/api/events/stream')
+    expect(replacementSource.options).toEqual({ withCredentials: true })
+    expect(replacementSource.cookiesAtCreation).toContain('om_selected_org=org-after')
+    act(() => firstSource.onerror?.(new Event('error')))
+    expect(replacementSource.close).not.toHaveBeenCalled()
     expect(EventSourceMock.instances).toHaveLength(2)
     unmount()
   })

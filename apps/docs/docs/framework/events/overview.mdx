@@ -71,6 +71,12 @@ lookup fails, or the canonical user, tenant, organization, or role set changes, 
 and removes its connection, listener, heartbeat, validation, and lifetime state before any later
 event can be delivered.
 
+The browser endpoint accepts staff session cookies and staff Bearer tokens. It rejects `x-api-key`
+and `Authorization: ApiKey` credentials before opening a stream; API clients should consume event
+APIs through bounded requests rather than a browser DOM-event connection. When the active tenant or
+organization changes, the browser closes the current `EventSource` and immediately opens a new one,
+so the request carries the current selection cookies instead of waiting for the lifetime cap.
+
 Every stream also has a five-minute server maximum. Closing is intentional: the browser's native
 `EventSource` reconnect behavior creates a new request that passes through normal authentication
 again. Heartbeats still run every 30 seconds, and the browser watchdog still reconnects when one is

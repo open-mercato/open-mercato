@@ -99,6 +99,12 @@ function identitiesMatch(left: SseConnectionIdentity, right: SseConnectionIdenti
     && left.roleIds.every((roleId, index) => roleId === right.roleIds[index])
 }
 
+function hasApiKeyCredentials(req: Request): boolean {
+  if ((req.headers.get('x-api-key') ?? '').trim().length > 0) return true
+  const authorization = (req.headers.get('authorization') ?? '').trim()
+  return /^apikey(?:\s|$)/i.test(authorization)
+}
+
 function createAuthRevalidationRequest(req: Request): Request {
   return new Request(req.url, {
     method: req.method,
@@ -296,7 +302,13 @@ function ensureGlobalTapSubscription(): void {
 }
 
 export async function GET(req: Request): Promise<Response> {
+  if (hasApiKeyCredentials(req)) {
+    return new Response('Unauthorized', { status: 401 })
+  }
   const { ctx } = await resolveRequestContext(req)
+  if (ctx.auth?.isApiKey === true) {
+    return new Response('Unauthorized', { status: 401 })
+  }
   const initialIdentity = resolveConnectionIdentity(ctx)
   if (!initialIdentity) {
     return new Response('Unauthorized', { status: 401 })
@@ -322,7 +334,7 @@ export async function GET(req: Request): Promise<Response> {
       const send = (data: string) => {
         if (cleanedUp) return
         try {
-          controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+          streamController?.enqueue(encoder.encode(`data: ${data}\n\n`))
         } catch {
           closeConnection()
         }
@@ -341,12 +353,12 @@ export async function GET(req: Request): Promise<Response> {
       // delays the browser EventSource `open` event — clients that gate work on
       // a "connected" signal would otherwise stall for up to 30s after mount.
       // Comment lines (`:` prefix) are ignored by EventSource message parsing.
-      controller.enqueue(encoder.encode(': connected\n\n'))
+      streamController.enqueue(encoder.encode(': connected\n\n'))
 
       // Start heartbeat to keep connection alive
       heartbeatTimer = setInterval(() => {
         try {
-          controller.enqueue(encoder.encode(':heartbeat\ndata: :heartbeat\n\n'))
+          streamController?.enqueue(encoder.encode(':heartbeat\ndata: :heartbeat\n\n'))
         } catch {
           closeConnection()
         }
@@ -435,7 +447,7 @@ export async function GET(req: Request): Promise<Response> {
 export const openApi = {
   GET: {
     summary: 'Subscribe to server events via SSE (DOM Event Bridge)',
-    description: 'Server-bounded SSE connection that receives server-side events marked with clientBroadcast: true. Events are server-filtered by tenant, organization, recipient user, and recipient role, with periodic canonical authorization revalidation.',
+    description: 'Server-bounded SSE connection for staff cookie or Bearer authentication that receives server-side events marked with clientBroadcast: true. API-key credentials are not accepted. Events are server-filtered by tenant, organization, recipient user, and recipient role, with periodic canonical authorization revalidation.',
     tags: ['Events'],
     responses: {
       200: {

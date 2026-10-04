@@ -3,6 +3,7 @@ type MockAuth = {
   sub: string
   orgId: string | null
   roles: string[]
+  isApiKey?: boolean
 }
 
 function buildResolvedContext(auth: MockAuth | null = {
@@ -72,12 +73,27 @@ createModuleEvents({
 
 // req.signal is a linked/derived signal in Node, so we spy AFTER the
 // Request is constructed to intercept the handler's real calls.
-function makeTrackedRequest() {
+function makeTrackedRequest(init: RequestInit = {}) {
   const controller = new AbortController()
-  const req = new Request('http://localhost/api/events/stream', { signal: controller.signal })
+  const req = new Request('http://localhost/api/events/stream', { ...init, signal: controller.signal })
   const addSpy = jest.spyOn(req.signal, 'addEventListener')
   const removeSpy = jest.spyOn(req.signal, 'removeEventListener')
   return { req, controller, addSpy, removeSpy }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
 }
 
 describe('SSE event stream — abort listener hygiene', () => {
@@ -93,6 +109,61 @@ describe('SSE event stream — abort listener hygiene', () => {
     delete process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS
     delete process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS
     jest.restoreAllMocks()
+  })
+
+  it.each([
+    ['x-api-key', { 'x-api-key': 'key-secret', cookie: 'auth_token=staff-token' }],
+    ['Authorization ApiKey', { authorization: 'aPiKeY key-secret', cookie: 'auth_token=staff-token' }],
+  ])('rejects %s credentials before resolving request context', async (_credential, headers) => {
+    const { req, addSpy } = makeTrackedRequest({ headers })
+
+    const response = await GET(req)
+
+    expect(response.status).toBe(401)
+    expect(mockResolveRequestContext).not.toHaveBeenCalled()
+    expect(addSpy).not.toHaveBeenCalled()
+  })
+
+  it('rejects an API-key trusted context even when raw API-key headers are absent', async () => {
+    mockResolveRequestContext.mockResolvedValue(buildResolvedContext({
+      tenantId: 't1',
+      sub: 'api_key:key-1',
+      orgId: 'o1',
+      roles: ['admin'],
+      isApiKey: true,
+    }))
+    const { req, addSpy } = makeTrackedRequest()
+
+    const response = await GET(req)
+
+    expect(response.status).toBe(401)
+    expect(mockResolveRequestContext).toHaveBeenCalledTimes(1)
+    expect(addSpy).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['staff cookie', { cookie: 'auth_token=cookie-token; om_selected_org=o1' }],
+    ['staff Bearer token', { authorization: 'Bearer bearer-token' }],
+  ])('copies %s credentials into a distinct canonical revalidation request', async (_credential, headers) => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    const { req } = makeTrackedRequest({ headers })
+    const trustedContextSymbol = Symbol.for('open-mercato.auth.trustedContext')
+    ;(req as unknown as Record<symbol, unknown>)[trustedContextSymbol] = { auth: { sub: 'stale' } }
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    await jest.advanceTimersByTimeAsync(1000)
+
+    expect(mockResolveRequestContext).toHaveBeenCalledTimes(2)
+    const validationRequest = mockResolveRequestContext.mock.calls[1][0] as Request
+    expect(validationRequest).not.toBe(req)
+    expect(validationRequest.headers.get('cookie')).toBe(req.headers.get('cookie'))
+    expect(validationRequest.headers.get('authorization')).toBe(req.headers.get('authorization'))
+    expect((validationRequest as unknown as Record<symbol, unknown>)[trustedContextSymbol]).toBeUndefined()
+    await reader.cancel()
   })
 
   it('registers the abort listener with { once: true }', async () => {
@@ -135,6 +206,31 @@ describe('SSE event stream — abort listener hygiene', () => {
     expect(abortRemove).toBeDefined()
 
     try { await (res.body as ReadableStream).cancel() } catch {}
+  })
+
+  it('fully cleans up an already-aborted request without registering a live connection', async () => {
+    jest.useFakeTimers()
+    const enqueueSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'enqueue')
+    const closeSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'close')
+    const { req, controller, addSpy, removeSpy } = makeTrackedRequest()
+    controller.abort()
+
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    const enqueueCountAfterClose = enqueueSpy.mock.calls.length
+
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o1', marker: 'must-not-arrive' },
+    )
+
+    expect(enqueueSpy).toHaveBeenCalledTimes(enqueueCountAfterClose)
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+    expect(addSpy.mock.calls.filter((call) => call[0] === 'abort')).toHaveLength(1)
+    expect(removeSpy.mock.calls.filter((call) => call[0] === 'abort')).toHaveLength(1)
+    expect(jest.getTimerCount()).toBe(0)
   })
 
   it('flushes an initial connected comment so EventSource opens immediately', async () => {
@@ -193,6 +289,48 @@ describe('SSE event stream — abort listener hygiene', () => {
     expect(new TextDecoder().decode(value)).toContain('"marker":"expected"')
 
     try { await reader.cancel() } catch {}
+  })
+
+  it('scopes a replacement stream from its current request cookie, not the closed opening snapshot', async () => {
+    mockResolveRequestContext.mockImplementation(async (request: Request) => {
+      const selectedOrganizationId = request.headers.get('cookie')?.includes('om_selected_org=o2') ? 'o2' : 'o1'
+      return buildResolvedContext({
+        tenantId: 't1',
+        sub: 'u1',
+        orgId: selectedOrganizationId,
+        roles: ['admin'],
+      }, selectedOrganizationId)
+    })
+    const { req: openingRequest } = makeTrackedRequest({
+      headers: { cookie: 'auth_token=staff-token; om_selected_org=o1' },
+    })
+    const openingResponse = await GET(openingRequest)
+    const openingReader = openingResponse.body!.getReader()
+    await openingReader.read()
+    await openingReader.cancel()
+
+    const { req: replacementRequest } = makeTrackedRequest({
+      headers: { cookie: 'auth_token=staff-token; om_selected_org=o2' },
+    })
+    const replacementResponse = await GET(replacementRequest)
+    const replacementReader = replacementResponse.body!.getReader()
+    await replacementReader.read()
+
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o1', marker: 'closed-opening-scope' },
+    )
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o2', marker: 'current-request-scope' },
+    )
+
+    const delivered = await replacementReader.read()
+    const decoded = new TextDecoder().decode(delivered.value)
+    expect(decoded).toContain('current-request-scope')
+    expect(decoded).not.toContain('closed-opening-scope')
+    expect(mockResolveRequestContext.mock.calls[1][0]).toBe(replacementRequest)
+    await replacementReader.cancel()
   })
 
   it('honors a trusted multi-organization audience for a clientBroadcast event', async () => {
@@ -615,6 +753,130 @@ describe('SSE event stream — abort listener hygiene', () => {
     await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
     expect(mockResolveRequestContext).toHaveBeenCalledTimes(1)
     expect(removeSpy).toHaveBeenCalledWith('abort', attachedListener)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it.each(['0', 'not-a-number', 'Infinity'])('falls back to a finite maximum age for invalid value %s', async (invalidValue) => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '999999'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = invalidValue
+    const closeSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'close')
+    const { req } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    jest.advanceTimersByTime(299_999)
+    expect(closeSpy).not.toHaveBeenCalled()
+    jest.advanceTimersByTime(1)
+
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(0)
+    await reader.cancel()
+  })
+
+  it('cannot resurrect or deliver after cancellation during deferred validation', async () => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    const validation = deferred<ReturnType<typeof buildResolvedContext>>()
+    mockResolveRequestContext
+      .mockResolvedValueOnce(buildResolvedContext())
+      .mockImplementationOnce(() => validation.promise)
+    const enqueueSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'enqueue')
+    const { req, addSpy, removeSpy } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+    const attachedListener = addSpy.mock.calls.find((call) => call[0] === 'abort')![1]
+
+    jest.advanceTimersByTime(1000)
+    await flushPromises()
+    expect(mockResolveRequestContext).toHaveBeenCalledTimes(2)
+    await reader.cancel()
+    const enqueueCountAfterCancel = enqueueSpy.mock.calls.length
+
+    validation.resolve(buildResolvedContext())
+    await flushPromises()
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o1', marker: 'must-not-arrive' },
+    )
+
+    expect(enqueueSpy).toHaveBeenCalledTimes(enqueueCountAfterCancel)
+    expect(removeSpy.mock.calls.filter((call) => call[0] === 'abort' && call[1] === attachedListener)).toHaveLength(1)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('cannot resurrect after maximum age closes during deferred validation', async () => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '1500'
+    const validation = deferred<ReturnType<typeof buildResolvedContext>>()
+    mockResolveRequestContext
+      .mockResolvedValueOnce(buildResolvedContext())
+      .mockImplementationOnce(() => validation.promise)
+    const enqueueSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'enqueue')
+    const closeSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'close')
+    const { req, addSpy, removeSpy } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+    const attachedListener = addSpy.mock.calls.find((call) => call[0] === 'abort')![1]
+
+    jest.advanceTimersByTime(1000)
+    await flushPromises()
+    expect(mockResolveRequestContext).toHaveBeenCalledTimes(2)
+    jest.advanceTimersByTime(500)
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    const enqueueCountAfterClose = enqueueSpy.mock.calls.length
+
+    validation.resolve(buildResolvedContext())
+    await flushPromises()
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o1', marker: 'must-not-arrive' },
+    )
+
+    expect(enqueueSpy).toHaveBeenCalledTimes(enqueueCountAfterClose)
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+    expect(removeSpy.mock.calls.filter((call) => call[0] === 'abort' && call[1] === attachedListener)).toHaveLength(1)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('ignores a late validation failure after abort cleanup', async () => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    const validation = deferred<ReturnType<typeof buildResolvedContext>>()
+    mockResolveRequestContext
+      .mockResolvedValueOnce(buildResolvedContext())
+      .mockImplementationOnce(() => validation.promise)
+    const enqueueSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'enqueue')
+    const closeSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'close')
+    const { req, controller, addSpy, removeSpy } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+    const attachedListener = addSpy.mock.calls.find((call) => call[0] === 'abort')![1]
+
+    jest.advanceTimersByTime(1000)
+    await flushPromises()
+    controller.abort()
+    await flushPromises()
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    const enqueueCountAfterClose = enqueueSpy.mock.calls.length
+
+    validation.reject(new Error('late validation failure'))
+    await flushPromises()
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o1', marker: 'must-not-arrive' },
+    )
+
+    expect(enqueueSpy).toHaveBeenCalledTimes(enqueueCountAfterClose)
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+    expect(removeSpy.mock.calls.filter((call) => call[0] === 'abort' && call[1] === attachedListener)).toHaveLength(1)
     expect(jest.getTimerCount()).toBe(0)
   })
 })
