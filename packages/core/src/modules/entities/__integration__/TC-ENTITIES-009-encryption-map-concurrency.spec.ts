@@ -6,8 +6,12 @@ import { fileURLToPath } from 'node:url'
 import { config as loadEnv } from 'dotenv'
 import { Client } from 'pg'
 import { expect, test } from '@playwright/test'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { upsertEncryptionMapSpecs } from '@open-mercato/core/modules/entities/cli'
+import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Migration20261004120000_encryption_map_scope_uniqueness } from '../migrations/Migration20261004120000_encryption_map_scope_uniqueness'
 
 const execFileAsync = promisify(execFile)
@@ -15,6 +19,9 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(currentDir, '..', '..', '..', '..', '..', '..')
 const cliBin = path.join(repoRoot, 'packages', 'cli', 'dist', 'bin.js')
 const appDir = path.join(repoRoot, 'apps', 'mercato')
+const runtimeAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
+  ? path.resolve(process.env.OM_TEST_APP_ROOT.trim())
+  : appDir
 
 if (!process.env.OM_TEST_APP_ROOT?.trim()) {
   loadEnv({ path: path.resolve(appDir, '.env') })
@@ -194,5 +201,45 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
            '[]'::jsonb, true, now(), now(), null)`,
       )).rejects.toMatchObject({ code: '23505' })
     })
+  })
+
+  test('an outer upgrade transaction rollback removes its encryption-map write', async () => {
+    const tenantId = randomUUID()
+    const organizationId = randomUUID()
+    const entityId = `entities:rollback_${randomUUID().replaceAll('-', '').slice(0, 12)}`
+    const rollbackError = new Error('TC-ENTITIES-009 deliberate outer transaction rollback')
+
+    try {
+      await bootstrapFromAppRoot(runtimeAppRoot)
+      const container = await createRequestContainer()
+      const em = container.resolve<EntityManager>('em')
+
+      await expect(em.transactional(async (transactionalEm) => {
+        await upsertEncryptionMapSpecs(
+          transactionalEm,
+          tenantId,
+          organizationId,
+          [{ entityId, fields: [{ field: 'secret' }] }],
+        )
+        throw rollbackError
+      })).rejects.toBe(rollbackError)
+
+      const state = await withDatabase(async (client) => {
+        const result = await client.query(
+          `select count(*)::int as live_count
+             from encryption_maps
+            where entity_id = $1
+              and tenant_id = $2
+              and organization_id is not distinct from $3
+              and deleted_at is null`,
+          [entityId, tenantId, organizationId],
+        )
+        return result.rows[0]
+      })
+
+      expect(state).toMatchObject({ live_count: 0 })
+    } finally {
+      await deleteMaps({ tenantId, entityId })
+    }
   })
 })

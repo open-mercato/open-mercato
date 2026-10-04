@@ -75,7 +75,7 @@ export async function upsertCanonicalEncryptionMap(
   em: EntityManager,
   input: UpsertCanonicalEncryptionMapInput,
 ): Promise<UpsertedEncryptionMap> {
-  const rows = await em.getConnection().execute<Array<{ id: string; updated_at: Date | string }>>(
+  const rows = await em.execute<Array<{ id: string; updated_at: Date | string }>>(
     `
       insert into "encryption_maps"
         ("id", "entity_id", "tenant_id", "organization_id", "fields_json", "is_active", "created_at", "updated_at")

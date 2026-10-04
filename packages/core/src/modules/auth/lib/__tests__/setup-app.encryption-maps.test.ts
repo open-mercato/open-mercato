@@ -22,7 +22,7 @@ describe('tenant setup encryption-map materialization', () => {
       rows.set(key, saved)
       return [saved]
     })
-    const em = { getConnection: () => ({ execute }) } as never
+    const em = { execute } as never
     const specs = [
       { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
       { entityId: 'onboarding:request', keyScope: 'system' as const, fields: [{ field: 'email' }] },

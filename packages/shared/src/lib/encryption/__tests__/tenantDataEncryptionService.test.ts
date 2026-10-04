@@ -386,6 +386,67 @@ describe('TenantDataEncryptionService.getEncryptedFieldNames', () => {
   })
 })
 
+describe('TenantDataEncryptionService map cache invalidation', () => {
+  it('refreshes both a primed exact hit and the primed all-organizations aggregate', async () => {
+    const entityId = 'test:cache_invalidation_hit'
+    const tenantId = 'tenant-cache-invalidation-hit'
+    const organizationId = 'org-cache-invalidation-hit'
+    let exactFields = [{ field: 'existing_exact' }]
+    let aggregateFields = [{ field: 'existing_aggregate' }]
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 2) return [{ fields_json: aggregateFields }]
+      if (params[2] === organizationId) return [{ entity_id: entityId, fields_json: exactFields }]
+      return []
+    })
+    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['existing_aggregate'])
+
+    exactFields = [{ field: 'existing_exact' }, { field: 'fresh_exact' }]
+    aggregateFields = [{ field: 'existing_aggregate' }, { field: 'fresh_aggregate' }]
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['existing_aggregate'])
+
+    await service.invalidateMap(entityId, tenantId, organizationId)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['existing_exact', 'fresh_exact'])
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['existing_aggregate', 'fresh_aggregate'])
+  })
+
+  it('clears a primed exact miss so a newly committed map is visible immediately', async () => {
+    const entityId = 'test:cache_invalidation_miss'
+    const tenantId = 'tenant-cache-invalidation-miss'
+    const organizationId = 'org-cache-invalidation-miss'
+    let exactFields: Array<{ field: string }> = []
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 3 && params[2] === organizationId && exactFields.length > 0) {
+        return [{ entity_id: entityId, fields_json: exactFields }]
+      }
+      return []
+    })
+    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId)).resolves.toEqual([])
+    exactFields = [{ field: 'fresh_after_miss' }]
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId)).resolves.toEqual([])
+
+    await service.invalidateMap(entityId, tenantId, organizationId)
+
+    await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_after_miss'])
+  })
+})
+
 describe('TenantDataEncryptionService duplicate map fail-safe', () => {
   const originalToggle = process.env.TENANT_DATA_ENCRYPTION
 

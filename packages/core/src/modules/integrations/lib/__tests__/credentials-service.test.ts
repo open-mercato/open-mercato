@@ -48,9 +48,7 @@ function createMockEntityManager() {
       return em
     }),
     flush: jest.fn(async () => undefined),
-    getConnection: jest.fn(() => ({
-      execute: jest.fn(async () => [{ id: 'map-1', updated_at: new Date() }]),
-    })),
+    execute: jest.fn(async () => [{ id: 'map-1', updated_at: new Date() }]),
   }
   return { em, persisted }
 }
@@ -219,7 +217,7 @@ describe('integration credentials encryption-map materialization', () => {
       rows.set(key, saved)
       return [saved]
     })
-    const em = { getConnection: () => ({ execute }) } as never
+    const em = { execute } as never
     const invalidateMap = jest.fn(async () => undefined)
 
     await Promise.all([

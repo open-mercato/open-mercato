@@ -98,7 +98,11 @@ describe('upsertCanonicalEncryptionMap concurrency', () => {
       rows.set(key, saved)
       return [{ id: saved.id, updated_at: saved.updated_at }]
     })
-    const em = { getConnection: () => ({ execute }) } as never
+    const rawConnectionExecute = jest.fn()
+    const em = {
+      execute,
+      getConnection: () => ({ execute: rawConnectionExecute }),
+    } as never
 
     await Promise.all([
       upsertCanonicalEncryptionMap(em, {
@@ -128,5 +132,6 @@ describe('upsertCanonicalEncryptionMap concurrency', () => {
       expect(sql).toContain('do update set')
     }
     expect(execute.mock.calls.every(([, params]) => params[2] === null)).toBe(true)
+    expect(rawConnectionExecute).not.toHaveBeenCalled()
   })
 })
