@@ -8,6 +8,7 @@ const widget: InjectionWidgetModule = {
     description: 'Generate documents from this invoice and browse its generated history',
     features: ['document_generators.documents.view', 'invoices.view'],
     priority: 40,
+    requiredModules: ['document_generators'],
   },
   Widget: InvoiceDocumentsTabWidget,
 }

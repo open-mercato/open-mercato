@@ -1,0 +1,245 @@
+---
+title: Document Generators API
+description: REST endpoints, error codes, response headers and public TypeScript exports of the document generators engine.
+---
+
+# API reference
+
+## REST endpoints
+
+All routes require authentication and are scoped to the session's tenant and selected organization.
+
+| Method and path | Engine feature | Purpose |
+|-----------------|----------------|---------|
+| `GET /api/document-generators/templates` | `document_generators.documents.view` | Template catalogue, filtered to templates the caller may use |
+| `GET /api/document-generators/templates/options` | `document_generators.documents.view` | Filter facets for the catalogue |
+| `POST /api/document-generators/preview` | `document_generators.documents.view` | Render without side effects |
+| `POST /api/document-generators/generate` | `document_generators.documents.generate` | Render, store the file, record history, download |
+| `GET /api/document-generators/documents` | `document_generators.documents.view` | Paginated generation history |
+| `GET /api/document-generators/documents/{id}/file` | `document_generators.documents.view` | Download a stored file |
+
+On top of the engine feature, template-facing routes enforce each template's `requiredFeatures` through `TemplateAccessPolicy`.
+
+### `GET /api/document-generators/templates`
+
+Returns the registered templates the caller may use, with translated labels.
+
+| Query parameter | Description |
+|-----------------|-------------|
+| `resource_kind` | Exact resource kind, for example `sales.order` |
+| `document_type` | Exact document type, for example `invoice` |
+| `format` | `pdf` or `md` |
+| `tags` | Repeatable; matches templates that have any of the given tags |
+
+```jsonc
+// 200 response
+[
+  {
+    "id": "sales.order-invoice",
+    "label": "Order invoice (PDF)",
+    "description": "Printable invoice for a sales order.",
+    "module": "sales",
+    "resourceKind": "sales.order",
+    "documentType": "invoice",
+    "format": "pdf",
+    "tags": ["sales", "order"],
+    "requiredFeatures": ["sales.orders.view"],
+    "version": "1",
+    "versions": ["1"]
+  }
+]
+```
+
+`versions` lists the current version first, followed by any archived versions. `note` is present when the template declares one.
+
+### `GET /api/document-generators/templates/options`
+
+Returns the sorted, unique facet values of the templates the caller may use, so a filter control never offers a value that reveals an inaccessible template.
+
+```jsonc
+// 200 response
+{ "resourceKinds": ["sales.order", "sales.quote"], "formats": ["md", "pdf"] }
+```
+
+### `POST /api/document-generators/preview`
+
+Renders a template for display. It has **no side effects**: nothing is stored, logged to history or emitted, so it is safe to call repeatedly.
+
+```jsonc
+// Request body
+{
+  "template_id": "sales.order-invoice",
+  "template_version": "1",          // optional; omitted = current version
+  "data": { "id": "6a1f…-uuid" }    // handed to the service's fetchData
+}
+```
+
+The body is strict: unknown fields are rejected. The response is the rendered document (`application/pdf` or `text/markdown; charset=utf-8`) with the [document response headers](#document-response-headers).
+
+### `POST /api/document-generators/generate`
+
+Renders a template and returns it as a download. The request body is the same as for preview. It also:
+
+- runs the registered mutation guards before rendering; a blocking guard answers with its own status (`422` by default);
+- stores the file in the `privateAttachments` partition and writes a history row with the server-derived resource kind, id and encrypted label, and the template id and version.
+
+Persistence is best-effort. If storing the file fails, the history row is still written without a file; if writing history fails, the error is logged and reported. In both cases the download succeeds.
+
+### Preview vs generate
+
+| | `/preview` | `/generate` |
+|---|---|---|
+| Purpose | Show in the preview dialog | Download a file |
+| Side effects | None | Stored file and history row |
+| Engine feature | `documents.view` | `documents.generate` |
+| Call it | When a template is opened | When the user downloads |
+| Safe to repeat | Yes | Each call creates a history row |
+| Resource identity | Derived server-side | Derived server-side and persisted |
+
+### `GET /api/document-generators/documents`
+
+Returns generation history for the selected organization.
+
+| Query parameter | Description |
+|-----------------|-------------|
+| `page`, `pageSize` | 1-based page; `pageSize` defaults to 20, maximum 100 |
+| `resource_kind`, `resource_id` | Source-resource filter; must be passed together |
+| `template_id` | Exact template id |
+| `generated_by` | Generating user's UUID |
+| `generated_from`, `generated_to` | Inclusive ISO date-time bounds with offset; `from` must not be later than `to` |
+| `sort` | `template_label`, `format`, `generated_by` or `generated_at` (default) |
+| `sort_direction` | `asc` or `desc` (default) |
+
+`resource_label` is encrypted at rest and therefore not sortable.
+
+```jsonc
+// 200 response
+{
+  "items": [
+    {
+      "id": "b2c3…-uuid",
+      "resourceKind": "sales.order",
+      "resourceId": "6a1f…-uuid",
+      "resourceLabel": "ORDER-20261004-00043",
+      "templateId": "sales.order-invoice",
+      "templateLabel": "Order invoice (PDF)",
+      "templateVersion": "1",
+      "format": "pdf",
+      "generatedBy": "9d8e…-uuid",
+      "generatedAt": "2026-10-04T09:36:53.000Z",
+      "attachmentId": "f00d…-uuid"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+When no organization is selected, the route answers `200` with an empty page. `attachmentId` is `null` when no file was stored, or after retention erased it.
+
+### `GET /api/document-generators/documents/{id}/file`
+
+Streams the stored file of a history row as an attachment. The route re-checks the template's `requiredFeatures` and reads the file only from the private partition, owned by the row's source record. It answers `404 not_found` when the row has no stored file or the file is gone.
+
+### Document response headers
+
+Preview, generate and stored-file responses send:
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | The renderer's MIME type, for example `application/pdf` |
+| `Content-Disposition` | `attachment` with an ASCII `filename` fallback and an RFC 5987 `filename*` |
+| `Cache-Control` | `no-store` |
+| `X-Content-Type-Options` | `nosniff` |
+
+Preview also sends `attachment`; the built-in UI turns the body into a `blob:` URL for its frame.
+
+## Errors
+
+Failures return a stable code plus a translated message:
+
+```json
+{ "error": "forbidden", "message": "You do not have permission to access this document.", "requiredFeatures": ["sales.orders.view"] }
+```
+
+| Code | Status | Meaning |
+|------|--------|---------|
+| `invalid_json` | 400 | The body is not valid JSON |
+| `invalid_request` | 400 | The body fails validation, or the service rejected `data` |
+| `invalid_query` | 400 | A `GET` route received a malformed query value |
+| `unknown_template` | 400 | `template_id` is not registered |
+| `unknown_template_version` | 400 | `template_version` is not available for that template |
+| `forbidden` | 403 | The caller lacks a template's `requiredFeatures`; the body lists them |
+| `not_found` | 404 | The source record or stored file does not exist in scope |
+| `organization_required` | 409 | No organization is selected |
+| `render_failed` | 500 | Rendering or an unexpected service error; the cause is logged, not returned |
+
+A missing session answers `401` with `{ "error": "Unauthorized" }`.
+
+## Calling the API from your own UI
+
+Prefer the engine's components; they already handle access, errors, guarded mutations and history refresh. For a custom client, send only the record id and download through the engine helpers:
+
+```ts
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { downloadBlob, getFilenameFromResponse } from '@open-mercato/document-generators/modules/document_generators/utils/index'
+
+const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'document-generators.generate' })
+
+const payload = { template_id: 'invoices.invoice', data: { id: invoiceId } }
+await runMutation({
+  operation: async () => {
+    const call = await apiCall<Blob>(
+      '/api/document-generators/generate',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
+      { parse: (response) => response.blob() },
+    )
+    if (!call.ok || !call.result) throw new Error('[internal] Document generation failed')
+    downloadBlob(call.result, getFilenameFromResponse(call.response))
+  },
+  context: { templateId: payload.template_id, retryLastMutation },
+  mutationPayload: payload,
+})
+```
+
+## TypeScript exports
+
+### Shared contracts: `@open-mercato/shared/modules/document-generators`
+
+Everything a module needs to **declare** templates. It never requires the engine package.
+
+| Export | Description |
+|--------|-------------|
+| `BaseDocumentService` | Abstract service: `id`, `label`, `module`, `resourceKind`, `registerTemplate`, `getEntries`, `fetchData`, `toTemplateData`, `resourceId`, `resourceLabel`. See [Authoring templates](./authoring.mdx#service-members). |
+| `DEFAULT_TEMPLATE_VERSION` | `'1'` |
+| `TemplateMeta` | Catalogue descriptor: `id`, `label`, `description`, `module`, `resourceKind`, `documentType`, `format`, `tags`, `note?`, `requiredFeatures?`, `version?`, `versions?` |
+| `DocumentTemplateEntry` | What `registerTemplate` accepts: per-template fields plus `filename`, `load` and `archivedVersions?` |
+| `TemplateEntry` | `TemplateMeta` plus runtime hooks; what `document-generators.ts` exports |
+| `TemplateRegistryEntry` | The runtime hooks: `fromRecord`, `filename`, `resourceId`, `resourceLabel?`, `load`, `fetchData?`, `archivedVersions?` |
+| `DocumentTemplateSource` | `{ type: string; [key: string]: unknown }`, the format-neutral result of `load()` |
+| `TemplateVersionSource` | `{ version, load }` |
+| `DocumentFetchContext` | `{ container, auth }` passed to `fetchData` |
+| `TemplateNormalizationInput` | `{ data, locale, translate }` passed to `toTemplateData` |
+| `DocumentDataInput`, `TemplateDataContext` | Inputs of `filename` / `resourceId` and the locale context |
+| `buildDocumentFilename(data, prefix, extension)`, `sanitizeDocumentFilename(value)` | Filename from normalized `data.document.number`, falling back to `{prefix}.{extension}` |
+| `toText`, `firstText`, `toNumber`, `toIso` | Value coercion for normalization |
+| `toSnapshotRecord(value)`, `SnapshotRecord` | Reads a JSON snapshot column (object or JSON string) as a record |
+| `buildLabels(keys, defaults, prefix, translate)` | Builds a translated label map with defaults |
+| `isDraftStatus(status, draftStatuses)` | `true` for a missing status or one in the given set |
+
+### Engine: `@open-mercato/document-generators/modules/document_generators/...`
+
+Import through these barrels, not implementation filenames:
+
+| Path | Exports |
+|------|---------|
+| `utils/index` | `formatDate(iso, locale)` (locale convention, UTC), `formatMoney(amount, currency, locale)`, `escapeInline`, `escapeTableCell`, `downloadBlob(blob, filename)`, `revokeObjectUrlAfterNavigation(url)`, `getFilenameFromResponse(response, fallback?)`, `resolveErrorMessage(payload, translate)` |
+| `templates/shared/index` | `documentTheme` (font, colors, spacing, font sizes, border width), `DraftWatermark({ label })`, `OpenMercatoLogo` |
+| `providers/react-pdf/index` | `Document`, `Page`, `Text`, `View`, `Image`, `Link`, `Svg`, `Path`, `Rect`, `Circle`, `StyleSheet` and their prop types |
+| `components/ResourceDocumentsPanel` | `ResourceDocumentsPanel({ resourceKind, resourceId })`: templates plus this record's history; refreshes history after a download |
+| `components/TemplatesList` | `TemplatesList({ record: { id }, filter?, onGenerated? })` |
+| `components/HistoryList` | `HistoryList({ resourceKind?, resourceId?, pageSize?, columns?, showFilters? })` |
+
+Runtime internals (`templateRegistry`, `DocumentRenderer`, renderer services and history services) are engine implementation details used by the API routes. Format-specific types live with their renderer: `PdfRenderInput` / `ReactPdfTemplateSource` in `services/pdf-rendering-service/types.ts`, and `MarkdownRenderInput` / `MarkdownTemplateSource` in `services/markdown-rendering-service/types.ts`.
