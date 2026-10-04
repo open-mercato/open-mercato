@@ -53,6 +53,12 @@ accent-insensitive predicate — in that case build it from
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
 
+`buildAccentInsensitivePatternSql()` is deprecated (#6465): `unaccent` folds fullwidth `％ ＿ ＼`
+into the ASCII LIKE metacharacters, so a pattern escaped with `escapeLikePattern` before that call
+regains live wildcards. Bind the **raw** search term to `buildAccentInsensitiveContainsPatternSql()`
+instead — it unaccents first, then escapes, and adds the surrounding `%`. The deprecated helper is
+unchanged and will be removed no earlier than 0.9.0.
+
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
 `createOpenAICompatibleProvider(preset)`
