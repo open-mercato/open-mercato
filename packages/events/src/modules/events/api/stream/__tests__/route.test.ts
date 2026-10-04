@@ -1,11 +1,29 @@
-jest.mock('@open-mercato/shared/lib/api/context', () => ({
-  resolveRequestContext: jest.fn(async () => ({
+type MockAuth = {
+  tenantId: string | null
+  sub: string
+  orgId: string | null
+  roles: string[]
+}
+
+function buildResolvedContext(auth: MockAuth | null = {
+  tenantId: 't1',
+  sub: 'u1',
+  orgId: 'o1',
+  roles: ['admin'],
+}, selectedOrganizationId: string | null = 'o1') {
+  return {
     ctx: {
-      auth: { tenantId: 't1', sub: 'u1', orgId: 'o1', roles: ['admin'] },
-      selectedOrganizationId: 'o1',
+      auth,
+      selectedOrganizationId,
     },
     container: {},
-  })),
+  }
+}
+
+const mockResolveRequestContext = jest.fn(async () => buildResolvedContext())
+
+jest.mock('@open-mercato/shared/lib/api/context', () => ({
+  resolveRequestContext: (...args: unknown[]) => mockResolveRequestContext(...args),
 }))
 
 type EmitOptions = {
@@ -63,7 +81,17 @@ function makeTrackedRequest() {
 }
 
 describe('SSE event stream — abort listener hygiene', () => {
+  beforeEach(() => {
+    mockResolveRequestContext.mockReset()
+    mockResolveRequestContext.mockResolvedValue(buildResolvedContext())
+    delete process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS
+    delete process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS
+  })
+
   afterEach(() => {
+    jest.useRealTimers()
+    delete process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS
+    delete process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS
     jest.restoreAllMocks()
   })
 
@@ -485,5 +513,108 @@ describe('SSE event stream — abort listener hygiene', () => {
       try { await (res.body as ReadableStream).cancel() } catch {}
       jest.restoreAllMocks()
     }
+  })
+
+  it('closes and fully cleans up when canonical recipient roles change', async () => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    const { req, addSpy, removeSpy } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+    const attachedListener = addSpy.mock.calls.find((call) => call[0] === 'abort')![1]
+    expect(jest.getTimerCount()).toBe(3)
+
+    mockResolveRequestContext.mockResolvedValue(buildResolvedContext({
+      tenantId: 't1',
+      sub: 'u1',
+      orgId: 'o1',
+      roles: ['viewer'],
+    }))
+    await jest.advanceTimersByTimeAsync(1000)
+
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o1', recipientRoleId: 'admin', marker: 'revoked-role' },
+    )
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    expect(removeSpy).toHaveBeenCalledWith('abort', attachedListener)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it.each([
+    {
+      change: 'tenant move',
+      nextContext: buildResolvedContext({ tenantId: 't2', sub: 'u1', orgId: 'o1', roles: ['admin'] }),
+    },
+    {
+      change: 'organization move',
+      nextContext: buildResolvedContext({ tenantId: 't1', sub: 'u1', orgId: 'o2', roles: ['admin'] }, 'o2'),
+    },
+  ])('closes after a canonical $change', async ({ nextContext }) => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    const { req } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    mockResolveRequestContext.mockResolvedValue(nextContext)
+    await jest.advanceTimersByTimeAsync(1000)
+
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('closes when canonical identity is missing', async () => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    const { req } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    mockResolveRequestContext.mockResolvedValue(buildResolvedContext(null, null))
+    await jest.advanceTimersByTimeAsync(1000)
+
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('fails closed when canonical auth validation throws', async () => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    const { req } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    mockResolveRequestContext.mockRejectedValue(new Error('validation unavailable'))
+    await jest.advanceTimersByTimeAsync(1000)
+
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('caps connection lifetime and leaves EventSource free to reconnect', async () => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '10000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '1000'
+    const { req, addSpy, removeSpy } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+    const attachedListener = addSpy.mock.calls.find((call) => call[0] === 'abort')![1]
+
+    await jest.advanceTimersByTimeAsync(1000)
+
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    expect(mockResolveRequestContext).toHaveBeenCalledTimes(1)
+    expect(removeSpy).toHaveBeenCalledWith('abort', attachedListener)
+    expect(jest.getTimerCount()).toBe(0)
   })
 })

@@ -61,6 +61,29 @@ them (a bare `next start` does not).
   - Redis: online delivery + persistence in Redis sorted set.
 - Offline processing: `yarn mercato events process [--limit=N]` replays unprocessed persistent events.
 
+## Browser event stream authorization
+
+Events declared with `clientBroadcast: true` can reach the browser through the authenticated
+`GET /api/events/stream` Server-Sent Events endpoint. The server filters every frame against the
+connection's tenant, organization, user, and roles. It also re-resolves canonical authorization
+from the original request credentials every 30 seconds. If the session or user disappears, the
+lookup fails, or the canonical user, tenant, organization, or role set changes, the stream closes
+and removes its connection, listener, heartbeat, validation, and lifetime state before any later
+event can be delivered.
+
+Every stream also has a five-minute server maximum. Closing is intentional: the browser's native
+`EventSource` reconnect behavior creates a new request that passes through normal authentication
+again. Heartbeats still run every 30 seconds, and the browser watchdog still reconnects when one is
+missing for 45 seconds.
+
+| Environment variable | Default | Constraint | Purpose |
+| --- | ---: | ---: | --- |
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | minimum `1000` | How often an open stream re-resolves canonical identity and roles. |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` | minimum `1000` | Maximum age of one server stream before a forced reconnect. |
+
+Invalid values and values below the minimum use the default. Keep the revalidation interval below
+the maximum age when periodic revocation detection should happen before the mandatory reconnect.
+
 ## File Structure
 
 Example subscriber file `packages/my-module/src/modules/my_module/subscribers/order-created.ts`:

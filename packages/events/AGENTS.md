@@ -180,6 +180,8 @@ useAppEvent('mymod.entity.created', (event) => {
   - Recipient role: `recipientRoleId` or `recipientRoleIds` must intersect connection roles
 - Missing `tenantId` in event payload means no delivery
 - SSE sends heartbeats every 30s; client auto-reconnects if no heartbeat within 45s
+- SSE re-resolves canonical auth from the original request credentials every 30s and closes fail-closed when the identity disappears, validation fails, or its user, tenant, organization, or roles change. A successful check replaces the connection identity snapshot.
+- Every server stream closes after 5 minutes even when validation succeeds, forcing native `EventSource` reconnect through fresh request authorization. Operators may lower or raise these positive millisecond bounds with `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` and `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS`; invalid values and values below 1000ms fall back to the defaults.
 - Max payload size is 4096 bytes per event
 - Client deduplicates events within a 500ms window
 - `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`
