@@ -2512,22 +2512,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       return
     }
 
-    const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
-    const target =
-      container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
-      form.querySelector<HTMLElement>(`[name="${fieldId}"]`) ??
-      container ??
-      null
-
-    if (target && typeof target.focus === 'function') {
+    // Take the first invalid field that can actually receive focus. The first
+    // error is not always one: a field may render no control of its own (a
+    // preview, a custom block), or its control may be disabled or hidden. Trying
+    // only the first entry left focus on <body>, where the submit's blur put it.
+    for (const [candidateId] of entries) {
+      const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${candidateId}"]`)
+      const target =
+        container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
+        form.querySelector<HTMLElement>(`[name="${candidateId}"]`) ??
+        null
+      if (!target || typeof target.focus !== 'function') continue
       target.focus()
+      if (document.activeElement !== target) continue
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         try {
           target.select()
         } catch {}
       }
-      lastErrorFieldRef.current = fieldId
+      break
     }
+    lastErrorFieldRef.current = fieldId
   }, [errors, formId])
 
   // When an injection widget blocks save (e.g. the SEO helper), the blocking
