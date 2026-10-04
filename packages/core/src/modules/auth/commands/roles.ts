@@ -1,4 +1,4 @@
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandReplayAuthorizationArgs } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import {
   parseWithCustomFields,
@@ -9,7 +9,7 @@ import {
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -26,6 +26,17 @@ import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { resolveIsSuperAdmin, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import {
+  assertActorCanAccessRoleTarget,
+  assertActorCanGrantAcl,
+  assertActorCanModifySuperAdminRoleTarget,
+} from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import {
+  assertReplaySnapshotMatches,
+  extractStoredReplayInput,
+  requireCurrentReplayFeature,
+} from '@open-mercato/core/modules/auth/lib/commandReplay'
 
 type SerializedRole = {
   name: string
@@ -137,6 +148,7 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
+  authorizeReplay: (params) => authorizeRoleReplay('create', params),
   async execute(rawInput, ctx) {
     const rawBody = rawInput && typeof rawInput === 'object' ? rawInput as Record<string, unknown> : {}
     if ('tenantId' in rawBody && rawBody.tenantId === null) {
@@ -299,6 +311,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 
 const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.update',
+  authorizeReplay: (params) => authorizeRoleReplay('update', params),
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -427,17 +440,22 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const before = undo?.before
     const after = undo?.after
     if (!before) return
+    const storedReplayInput = extractStoredReplayInput(logEntry.commandPayload, logEntry)
+    const replayInput = Object.keys(storedReplayInput).length
+      ? storedReplayInput
+      : deriveRoleUpdateReplayInput(before, after ?? null)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const updated = await de.updateOrmEntity({
       entity: Role,
       where: { id: before.id, deletedAt: null } as FilterQuery<Role>,
       apply: (entity) => {
-        entity.name = before.name
-        entity.tenantId = before.tenantId
+        if ('name' in replayInput) entity.name = before.name
+        if ('tenantId' in replayInput) entity.tenantId = before.tenantId
       },
     })
-    if (updated) {
+    const restoresAcls = 'tenantId' in replayInput && after?.tenantId !== before.tenantId
+    if (updated && restoresAcls) {
       await restoreRoleAcls(em, before.id, before.acls)
     }
     const reset = buildCustomFieldResetMap(before.custom, after?.custom)
@@ -469,6 +487,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 
 const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, Role> = {
   id: 'auth.roles.delete',
+  authorizeReplay: (params) => authorizeRoleReplay('delete', params),
   async prepare(input, ctx) {
     const id = requireId(input, 'Role id required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -589,6 +608,170 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       indexer: roleCrudIndexer,
     })
   },
+}
+
+type RoleReplayCommandKind = 'create' | 'update' | 'delete'
+
+function normalizeRoleAclSnapshots(acls: RoleAclSnapshot[]): RoleAclSnapshot[] {
+  return acls
+    .map((acl) => ({
+      ...acl,
+      features: acl.features ? [...acl.features].sort((left, right) => left.localeCompare(right)) : null,
+      organizations: acl.organizations ? [...acl.organizations].sort((left, right) => left.localeCompare(right)) : null,
+    }))
+    .sort((left, right) => {
+      const tenantOrder = left.tenantId.localeCompare(right.tenantId)
+      if (tenantOrder !== 0) return tenantOrder
+      return (left.id ?? '').localeCompare(right.id ?? '')
+    })
+}
+
+function normalizeRoleReplaySnapshot(snapshot: RoleUndoSnapshot): RoleUndoSnapshot {
+  return {
+    ...snapshot,
+    acls: normalizeRoleAclSnapshots(snapshot.acls),
+  }
+}
+
+function toRoleUpdateReplayState(snapshot: RoleUndoSnapshot): SerializedRole {
+  return {
+    name: snapshot.name,
+    tenantId: snapshot.tenantId,
+    ...(snapshot.custom && Object.keys(snapshot.custom).length ? { custom: snapshot.custom } : {}),
+  }
+}
+
+function deriveRoleUpdateReplayInput(
+  before: RoleUndoSnapshot | null,
+  after: RoleUndoSnapshot | null,
+): Record<string, unknown> {
+  if (!before) return {}
+  if (!after) return { id: before.id, name: before.name, tenantId: before.tenantId }
+  const input: Record<string, unknown> = { id: after.id }
+  if (before.name !== after.name) input.name = after.name
+  if (before.tenantId !== after.tenantId) input.tenantId = after.tenantId
+  return input
+}
+
+async function authorizeRoleReplay(
+  commandKind: RoleReplayCommandKind,
+  params: CommandReplayAuthorizationArgs<unknown>,
+): Promise<void> {
+  const { operation, ctx, logEntry } = params
+  await requireCurrentReplayFeature(ctx, 'auth.roles.manage')
+
+  const undoPayload = extractUndoPayload<RoleUndoPayload>(logEntry)
+  const before = undoPayload?.before ?? null
+  const after = undoPayload?.after ?? null
+  const roleId = logEntry.resourceId ?? before?.id ?? after?.id ?? null
+  if (!roleId) {
+    await assertReplaySnapshotMatches(null, { required: 'role replay snapshot' })
+    return
+  }
+
+  const em = ctx.container.resolve('em') as EntityManager
+  const currentRole = await findOneWithDecryption(
+    em,
+    Role,
+    { id: roleId, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  const rbacService = ctx.systemActor === true
+    ? null
+    : ctx.container.resolve('rbacService') as RbacService
+  if (rbacService && currentRole) {
+    await assertActorCanAccessRoleTarget({
+      em,
+      rbacService,
+      actorUserId: ctx.auth?.sub,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.auth?.orgId ?? null,
+      targetRoleId: roleId,
+    })
+    await assertActorCanModifySuperAdminRoleTarget({
+      em,
+      rbacService,
+      actorUserId: ctx.auth?.sub,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.auth?.orgId ?? null,
+      targetRoleId: roleId,
+    })
+  }
+
+  let currentSnapshot: RoleUndoSnapshot | null = null
+  if (currentRole) {
+    const currentTenantId = currentRole.tenantId ? String(currentRole.tenantId) : null
+    const [acls, custom] = await Promise.all([
+      loadRoleAclSnapshots(em, roleId),
+      loadCustomFieldSnapshot(em, {
+        entityId: E.auth.role,
+        recordId: roleId,
+        tenantId: currentTenantId,
+      }),
+    ])
+    currentSnapshot = captureRoleSnapshots(currentRole, acls, custom).undo
+  }
+
+  const expectedCurrent = operation === 'undo'
+    ? commandKind === 'create' ? after : commandKind === 'update' ? after : null
+    : commandKind === 'create' ? null : before
+  const storedReplayInput = extractStoredReplayInput(params.input, logEntry)
+  const replayInput = Object.keys(storedReplayInput).length
+    ? storedReplayInput
+    : deriveRoleUpdateReplayInput(before, after)
+  const movesTenant = commandKind === 'update'
+    && 'tenantId' in replayInput
+    && before?.tenantId !== after?.tenantId
+
+  if (commandKind === 'update' && !movesTenant) {
+    if (!currentSnapshot || !expectedCurrent) {
+      await assertReplaySnapshotMatches(currentSnapshot, expectedCurrent)
+    } else {
+      await assertReplaySnapshotMatches(
+        toRoleUpdateReplayState(currentSnapshot),
+        toRoleUpdateReplayState(expectedCurrent),
+      )
+    }
+  } else {
+    await assertReplaySnapshotMatches(
+      currentSnapshot ? normalizeRoleReplaySnapshot(currentSnapshot) : null,
+      expectedCurrent ? normalizeRoleReplaySnapshot(expectedCurrent) : null,
+    )
+  }
+
+  const desiredState = operation === 'undo'
+    ? commandKind === 'create' ? null : before
+    : commandKind === 'delete' ? null : after
+  if (desiredState && !currentRole && rbacService) {
+    const actorUserId = ctx.auth?.sub
+    if (!actorUserId) throw forbidden()
+    const actorAcl = await rbacService.loadAcl(actorUserId, {
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.auth?.orgId ?? null,
+    })
+    if (!actorAcl.isSuperAdmin) assertRoleTenantInScope(ctx.auth?.tenantId ?? null, desiredState.tenantId)
+  }
+  const restoresAcls = Boolean(
+    desiredState
+      && desiredState.acls.length > 0
+      && (commandKind !== 'update' || movesTenant),
+  )
+  if (!restoresAcls || !desiredState || !rbacService) return
+
+  await requireCurrentReplayFeature(ctx, 'auth.acl.manage')
+  for (const acl of desiredState.acls) {
+    await assertActorCanGrantAcl({
+      em,
+      rbacService,
+      actorUserId: ctx.auth?.sub,
+      tenantId: acl.tenantId,
+      organizationId: null,
+      features: acl.features,
+      isSuperAdmin: acl.isSuperAdmin,
+      organizations: acl.organizations,
+    })
+  }
 }
 
 registerCommand(createRoleCommand)

@@ -1,4 +1,4 @@
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandReplayAuthorizationArgs } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import {
   parseWithCustomFields,
@@ -54,10 +54,21 @@ import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/d
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   assertActorCanAssignUserDestination,
+  assertActorCanAccessUserTarget,
+  assertActorCanGrantAcl,
+  assertActorCanGrantRoleTokens,
+  assertActorCanModifySuperAdminUserTarget,
   resolveUserDestinationRoles,
   throwUserDestinationOrganizationNotFound,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import {
+  assertReplaySnapshotMatches,
+  denyCredentialReplay,
+  extractStoredReplayInput,
+  hasStoredPasswordInput,
+  requireCurrentReplayFeature,
+} from '@open-mercato/core/modules/auth/lib/commandReplay'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
 
@@ -83,7 +94,7 @@ type UserUndoSnapshot = {
   email: string
   organizationId: string | null
   tenantId: string | null
-  passwordHash: string | null
+  passwordHash?: string | null
   name: string | null
   isConfirmed: boolean
   roles: string[]
@@ -213,6 +224,7 @@ type CreateUserResult = { user: User; warning?: 'invite_email_failed' }
 
 const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResult> = {
   id: 'auth.users.create',
+  authorizeReplay: (params) => authorizeUserReplay('create', params),
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -542,6 +554,7 @@ function isUniqueViolation(error: unknown): boolean {
 
 const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   id: 'auth.users.update',
+  authorizeReplay: (params) => authorizeUserReplay('update', params),
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -786,7 +799,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     )
     return serializeUser(result, roles, custom)
   },
-  buildLog: async ({ result, snapshots, ctx }) => {
+  buildLog: async ({ input, result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
     const beforeSnapshots = snapshots.before as UserSnapshots | undefined
     const before = beforeSnapshots?.view
@@ -809,7 +822,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     for (const [key, diff] of Object.entries(customDiff)) {
       changes[`cf_${key}`] = diff
     }
+    const replayable = typeof input.password !== 'string' || input.password.length === 0
     return {
+      replayable,
       actionLabel: translate('auth.audit.users.update', 'Update user'),
       resourceKind: 'auth.user',
       resourceId: String(result.id),
@@ -818,12 +833,14 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       changes,
       snapshotBefore: before ?? null,
       snapshotAfter: after,
-      payload: {
-        undo: {
-          before: beforeUndo,
-          after: afterSnapshots.undo,
-        },
-      },
+      payload: replayable
+        ? {
+            undo: {
+              before: withoutPasswordHash(beforeUndo),
+              after: withoutPasswordHash(afterSnapshots.undo),
+            },
+          }
+        : undefined,
     }
   },
   undo: async ({ logEntry, ctx }) => {
@@ -832,6 +849,10 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const after = payload?.after
     if (!before) return
     const userId = before.id
+    const storedReplayInput = extractStoredReplayInput(logEntry.commandPayload, logEntry)
+    const replayInput = Object.keys(storedReplayInput).length
+      ? storedReplayInput
+      : deriveUserUpdateReplayInput(before, after ?? null)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
@@ -848,24 +869,27 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         const currentTenantId = current?.tenantId ? String(current.tenantId) : null
 
         await enforceProtectedRoleFloor(em, currentTenantId, userId, {
-          deactivating: before.isConfirmed === false || restoredTenantId !== currentTenantId,
-          newRoles: before.roles,
+          deactivating:
+            ('isConfirmed' in replayInput && before.isConfirmed === false)
+            || ('organizationId' in replayInput && restoredTenantId !== currentTenantId),
+          newRoles: Array.isArray(replayInput.roles) ? before.roles : undefined,
         }, ctx)
 
         updated = await de.updateOrmEntity({
           entity: User,
           where: { id: userId, deletedAt: null } as FilterQuery<User>,
           apply: (entity) => {
-            entity.email = before.email
-            entity.organizationId = before.organizationId ?? null
-            entity.tenantId = before.tenantId ?? null
-            entity.passwordHash = before.passwordHash ?? null
-            entity.name = before.name ?? null
-            entity.isConfirmed = before.isConfirmed
+            if ('email' in replayInput) entity.email = before.email
+            if ('organizationId' in replayInput) {
+              entity.organizationId = before.organizationId ?? null
+              entity.tenantId = before.tenantId ?? null
+            }
+            if ('name' in replayInput) entity.name = before.name ?? null
+            if ('isConfirmed' in replayInput) entity.isConfirmed = before.isConfirmed
           },
         })
 
-        if (updated) {
+        if (updated && Array.isArray(replayInput.roles)) {
           await syncUserRoles(em, updated, before.roles, before.tenantId)
         }
       },
@@ -903,6 +927,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
 const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, User> = {
   id: 'auth.users.delete',
+  authorizeReplay: (params) => authorizeUserReplay('delete', params),
   async prepare(input, ctx) {
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -1057,6 +1082,233 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
 
     await invalidateUserCache(ctx, before.id)
   },
+}
+
+type UserReplayCommandKind = 'create' | 'update' | 'delete'
+
+function withoutPasswordHash(snapshot: UserUndoSnapshot | null): UserUndoSnapshot | null {
+  if (!snapshot) return null
+  const safeSnapshot = { ...snapshot }
+  delete safeSnapshot.passwordHash
+  return safeSnapshot
+}
+
+function normalizeUserAclSnapshots(acls: UserAclSnapshot[]): UserAclSnapshot[] {
+  return acls
+    .map((acl) => ({
+      ...acl,
+      features: acl.features ? [...acl.features].sort((left, right) => left.localeCompare(right)) : null,
+      organizations: acl.organizations ? [...acl.organizations].sort((left, right) => left.localeCompare(right)) : null,
+    }))
+    .sort((left, right) => left.tenantId.localeCompare(right.tenantId))
+}
+
+function normalizeUserReplaySnapshot(snapshot: UserUndoSnapshot): UserUndoSnapshot {
+  return {
+    ...snapshot,
+    roles: [...snapshot.roles].sort((left, right) => left.localeCompare(right)),
+    acls: normalizeUserAclSnapshots(snapshot.acls),
+  }
+}
+
+function toUserUpdateReplayState(snapshot: UserUndoSnapshot): SerializedUser {
+  return {
+    email: snapshot.email,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    roles: [...snapshot.roles].sort((left, right) => left.localeCompare(right)),
+    name: snapshot.name,
+    isConfirmed: snapshot.isConfirmed,
+    ...(snapshot.custom && Object.keys(snapshot.custom).length ? { custom: snapshot.custom } : {}),
+  }
+}
+
+function deriveUserUpdateReplayInput(
+  before: UserUndoSnapshot | null,
+  after: UserUndoSnapshot | null,
+): Record<string, unknown> {
+  if (!before) return {}
+  if (!after) {
+    return {
+      id: before.id,
+      email: before.email,
+      organizationId: before.organizationId,
+      name: before.name,
+      isConfirmed: before.isConfirmed,
+      roles: before.roles,
+    }
+  }
+  const input: Record<string, unknown> = { id: after.id }
+  if (before.email !== after.email) input.email = after.email
+  if (before.organizationId !== after.organizationId || before.tenantId !== after.tenantId) {
+    input.organizationId = after.organizationId
+  }
+  if (before.name !== after.name) input.name = after.name
+  if (before.isConfirmed !== after.isConfirmed) input.isConfirmed = after.isConfirmed
+  if (!arrayEquals(before.roles, after.roles)) input.roles = after.roles
+  return input
+}
+
+function isSelfProfileReplay(
+  input: Record<string, unknown>,
+  ctx: CommandRuntimeContext,
+  userId: string,
+): boolean {
+  if (!ctx.auth?.sub || ctx.auth.sub !== userId) return false
+  const allowedKeys = new Set(['id', 'email', 'password'])
+  return Object.keys(input).every((key) => allowedKeys.has(key) || input[key] === undefined)
+}
+
+async function authorizeUserReplay(
+  commandKind: UserReplayCommandKind,
+  params: CommandReplayAuthorizationArgs<unknown>,
+): Promise<void> {
+  const { operation, ctx, logEntry } = params
+  const undoPayload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
+  const before = undoPayload?.before ?? null
+  const after = undoPayload?.after ?? null
+  const passwordHashChanged = Boolean(
+    commandKind === 'update'
+      && before
+      && after
+      && 'passwordHash' in before
+      && 'passwordHash' in after
+      && before.passwordHash !== after.passwordHash,
+  )
+  if (commandKind === 'update' && (hasStoredPasswordInput(params.input, logEntry) || passwordHashChanged)) {
+    await denyCredentialReplay()
+  }
+  const userId = logEntry.resourceId ?? before?.id ?? after?.id ?? null
+  if (!userId) {
+    await assertReplaySnapshotMatches(null, { required: 'user replay snapshot' })
+    return
+  }
+
+  const storedReplayInput = extractStoredReplayInput(params.input, logEntry)
+  const replayInput = Object.keys(storedReplayInput).length
+    ? storedReplayInput
+    : deriveUserUpdateReplayInput(before, after)
+  const requiredFeature = commandKind === 'create'
+    ? operation === 'undo' ? 'auth.users.delete' : 'auth.users.create'
+    : commandKind === 'delete'
+      ? operation === 'undo' ? 'auth.users.create' : 'auth.users.delete'
+      : 'auth.users.edit'
+  if (commandKind !== 'update' || !isSelfProfileReplay(replayInput, ctx, userId)) {
+    await requireCurrentReplayFeature(ctx, requiredFeature)
+  }
+
+  const em = ctx.container.resolve('em') as EntityManager
+  const currentUser = await findOneWithDecryption(
+    em,
+    User,
+    { id: userId, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  const rbacService = ctx.systemActor === true
+    ? null
+    : ctx.container.resolve('rbacService') as RbacService
+
+  if (rbacService && currentUser) {
+    const allowedIds = ctx.organizationScope?.allowedIds
+      ?? ctx.organizationIds
+      ?? (ctx.auth?.orgId ? [ctx.auth.orgId] : null)
+    await assertActorCanAccessUserTarget({
+      em,
+      rbacService,
+      actorUserId: ctx.auth?.sub,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.auth?.orgId ?? null,
+      organizationScope: { allowedIds },
+      targetUserId: userId,
+    })
+    await assertActorCanModifySuperAdminUserTarget({
+      em,
+      rbacService,
+      actorUserId: ctx.auth?.sub,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.auth?.orgId ?? null,
+      targetUserId: userId,
+    })
+  }
+
+  let currentSnapshot: UserUndoSnapshot | null = null
+  if (currentUser) {
+    const currentTenantId = currentUser.tenantId ? String(currentUser.tenantId) : null
+    const currentOrganizationId = currentUser.organizationId ? String(currentUser.organizationId) : null
+    const [roles, acls, custom] = await Promise.all([
+      loadUserRoleNames(em, userId),
+      loadUserAclSnapshots(em, userId),
+      loadUserCustomSnapshot(em, userId, currentTenantId, currentOrganizationId),
+    ])
+    currentSnapshot = captureUserSnapshots(currentUser, roles, acls, custom).undo
+  }
+
+  const expectedCurrent = operation === 'undo'
+    ? commandKind === 'create' ? after : commandKind === 'update' ? after : null
+    : commandKind === 'create' ? null : before
+
+  if (commandKind === 'update') {
+    if (!currentSnapshot || !expectedCurrent) {
+      await assertReplaySnapshotMatches(currentSnapshot, expectedCurrent)
+    } else {
+      await assertReplaySnapshotMatches(
+        toUserUpdateReplayState(currentSnapshot),
+        toUserUpdateReplayState(expectedCurrent),
+      )
+    }
+  } else {
+    await assertReplaySnapshotMatches(
+      currentSnapshot ? normalizeUserReplaySnapshot(currentSnapshot) : null,
+      expectedCurrent ? normalizeUserReplaySnapshot(expectedCurrent) : null,
+    )
+  }
+
+  const desiredState = operation === 'undo'
+    ? commandKind === 'create' ? null : before
+    : commandKind === 'delete' ? null : after
+  if (!desiredState || !rbacService) return
+
+  const restoresMembership = commandKind !== 'update'
+    || Array.isArray(replayInput.roles)
+    || 'organizationId' in replayInput
+  if (restoresMembership) {
+    const roles = await assertActorCanGrantRoleTokens({
+      em,
+      rbacService,
+      actorUserId: ctx.auth?.sub,
+      tenantId: desiredState.tenantId,
+      organizationId: desiredState.organizationId,
+      roleTokens: desiredState.roles,
+    })
+    await assertActorCanAssignUserDestination({
+      em,
+      rbacService,
+      actorUserId: ctx.auth?.sub,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.auth?.orgId ?? null,
+      allowedOrganizationIds: ctx.organizationScope?.allowedIds ?? ctx.organizationIds,
+      destinationTenantId: desiredState.tenantId,
+      destinationOrganizationId: desiredState.organizationId,
+      roles,
+    })
+  }
+
+  const restoresAcls = commandKind !== 'update' && desiredState.acls.length > 0
+  if (!restoresAcls) return
+  await requireCurrentReplayFeature(ctx, 'auth.acl.manage')
+  for (const acl of desiredState.acls) {
+    await assertActorCanGrantAcl({
+      em,
+      rbacService,
+      actorUserId: ctx.auth?.sub,
+      tenantId: acl.tenantId,
+      organizationId: desiredState.organizationId,
+      features: acl.features,
+      isSuperAdmin: acl.isSuperAdmin,
+      organizations: acl.organizations,
+    })
+  }
 }
 
 registerCommand(createUserCommand)

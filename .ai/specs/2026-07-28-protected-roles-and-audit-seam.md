@@ -6,6 +6,7 @@ Prevent lockouts in tenants by enforcing a minimum active holder floor constrain
 ## Overview
 1. **Protected Roles**: Ensure that a tenant cannot drop below the configured minimum active holder count (e.g., 1 admin) due to user deletes, role updates, user moves, user deactivations, or the undo of any of those.
 2. **Audit Seam**: Merge interceptor `beforeExecute` metadata `logContext` into `ActionLog.contextJson` with priority ordering and collision resolution.
+3. **Replay Authorization**: Re-authorize auth command undo/redo against the actor's current grants and the target's current state before any replay write or event.
 
 ## Problem Statement
 - A tenant administrator can accidentally delete, deactivate, or strip roles from the last active administrator account in a tenant. This leads to administrative lockouts.
@@ -22,6 +23,17 @@ Prevent lockouts in tenants by enforcing a minimum active holder floor constrain
 - `packages/core/src/modules/auth/commands/users.ts` implements transaction-bound floor checks using `LockMode.PESSIMISTIC_WRITE` on `Role` rows.
 - `packages/core/src/modules/auth/lib/sessionIntegrity.ts` invalidates deactivated users' sessions.
 - `packages/core/src/modules/auth/api/login.ts` denies login to deactivated users.
+- `CommandHandler.authorizeReplay` is an additive, optional hook invoked before an undo claim and before redo processing. Auth handlers use it to resolve current RBAC grants, target scope, protected-target state, grant boundaries, and snapshot freshness.
+- `CommandLogMetadata.replayable: false` records an audit entry without an undo token or command payload. Auth password updates use this per execution, so unrelated user updates remain replayable while credential input is never retained for replay.
+
+### Replay authorization contract
+
+- Undo authorization runs before `claimForUndo`, so a denial does not mutate the action-log execution state. Redo authorization runs before interceptors, snapshot capture, handler execution, logging, cache invalidation, or CRUD side effects.
+- Auth replay requires the current semantic inverse permission (`create` undo requires delete authority, delete undo requires create authority, and updates require edit/manage authority). A self-service, non-password profile update remains authorized for the same user without gaining administrative edit authority.
+- Existing action logs are covered because authorization is evaluated when the log is replayed, not only when it is created.
+- Replay fails with `409` when the live target no longer matches the state the stored action expects. Denial occurs before domain writes and events.
+- Scalar role update undo restores only scalar/custom-field changes. It does not restore an ACL snapshot unless the original command moved the role between tenants; ACL restoration paths additionally require current `auth.acl.manage` and current grant-boundary validation.
+- Password-bearing `auth.users.update` executions are non-replayable. Historical password-bearing update logs are rejected by the replay guard, and new entries retain neither plaintext redo input nor credential snapshots.
 
 ### Enforcement points
 `enforceProtectedRoleFloor` runs in every command path that can reduce a tenant's active holder count, always inside the command's `withAtomicFlush(..., { transaction: true })` block so the row lock is valid:
@@ -67,6 +79,7 @@ The lock and the holder queries are skipped entirely when the operation cannot r
 - `packages/core/src/modules/auth/__integration__/TC-AUTH-054-protected-role-floor.spec.ts` — covers `PUT /api/auth/users` (role removal, deactivation), `DELETE /api/auth/users`, rejection of `DELETE /api/auth/roles` while the protected role has an assigned holder, `POST /api/auth/login` rejection of deactivated users, `GET /api/auth/profile` session invalidation, cross-tenant `404`s on both `PUT` and `DELETE`, and the two-contender concurrency case.
 - Unit coverage:
   - `packages/shared/src/lib/commands/__tests__/command-bus.test.ts`
+  - `packages/core/src/modules/auth/commands/__tests__/replay-authorization.test.ts`
   - `packages/core/src/modules/auth/commands/__tests__/roles.tenant-move.test.ts`
   - `packages/core/src/modules/auth/commands/__tests__/users.protected-role-floor.test.ts`
   - `packages/core/src/modules/auth/api/__tests__/login.test.ts`
@@ -78,9 +91,14 @@ The lock and the holder queries are skipped entirely when the operation cannot r
 - **Contract Surface**: `isConfirmed` is added as an optional field in `userUpdateSchema` and as a returned field on `userListItemSchema` (both additive, non-breaking).
 - **Login behavior**: `POST /api/auth/login` and `resolveCanonicalStaffAuthContext` now reject users with `isConfirmed === false`. `User.isConfirmed` defaults to `true` and no seeding path sets it to `false`, so no existing account loses access; documented in `UPGRADE_NOTES.md`.
 - **Audit context merge**: `ActionLog.contextJson` is now a shallow merge of `options.metadata.context`, interceptor `logContext`, and `buildLog().context`, where previously `buildLog().context` replaced the base wholesale. Documented in `UPGRADE_NOTES.md`.
+- **Command handler contract**: `CommandHandler.authorizeReplay` and `CommandLogMetadata.replayable` are additive optional fields. Existing handlers and log builders compile and retain their previous replay behavior when they omit them.
+- **Stored action logs**: no migration or backfill is required. Current authorization and freshness checks apply when any existing auth log is replayed. Historical password-update logs stop being replayable by design; this is the vulnerable behavior being removed, not a request/response or schema change.
+- **Audit-log persistence**: entries marked `replayable: false` continue to record action metadata and before/after display snapshots, but omit `undoToken` and `commandPayload`. Consumers already treat a missing token as non-undoable.
+- **HTTP behavior**: replay endpoints keep their URLs and response schemas. They may now return the already-supported domain `403`/`409` rejection when current authority or expected target state no longer permits replay.
 
 ## Changelog
 - **2026-07-28**: Initial spec drafted.
 - **2026-08-01**: Expanded spec to document locking, deactivation semantics, and backward compatibility.
 - **2026-08-04**: Carried forward after review. Added undo-path enforcement, skip conditions and the `systemActor` bypass, renamed the interceptor audit key to `logContext`, documented the superadmin constraint and holder-count query shape, and expanded integration coverage and BC notes.
 - **2026-08-06**: Merged the latest `develop`, moved undo tenant reads inside their protected-role transactions, documented the residual move race and holder-count scaling boundary, and pinned the existing role-delete assignment guard with unit and API integration coverage.
+- **2026-10-04**: Added the fail-closed auth replay contract, current privilege/target/freshness checks for user and role undo/redo, non-replayable password updates, and regression coverage proving denial has no write or event side effects while safe replay remains functional.

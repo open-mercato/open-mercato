@@ -84,6 +84,12 @@ export type CommandRunAsContext = {
 
 export type CommandLogMetadata = {
   skipLog?: boolean
+  /**
+   * Per-execution replay policy. `false` records the audit entry without an undo
+   * token or command payload, so neither undo nor redo can replay sensitive input.
+   * Omitted preserves the command handler's existing replay behavior.
+   */
+  replayable?: boolean
   tenantId?: string | null
   organizationId?: string | null
   actorUserId?: string | null
@@ -150,6 +156,15 @@ export type CommandLogBuilderArgs<TInput, TResult> = {
   }
 }
 
+export type CommandReplayOperation = 'undo' | 'redo'
+
+export type CommandReplayAuthorizationArgs<TInput> = {
+  operation: CommandReplayOperation
+  input: TInput
+  ctx: CommandRuntimeContext
+  logEntry: CommandUndoLogEntry
+}
+
 export interface CommandHandler<TInput = unknown, TResult = unknown> {
   readonly id: string
   readonly isUndoable?: boolean
@@ -164,6 +179,13 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
   execute(input: TInput, ctx: CommandRuntimeContext): Promise<TResult> | TResult
   buildLog?(args: CommandLogBuilderArgs<TInput, TResult>): Promise<CommandLogMetadata | null | undefined> | CommandLogMetadata | null | undefined
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown
+  /**
+   * Re-authorizes a stored command against the actor and resource state that
+   * exist at replay time. The command bus invokes this before claiming an undo
+   * log and before any redo interceptor, snapshot, mutation, event, or log write.
+   * Throwing aborts replay without domain side effects.
+   */
+  authorizeReplay?(params: CommandReplayAuthorizationArgs<TInput>): Promise<void> | void
   undo?(params: { input: TInput; ctx: CommandRuntimeContext; logEntry: CommandUndoLogEntry }): Promise<void> | void
   /**
    * Optional redo handler. When defined, the command bus calls this instead of

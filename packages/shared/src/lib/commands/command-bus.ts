@@ -227,6 +227,16 @@ export class CommandBus {
   ): Promise<CommandExecuteResult<TResult>> {
     const handler = await this.resolveHandler<TInput, TResult>(commandId)
 
+    const replayLogEntry = options.redoLogEntry ?? null
+    if (replayLogEntry && handler.authorizeReplay) {
+      await handler.authorizeReplay({
+        operation: 'redo',
+        input: options.input,
+        ctx: options.ctx,
+        logEntry: replayLogEntry,
+      })
+    }
+
     // Run beforeExecute command interceptors
     const allInterceptors = getAllCommandInterceptorInstances()
     let interceptorMetadata = new Map<string, Record<string, unknown>>()
@@ -292,10 +302,12 @@ export class CommandBus {
       }
     }
     const undoable = this.isUndoable(handler)
-    if (undoable) {
+    if (undoable && mergedMeta?.replayable !== false) {
       mergedMeta = mergedMeta ?? {}
       if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
       if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = effectiveOptions.ctx.auth?.sub ?? null
+    } else if (mergedMeta?.replayable === false) {
+      mergedMeta.undoToken = null
     }
     if (afterSnapshot !== undefined && afterSnapshot !== null) {
       if (!mergedMeta) {
@@ -360,6 +372,15 @@ export class CommandBus {
     const handler = await this.resolveHandler(log.commandId)
     if (!handler.undo || this.isUndoable(handler) === false) {
       throw new Error(`Command ${log.commandId} is not undoable`)
+    }
+
+    if (handler.authorizeReplay) {
+      await handler.authorizeReplay({
+        operation: 'undo',
+        input: log.commandPayload as Parameters<NonNullable<typeof handler.authorizeReplay>>[0]['input'],
+        ctx,
+        logEntry: log,
+      })
     }
 
     // Atomically claim the action-log row before running any undo side effects.
@@ -540,6 +561,10 @@ export class CommandBus {
     if (!primary && !secondary) return null
     return {
       skipLog: secondary?.skipLog ?? primary?.skipLog ?? false,
+      replayable:
+        secondary?.replayable === false || primary?.replayable === false
+          ? false
+          : secondary?.replayable ?? primary?.replayable,
       tenantId: secondary?.tenantId ?? primary?.tenantId ?? null,
       organizationId: secondary?.organizationId ?? primary?.organizationId ?? null,
       actorUserId: secondary?.actorUserId ?? primary?.actorUserId ?? null,
@@ -628,8 +653,12 @@ export class CommandBus {
       payload.context = { ...baseContext, source: runAs.source }
     }
 
-    const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, options.input)
-    payload.commandPayload = redoEnvelope
+    if (metadata.replayable === false) {
+      delete payload.commandPayload
+    } else {
+      const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, options.input)
+      payload.commandPayload = redoEnvelope
+    }
 
     return await service.log(payload as ActionLogCreateInput)
   }
