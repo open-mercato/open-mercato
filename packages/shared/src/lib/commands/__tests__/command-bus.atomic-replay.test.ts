@@ -38,6 +38,7 @@ describe('CommandBus atomic replay', () => {
   afterEach(() => {
     unregisterCommand('auth.test.atomic-undo')
     unregisterCommand('auth.test.atomic-redo')
+    unregisterCommand('auth.test.feature-race')
     registerCommandInterceptors([])
   })
 
@@ -178,6 +179,67 @@ describe('CommandBus atomic replay', () => {
 
     expect(state).toEqual({ domain: 'before', source: 'undone', logs: 1 })
     expect(authorizeReplay).toHaveBeenCalledTimes(1)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+  })
+
+  it('stabilizes replay authorization before resolving a newly applicable blocking interceptor', async () => {
+    const state: ReplayState = { domain: 'after', source: 'done', logs: 1 }
+    const em = buildTransactionalEm(state)
+    let stabilized = false
+    const beforeUndo = jest.fn(async () => ({ ok: false, message: 'blocked after grant' }))
+    registerCommandInterceptors([{
+      moduleId: 'auth',
+      interceptors: [{
+        id: 'auth.test.feature-race-interceptor',
+        targetCommand: 'auth.test.feature-race',
+        features: ['auth.test.newly-granted'],
+        beforeUndo,
+      }],
+    }])
+    const service = {
+      findByUndoToken: jest.fn(async () => ({
+        id: 'feature-race-log',
+        commandId: 'auth.test.feature-race',
+        commandPayload: {},
+      })),
+      claimForUndo: jest.fn(async () => true),
+      releaseUndoClaim: jest.fn(async () => true),
+      markUndone: jest.fn(async () => undefined),
+    }
+    const undo = jest.fn(async () => {
+      state.domain = 'before'
+    })
+    registerCommand({
+      id: 'auth.test.feature-race',
+      atomicReplay: true,
+      execute: jest.fn(),
+      undo,
+    })
+    const getGrantedFeaturesWithEntityManager = jest.fn(async () => {
+      expect(stabilized).toBe(true)
+      return ['auth.test.newly-granted']
+    })
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      actionLogService: asValue(service),
+      rbacService: asValue({ getGrantedFeaturesWithEntityManager }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn(async () => undefined) }),
+    })
+
+    await expect(new CommandBus().undo('feature-race-token', {
+      container,
+      auth: { sub: 'actor', tenantId: 'tenant', orgId: null },
+      replayTransactionGuard: jest.fn(async () => {
+        expect(em.isInTransaction()).toBe(true)
+        stabilized = true
+      }),
+    })).rejects.toThrow('blocked after grant')
+
+    expect(beforeUndo).toHaveBeenCalledTimes(1)
+    expect(service.claimForUndo).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+    expect(state).toEqual({ domain: 'after', source: 'done', logs: 1 })
     expect(em.rollback).toHaveBeenCalledTimes(1)
   })
 })

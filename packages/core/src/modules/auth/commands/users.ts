@@ -300,7 +300,9 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
 
     let assignedRoles: string[] = []
     if (Array.isArray(parsed.roles) && parsed.roles.length) {
-      await syncUserRoles(em, user, parsed.roles, tenantId)
+      await withAtomicFlush(em, [
+        async () => syncUserRoles(em, user, parsed.roles ?? [], tenantId),
+      ], { transaction: true, label: 'auth.users.create.roles' })
       assignedRoles = await loadUserRoleNames(em, String(user.id))
     }
 

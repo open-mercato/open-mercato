@@ -9,13 +9,24 @@ import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
-  Role,
   RoleAcl,
   User,
   UserAcl,
   UserRole,
 } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { lockOrganizationHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
+import {
+  findApiKeyIdsReferencingRoles,
+  lockAuthorizationApiKeyRows,
+  lockAuthorizationRoleRows,
+  lockAuthorizationUserRows,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+
+export {
+  lockAuthorizationRoleRows,
+  lockAuthorizationUserRows,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -147,49 +158,29 @@ function relationId(value: unknown): string | null {
     : null
 }
 
-export async function lockAuthorizationUserRows(
-  em: EntityManager,
-  userIds: readonly string[],
-): Promise<void> {
-  const ids = Array.from(new Set(userIds.filter((value) => value.length > 0))).sort()
-  for (const id of ids) {
-    await findOneWithDecryption(
-      em,
-      User,
-      { id, deletedAt: null } as FilterQuery<User>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
-  }
-}
-
-export async function lockAuthorizationRoleRows(
-  em: EntityManager,
-  roleIds: readonly string[],
-): Promise<void> {
-  const ids = Array.from(new Set(roleIds.filter((value) => value.length > 0))).sort()
-  for (const id of ids) {
-    await findOneWithDecryption(
-      em,
-      Role,
-      { id, deletedAt: null } as FilterQuery<Role>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
-  }
-}
-
 export async function lockReplayAuthorizationState(
   em: EntityManager,
-  ctx: CommandRuntimeContext,
+  ctx: Pick<CommandRuntimeContext, 'auth'>,
   targets: ReplayAuthorizationLockTargets,
 ): Promise<void> {
+  const actorId = ctx.auth?.sub ?? null
+  const apiKeyId = actorId?.startsWith('api_key:')
+    ? actorId.slice('api_key:'.length)
+    : null
+  const referencingApiKeyIds = targets.targetRoleId
+    ? await findApiKeyIdsReferencingRoles(em, [targets.targetRoleId])
+    : []
+  const lockedApiKeys = await lockAuthorizationApiKeyRows(
+    em,
+    [...(apiKeyId ? [apiKeyId] : []), ...referencingApiKeyIds],
+  )
   const userIds = Array.from(new Set([
-    ctx.auth?.sub ?? null,
+    apiKeyId ? null : actorId,
     targets.targetUserId ?? null,
   ].filter((value): value is string => typeof value === 'string' && value.length > 0))).sort()
 
-  // UserRole/UserAcl writers take the same parent-user locks before inserting,
+  // API-key writers take the key parent before roles. UserRole/UserAcl writers
+  // take the same parent-user locks before inserting,
   // deleting, or updating child rows. Once these canonical locks are held, the
   // membership discovery below cannot acquire a phantom insert/delete gap.
   await lockAuthorizationUserRows(em, userIds)
@@ -205,12 +196,13 @@ export async function lockReplayAuthorizationState(
     : []
   const roleIds = Array.from(new Set([
     targets.targetRoleId ?? null,
+    ...lockedApiKeys.flatMap((apiKey) => Array.isArray(apiKey.rolesJson) ? apiKey.rolesJson : []),
     ...userRoles.map((link) => relationId(link.role)),
   ].filter((value): value is string => typeof value === 'string' && value.length > 0))).sort()
 
-  // RoleAcl writers lock their parent Role row. Lock the complete role set in
-  // canonical id order after user parents, matching membership writers and
-  // preventing a user<->role deadlock cycle.
+  // RoleAcl writers lock every referencing API key before their parent Role.
+  // Lock the complete role set in canonical id order after API-key/user
+  // parents, matching mutation writers and preventing a parent-order cycle.
   await lockAuthorizationRoleRows(em, roleIds)
   if (userIds.length) {
     // Recompute memberships only after both parent lock classes are stable, and
@@ -238,6 +230,9 @@ export async function lockReplayAuthorizationState(
       { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
       { tenantId: null, organizationId: null },
     )
+  }
+  if (ctx.auth?.tenantId) {
+    await lockOrganizationHierarchyForTenant(em, ctx.auth.tenantId)
   }
 }
 

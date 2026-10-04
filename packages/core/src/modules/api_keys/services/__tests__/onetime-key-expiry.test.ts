@@ -15,6 +15,12 @@ describe('withOnetimeApiKey — expiry guard', () => {
     }),
     persist: persistSpy,
     remove: removeSpy,
+    findOne: jest.fn(async () => createdRecord),
+    flush: flushSpy,
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
+    isInTransaction: jest.fn(() => false),
   }
 
   beforeEach(() => {

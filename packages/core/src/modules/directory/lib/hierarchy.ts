@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 export type ComputedOrganizationNode = {
@@ -19,6 +20,21 @@ export type ComputedOrganizationNode = {
 export type ComputedHierarchy = {
   map: Map<string, ComputedOrganizationNode>
   ordered: ComputedOrganizationNode[]
+}
+
+export async function lockOrganizationHierarchyForTenant(
+  em: EntityManager,
+  tenantId: string,
+): Promise<Organization[]> {
+  return em.find(
+    Organization,
+    { tenant: tenantId as never, deletedAt: null },
+    {
+      lockMode: LockMode.PESSIMISTIC_WRITE,
+      orderBy: { id: 'ASC' },
+      refresh: true,
+    },
+  )
 }
 
 type InternalNode = {

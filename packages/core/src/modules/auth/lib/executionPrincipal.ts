@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  lockAuthorizationUserRows,
+  lockRoleWriterAuthorizationState,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { computeEmailHash } from './emailHash'
 import { Role, RoleAcl, User, UserRole, type UserKind } from '../data/entities'
 
@@ -130,6 +134,37 @@ export async function provisionExecutionPrincipal(
       await trx.flush()
     }
 
+    const emailHash = computeEmailHash(principalEmail)
+    let user = await findOneWithDecryption(
+      trx,
+      User,
+      { emailHash, tenantId, deletedAt: null },
+      {},
+      { tenantId, organizationId },
+    )
+    if (!user) {
+      user = trx.create(User, {
+        email: principalEmail,
+        emailHash,
+        passwordHash: null,
+        isConfirmed: false,
+        kind,
+        name: input.displayName ?? principalKey,
+        tenantId,
+        organizationId,
+        createdAt: new Date(),
+      })
+      trx.persist(user)
+      await trx.flush()
+    } else if (user.kind === 'human') {
+      // Defensive: a row resolved by the deterministic principal email must never
+      // be a human account. Never silently repurpose one.
+      throw new Error('[internal] resolved a human User for an execution principal')
+    }
+
+    await lockAuthorizationUserRows(trx, [String(user.id)])
+    await lockRoleWriterAuthorizationState(trx, [String(role.id)])
+
     const existingAcl = await findOneWithDecryption(
       trx,
       RoleAcl,
@@ -163,34 +198,6 @@ export async function provisionExecutionPrincipal(
         trx.persist(existingAcl)
         await trx.flush()
       }
-    }
-
-    const emailHash = computeEmailHash(principalEmail)
-    let user = await findOneWithDecryption(
-      trx,
-      User,
-      { emailHash, tenantId, deletedAt: null },
-      {},
-      { tenantId, organizationId },
-    )
-    if (!user) {
-      user = trx.create(User, {
-        email: principalEmail,
-        emailHash,
-        passwordHash: null,
-        isConfirmed: false,
-        kind,
-        name: input.displayName ?? principalKey,
-        tenantId,
-        organizationId,
-        createdAt: new Date(),
-      })
-      trx.persist(user)
-      await trx.flush()
-    } else if (user.kind === 'human') {
-      // Defensive: a row resolved by the deterministic principal email must never
-      // be a human account. Never silently repurpose one.
-      throw new Error('[internal] resolved a human User for an execution principal')
     }
 
     const existingLink = await findOneWithDecryption(

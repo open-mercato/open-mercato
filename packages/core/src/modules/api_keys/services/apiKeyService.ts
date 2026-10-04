@@ -2,13 +2,14 @@ import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '../data/entities'
 import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
 import { encryptWithAesGcm, decryptWithAesGcm, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
 import { getSharedApiKeyAuthCache } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { lockAuthorizationApiKeyRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 const logger = createLogger('api_keys').child({ component: 'api-key-service' })
 
@@ -155,16 +156,24 @@ export async function createApiKey(
 export async function deleteApiKey(
   em: EntityManager,
   id: string,
-  opts: { rbac?: RbacService } = {},
-): Promise<void> {
-  const record = await em.findOne(ApiKey, { id })
-  if (!record) return
-  record.deletedAt = new Date()
-  await em.persist(record).flush()
-  getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
+  opts: { rbac?: RbacService; authorize?: (record: ApiKey) => Promise<void> | void } = {},
+): Promise<boolean> {
+  let deletedId: string | null = null
+  await withAtomicFlush(em, [async () => {
+    const records = await lockAuthorizationApiKeyRows(em, [id])
+    const record = records.find((candidate) => String(candidate.id) === id)
+    if (!record || record.deletedAt) return
+    await opts.authorize?.(record)
+    record.deletedAt = new Date()
+    await em.persist(record).flush()
+    deletedId = String(record.id)
+  }], { transaction: true, label: 'api_keys.delete' })
+  if (!deletedId) return false
+  getSharedApiKeyAuthCache().invalidateByKeyId(deletedId)
   if (opts.rbac) {
-    await opts.rbac.invalidateUserCache(`api_key:${record.id}`)
+    await opts.rbac.invalidateUserCache(`api_key:${deletedId}`)
   }
+  return true
 }
 
 export async function findApiKeyBySecret(em: EntityManager, secret: string): Promise<ApiKey | null> {
@@ -367,12 +376,22 @@ export async function deleteSessionApiKey(
   em: EntityManager,
   sessionToken: string
 ): Promise<void> {
-  const record = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
-  if (!record) return
-
-  record.deletedAt = new Date()
-  await em.persist(record).flush()
-  getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
+  const candidate = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+  if (!candidate) return
+  let deletedId: string | null = null
+  await withAtomicFlush(em, [async () => {
+    const records = await lockAuthorizationApiKeyRows(em, [String(candidate.id)])
+    const record = records.find((entry) => (
+      String(entry.id) === String(candidate.id)
+      && entry.sessionToken === sessionToken
+      && !entry.deletedAt
+    ))
+    if (!record) return
+    record.deletedAt = new Date()
+    await em.persist(record).flush()
+    deletedId = String(record.id)
+  }], { transaction: true, label: 'api_keys.session.delete' })
+  if (deletedId) getSharedApiKeyAuthCache().invalidateByKeyId(deletedId)
 }
 
 /**
@@ -411,9 +430,7 @@ export async function withOnetimeApiKey<T>(
     return result
   } finally {
     try {
-      record.deletedAt = new Date()
-      await em.persist(record).flush()
-      getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
+      await deleteApiKey(em, String(record.id))
     } catch (error) {
       logger.error('Failed to soft-delete one-time API key', { err: error })
     }

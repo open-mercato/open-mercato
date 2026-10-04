@@ -33,6 +33,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import { Role, RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { lockRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 const logger = createLogger('auth').child({ component: 'acl-commands' })
 
@@ -384,11 +385,7 @@ const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
   labelFallback: 'Change role permissions',
   resourceId: (input) => input.roleId,
   lockParent: async (em, input) => {
-    await em.findOne(
-      Role,
-      { id: input.roleId, deletedAt: null } as FilterQuery<Role>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-    )
+    await lockRoleWriterAuthorizationState(em, [input.roleId])
   },
   loadAcl: (em, input) =>
     em.findOne(RoleAcl, { role: input.roleId as unknown as Role, tenantId: input.tenantId }),

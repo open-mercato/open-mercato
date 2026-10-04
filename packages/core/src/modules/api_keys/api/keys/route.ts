@@ -139,6 +139,13 @@ const crud = makeCrudRoute<
     },
   },
   del: { idFrom: 'query' },
+  actions: {
+    delete: {
+      commandId: 'api_keys.keys.delete',
+      mapInput: ({ raw }) => ({ id: String(raw.query?.id ?? '') }),
+      response: () => ({ success: true }),
+    },
+  },
   hooks: {
     beforeList: async (query, ctx) => {
       const auth = ctx.auth

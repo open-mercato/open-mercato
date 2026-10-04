@@ -5,7 +5,10 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
-import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
+import {
+  lockOrganizationHierarchyForTenant,
+  rebuildHierarchyForTenant,
+} from '@open-mercato/core/modules/directory/lib/hierarchy'
 import {
   enforceTenantSelection,
   normalizeTenantId,
@@ -381,6 +384,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     let organization!: Organization
     await withAtomicFlush(em, [
       async () => {
+        await lockOrganizationHierarchyForTenant(em, tenantId)
         organization = await de.createOrmEntity({
           entity: Organization,
           data: {
@@ -476,6 +480,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await withAtomicFlush(em, [
       async () => {
+        await lockOrganizationHierarchyForTenant(em, tenantId)
         await restoreChildParents(em, tenantId, childrenBefore)
         if (after.custom && Object.keys(after.custom).length) {
           const reset = buildCustomFieldResetMap(undefined, after.custom)
@@ -510,6 +515,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     let organization!: Organization
     await withAtomicFlush(em, [
       async () => {
+        await lockOrganizationHierarchyForTenant(em, tenantId)
         const existing = await em.findOne(Organization, { id: after.id })
         if (existing) {
           existing.deletedAt = null
@@ -642,6 +648,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     let resolvedOrganization!: Organization
     await withAtomicFlush(em, [
       async () => {
+        await lockOrganizationHierarchyForTenant(em, tenantId)
         const organization = await de.updateOrmEntity({
           entity: Organization,
           where: buildOrganizationMutationFilter(parsed.id, tenantId),
@@ -748,6 +755,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     let updated: Organization | null = null
     await withAtomicFlush(em, [
       async () => {
+        await lockOrganizationHierarchyForTenant(em, tenantId)
         updated = await de.updateOrmEntity({
           entity: Organization,
           where: buildOrganizationUndoTargetFilter(before.id, tenantId),
@@ -828,6 +836,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     let resolvedDeleted!: Organization
     await withAtomicFlush(em, [
       async () => {
+        await lockOrganizationHierarchyForTenant(em, tenantId)
         const deleted = await de.deleteOrmEntity({
           entity: Organization,
           where: buildOrganizationMutationFilter(id, tenantId),
@@ -903,6 +912,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     let organization: Organization | null = null
     await withAtomicFlush(em, [
       async () => {
+        await lockOrganizationHierarchyForTenant(em, tenantId)
         organization = await em.findOne(
           Organization,
           buildOrganizationUndoTargetFilter(before.id, tenantId),

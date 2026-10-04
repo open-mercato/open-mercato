@@ -2,7 +2,10 @@
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/undo/route'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 
-const mockReplayEm = {}
+const mockReplayEm = {
+  find: jest.fn(async () => []),
+  findOne: jest.fn(async () => null),
+}
 const mockRbac = {
   userHasAllFeaturesWithEntityManager: jest.fn(),
 }

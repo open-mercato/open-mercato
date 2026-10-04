@@ -3,6 +3,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { lockReplayAuthorizationState } from '@open-mercato/core/modules/auth/lib/commandReplay'
 
 type ReplayAuthorizationInput = {
   auth: NonNullable<AuthContext>
@@ -18,6 +19,7 @@ export async function authorizeAuditReplayWithEntityManager(
   log: CommandUndoLogEntry,
   input: ReplayAuthorizationInput,
 ): Promise<void> {
+  await lockReplayAuthorizationState(em, { auth: input.auth }, {})
   const scope = {
     tenantId: input.auth.tenantId ?? null,
     organizationId: input.organizationId,

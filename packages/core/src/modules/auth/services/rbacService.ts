@@ -3,6 +3,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -19,10 +20,6 @@ interface AclData {
   organizations: string[] | null
 }
 
-type OrganizationAncestorRow = {
-  ancestor_ids: unknown
-}
-
 async function resolveRoleOrganizationScopeWithEntityManager(
   em: EntityManager,
   tenantId: string | null,
@@ -30,17 +27,15 @@ async function resolveRoleOrganizationScopeWithEntityManager(
 ): Promise<ReadonlySet<string> | null> {
   if (!organizationId) return null
   if (!tenantId) return new Set()
-  const rows = await em.getConnection().execute<OrganizationAncestorRow[]>(
-    `select ancestor_ids
-       from organizations
-      where id = ? and tenant_id = ? and deleted_at is null
-      limit 1`,
-    [organizationId, tenantId],
+  const organizations = await em.find(
+    Organization,
+    { tenant: tenantId as never, deletedAt: null },
+    { orderBy: { id: 'ASC' } },
   )
-  const row = rows[0]
-  if (!row) return new Set()
-  const ancestors = Array.isArray(row.ancestor_ids)
-    ? row.ancestor_ids.filter((value): value is string => typeof value === 'string' && value.length > 0)
+  const organization = organizations.find((candidate) => String(candidate.id) === organizationId)
+  if (!organization) return new Set()
+  const ancestors = Array.isArray(organization.ancestorIds)
+    ? organization.ancestorIds.filter((value): value is string => typeof value === 'string' && value.length > 0)
     : []
   return new Set([organizationId, ...ancestors])
 }

@@ -1,6 +1,7 @@
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { User, UserRole, RoleAcl, UserAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
@@ -123,6 +124,81 @@ describe('RbacService', () => {
       expect(em.find).not.toHaveBeenCalled()
       expect(em.findOne).not.toHaveBeenCalled()
       expect(transactionalEm.fork).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      {
+        name: 'expiry',
+        key: { rolesJson: ['role-a'], expiresAt: new Date(Date.now() - 1_000), deletedAt: null },
+        roleAcls: [{ featuresJson: ['auth.users.edit'], organizationsJson: null }],
+      },
+      {
+        name: 'role removal',
+        key: { rolesJson: [], expiresAt: null, deletedAt: null },
+        roleAcls: [{ featuresJson: ['auth.users.edit'], organizationsJson: null }],
+      },
+      {
+        name: 'ACL revocation',
+        key: { rolesJson: ['role-a'], expiresAt: null, deletedAt: null },
+        roleAcls: [{ featuresJson: [], organizationsJson: null }],
+      },
+    ])('fails closed on API-key $name in the supplied transaction snapshot', async ({ key, roleAcls }) => {
+      const transactionalEm = createMockEm()
+      transactionalEm.findOne.mockImplementation(async (entity: unknown) => entity === ApiKey ? {
+        id: 'key-revoked',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        ...key,
+      } : null)
+      transactionalEm.find.mockImplementation(async (entity: unknown) => entity === RoleAcl ? roleAcls : [])
+
+      await expect(service.getGrantedFeaturesWithEntityManager(
+        transactionalEm as never,
+        'api_key:key-revoked',
+        { tenantId: 'tenant-1', organizationId: null },
+      )).resolves.toEqual([])
+    })
+
+    it('reads organization hierarchy rows through the supplied EntityManager in canonical order', async () => {
+      const transactionalEm = createMockEm()
+      const role = { id: 'role-a', tenantId: 'tenant-1' }
+      transactionalEm.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === UserAcl) return null
+        if (entity === User) return baseUser
+        return null
+      })
+      transactionalEm.find.mockImplementation(async (entity: unknown) => {
+        if (entity === UserRole) return [{ role }]
+        if (entity === RoleAcl) return [{
+          role,
+          tenantId: 'tenant-1',
+          isSuperAdmin: false,
+          featuresJson: ['auth.users.edit'],
+          organizationsJson: ['org-parent'],
+        }]
+        if (entity === Organization) return [{
+          id: 'org-1',
+          ancestorIds: ['org-parent'],
+        }]
+        return []
+      })
+
+      await expect(service.loadAclWithEntityManager(
+        transactionalEm as never,
+        baseUser.id!,
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+      )).resolves.toEqual({
+        isSuperAdmin: false,
+        features: ['auth.users.edit'],
+        organizations: ['org-parent', 'org-1'],
+      })
+
+      expect(transactionalEm.find).toHaveBeenCalledWith(
+        Organization,
+        { tenant: 'tenant-1', deletedAt: null },
+        { orderBy: { id: 'ASC' } },
+      )
+      expect(em.fork).not.toHaveBeenCalled()
     })
   })
 

@@ -1,11 +1,18 @@
 import { randomInt } from 'node:crypto'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  apiRequest,
+  getAuthToken,
+  withCredentialIsolatedRequest,
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture,
+  createRoleFixture,
   createUserFixture,
   deleteOrganizationIfExists,
+  deleteRoleIfExists,
   deleteUserIfExists,
+  setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { deleteGeneralEntityIfExists, expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -66,6 +73,57 @@ async function undoAction(
     token,
     data: { undoToken },
   })
+}
+
+async function apiKeyRequest(
+  request: APIRequestContext,
+  method: string,
+  path: string,
+  secret: string,
+  data?: unknown,
+): Promise<APIResponse> {
+  return request.fetch(path, {
+    method,
+    headers: {
+      'x-api-key': secret,
+      'Content-Type': 'application/json',
+    },
+    data,
+  })
+}
+
+async function createReplayApiKey(
+  request: APIRequestContext,
+  token: string,
+  input: { name: string; roleId: string; organizationId: string },
+): Promise<{ id: string; secret: string }> {
+  const response = await apiRequest(request, 'POST', '/api/api_keys/keys', {
+    token,
+    data: {
+      name: input.name,
+      roles: [input.roleId],
+      organizationId: input.organizationId,
+    },
+  })
+  const body = await readJsonSafe<{ id?: string; secret?: string }>(response)
+  expect(response.status(), await response.text()).toBe(201)
+  return {
+    id: expectId(body?.id, 'API-key create response should include id'),
+    secret: expectId(body?.secret, 'API-key create response should include secret'),
+  }
+}
+
+async function updateUserNameWithApiKey(
+  request: APIRequestContext,
+  secret: string,
+  userId: string,
+  name: string,
+): Promise<void> {
+  const response = await apiKeyRequest(request, 'PUT', '/api/auth/users', secret, {
+    id: userId,
+    name,
+  })
+  expect(response.status(), await response.text()).toBe(200)
 }
 
 async function waitUntilBlockedBy(client: IntegrationDbClient, blockerPid: number): Promise<void> {
@@ -251,7 +309,7 @@ test.describe('TC-AUTH-065: transaction-bound auth replay concurrency', () => {
         undoAction(request, adminToken, sourceLog.undo_token),
         undoAction(request, adminToken, sourceLog.undo_token),
       ])
-      expect(responses.map((response) => response.status()).sort()).toEqual([200, 400])
+      expect(responses.map((response) => response.status()).sort()).toEqual([200, 409])
 
       const after = await readReplayState(userId, sourceLog.id)
       expect(after.executionState).toBe('undone')
@@ -259,6 +317,253 @@ test.describe('TC-AUTH-065: transaction-bound auth replay concurrency', () => {
       expect(after.logCount, 'one committed undo creates exactly one trace log').toBe(before.logCount + 1)
     } finally {
       await deleteUserIfExists(request, adminToken, userId)
+    }
+  })
+
+  test('rejects API-key replay when deletion commits while the replay waits on the key parent', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const organizationId = expectId(scope.organizationId, 'Admin token should include organization id')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    let userId: string | null = null
+    let roleId: string | null = null
+    let apiKeyId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, {
+        name: `Replay API key role ${stamp}`,
+      })
+      await setRoleAclFeatures(request, adminToken, {
+        roleId,
+        features: ['auth.users.edit', 'audit_logs.undo_self', 'audit_logs.undo_tenant'],
+        organizations: null,
+      })
+      userId = await createUserFixture(request, adminToken, {
+        email: `replay-api-key-${stamp}@example.com`,
+        password: 'StrongSecret123!',
+        organizationId,
+        roles: [],
+      })
+      const apiKey = await createReplayApiKey(request, adminToken, {
+        name: `Replay race key ${stamp}`,
+        roleId,
+        organizationId,
+      })
+      apiKeyId = apiKey.id
+
+      await withCredentialIsolatedRequest(async (isolatedRequest) => {
+        await updateUserNameWithApiKey(isolatedRequest, apiKey.secret, userId!, 'API key replay after')
+        const sourceLog = await latestReplayLog(userId!, apiKey.id)
+        const before = await readReplayState(userId!, sourceLog.id)
+
+        const undoResponse = await withClient(async (blocker) => {
+          await blocker.query('begin')
+          try {
+            const pidResult = await blocker.query<{ pid: number }>('select pg_backend_pid() as pid')
+            const blockerPid = pidResult.rows[0]?.pid
+            if (!blockerPid) throw new Error('[internal] PostgreSQL blocker pid unavailable')
+            await blocker.query(
+              'update api_keys set deleted_at = now(), updated_at = now() where id = $1',
+              [apiKey.id],
+            )
+            const pendingUndo = apiKeyRequest(
+              isolatedRequest,
+              'POST',
+              '/api/audit_logs/audit-logs/actions/undo',
+              apiKey.secret,
+              { undoToken: sourceLog.undo_token },
+            )
+            await withClient((observer) => waitUntilBlockedBy(observer, blockerPid))
+            await blocker.query('commit')
+            return await pendingUndo
+          } catch (error) {
+            await blocker.query('rollback').catch(() => undefined)
+            throw error
+          }
+        })
+
+        expect(undoResponse.status(), await undoResponse.text()).toBe(400)
+        const after = await readReplayState(userId!, sourceLog.id)
+        expect(after.name, 'the deleted API key cannot mutate the target').toBe(before.name)
+        expect(after.executionState, 'the denied replay leaves its source retryable').toBe('done')
+      })
+    } finally {
+      if (apiKeyId) {
+        await withClient((client) => client.query('delete from api_keys where id = $1', [apiKeyId])).catch(() => undefined)
+      }
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
+    }
+  })
+
+  test('rejects replay when an organization reparent commits before the hierarchy lock', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const tenantId = expectId(getTokenScope(adminToken).tenantId, 'Admin token should include tenant id')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    const actorEmail = `replay-org-actor-${stamp}@example.com`
+    const actorPassword = 'StrongSecret123!'
+    let parentAId: string | null = null
+    let parentBId: string | null = null
+    let childId: string | null = null
+    let roleId: string | null = null
+    let actorUserId: string | null = null
+    let targetUserId: string | null = null
+
+    try {
+      parentAId = await createOrganizationFixture(request, superadminToken, {
+        name: `Replay parent A ${stamp}`,
+        tenantId,
+      })
+      parentBId = await createOrganizationFixture(request, superadminToken, {
+        name: `Replay parent B ${stamp}`,
+        tenantId,
+      })
+      childId = await createOrganizationFixture(request, superadminToken, {
+        name: `Replay child ${stamp}`,
+        tenantId,
+        parentId: parentAId,
+      })
+      roleId = await createRoleFixture(request, superadminToken, {
+        name: `Replay hierarchy role ${stamp}`,
+        tenantId,
+      })
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId,
+        features: ['auth.users.edit', 'audit_logs.undo_self', 'audit_logs.undo_tenant'],
+        organizations: [parentAId],
+      })
+      actorUserId = await createUserFixture(request, superadminToken, {
+        email: actorEmail,
+        password: actorPassword,
+        organizationId: childId,
+        roles: [roleId],
+      })
+      targetUserId = await createUserFixture(request, superadminToken, {
+        email: `replay-org-target-${stamp}@example.com`,
+        password: actorPassword,
+        organizationId: childId,
+        roles: [],
+      })
+      const actorToken = await getAuthToken(request, actorEmail, actorPassword)
+      await updateUserName(request, actorToken, targetUserId, 'Organization replay after')
+      const sourceLog = await latestReplayLog(targetUserId, actorUserId)
+      const before = await readReplayState(targetUserId, sourceLog.id)
+
+      const undoResponse = await withClient(async (blocker) => {
+        await blocker.query('begin')
+        try {
+          const pidResult = await blocker.query<{ pid: number }>('select pg_backend_pid() as pid')
+          const blockerPid = pidResult.rows[0]?.pid
+          if (!blockerPid) throw new Error('[internal] PostgreSQL blocker pid unavailable')
+          await blocker.query(
+            `select id
+               from organizations
+              where tenant_id = $1 and deleted_at is null
+              order by id
+              for update`,
+            [tenantId],
+          )
+          await blocker.query(
+            `update organizations
+                set parent_id = $2::uuid, ancestor_ids = jsonb_build_array($2::text), updated_at = now()
+              where id = $1`,
+            [childId, parentBId],
+          )
+          const pendingUndo = undoAction(request, actorToken, sourceLog.undo_token)
+          await withClient((observer) => waitUntilBlockedBy(observer, blockerPid))
+          await blocker.query('commit')
+          return await pendingUndo
+        } catch (error) {
+          await blocker.query('rollback').catch(() => undefined)
+          throw error
+        }
+      })
+
+      expect(undoResponse.status(), await undoResponse.text()).toBe(400)
+      const after = await readReplayState(targetUserId, sourceLog.id)
+      expect(after.name, 'the out-of-scope organization cannot be replayed').toBe(before.name)
+      expect(after.executionState, 'the denied replay leaves its source retryable').toBe('done')
+    } finally {
+      await deleteUserIfExists(request, superadminToken, targetUserId)
+      await deleteUserIfExists(request, superadminToken, actorUserId)
+      await deleteRoleIfExists(request, superadminToken, roleId)
+      await deleteOrganizationIfExists(request, superadminToken, childId)
+      await deleteOrganizationIfExists(request, superadminToken, parentBId)
+      await deleteOrganizationIfExists(request, superadminToken, parentAId)
+    }
+  })
+
+  test('runs a newly applicable blocking interceptor after a concurrent feature grant', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const adminScope = getTokenScope(adminToken)
+    const tenantId = expectId(adminScope.tenantId, 'Admin token should include tenant id')
+    const organizationId = expectId(adminScope.organizationId, 'Admin token should include organization id')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    const actorEmail = `replay-feature-actor-${stamp}@example.com`
+    const actorPassword = 'StrongSecret123!'
+    const baseFeatures = ['auth.users.edit', 'audit_logs.undo_self', 'audit_logs.undo_tenant']
+    let roleId: string | null = null
+    let actorUserId: string | null = null
+    let targetUserId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, superadminToken, {
+        name: `Replay feature role ${stamp}`,
+        tenantId,
+      })
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId,
+        features: baseFeatures,
+        organizations: null,
+      })
+      actorUserId = await createUserFixture(request, superadminToken, {
+        email: actorEmail,
+        password: actorPassword,
+        organizationId,
+        roles: [roleId],
+      })
+      targetUserId = await createUserFixture(request, superadminToken, {
+        email: `replay-feature-target-${stamp}@example.com`,
+        password: actorPassword,
+        organizationId,
+        roles: [],
+      })
+      const actorToken = await getAuthToken(request, actorEmail, actorPassword)
+      await updateUserName(request, actorToken, targetUserId, 'Feature replay after')
+      const sourceLog = await latestReplayLog(targetUserId, actorUserId)
+      const before = await readReplayState(targetUserId, sourceLog.id)
+
+      const undoResponse = await withClient(async (blocker) => {
+        await blocker.query('begin')
+        try {
+          const pidResult = await blocker.query<{ pid: number }>('select pg_backend_pid() as pid')
+          const blockerPid = pidResult.rows[0]?.pid
+          if (!blockerPid) throw new Error('[internal] PostgreSQL blocker pid unavailable')
+          await blocker.query('select id from roles where id = $1 for update', [roleId])
+          await blocker.query(
+            'update role_acls set features_json = $2::jsonb, updated_at = now() where role_id = $1',
+            [roleId, JSON.stringify([...baseFeatures, 'directory.tenants.manage'])],
+          )
+          const pendingUndo = undoAction(request, actorToken, sourceLog.undo_token)
+          await withClient((observer) => waitUntilBlockedBy(observer, blockerPid))
+          await blocker.query('commit')
+          return await pendingUndo
+        } catch (error) {
+          await blocker.query('rollback').catch(() => undefined)
+          throw error
+        }
+      })
+
+      expect(undoResponse.status(), await undoResponse.text()).toBe(409)
+      const after = await readReplayState(targetUserId, sourceLog.id)
+      expect(after.name, 'the newly applicable interceptor blocks the domain mutation').toBe(before.name)
+      expect(after.executionState, 'the interceptor rejection rolls the replay claim back').toBe('done')
+    } finally {
+      await deleteUserIfExists(request, superadminToken, targetUserId)
+      await deleteUserIfExists(request, superadminToken, actorUserId)
+      await deleteRoleIfExists(request, superadminToken, roleId)
     }
   })
 })

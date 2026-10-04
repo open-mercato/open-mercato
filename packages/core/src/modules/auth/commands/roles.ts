@@ -36,13 +36,13 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import {
   assertReplaySnapshotMatches,
   extractStoredReplayInput,
-  lockAuthorizationRoleRows,
   lockReplayAuthorizationState,
   rerunReplayTransactionGuardAfterLocks,
   requireCurrentReplayFeature,
   requireCurrentReplaySuperAdmin,
   requireTransactionalReplayEntityManager,
 } from '@open-mercato/core/modules/auth/lib/commandReplay'
+import { lockRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 type SerializedRole = {
   name: string
@@ -409,7 +409,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
           logEntry: redoLogEntry,
         })
       }
-      await lockAuthorizationRoleRows(em, [parsed.id])
+      await lockRoleWriterAuthorizationState(em, [parsed.id])
       if (wantsTenantChange) {
         await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
       }
@@ -602,7 +602,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           logEntry: redoLogEntry,
         })
       }
-      await lockAuthorizationRoleRows(em, [id])
+      await lockRoleWriterAuthorizationState(em, [id])
       await em.nativeDelete(RoleAcl, { role: id })
       deleted = await de.deleteOrmEntity({
         entity: Role,
@@ -942,7 +942,7 @@ async function loadRoleAclSnapshots(em: EntityManager, roleId: string): Promise<
 }
 
 async function restoreRoleAcls(em: EntityManager, roleId: string, acls: RoleAclSnapshot[]) {
-  await lockAuthorizationRoleRows(em, [roleId])
+  await lockRoleWriterAuthorizationState(em, [roleId])
   await em.nativeDelete(RoleAcl, { role: roleId as unknown as Role })
   if (!acls.length) {
     await em.flush()

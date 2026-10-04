@@ -13,6 +13,8 @@ import { upsertCanonicalEncryptionMap } from '@open-mercato/core/modules/entitie
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { lockRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -693,30 +695,33 @@ async function ensureRoleAclFor(
   // so a first init used to store the string twice while the second run silently collapsed it.
   // Same list, two shapes, depending only on how many times setup had run.
   const uniqueFeatures = Array.from(new Set(features))
-  const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
-  if (!existing) {
-    const acl = em.create(RoleAcl, {
-      role,
-      tenantId,
-      featuresJson: uniqueFeatures,
-      isSuperAdmin: !!options.isSuperAdmin,
-      createdAt: new Date(),
-    })
-    await em.persist(acl).flush()
-    return
-  }
-  const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
-  const merged = Array.from(new Set([...currentFeatures, ...uniqueFeatures]))
-  const changed =
-    merged.length !== currentFeatures.length ||
-    merged.some((value, index) => value !== currentFeatures[index])
-  if (changed) existing.featuresJson = merged
-  if (options.isSuperAdmin && !existing.isSuperAdmin) {
-    existing.isSuperAdmin = true
-  }
-  if (changed || options.isSuperAdmin) {
-    await em.persist(existing).flush()
-  }
+  await withAtomicFlush(em, [async () => {
+    await lockRoleWriterAuthorizationState(em, [String(role.id)])
+    const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
+    if (!existing) {
+      const acl = em.create(RoleAcl, {
+        role,
+        tenantId,
+        featuresJson: uniqueFeatures,
+        isSuperAdmin: !!options.isSuperAdmin,
+        createdAt: new Date(),
+      })
+      await em.persist(acl).flush()
+      return
+    }
+    const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
+    const merged = Array.from(new Set([...currentFeatures, ...uniqueFeatures]))
+    const changed =
+      merged.length !== currentFeatures.length ||
+      merged.some((value, index) => value !== currentFeatures[index])
+    if (changed) existing.featuresJson = merged
+    if (options.isSuperAdmin && !existing.isSuperAdmin) {
+      existing.isSuperAdmin = true
+    }
+    if (changed || options.isSuperAdmin) {
+      await em.persist(existing).flush()
+    }
+  }], { transaction: true, label: 'auth.ensure-role-acl' })
 }
 
 /**
