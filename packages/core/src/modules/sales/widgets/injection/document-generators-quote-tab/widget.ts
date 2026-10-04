@@ -8,6 +8,7 @@ const widget: InjectionWidgetModule = {
     description: 'Generate documents from this sales quote and browse its generated history',
     features: ['document_generators.documents.view', 'sales.quotes.view'],
     priority: 40,
+    requiredModules: ['document_generators'],
   },
   Widget: DocumentQuoteGeneratorsTabWidget,
 }
