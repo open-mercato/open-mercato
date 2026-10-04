@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/redo/route'
+import { buildActionLogQueryHarness } from '@open-mercato/core/modules/audit_logs/services/__tests__/actionLogServiceQueryHarness'
 
 const mockReplayEm = {
   find: jest.fn(async () => []),
@@ -252,15 +253,36 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
       commandId: 'demo.command',
       actorUserId: keyId,
       contextJson: { actorSubject: subject },
+      createdAt: new Date('2026-10-04T10:00:00.000Z'),
+      deletedAt: null,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       resourceKind: 'demo.resource',
       resourceId: 'res-1',
       executionState: 'undone',
       commandPayload: { __redoInput: {} },
+      undoToken: null,
+      updatedAt: new Date('2026-10-04T10:00:00.000Z'),
     }
     mockLogs.findById.mockResolvedValue(log)
-    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+    const { service } = buildActionLogQueryHarness([
+      log,
+      {
+        ...log,
+        id: 'same-uuid-user-undone',
+        contextJson: { actorSubject: keyId },
+        updatedAt: new Date('2026-10-04T10:02:00.000Z'),
+      },
+      {
+        ...log,
+        id: 'malformed-key-undone',
+        contextJson: { actorSubject: `${subject}:malformed` },
+        updatedAt: new Date('2026-10-04T10:01:00.000Z'),
+      },
+    ])
+    mockLogs.latestUndoneForActor.mockImplementation((actorUserId, scope) => (
+      service.latestUndoneForActor(actorUserId, scope)
+    ))
 
     const res = await POST(makeRequest({ logId: log.id }))
 

@@ -1,5 +1,9 @@
 import { ActionLogService, SCHEMA_UUID_REGEX } from '../actionLogService'
 import { uuid } from '@open-mercato/core/modules/audit_logs/data/validators'
+import {
+  buildActionLogQueryHarness,
+  type ActionLogQueryRow,
+} from './actionLogServiceQueryHarness'
 
 type OrGroup = { __group: 'or'; children: unknown[] }
 type ExpressionBuilderMock = ((...args: unknown[]) => unknown) & {
@@ -547,6 +551,124 @@ describe('ActionLogService.list pagination', () => {
     })
 
     expect(result.totalPages).toBe(1)
+  })
+})
+
+describe('ActionLogService API-key replay freshness queries', () => {
+  const keyId = '22222222-2222-4222-8222-222222222222'
+  const keySubject = `api_key:${keyId}`
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '33333333-3333-4333-8333-333333333333'
+  const baseTime = new Date('2026-10-04T10:00:00.000Z')
+
+  const row = (
+    id: string,
+    overrides: Partial<ActionLogQueryRow> = {},
+  ): ActionLogQueryRow => ({
+    id,
+    actorUserId: keyId,
+    commandId: 'auth.users.update',
+    contextJson: { actorSubject: keySubject },
+    createdAt: baseTime,
+    deletedAt: null,
+    executionState: 'done',
+    organizationId,
+    resourceId: 'user-1',
+    resourceKind: 'auth.user',
+    tenantId,
+    undoToken: `${id}-token`,
+    updatedAt: baseTime,
+    ...overrides,
+  })
+
+  const queries = [
+    {
+      name: 'latestUndoableForActor',
+      executionState: 'done',
+      invoke: (service: ActionLogService) => service.latestUndoableForActor(keySubject, { tenantId, organizationId }),
+    },
+    {
+      name: 'latestUndoableForResource',
+      executionState: 'done',
+      invoke: (service: ActionLogService) => service.latestUndoableForResource({
+        actorUserId: keySubject,
+        tenantId,
+        organizationId,
+        resourceKind: 'auth.user',
+        resourceId: 'user-1',
+      }),
+    },
+    {
+      name: 'latestUndoneForActor',
+      executionState: 'undone',
+      invoke: (service: ActionLogService) => service.latestUndoneForActor(keySubject, { tenantId, organizationId }),
+    },
+  ] as const
+  const queryCases = queries.flatMap((query) => [
+    { ...query, encryptionEnabled: false, storage: 'plaintext' },
+    { ...query, encryptionEnabled: true, storage: 'encrypted' },
+  ])
+
+  it.each(queryCases)('$name ($storage) keeps canonical key history ahead of newer same-UUID user and malformed rows', async ({ encryptionEnabled, executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
+    const rows = [
+      row('canonical', { executionState, undoToken }),
+      row('same-uuid-user', {
+        contextJson: { actorSubject: keyId },
+        createdAt: new Date('2026-10-04T10:02:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:02:00.000Z'),
+      }),
+      row('malformed', {
+        contextJson: { actorSubject: `${keySubject}:malformed` },
+        createdAt: new Date('2026-10-04T10:01:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:01:00.000Z'),
+      }),
+    ]
+    const { service } = buildActionLogQueryHarness(rows, { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'canonical' })
+  })
+
+  it.each(queryCases)('$name ($storage) retains the bounded legacy row fallback', async ({ encryptionEnabled, executionState, invoke }) => {
+    const legacy = row('legacy', {
+      contextJson: { source: 'api' },
+      executionState,
+      undoToken: executionState === 'done' ? 'legacy-token' : null,
+    })
+    const { service } = buildActionLogQueryHarness([legacy], { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'legacy' })
+  })
+
+  it.each(queryCases)('$name ($storage) fails closed when only same-UUID user and malformed rows exist', async ({ encryptionEnabled, executionState, invoke }) => {
+    const undoToken = executionState === 'undone' ? null : 'token'
+    const { service } = buildActionLogQueryHarness([
+      row('same-uuid-user', { contextJson: { actorSubject: keyId }, executionState, undoToken }),
+      row('malformed', { contextJson: { actorSubject: null }, executionState, undoToken }),
+      row('malformed-context', { contextJson: [] as never, executionState, undoToken }),
+    ], { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toBeNull()
+  })
+
+  it('continues encrypted-history scanning when a full page of malformed rows precedes the canonical key row', async () => {
+    const malformedRows = Array.from({ length: 100 }, (_, index) => row(`malformed-${index}`, {
+      contextJson: { actorSubject: `${keySubject}:malformed` },
+      createdAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+      updatedAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+    }))
+    const { find, service } = buildActionLogQueryHarness([
+      ...malformedRows,
+      row('canonical'),
+    ], { encryptionEnabled: true })
+
+    await expect(service.latestUndoableForActor(keySubject, { tenantId, organizationId }))
+      .resolves.toMatchObject({ id: 'canonical' })
+    expect(find).toHaveBeenCalledTimes(2)
   })
 })
 

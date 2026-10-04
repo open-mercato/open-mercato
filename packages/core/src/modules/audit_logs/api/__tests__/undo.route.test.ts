@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/undo/route'
+import { buildActionLogQueryHarness } from '@open-mercato/core/modules/audit_logs/services/__tests__/actionLogServiceQueryHarness'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 
 const mockReplayEm = {
@@ -152,15 +153,41 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
     const target = {
       id: 'api-key-log',
       actorUserId: keyId,
+      commandId: 'auth.users.update',
       contextJson: { actorSubject: subject },
+      createdAt: new Date('2026-10-04T10:00:00.000Z'),
+      deletedAt: null,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       resourceKind: 'auth.user',
       resourceId: 'user-42',
       executionState: 'done',
+      undoToken: 'api-key-token',
+      updatedAt: new Date('2026-10-04T10:00:00.000Z'),
     }
     mockLogs.findByUndoToken.mockResolvedValue(target)
-    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    const { service } = buildActionLogQueryHarness([
+      target,
+      {
+        ...target,
+        id: 'same-uuid-user-log',
+        contextJson: { actorSubject: keyId },
+        createdAt: new Date('2026-10-04T10:02:00.000Z'),
+        undoToken: 'same-uuid-user-token',
+        updatedAt: new Date('2026-10-04T10:02:00.000Z'),
+      },
+      {
+        ...target,
+        id: 'malformed-key-log',
+        contextJson: { actorSubject: `${subject}:malformed` },
+        createdAt: new Date('2026-10-04T10:01:00.000Z'),
+        undoToken: 'malformed-key-token',
+        updatedAt: new Date('2026-10-04T10:01:00.000Z'),
+      },
+    ])
+    mockLogs.latestUndoableForResource.mockImplementation((params) => (
+      service.latestUndoableForResource(params)
+    ))
 
     const res = await POST(makeRequest({ undoToken: 'api-key-token' }))
 
