@@ -7,6 +7,7 @@ import { emitSsoEvent } from '../events'
 import { EmailNotVerifiedError } from '../lib/errors'
 import type { SsoIdentityPayload } from '../lib/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { conflict } from '@open-mercato/shared/lib/crud/errors'
 import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 const logger = createLogger('sso').child({ component: 'account-linking' })
@@ -237,12 +238,13 @@ export class AccountLinkingService {
       userId: user.id,
       ssoConfigId: config.id,
     })
+    const lockedRoleIds = new Set([
+      ...desiredRoleIds,
+      ...existingGrants.map((grant) => grant.roleId),
+    ])
     await lockUserRoleWriterAuthorizationState(em, {
       userIds: [String(user.id)],
-      roleIds: Array.from(new Set([
-        ...desiredRoleIds,
-        ...existingGrants.map((grant) => grant.roleId),
-      ])),
+      roleIds: Array.from(lockedRoleIds),
     })
     allRoles = await em.find(Role, {
       tenantId: resolvedTenantId,
@@ -254,6 +256,7 @@ export class AccountLinkingService {
     }, { refresh: true })
 
     desiredRoleIds = resolveActiveRoleIds(allRoles, desiredRoleNames)
+    assertDesiredRolesWereLocked(desiredRoleIds, lockedRoleIds)
     const existingGrantedRoleIds = new Set(existingGrants.map((g) => g.roleId))
 
     // Compute diff
@@ -311,6 +314,17 @@ export class AccountLinkingService {
 
     const userRole = em.create(UserRole, { user, role, createdAt: new Date() })
     em.persist(userRole)
+  }
+}
+
+function assertDesiredRolesWereLocked(
+  desiredRoleIds: ReadonlySet<string>,
+  lockedRoleIds: ReadonlySet<string>,
+): void {
+  for (const roleId of desiredRoleIds) {
+    if (!lockedRoleIds.has(roleId)) {
+      throw conflict('[internal] Authorization state changed while acquiring its lock footprint')
+    }
   }
 }
 

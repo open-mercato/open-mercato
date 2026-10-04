@@ -233,4 +233,31 @@ describe('SSO app role mappings', () => {
     )
     expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
   })
+
+  it('rejects a post-lock role footprint expansion before creating memberships', async () => {
+    const em = buildRoleSyncEntityManager(
+      [],
+      [{ id: 'role-employee', name: 'employee' }],
+    )
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: '[internal] Authorization state changed while acquiring its lock footprint',
+      },
+    })
+
+    expect(lockUserRoleWriterAuthorizationState).toHaveBeenCalledWith(
+      expect.anything(),
+      { userIds: ['user-1'], roleIds: [] },
+    )
+    expect(em.find).toHaveBeenCalledWith(
+      Role,
+      { tenantId: 'tenant-1', deletedAt: null },
+      { refresh: true },
+    )
+    expect(em.create).not.toHaveBeenCalledWith(UserRole, expect.anything())
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
+  })
 })
