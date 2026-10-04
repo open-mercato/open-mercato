@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { exampleTag } from '../../../../example/api/openapi'
@@ -51,12 +52,13 @@ export async function POST(request: Request) {
 
     const container = await createRequestContainer()
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
-    const organizationIds = Array.isArray(scope?.filterIds) && scope.filterIds.length > 0
+    const scopedOrganizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
+    const organizationIds = Array.isArray(scope?.filterIds)
       ? scope.filterIds
-      : auth.orgId
-        ? [auth.orgId]
+      : scopedOrganizationId
+        ? [scopedOrganizationId]
         : []
-    const organizationId = body.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? organizationIds[0] ?? null
+    const organizationId = body.organizationId ?? scopedOrganizationId ?? organizationIds[0] ?? null
 
     if (!organizationId) {
       return NextResponse.json(
@@ -93,6 +95,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ queued: 1 }, { status: 202 })
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
     if (error instanceof SyntaxError) {
       return NextResponse.json(
         { error: translate('exampleCustomersSync.errors.invalidJson', 'Invalid JSON body.') },

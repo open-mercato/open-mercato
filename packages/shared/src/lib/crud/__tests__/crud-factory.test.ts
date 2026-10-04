@@ -185,17 +185,28 @@ const accessLogService = {
   log: jest.fn(async () => {}),
 }
 
+const crudCacheStore = new Map<string, unknown>()
+const crudCache = {
+  get: jest.fn(async (key: string) => crudCacheStore.get(key) ?? null),
+  set: jest.fn(async (key: string, value: unknown) => { crudCacheStore.set(key, value) }),
+  delete: jest.fn(async (key: string) => { crudCacheStore.delete(key) }),
+  deleteByTags: jest.fn(async () => 0),
+}
+
+const resolveContainerValue = jest.fn((name: string) => ({
+  em,
+  queryEngine,
+  cache: crudCache,
+  eventBus: mockEventBus,
+  dataEngine: mockDataEngine,
+  accessLogService,
+  commandBus,
+  crudMutationGuardService,
+} as any)[name])
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: (name: string) => ({
-      em,
-      queryEngine,
-      eventBus: mockEventBus,
-      dataEngine: mockDataEngine,
-      accessLogService,
-      commandBus,
-      crudMutationGuardService,
-    } as any)[name],
+    resolve: resolveContainerValue,
   })
 }))
 
@@ -235,6 +246,7 @@ describe('CRUD Factory', () => {
     idSeq = 1
     jest.clearAllMocks()
     accessLogService.log.mockClear()
+    crudCacheStore.clear()
     mockDataEngine.__pendingSideEffects = []
     mockDataEngine.__defaultIndexer = null
     mockDataEngine.__indexedDefaultEntityClass = false
@@ -307,6 +319,44 @@ describe('CRUD Factory', () => {
         queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
       }),
     }))
+  })
+
+  it('GET returns an empty page before hooks, cache, query engine, EM, RBAC, or data engine for explicit empty scope', async () => {
+    const beforeList = jest.fn()
+    const emptyScopeRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title'],
+        buildFilters: () => ({} as any),
+      },
+      hooks: { beforeList },
+    })
+    mockOrganizationScopeOverride = {
+      tenantId: defaultTenantId,
+      selectedId: defaultOrganizationId,
+      filterIds: [],
+      allowedIds: [defaultOrganizationId],
+    }
+
+    const response = await emptyScopeRoute.GET(new Request('http://x/api/example/todos?page=4&pageSize=15'))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 4,
+      pageSize: 15,
+      totalPages: 0,
+    })
+    expect(beforeList).not.toHaveBeenCalled()
+    expect(resolveContainerValue).not.toHaveBeenCalled()
+    expect(crudCache.get).not.toHaveBeenCalled()
+    expect(queryEngine.query).not.toHaveBeenCalled()
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(accessLogService.log).not.toHaveBeenCalled()
   })
 
   it('GET spreads totalIsCapped only when the engine reports a capped count', async () => {
@@ -1213,7 +1263,7 @@ describe('CRUD Factory', () => {
     expect(db[created.id].deletedAt).toBeInstanceOf(Date)
   })
 
-  it('trims padded selected organization ids when scope resolution falls back from empty filter ids', async () => {
+  it('denies mutations instead of falling back from empty filter ids', async () => {
     const created = em.create(Todo, { title: 'Scoped', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
     created.id = '123e4567-e89b-12d3-a456-426614174052'
     await em.persist(created).flush()
@@ -1230,27 +1280,13 @@ describe('CRUD Factory', () => {
       headers: { 'content-type': 'application/json' },
     }))
 
-    expect(updateResponse.status).toBe(200)
-    expect(mockDataEngine.updateOrmEntity).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        id: created.id,
-        organizationId: defaultOrganizationId,
-        tenantId: defaultTenantId,
-        deletedAt: null,
-      },
-    }))
+    expect(updateResponse.status).toBe(403)
+    expect(mockDataEngine.updateOrmEntity).not.toHaveBeenCalled()
 
     const deleteResponse = await route.DELETE(new Request(`http://x/api/example/todos?id=${created.id}`, { method: 'DELETE' }))
 
-    expect(deleteResponse.status).toBe(200)
-    expect(mockDataEngine.deleteOrmEntity).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: {
-        id: created.id,
-        organizationId: defaultOrganizationId,
-        tenantId: defaultTenantId,
-        deletedAt: null,
-      },
-    }))
+    expect(deleteResponse.status).toBe(403)
+    expect(mockDataEngine.deleteOrmEntity).not.toHaveBeenCalled()
   })
 
   it('does not call data services when the resolved organization scope is explicitly empty', async () => {
