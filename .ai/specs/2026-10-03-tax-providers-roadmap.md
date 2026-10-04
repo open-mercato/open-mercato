@@ -468,7 +468,7 @@ Classification per `BACKWARD_COMPATIBILITY.md`; every item is additive and nothi
 
 | Category | Spec 1 | Later specs |
 |---|---|---|
-| §1 Auto-discovery convention files (`BACKWARD_COMPATIBILITY.md:31`); `data/validators.ts` (`BACKWARD_COMPATIBILITY.md:53`) | existing schemas unchanged; two additive exported schemas (Spec 1 § 4.4, § 7); `taxStrategyKey` and `taxInfo` stay accepted, the overwrite rule is documented | Spec 2, 4a and 4b add optional fields only |
+| §1 Auto-discovery convention files (`BACKWARD_COMPATIBILITY.md:31`); `data/validators.ts` (`BACKWARD_COMPATIBILITY.md:53`) | existing schemas unchanged; three additive exported schemas (Spec 1 § 4.4, § 4.10, § 7); `taxStrategyKey` and `taxInfo` stay accepted, the overwrite rule is documented | Spec 2, 4a and 4b add optional fields only |
 | §2 Type Definitions (`BACKWARD_COMPATIBILITY.md:69`) | optional `tax?` on `SalesCalculationContext`; optional `taxRate` on `SalesLineCalculationResult`; optional nullable `taxProviderKey` on `SalesSettings`; new exported types | additive fields on the request and result types |
 | §3 Function Signatures (`BACKWARD_COMPATIBILITY.md:113`) | no change under Option B; `registerSalesTotalsCalculator` gains optional `{ id?, phase? }` only under the fallback Option A | none |
 | §4 Import Paths (`BACKWARD_COMPATIBILITY.md:155`) | new exports from `lib/providers/index.ts` (mind that client components import that barrel) | new module `tax_gateways` |
@@ -596,4 +596,13 @@ Open, pending explicit maintainer acceptance: the recalculate command ids of Spe
 - **Cache**: Passed
 - **Commands**: fixed — the failure policy has two defined values, `fail` and `fallback-table`, and Spec 3 never writes `stale` (§ 3, ADR-8, § 12); ADR-2 and § 3 name where Apply runs and that the phase writes; checkout's `record` calculation runs when the sales document is created, before the gateway payment (ADR-3, § 7, § 12, RD-4)
 - **Risks**: fixed — the gross-preserving split moves to Spec 4a with its own gate (ADR-5, § 7, § 7.1, § 8); Phase 4 closes only when all three owners have accepted (§ 8); Spec 1b's first consumer is the Simple Checkout totals path, not `packages/checkout` at head (§ 4, § 7); the Phase 2 gate uses a flag-gated test provider, not a package; the delivery order lists the Resolve service; the diagram shows adapters registering into `sales`; vendor capabilities are placed outside the roadmap, not in a package; the § 15 rows list every additive type; citations corrected (`packages/events/AGENTS.md:15`, the integrations guide's full path)
+- **Verdict**: Needs maintainer decisions (§ Decision Requested); no open findings
+
+### Review — 2026-10-04 (fifth pass, readiness dry runs)
+- **Reviewer**: two independent `om-pre-implement-spec` dry runs of Spec 1 in fresh contexts
+- **Security**: Passed
+- **Performance**: Passed
+- **Cache**: Passed
+- **Commands**: Passed — no roadmap change beyond the count of Spec 1's validator exports (§ 15)
+- **Risks**: Passed
 - **Verdict**: Needs maintainer decisions (§ Decision Requested); no open findings
