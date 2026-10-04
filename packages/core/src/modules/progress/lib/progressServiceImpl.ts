@@ -13,6 +13,7 @@ import {
 } from './progressService'
 import { PROGRESS_EVENTS } from './events'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildProgressOrganizationFilter } from './organizationScope'
 
 const DEFAULT_BROADCAST_MIN_INTERVAL_MS = 250
 
@@ -84,7 +85,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     return {
       id: jobId,
       tenantId: ctx.tenantId,
-      ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+      ...buildProgressOrganizationFilter(ctx),
     }
   }
 
@@ -633,7 +634,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return job
     },
 
-    async isCancellationRequested(jobId, tenantId, organizationId) {
+    async isCancellationRequested(jobId, tenantId, organizationId, organizationIds) {
       // Forked EM, for the same reason touchJobHeartbeat forks: this is polled from the
       // keepalive timer, which spans the producer's own transactional writes on the shared
       // EM, so an unawaited poll would issue a SELECT into an open em.begin()/em.commit()
@@ -646,7 +647,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const job = await findOneWithDecryption(em.fork(), ProgressJob, {
         id: jobId,
         tenantId,
-        ...(organizationId ? { organizationId } : {}),
+        ...buildProgressOrganizationFilter({ organizationId, organizationIds }),
       }, { disableIdentityMap: true })
       return job?.cancelRequestedAt != null
     },
@@ -654,7 +655,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     async getActiveJobs(ctx) {
       return em.find(ProgressJob, {
         tenantId: ctx.tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+        ...buildProgressOrganizationFilter(ctx),
         status: { $in: ['pending', 'running'] },
         parentJobId: null,
       }, {
@@ -667,7 +668,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       const cutoff = new Date(Date.now() - sinceSeconds * 1000)
       return em.find(ProgressJob, {
         tenantId: ctx.tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+        ...buildProgressOrganizationFilter(ctx),
         status: { $in: ['completed', 'failed'] },
         finishedAt: { $gte: cutoff },
         parentJobId: null,
@@ -681,16 +682,21 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return em.findOne(ProgressJob, {
         id: jobId,
         tenantId: ctx.tenantId,
-        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+        ...buildProgressOrganizationFilter(ctx),
       })
     },
 
-    async markStaleJobsFailed(tenantId: string, timeoutSeconds = STALE_JOB_TIMEOUT_SECONDS, organizationId?: string | null) {
+    async markStaleJobsFailed(
+      tenantId: string,
+      timeoutSeconds = STALE_JOB_TIMEOUT_SECONDS,
+      organizationId?: string | null,
+      organizationIds?: string[] | null,
+    ) {
       const now = new Date()
       const cutoff = new Date(now.getTime() - timeoutSeconds * 1000)
       const scope = {
         tenantId,
-        ...(organizationId ? { organizationId } : {}),
+        ...buildProgressOrganizationFilter({ organizationId, organizationIds }),
       }
       let failedCount = 0
 
@@ -713,6 +719,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         const affected = await em.nativeUpdate(ProgressJob, {
           id: job.id,
           tenantId: job.tenantId,
+          organizationId: job.organizationId ?? null,
           ...staleFilter,
         } as FilterQuery<ProgressJob>, {
           status: 'failed',
@@ -751,6 +758,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         const affected = await em.nativeUpdate(ProgressJob, {
           id: job.id,
           tenantId: job.tenantId,
+          organizationId: job.organizationId ?? null,
           ...stalePendingFilter,
         } as FilterQuery<ProgressJob>, {
           status: 'failed',

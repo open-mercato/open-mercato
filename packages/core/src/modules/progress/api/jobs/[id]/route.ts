@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { ProgressJob } from '../../../data/entities'
 import { updateProgressSchema } from '../../../data/validators'
 import type { ProgressService } from '../../../lib/progressService'
+import {
+  hasReadableProgressScope,
+  hasWritableProgressScope,
+  resolveProgressRequestScope,
+} from '../../requestScope'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['progress.view'] },
@@ -21,12 +24,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-
-  const job = await em.findOne(ProgressJob, {
-    id: params.id,
-    tenantId: auth.tenantId,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
+  const scope = await resolveProgressRequestScope(container, auth, req)
+  if (!hasReadableProgressScope(scope)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const progressService = container.resolve('progressService') as ProgressService
+  const job = await progressService.getJob(params.id, {
+    tenantId: scope.tenantId,
+    organizationId: scope.selectedId,
+    organizationIds: scope.filterIds,
+    userId: auth.sub,
   })
 
   if (!job) {
@@ -74,23 +81,23 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const existing = await em.findOne(ProgressJob, {
-    id: params.id,
-    tenantId: auth.tenantId,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
-  })
+  const scope = await resolveProgressRequestScope(container, auth, req)
+  if (!hasWritableProgressScope(scope)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const progressService = container.resolve('progressService') as ProgressService
+  const progressContext = {
+    tenantId: scope.tenantId,
+    organizationId: scope.selectedId,
+    organizationIds: scope.filterIds,
+    userId: auth.sub,
+  }
+  const existing = await progressService.getJob(params.id, progressContext)
   if (!existing) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const progressService = container.resolve('progressService') as ProgressService
-
-  const job = await progressService.updateProgress(params.id, parsed.data, {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-    userId: auth.sub,
-  })
+  const job = await progressService.updateProgress(params.id, parsed.data, progressContext)
 
   return NextResponse.json({ ok: true, progressPercent: job.progressPercent })
 }
@@ -103,13 +110,23 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   const container = await createRequestContainer()
   const progressService = container.resolve('progressService') as ProgressService
+  const scope = await resolveProgressRequestScope(container, auth, req)
+  if (!hasWritableProgressScope(scope)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const progressContext = {
+    tenantId: scope.tenantId,
+    organizationId: scope.selectedId,
+    organizationIds: scope.filterIds,
+    userId: auth.sub,
+  }
+  const existing = await progressService.getJob(params.id, progressContext)
+  if (!existing) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   try {
-    await progressService.cancelJob(params.id, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      userId: auth.sub,
-    })
+    await progressService.cancelJob(params.id, progressContext)
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })

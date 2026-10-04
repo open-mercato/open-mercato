@@ -974,6 +974,54 @@ describe('progress service — organization scoping (#2930)', () => {
     expect(filter).toMatchObject({ id: 'job-1', tenantId: orgCtx.tenantId })
   })
 
+  it('list/detail reads use the resolved finite organization-id set', async () => {
+    const em = buildEm()
+    em.find.mockResolvedValue([])
+    em.findOne.mockResolvedValue(null)
+    const resolvedCtx = {
+      ...orgCtx,
+      organizationId: null,
+      organizationIds: ['org-allowed', 'org-child'],
+    }
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.getActiveJobs(resolvedCtx)
+    await service.getRecentlyCompletedJobs(resolvedCtx)
+    await service.getJob('job-1', resolvedCtx)
+
+    for (const call of em.find.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        tenantId: orgCtx.tenantId,
+        organizationId: { $in: ['org-allowed', 'org-child'] },
+      }))
+    }
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        id: 'job-1',
+        tenantId: orgCtx.tenantId,
+        organizationId: { $in: ['org-allowed', 'org-child'] },
+      }),
+    )
+  })
+
+  it('explicit empty organization scope remains a deny-all predicate on every list/detail read', async () => {
+    const em = buildEm()
+    em.find.mockResolvedValue([])
+    em.findOne.mockResolvedValue(null)
+    const deniedCtx = { ...orgCtx, organizationId: null, organizationIds: [] }
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.getActiveJobs(deniedCtx)
+    await service.getRecentlyCompletedJobs(deniedCtx)
+    await service.getJob('job-1', deniedCtx)
+
+    for (const call of em.find.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+    }
+    expect(em.findOne.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+  })
+
   it('updateProgress — scopes the lookup by organizationId when ctx provides one', async () => {
     const em = buildEm()
     const job = { id: 'job-1', status: 'running', processedCount: 0, totalCount: null, startedAt: null, meta: null } as unknown as ProgressJob
@@ -1004,6 +1052,22 @@ describe('progress service — organization scoping (#2930)', () => {
     )
   })
 
+  it('updateProgress — keeps explicit empty scope on both lookup and guarded write', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'running', processedCount: 0, totalCount: null, startedAt: null, meta: null } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.updateProgress('job-1', { processedCount: 1 }, {
+      ...orgCtx,
+      organizationId: null,
+      organizationIds: [],
+    })
+
+    expect(em.findOneOrFail.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+    expect(em.nativeUpdate.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+  })
+
   it('cancelJob — scopes the lookup by organizationId when ctx provides one', async () => {
     const em = buildEm()
     const job = { id: 'job-1', status: 'pending', cancellable: true } as unknown as ProgressJob
@@ -1028,6 +1092,22 @@ describe('progress service — organization scoping (#2930)', () => {
       }),
       expect.anything()
     )
+  })
+
+  it('cancelJob — keeps explicit empty scope on both lookup and guarded write', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'pending', cancellable: true } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.cancelJob('job-1', {
+      ...orgCtx,
+      organizationId: null,
+      organizationIds: [],
+    })
+
+    expect(em.findOneOrFail.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+    expect(em.nativeUpdate.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
   })
 })
 
@@ -1161,6 +1241,22 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
     expect(filter).toMatchObject({ id: 'job-1', tenantId: orgCtx.tenantId })
   })
 
+  it('isCancellationRequested — preserves an explicit empty organization scope', async () => {
+    const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
+    mockFindOneWithDecryption.mockResolvedValue(null)
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.isCancellationRequested('job-1', orgCtx.tenantId, null, [])
+
+    expect(mockFindOneWithDecryption.mock.calls[0][2]).toEqual(expect.objectContaining({
+      id: 'job-1',
+      tenantId: orgCtx.tenantId,
+      organizationId: { $in: [] },
+    }))
+  })
+
   it('markStaleJobsFailed — scopes the lookup by organizationId when provided', async () => {
     const em = buildEm()
     em.find.mockResolvedValue([])
@@ -1185,6 +1281,22 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
     const filter = em.find.mock.calls[0][1]
     expect(filter).not.toHaveProperty('organizationId')
     expect(filter).toMatchObject({ tenantId: orgCtx.tenantId, status: 'running' })
+  })
+
+  it('markStaleJobsFailed — preserves an explicit empty organization scope', async () => {
+    const em = buildEm()
+    em.find.mockResolvedValue([])
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.markStaleJobsFailed(orgCtx.tenantId, 60, null, [])
+
+    expect(em.find).toHaveBeenCalledTimes(2)
+    for (const call of em.find.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        tenantId: orgCtx.tenantId,
+        organizationId: { $in: [] },
+      }))
+    }
   })
 })
 
