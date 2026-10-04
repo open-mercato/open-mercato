@@ -3,6 +3,10 @@ jest.mock('../fulltext/drivers', () => ({
 }))
 
 import { createEncryptionMapResolver } from '../di'
+import {
+  encryptionMapPolicyVersionCacheKey,
+  TenantDataEncryptionService,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type QueryResult = Array<Record<string, unknown>> | Error
 
@@ -21,6 +25,18 @@ function createDatabase(results: QueryResult[]) {
     db: { selectFrom: jest.fn(() => query) },
     query,
   }
+}
+
+function createPolicyVersionCache(entityId: string) {
+  const storage = new Map<string, unknown>([
+    [encryptionMapPolicyVersionCacheKey(entityId), 'version-1'],
+  ])
+  const cache = {
+    get: jest.fn(async (key: string) => storage.get(key) ?? null),
+    set: jest.fn(async (key: string, value: unknown) => { storage.set(key, value) }),
+    delete: jest.fn(async (key: string) => storage.delete(key)),
+  }
+  return { cache, storage }
 }
 
 describe('search encryption-map resolver', () => {
@@ -103,6 +119,7 @@ describe('search encryption-map resolver', () => {
   })
 
   it('does not retain a successful empty lookup for five minutes', async () => {
+    const entityId = 'demo:item'
     const { db, query } = createDatabase([
       [],
       [{
@@ -113,11 +130,53 @@ describe('search encryption-map resolver', () => {
         fields_json: [{ field: 'new_secret' }],
       }],
     ])
-    const resolveMap = createEncryptionMapResolver(db as never)
+    const { cache } = createPolicyVersionCache(entityId)
+    const resolveMap = createEncryptionMapResolver(db as never, cache)
 
-    await expect(resolveMap('demo:item')).resolves.toEqual([])
-    await expect(resolveMap('demo:item')).resolves.toEqual([{ field: 'new_secret', hashField: null }])
-    await expect(resolveMap('demo:item')).resolves.toEqual([{ field: 'new_secret', hashField: null }])
+    await expect(resolveMap(entityId)).resolves.toEqual([])
+    await expect(resolveMap(entityId)).resolves.toEqual([{ field: 'new_secret', hashField: null }])
+    await expect(resolveMap(entityId)).resolves.toEqual([{ field: 'new_secret', hashField: null }])
+    expect(query.execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops a primed non-empty policy when map invalidation adds a protected field', async () => {
+    const entityId = 'demo:versioned_policy'
+    const { db, query } = createDatabase([
+      [{
+        id: 'existing',
+        tenant_id: 'tenant-1',
+        organization_id: 'org-1',
+        created_at: '2026-01-01T00:00:00.000Z',
+        fields_json: [{ field: 'old_secret' }],
+      }],
+      [{
+        id: 'existing',
+        tenant_id: 'tenant-1',
+        organization_id: 'org-1',
+        created_at: '2026-01-01T00:00:00.000Z',
+        fields_json: [{ field: 'old_secret' }, { field: 'new_secret' }],
+      }],
+    ])
+    const { cache } = createPolicyVersionCache(entityId)
+    const resolveMap = createEncryptionMapResolver(db as never, cache)
+
+    await expect(resolveMap(entityId)).resolves.toEqual([
+      { field: 'old_secret', hashField: null },
+    ])
+    await expect(resolveMap(entityId)).resolves.toEqual([
+      { field: 'old_secret', hashField: null },
+    ])
+
+    const invalidatingService = new TenantDataEncryptionService(
+      {} as never,
+      { cache: cache as never },
+    )
+    await invalidatingService.invalidateMap(entityId, 'tenant-1', 'org-1')
+
+    await expect(resolveMap(entityId)).resolves.toEqual([
+      { field: 'old_secret', hashField: null },
+      { field: 'new_secret', hashField: null },
+    ])
     expect(query.execute).toHaveBeenCalledTimes(2)
   })
 })

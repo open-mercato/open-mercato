@@ -604,6 +604,114 @@ describe('TenantDataEncryptionService map cache invalidation', () => {
       fields: [{ field: 'fresh_shared_aggregate' }],
     })
   })
+
+  it('registers exact and aggregate barriers before a blocked first shared-cache delete', async () => {
+    const entityId = 'test:cache_barrier_before_delete'
+    const tenantId = 'tenant-cache-barrier-before-delete'
+    const organizationId = 'org-cache-barrier-before-delete'
+    const exactTag = `encmap:${entityId}:${tenantId}:${organizationId}`
+    const aggregateTag = `encmap-all-orgs:${entityId}:${tenantId}`
+    const storage = new Map<string, unknown>([
+      [exactTag, { entityId, fields: [{ field: 'stale_exact' }] }],
+      [aggregateTag, { entityId, fields: [{ field: 'stale_aggregate' }] }],
+    ])
+    let signalExactDeleteStarted: (() => void) | undefined
+    let releaseExactDelete: (() => void) | undefined
+    const exactDeleteStarted = new Promise<void>((resolve) => { signalExactDeleteStarted = resolve })
+    const exactDeleteReleased = new Promise<void>((resolve) => { releaseExactDelete = resolve })
+    const cache = {
+      get: jest.fn(async (key: string) => storage.get(key) ?? null),
+      set: jest.fn(async (key: string, value: unknown) => { storage.set(key, value) }),
+      delete: jest.fn(async (key: string) => {
+        if (key === exactTag) {
+          signalExactDeleteStarted?.()
+          await exactDeleteReleased
+        }
+        return storage.delete(key)
+      }),
+    }
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 2) return [{ fields_json: [{ field: 'fresh_aggregate' }] }]
+      if (params[2] === organizationId) {
+        return [{ entity_id: entityId, fields_json: [{ field: 'fresh_exact' }] }]
+      }
+      return []
+    })
+    const makeService = () => {
+      const service = new TenantDataEncryptionService(
+        { getConnection: () => ({ execute }) } as never,
+        { cache: cache as never },
+      )
+      jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+      return service
+    }
+    const invalidatingService = makeService()
+    const racingReaderService = makeService()
+
+    const invalidation = invalidatingService.invalidateMap(entityId, tenantId, organizationId)
+    await exactDeleteStarted
+
+    const racingExactRead = racingReaderService.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    const racingAggregateRead = racingReaderService.getEncryptedFieldNames(entityId, tenantId, null)
+
+    await expect(racingAggregateRead).resolves.toEqual(['fresh_aggregate'])
+    releaseExactDelete?.()
+    await invalidation
+    await expect(racingExactRead).resolves.toEqual(['fresh_exact'])
+
+    const subsequentReaderService = makeService()
+    await expect(subsequentReaderService.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_exact'])
+    await expect(subsequentReaderService.getEncryptedFieldNames(entityId, tenantId, null))
+      .resolves.toEqual(['fresh_aggregate'])
+    expect(cache.delete).toHaveBeenCalledWith(exactTag)
+    expect(cache.delete).toHaveBeenCalledWith(aggregateTag)
+  })
+
+  it('fails reads closed after an invalidation delete fails and recovers only after a successful retry', async () => {
+    const entityId = 'test:cache_invalidation_failure'
+    const tenantId = 'tenant-cache-invalidation-failure'
+    const organizationId = 'org-cache-invalidation-failure'
+    const exactTag = `encmap:${entityId}:${tenantId}:${organizationId}`
+    const storage = new Map<string, unknown>([
+      [exactTag, { entityId, fields: [{ field: 'stale_exact' }] }],
+    ])
+    let failExactDelete = true
+    const cache = {
+      get: jest.fn(async (key: string) => storage.get(key) ?? null),
+      set: jest.fn(async (key: string, value: unknown) => { storage.set(key, value) }),
+      delete: jest.fn(async (key: string) => {
+        if (key === exactTag && failExactDelete) throw new Error('sensitive backend endpoint')
+        return storage.delete(key)
+      }),
+    }
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => (
+      params.length === 3 && params[2] === organizationId
+        ? [{ entity_id: entityId, fields_json: [{ field: 'fresh_exact' }] }]
+        : []
+    ))
+    const makeService = () => {
+      const service = new TenantDataEncryptionService(
+        { getConnection: () => ({ execute }) } as never,
+        { cache: cache as never },
+      )
+      jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+      return service
+    }
+    const invalidatingService = makeService()
+    const readingService = makeService()
+
+    await expect(invalidatingService.invalidateMap(entityId, tenantId, organizationId))
+      .rejects.toThrow('sensitive backend endpoint')
+    await expect(readingService.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .rejects.toThrow('Encryption map cache invalidation did not complete')
+    expect(cache.get).not.toHaveBeenCalledWith(exactTag)
+
+    failExactDelete = false
+    await invalidatingService.invalidateMap(entityId, tenantId, organizationId)
+    await expect(readingService.getEncryptedFieldNames(entityId, tenantId, organizationId))
+      .resolves.toEqual(['fresh_exact'])
+  })
 })
 
 describe('TenantDataEncryptionService duplicate map fail-safe', () => {

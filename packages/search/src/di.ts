@@ -23,7 +23,12 @@ import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from './queue/fulltext-indexing'
 import type { VectorIndexJobPayload } from './queue/vector-indexing'
 import type { EncryptionMapEntry } from './lib/field-policy'
-import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import {
+  encryptionMapPolicyVersionCacheKey,
+  getEncryptionMapCacheEpoch,
+  waitForEncryptionMapCacheMutation,
+  type TenantDataEncryptionService,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createPresenterEnricher } from './lib/presenter-enricher'
 
 const FULLTEXT_DRIVER_KEY = '__omSearchFulltextDriver__'
@@ -52,6 +57,22 @@ type EncryptionMapRow = {
   organization_id?: unknown
   fields_json?: unknown
   created_at?: unknown
+}
+
+type EncryptionMapPolicyVersionCache = {
+  get(key: string): Promise<unknown | null>
+}
+
+type EncryptionMapPolicyVersion = {
+  epoch: number
+  value: string | null
+}
+
+function sameEncryptionMapPolicyVersion(
+  left: EncryptionMapPolicyVersion,
+  right: EncryptionMapPolicyVersion,
+): boolean {
+  return left.epoch === right.epoch && left.value === right.value
 }
 
 function compareNullableScope(left: unknown, right: unknown): number {
@@ -118,39 +139,66 @@ function mergeEncryptionMapEntries(rows: readonly EncryptionMapRow[]): Encryptio
  */
 export function createEncryptionMapResolver(
   db: Kysely<any>,
+  policyVersionCache?: EncryptionMapPolicyVersionCache,
 ): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
-  const cache = new Map<string, { entries: EncryptionMapEntry[]; expiresAt: number }>()
-  const CACHE_TTL_MS = 5 * 60 * 1000
+  const cache = new Map<string, { entries: EncryptionMapEntry[]; version: EncryptionMapPolicyVersion }>()
+
+  const resolvePolicyVersion = async (entityId: EntityId): Promise<EncryptionMapPolicyVersion> => {
+    const tag = encryptionMapPolicyVersionCacheKey(entityId)
+    if (!policyVersionCache) {
+      return { epoch: getEncryptionMapCacheEpoch(tag), value: null }
+    }
+    while (true) {
+      const epoch = getEncryptionMapCacheEpoch(tag)
+      await waitForEncryptionMapCacheMutation(tag)
+      if (getEncryptionMapCacheEpoch(tag) !== epoch) continue
+      const version = await policyVersionCache.get(tag)
+      if (getEncryptionMapCacheEpoch(tag) !== epoch) continue
+      return {
+        epoch,
+        value: typeof version === 'string' && version.length > 0 ? version : null,
+      }
+    }
+  }
 
   return async (entityId: EntityId): Promise<EncryptionMapEntry[]> => {
-    const cached = cache.get(entityId)
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.entries
-    }
+    while (true) {
+      const versionBeforeRead = await resolvePolicyVersion(entityId)
+      const cached = cache.get(entityId)
+      if (
+        versionBeforeRead.value
+        && cached
+        && sameEncryptionMapPolicyVersion(cached.version, versionBeforeRead)
+      ) return cached.entries
 
-    const rows = await db
-      .selectFrom('encryption_maps' as any)
-      .select([
-        'id' as any,
-        'tenant_id' as any,
-        'organization_id' as any,
-        'fields_json' as any,
-        'created_at' as any,
-      ])
-      .where('entity_id' as any, '=', entityId)
-      .where('is_active' as any, '=', true)
-      .where('deleted_at' as any, 'is', null)
-      .orderBy('tenant_id' as any, 'asc')
-      .orderBy('organization_id' as any, 'asc')
-      .orderBy('created_at' as any, 'asc')
-      .orderBy('id' as any, 'asc')
-      .execute() as EncryptionMapRow[]
+      const rows = await db
+        .selectFrom('encryption_maps' as any)
+        .select([
+          'id' as any,
+          'tenant_id' as any,
+          'organization_id' as any,
+          'fields_json' as any,
+          'created_at' as any,
+        ])
+        .where('entity_id' as any, '=', entityId)
+        .where('is_active' as any, '=', true)
+        .where('deleted_at' as any, 'is', null)
+        .orderBy('tenant_id' as any, 'asc')
+        .orderBy('organization_id' as any, 'asc')
+        .orderBy('created_at' as any, 'asc')
+        .orderBy('id' as any, 'asc')
+        .execute() as EncryptionMapRow[]
 
-    const entries = mergeEncryptionMapEntries(Array.isArray(rows) ? rows : [])
-    if (entries.length > 0) {
-      cache.set(entityId, { entries, expiresAt: Date.now() + CACHE_TTL_MS })
+      const versionAfterRead = await resolvePolicyVersion(entityId)
+      if (!sameEncryptionMapPolicyVersion(versionAfterRead, versionBeforeRead)) continue
+      const entries = mergeEncryptionMapEntries(Array.isArray(rows) ? rows : [])
+      if (entries.length > 0 && versionAfterRead.value) {
+        cache.set(entityId, { entries, version: versionAfterRead })
+      } else {
+        cache.delete(entityId)
+      }
+      return entries
     }
-    return entries
   }
 }
 
@@ -262,7 +310,13 @@ export function registerSearchModule(
         try {
           const em = container.resolve<any>('em')
           const db = em.getKysely() as Kysely<any>
-          encryptionMapResolver = createEncryptionMapResolver(db)
+          let policyVersionCache: EncryptionMapPolicyVersionCache | undefined
+          try {
+            policyVersionCache = container.resolve<EncryptionMapPolicyVersionCache>('cache')
+          } catch {
+            policyVersionCache = undefined
+          }
+          encryptionMapResolver = createEncryptionMapResolver(db, policyVersionCache)
         } catch {
           encryptionMapResolver = createUnavailableEncryptionMapResolver()
         }

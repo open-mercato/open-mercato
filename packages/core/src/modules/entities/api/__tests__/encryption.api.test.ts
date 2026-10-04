@@ -182,6 +182,43 @@ describe('entities/encryption API', () => {
     expect(mockEncSvc.invalidateMap).toHaveBeenCalledWith('auth:user', 't-1', 'o-1')
   })
 
+  it('returns a safe failure and never reports success when invalidation fails', async () => {
+    mockGuardService = {
+      validateMutation: jest.fn(async () => ({ ok: true, shouldRunAfterSuccess: true })),
+      afterMutationSuccess: jest.fn(async () => {}),
+    }
+    mockMapRepo.find.mockResolvedValue([])
+    mockEncSvc.invalidateMap.mockRejectedValueOnce(new Error('redis://cache-user:secret@internal-cache'))
+    const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] }
+
+    const response = await POST(new Request('http://x/api/entities/encryption', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(response.status).toBe(503)
+    const json = await response.json()
+    expect(json).toEqual({
+      error: 'The encryption policy update could not be finalized.',
+      code: 'encryption_map_invalidation_failed',
+    })
+    expect(JSON.stringify(json)).not.toContain('cache-user')
+    expect(JSON.stringify(json)).not.toContain('secret')
+    expect(mockUpsertCanonicalEncryptionMap).toHaveBeenCalled()
+    expect(mockGuardService.afterMutationSuccess).not.toHaveBeenCalled()
+  })
+
+  it('documents the safe invalidation failure response in OpenAPI', () => {
+    const response = openApi.methods.POST?.responses?.find((entry) => entry.status === 503)
+
+    expect(response?.description).toBe('Encryption policy invalidation failed')
+    expect(response?.schema?.safeParse({
+      error: 'The encryption policy update could not be finalized.',
+      code: 'encryption_map_invalidation_failed',
+    }).success).toBe(true)
+  })
+
   it('creates and invalidates the map in the request-selected organization', async () => {
     mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
       tenantId: 't-1',

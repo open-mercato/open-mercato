@@ -145,6 +145,22 @@ export async function POST(req: Request) {
       isActive: payload.isActive ?? true,
     })
 
+    try {
+      const svc = container.resolve('tenantEncryptionService') as { invalidateMap?: (e: string, t: string | null, o: string | null) => Promise<void> }
+      if (!svc || typeof svc.invalidateMap !== 'function') {
+        throw new Error('[internal] Tenant encryption service cannot invalidate map caches')
+      }
+      await svc.invalidateMap(payload.entityId, tenantId, organizationId)
+    } catch {
+      return NextResponse.json(
+        {
+          error: 'The encryption policy update could not be finalized.',
+          code: 'encryption_map_invalidation_failed',
+        },
+        { status: 503 },
+      )
+    }
+
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
         tenantId,
@@ -157,13 +173,6 @@ export async function POST(req: Request) {
         requestHeaders: req.headers,
         metadata: guardResult.metadata ?? null,
       })
-    }
-
-    try {
-      const svc = container.resolve('tenantEncryptionService') as { invalidateMap?: (e: string, t: string | null, o: string | null) => Promise<void> }
-      await svc?.invalidateMap?.(payload.entityId, tenantId, organizationId)
-    } catch {
-      // best-effort cache bust
     }
 
     return NextResponse.json({ ok: true, updatedAt: toIsoOrNull(saved.updatedAt) })
@@ -187,6 +196,11 @@ const organizationSelectionInvalidResponseSchema = z.object({
   code: z.literal('organization_selection_invalid'),
 })
 
+const encryptionMapInvalidationFailedResponseSchema = z.object({
+  error: z.string(),
+  code: z.literal('encryption_map_invalidation_failed'),
+})
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Entities',
   summary: 'Manage encryption maps',
@@ -205,6 +219,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Saved', schema: z.object({ ok: z.boolean(), updatedAt: z.string().nullable().optional() }) },
         { status: 409, description: 'Optimistic-lock conflict (stale write)', schema: conflictResponseSchema },
         { status: 422, description: 'Selected organization is unavailable', schema: organizationSelectionInvalidResponseSchema },
+        { status: 503, description: 'Encryption policy invalidation failed', schema: encryptionMapInvalidationFailedResponseSchema },
       ],
     },
   },
