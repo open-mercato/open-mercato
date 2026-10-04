@@ -77,6 +77,7 @@ function formatQuantity(value: number, locale: string): string {
 export default function SalesOfferPdf({ data }: { data: Record<string, unknown> }) {
   const offer = data as unknown as SalesOfferData
   const { labels, document: documentInfo, client, seller, lines, totals, notes, locale, isDraft } = offer
+  const hasClient = Boolean(client.name || client.company || client.address || client.email)
 
   return (
     <Document title={`${labels.title} ${documentInfo.number}`}>
@@ -106,13 +107,15 @@ export default function SalesOfferPdf({ data }: { data: Record<string, unknown> 
         </View>
 
         <View style={styles.parties}>
-          <View style={styles.party}>
-            <Text style={styles.sectionLabel}>{labels.client}</Text>
-            <Text style={styles.partyName}>{client.name}</Text>
-            {client.company ? <Text style={styles.muted}>{client.company}</Text> : null}
-            {client.address ? <Text style={styles.muted}>{client.address}</Text> : null}
-            {client.email ? <Text style={styles.muted}>{client.email}</Text> : null}
-          </View>
+          {hasClient ? (
+            <View style={styles.party}>
+              <Text style={styles.sectionLabel}>{labels.client}</Text>
+              {client.name ? <Text style={styles.partyName}>{client.name}</Text> : null}
+              {client.company ? <Text style={styles.muted}>{client.company}</Text> : null}
+              {client.address ? <Text style={styles.muted}>{client.address}</Text> : null}
+              {client.email ? <Text style={styles.muted}>{client.email}</Text> : null}
+            </View>
+          ) : null}
           {seller ? (
             <View style={styles.party}>
               <Text style={styles.sectionLabel}>{labels.seller}</Text>

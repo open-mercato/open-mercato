@@ -25,11 +25,13 @@ export function render(data: Record<string, unknown>): string {
   }
   out.push('')
 
-  out.push(`## ${escapeInline(labels.client)}`, '')
-  out.push(escapeInline(client.name))
   const clientDetails = [client.company, client.address, client.email].filter(Boolean)
-  for (const detail of clientDetails) out.push(`- ${escapeInline(detail)}`)
-  out.push('')
+  if (client.name || clientDetails.length > 0) {
+    out.push(`## ${escapeInline(labels.client)}`, '')
+    if (client.name) out.push(escapeInline(client.name))
+    for (const detail of clientDetails) out.push(`- ${escapeInline(detail)}`)
+    out.push('')
+  }
 
   if (seller) {
     out.push(`## ${escapeInline(labels.seller)}`, '')

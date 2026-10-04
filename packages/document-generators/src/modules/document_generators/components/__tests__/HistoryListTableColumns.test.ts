@@ -34,3 +34,13 @@ describe('HistoryListTableColumns', () => {
     ])
   })
 })
+
+describe('generated-by column', () => {
+  it('shows the resolved user name and falls back to the user id', () => {
+    const column = buildHistoryColumns((key) => key, ['generatedBy'], { 'user-1': 'Ada Admin' })[0] as unknown as {
+      cell: (input: { row: { original: { generatedBy: string } } }) => unknown
+    }
+    expect(column.cell({ row: { original: { generatedBy: 'user-1' } } })).toBe('Ada Admin')
+    expect(column.cell({ row: { original: { generatedBy: 'user-2' } } })).toBe('user-2')
+  })
+})

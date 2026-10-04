@@ -1140,6 +1140,7 @@
   "sales.documents.list.table.totalGross": "Total (gross)",
   "sales.documents.list.table.totalNet": "Total (net)",
   "sales.documents.list.table.unassigned": "Unassigned",
+  "sales.documents.moduleLabel": "Sales",
   "sales.documents.payments.add": "Add payment",
   "sales.documents.payments.amount": "Amount",
   "sales.documents.payments.amountInvalid": "Enter the amount as a number.",
