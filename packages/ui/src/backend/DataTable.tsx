@@ -1136,8 +1136,13 @@ function ColumnResizeHandle({
   )
 }
 
-function SortableHeaderCell({ id, children, className, width }: { id: string; children: React.ReactNode; className?: string; width?: number }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+function SortableHeaderCell({ id, children, className, width, ariaSort }: { id: string; children: React.ReactNode; className?: string; width?: number; ariaSort?: React.AriaAttributes['aria-sort'] }) {
+  // Only the pointer listeners go on the cell. dnd-kit's `attributes` would make
+  // it a focusable `role="button"`, which replaces the column header role (data
+  // cells lose their header) and adds a Tab stop that does nothing, since only
+  // a pointer sensor is registered. Column order stays keyboard-reachable
+  // through the column chooser.
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const isSticky = typeof className === 'string' && className.includes('sticky')
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -1148,7 +1153,7 @@ function SortableHeaderCell({ id, children, className, width }: { id: string; ch
     ...(typeof width === 'number' ? { width, minWidth: width, maxWidth: width } : {}),
   }
   return (
-    <TableHead ref={setNodeRef} style={style} className={className} {...attributes} {...listeners}>
+    <TableHead ref={setNodeRef} style={style} className={className} aria-sort={ariaSort} {...listeners}>
       {children}
     </TableHead>
   )
@@ -3675,6 +3680,8 @@ function DataTableImpl<T extends RowData>({
                   const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const isColumnSortable = sortable && !!header.column.getCanSort?.()
                   const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
+                  const headerSortState = isColumnSortable ? header.column.getIsSorted() : false
+                  const headerAriaSort = headerSortState === 'asc' ? 'ascending' : headerSortState === 'desc' ? 'descending' : undefined
                   // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
                   // interactive controls (Checkbox, etc.) in their header. Wrapping those in a <Button>
                   // would nest a native <button> inside another, which is invalid HTML and triggers a
@@ -3709,7 +3716,7 @@ function DataTableImpl<T extends RowData>({
                     />
                   ) : null
                   return enableHeaderDnd ? (
-                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
+                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} ariaSort={headerAriaSort} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
                       {headerCellContent}
                       {resizeHandle}
                     </SortableHeaderCell>
@@ -3718,6 +3725,7 @@ function DataTableImpl<T extends RowData>({
                       key={header.id}
                       className={cn('group relative', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}
                       style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
+                      aria-sort={headerAriaSort}
                     >
                       {headerCellContent}
                       {resizeHandle}
