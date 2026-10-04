@@ -179,6 +179,23 @@ function buildOrganizationMutationFilter(
   } as FilterQuery<Organization>
 }
 
+async function assertOrganizationUndoTenantAccess(
+  ctx: CommandRuntimeContext,
+  targetTenantId: string,
+): Promise<void> {
+  const scope = await resolveOrganizationActorScope(ctx)
+  if (!scope.isUnrestricted && scope.tenantId !== targetTenantId) {
+    throw new CrudHttpError(404, { error: 'Not found' })
+  }
+}
+
+function buildOrganizationUndoTargetFilter(
+  id: string,
+  tenantId: string,
+): FilterQuery<Organization> {
+  return { id, tenant: tenantId } as FilterQuery<Organization>
+}
+
 function serializeOrganization(entity: Organization, custom?: Record<string, unknown> | null) {
   return {
     id: String(entity.id),
@@ -711,7 +728,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       resourceKind: 'directory.organization',
       resourceId: String(result.id),
       changes,
-      tenantId: ctx.auth?.tenantId ?? after.tenantId,
+      tenantId: after.tenantId,
       payload: {
         undo: {
           before: beforeSnapshots?.undo ?? null,
@@ -727,6 +744,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
+    await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let updated: Organization | null = null
@@ -734,7 +752,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       async () => {
         updated = await de.updateOrmEntity({
           entity: Organization,
-          where: { id: before.id } as FilterQuery<Organization>,
+          where: buildOrganizationUndoTargetFilter(before.id, tenantId),
           apply: (entity) => {
             entity.name = before.name
             if (before.slug !== undefined) entity.slug = before.slug
@@ -855,7 +873,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
 
     return resolvedDeleted
   },
-  buildLog: async ({ snapshots, input, ctx }) => {
+  buildLog: async ({ snapshots, input }) => {
     const { translate } = await resolveTranslations()
     const beforeSnapshots = snapshots.before as OrganizationSnapshots | undefined
     const beforeSnapshot = beforeSnapshots?.view ?? null
@@ -868,7 +886,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
       resourceKind: 'directory.organization',
       resourceId: id || fallbackId || null,
       snapshotBefore: beforeSnapshot ?? null,
-      tenantId: ctx.auth?.tenantId ?? fallbackTenant,
+      tenantId: beforeUndo?.tenantId ?? fallbackTenant,
       payload: {
         undo: {
           before: beforeUndo,
@@ -882,12 +900,16 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
+    await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization: Organization | null = null
     await withAtomicFlush(em, [
       async () => {
-        organization = await em.findOne(Organization, { id: before.id })
+        organization = await em.findOne(
+          Organization,
+          buildOrganizationUndoTargetFilter(before.id, tenantId),
+        )
         if (organization) {
           organization.deletedAt = null
           organization.isActive = before.isActive

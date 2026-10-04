@@ -30,9 +30,15 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   }
 })
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+
 import '@open-mercato/core/modules/directory/commands/organizations'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { CommandBus, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
@@ -95,6 +101,7 @@ function matchesFilter(organization: TestOrganization, filter: Record<string, un
 
 function makeHarness(organizations: TestOrganization[]) {
   const records = new Map(organizations.map((organization) => [String(organization.id), organization]))
+  const logs: Array<Record<string, unknown>> = []
   const em = {
     findOne: jest.fn(async (_entity: unknown, filter: Record<string, unknown>) => {
       return Array.from(records.values()).find((organization) => matchesFilter(organization, filter)) ?? null
@@ -130,9 +137,31 @@ function makeHarness(organizations: TestOrganization[]) {
     updateOrmEntity,
     deleteOrmEntity,
     setCustomFields: jest.fn(async () => {}),
+    markOrmEntityChange: jest.fn(),
+    flushOrmEntityChanges: jest.fn(async () => {}),
   }
 
-  return { dataEngine, deleteOrmEntity, em, updateOrmEntity }
+  const actionLogService = {
+    log: jest.fn(async (payload: Record<string, unknown>) => {
+      const entry = {
+        id: `log-${logs.length + 1}`,
+        executionState: 'done',
+        changesJson: payload.changes ?? null,
+        contextJson: payload.context ?? null,
+        ...payload,
+      }
+      logs.push(entry)
+      return entry
+    }),
+    findByUndoToken: jest.fn(async (undoToken: string) => (
+      logs.find((entry) => entry.undoToken === undoToken) ?? null
+    )),
+    claimForUndo: jest.fn(async () => true),
+    releaseUndoClaim: jest.fn(async () => true),
+    markUndone: jest.fn(async () => null),
+  }
+
+  return { actionLogService, dataEngine, deleteOrmEntity, em, logs, updateOrmEntity }
 }
 
 function makeContext(
@@ -153,13 +182,70 @@ function makeContext(
       resolve: (token: string) => {
         if (token === 'em') return harness.em
         if (token === 'dataEngine') return harness.dataEngine
+        if (token === 'actionLogService') return harness.actionLogService
         if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin }) }
         throw new Error(`[internal] Unexpected DI token: ${token}`)
       },
     },
     auth,
+    organizationScope: null,
+    selectedOrganizationId: null,
+    organizationIds: null,
     systemActor: options.systemActor ?? false,
   } as unknown as Parameters<CommandHandler['execute']>[1]
+}
+
+type CommandScenario = {
+  commandId: 'directory.organizations.update' | 'directory.organizations.delete'
+  input: Record<string, unknown> | OrganizationDeleteInput
+  label: 'update' | 'delete'
+}
+
+const commandScenarios: CommandScenario[] = [
+  {
+    commandId: 'directory.organizations.update',
+    input: { id: TARGET_ID, name: 'Updated by global actor' },
+    label: 'update',
+  },
+  {
+    commandId: 'directory.organizations.delete',
+    input: { body: { id: TARGET_ID }, query: {} },
+    label: 'delete',
+  },
+]
+
+type GlobalActorScenario = CommandScenario & {
+  actorLabel: 'superadmin' | 'system actor'
+  actorOptions: { isSuperAdmin?: boolean; systemActor?: boolean }
+}
+
+const globalActorScenarios: GlobalActorScenario[] = [
+  ...commandScenarios.map((scenario) => ({
+    ...scenario,
+    actorLabel: 'superadmin' as const,
+    actorOptions: { isSuperAdmin: true },
+  })),
+  ...commandScenarios.map((scenario) => ({
+    ...scenario,
+    actorLabel: 'system actor' as const,
+    actorOptions: { systemActor: true },
+  })),
+]
+
+function expectTenantQualifiedUndoTarget(
+  scenario: CommandScenario,
+  harness: ReturnType<typeof makeHarness>,
+) {
+  if (scenario.label === 'update') {
+    expect(harness.updateOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: TARGET_ID, tenant: FOREIGN_TENANT_ID },
+    }))
+    return
+  }
+  expect(harness.em.findOne).toHaveBeenCalledWith(Organization, {
+    id: TARGET_ID,
+    tenant: FOREIGN_TENANT_ID,
+  })
 }
 
 function expectNotFound(error: unknown) {
@@ -335,4 +421,105 @@ describe('directory organization command tenant ownership', () => {
     expect(target.name).toBe('System update')
     expect(rebuildHierarchyForTenant).toHaveBeenCalledWith(harness.em, FOREIGN_TENANT_ID)
   })
+
+  it.each(commandScenarios)(
+    'persists a superadmin foreign-target $label log only in the target tenant',
+    async (scenario) => {
+      const target = makeOrganization(TARGET_ID, FOREIGN_TENANT_ID)
+      const harness = makeHarness([target])
+      const ctx = makeContext(harness, { isSuperAdmin: true })
+
+      const { logEntry } = await new CommandBus().execute(scenario.commandId, {
+        input: scenario.input,
+        ctx,
+      })
+
+      expect(logEntry).toMatchObject({
+        actorUserId: 'user-1',
+        commandId: scenario.commandId,
+        resourceId: TARGET_ID,
+        tenantId: FOREIGN_TENANT_ID,
+      })
+      expect(harness.logs).toHaveLength(1)
+      expect(harness.logs.some((entry) => entry.tenantId === ACTOR_TENANT_ID)).toBe(false)
+    },
+  )
+
+  it.each(commandScenarios)(
+    'rejects a direct forged tenant-A $label log carrying a tenant-B snapshot',
+    async (scenario) => {
+      const target = makeOrganization(TARGET_ID, FOREIGN_TENANT_ID)
+      const harness = makeHarness([target])
+      const bus = new CommandBus()
+      const { logEntry } = await bus.execute(scenario.commandId, {
+        input: scenario.input,
+        ctx: makeContext(harness, { isSuperAdmin: true }),
+      })
+      if (!logEntry) throw new Error('[internal] Expected an undoable action log')
+      logEntry.tenantId = ACTOR_TENANT_ID
+      const undoToken = String(logEntry.undoToken)
+      harness.updateOrmEntity.mockClear()
+      harness.deleteOrmEntity.mockClear()
+      harness.em.findOne.mockClear()
+
+      await expect(
+        bus.undo(undoToken, makeContext(harness)),
+      ).rejects.toMatchObject({ status: 404 })
+
+      expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+      expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+      expect(harness.em.findOne).not.toHaveBeenCalled()
+      expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
+      expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
+    },
+  )
+
+  it.each(commandScenarios)(
+    'allows a same-tenant command-bus undo and tenant-qualifies its $label target',
+    async (scenario) => {
+      const target = makeOrganization(TARGET_ID, FOREIGN_TENANT_ID)
+      const harness = makeHarness([target])
+      const bus = new CommandBus()
+      const ctx = makeContext(harness, { tenantId: FOREIGN_TENANT_ID })
+      const { logEntry } = await bus.execute(scenario.commandId, {
+        input: scenario.input,
+        ctx,
+      })
+      harness.updateOrmEntity.mockClear()
+      harness.em.findOne.mockClear()
+
+      await bus.undo(String(logEntry?.undoToken), ctx)
+
+      expectTenantQualifiedUndoTarget(scenario, harness)
+      expect(harness.actionLogService.markUndone).toHaveBeenCalledWith(
+        logEntry?.id,
+        expect.objectContaining({ tenantId: FOREIGN_TENANT_ID }),
+      )
+    },
+  )
+
+  it.each(globalActorScenarios)(
+    'keeps canonical $actorLabel foreign-target $label execute/log/undo behavior',
+    async (scenario) => {
+      const target = makeOrganization(TARGET_ID, FOREIGN_TENANT_ID)
+      const harness = makeHarness([target])
+      const bus = new CommandBus()
+      const ctx = makeContext(harness, scenario.actorOptions)
+      const { logEntry } = await bus.execute(scenario.commandId, {
+        input: scenario.input,
+        ctx,
+      })
+      harness.updateOrmEntity.mockClear()
+      harness.em.findOne.mockClear()
+
+      await bus.undo(String(logEntry?.undoToken), ctx)
+
+      expect(logEntry?.tenantId).toBe(FOREIGN_TENANT_ID)
+      expectTenantQualifiedUndoTarget(scenario, harness)
+      expect(harness.actionLogService.markUndone).toHaveBeenCalledWith(
+        logEntry?.id,
+        expect.objectContaining({ tenantId: FOREIGN_TENANT_ID }),
+      )
+    },
+  )
 })
