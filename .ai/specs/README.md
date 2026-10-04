@@ -237,6 +237,8 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
 | [CRM Conversation Shared Visibility](2026-08-25-crm-channel-shared-visibility.md) | 2026-08-25 | CRM Conversation Shared Visibility | Owner-controlled sharing of personal-mailbox email: per-Person conversation grants and a whole-channel team-mailbox flag, both read-time derived so un-sharing is lossless |
+| [Tax Providers Roadmap](2026-10-03-tax-providers-roadmap.md) | 2026-10-03 | Tax Providers — Roadmap & Boundaries | Umbrella for pluggable sales tax: a provider-backed tax phase in the `sales` totals pipeline, organization-level provider selection with provenance on documents, two built-in strategies, a tax gateway module and provider packages outside the core modules; twelve ADRs as proposals, six child specs with phased gates; status proposed — decision requested |
+| [Sales Tax Provider Contract](2026-10-03-sales-tax-provider-contract.md) | 2026-10-03 | Sales Tax Provider Contract | Spec 1 of the tax providers roadmap: the `TaxProvider` contract and registry, a fixed tax phase inside the provider totals calculator, Resolve and Apply steps around the write transaction with a server-side fingerprint, one nullable `sales_settings` column for the provider, `product-rate` as the byte-identical default and server-written provenance in `tax_strategy_key` / `tax_info`; four Decision Requested items |
 
 ## Specification Structure
 
