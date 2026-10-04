@@ -230,7 +230,7 @@ When using `redis` strategy, the service reads `REDIS_URL` (already used by cach
 
 ### Attachment OCR resource bounds
 
-These variables bound LLM OCR cost amplification in the attachments module. They are **not** rate-limit keys — they cap page iteration, per-call timeouts, in-process concurrency, and the OCR wait queue.
+These variables bound LLM OCR cost amplification and in-process text extraction in the attachments module. They are **not** rate-limit keys — they cap page iteration, per-call timeouts, in-process concurrency, the OCR wait queue, and how much of a spreadsheet is read.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -239,8 +239,14 @@ These variables bound LLM OCR cost amplification in the attachments module. They
 | `OM_ATTACHMENT_OCR_MAX_OUTPUT_TOKENS` | `4096` | Max output tokens per OCR `generateText` call |
 | `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` | `2` | Max concurrent in-process OCR jobs **per replica** |
 | `OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE` | `50` | Max waiters blocked on the concurrency slot |
+| `OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES` | `5242880` | Max bytes one XLSX archive entry may decompress to (zip-bomb bound). Parsing the shared-strings table peaks at roughly 40–50× its size in memory, so the default stays low |
+| `OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS` | `10` | Max worksheets read for spreadsheet text extraction |
+| `OM_ATTACHMENT_SPREADSHEET_MAX_CELLS` | `1000000` | Max grid cells scanned per workbook, empty cells included |
+| `OM_ATTACHMENT_SPREADSHEET_MAX_TEXT_CHARS` | `1000000` | Max characters of text extracted per workbook |
+| `OM_ATTACHMENT_SPREADSHEET_MAX_CONCURRENCY` | `2` | Max spreadsheets parsed at once **per replica**; caps peak memory when several large workbooks are uploaded together |
+| `OM_ATTACHMENT_SPREADSHEET_MAX_WAIT_QUEUE` | `20` | Max uploads waiting for a spreadsheet slot; beyond it the file is stored without extracted text |
 
-Cluster-wide OCR concurrency is `OM_ATTACHMENT_OCR_MAX_CONCURRENCY ×` the number of app replicas because counters are in-process, not shared via Redis.
+Cluster-wide OCR concurrency is `OM_ATTACHMENT_OCR_MAX_CONCURRENCY ×` the number of app replicas because counters are in-process, not shared via Redis. The same applies to `OM_ATTACHMENT_SPREADSHEET_MAX_CONCURRENCY`.
 
 ## Strategies
 

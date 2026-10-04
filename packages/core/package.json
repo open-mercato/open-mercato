@@ -250,6 +250,7 @@
     "ajv-formats": "^3.0.1",
     "date-fns": "4.4.0",
     "date-fns-tz": "^3.2.0",
+    "hucre": "1.2.0",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "mammoth": "^1.9.0",
