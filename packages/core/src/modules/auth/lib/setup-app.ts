@@ -13,6 +13,11 @@ import { upsertCanonicalEncryptionMap } from '@open-mercato/core/modules/entitie
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  lockRoleAclWriterAuthorizationState,
+  lockUserRoleWriterAuthorizationState,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -275,6 +280,13 @@ export async function setupInitialTenant(
     await tem.flush()
 
     const requiredRoleSet = new Set([...roleNames, ...primaryRoles])
+    const requiredRoles = await Promise.all(
+      Array.from(requiredRoleSet).map((roleName) => findRoleByNameOrFail(tem, roleName, roleTenantId)),
+    )
+    await lockUserRoleWriterAuthorizationState(tem, {
+      userIds: [String(existingUser.id)],
+      roleIds: requiredRoles.map((role) => String(role.id)),
+    })
     const links = await findWithDecryption(
       tem,
       UserRole,
@@ -283,9 +295,9 @@ export async function setupInitialTenant(
       { tenantId: roleTenantId, organizationId: null },
     )
     const currentRoles = new Set(links.map((link) => link.role.name))
-    for (const roleName of requiredRoleSet) {
+    for (const role of requiredRoles) {
+      const roleName = role.name
       if (!currentRoles.has(roleName)) {
-        const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
         tem.persist(tem.create(UserRole, { user: existingUser, role, createdAt: new Date() }))
       }
     }
@@ -468,8 +480,14 @@ export async function setupInitialTenant(
           userSnapshots.push({ user, roles: base.roles, created: true, generatedPassword: base.generatedPassword ?? null })
         }
         await tem.flush()
-        for (const roleName of base.roles) {
-          const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
+        const assignedRoles = await Promise.all(
+          base.roles.map((roleName) => findRoleByNameOrFail(tem, roleName, roleTenantId)),
+        )
+        await lockUserRoleWriterAuthorizationState(tem, {
+          userIds: [String(user.id)],
+          roleIds: assignedRoles.map((role) => String(role.id)),
+        })
+        for (const role of assignedRoles) {
           const existingLink = await findOneWithDecryption(tem, UserRole, { user, role }, {}, { tenantId: tenantId ?? null, organizationId: null })
           if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
         }
@@ -693,30 +711,33 @@ async function ensureRoleAclFor(
   // so a first init used to store the string twice while the second run silently collapsed it.
   // Same list, two shapes, depending only on how many times setup had run.
   const uniqueFeatures = Array.from(new Set(features))
-  const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
-  if (!existing) {
-    const acl = em.create(RoleAcl, {
-      role,
-      tenantId,
-      featuresJson: uniqueFeatures,
-      isSuperAdmin: !!options.isSuperAdmin,
-      createdAt: new Date(),
-    })
-    await em.persist(acl).flush()
-    return
-  }
-  const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
-  const merged = Array.from(new Set([...currentFeatures, ...uniqueFeatures]))
-  const changed =
-    merged.length !== currentFeatures.length ||
-    merged.some((value, index) => value !== currentFeatures[index])
-  if (changed) existing.featuresJson = merged
-  if (options.isSuperAdmin && !existing.isSuperAdmin) {
-    existing.isSuperAdmin = true
-  }
-  if (changed || options.isSuperAdmin) {
-    await em.persist(existing).flush()
-  }
+  await withAtomicFlush(em, [async () => {
+    await lockRoleAclWriterAuthorizationState(em, [String(role.id)])
+    const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
+    if (!existing) {
+      const acl = em.create(RoleAcl, {
+        role,
+        tenantId,
+        featuresJson: uniqueFeatures,
+        isSuperAdmin: !!options.isSuperAdmin,
+        createdAt: new Date(),
+      })
+      await em.persist(acl).flush()
+      return
+    }
+    const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
+    const merged = Array.from(new Set([...currentFeatures, ...uniqueFeatures]))
+    const changed =
+      merged.length !== currentFeatures.length ||
+      merged.some((value, index) => value !== currentFeatures[index])
+    if (changed) existing.featuresJson = merged
+    if (options.isSuperAdmin && !existing.isSuperAdmin) {
+      existing.isSuperAdmin = true
+    }
+    if (changed || options.isSuperAdmin) {
+      await em.persist(existing).flush()
+    }
+  }], { transaction: true, label: 'auth.ensure-role-acl' })
 }
 
 /**
