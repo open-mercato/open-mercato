@@ -66,10 +66,13 @@ them (a bare `next start` does not).
 Events declared with `clientBroadcast: true` can reach the browser through the authenticated
 `GET /api/events/stream` Server-Sent Events endpoint. The server filters every frame against the
 connection's tenant, organization, user, and roles. It also re-resolves canonical authorization
-from the original request credentials every 30 seconds. If the session or user disappears, the
-lookup fails, or the canonical user, tenant, organization, or role set changes, the stream closes
-and removes its connection, listener, heartbeat, validation, and lifetime state before any later
-event can be delivered.
+from the original request credentials every 30 seconds. Both the opening request and every periodic
+check pass the authenticated principal plus that request's selection cookies through Directory's
+request-scoped organization resolver. The resolver's ACL-approved tenant and selected organization
+become the stream audience; a rejected or out-of-scope selection cannot open or preserve a stream.
+If the session or user disappears, the lookup fails, or the canonical user, tenant, organization,
+or role set changes, the stream closes and removes its connection, listener, heartbeat, validation,
+and lifetime state before any later event can be delivered.
 
 The browser endpoint accepts staff session cookies and staff Bearer tokens. It rejects `x-api-key`
 and `Authorization: ApiKey` credentials before opening a stream; API clients should consume event
@@ -84,11 +87,13 @@ missing for 45 seconds.
 
 | Environment variable | Default | Constraint | Purpose |
 | --- | ---: | ---: | --- |
-| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | minimum `1000` | How often an open stream re-resolves canonical identity and roles. |
-| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` | minimum `1000` | Maximum age of one server stream before a forced reconnect. |
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | `1000`–`2147483647` | How often an open stream re-resolves canonical identity and roles. |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` | `1000`–`2147483647` | Maximum age of one server stream before a forced reconnect. |
 
-Invalid values and values below the minimum use the default. Keep the revalidation interval below
-the maximum age when periodic revocation detection should happen before the mandatory reconnect.
+Invalid values and values below the minimum use the default. Larger finite values are capped at
+Node's maximum safe timer delay (`2^31-1` milliseconds), preventing timer overflow from turning a
+long interval into rapid reconnect churn. Keep the revalidation interval below the maximum age when
+periodic revocation detection should happen before the mandatory reconnect.
 
 ## File Structure
 

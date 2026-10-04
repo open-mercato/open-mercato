@@ -9,6 +9,7 @@
  */
 
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import type { OrganizationScopeService } from '@open-mercato/shared/lib/auth/principal-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
@@ -28,6 +29,7 @@ const DEFAULT_AUTH_REVALIDATION_INTERVAL_MS = 30_000
 const DEFAULT_CONNECTION_MAX_AGE_MS = 5 * 60_000
 const MIN_AUTH_REVALIDATION_INTERVAL_MS = 1_000
 const MIN_CONNECTION_MAX_AGE_MS = 1_000
+const MAX_TIMER_DELAY_MS = 2_147_483_647
 const MAX_PAYLOAD_BYTES = 4096
 
 const logger = createLogger('events').child({ component: 'stream' })
@@ -50,15 +52,21 @@ function resolveTimingConfig(): {
   connectionMaxAgeMs: number
 } {
   return {
-    authRevalidationIntervalMs: parseNumberWithDefault(
-      process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS,
-      DEFAULT_AUTH_REVALIDATION_INTERVAL_MS,
-      { integer: true, min: MIN_AUTH_REVALIDATION_INTERVAL_MS },
+    authRevalidationIntervalMs: Math.min(
+      parseNumberWithDefault(
+        process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS,
+        DEFAULT_AUTH_REVALIDATION_INTERVAL_MS,
+        { integer: true, min: MIN_AUTH_REVALIDATION_INTERVAL_MS },
+      ),
+      MAX_TIMER_DELAY_MS,
     ),
-    connectionMaxAgeMs: parseNumberWithDefault(
-      process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS,
-      DEFAULT_CONNECTION_MAX_AGE_MS,
-      { integer: true, min: MIN_CONNECTION_MAX_AGE_MS },
+    connectionMaxAgeMs: Math.min(
+      parseNumberWithDefault(
+        process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS,
+        DEFAULT_CONNECTION_MAX_AGE_MS,
+        { integer: true, min: MIN_CONNECTION_MAX_AGE_MS },
+      ),
+      MAX_TIMER_DELAY_MS,
     ),
   }
 }
@@ -73,19 +81,38 @@ function normalizeRoleIds(input: unknown): string[] {
   )).sort((left, right) => left.localeCompare(right))
 }
 
-function resolveConnectionIdentity(
+function resolveOrganizationScopeService(
   ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
-): SseConnectionIdentity | null {
+): OrganizationScopeService | null {
+  try {
+    const service = ctx.container.resolve<OrganizationScopeService>('organizationScopeService')
+    return service && typeof service.resolveForRequest === 'function' ? service : null
+  } catch {
+    return null
+  }
+}
+
+function normalizeId(input: unknown): string | null {
+  return typeof input === 'string' && input.trim().length > 0 ? input.trim() : null
+}
+
+async function resolveConnectionIdentity(
+  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  request: Request,
+): Promise<SseConnectionIdentity | null> {
   if (!ctx.auth?.tenantId || !ctx.auth.sub) return null
-  const selectedOrganizationId = typeof ctx.selectedOrganizationId === 'string'
-    ? ctx.selectedOrganizationId.trim()
-    : ''
-  const authOrganizationId = typeof ctx.auth.orgId === 'string'
-    ? ctx.auth.orgId.trim()
-    : ''
+  const organizationScopeService = resolveOrganizationScopeService(ctx)
+  if (!organizationScopeService) return null
+  const scope = await organizationScopeService.resolveForRequest({ auth: ctx.auth, request })
+  const tenantId = normalizeId(scope.tenantId)
+  const organizationId = normalizeId(scope.selectedId)
+  if (!tenantId || scope.selectionRejected) return null
+  if (organizationId && Array.isArray(scope.allowedIds) && !scope.allowedIds.includes(organizationId)) {
+    return null
+  }
   return {
-    tenantId: ctx.auth.tenantId,
-    organizationId: selectedOrganizationId || authOrganizationId || null,
+    tenantId,
+    organizationId,
     userId: ctx.auth.sub,
     roleIds: normalizeRoleIds(ctx.auth.roles),
   }
@@ -309,7 +336,7 @@ export async function GET(req: Request): Promise<Response> {
   if (ctx.auth?.isApiKey === true) {
     return new Response('Unauthorized', { status: 401 })
   }
-  const initialIdentity = resolveConnectionIdentity(ctx)
+  const initialIdentity = await resolveConnectionIdentity(ctx, req)
   if (!initialIdentity) {
     return new Response('Unauthorized', { status: 401 })
   }
@@ -381,9 +408,10 @@ export async function GET(req: Request): Promise<Response> {
     if (cleanedUp || authRevalidationInFlight) return
     authRevalidationInFlight = true
     try {
-      const { ctx: freshCtx } = await resolveRequestContext(createAuthRevalidationRequest(req))
+      const validationRequest = createAuthRevalidationRequest(req)
+      const { ctx: freshCtx } = await resolveRequestContext(validationRequest)
       if (cleanedUp) return
-      const freshIdentity = resolveConnectionIdentity(freshCtx)
+      const freshIdentity = await resolveConnectionIdentity(freshCtx, validationRequest)
       if (!freshIdentity || !identitiesMatch(authorizedIdentity, freshIdentity)) {
         closeConnection()
         return

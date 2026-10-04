@@ -4,20 +4,50 @@ type MockAuth = {
   orgId: string | null
   roles: string[]
   isApiKey?: boolean
+  isSuperAdmin?: boolean
 }
+
+type MockOrganizationScope = {
+  selectedId: string | null
+  filterIds: string[] | null
+  allowedIds: string[] | null
+  tenantId: string | null
+  selectionRejected?: boolean
+}
+
+type MockOrganizationScopeInput = {
+  auth: MockAuth | null | undefined
+  request?: Request
+}
+
+const mockResolveOrganizationScopeForRequest = jest.fn(
+  async ({ auth }: MockOrganizationScopeInput): Promise<MockOrganizationScope> => {
+    const selectedId = auth?.orgId ?? null
+    return {
+      selectedId,
+      filterIds: selectedId ? [selectedId] : null,
+      allowedIds: selectedId ? [selectedId] : null,
+      tenantId: auth?.tenantId ?? null,
+    }
+  },
+)
 
 function buildResolvedContext(auth: MockAuth | null = {
   tenantId: 't1',
   sub: 'u1',
   orgId: 'o1',
   roles: ['admin'],
-}, selectedOrganizationId: string | null = 'o1') {
+}) {
   return {
     ctx: {
       auth,
-      selectedOrganizationId,
+      container: {
+        resolve(name: string) {
+          if (name !== 'organizationScopeService') throw new Error(`Unexpected service: ${name}`)
+          return { resolveForRequest: mockResolveOrganizationScopeForRequest }
+        },
+      },
     },
-    container: {},
   }
 }
 
@@ -100,6 +130,16 @@ describe('SSE event stream — abort listener hygiene', () => {
   beforeEach(() => {
     mockResolveRequestContext.mockReset()
     mockResolveRequestContext.mockResolvedValue(buildResolvedContext())
+    mockResolveOrganizationScopeForRequest.mockReset()
+    mockResolveOrganizationScopeForRequest.mockImplementation(async ({ auth }: MockOrganizationScopeInput) => {
+      const selectedId = auth?.orgId ?? null
+      return {
+        selectedId,
+        filterIds: selectedId ? [selectedId] : null,
+        allowedIds: selectedId ? [selectedId] : null,
+        tenantId: auth?.tenantId ?? null,
+      }
+    })
     delete process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS
     delete process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS
   })
@@ -141,6 +181,27 @@ describe('SSE event stream — abort listener hygiene', () => {
     expect(addSpy).not.toHaveBeenCalled()
   })
 
+  it('rejects a selected organization that the canonical DI scope does not allow', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: 'o2',
+      filterIds: ['o1'],
+      allowedIds: ['o1'],
+      tenantId: 't1',
+    })
+    const { req, addSpy } = makeTrackedRequest({
+      headers: { cookie: 'auth_token=staff-token; om_selected_org=o2' },
+    })
+
+    const response = await GET(req)
+
+    expect(response.status).toBe(401)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith({
+      auth: expect.objectContaining({ sub: 'u1' }),
+      request: req,
+    })
+    expect(addSpy).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['staff cookie', { cookie: 'auth_token=cookie-token; om_selected_org=o1' }],
     ['staff Bearer token', { authorization: 'Bearer bearer-token' }],
@@ -163,6 +224,11 @@ describe('SSE event stream — abort listener hygiene', () => {
     expect(validationRequest.headers.get('cookie')).toBe(req.headers.get('cookie'))
     expect(validationRequest.headers.get('authorization')).toBe(req.headers.get('authorization'))
     expect((validationRequest as unknown as Record<symbol, unknown>)[trustedContextSymbol]).toBeUndefined()
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledTimes(2)
+    expect(mockResolveOrganizationScopeForRequest.mock.calls[1][0]).toEqual({
+      auth: expect.objectContaining({ sub: 'u1' }),
+      request: validationRequest,
+    })
     await reader.cancel()
   })
 
@@ -291,15 +357,27 @@ describe('SSE event stream — abort listener hygiene', () => {
     try { await reader.cancel() } catch {}
   })
 
-  it('scopes a replacement stream from its current request cookie, not the closed opening snapshot', async () => {
-    mockResolveRequestContext.mockImplementation(async (request: Request) => {
-      const selectedOrganizationId = request.headers.get('cookie')?.includes('om_selected_org=o2') ? 'o2' : 'o1'
-      return buildResolvedContext({
-        tenantId: 't1',
-        sub: 'u1',
-        orgId: selectedOrganizationId,
-        roles: ['admin'],
-      }, selectedOrganizationId)
+  it('resolves ordinary multi-org staff scope through DI when replacing an O1 stream with O2', async () => {
+    const enqueueSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'enqueue')
+    const ordinaryStaffAuth: MockAuth = {
+      tenantId: 't1',
+      sub: 'u1',
+      orgId: 'o1',
+      roles: ['staff'],
+      isSuperAdmin: false,
+    }
+    mockResolveRequestContext.mockResolvedValue(buildResolvedContext(ordinaryStaffAuth))
+    mockResolveOrganizationScopeForRequest.mockImplementation(async ({ auth, request }: MockOrganizationScopeInput) => {
+      const cookie = request?.headers.get('cookie') ?? ''
+      const requestedId = cookie.includes('om_selected_org=o2') ? 'o2' : 'o1'
+      const allowedIds = ['o1', 'o2']
+      return {
+        selectedId: allowedIds.includes(requestedId) ? requestedId : 'o1',
+        filterIds: [requestedId],
+        allowedIds,
+        tenantId: auth?.tenantId ?? null,
+        ...(allowedIds.includes(requestedId) ? {} : { selectionRejected: true }),
+      }
     })
     const { req: openingRequest } = makeTrackedRequest({
       headers: { cookie: 'auth_token=staff-token; om_selected_org=o1' },
@@ -308,6 +386,7 @@ describe('SSE event stream — abort listener hygiene', () => {
     const openingReader = openingResponse.body!.getReader()
     await openingReader.read()
     await openingReader.cancel()
+    const enqueueCountAfterOpeningClose = enqueueSpy.mock.calls.length
 
     const { req: replacementRequest } = makeTrackedRequest({
       headers: { cookie: 'auth_token=staff-token; om_selected_org=o2' },
@@ -320,6 +399,7 @@ describe('SSE event stream — abort listener hygiene', () => {
       'stream_privacy_test.browser',
       { tenantId: 't1', organizationId: 'o1', marker: 'closed-opening-scope' },
     )
+    expect(enqueueSpy).toHaveBeenCalledTimes(enqueueCountAfterOpeningClose + 1)
     await mockGlobalEventTap?.(
       'stream_privacy_test.browser',
       { tenantId: 't1', organizationId: 'o2', marker: 'current-request-scope' },
@@ -329,7 +409,14 @@ describe('SSE event stream — abort listener hygiene', () => {
     const decoded = new TextDecoder().decode(delivered.value)
     expect(decoded).toContain('current-request-scope')
     expect(decoded).not.toContain('closed-opening-scope')
-    expect(mockResolveRequestContext.mock.calls[1][0]).toBe(replacementRequest)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenNthCalledWith(1, {
+      auth: ordinaryStaffAuth,
+      request: openingRequest,
+    })
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenNthCalledWith(2, {
+      auth: ordinaryStaffAuth,
+      request: replacementRequest,
+    })
     await replacementReader.cancel()
   })
 
@@ -688,7 +775,7 @@ describe('SSE event stream — abort listener hygiene', () => {
     },
     {
       change: 'organization move',
-      nextContext: buildResolvedContext({ tenantId: 't1', sub: 'u1', orgId: 'o2', roles: ['admin'] }, 'o2'),
+      nextContext: buildResolvedContext({ tenantId: 't1', sub: 'u1', orgId: 'o2', roles: ['admin'] }),
     },
   ])('closes after a canonical $change', async ({ nextContext }) => {
     jest.useFakeTimers()
@@ -715,7 +802,7 @@ describe('SSE event stream — abort listener hygiene', () => {
     const reader = response.body!.getReader()
     await reader.read()
 
-    mockResolveRequestContext.mockResolvedValue(buildResolvedContext(null, null))
+    mockResolveRequestContext.mockResolvedValue(buildResolvedContext(null))
     await jest.advanceTimersByTimeAsync(1000)
 
     await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
@@ -773,6 +860,28 @@ describe('SSE event stream — abort listener hygiene', () => {
     expect(closeSpy).toHaveBeenCalledTimes(1)
     expect(jest.getTimerCount()).toBe(0)
     await reader.cancel()
+  })
+
+  it.each([
+    ['the exact Node timer maximum', '2147483647'],
+    ['one millisecond above the Node timer maximum', '2147483648'],
+    ['an oversized finite integer', '9007199254740991'],
+  ])('bounds SSE timers for %s', async (_case, configuredValue) => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = configuredValue
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = configuredValue
+    const intervalSpy = jest.spyOn(globalThis, 'setInterval')
+    const timeoutSpy = jest.spyOn(globalThis, 'setTimeout')
+    const { req } = makeTrackedRequest()
+
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 2_147_483_647)
+    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 2_147_483_647)
+    await reader.cancel()
+    expect(jest.getTimerCount()).toBe(0)
   })
 
   it('cannot resurrect or deliver after cancellation during deferred validation', async () => {
