@@ -74,6 +74,17 @@ describe('auth.users protected role floor checks', () => {
       resolve: (token: string) => {
         if (token === 'em') return em
         if (token === 'dataEngine') return dataEngine
+        if (token === 'rbacService') {
+          return {
+            invalidateUserCache: jest.fn(async () => undefined),
+            userHasAllFeatures: jest.fn(async () => true),
+            loadAcl: jest.fn(async () => ({
+              isSuperAdmin: false,
+              features: ['auth.users.*'],
+              organizations: null,
+            })),
+          }
+        }
         throw new Error(`Unexpected dependency: ${token}`)
       },
     } as unknown as AwilixContainer
@@ -81,7 +92,7 @@ describe('auth.users protected role floor checks', () => {
     const auth: AuthContext = {
       sub: 'a7b05934-d021-4f11-9a74-b97c2718ef55',
       tenantId: tenantScope,
-      orgId: 'e7b05934-d021-4f11-9a74-b97c2718ef55',
+      orgId: organizationId,
       isApiKey: false,
       sid: 'session-id',
       email: 'admin1@test.com',
@@ -99,6 +110,7 @@ describe('auth.users protected role floor checks', () => {
 
   const userId = 'a7b05934-d021-4f11-9a74-b97c2718ef55'
   const tenantId = '33333333-3333-3333-3333-333333333333'
+  const organizationId = 'e7b05934-d021-4f11-9a74-b97c2718ef55'
   const foreignTenantId = 'f7b05934-d021-4f11-9a74-b97c2718ef55'
 
   const mockAdminRole = {
@@ -112,6 +124,7 @@ describe('auth.users protected role floor checks', () => {
     id: 'a7b05934-d021-4f11-9a74-b97c2718ef55',
     email: 'admin1@test.com',
     tenantId,
+    organizationId,
     isConfirmed: true,
   } as User
 
@@ -119,6 +132,7 @@ describe('auth.users protected role floor checks', () => {
     id: 'b7b05934-d021-4f11-9a74-b97c2718ef55',
     email: 'admin2@test.com',
     tenantId,
+    organizationId,
     isConfirmed: true,
   } as User
 
@@ -497,8 +511,15 @@ describe('auth.users protected role floor checks', () => {
     await expect(
       handler.undo!({
         logEntry: {
+          commandId: 'auth.users.update',
           resourceId: userId,
-          commandPayload: { undo: { before: { id: userId, email: 'admin1@test.com', tenantId, organizationId: null, roles: [], isConfirmed: true, acls: [] } } },
+          commandPayload: {
+            __redoInput: { id: userId, roles: ['admin'] },
+            undo: {
+              before: { id: userId, email: 'admin1@test.com', tenantId, organizationId, roles: [], isConfirmed: true, acls: [], name: null },
+              after: { id: userId, email: 'admin1@test.com', tenantId, organizationId, roles: ['admin'], isConfirmed: true, acls: [], name: null },
+            },
+          },
         },
         ctx,
         undoToken: 'token',
@@ -528,8 +549,14 @@ describe('auth.users protected role floor checks', () => {
     await expect(
       handler.undo!({
         logEntry: {
+          commandId: 'auth.users.create',
           resourceId: userId,
-          snapshotAfter: { email: 'admin1@test.com', tenantId, organizationId: null, roles: ['admin'] },
+          commandPayload: {
+            __redoInput: { email: 'admin1@test.com', organizationId, sendInviteEmail: true },
+            undo: {
+              after: { id: userId, email: 'admin1@test.com', tenantId, organizationId, roles: ['admin'], isConfirmed: true, acls: [], name: null, passwordHash: null },
+            },
+          },
         },
         ctx,
         undoToken: 'token',
@@ -540,11 +567,9 @@ describe('auth.users protected role floor checks', () => {
     expect(dataEngine.deleteOrmEntity).not.toHaveBeenCalled()
   })
 
-  // The create snapshot records the tenant the user was created in. If they were moved
-  // afterwards, that tenant is the wrong one to evaluate: it no longer counts the user,
-  // so the floor would pass and the undo would hard-delete the DESTINATION tenant's last
-  // administrator. The guard must read the user's current tenant instead.
-  it('evaluates create-undo against the users current tenant, not the creation snapshot', async () => {
+  // A create snapshot from the origin tenant is stale after a move. Replay must stop
+  // before the floor check or deletion instead of trusting either historical scope.
+  it('rejects create-undo after a tenant move before deleting the destination user', async () => {
     const movedUser = { ...mockUser1, tenantId } as User
     const originTenantId = 'a1111111-1111-1111-1111-111111111111'
 
@@ -572,19 +597,23 @@ describe('auth.users protected role floor checks', () => {
     await expect(
       handler.undo!({
         logEntry: {
+          commandId: 'auth.users.create',
           resourceId: userId,
-          // Snapshot still points at the tenant the user was created in.
-          snapshotAfter: { email: 'admin1@test.com', tenantId: originTenantId, organizationId: null, roles: ['admin'] },
+          commandPayload: {
+            __redoInput: { email: 'admin1@test.com', organizationId, sendInviteEmail: true },
+            undo: {
+              // Snapshot still points at the tenant the user was created in.
+              after: { id: userId, email: 'admin1@test.com', tenantId: originTenantId, organizationId, roles: ['admin'], isConfirmed: true, acls: [], name: null, passwordHash: null },
+            },
+          },
         },
         ctx,
         undoToken: 'token',
       } as never)
     ).rejects.toThrow(
-      new CrudHttpError(400, { error: 'Cannot remove the last active holder of role "admin"' })
+      new CrudHttpError(409, { error: 'This action cannot be replayed because the target has changed.' })
     )
 
-    const roleCall = findMock.mock.calls.find((call) => call[0] === Role)
-    expect((roleCall?.[1] as { tenantId?: string })?.tenantId).toBe(tenantId)
     expect(dataEngine.deleteOrmEntity).not.toHaveBeenCalled()
   })
 

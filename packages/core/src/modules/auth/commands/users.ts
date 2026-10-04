@@ -1,4 +1,4 @@
-import type { CommandHandler, CommandReplayAuthorizationArgs } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandReplayAuthorizationArgs, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import {
   parseWithCustomFields,
@@ -67,10 +67,23 @@ import {
   denyCredentialReplay,
   extractStoredReplayInput,
   hasStoredPasswordInput,
+  lockReplayAuthorizationState,
   requireCurrentReplayFeature,
 } from '@open-mercato/core/modules/auth/lib/commandReplay'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
+const USER_REDO_LOG = Symbol('auth.users.redoLog')
+
+type UserReplayRuntimeContext = CommandRuntimeContext & {
+  [USER_REDO_LOG]?: CommandUndoLogEntry
+}
+
+function withUserRedoLog(
+  ctx: CommandRuntimeContext,
+  logEntry: CommandUndoLogEntry,
+): UserReplayRuntimeContext {
+  return { ...ctx, [USER_REDO_LOG]: logEntry }
+}
 
 type SerializedUser = {
   email: string
@@ -327,7 +340,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     )
     return serializeUser(user, roles, custom)
   },
-  buildLog: async ({ result: { user }, ctx }) => {
+  buildLog: async ({ input, result: { user }, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(user.id))
@@ -338,21 +351,25 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
       user.organizationId ? String(user.organizationId) : null
     )
     const snapshot = captureUserSnapshots(user, roles, undefined, custom)
+    const replayable = typeof input.password !== 'string' || input.password.length === 0
     return {
+      replayable,
       actionLabel: translate('auth.audit.users.create', 'Create user'),
       resourceKind: 'auth.user',
       resourceId: String(user.id),
       tenantId: user.tenantId ? String(user.tenantId) : null,
       organizationId: user.organizationId ? String(user.organizationId) : null,
       snapshotAfter: snapshot.view,
-      payload: {
-        undo: {
-          after: snapshot.undo,
-        },
-      },
+      payload: replayable
+        ? {
+            undo: {
+              after: snapshot.undo,
+            },
+          }
+        : undefined,
     }
   },
-  undo: async ({ logEntry, ctx }) => {
+  undo: async ({ input, logEntry, ctx }) => {
     const userId = typeof logEntry?.resourceId === 'string' ? logEntry.resourceId : null
     if (!userId) return
     const snapshot = logEntry?.snapshotAfter as SerializedUser | undefined
@@ -367,6 +384,12 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     let removed: User | null = null
     await withAtomicFlush(em, [
       async () => {
+        await authorizeUserReplayAtMutation('create', {
+          operation: 'undo',
+          input,
+          ctx,
+          logEntry,
+        })
         const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
         const floorTenantId = current?.tenantId ? String(current.tenantId) : (snapshot?.tenantId ?? null)
 
@@ -419,19 +442,25 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
 
     await invalidateUserCache(ctx, userId)
   },
-  // The create-undo hard-deletes the user, but the after-snapshot persists the
-  // original passwordHash (see captureUserSnapshots), so redo restores the row
-  // with the SAME id and the SAME hash — never fabricating credentials (#2506).
-  redo: async ({ logEntry, ctx }) => {
+  // Password-bearing creates are audit-only. Redo therefore reaches this handler
+  // only for credential-free creates and restores the original stable id (#2506).
+  redo: async ({ input, logEntry, ctx }) => {
     const after = resolveRedoSnapshot<UserUndoSnapshot>(logEntry)
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for user create' })
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const emailHash = computeEmailHash(after.email)
 
-    let user = await findOneWithDecryption(em, User, { id: after.id }, {}, { tenantId: null, organizationId: null })
+    let user: User | null = null
     await withAtomicFlush(em, [
       async () => {
+        await authorizeUserReplayAtMutation('create', {
+          operation: 'redo',
+          input,
+          ctx,
+          logEntry,
+        })
+        user = await findOneWithDecryption(em, User, { id: after.id }, {}, { tenantId: null, organizationId: null })
         if (user) {
           user.deletedAt = null
           user.email = after.email
@@ -666,6 +695,15 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     await withAtomicFlush(em, [
       async () => {
+        const redoLogEntry = (ctx as UserReplayRuntimeContext)[USER_REDO_LOG]
+        if (redoLogEntry) {
+          await authorizeUserReplayAtMutation('update', {
+            operation: 'redo',
+            input: rawInput,
+            ctx,
+            logEntry: redoLogEntry,
+          })
+        }
         // Floor check must run inside the transaction so that LockMode.PESSIMISTIC_WRITE locks Role rows properly
         await enforceProtectedRoleFloor(em, userTenantId, parsed.id, {
           deactivating: parsed.isConfirmed === false || isTenantChanging,
@@ -843,7 +881,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         : undefined,
     }
   },
-  undo: async ({ logEntry, ctx }) => {
+  undo: async ({ input, logEntry, ctx }) => {
     const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     const after = payload?.after
@@ -865,6 +903,12 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     let updated: User | null = null
     await withAtomicFlush(em, [
       async () => {
+        await authorizeUserReplayAtMutation('update', {
+          operation: 'undo',
+          input,
+          ctx,
+          logEntry,
+        })
         const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
         const currentTenantId = current?.tenantId ? String(current.tenantId) : null
 
@@ -892,21 +936,21 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         if (updated && Array.isArray(replayInput.roles)) {
           await syncUserRoles(em, updated, before.roles, before.tenantId)
         }
+
+        const reset = buildCustomFieldResetMap(before.custom, after?.custom)
+        if (Object.keys(reset).length) {
+          await setCustomFieldsIfAny({
+            dataEngine: de,
+            entityId: E.auth.user,
+            recordId: before.id,
+            organizationId: before.organizationId ?? null,
+            tenantId: before.tenantId ?? null,
+            values: reset,
+            notify: false,
+          })
+        }
       },
     ], { transaction: true, label: 'auth.users.update.undo' })
-
-    const reset = buildCustomFieldResetMap(before.custom, after?.custom)
-    if (Object.keys(reset).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: de,
-        entityId: E.auth.user,
-        recordId: before.id,
-        organizationId: before.organizationId ?? null,
-        tenantId: before.tenantId ?? null,
-        values: reset,
-        notify: false,
-      })
-    }
 
     await emitCrudUndoSideEffects({
       dataEngine: de,
@@ -923,6 +967,10 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     await invalidateUserCache(ctx, userId)
   },
+  redo: ({ input, ctx, logEntry }) => updateUserCommand.execute(
+    input,
+    withUserRedoLog(ctx, logEntry),
+  ),
 }
 
 const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, User> = {
@@ -966,6 +1014,15 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     let user!: User
     await withAtomicFlush(em, [
       async () => {
+        const redoLogEntry = (ctx as UserReplayRuntimeContext)[USER_REDO_LOG]
+        if (redoLogEntry) {
+          await authorizeUserReplayAtMutation('delete', {
+            operation: 'redo',
+            input,
+            ctx,
+            logEntry: redoLogEntry,
+          })
+        }
         const userTenantId = existing.tenantId ? String(existing.tenantId) : null
         await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true }, ctx)
 
@@ -1022,16 +1079,23 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       },
     }
   },
-  undo: async ({ logEntry, ctx }) => {
+  undo: async ({ input, logEntry, ctx }) => {
     const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
-    let user = await findOneWithDecryption(em, User, { id: before.id }, {}, { tenantId: null, organizationId: null })
+    let user: User | null = null
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     await withAtomicFlush(em, [
       async () => {
+        await authorizeUserReplayAtMutation('delete', {
+          operation: 'undo',
+          input,
+          ctx,
+          logEntry,
+        })
+        user = await findOneWithDecryption(em, User, { id: before.id }, {}, { tenantId: null, organizationId: null })
         if (user) {
           if (user.deletedAt) {
             user.deletedAt = null
@@ -1082,6 +1146,10 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
 
     await invalidateUserCache(ctx, before.id)
   },
+  redo: ({ input, ctx, logEntry }) => deleteUserCommand.execute(
+    input,
+    withUserRedoLog(ctx, logEntry),
+  ),
 }
 
 type UserReplayCommandKind = 'create' | 'update' | 'delete'
@@ -1175,7 +1243,14 @@ async function authorizeUserReplay(
       && 'passwordHash' in after
       && before.passwordHash !== after.passwordHash,
   )
-  if (commandKind === 'update' && (hasStoredPasswordInput(params.input, logEntry) || passwordHashChanged)) {
+  const createdWithPassword = commandKind === 'create' && Boolean(
+    hasStoredPasswordInput(params.input, logEntry)
+      || (after && typeof after.passwordHash === 'string' && after.passwordHash.length > 0),
+  )
+  if (
+    createdWithPassword
+    || (commandKind === 'update' && (hasStoredPasswordInput(params.input, logEntry) || passwordHashChanged))
+  ) {
     await denyCredentialReplay()
   }
   const userId = logEntry.resourceId ?? before?.id ?? after?.id ?? null
@@ -1309,6 +1384,20 @@ async function authorizeUserReplay(
       organizations: acl.organizations,
     })
   }
+}
+
+async function authorizeUserReplayAtMutation(
+  commandKind: UserReplayCommandKind,
+  params: CommandReplayAuthorizationArgs<unknown>,
+): Promise<void> {
+  const undoPayload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(params.logEntry)
+  const targetUserId = params.logEntry.resourceId
+    ?? undoPayload?.before?.id
+    ?? undoPayload?.after?.id
+    ?? null
+  const em = params.ctx.container.resolve('em') as EntityManager
+  await lockReplayAuthorizationState(em, params.ctx, { targetUserId })
+  await authorizeUserReplay(commandKind, params)
 }
 
 registerCommand(createUserCommand)

@@ -136,18 +136,28 @@ describe('CommandBus', () => {
     expect(log).not.toHaveBeenCalled()
   })
 
-  it('records non-replayable commands without an undo token or command payload', async () => {
+  it.each([
+    ['auth.users.create', 'Password-bearing user create'],
+    ['auth.users.update', 'Password-bearing user update'],
+  ])('persists %s as audit-only without credentials, hashes, payload, or undo token', async (commandId, actionLabel) => {
     const log = jest.fn(async (entry: Record<string, unknown>) => ({ id: 'log-sensitive', ...entry }))
     registerCommand({
-      id: 'test.command.sensitive',
+      id: commandId,
       execute: jest.fn(async () => ({ ok: true })),
       undo: jest.fn(async () => undefined),
       buildLog: jest.fn(() => ({
         replayable: false,
-        actionLabel: 'Sensitive update',
-        resourceKind: 'test',
-        resourceId: 'record-1',
-        payload: { secret: 'must-not-be-stored' },
+        actionLabel,
+        resourceKind: 'auth.user',
+        resourceId: 'user-1',
+        snapshotAfter: { email: 'person@example.com' },
+        payload: {
+          undo: {
+            after: {
+              passwordHash: '$2b$10$persisted-hash-must-not-survive',
+            },
+          },
+        },
       })),
     })
 
@@ -161,7 +171,7 @@ describe('CommandBus', () => {
       organizationIds: null,
     }
 
-    await new CommandBus().execute('test.command.sensitive', {
+    await new CommandBus().execute(commandId, {
       input: { password: 'plain-text-secret' },
       ctx,
     })
@@ -169,8 +179,10 @@ describe('CommandBus', () => {
     const persisted = log.mock.calls[0]?.[0]
     expect(persisted.undoToken).toBeUndefined()
     expect(persisted.commandPayload).toBeUndefined()
-    expect(JSON.stringify(persisted)).not.toContain('plain-text-secret')
-    expect(JSON.stringify(persisted)).not.toContain('must-not-be-stored')
+    const persistedJson = JSON.stringify(persisted)
+    expect(persistedJson).not.toContain('plain-text-secret')
+    expect(persistedJson).not.toContain('persisted-hash-must-not-survive')
+    expect(persistedJson).not.toContain('passwordHash')
   })
 
   it('records the system actor marker when a trusted command has no auth actor', async () => {

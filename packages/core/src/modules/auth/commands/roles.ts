@@ -1,4 +1,4 @@
-import type { CommandHandler, CommandReplayAuthorizationArgs } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandReplayAuthorizationArgs, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import {
   parseWithCustomFields,
@@ -24,6 +24,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveIsSuperAdmin, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
@@ -35,7 +36,9 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import {
   assertReplaySnapshotMatches,
   extractStoredReplayInput,
+  lockReplayAuthorizationState,
   requireCurrentReplayFeature,
+  requireCurrentReplaySuperAdmin,
 } from '@open-mercato/core/modules/auth/lib/commandReplay'
 
 type SerializedRole = {
@@ -63,6 +66,16 @@ type RoleUndoSnapshot = {
 type RoleSnapshots = {
   view: SerializedRole
   undo: RoleUndoSnapshot
+}
+
+const ROLE_REDO_LOG = Symbol('auth.roles.redoLog')
+
+type RoleReplayRuntimeContext = CommandRuntimeContext & {
+  [ROLE_REDO_LOG]?: CommandUndoLogEntry
+}
+
+function withRoleRedoLog(ctx: CommandRuntimeContext, logEntry: CommandUndoLogEntry): RoleReplayRuntimeContext {
+  return { ...ctx, [ROLE_REDO_LOG]: logEntry }
 }
 
 function resolveActorTenantScope(ctx: CommandRuntimeContext): string | null {
@@ -231,68 +244,86 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       },
     }
   },
-  undo: async ({ logEntry, ctx }) => {
+  undo: async ({ input, logEntry, ctx }) => {
     const undo = extractUndoPayload<RoleUndoPayload>(logEntry)?.after
     if (!undo) return
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await em.nativeDelete(RoleAcl, { role: undo.id as unknown as Role })
-    if (undo.custom && Object.keys(undo.custom).length) {
-      const reset = buildCustomFieldResetMap(undefined, undo.custom)
-      if (Object.keys(reset).length) {
-        await setCustomFieldsIfAny({
-          dataEngine: de,
-          entityId: E.auth.role,
-          recordId: undo.id,
-          organizationId: null,
-          tenantId: undo.tenantId ?? null,
-          values: reset,
-          notify: false,
-        })
+    await withAtomicFlush(em, [async () => {
+      await authorizeRoleReplayAtMutation('create', {
+        operation: 'undo',
+        input,
+        ctx,
+        logEntry,
+      })
+      await em.nativeDelete(RoleAcl, { role: undo.id as unknown as Role })
+      if (undo.custom && Object.keys(undo.custom).length) {
+        const reset = buildCustomFieldResetMap(undefined, undo.custom)
+        if (Object.keys(reset).length) {
+          await setCustomFieldsIfAny({
+            dataEngine: de,
+            entityId: E.auth.role,
+            recordId: undo.id,
+            organizationId: null,
+            tenantId: undo.tenantId ?? null,
+            values: reset,
+            notify: false,
+          })
+        }
       }
-    }
-    await de.deleteOrmEntity({
-      entity: Role,
-      where: { id: undo.id, deletedAt: null } as FilterQuery<Role>,
-      soft: false,
-    })
+      await de.deleteOrmEntity({
+        entity: Role,
+        where: { id: undo.id, deletedAt: null } as FilterQuery<Role>,
+        soft: false,
+      })
+    }], { transaction: true, label: 'auth.roles.create.undo' })
   },
-  redo: async ({ logEntry, ctx }) => {
+  redo: async ({ input, logEntry, ctx }) => {
     const after = resolveRedoSnapshot<RoleUndoSnapshot>(logEntry)
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for role create' })
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let role = await findOneWithDecryption(em, Role, { id: after.id }, {}, { tenantId: null, organizationId: null })
-    if (role) {
-      role.deletedAt = null
-      role.name = after.name
-      role.tenantId = after.tenantId
-      await em.flush()
-    } else {
-      role = await de.createOrmEntity({
-        entity: Role,
-        data: {
-          id: after.id,
-          name: after.name,
-          tenantId: after.tenantId,
-        },
+    let role: Role | null = null
+    await withAtomicFlush(em, [async () => {
+      await authorizeRoleReplayAtMutation('create', {
+        operation: 'redo',
+        input,
+        ctx,
+        logEntry,
       })
-    }
-    await restoreRoleAcls(em, after.id, after.acls)
-    if (after.custom && Object.keys(after.custom).length) {
-      const reset = buildCustomFieldResetMap(after.custom, undefined)
-      if (Object.keys(reset).length) {
-        await setCustomFieldsIfAny({
-          dataEngine: de,
-          entityId: E.auth.role,
-          recordId: after.id,
-          organizationId: null,
-          tenantId: after.tenantId ?? null,
-          values: reset,
-          notify: false,
+      role = await findOneWithDecryption(em, Role, { id: after.id }, {}, { tenantId: null, organizationId: null })
+      if (role) {
+        role.deletedAt = null
+        role.name = after.name
+        role.tenantId = after.tenantId
+        await em.flush()
+      } else {
+        role = await de.createOrmEntity({
+          entity: Role,
+          data: {
+            id: after.id,
+            name: after.name,
+            tenantId: after.tenantId,
+          },
         })
       }
-    }
+      await restoreRoleAcls(em, after.id, after.acls)
+      if (after.custom && Object.keys(after.custom).length) {
+        const reset = buildCustomFieldResetMap(after.custom, undefined)
+        if (Object.keys(reset).length) {
+          await setCustomFieldsIfAny({
+            dataEngine: de,
+            entityId: E.auth.role,
+            recordId: after.id,
+            organizationId: null,
+            tenantId: after.tenantId ?? null,
+            values: reset,
+            notify: false,
+          })
+        }
+      }
+    }], { transaction: true, label: 'auth.roles.create.redo' })
+    if (!role) throw new CrudHttpError(400, { error: '[internal] redo failed to restore role row' })
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -354,27 +385,45 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       if (assignments > 0) {
         throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
       }
-      await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
     }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const role = await de.updateOrmEntity({
-      entity: Role,
-      where: buildScopedRoleFilter(parsed.id, scope),
-      apply: (entity) => {
-        if (parsed.name !== undefined) entity.name = parsed.name
-        if (parsed.tenantId !== undefined && scope.isSuperAdmin) entity.tenantId = parsed.tenantId
-      },
+    const redoLogEntry = (ctx as RoleReplayRuntimeContext)[ROLE_REDO_LOG]
+    let role: Role | null = null
+    await withAtomicFlush(em, [async () => {
+      if (redoLogEntry) {
+        await authorizeRoleReplayAtMutation('update', {
+          operation: 'redo',
+          input: rawInput,
+          ctx,
+          logEntry: redoLogEntry,
+        })
+      }
+      if (wantsTenantChange) {
+        await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
+      }
+      role = await de.updateOrmEntity({
+        entity: Role,
+        where: buildScopedRoleFilter(parsed.id, scope),
+        apply: (entity) => {
+          if (parsed.name !== undefined) entity.name = parsed.name
+          if (parsed.tenantId !== undefined && scope.isSuperAdmin) entity.tenantId = parsed.tenantId
+        },
+      })
+      if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
+
+      await setCustomFieldsIfAny({
+        dataEngine: de,
+        entityId: E.auth.role,
+        recordId: String(role.id),
+        organizationId: null,
+        tenantId: role.tenantId ? String(role.tenantId) : null,
+        values: custom,
+      })
+    }], {
+      transaction: true,
+      label: redoLogEntry ? 'auth.roles.update.redo' : 'auth.roles.update',
     })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
-
-    await setCustomFieldsIfAny({
-      dataEngine: de,
-      entityId: E.auth.role,
-      recordId: String(role.id),
-      organizationId: null,
-      tenantId: role.tenantId ? String(role.tenantId) : null,
-      values: custom,
-    })
 
     await emitCrudSideEffects({
       dataEngine: de,
@@ -435,7 +484,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       },
     }
   },
-  undo: async ({ logEntry, ctx }) => {
+  undo: async ({ input, logEntry, ctx }) => {
     const undo = extractUndoPayload<RoleUndoPayload>(logEntry)
     const before = undo?.before
     const after = undo?.after
@@ -446,30 +495,39 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       : deriveRoleUpdateReplayInput(before, after ?? null)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const updated = await de.updateOrmEntity({
-      entity: Role,
-      where: { id: before.id, deletedAt: null } as FilterQuery<Role>,
-      apply: (entity) => {
-        if ('name' in replayInput) entity.name = before.name
-        if ('tenantId' in replayInput) entity.tenantId = before.tenantId
-      },
-    })
-    const restoresAcls = 'tenantId' in replayInput && after?.tenantId !== before.tenantId
-    if (updated && restoresAcls) {
-      await restoreRoleAcls(em, before.id, before.acls)
-    }
-    const reset = buildCustomFieldResetMap(before.custom, after?.custom)
-    if (Object.keys(reset).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: de,
-        entityId: E.auth.role,
-        recordId: before.id,
-        organizationId: null,
-        tenantId: before.tenantId,
-        values: reset,
-        notify: false,
+    let updated: Role | null = null
+    await withAtomicFlush(em, [async () => {
+      await authorizeRoleReplayAtMutation('update', {
+        operation: 'undo',
+        input,
+        ctx,
+        logEntry,
       })
-    }
+      updated = await de.updateOrmEntity({
+        entity: Role,
+        where: { id: before.id, deletedAt: null } as FilterQuery<Role>,
+        apply: (entity) => {
+          if ('name' in replayInput) entity.name = before.name
+          if ('tenantId' in replayInput) entity.tenantId = before.tenantId
+        },
+      })
+      const restoresAcls = 'tenantId' in replayInput && after?.tenantId !== before.tenantId
+      if (updated && restoresAcls) {
+        await restoreRoleAcls(em, before.id, before.acls)
+      }
+      const reset = buildCustomFieldResetMap(before.custom, after?.custom)
+      if (Object.keys(reset).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.auth.role,
+          recordId: before.id,
+          organizationId: null,
+          tenantId: before.tenantId,
+          values: reset,
+          notify: false,
+        })
+      }
+    }], { transaction: true, label: 'auth.roles.update.undo' })
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -483,6 +541,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       indexer: roleCrudIndexer,
     })
   },
+  redo: ({ input, ctx, logEntry }) => updateRoleCommand.execute(input, withRoleRedoLog(ctx, logEntry)),
 }
 
 const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, Role> = {
@@ -517,13 +576,28 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
     if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
 
-    await em.nativeDelete(RoleAcl, { role: id })
-
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const deleted = await de.deleteOrmEntity({
-      entity: Role,
-      where: buildScopedRoleFilter(id, scope),
-      soft: false,
+    const redoLogEntry = (ctx as RoleReplayRuntimeContext)[ROLE_REDO_LOG]
+    let deleted: Role | null = null
+    await withAtomicFlush(em, [async () => {
+      if (redoLogEntry) {
+        await authorizeRoleReplayAtMutation('delete', {
+          operation: 'redo',
+          input,
+          ctx,
+          logEntry: redoLogEntry,
+        })
+      }
+      await em.nativeDelete(RoleAcl, { role: id })
+      deleted = await de.deleteOrmEntity({
+        entity: Role,
+        where: buildScopedRoleFilter(id, scope),
+        soft: false,
+      })
+      if (!deleted) throw new CrudHttpError(404, { error: 'Role not found' })
+    }], {
+      transaction: true,
+      label: redoLogEntry ? 'auth.roles.delete.redo' : 'auth.roles.delete',
     })
     if (!deleted) throw new CrudHttpError(404, { error: 'Role not found' })
 
@@ -561,40 +635,50 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       },
     }
   },
-  undo: async ({ logEntry, ctx }) => {
+  undo: async ({ input, logEntry, ctx }) => {
     const before = extractUndoPayload<RoleUndoPayload>(logEntry)?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let role = await findOneWithDecryption(em, Role, { id: before.id }, {}, { tenantId: null, organizationId: null })
-    if (role) {
-      role.deletedAt = null
-      role.name = before.name
-      role.tenantId = before.tenantId
-      await em.flush()
-    } else {
-      role = await de.createOrmEntity({
-        entity: Role,
-        data: {
-          id: before.id,
-          name: before.name,
-          tenantId: before.tenantId,
-        },
+    let role: Role | null = null
+    await withAtomicFlush(em, [async () => {
+      await authorizeRoleReplayAtMutation('delete', {
+        operation: 'undo',
+        input,
+        ctx,
+        logEntry,
       })
-    }
-    await restoreRoleAcls(em, before.id, before.acls)
-    const reset = buildCustomFieldResetMap(before.custom, undefined)
-    if (Object.keys(reset).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: de,
-        entityId: E.auth.role,
-        recordId: before.id,
-        organizationId: null,
-        tenantId: before.tenantId ?? null,
-        values: reset,
-        notify: false,
-      })
-    }
+      role = await findOneWithDecryption(em, Role, { id: before.id }, {}, { tenantId: null, organizationId: null })
+      if (role) {
+        role.deletedAt = null
+        role.name = before.name
+        role.tenantId = before.tenantId
+        await em.flush()
+      } else {
+        role = await de.createOrmEntity({
+          entity: Role,
+          data: {
+            id: before.id,
+            name: before.name,
+            tenantId: before.tenantId,
+          },
+        })
+      }
+      await restoreRoleAcls(em, before.id, before.acls)
+      const reset = buildCustomFieldResetMap(before.custom, undefined)
+      if (Object.keys(reset).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.auth.role,
+          recordId: before.id,
+          organizationId: null,
+          tenantId: before.tenantId ?? null,
+          values: reset,
+          notify: false,
+        })
+      }
+    }], { transaction: true, label: 'auth.roles.delete.undo' })
+    if (!role) throw new CrudHttpError(400, { error: '[internal] undo failed to restore role row' })
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -608,6 +692,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       indexer: roleCrudIndexer,
     })
   },
+  redo: ({ input, ctx, logEntry }) => deleteRoleCommand.execute(input, withRoleRedoLog(ctx, logEntry)),
 }
 
 type RoleReplayCommandKind = 'create' | 'update' | 'delete'
@@ -723,6 +808,9 @@ async function authorizeRoleReplay(
   const movesTenant = commandKind === 'update'
     && 'tenantId' in replayInput
     && before?.tenantId !== after?.tenantId
+  if (movesTenant) {
+    await requireCurrentReplaySuperAdmin(ctx)
+  }
 
   if (commandKind === 'update' && !movesTenant) {
     if (!currentSnapshot || !expectedCurrent) {
@@ -772,6 +860,20 @@ async function authorizeRoleReplay(
       organizations: acl.organizations,
     })
   }
+}
+
+async function authorizeRoleReplayAtMutation(
+  commandKind: RoleReplayCommandKind,
+  params: CommandReplayAuthorizationArgs<unknown>,
+): Promise<void> {
+  const undoPayload = extractUndoPayload<RoleUndoPayload>(params.logEntry)
+  const targetRoleId = params.logEntry.resourceId
+    ?? undoPayload?.before?.id
+    ?? undoPayload?.after?.id
+    ?? null
+  const em = params.ctx.container.resolve('em') as EntityManager
+  await lockReplayAuthorizationState(em, params.ctx, { targetRoleId })
+  await authorizeRoleReplay(commandKind, params)
 }
 
 registerCommand(createRoleCommand)

@@ -16,12 +16,14 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
     em: { findOne: (...args: unknown[]) => unknown },
     entity: unknown,
     where: unknown,
-  ) => em.findOne(entity, where),
+    options?: unknown,
+  ) => em.findOne(entity, where, options),
   findWithDecryption: async (
     em: { find: (...args: unknown[]) => unknown },
     entity: unknown,
     where: unknown,
-  ) => em.find(entity, where),
+    options?: unknown,
+  ) => em.find(entity, where, options),
 }))
 
 jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => {
@@ -244,6 +246,7 @@ describe('auth command replay authorization', () => {
     const currentUser = userSnapshot({
       tenantId: tenantB,
       organizationId: organizationB,
+      passwordHash: null,
     })
     const harness = makeHarness({ user: currentUser })
     const log = {
@@ -255,7 +258,7 @@ describe('auth command replay authorization', () => {
           email: 'person@example.com',
           organizationId: organizationA,
         },
-        undo: { after: userSnapshot() },
+        undo: { after: userSnapshot({ passwordHash: null }) },
       },
     }
     harness.actionLogService.findByUndoToken.mockResolvedValue(log)
@@ -267,6 +270,108 @@ describe('auth command replay authorization', () => {
     expect(harness.actionLogService.claimForUndo).not.toHaveBeenCalled()
     expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
     expect(harness.nativeDelete).not.toHaveBeenCalled()
+    expect(harness.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  it('revalidates under a target lock after claim and rejects a concurrent foreign-tenant move without writes or events', async () => {
+    const harness = makeHarness({
+      user: userSnapshot({ passwordHash: null }),
+    })
+    const log = {
+      id: 'create-race-log',
+      commandId: 'auth.users.create',
+      resourceId: userId,
+      commandPayload: {
+        __redoInput: {
+          email: 'person@example.com',
+          organizationId: organizationA,
+          sendInviteEmail: true,
+        },
+        undo: { after: userSnapshot({ passwordHash: null }) },
+      },
+    }
+    harness.actionLogService.findByUndoToken.mockResolvedValue(log)
+    harness.actionLogService.claimForUndo.mockImplementation(async () => {
+      harness.state.user = userSnapshot({
+        tenantId: tenantB,
+        organizationId: organizationB,
+        passwordHash: null,
+      })
+      return true
+    })
+
+    await expect(
+      new CommandBus().undo('create-race-token', harness.ctx),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 404 })
+
+    expect(harness.actionLogService.claimForUndo).toHaveBeenCalledTimes(1)
+    expect(harness.em.begin).toHaveBeenCalledTimes(1)
+    expect(harness.em.rollback).toHaveBeenCalledTimes(1)
+    expect(harness.em.commit).not.toHaveBeenCalled()
+    expect(harness.em.find).toHaveBeenCalledWith(
+      User,
+      expect.objectContaining({ id: expect.any(Object) }),
+      expect.objectContaining({ lockMode: expect.anything(), refresh: true }),
+    )
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(harness.nativeDelete).not.toHaveBeenCalled()
+    expect(harness.markOrmEntityChange).not.toHaveBeenCalled()
+    expect(harness.dataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+    expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
+  })
+
+  it('fails closed for historical password-bearing user create undo before claim', async () => {
+    const harness = makeHarness({ user: userSnapshot() })
+    const log = {
+      id: 'legacy-password-create-log',
+      commandId: 'auth.users.create',
+      resourceId: userId,
+      commandPayload: {
+        __redoInput: {
+          email: 'person@example.com',
+          organizationId: organizationA,
+          password: 'legacy-plain-text',
+        },
+        undo: { after: userSnapshot({ passwordHash: 'legacy-password-hash' }) },
+      },
+    }
+    harness.actionLogService.findByUndoToken.mockResolvedValue(log)
+
+    await expect(
+      new CommandBus().undo('legacy-password-create-token', harness.ctx),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 400 })
+
+    expect(harness.actionLogService.claimForUndo).not.toHaveBeenCalled()
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(harness.nativeDelete).not.toHaveBeenCalled()
+  })
+
+  it('fails closed for historical password-bearing user create redo before mutation or logging', async () => {
+    const harness = makeHarness({ user: null })
+    const sourceLog = {
+      id: 'legacy-password-create-redo-log',
+      commandId: 'auth.users.create',
+      resourceId: userId,
+      commandPayload: {
+        __redoInput: {
+          email: 'person@example.com',
+          organizationId: organizationA,
+          password: 'legacy-plain-text',
+        },
+        undo: { after: userSnapshot({ passwordHash: 'legacy-password-hash' }) },
+      },
+    }
+
+    await expect(
+      new CommandBus().execute('auth.users.create', {
+        input: sourceLog.commandPayload.__redoInput,
+        ctx: harness.ctx,
+        redoLogEntry: sourceLog,
+      }),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 400 })
+
+    expect(harness.dataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(harness.actionLogService.log).not.toHaveBeenCalled()
     expect(harness.markOrmEntityChange).not.toHaveBeenCalled()
   })
 
@@ -543,6 +648,99 @@ describe('auth command replay authorization', () => {
       expect.objectContaining({ action: 'updated' }),
     )
     expect(harness.dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+  })
+
+  it('requires current canonical superadmin authority to undo an empty-ACL role tenant move', async () => {
+    const harness = makeHarness({
+      role: roleSnapshot({ tenantId: tenantB, acls: [] }),
+    }, { actorSuperAdmin: false })
+    harness.ctx.auth = {
+      sub: actorId,
+      tenantId: tenantB,
+      orgId: organizationB,
+      isSuperAdmin: true,
+    } as CommandRuntimeContext['auth']
+    const log = {
+      id: 'empty-acl-role-move-undo-log',
+      commandId: 'auth.roles.update',
+      resourceId: roleId,
+      commandPayload: {
+        __redoInput: { id: roleId, tenantId: tenantB },
+        undo: {
+          before: roleSnapshot({ tenantId: tenantA, acls: [] }),
+          after: roleSnapshot({ tenantId: tenantB, acls: [] }),
+        },
+      },
+    }
+    harness.actionLogService.findByUndoToken.mockResolvedValue(log)
+
+    await expect(
+      new CommandBus().undo('empty-acl-role-move-undo-token', harness.ctx),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+
+    expect(harness.rbacService.loadAcl).toHaveBeenCalled()
+    expect(harness.actionLogService.claimForUndo).not.toHaveBeenCalled()
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('requires current canonical superadmin authority to redo an empty-ACL role tenant move', async () => {
+    const harness = makeHarness({
+      role: roleSnapshot({ tenantId: tenantA, acls: [] }),
+    }, { actorSuperAdmin: false })
+    harness.ctx.auth = {
+      sub: actorId,
+      tenantId: tenantA,
+      orgId: organizationA,
+      isSuperAdmin: true,
+    } as CommandRuntimeContext['auth']
+    const sourceLog = {
+      id: 'empty-acl-role-move-redo-log',
+      commandId: 'auth.roles.update',
+      resourceId: roleId,
+      commandPayload: {
+        __redoInput: { id: roleId, tenantId: tenantB },
+        undo: {
+          before: roleSnapshot({ tenantId: tenantA, acls: [] }),
+          after: roleSnapshot({ tenantId: tenantB, acls: [] }),
+        },
+      },
+    }
+
+    await expect(
+      new CommandBus().execute('auth.roles.update', {
+        input: sourceLog.commandPayload.__redoInput,
+        ctx: harness.ctx,
+        redoLogEntry: sourceLog,
+      }),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+
+    expect(harness.rbacService.loadAcl).toHaveBeenCalled()
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(harness.actionLogService.log).not.toHaveBeenCalled()
+  })
+
+  it('marks new password create logs non-replayable and omits credential snapshots', async () => {
+    const handler = commandRegistry.get('auth.users.create') as CommandHandler<
+      Record<string, unknown>,
+      { user: User }
+    >
+    const harness = makeHarness()
+    const result = userSnapshot() as unknown as User
+    const metadata = await handler.buildLog!({
+      input: {
+        email: 'person@example.com',
+        organizationId: organizationA,
+        password: 'new-secret-password',
+      },
+      result: { user: result },
+      ctx: harness.ctx,
+      snapshots: {},
+    })
+
+    expect(metadata).toMatchObject({ replayable: false })
+    expect(metadata?.payload).toBeUndefined()
+    expect(JSON.stringify(metadata)).not.toContain('new-secret-password')
+    expect(JSON.stringify(metadata)).not.toContain('hash-current')
   })
 
   it('marks new password update logs non-replayable and omits credential snapshots', async () => {
