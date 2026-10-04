@@ -125,6 +125,7 @@ export type CompanyFormValues = {
 
 type DictionarySelectFieldProps = {
   id?: string
+  ariaLabelledBy?: string
   kind: CustomerDictionaryKind
   value?: string
   onChange: (value: string | undefined) => void
@@ -157,6 +158,7 @@ const createSectionHeadingField = (id: string, title: string): CrudField => ({
 
 export function DictionarySelectField({
   id,
+  ariaLabelledBy,
   kind,
   value,
   onChange,
@@ -270,6 +272,7 @@ export function DictionarySelectField({
   return (
     <DictionaryEntrySelect
       id={id}
+      ariaLabelledBy={ariaLabelledBy}
       value={value}
       onChange={onChange}
       fetchOptions={fetchOptions}
@@ -502,6 +505,7 @@ type CompanySelectFieldProps = {
   value?: string
   onChange: (value: string | undefined) => void
   labels: CompanySelectLabels
+  ariaLabelledBy?: string
 }
 
 type CompanyOption = { value: string; label: string }
@@ -527,7 +531,7 @@ function normalizeCompanyOption(raw: unknown): CompanyOption | null {
   return { value: id, label: displayName }
 }
 
-export function CompanySelectField({ value, onChange, labels }: CompanySelectFieldProps) {
+export function CompanySelectField({ value, onChange, labels, ariaLabelledBy }: CompanySelectFieldProps) {
   const [options, setOptions] = React.useState<CompanyOption[]>([])
   const [loading, setLoading] = React.useState(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -662,7 +666,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
           onValueChange={(next) => onChange(next || undefined)}
           disabled={loading}
         >
-          <SelectTrigger>
+          <SelectTrigger aria-labelledby={ariaLabelledBy}>
             <SelectValue placeholder={labels.placeholder}>{selectedOption?.label}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -904,8 +908,9 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
     label: t(definition.labelKey),
     type: 'custom',
     layout: definition.layout ?? 'third',
-    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+    component: ({ value, setValue, labelId }: CrudCustomFieldRenderProps) => (
       <DictionarySelectField
+        ariaLabelledBy={labelId}
         kind={definition.kind}
         value={typeof value === 'string' ? value : undefined}
         onChange={(next) => setValue(next)}
@@ -926,8 +931,9 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
       label: t('customers.people.form.jobTitle', 'Job title'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+      component: ({ value, setValue, labelId }: CrudCustomFieldRenderProps) => (
         <DictionarySelectField
+          ariaLabelledBy={labelId}
           kind="job-titles"
           value={typeof value === 'string' ? value : undefined}
           onChange={(next) => setValue(next)}
@@ -964,8 +970,9 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
       label: t('customers.people.form.company'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }) => (
+      component: ({ value, setValue, labelId }) => (
         <CompanySelectField
+          ariaLabelledBy={labelId}
           value={typeof value === 'string' ? value : undefined}
           onChange={(next) => setValue(next)}
           labels={{
@@ -1260,8 +1267,9 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
     label: t(definition.labelKey),
     type: 'custom',
     layout: definition.layout ?? 'third',
-    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+    component: ({ value, setValue, labelId }: CrudCustomFieldRenderProps) => (
       <DictionarySelectField
+        ariaLabelledBy={labelId}
         kind={definition.kind}
         value={typeof value === 'string' ? value : undefined}
         onChange={(next) => setValue(next)}
@@ -1694,8 +1702,9 @@ export const createCompanyEditFields = (t: Translator, options?: CustomerFormFie
         label: t('customers.companies.detail.fields.industry', 'Industry'),
         type: 'custom',
         layout: 'half',
-        component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+        component: ({ value, setValue, labelId }: CrudCustomFieldRenderProps) => (
           <DictionarySelectField
+            ariaLabelledBy={labelId}
             kind={'industries' as CustomerDictionaryKind}
             value={typeof value === 'string' ? value : undefined}
             onChange={(next) => setValue(next)}

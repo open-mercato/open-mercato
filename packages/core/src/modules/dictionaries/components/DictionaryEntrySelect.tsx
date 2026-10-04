@@ -81,6 +81,7 @@ export type DictionarySelectLabels = {
 
 export type DictionaryEntrySelectProps = {
   id?: string
+  ariaLabelledBy?: string
   value?: string
   onChange: (value: string | undefined) => void
   fetchOptions: () => Promise<DictionaryOption[]>
@@ -107,6 +108,7 @@ export type DictionaryEntrySelectProps = {
 
 export function DictionaryEntrySelect({
   id,
+  ariaLabelledBy,
   value,
   onChange,
   fetchOptions,
@@ -326,6 +328,7 @@ export function DictionaryEntrySelect({
         >
           <SelectTrigger
             id={id}
+            aria-labelledby={ariaLabelledBy}
             aria-describedby={unavailableMessage ? unavailableMessageId : undefined}
             className={selectClassName}
             title={activeOption?.label ?? undefined}
