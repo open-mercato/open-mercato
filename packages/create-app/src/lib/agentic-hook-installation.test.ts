@@ -48,6 +48,18 @@ test('create-app omits experimental hook validators by default', () => {
   }
 })
 
+test('create-app sets up GitHub Copilot without a .github/skills link', () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-copilot-skills-'))
+  try {
+    const appDir = scaffold(rootDir, 'copilot-app')
+    assert.equal(fs.existsSync(path.join(appDir, '.github', 'copilot-instructions.md')), true)
+    assert.equal(fs.lstatSync(path.join(appDir, '.github', 'skills'), { throwIfNoEntry: false }), undefined)
+    assert.equal(fs.statSync(path.join(appDir, '.agents', 'skills')).isDirectory(), true)
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true })
+  }
+})
+
 test('create-app installs experimental hook validators with the explicit setup option', () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-hook-validator-enabled-'))
   try {
