@@ -100,13 +100,14 @@ async function resolveConnectionIdentity(
   ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
   request: Request,
 ): Promise<SseConnectionIdentity | null> {
-  if (!ctx.auth?.tenantId || !ctx.auth.sub) return null
+  const canonicalTenantId = normalizeId(ctx.auth?.tenantId)
+  if (!canonicalTenantId || !ctx.auth?.sub) return null
   const organizationScopeService = resolveOrganizationScopeService(ctx)
   if (!organizationScopeService) return null
   const scope = await organizationScopeService.resolveForRequest({ auth: ctx.auth, request })
   const tenantId = normalizeId(scope.tenantId)
   const organizationId = normalizeId(scope.selectedId)
-  if (!tenantId || scope.selectionRejected) return null
+  if (!tenantId || tenantId !== canonicalTenantId || scope.selectionRejected) return null
   if (organizationId && Array.isArray(scope.allowedIds) && !scope.allowedIds.includes(organizationId)) {
     return null
   }

@@ -68,8 +68,9 @@ Events declared with `clientBroadcast: true` can reach the browser through the a
 connection's tenant, organization, user, and roles. It also re-resolves canonical authorization
 from the original request credentials every 30 seconds. Both the opening request and every periodic
 check pass the authenticated principal plus that request's selection cookies through Directory's
-request-scoped organization resolver. The resolver's ACL-approved tenant and selected organization
-become the stream audience; a rejected or out-of-scope selection cannot open or preserve a stream.
+request-scoped organization resolver. The resolver's normalized tenant must exactly equal the
+normalized canonical authenticated tenant, and its ACL-approved selected organization becomes the
+stream audience; a rejected or out-of-scope selection cannot open or preserve a stream.
 If the session or user disappears, the lookup fails, or the canonical user, tenant, organization,
 or role set changes, the stream closes and removes its connection, listener, heartbeat, validation,
 and lifetime state before any later event can be delivered.

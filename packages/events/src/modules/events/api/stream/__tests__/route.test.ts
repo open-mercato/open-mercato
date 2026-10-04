@@ -202,6 +202,30 @@ describe('SSE event stream — abort listener hygiene', () => {
     expect(addSpy).not.toHaveBeenCalled()
   })
 
+  it('rejects an initial scope whose normalized tenant differs from canonical auth without registering it', async () => {
+    mockResolveRequestContext.mockResolvedValue(buildResolvedContext({
+      tenantId: ' t1 ',
+      sub: 'u1',
+      orgId: 'o1',
+      roles: ['admin'],
+    }))
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: 'o1',
+      filterIds: ['o1'],
+      allowedIds: ['o1'],
+      tenantId: ' t2 ',
+    })
+    const enqueueSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'enqueue')
+    const { req, addSpy } = makeTrackedRequest()
+
+    const response = await GET(req)
+
+    expect(response.status).toBe(401)
+    expect(registerGlobalEventTapMock).not.toHaveBeenCalled()
+    expect(enqueueSpy).not.toHaveBeenCalled()
+    expect(addSpy).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['staff cookie', { cookie: 'auth_token=cookie-token; om_selected_org=o1' }],
     ['staff Bearer token', { authorization: 'Bearer bearer-token' }],
@@ -765,6 +789,45 @@ describe('SSE event stream — abort listener hygiene', () => {
     )
     await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
     expect(removeSpy).toHaveBeenCalledWith('abort', attachedListener)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('closes on periodic canonical auth/scope tenant mismatch without delivery or resurrection', async () => {
+    jest.useFakeTimers()
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '1000'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    mockResolveOrganizationScopeForRequest
+      .mockResolvedValueOnce({
+        selectedId: 'o1',
+        filterIds: ['o1'],
+        allowedIds: ['o1'],
+        tenantId: 't1',
+      })
+      .mockResolvedValue({
+        selectedId: 'o1',
+        filterIds: ['o1'],
+        allowedIds: ['o1'],
+        tenantId: 't2',
+      })
+    const enqueueSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'enqueue')
+    const { req } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    await jest.advanceTimersByTimeAsync(1000)
+    await expect(reader.read()).resolves.toEqual({ value: undefined, done: true })
+    const enqueueCountAfterClose = enqueueSpy.mock.calls.length
+
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', organizationId: 'o1', marker: 'must-not-arrive' },
+    )
+    await jest.advanceTimersByTimeAsync(5000)
+
+    expect(enqueueSpy).toHaveBeenCalledTimes(enqueueCountAfterClose)
+    expect(mockResolveRequestContext).toHaveBeenCalledTimes(2)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledTimes(2)
     expect(jest.getTimerCount()).toBe(0)
   })
 
