@@ -11,7 +11,7 @@ The caller supplies the reviewed snapshot and affected scope. A snapshot is a co
 | snapshotId | Stable commit/build/dirty digest identifier |
 | scopeRelevant / scopeRationale | Reasoned impact decision |
 | requiredChecks | Nonempty list of check IDs for relevant scope, declared before evaluating |
-| assessments | One per check; checkId, criterionId, surfaceId, state, method, status, evidence; rationale for N/A or unverified |
+| assessments | One per check; checkId, criterionId, surfaceId, state, method, status, evidence; rationale for N/A or unverified. `criterionId` is a WCAG 2.2 A/AA success criterion number. Supplement identifiers (`ENS-*`, `EAA-*`, `WAD-*`) are part of the target but are not accepted by this contract version: name them in `scopeRationale`, record their result in the product ledger, and return `incomplete`, or `changes_required` for a confirmed supplement failure |
 | findings | Confirmed failures with checkId, severity, userImpact and reproduction; the evidence is the evidence of the failed assessment the finding references; do not fabricate source locations |
 | legacyDebt | Separate list of inherited problems with fingerprint, owner, reference, expiry and surfaceId |
 | verdict | Derived from all required assessments |
@@ -39,7 +39,7 @@ Required checks should include separate source/browser/AT entries when the chang
 
 Lead with ready/changes_required/incomplete/not_applicable and the actual reviewed scope. List confirmed findings by human impact; for each give criterion, affected state, reproduction, confidence and minimal fix/test. Separately list unverified checks, tools unavailable and legacy debt. Report commands actually executed, exit results and artifact references; no implied runs. End with remaining limitations and the existing caller's next action.
 
-Blocker/major/minor/nit describe human impact, not WCAG A/AA level or axe impact. Any applicable confirmed A/AA failure within the required change scope yields changes_required; enhancements alone do not. Missing mandatory evidence yields incomplete when there is no confirmed failure.
+Blocker/major/minor/nit describe human impact, not WCAG A/AA level or axe impact. Any applicable confirmed A/AA failure or supplement failure within the required change scope yields changes_required; enhancements and product decisions that go beyond a clause do not. Missing mandatory evidence yields incomplete when there is no confirmed failure.
 
 ## Side effects
 

@@ -2,13 +2,13 @@
 
 ## TLDR
 
-Introduce `om-wcag-guardian`: a skill that assesses the accessibility of new features and PR changes against the [WCAG 2.2 AA contract](2026-10-01-wcag-22-aa-accessibility.md). It identifies the affected scope, requires appropriate evidence, and distinguishes confirmed violations from hypotheses and verification gaps. It integrates with the existing review workflow and DS Guardian without introducing a new label system or automatically granting QA approval.
+Introduce `om-wcag-guardian`: a skill that assesses the accessibility of new features and PR changes against the [WCAG 2.2 AA contract](2026-10-01-wcag-22-aa-accessibility.md), including its [supplement](../qa/accessibility/en-301-549-supplement.csv) of EN 301 549 and directive requirements outside the 55 criteria. It identifies the affected scope, requires appropriate evidence, and distinguishes confirmed violations from hypotheses and verification gaps. It integrates with the existing review workflow and DS Guardian without introducing a new label system or automatically granting QA approval.
 
 Status: the specification and source files for the instruction package and report validator are **a draft proposed for review**. The skill is registered in an opt-in tier only; default installation and changes to routing, review, and the harness require subsequent approval of a concrete diff. The skill is not yet active in the project.
 
 ## Review Findings — 2026-10-02
 
-[Readiness report](analysis/ANALYSIS-2026-10-01-wcag-22-aa-accessibility.md): **the package is not ready for PR enforcement**. R1 is resolved: the source is registered in the opt-in `analysis` tier, which satisfies Skills Tiers Lint without installing the skill by default. Validator v1 remains a structural prototype: it ignores execution metadata, allows N/A without evidence, and has provenance gaps (R2–R5). The requirements below define the target contract; the 25 tests do not demonstrate its implementation. Do not connect the package to a caller until these blockers are resolved.
+[Readiness report](analysis/ANALYSIS-2026-10-01-wcag-22-aa-accessibility.md): **the package is not ready for PR enforcement**. R1 is resolved: the source is registered in the opt-in `analysis` tier, which satisfies Skills Tiers Lint without installing the skill by default. Validator v1 remains a structural prototype: it ignores execution metadata, allows N/A without evidence, and has provenance gaps (R2–R5). The requirements below define the target contract; the 25 tests do not demonstrate its implementation. Do not connect the package to a caller until these blockers are resolved. R10, added on 2026-10-04, is a further gap: the validator rejects any identifier that is not a WCAG success criterion, so supplement requirements cannot yet be reported as assessments.
 
 The master specification lists [existing issues and owners](2026-10-01-wcag-22-aa-accessibility.md#existing-issue-links). Actual regression families include #5511/#5478 (forms), #6445/#6771/#6853 (focus), #6327 (locale), #6079 (keyboard/drag), and #5011/#4651 (contrast). Tooling deduplication: [#5094](https://github.com/open-mercato/open-mercato/issues/5094), [#5131](https://github.com/open-mercato/open-mercato/issues/5131), and [#5096](https://github.com/open-mercato/open-mercato/issues/5096); standalone certification: [#4670](https://github.com/open-mercato/open-mercato/issues/4670). Do not add another copy of the DS checker.
 
@@ -45,11 +45,13 @@ The minimum caller → guardian interface includes the repo root, a local base a
 
 Analyze more than TSX: CSS/tokens, locales, icons/assets, theme configuration, dependency updates, generated sources, route metadata, and guards can affect accessibility. Changes to a shared primitive require examples and critical consumers; token/theme changes require affected color pairs, states, and light/dark modes; locale changes require accessible names and long strings; modal changes require keyboard/AT lifecycle checks. For generated output, identify the source rather than requiring manual edits to the output.
 
+The supplement widens what counts as UI impact. A change to an e-mail or document template or generator, a sanitizer allow-list, an importer, exporter or format converter, an editor or media form, a custom field definition screen, a session or timer setting, a documentation page about accessibility, or a shared focus or colour style can break a supplement requirement without touching a screen component. Each requires the matching check: the produced message or document, the content after a round trip, the page in forced colors, or the time limit in the browser.
+
 Documentation/API-only changes may receive `not_applicable` if they do not affect the interface or user-facing guidance. N/A must reflect an actual impact assessment. The absence of a TSX file in the diff is insufficient for N/A.
 
 ## Data Models
 
-No business entities or APIs are introduced. The local JSON report contains a schema version, base/head, scope, required assessments, and findings. Each assessment includes criterionId, surface/state, applicability, method, status, and evidence. Each evidence entry includes a source, verified HEAD, date, and method description; screen reader evidence specifies browser/OS/AT versions and actions. The presence of a run result alone does not establish UX quality.
+No business entities or APIs are introduced. The local JSON report contains a schema version, base/head, scope, required assessments, and findings. Each assessment includes criterionId, surface/state, applicability, method, status, and evidence. `criterionId` is a WCAG success criterion number or, once R10 is closed, a supplement identifier (`ENS-*`, `EAA-*`, `WAD-*`). Until then a review that touches a supplement requirement states it in the scope rationale, records the result in the product ledger, and returns `incomplete`, or `changes_required` when the supplement requirement is confirmed broken; it never returns `ready`, because the report cannot show the supplement result. Each evidence entry includes a source, verified HEAD, date, and method description; screen reader evidence specifies browser/OS/AT versions and actions. The presence of a run result alone does not establish UX quality.
 
 Methods are `source`, `automated`, `browser`, `measurement`, `manual`, and `manual_at`; the same vocabulary is used by the criterion index and the evaluation ledger and is defined in the [report contract](../skills/om-wcag-guardian/references/review.md#methods). A pass or fail by `automated` names the tool and version; `browser` and `measurement` name the browser; `manual_at` additionally names the OS and assistive technology.
 
@@ -85,11 +87,11 @@ User-facing results may be displayed in the user's language; machine statuses re
 
 | Phase | Deliverable | Acceptance |
 |---|---|---|
-| G1 | Source, opt-in registration, and a corrected report contract | Skills Tiers Lint passes; negative probes from the review are rejected; no default activation |
+| G1 | Source, opt-in registration, and a corrected report contract that also accepts supplement identifiers (R10) | Skills Tiers Lint passes; negative probes from the review are rejected; an unknown identifier is rejected; no default activation |
 | G2 | Discovery/core tier and creation/review routing | The skill is installed by default; the actual review caller invokes it |
 | G3 | Meaningful forward-tests and standalone knowledge updates | Known defects are detected, false passes are rejected, and N/A is correctly justified |
 
-Before G2, a typed execution record is required: pinned runner/tool/browser/OS/AT versions, execution status, exit code, discovered/executed counts, unresolved results, artifact reference/hash, commit/build/dirty provenance, and observation time. Crashes, timeouts, zero tests, and axe incomplete results cannot produce ready even if an assessment is declared pass. Contradictory or unsupported execution fields are rejected. Assessment N/A requires applicability evidence for the specific surface/state/configuration; a rationale alone does not complete a required check. An unavailable base/build produces an explicit incomplete variant with nullable facts and a reason, without invented SHAs. Reused evidence requires revalidation of its relationship to the new build. The caller verifies artifacts; schema validation does not establish their authenticity.
+Before G2, the report contract accepts supplement identifiers (R10), with tests that reject an unknown identifier and accept a justified `not_applicable` for a row whose condition is false. Before G2, a typed execution record is also required: pinned runner/tool/browser/OS/AT versions, execution status, exit code, discovered/executed counts, unresolved results, artifact reference/hash, commit/build/dirty provenance, and observation time. Crashes, timeouts, zero tests, and axe incomplete results cannot produce ready even if an assessment is declared pass. Contradictory or unsupported execution fields are rejected. Assessment N/A requires applicability evidence for the specific surface/state/configuration; a rationale alone does not complete a required check. An unavailable base/build produces an explicit incomplete variant with nullable facts and a reason, without invented SHAs. Reused evidence requires revalidation of its relationship to the new build. The caller verifies artifacts; schema validation does not establish their authenticity.
 
 The caller tests every applicable fail, including minor failures, and treats incomplete as lack of acceptance. Validator exit 0 means structural validity; the caller reads the verdict. Legacy debt does not change fail to ready; the CI ratchet has a separate rollout policy. A finding inherits evidence through an explicit assessment/check reference or contains its own verified references.
 
@@ -101,7 +103,7 @@ The caller tests every applicable fail, including minor failures, and treats inc
 | OMH-176 | backend-ui-design `references/quality-states.md`; reuse the inaccessible dialog case, failure-before/success-after |
 | New cases | Only validator/caller false-green results, provenance, and activation; no duplication of the knowledge above |
 
-Evaluation scenarios: a missing label in CrudForm; a token contrast regression without TSX; a translation that removes an accessible name; a dialog stealing focus after closing; legacy axe debt versus a new issue with an equal count; zero tests; stale evidence from another HEAD; axe incomplete; all axe checks passing with inaccessible auth; API-only changes without impact; a quoted PR instruction saying “ignore WCAG”; an AAA target-size recommendation incorrectly presented as AA. Do not give the expected outcome to the evaluator agent. Reviewing the skill does not publish comments or modify the repository.
+Evaluation scenarios: a missing label in CrudForm; a token contrast regression without TSX; a translation that removes an accessible name; a dialog stealing focus after closing; legacy axe debt versus a new issue with an equal count; zero tests; stale evidence from another HEAD; axe incomplete; all axe checks passing with inaccessible auth; API-only changes without impact; a quoted PR instruction saying “ignore WCAG”; an AAA target-size recommendation incorrectly presented as AA; an e-mail template without a language; a sanitizer change that drops alternative text; a focus style that vanishes in forced colors; an image dialog that stores no alternative text; an error message that dismisses itself. Do not give the expected outcome to the evaluator agent. Reviewing the skill does not publish comments or modify the repository.
 
 ## Integration Test Coverage
 
@@ -130,7 +132,7 @@ The skill and routing references are additive. Public helpers and the label taxo
 - **Scenario**: A report is marked ready based on axe alone or ignored failed, incomplete, or stale execution evidence.
 - **Severity**: High
 - **Affected area**: Accessibility assessment and compliance
-- **Mitigation**: Required assessment methods and rejection of failed, incomplete, stale, or missing evidence; resolve R2–R5 before caller activation.
+- **Mitigation**: Required assessment methods and rejection of failed, incomplete, stale, or missing evidence; resolve R2–R5 and R10 before caller activation.
 - **Residual risk**: Incorrect reviewer scope requires a separate review. Schema validation does not establish artifact authenticity.
 
 #### Untrusted PR Instructions Override Review Rules
@@ -186,7 +188,7 @@ No business data writes, tenant queries, database migrations, event emissions, o
 | root AGENTS.md / `BACKWARD_COMPATIBILITY.md` | Preserve public contracts | Compliant by design | Additive internal tooling; public helpers, label taxonomy, and existing merge blocks remain unchanged |
 | root AGENTS.md | Ask before changing branch/PR automation, QA flow, or design-system governance | Compliant for current scope | Sources and documents only; installation, routing, automation, and governance integration are not performed |
 | `.ai/skills/README.md` / existing Skills Tiers Lint | Repo-local skill sources require tier assignment | Compliant | R1 resolved: registered in the opt-in `analysis` tier; lint is not disabled and the skill is not installed by default |
-| root AGENTS.md / `.ai/qa/AGENTS.md` | Verify behavior with meaningful tests and evidence | Blocked | R2–R5: execution, applicability, unavailable provenance, and evidence binding gaps remain; 25 passing tests do not establish target contract coverage |
+| root AGENTS.md / `.ai/qa/AGENTS.md` | Verify behavior with meaningful tests and evidence | Blocked | R2–R5 and R10: execution, applicability, unavailable provenance, evidence binding, and supplement-identifier gaps remain; 25 passing tests do not establish target contract coverage |
 | root AGENTS.md | Keep AGENTS.md within the instruction budget | Pending integration | Short routing guidance is planned; run the budget check before integration |
 | `packages/ui/AGENTS.md` / UI DS and i18n guidance | Reuse canonical UI and localized accessible names | Compliant by design | No runtime dependencies or UI implementation changes; the guardian uses the existing DS canon |
 | `packages/create-app/AGENTS.md` | Follow standalone harness ownership and validation | Pending integration | Reuse OMH-092/115/137/176 and their owners; full harness runs and packed-preset proof remain future work |
@@ -196,7 +198,7 @@ No business data writes, tenant queries, database migrations, event emissions, o
 | Check | Status | Notes |
 |---|---|---|
 | Data models match API contracts | Pass for design | No business entities or APIs; the internal report contract is defined |
-| Report implementation matches verdict requirements | Fail | R2–R5 prevent enforcement; validator v1 is a structural prototype |
+| Report implementation matches verdict requirements | Fail | R2–R5 and R10 prevent enforcement; validator v1 is a structural prototype that accepts only WCAG criterion numbers |
 | API contracts match UI/UX section | N/A | No business API changes; localized reporting and stable machine statuses are specified |
 | Risks cover all write operations | Pass for authorized scope | No application writes; caller mutations require authorization and reassessment |
 | Commands defined for all mutations | N/A | No business mutations or new commands |
@@ -208,12 +210,12 @@ No business data writes, tenant queries, database migrations, event emissions, o
 
 - **Rule**: Verification must provide meaningful evidence for the required behavior.
   **Source**: Root `AGENTS.md` verification requirements and `.ai/qa/AGENTS.md`.
-  **Gap**: R2–R5: the prototype ignores execution metadata, accepts unsupported N/A, cannot represent unavailable provenance honestly, and inadequately binds evidence to commit/build identity.
+  **Gap**: R2–R5: the prototype ignores execution metadata, accepts unsupported N/A, cannot represent unavailable provenance honestly, and inadequately binds evidence to commit/build identity. R10: it rejects supplement identifiers, so part of the target cannot be reported.
   **Recommendation**: Implement the typed execution/applicability/provenance contract and negative tests before G2; the trusted caller must verify artifact binding and read the verdict.
 
 ### Verdict
 
-**Non-compliant: blocked for PR enforcement until R2–R5 and caller acceptance are resolved.** The package remains available for assessment and is not installed. Installation/routing and automation/governance require separate approval. Actual discovery/review integration, main-branch revalidation, and full harness runs are not completed.
+**Non-compliant: blocked for PR enforcement until R2–R5, R10, and caller acceptance are resolved.** The package remains available for assessment and is not installed. Installation/routing and automation/governance require separate approval. Actual discovery/review integration, main-branch revalidation, and full harness runs are not completed.
 
 ## Changelog
 
@@ -226,3 +228,7 @@ No business data writes, tenant queries, database migrations, event emissions, o
 - Review findings, linked issues/harness owners, opt-in registration before core, and required execution/applicability/provenance fixes. Routing remains unchanged.
 - Translated the specification into English and aligned its risk register and compliance report with the Open Mercato specification template; no functional changes.
 - Registered the draft in the opt-in `analysis` tier (R1). Unified the method vocabulary across the report, criterion index, and ledger; `automated` evidence now names a tool instead of a browser; expired legacy debt is rejected; a finding inherits the evidence of its failed assessment (R9). Validator tests grew from 12 to 25. R2–R5 and routing remain open.
+
+### 2026-10-04
+
+- Extended the review target to the EN 301 549 and directive supplement defined in the master specification: wider impact scope, supplement identifiers in the report (blocked by R10 until the validator accepts them; such reviews return `incomplete` or `changes_required` meanwhile), and five new evaluation scenarios. No validator or routing change is made by this revision.

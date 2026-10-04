@@ -71,6 +71,8 @@ A new feature must identify a reusable pattern or add an appropriate composition
 | DnD | Drag and alternative pointer interaction + keyboard | Equivalent outcome, rather than a keyboard-only fallback |
 | Theme | Light/dark, focus/hover/selected/portals | Actual computed colors, compositing/gradients |
 | Reflow | 320 CSS px + 200% text/400% zoom + spacing | Browser geometry + manual inspection without content loss |
+| User-agent settings | Forced-colors emulation in light and dark, focus/selected/checked/invalid states | Focus, selection and state remain visible without `box-shadow` or background colour (`ENS-13` in the [supplement](../qa/accessibility/en-301-549-supplement.csv)) |
+| Authoring components | Editor image, table, link and heading insertion; media and field-definition forms | The produced markup carries alternative text, header cells, link text and a label (`ENS-16`) |
 
 Serialize scans with interactions and async UI readiness. Use readiness conditions instead of fixed sleeps. The axe query covers the document/portals in the correct iframe, rather than only `#storybook-root`. A DOM scan does not establish whether spoken announcements are correct; manual screen reader testing requires its own evidence.
 
@@ -215,3 +217,4 @@ No additional design-rule violation was identified in the original documentation
 - 2026-10-02 — Confirmed upstream Storybook and the CI token gate; linked existing issues and recorded S1/S2 provenance prerequisites. Code, dependencies, and CI remain unchanged.
 - 2026-10-02 — Translated the specification into English, aligned risk/compliance sections with the Open Mercato template, and updated the master backlog anchor; no functional requirements changed.
 - 2026-10-02 — Corrected the Storybook configuration and generated-output paths to `packages/ui/.storybook/`; the addon and `test: 'todo'` line references were confirmed against upstream develop.
+- 2026-10-04 — Added two rows to the state matrix for the supplement defined in the master specification: user-agent settings (forced colors) and authoring components. The sidecar's criteria IDs may hold supplement identifiers, and a new supplement failure in the changed scope fails the run in the same way as an A/AA violation once such a check exists. E-mail and document templates stay outside Storybook and are covered by the master specification's A11Y-DOC family. No runner, dependency, or CI change is made by this revision.
