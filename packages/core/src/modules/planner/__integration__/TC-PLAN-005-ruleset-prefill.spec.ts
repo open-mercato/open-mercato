@@ -10,6 +10,8 @@ import {
   deleteStaffEntityIfExists,
 } from '@open-mercato/core/helpers/integration/staffFixtures'
 
+const CLEANUP_BATCH_SIZE = 25
+
 test.describe('TC-PLAN-005: Availability editor hydrates saved rule set', () => {
   test('shows the saved rule set when it is outside the first loaded options page', async ({ page, request }) => {
     const token = await getAuthToken(request, 'admin')
@@ -63,8 +65,12 @@ test.describe('TC-PLAN-005: Availability editor hydrates saved rule set', () => 
       await expect(ruleSetSelect).toContainText(selectedRuleSetName)
     } finally {
       await deleteStaffEntityIfExists(request, token, '/api/staff/team-members', memberId)
-      for (const ruleSetId of ruleSetIds.reverse()) {
-        await deleteAvailabilityRuleSetIfExists(request, token, ruleSetId)
+      for (let start = 0; start < ruleSetIds.length; start += CLEANUP_BATCH_SIZE) {
+        await Promise.all(
+          ruleSetIds
+            .slice(start, start + CLEANUP_BATCH_SIZE)
+            .map((ruleSetId) => deleteAvailabilityRuleSetIfExists(request, token, ruleSetId)),
+        )
       }
     }
   })
