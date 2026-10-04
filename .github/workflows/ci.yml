@@ -284,10 +284,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Fetch comparison ref
-        if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
+        with:
+          # A pull_request checkout is GitHub's merge commit; its first parent is
+          # the base commit the PR was merged onto, so depth 2 is enough to diff
+          # exactly the PR's own changes.
+          fetch-depth: 2
 
       - name: Detect dependency file changes
         id: dependency-files
@@ -296,7 +297,13 @@ jobs:
           set -euo pipefail
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
+            # Diff against the merge commit's first parent, NOT the current tip of
+            # the base branch. The merge commit is frozen when the run is created,
+            # while the base branch keeps moving: diffing against a freshly fetched
+            # `origin/<base>` also reports every file the base branch changed since
+            # then, so a re-run of a UI-only PR after develop bumped `yarn.lock`
+            # ran (and failed) the audit (#6753).
+            CHANGED=$(git diff --name-only HEAD^1 HEAD)
           else
             BEFORE="${{ github.event.before }}"
 
