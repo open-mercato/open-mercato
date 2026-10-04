@@ -23,6 +23,7 @@ type ChannelRow = {
 }
 
 let capturedColumns: ColumnDef<ChannelRow>[] = []
+let capturedRowActions: ((row: ChannelRow) => React.ReactNode) | null = null
 const runMutationMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
@@ -42,8 +43,12 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: (props: { columns: ColumnDef<ChannelRow>[] }) => {
+  DataTable: (props: {
+    columns: ColumnDef<ChannelRow>[]
+    rowActions?: (row: ChannelRow) => React.ReactNode
+  }) => {
     capturedColumns = props.columns
+    capturedRowActions = props.rowActions ?? null
     return <div data-testid="data-table-mock" />
   },
 }))
@@ -80,17 +85,14 @@ const privateMailbox: ChannelRow = {
   updatedAt: '2026-09-30T10:00:00.000Z',
 }
 
+// The share flip lives in the row-actions menu (#6685), not in the status-only
+// visibility cell, so the click has to go through `rowActions` and its trigger.
 async function clickShareWithTeam() {
-  const column = capturedColumns.find(
-    (candidate) => (candidate as { accessorKey?: string }).accessorKey === 'visibility',
-  )
-  if (!column || typeof column.cell !== 'function') {
-    throw new Error('[internal] visibility column has no cell renderer')
-  }
-  const cell = column.cell as (context: { row: { original: ChannelRow } }) => React.ReactNode
-  render(<>{cell({ row: { original: privateMailbox } })}</>)
+  if (!capturedRowActions) throw new Error('[internal] DataTable received no rowActions prop')
+  render(<>{capturedRowActions(privateMailbox)}</>)
+  fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Share with team' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Share with team' }))
   })
 }
 
@@ -99,6 +101,7 @@ describe('profile communication channels — share toggle conflict', () => {
     jest.clearAllMocks()
     dismissRecordConflict()
     capturedColumns = []
+    capturedRowActions = null
     apiCallMock.mockResolvedValue({ ok: true, result: { items: [] } } as never)
     await act(async () => {
       render(<ProfileCommunicationChannelsPage />)
