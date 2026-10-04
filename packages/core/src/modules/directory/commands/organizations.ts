@@ -108,7 +108,6 @@ type OrganizationActorScope = {
 
 type AuthorizedOrganizationTarget = {
   organization: Organization
-  scope: OrganizationActorScope
   tenantId: string
 }
 
@@ -164,18 +163,17 @@ async function loadAuthorizedOrganizationTarget(
   if (!tenantId || (!scope.isUnrestricted && tenantId !== scope.tenantId)) {
     throw new CrudHttpError(404, { error: 'Not found' })
   }
-  return { organization, scope, tenantId }
+  return { organization, tenantId }
 }
 
 function buildOrganizationMutationFilter(
   id: string,
   tenantId: string,
-  scope: OrganizationActorScope,
 ): FilterQuery<Organization> {
   return {
     id,
     deletedAt: null,
-    ...(scope.isUnrestricted ? {} : { tenant: tenantId }),
+    tenant: tenantId,
   } as FilterQuery<Organization>
 }
 
@@ -597,7 +595,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { organization: existing, scope, tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
+    const { organization: existing, tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
 
     const parentId = parsed.parentId ?? null
     if (parentId) {
@@ -646,7 +644,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       async () => {
         const organization = await de.updateOrmEntity({
           entity: Organization,
-          where: buildOrganizationMutationFilter(parsed.id, tenantId, scope),
+          where: buildOrganizationMutationFilter(parsed.id, tenantId),
           apply: (entity) => {
             if (parsed.name !== undefined) entity.name = parsed.name
             if (resolvedSlug !== undefined) entity.slug = resolvedSlug
@@ -762,9 +760,8 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
             entity.parentId = before.parentId
           },
         })
-        if (updated && tenantId) {
-          setInternalTenantId(updated, tenantId)
-        }
+        if (!updated) throw new CrudHttpError(404, { error: 'Not found' })
+        setInternalTenantId(updated, tenantId)
         const reset = buildCustomFieldResetMap(before.custom, after?.custom)
         if (Object.keys(reset).length) {
           const resetValues = reset as Parameters<DataEngine['setCustomFields']>[0]['values']
@@ -817,7 +814,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
   async execute(input, ctx) {
     const id = requireId(input, 'Organization id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { organization: existing, scope, tenantId } = await loadAuthorizedOrganizationTarget(em, id, ctx)
+    const { organization: existing, tenantId } = await loadAuthorizedOrganizationTarget(em, id, ctx)
 
     const parentId = existing.parentId ?? null
     const childSnapshotsBefore = await loadChildParentSnapshots(
@@ -833,7 +830,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
       async () => {
         const deleted = await de.deleteOrmEntity({
           entity: Organization,
-          where: buildOrganizationMutationFilter(id, tenantId, scope),
+          where: buildOrganizationMutationFilter(id, tenantId),
           soft: true,
           softDeleteField: 'deletedAt',
         })

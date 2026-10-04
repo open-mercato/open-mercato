@@ -100,14 +100,14 @@ function matchesFilter(organization: TestOrganization, filter: Record<string, un
 }
 
 function makeHarness(organizations: TestOrganization[]) {
-  const records = new Map(organizations.map((organization) => [String(organization.id), organization]))
+  const records = [...organizations]
   const logs: Array<Record<string, unknown>> = []
   const em = {
     findOne: jest.fn(async (_entity: unknown, filter: Record<string, unknown>) => {
-      return Array.from(records.values()).find((organization) => matchesFilter(organization, filter)) ?? null
+      return records.find((organization) => matchesFilter(organization, filter)) ?? null
     }),
     find: jest.fn(async (_entity: unknown, filter: Record<string, unknown>) => {
-      return Array.from(records.values()).filter((organization) => matchesFilter(organization, filter))
+      return records.filter((organization) => matchesFilter(organization, filter))
     }),
     persist: jest.fn(() => ({ flush: jest.fn(async () => {}) })),
     flush: jest.fn(async () => {}),
@@ -122,13 +122,13 @@ function makeHarness(organizations: TestOrganization[]) {
     where: Record<string, unknown>
     apply: (organization: TestOrganization) => void
   }) => {
-    const organization = Array.from(records.values()).find((candidate) => matchesFilter(candidate, where)) ?? null
+    const organization = records.find((candidate) => matchesFilter(candidate, where)) ?? null
     if (!organization) return null
     apply(organization)
     return organization
   })
   const deleteOrmEntity = jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
-    const organization = Array.from(records.values()).find((candidate) => matchesFilter(candidate, where)) ?? null
+    const organization = records.find((candidate) => matchesFilter(candidate, where)) ?? null
     if (!organization) return null
     organization.deletedAt = new Date('2026-10-04T00:00:00.000Z')
     return organization
@@ -161,7 +161,7 @@ function makeHarness(organizations: TestOrganization[]) {
     markUndone: jest.fn(async () => null),
   }
 
-  return { actionLogService, dataEngine, deleteOrmEntity, em, logs, updateOrmEntity }
+  return { actionLogService, dataEngine, deleteOrmEntity, em, logs, records, updateOrmEntity }
 }
 
 function makeContext(
@@ -248,9 +248,52 @@ function expectTenantQualifiedUndoTarget(
   })
 }
 
+function expectTenantQualifiedFinalMutation(
+  scenario: CommandScenario,
+  harness: ReturnType<typeof makeHarness>,
+) {
+  const expectedWhere = { id: TARGET_ID, deletedAt: null, tenant: FOREIGN_TENANT_ID }
+  if (scenario.label === 'update') {
+    expect(harness.updateOrmEntity).toHaveBeenCalledWith(expect.objectContaining({ where: expectedWhere }))
+    return
+  }
+  expect(harness.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({ where: expectedWhere }))
+}
+
 function expectNotFound(error: unknown) {
   expect(error).toBeInstanceOf(CrudHttpError)
   expect((error as CrudHttpError).status).toBe(404)
+}
+
+function primeChangedCustomFieldSnapshots() {
+  jest.mocked(loadCustomFieldSnapshot)
+    .mockResolvedValueOnce({ status: 'before' })
+    .mockResolvedValueOnce({ status: 'after' })
+    .mockResolvedValueOnce({ status: 'after' })
+}
+
+function clearUndoObservationMocks(harness: ReturnType<typeof makeHarness>) {
+  harness.updateOrmEntity.mockClear()
+  harness.dataEngine.setCustomFields.mockClear()
+  harness.dataEngine.markOrmEntityChange.mockClear()
+  harness.dataEngine.flushOrmEntityChanges.mockClear()
+  harness.em.find.mockClear()
+  harness.em.persist.mockClear()
+  jest.mocked(rebuildHierarchyForTenant).mockClear()
+}
+
+function expectFailedUndoReleasedClaim(
+  harness: ReturnType<typeof makeHarness>,
+  logEntry: NonNullable<Awaited<ReturnType<CommandBus['execute']>>['logEntry']>,
+) {
+  expect(harness.dataEngine.setCustomFields).not.toHaveBeenCalled()
+  expect(harness.em.find).not.toHaveBeenCalled()
+  expect(harness.em.persist).not.toHaveBeenCalled()
+  expect(rebuildHierarchyForTenant).not.toHaveBeenCalled()
+  expect(harness.dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  expect(harness.dataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+  expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
+  expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
 }
 
 describe('directory organization command tenant ownership', () => {
@@ -388,7 +431,7 @@ describe('directory organization command tenant ownership', () => {
 
     expect(harness.em.findOne).toHaveBeenCalledWith(Organization, { id: TARGET_ID, deletedAt: null })
     expect(harness.updateOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: TARGET_ID, deletedAt: null },
+      where: { id: TARGET_ID, deletedAt: null, tenant: FOREIGN_TENANT_ID },
     }))
     expect(target.parentId).toBe(PARENT_ID)
     expect(child.parentId).toBe(TARGET_ID)
@@ -403,7 +446,7 @@ describe('directory organization command tenant ownership', () => {
     await deleteHandler.execute({ body: { id: TARGET_ID }, query: {} }, ctx)
 
     expect(harness.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: TARGET_ID, deletedAt: null },
+      where: { id: TARGET_ID, deletedAt: null, tenant: FOREIGN_TENANT_ID },
     }))
     expect(rebuildHierarchyForTenant).toHaveBeenCalledWith(harness.em, FOREIGN_TENANT_ID)
   })
@@ -416,7 +459,7 @@ describe('directory organization command tenant ownership', () => {
     await updateHandler.execute({ id: TARGET_ID, tenantId: ACTOR_TENANT_ID, name: 'System update' }, ctx)
 
     expect(harness.updateOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: TARGET_ID, deletedAt: null },
+      where: { id: TARGET_ID, deletedAt: null, tenant: FOREIGN_TENANT_ID },
     }))
     expect(target.name).toBe('System update')
     expect(rebuildHierarchyForTenant).toHaveBeenCalledWith(harness.em, FOREIGN_TENANT_ID)
@@ -485,6 +528,7 @@ describe('directory organization command tenant ownership', () => {
         input: scenario.input,
         ctx,
       })
+      expectTenantQualifiedFinalMutation(scenario, harness)
       harness.updateOrmEntity.mockClear()
       harness.em.findOne.mockClear()
 
@@ -509,6 +553,7 @@ describe('directory organization command tenant ownership', () => {
         input: scenario.input,
         ctx,
       })
+      expectTenantQualifiedFinalMutation(scenario, harness)
       harness.updateOrmEntity.mockClear()
       harness.em.findOne.mockClear()
 
@@ -522,4 +567,53 @@ describe('directory organization command tenant ownership', () => {
       )
     },
   )
+
+  it('releases a real CommandBus undo claim when its tenant-qualified update target disappeared', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { childIds: [CHILD_ID] })
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: TARGET_ID })
+    const harness = makeHarness([target, child])
+    const bus = new CommandBus()
+    const ctx = makeContext(harness)
+    primeChangedCustomFieldSnapshots()
+    const { logEntry } = await bus.execute('directory.organizations.update', {
+      input: { id: TARGET_ID, name: 'Updated before removal' },
+      ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable action log')
+    harness.records.splice(harness.records.indexOf(target), 1)
+    clearUndoObservationMocks(harness)
+
+    await expect(bus.undo(String(logEntry.undoToken), ctx)).rejects.toMatchObject({ status: 404 })
+
+    expect(harness.updateOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: TARGET_ID, tenant: ACTOR_TENANT_ID },
+    }))
+    expect(child.parentId).toBeNull()
+    expectFailedUndoReleasedClaim(harness, logEntry)
+  })
+
+  it('does not mutate a colliding same-id foreign record when real CommandBus undo misses its tenant target', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { name: 'Actor target' })
+    const foreignCollision = makeOrganization(TARGET_ID, FOREIGN_TENANT_ID, { name: 'Foreign collision' })
+    const harness = makeHarness([target, foreignCollision])
+    const bus = new CommandBus()
+    const ctx = makeContext(harness)
+    primeChangedCustomFieldSnapshots()
+    const { logEntry } = await bus.execute('directory.organizations.update', {
+      input: { id: TARGET_ID, name: 'Updated actor target' },
+      ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable action log')
+    harness.records.splice(harness.records.indexOf(target), 1)
+    clearUndoObservationMocks(harness)
+
+    await expect(bus.undo(String(logEntry.undoToken), ctx)).rejects.toMatchObject({ status: 404 })
+
+    expect(harness.updateOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: TARGET_ID, tenant: ACTOR_TENANT_ID },
+    }))
+    expect(foreignCollision.name).toBe('Foreign collision')
+    expect(foreignCollision.parentId).toBeNull()
+    expectFailedUndoReleasedClaim(harness, logEntry)
+  })
 })
