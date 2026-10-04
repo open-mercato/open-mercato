@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -54,7 +55,14 @@ export async function POST(req: Request) {
     rbac = null
   }
 
-  const { organizationId } = await resolveFeatureCheckContext({ container, auth, request: req })
+  const { organizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  let singleOrganizationId: string | null
+  try {
+    singleOrganizationId = organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const canUndoTenant = rbac
     ? await rbac.userHasAllFeatures(auth.sub, ['audit_logs.undo_tenant'], {
@@ -77,7 +85,7 @@ export async function POST(req: Request) {
   if (target.tenantId && target.tenantId !== (auth.tenantId ?? null)) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
-  const scopedOrgId = canUndoTenant ? organizationId ?? null : organizationId ?? auth.orgId ?? null
+  const scopedOrgId = canUndoTenant ? organizationId ?? null : singleOrganizationId
   // Tenant-level undoers may undo across organizations within the tenant, so an
   // unresolved (null) caller org is allowed and only an explicit mismatch is rejected.
   // Every other caller must resolve to the target's own organization — a null caller

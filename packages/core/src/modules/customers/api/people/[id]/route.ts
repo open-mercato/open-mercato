@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerEntity,
@@ -513,7 +514,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       {},
       {
         tenantId: scope?.tenantId ?? auth.tenantId ?? null,
-        organizationId: scope?.selectedId ?? auth.orgId ?? null,
+        organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
       },
     )
     profiler.mark('person_loaded', { found: !!person })
@@ -551,7 +552,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           tenantId: personDetailTenantId,
           organizationId: personDetailOrganizationId,
           callerId: auth.sub ?? null,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
           scopedOrganizationIds: Array.isArray(scope?.filterIds) ? scope.filterIds : [],
           interactionMode,
           includeTokens: Array.from(includeTokens),
@@ -656,7 +657,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           em,
           container,
           auth,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
           interactions: canonicalActiveInteractions,
           enrich: includeInteractions,
         })
@@ -679,7 +680,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           em,
           container,
           auth,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
           interactions: await findWithDecryption(
             em,
             CustomerInteraction,

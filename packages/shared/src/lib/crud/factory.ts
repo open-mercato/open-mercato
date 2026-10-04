@@ -1029,7 +1029,7 @@ function safeClone<T>(value: T): T {
 }
 
 function collectScopeOrganizationIds(ctx: CrudCtx): Array<string | null> {
-  if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
+  if (Array.isArray(ctx.organizationIds)) {
     return Array.from(new Set(ctx.organizationIds))
   }
   const fallback = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
@@ -1059,7 +1059,7 @@ function buildCrudCacheKey(
   const scopeIds = collectScopeOrganizationIds(ctx)
   const scopeSegment = scopeIds.length
     ? scopeIds.map((id) => normalizeTagSegment(id)).sort((a, b) => a.localeCompare(b)).join(',')
-    : 'none'
+    : 'empty'
   const segments = [
     'crud',
     normalizeTagSegment(resource),
@@ -1523,10 +1523,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           orgId: scopedOrgId ?? null,
         }
       : null
-    const fallbackOrgId = scopedOrgId ?? rawAuth?.orgId ?? null
+    const fallbackOrgId = scope ? scopedOrgId : (rawAuth?.orgId ?? null)
+    const hasExplicitEmptyScope = Boolean(scope && (
+      (Array.isArray(scope.filterIds) && scope.filterIds.length === 0)
+      || (Array.isArray(scope.allowedIds) && scope.allowedIds.length === 0)
+    ))
     const rawScopeIds = scope?.filterIds
     const scopedIds = Array.isArray(rawScopeIds) ? rawScopeIds.filter((id): id is string => typeof id === 'string' && id.length > 0) : null
-    if (!scope) {
+    if (hasExplicitEmptyScope) {
+      organizationIds = []
+    } else if (!scope) {
       organizationIds = fallbackOrgId ? [fallbackOrgId] : null
     } else if (scopedIds === null) {
       organizationIds = scope.allowedIds === null ? null : (fallbackOrgId ? [fallbackOrgId] : null)
@@ -1537,7 +1543,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       let canUseFallback = false
       if (allowedIds === null) {
         canUseFallback = true
-      } else if (allowedIds.includes(fallbackOrgId) || allowedIds.length === 0) {
+      } else if (allowedIds.includes(fallbackOrgId)) {
         canUseFallback = true
       }
       if (canUseFallback) {
@@ -1628,6 +1634,25 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       profiler.mark('query_parsed')
       let validated = opts.list.schema.parse(rawQueryParams)
       profiler.mark('query_validated')
+
+      if (ormCfg.orgField && Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) {
+        profiler.mark('scope_blocked')
+        logForbidden({
+          resourceKind,
+          action: 'list',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        const page = Number((validated as Record<string, unknown>).page ?? 1) || 1
+        const pageSize = Math.min(
+          Math.max(Number((validated as Record<string, unknown>).pageSize ?? 50) || 50, 1),
+          100,
+        )
+        finishProfile({ result: 'scope_blocked', itemCount: 0, total: 0 })
+        return json({ items: [], total: 0, page, pageSize, totalPages: 0 })
+      }
 
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
