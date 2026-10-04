@@ -3,7 +3,8 @@
 **Status:** draft
 **Module:** `packages/core/src/modules/data_sync`
 **Related:** `.ai/specs/implemented/SPEC-045b-data-sync-hub.md` (§ Run parameters — the end-to-end
-precedent this mirrors)
+precedent this mirrors); `.ai/specs/2026-09-16-data-sync-retry-resume-actions.md` (§ D0 — applies the
+same offers-vs-accepts separation to `POST /api/data_sync/runs/[id]/retry`)
 
 ## TLDR
 
@@ -271,6 +272,13 @@ None. No entity, column, migration or snapshot change.
 `fullSync: true` for an entity type whose adapter declares the control inapplicable still gets a `null`
 start cursor. This is a UI-applicability change, not a behaviour change — covered by a test.
 
+**This decision binds its sibling.** `POST /api/data_sync/runs/[id]/retry` takes `fromBeginning: true`
+to mean the same thing — a `null` start cursor — so it MUST stay equally permissive, and
+`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md` § D0 records that it does. Anyone tightening
+one of these two endpoints has to tighten both, and to do it through the deprecation protocol, because
+`BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability commits that the declaration
+"governs what the dashboard **offers**, never what the run API **accepts**".
+
 ## Risks & Impact Review
 
 | # | Risk | Severity | Affected area | Mitigation | Residual |
@@ -316,3 +324,8 @@ start cursor. This is a UI-applicability change, not a behaviour change — cove
 ## Changelog
 
 - **2026-09-02** — Initial spec.
+- **2026-09-16** — Cross-referenced from
+  `.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`, which applies this spec's
+  offers-vs-accepts separation to the retry endpoint. Added a note under § `POST /api/data_sync/run` —
+  unchanged recording that the two endpoints are bound together, so a future change tightens both or
+  neither. No behaviour, contract, or scope change to this spec.
