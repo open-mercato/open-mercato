@@ -416,31 +416,29 @@ export function DictionariesManager() {
               {items.map((dictionary) => (
                 <li key={dictionary.id}>
                   <div
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={dictionary.id === selectedId}
-                    className={`flex w-full cursor-pointer select-none items-center justify-between rounded border px-3 py-2 text-left text-sm transition ${
+                    className={`flex w-full items-center justify-between gap-2 rounded border px-3 py-2 text-sm transition ${
                       dictionary.id === selectedId ? 'border-primary bg-primary/5 text-primary' : 'border-border hover:bg-muted'
                     }`}
-                    onClick={() => setSelectedId(dictionary.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        setSelectedId(dictionary.id)
-                      }
-                    }}
                   >
-                    <div>
-                      <div className="flex items-center gap-2 font-medium">
-                        <span>{dictionary.name}</span>
-                        {dictionary.isInherited ? (
-                          <span className="rounded-full border border-border px-2 py-0.5 text-overline font-normal uppercase tracking-wide text-muted-foreground">
-                            {t('dictionaries.config.list.inherited', 'Inherited')}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="text-xs text-muted-foreground">{dictionary.key}</div>
-                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      aria-pressed={dictionary.id === selectedId}
+                      className="h-auto min-w-0 flex-1 justify-start whitespace-normal p-0 text-left font-normal hover:bg-transparent"
+                      onClick={() => setSelectedId(dictionary.id)}
+                    >
+                      <span className="block min-w-0">
+                        <span className="flex items-center gap-2 font-medium">
+                          <span>{dictionary.name}</span>
+                          {dictionary.isInherited ? (
+                            <span className="rounded-full border border-border px-2 py-0.5 text-overline font-normal uppercase tracking-wide text-muted-foreground">
+                              {t('dictionaries.config.list.inherited', 'Inherited')}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">{dictionary.key}</span>
+                      </span>
+                    </Button>
                     <div className="flex items-center gap-2">
                       <Button
                         type="button"
@@ -448,12 +446,10 @@ export function DictionariesManager() {
                         variant="ghost"
                         disabled={dictionary.isInherited}
                         title={dictionary.isInherited ? inheritedManageMessage : undefined}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openEditDialog(dictionary)
-                        }}
+                        aria-label={t('dictionaries.config.list.actions.edit', 'Edit {{name}}', { name: dictionary.name })}
+                        onClick={() => openEditDialog(dictionary)}
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
                       </Button>
                       <Button
                         type="button"
@@ -461,12 +457,10 @@ export function DictionariesManager() {
                         variant="ghost"
                         disabled={dictionary.isInherited || deleting === dictionary.id}
                         title={dictionary.isInherited ? inheritedManageMessage : undefined}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleDelete(dictionary)
-                        }}
+                        aria-label={t('dictionaries.config.list.actions.delete', 'Delete {{name}}', { name: dictionary.name })}
+                        onClick={() => handleDelete(dictionary)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </Button>
                     </div>
                   </div>
