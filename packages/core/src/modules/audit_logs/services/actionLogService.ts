@@ -1,4 +1,4 @@
-import type { FilterQuery } from '@mikro-orm/core'
+import { raw, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
@@ -24,6 +24,7 @@ import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY,
+  actionLogBelongsToSubject,
   canonicalizeActorSubject,
 } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 
@@ -50,6 +51,7 @@ const SYSTEM_ACTOR_PREFIX = 'system:'
 // has a null actor column, which already derives the `system` source.
 const SYSTEM_ACTOR_CONTEXT_KEY = 'systemActor'
 const SYSTEM_ACTOR_REFERENCE_MAX_LENGTH = 255
+const REPLAY_QUERY_BATCH_SIZE = 100
 
 function toNullableUuid(value: unknown): string | null {
   return typeof value === 'string' && UUID_REGEX.test(value) ? value : null
@@ -583,21 +585,71 @@ export class ActionLogService {
     return { items, total, page, pageSize, totalPages }
   }
 
-  async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
+  private replayEntryMatchesApiKey(entry: ActionLog, actorSubject: string): boolean {
+    if (entry.contextJson === null || entry.contextJson === undefined) return true
+    if (!isRecord(entry.contextJson)) return false
+    if (!Object.prototype.hasOwnProperty.call(entry.contextJson, ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY)) return true
+    return actionLogBelongsToSubject(entry, actorSubject)
+  }
+
+  private async findLatestReplayEntry(
+    actorUserId: string,
+    filter: Record<string, unknown>,
+    orderField: 'createdAt' | 'updatedAt',
+  ): Promise<ActionLog | null> {
     const actor = canonicalizeActorSubject(actorUserId)
     if (!actor) return null
-    const where: FilterQuery<ActionLog> = {
+    const where: Record<string, unknown> = {
       actorUserId: actor.storageId,
-      undoToken: { $ne: null } as any,
+      ...filter,
+    }
+    const orderBy = orderField === 'createdAt'
+      ? { createdAt: 'desc' as const, id: 'desc' as const }
+      : { updatedAt: 'desc' as const, id: 'desc' as const }
+
+    if (actor.kind === 'user') {
+      const entry = await this.em.findOne(ActionLog, where as FilterQuery<ActionLog>, { orderBy })
+      await this.decryptEntries(entry)
+      return entry
+    }
+
+    if (this.tenantEncryptionService?.isEnabled()) {
+      for (let offset = 0; ; offset += REPLAY_QUERY_BATCH_SIZE) {
+        const entries = await this.em.find(ActionLog, where as FilterQuery<ActionLog>, {
+          limit: REPLAY_QUERY_BATCH_SIZE,
+          offset,
+          orderBy,
+        })
+        await this.decryptEntries(entries)
+        const matchingEntry = entries.find((entry) => this.replayEntryMatchesApiKey(entry, actor.subject))
+        if (matchingEntry) return matchingEntry
+        if (entries.length < REPLAY_QUERY_BATCH_SIZE) return null
+      }
+    }
+
+    where.$or = [
+      {
+        [raw(`"context_json" ->> '${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY}'`)]: actor.subject,
+      },
+      {
+        [raw(`("context_json" is null or (jsonb_typeof("context_json") = 'object' and not jsonb_exists("context_json", '${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY}')))`)]: true,
+      },
+    ]
+    const entry = await this.em.findOne(ActionLog, where as FilterQuery<ActionLog>, { orderBy })
+    await this.decryptEntries(entry)
+    return entry && this.replayEntryMatchesApiKey(entry, actor.subject) ? entry : null
+  }
+
+  async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
+    const where: Record<string, unknown> = {
+      undoToken: { $ne: null },
       executionState: 'done',
       deletedAt: null,
     }
     if (scope.tenantId) where.tenantId = scope.tenantId
     if (scope.organizationId) where.organizationId = scope.organizationId
 
-    const entry = await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
-    await this.decryptEntries(entry)
-    return entry
+    return this.findLatestReplayEntry(actorUserId, where, 'createdAt')
   }
 
   async claimForUndo(id: string, transactionalEm?: EntityManager): Promise<boolean> {
@@ -660,11 +712,8 @@ export class ActionLogService {
     resourceKind?: string | null
     resourceId?: string | null
   }) {
-    const actor = canonicalizeActorSubject(params.actorUserId)
-    if (!actor) return null
-    const where: FilterQuery<ActionLog> = {
-      actorUserId: actor.storageId,
-      undoToken: { $ne: null } as any,
+    const where: Record<string, unknown> = {
+      undoToken: { $ne: null },
       executionState: 'done',
       deletedAt: null,
     }
@@ -673,25 +722,18 @@ export class ActionLogService {
     if (params.resourceKind) where.resourceKind = params.resourceKind
     if (params.resourceId) where.resourceId = params.resourceId
 
-    const entry = await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
-    await this.decryptEntries(entry)
-    return entry
+    return this.findLatestReplayEntry(params.actorUserId, where, 'createdAt')
   }
 
   async latestUndoneForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
-    const actor = canonicalizeActorSubject(actorUserId)
-    if (!actor) return null
-    const where: FilterQuery<ActionLog> = {
-      actorUserId: actor.storageId,
+    const where: Record<string, unknown> = {
       executionState: 'undone',
       deletedAt: null,
     }
     if (scope.tenantId) where.tenantId = scope.tenantId
     if (scope.organizationId) where.organizationId = scope.organizationId
 
-    const entry = await this.em.findOne(ActionLog, where, { orderBy: { updatedAt: 'desc' } })
-    await this.decryptEntries(entry)
-    return entry
+    return this.findLatestReplayEntry(actorUserId, where, 'updatedAt')
   }
 
   async markRedone(id: string) {
