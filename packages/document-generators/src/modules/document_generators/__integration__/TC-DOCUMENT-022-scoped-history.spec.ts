@@ -20,7 +20,7 @@ async function generateFromCard(page: Page, templateLabel: string, downloadLabel
   const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
   await downloadButton.click()
   await downloadPromise
-  await page.keyboard.press('Escape')
+  await dialog.getByRole('button', { name: 'Close' }).first().click()
   await expect(dialog).toBeHidden()
 }
 
