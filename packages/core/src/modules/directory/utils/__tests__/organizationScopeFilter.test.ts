@@ -50,15 +50,26 @@ describe('resolveOrganizationScopeFilter', () => {
     expect(result.rbacOrganizationId).toBeNull()
   })
 
-  it('treats empty filterIds array as no scope and falls back to auth.orgId', () => {
+  it('preserves an empty filterIds array as deny-all even when auth has a home organization', () => {
     const result = resolveOrganizationScopeFilter(
-      { selectedId: null, filterIds: [], allowedIds: null, tenantId: 't1' },
+      { selectedId: null, filterIds: [], allowedIds: [], tenantId: 't1' },
       { orgId: 'org-auth' },
     )
 
-    expect(result.organizationIds).toEqual(['org-auth'])
-    expect(result.where).toEqual({ organizationId: { $in: ['org-auth'] } })
-    expect(result.rbacOrganizationId).toBe('org-auth')
+    expect(result.organizationIds).toEqual([])
+    expect(result.where).toEqual({ organizationId: { $in: [] } })
+    expect(result.rbacOrganizationId).toBeNull()
+  })
+
+  it('does not fall back to auth.orgId when a resolved restricted scope lacks a selection', () => {
+    const result = resolveOrganizationScopeFilter(
+      { selectedId: null, filterIds: [], allowedIds: ['org-a'], tenantId: 't1' },
+      { orgId: 'org-auth' },
+    )
+
+    expect(result.organizationIds).toEqual([])
+    expect(result.where).toEqual({ organizationId: { $in: [] } })
+    expect(result.rbacOrganizationId).toBeNull()
   })
 
   it('accepts undefined auth gracefully', () => {
