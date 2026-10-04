@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 144 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 145 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -177,6 +177,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
 - [Root-level tsx workflow entrypoints must avoid top-level await](lessons/root-level-tsx-workflow-entrypoints-must-avoid-top-level-await.md) — area:testing; module:create_app; topic:package-runtime,testing
+- [Serial fixture cleanup shares the test deadline](lessons/serial-fixture-cleanup-shares-the-test-deadline.md) — area:testing,integration; module:planner; topic:testing,flaky-tests
 - [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
 - [Tests asserting `Intl` output must pin the locale and the calendar date](lessons/tests-asserting-intl-output-must-pin-locale-and-date.md) — area:testing,debugging,backend-ui; module:platform; topic:testing,i18n,ui-components
 - [Toggling Playwright request interception strands in-flight requests](lessons/toggling-playwright-request-interception-strands-in.md) — area:testing,debugging,integration; module:platform,example,create_app; topic:testing,template-sync,dev-runtime
