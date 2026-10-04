@@ -71,7 +71,7 @@ A new feature must identify a reusable pattern or add an appropriate composition
 | DnD | Drag and alternative pointer interaction + keyboard | Equivalent outcome, rather than a keyboard-only fallback |
 | Theme | Light/dark, focus/hover/selected/portals | Actual computed colors, compositing/gradients |
 | Reflow | 320 CSS px + 200% text/400% zoom + spacing | Browser geometry + manual inspection without content loss |
-| User-agent settings | Forced-colors emulation in light and dark, focus/selected/checked/invalid states | Focus, selection and state remain visible without `box-shadow` or background colour (`ENS-13` in the [supplement](../qa/accessibility/en-301-549-supplement.csv)) |
+| User-agent settings | Forced-colors emulation in light and dark, focus/selected/checked/invalid states | The mode is not disabled (`ENS-13` in the [supplement](../qa/accessibility/en-301-549-supplement.csv)); focus, selection and state remain visible without `box-shadow` or background colour (product decision in the master specification) |
 | Authoring components | Editor image, table, link and heading insertion; media and field-definition forms | The produced markup carries alternative text, header cells, link text and a label (`ENS-16`) |
 
 Serialize scans with interactions and async UI readiness. Use readiness conditions instead of fixed sleeps. The axe query covers the document/portals in the correct iframe, rather than only `#storybook-root`. A DOM scan does not establish whether spoken announcements are correct; manual screen reader testing requires its own evidence.
