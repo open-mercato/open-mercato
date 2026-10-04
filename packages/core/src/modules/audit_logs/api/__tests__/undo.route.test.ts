@@ -7,6 +7,7 @@ const mockReplayEm = {
   findOne: jest.fn(async () => null),
 }
 const mockRbac = {
+  userHasAllFeatures: jest.fn(),
   userHasAllFeaturesWithEntityManager: jest.fn(),
 }
 const mockLogs = {
@@ -60,6 +61,7 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
     mockRbac.userHasAllFeaturesWithEntityManager.mockImplementation(
       async (_em, _userId, features: string[]) => features[0]?.endsWith('_self') === true,
     )
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
     mockLogs.findByUndoToken.mockResolvedValue(null)
     mockLogs.latestUndoableForResource.mockResolvedValue(null)
     mockLogs.latestUndoableForActor.mockResolvedValue(null)
@@ -134,6 +136,85 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       auth: expect.objectContaining({ sub: 'user-1' }),
       selectedOrganizationId: 'org-1',
     }))
+  })
+
+  it('allows an API key with only undo_self to undo its canonical action log', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const keyId = '22222222-2222-4222-8222-222222222222'
+    const subject = `api_key:${keyId}`
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: subject,
+      keyId,
+      isApiKey: true,
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const target = {
+      id: 'api-key-log',
+      actorUserId: keyId,
+      contextJson: { actorSubject: subject },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+
+    const res = await POST(makeRequest({ undoToken: 'api-key-token' }))
+
+    expect(res.status).toBe(200)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith(
+      subject,
+      ['audit_logs.undo_tenant'],
+      expect.anything(),
+    )
+    expect(mockRbac.userHasAllFeaturesWithEntityManager).toHaveBeenCalledWith(
+      mockReplayEm,
+      subject,
+      ['audit_logs.undo_self'],
+      expect.anything(),
+    )
+    expect(mockLogs.latestUndoableForResource).toHaveBeenCalledWith(
+      expect.objectContaining({ actorUserId: subject }),
+    )
+  })
+
+  it('accepts a coherent legacy bare-UUID API-key log but rejects a mismatched tuple', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const keyId = '33333333-3333-4333-8333-333333333333'
+    const target = {
+      id: 'legacy-key-log',
+      actorUserId: keyId,
+      contextJson: null,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'auth.user',
+      resourceId: 'user-42',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: `api_key:${keyId}`,
+      keyId,
+      isApiKey: true,
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    expect((await POST(makeRequest({ undoToken: 'legacy-key-token' }))).status).toBe(200)
+
+    jest.clearAllMocks()
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: `api_key:${keyId}`,
+      keyId: '44444444-4444-4444-8444-444444444444',
+      isApiKey: true,
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    expect((await POST(makeRequest({ undoToken: 'legacy-key-token' }))).status).toBe(401)
+    expect(mockCommandBus.undo).not.toHaveBeenCalled()
   })
 
   // A command can refuse an undo for a reason the operator can act on — reverting a
@@ -214,6 +295,7 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       scope: { allowedIds: null },
     })
     // Super-admin has audit_logs.undo_tenant via the wildcard grant.
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockRbac.userHasAllFeaturesWithEntityManager.mockResolvedValue(true)
 
     const target = {
@@ -306,13 +388,8 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
 
     const res = await POST(makeRequest({ undoToken: 'token-2' }))
     expect(res.status).toBe(400)
-    expect(mockCommandBus.undo).toHaveBeenCalled()
-    expect(mockRbac.userHasAllFeaturesWithEntityManager).toHaveBeenCalledWith(
-      mockReplayEm,
-      'user-1',
-      ['audit_logs.undo_self'],
-      { tenantId: 'tenant-1', organizationId: null },
-    )
+    expect(mockCommandBus.undo).not.toHaveBeenCalled()
+    expect(mockRbac.userHasAllFeaturesWithEntityManager).not.toHaveBeenCalled()
   })
 
   // Issue #5045 — a beforeUndo interceptor that blocks with an explicit status is a deliberate

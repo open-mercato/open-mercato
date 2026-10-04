@@ -213,6 +213,11 @@ describe('CommandBus atomic replay', () => {
       id: 'auth.test.feature-race',
       atomicReplay: true,
       execute: jest.fn(),
+      stabilizeReplay: jest.fn(async ({ ctx }) => {
+        expect(ctx.transactionalEm).toBe(em)
+        expect(em.isInTransaction()).toBe(true)
+        stabilized = true
+      }),
       undo,
     })
     const getGrantedFeaturesWithEntityManager = jest.fn(async () => {
@@ -232,7 +237,7 @@ describe('CommandBus atomic replay', () => {
       auth: { sub: 'actor', tenantId: 'tenant', orgId: null },
       replayTransactionGuard: jest.fn(async () => {
         expect(em.isInTransaction()).toBe(true)
-        stabilized = true
+        expect(stabilized).toBe(true)
       }),
     })).rejects.toThrow('blocked after grant')
 

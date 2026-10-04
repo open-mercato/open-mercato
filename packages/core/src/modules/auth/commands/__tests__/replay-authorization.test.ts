@@ -41,7 +41,7 @@ import '@open-mercato/core/modules/auth/commands/roles'
 import { CommandBus, commandRegistry } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
-import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import {
   Role,
   RoleAcl,
@@ -275,20 +275,22 @@ describe('auth command replay authorization', () => {
       User,
       User,
       Role,
+      Tenant,
     ])
     expect(harness.em.find.mock.calls.map(([entity]) => entity)).toEqual([
+      UserRole,
       ApiKey,
       UserRole,
+      Organization,
       UserRole,
       UserAcl,
       RoleAcl,
-      Organization,
     ])
     expect(harness.em.findOne.mock.calls[0]?.[2]).toMatchObject({
       lockMode: expect.anything(),
       refresh: true,
     })
-    expect(harness.em.find.mock.calls[2]?.[2]).toMatchObject({
+    expect(harness.em.find.mock.calls[4]?.[2]).toMatchObject({
       lockMode: expect.anything(),
       refresh: true,
     })

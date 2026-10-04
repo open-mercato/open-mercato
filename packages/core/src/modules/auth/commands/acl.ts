@@ -30,10 +30,12 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { LockMode } from '@mikro-orm/core'
 import { Role, RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { lockRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import {
+  lockRoleWriterAuthorizationState,
+  lockUserAclWriterAuthorizationState,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 const logger = createLogger('auth').child({ component: 'acl-commands' })
 
@@ -429,11 +431,7 @@ const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
   labelFallback: 'Change user permissions',
   resourceId: (input) => input.userId,
   lockParent: async (em, input) => {
-    await em.findOne(
-      User,
-      { id: input.userId, deletedAt: null } as FilterQuery<User>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-    )
+    await lockUserAclWriterAuthorizationState(em, [input.userId])
   },
   loadAcl: (em, input) =>
     em.findOne(UserAcl, { user: input.userId as unknown as User, tenantId: input.tenantId }),

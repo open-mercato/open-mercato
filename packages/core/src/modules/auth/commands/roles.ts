@@ -171,6 +171,7 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
   atomicReplay: true,
+  stabilizeReplay: stabilizeRoleReplay,
   authorizeReplay: (params) => authorizeRoleReplay('create', params),
   async execute(rawInput, ctx) {
     const rawBody = rawInput && typeof rawInput === 'object' ? rawInput as Record<string, unknown> : {}
@@ -266,6 +267,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         ctx,
         logEntry,
       })
+      await lockRoleWriterAuthorizationState(em, [undo.id])
       await em.nativeDelete(RoleAcl, { role: undo.id as unknown as Role })
       if (undo.custom && Object.keys(undo.custom).length) {
         const reset = buildCustomFieldResetMap(undefined, undo.custom)
@@ -353,6 +355,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.update',
   atomicReplay: true,
+  stabilizeReplay: stabilizeRoleReplay,
   authorizeReplay: (params) => authorizeRoleReplay('update', params),
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
@@ -560,6 +563,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
 const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, Role> = {
   id: 'auth.roles.delete',
   atomicReplay: true,
+  stabilizeReplay: stabilizeRoleReplay,
   authorizeReplay: (params) => authorizeRoleReplay('delete', params),
   async prepare(input, ctx) {
     const id = requireId(input, 'Role id required')
@@ -885,19 +889,32 @@ async function authorizeRoleReplayAtMutation(
   commandKind: RoleReplayCommandKind,
   params: CommandReplayAuthorizationArgs<unknown>,
 ): Promise<void> {
-  const undoPayload = extractUndoPayload<RoleUndoPayload>(params.logEntry)
-  const targetRoleId = params.logEntry.resourceId
-    ?? undoPayload?.before?.id
-    ?? undoPayload?.after?.id
-    ?? null
   const em = params.ctx.transactionalEm
     ?? params.ctx.container.resolve('em') as EntityManager
   const boundParams = params.ctx.transactionalEm
     ? params
     : { ...params, ctx: { ...params.ctx, transactionalEm: em } }
-  await lockReplayAuthorizationState(em, boundParams.ctx, { targetRoleId })
+  await stabilizeRoleReplay(boundParams)
   await rerunReplayTransactionGuardAfterLocks(boundParams, em)
   await authorizeRoleReplay(commandKind, boundParams)
+}
+
+async function stabilizeRoleReplay(
+  params: CommandReplayAuthorizationArgs<unknown>,
+): Promise<void> {
+  const undoPayload = extractUndoPayload<RoleUndoPayload>(params.logEntry)
+  const before = undoPayload?.before ?? null
+  const after = undoPayload?.after ?? null
+  const targetRoleId = params.logEntry.resourceId ?? before?.id ?? after?.id ?? null
+  const em = requireTransactionalReplayEntityManager(params.ctx)
+  await lockReplayAuthorizationState(em, params.ctx, {
+    targetRoleIds: targetRoleId ? [targetRoleId] : [],
+    targetTenantIds: [
+      ...(before?.tenantId ? [before.tenantId] : []),
+      ...(after?.tenantId ? [after.tenantId] : []),
+      ...(params.logEntry.tenantId ? [params.logEntry.tenantId] : []),
+    ],
+  })
 }
 
 registerCommand(createRoleCommand)

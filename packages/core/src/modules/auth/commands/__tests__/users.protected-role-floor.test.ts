@@ -366,7 +366,7 @@ describe('auth.users protected role floor checks', () => {
     const userRoleCall = findMock.mock.calls.find(call => call[0] === UserRole)
     expect(userRoleCall[1]).toEqual(
       expect.objectContaining({
-        user: expect.objectContaining({ tenantId }),
+        user: { $in: [userId] },
       })
     )
   })

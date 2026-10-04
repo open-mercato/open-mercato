@@ -196,6 +196,15 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
    */
   readonly atomicReplay?: boolean
   /**
+   * Acquires every authorization-state lock needed by an atomic replay before
+   * request-level replay authorization and feature-gated interceptors run.
+   * Implementations MUST discover their complete actor/target/destination set
+   * before taking the first lock and MUST reuse `ctx.transactionalEm`.
+   * Omitted preserves the existing lifecycle for handlers that do not need
+   * domain-specific authorization stabilization.
+   */
+  stabilizeReplay?(params: CommandReplayAuthorizationArgs<TInput>): Promise<void> | void
+  /**
    * Optional Zod schema describing the command's return value. Feeds the
    * workflows context ledger so downstream activities can reason about the
    * shape a command produces; when absent the ledger renders the output as

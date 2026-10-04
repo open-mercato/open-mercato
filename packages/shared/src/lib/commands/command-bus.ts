@@ -384,6 +384,14 @@ export class CommandBus {
       }
       await withAtomicFlush(replayEm, [async () => {
         if (!atomicSourceLog.id) throw new Error('[internal] Atomic redo source log id is required')
+        if (handler.stabilizeReplay) {
+          await handler.stabilizeReplay({
+            operation: 'redo',
+            input: transactionalBaseOptions.input,
+            ctx: transactionalBaseOptions.ctx,
+            logEntry: atomicSourceLog,
+          })
+        }
         await this.runReplayTransactionGuard(
           transactionalBaseOptions.ctx,
           'redo',
@@ -524,6 +532,14 @@ export class CommandBus {
       const replayEm = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
       const replayCtx = { ...ctx, transactionalEm: replayEm }
       await withAtomicFlush(replayEm, [async () => {
+        if (handler.stabilizeReplay) {
+          await handler.stabilizeReplay({
+            operation: 'undo',
+            input: log.commandPayload as Parameters<NonNullable<typeof handler.stabilizeReplay>>[0]['input'],
+            ctx: replayCtx,
+            logEntry: log,
+          })
+        }
         await this.runReplayTransactionGuard(replayCtx, 'undo', log, replayEm)
         const prepared = await runBeforeUndoInterceptors(replayCtx)
         undoInterceptorMetadata = prepared.metadata

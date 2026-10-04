@@ -251,7 +251,7 @@ describe('ActionLogService normalizeInput', () => {
     })
   })
 
-  it('leaves real user and api key actors untouched and adds no system actor context', () => {
+  it('persists canonical user and api-key subjects without changing the UUID actor column', () => {
     const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
     const serviceWithPrivateAccess = service as unknown as {
       parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
@@ -262,14 +262,14 @@ describe('ActionLogService normalizeInput', () => {
       actorUserId: '11111111-1111-4111-8111-111111111111',
     })
     expect(realUser.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
-    expect(realUser.context).toBeUndefined()
+    expect(realUser.context).toEqual({ actorSubject: '11111111-1111-4111-8111-111111111111' })
 
     const apiKey = serviceWithPrivateAccess.parseCreateInput({
       commandId: 'api.something',
       actorUserId: 'api_key:22222222-2222-4222-8222-222222222222',
     })
     expect(apiKey.actorUserId).toBe('22222222-2222-4222-8222-222222222222')
-    expect(apiKey.context).toBeUndefined()
+    expect(apiKey.context).toEqual({ actorSubject: 'api_key:22222222-2222-4222-8222-222222222222' })
   })
 
   it('marks a system-originated entry as a system source while keeping the actor column null', () => {
@@ -316,7 +316,7 @@ describe('ActionLogService normalizeInput', () => {
       })
 
       expect(parsed.actorUserId).toBe(actorUserId)
-      expect(parsed.context).toBeUndefined()
+      expect(parsed.context).toEqual({ actorSubject: actorUserId })
     }
   })
 
@@ -340,7 +340,7 @@ describe('ActionLogService normalizeInput', () => {
 
     expect(created.actorUserId).toBe(schedulerSystemActorId)
     expect(created.sourceKey).toBe('ui')
-    expect(created.contextJson).toBeNull()
+    expect(created.contextJson).toEqual({ actorSubject: schedulerSystemActorId })
   })
 
   it('drops an unrecognized actor instead of recording it as an automated principal', () => {
@@ -387,7 +387,7 @@ describe('ActionLogService normalizeInput', () => {
       })
 
       expect(parsed.actorUserId).toBe(actorUserId)
-      expect(parsed.context).toBeUndefined()
+      expect(parsed.context).toEqual({ actorSubject: `api_key:${actorUserId}` })
     }
   })
 
@@ -403,7 +403,7 @@ describe('ActionLogService normalizeInput', () => {
     })
 
     expect(parsed.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
-    expect(parsed.context).toBeUndefined()
+    expect(parsed.context).toEqual({ actorSubject: '11111111-1111-4111-8111-111111111111' })
   })
 
   it('caps the preserved system actor identifier so a corrupted subject cannot bloat the context column', () => {

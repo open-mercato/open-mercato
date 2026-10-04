@@ -2,8 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
-  lockAuthorizationUserRows,
-  lockRoleWriterAuthorizationState,
+  lockAuthorizationState,
 } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { computeEmailHash } from './emailHash'
 import { Role, RoleAcl, User, UserRole, type UserKind } from '../data/entities'
@@ -162,8 +161,10 @@ export async function provisionExecutionPrincipal(
       throw new Error('[internal] resolved a human User for an execution principal')
     }
 
-    await lockAuthorizationUserRows(trx, [String(user.id)])
-    await lockRoleWriterAuthorizationState(trx, [String(role.id)])
+    await lockAuthorizationState(trx, {
+      userIds: [String(user.id)],
+      roleIds: [String(role.id)],
+    })
 
     const existingAcl = await findOneWithDecryption(
       trx,

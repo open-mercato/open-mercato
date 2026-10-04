@@ -22,6 +22,10 @@ import {
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY,
+  canonicalizeActorSubject,
+} from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 
 const logger = createLogger('audit_logs').child({ component: 'action-log-service' })
 
@@ -39,7 +43,6 @@ const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][
 // max UUIDs — and is used only when the zod runtime is unavailable, so the actor
 // sanitizer can never reject a value `actionLogCreateSchema` would have accepted.
 export const SCHEMA_UUID_REGEX = /^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
-const API_KEY_ACTOR_PREFIX = 'api_key:'
 const SYSTEM_ACTOR_PREFIX = 'system:'
 // `context.systemActor` names the automated principal behind an entry; `context.source`
 // (read by `deriveActionLogSource`) names the channel it arrived through. They are
@@ -70,13 +73,8 @@ function readActorCandidate(value: unknown): string | null {
 }
 
 function normalizeActorUserId(value: unknown): string | null {
-  const candidate = readActorCandidate(value)
-  if (!candidate) return null
-  const unwrapped = candidate.startsWith(API_KEY_ACTOR_PREFIX)
-    ? candidate.slice(API_KEY_ACTOR_PREFIX.length)
-    : candidate
-
-  return isSchemaUuid(unwrapped) ? unwrapped : null
+  const canonical = canonicalizeActorSubject(value)
+  return canonical && isSchemaUuid(canonical.storageId) ? canonical.storageId : null
 }
 
 function toSystemActorReference(candidate: string): string | null {
@@ -286,13 +284,17 @@ export class ActionLogService {
   private sanitizeActor(input: ActionLogCreateInput): ActionLogCreateInput {
     if (!input) return input
     const candidate = readActorCandidate(input.actorUserId)
-    const actorUserId = normalizeActorUserId(candidate)
+    const actor = canonicalizeActorSubject(candidate)
+    const actorUserId = actor?.storageId ?? null
     const systemActorReference = candidate && !actorUserId ? toSystemActorReference(candidate) : null
 
-    if (!systemActorReference) {
-      if (actorUserId === (input.actorUserId ?? null)) return input
-      return { ...input, actorUserId }
+    if (actor) {
+      const context = isRecord(input.context) ? { ...input.context } : {}
+      context[ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY] = actor.subject
+      return { ...input, actorUserId, context }
     }
+
+    if (!systemActorReference) return { ...input, actorUserId: null }
 
     const context = isRecord(input.context) ? { ...input.context } : {}
     if (context[SYSTEM_ACTOR_CONTEXT_KEY] === undefined) {
@@ -476,6 +478,19 @@ export class ActionLogService {
     if (parsed.tenantId) query = query.where('action_logs.tenant_id', '=', parsed.tenantId)
     if (parsed.organizationId) query = query.where('action_logs.organization_id', '=', parsed.organizationId)
 
+    if (parsed.actorSubject) {
+      const actor = canonicalizeActorSubject(parsed.actorSubject)
+      if (!actor) return query.where(sql<boolean>`false`)
+      query = query.where('action_logs.actor_user_id', '=', actor.storageId)
+      if (actor.kind === 'api_key') {
+        query = query.where(
+          sql<string>`action_logs.context_json ->> 'actorSubject'`,
+          '=',
+          actor.subject,
+        )
+      }
+    }
+
     const actorUserIds = this.resolveActorUserIds(parsed)
     if (actorUserIds.length === 1) query = query.where('action_logs.actor_user_id', '=', actorUserIds[0])
     if (actorUserIds.length > 1) query = query.where('action_logs.actor_user_id', 'in', actorUserIds)
@@ -569,8 +584,10 @@ export class ActionLogService {
   }
 
   async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
+    const actor = canonicalizeActorSubject(actorUserId)
+    if (!actor) return null
     const where: FilterQuery<ActionLog> = {
-      actorUserId,
+      actorUserId: actor.storageId,
       undoToken: { $ne: null } as any,
       executionState: 'done',
       deletedAt: null,
@@ -643,8 +660,10 @@ export class ActionLogService {
     resourceKind?: string | null
     resourceId?: string | null
   }) {
+    const actor = canonicalizeActorSubject(params.actorUserId)
+    if (!actor) return null
     const where: FilterQuery<ActionLog> = {
-      actorUserId: params.actorUserId,
+      actorUserId: actor.storageId,
       undoToken: { $ne: null } as any,
       executionState: 'done',
       deletedAt: null,
@@ -660,8 +679,10 @@ export class ActionLogService {
   }
 
   async latestUndoneForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
+    const actor = canonicalizeActorSubject(actorUserId)
+    if (!actor) return null
     const where: FilterQuery<ActionLog> = {
-      actorUserId,
+      actorUserId: actor.storageId,
       executionState: 'undone',
       deletedAt: null,
     }

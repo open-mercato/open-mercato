@@ -3,22 +3,12 @@ import type {
   CommandRuntimeContext,
   CommandUndoLogEntry,
 } from '@open-mercato/shared/lib/commands'
-import { LockMode } from '@mikro-orm/core'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import {
-  RoleAcl,
-  User,
-  UserAcl,
-  UserRole,
-} from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { lockOrganizationHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import {
-  findApiKeyIdsReferencingRoles,
-  lockAuthorizationApiKeyRows,
+  lockAuthorizationState,
   lockAuthorizationRoleRows,
   lockAuthorizationUserRows,
 } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
@@ -145,17 +135,12 @@ export async function rerunReplayTransactionGuardAfterLocks(
   })
 }
 
-type ReplayAuthorizationLockTargets = {
+export type ReplayAuthorizationLockTargets = {
   targetUserId?: string | null
   targetRoleId?: string | null
-}
-
-function relationId(value: unknown): string | null {
-  if (typeof value === 'string' && value.length > 0) return value
-  const record = asRecord(value)
-  return typeof record?.id === 'string' && record.id.length > 0
-    ? record.id
-    : null
+  targetUserIds?: readonly string[]
+  targetRoleIds?: readonly string[]
+  targetTenantIds?: readonly string[]
 }
 
 export async function lockReplayAuthorizationState(
@@ -167,73 +152,22 @@ export async function lockReplayAuthorizationState(
   const apiKeyId = actorId?.startsWith('api_key:')
     ? actorId.slice('api_key:'.length)
     : null
-  const referencingApiKeyIds = targets.targetRoleId
-    ? await findApiKeyIdsReferencingRoles(em, [targets.targetRoleId])
-    : []
-  const lockedApiKeys = await lockAuthorizationApiKeyRows(
-    em,
-    [...(apiKeyId ? [apiKeyId] : []), ...referencingApiKeyIds],
-  )
-  const userIds = Array.from(new Set([
-    apiKeyId ? null : actorId,
-    targets.targetUserId ?? null,
-  ].filter((value): value is string => typeof value === 'string' && value.length > 0))).sort()
-
-  // API-key writers take the key parent before roles. UserRole/UserAcl writers
-  // take the same parent-user locks before inserting,
-  // deleting, or updating child rows. Once these canonical locks are held, the
-  // membership discovery below cannot acquire a phantom insert/delete gap.
-  await lockAuthorizationUserRows(em, userIds)
-
-  const userRoles = userIds.length
-    ? await findWithDecryption(
-        em,
-        UserRole,
-        { user: { $in: userIds } as unknown } as FilterQuery<UserRole>,
-        { orderBy: { id: 'ASC' } },
-        { tenantId: null, organizationId: null },
-      )
-    : []
-  const roleIds = Array.from(new Set([
-    targets.targetRoleId ?? null,
-    ...lockedApiKeys.flatMap((apiKey) => Array.isArray(apiKey.rolesJson) ? apiKey.rolesJson : []),
-    ...userRoles.map((link) => relationId(link.role)),
-  ].filter((value): value is string => typeof value === 'string' && value.length > 0))).sort()
-
-  // RoleAcl writers lock every referencing API key before their parent Role.
-  // Lock the complete role set in canonical id order after API-key/user
-  // parents, matching mutation writers and preventing a parent-order cycle.
-  await lockAuthorizationRoleRows(em, roleIds)
-  if (userIds.length) {
-    // Recompute memberships only after both parent lock classes are stable, and
-    // lock the child rows before any authorization snapshot is evaluated.
-    await findWithDecryption(
-      em,
-      UserRole,
-      { user: { $in: userIds } as unknown } as FilterQuery<UserRole>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
-    await findWithDecryption(
-      em,
-      UserAcl,
-      { user: { $in: userIds } as unknown } as FilterQuery<UserAcl>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
-  }
-  if (roleIds.length) {
-    await findWithDecryption(
-      em,
-      RoleAcl,
-      { role: { $in: roleIds } as unknown } as FilterQuery<RoleAcl>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
-  }
-  if (ctx.auth?.tenantId) {
-    await lockOrganizationHierarchyForTenant(em, ctx.auth.tenantId)
-  }
+  await lockAuthorizationState(em, {
+    apiKeyIds: apiKeyId ? [apiKeyId] : [],
+    userIds: [
+      ...(apiKeyId || !actorId ? [] : [actorId]),
+      ...(targets.targetUserId ? [targets.targetUserId] : []),
+      ...(targets.targetUserIds ?? []),
+    ],
+    roleIds: [
+      ...(targets.targetRoleId ? [targets.targetRoleId] : []),
+      ...(targets.targetRoleIds ?? []),
+    ],
+    tenantIds: [
+      ...(ctx.auth?.tenantId ? [ctx.auth.tenantId] : []),
+      ...(targets.targetTenantIds ?? []),
+    ],
+  }, { sealReplayFootprint: true })
 }
 
 export function extractStoredReplayInput(

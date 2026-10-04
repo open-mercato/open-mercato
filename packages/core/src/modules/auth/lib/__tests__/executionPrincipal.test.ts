@@ -36,11 +36,9 @@ jest.mock('../emailHash', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => ({
-  lockAuthorizationUserRows: jest.fn(async () => {
-    authorizationLockOrder.push('user')
-  }),
-  lockRoleWriterAuthorizationState: jest.fn(async () => {
-    authorizationLockOrder.push('role')
+  lockAuthorizationState: jest.fn(async (_em: unknown, targets: { userIds?: string[]; roleIds?: string[] }) => {
+    if (targets.userIds?.length) authorizationLockOrder.push('user')
+    if (targets.roleIds?.length) authorizationLockOrder.push('role')
   }),
 }))
 
