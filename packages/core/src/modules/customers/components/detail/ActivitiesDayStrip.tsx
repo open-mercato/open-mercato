@@ -348,7 +348,12 @@ function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }:
           : 'border-border bg-card hover:border-foreground/40',
       )}
     >
-      <span className="text-[11px] font-medium leading-none tracking-[0.44px] text-muted-foreground">
+      <span
+        className={cn(
+          'text-overline font-medium leading-none tracking-[0.44px]',
+          isActive ? 'text-background/70' : 'text-muted-foreground',
+        )}
+      >
         {dayName}
       </span>
       <div className="flex items-center gap-[5px]">
@@ -372,7 +377,12 @@ function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }:
           <BusySlot key={index} state={state} active={isActive} />
         ))}
       </div>
-      <span className="text-[11px] leading-[14px] font-normal whitespace-nowrap text-muted-foreground">
+      <span
+        className={cn(
+          'text-overline leading-[14px] font-normal whitespace-nowrap',
+          isActive ? 'text-background/70' : 'text-muted-foreground',
+        )}
+      >
         {label}
       </span>
     </button>

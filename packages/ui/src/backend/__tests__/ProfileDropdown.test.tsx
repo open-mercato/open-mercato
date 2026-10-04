@@ -59,6 +59,17 @@ describe('ProfileDropdown', () => {
     expect(screen.queryByTestId('profile-dropdown')).not.toBeInTheDocument()
   })
 
+  it('renders the logged-in caption in the full muted text color', () => {
+    renderWithProviders(<ProfileDropdown email="user@example.com" />)
+
+    fireEvent.click(screen.getByTestId('profile-dropdown-trigger'))
+    const caption = within(screen.getByTestId('profile-dropdown')).getByText('Logged in')
+
+    // The 80% modifier measured 3.27:1 at 11 px on the popover background.
+    expect(caption.className).toMatch(/(^|\s)text-muted-foreground(\s|$)/)
+    expect(caption.className).not.toMatch(/text-muted-foreground\/\d+/)
+  })
+
   it('offers exactly the served locale set, not every locale the platform ships', () => {
     // The tenant's Settings → Translations selection is resolved on the server and
     // handed down through the provider. Rendering the process-wide set here is what

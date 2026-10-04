@@ -1028,7 +1028,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   <Button
                     variant="muted"
                     onClick={() => toggleGroup(sectionKey)}
-                    className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1"
+                    className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground py-1"
                     aria-expanded={open}
                   >
                     <span>{sectionLabel}</span>
@@ -1211,7 +1211,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                             <Button
                               variant="muted"
                               onClick={() => toggleGroup(groupId)}
-                              className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1"
+                              className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground py-1"
                               aria-expanded={open}
                             >
                               <span>{g.name}</span>

@@ -266,6 +266,24 @@ describe('AppShell', () => {
     expect(within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/backend')
   })
 
+  it('renders sidebar group labels in the full muted text color', () => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    const labels = Array.from(document.querySelectorAll('[data-sidebar-group="true"] > button'))
+    expect(labels.length).toBeGreaterThan(0)
+    for (const label of labels) {
+      // An opacity modifier on the muted text token drops 12 px labels to
+      // 2.77:1 on white and 4.17:1 on the dark background.
+      expect(label.className).toMatch(/(^|\s)text-muted-foreground(\s|$)/)
+      expect(label.className).not.toMatch(/text-muted-foreground\/\d+/)
+    }
+  })
+
   it('applies a local logo immediately and restores the original shell logo', () => {
     const logo = 'data:image/png;base64,aGVsbG8='
     renderWithProviders(<AppShell email="demo@example.com" groups={groups} logo={{ src: '/original-logo.png', alt: 'Original brand' }}><div>Body</div></AppShell>, { dict })
