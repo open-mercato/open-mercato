@@ -122,7 +122,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
         const result = await client.query(
           `select count(*)::int as live_count,
                   count(*) filter (where is_active)::int as active_count,
-                  min(id)::text as canonical_id
+                  min(id::text) as canonical_id
              from encryption_maps
             where entity_id = $1
               and tenant_id = $2

@@ -46,16 +46,81 @@ function shouldExcludeEncryptedFields(): boolean {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
 }
 
+type EncryptionMapRow = {
+  id?: unknown
+  tenant_id?: unknown
+  organization_id?: unknown
+  fields_json?: unknown
+  created_at?: unknown
+}
+
+function compareNullableScope(left: unknown, right: unknown): number {
+  if (left == null && right == null) return 0
+  if (left == null) return -1
+  if (right == null) return 1
+  return String(left).localeCompare(String(right))
+}
+
+function compareCreatedAt(left: unknown, right: unknown): number {
+  const leftTime = left instanceof Date ? left.getTime() : Date.parse(String(left ?? ''))
+  const rightTime = right instanceof Date ? right.getTime() : Date.parse(String(right ?? ''))
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime
+  return String(left ?? '').localeCompare(String(right ?? ''))
+}
+
+function compareEncryptionMapRows(left: EncryptionMapRow, right: EncryptionMapRow): number {
+  return compareNullableScope(left.tenant_id, right.tenant_id)
+    || compareNullableScope(left.organization_id, right.organization_id)
+    || compareCreatedAt(left.created_at, right.created_at)
+    || String(left.id ?? '').localeCompare(String(right.id ?? ''))
+}
+
+function parseEncryptionMapFields(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  if (typeof value !== 'string') return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function mergeEncryptionMapEntries(rows: readonly EncryptionMapRow[]): EncryptionMapEntry[] {
+  const merged: EncryptionMapEntry[] = []
+  const byField = new Map<string, EncryptionMapEntry>()
+  for (const row of [...rows].sort(compareEncryptionMapRows)) {
+    for (const candidate of parseEncryptionMapFields(row.fields_json)) {
+      if (!candidate || typeof candidate !== 'object') continue
+      const rule = candidate as { field?: unknown; hashField?: unknown }
+      const field = typeof rule.field === 'string' ? rule.field.trim() : ''
+      if (!field) continue
+      const hashField = typeof rule.hashField === 'string' && rule.hashField.length > 0
+        ? rule.hashField
+        : null
+      const existing = byField.get(field)
+      if (!existing) {
+        const entry = { field, hashField }
+        byField.set(field, entry)
+        merged.push(entry)
+      } else if (!existing.hashField && hashField) {
+        existing.hashField = hashField
+      }
+    }
+  }
+  return merged
+}
+
 /**
- * Create an encryption map resolver that queries the database.
- * Falls back to empty array if query fails.
+ * Resolve every active live declaration for an entity. Search indexing has no
+ * tenant/scope argument at this boundary, so the safe policy is the union of
+ * all scopes: over-excluding a field is preferable to publishing plaintext.
  */
-function createEncryptionMapResolver(
+export function createEncryptionMapResolver(
   db: Kysely<any>,
 ): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
-  // Cache encryption maps per entity to avoid repeated queries
   const cache = new Map<string, { entries: EncryptionMapEntry[]; expiresAt: number }>()
-  const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+  const CACHE_TTL_MS = 5 * 60 * 1000
 
   return async (entityId: EntityId): Promise<EncryptionMapEntry[]> => {
     const cached = cache.get(entityId)
@@ -63,29 +128,35 @@ function createEncryptionMapResolver(
       return cached.entries
     }
 
-    try {
-      const row = await db
-        .selectFrom('encryption_maps' as any)
-        .select(['fields_json' as any])
-        .where('entity_id' as any, '=', entityId)
-        .where('is_active' as any, '=', true)
-        .where('deleted_at' as any, 'is', null)
-        .executeTakeFirst() as { fields_json?: unknown } | undefined
+    const rows = await db
+      .selectFrom('encryption_maps' as any)
+      .select([
+        'id' as any,
+        'tenant_id' as any,
+        'organization_id' as any,
+        'fields_json' as any,
+        'created_at' as any,
+      ])
+      .where('entity_id' as any, '=', entityId)
+      .where('is_active' as any, '=', true)
+      .where('deleted_at' as any, 'is', null)
+      .orderBy('tenant_id' as any, 'asc')
+      .orderBy('organization_id' as any, 'asc')
+      .orderBy('created_at' as any, 'asc')
+      .orderBy('id' as any, 'asc')
+      .execute() as EncryptionMapRow[]
 
-      const fieldsJson = row?.fields_json
-      const entries: EncryptionMapEntry[] = Array.isArray(fieldsJson)
-        ? fieldsJson.map((f: { field: string; hashField?: string | null }) => ({
-            field: f.field,
-            hashField: f.hashField ?? null,
-          }))
-        : []
-
+    const entries = mergeEncryptionMapEntries(Array.isArray(rows) ? rows : [])
+    if (entries.length > 0) {
       cache.set(entityId, { entries, expiresAt: Date.now() + CACHE_TTL_MS })
-      return entries
-    } catch {
-      // Query failed, return empty array (don't exclude any fields)
-      return []
     }
+    return entries
+  }
+}
+
+function createUnavailableEncryptionMapResolver(): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
+  return async () => {
+    throw new Error('[internal] Encryption map lookup is unavailable; refusing to index potentially encrypted fields')
   }
 }
 
@@ -193,7 +264,7 @@ export function registerSearchModule(
           const db = em.getKysely() as Kysely<any>
           encryptionMapResolver = createEncryptionMapResolver(db)
         } catch {
-          // Kysely not available, encrypted field filtering disabled
+          encryptionMapResolver = createUnavailableEncryptionMapResolver()
         }
       }
 

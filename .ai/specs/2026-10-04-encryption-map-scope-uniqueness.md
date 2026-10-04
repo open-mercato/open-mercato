@@ -26,13 +26,17 @@ The affected logical key is `(entity_id, tenant_id, organization_id)`. Both scop
 
 The entities module owns the persistent invariant and the atomic write helper. The shared encryption service remains independent of core and implements the defensive duplicate merge at its raw SQL read boundary. No route URL, CLI command, module declaration, encryption algorithm, KMS behavior, cache key, or public request/response shape changes.
 
-All materializers converge through the entities helper:
+All live materializers converge through the entities helper:
 
 - `entities seed-encryption`, including `mercato init`
+- auth tenant bootstrap's initial module-map materialization
+- the integrations credential service's on-demand map materialization
 - device and phone-call encryption-map upgrade actions
 - `POST /api/entities/encryption`
 
 Historical SQL backfill migrations remain unchanged. They run sequentially before the new uniqueness migration on a fresh database; on an upgraded database the new index protects any later write.
+
+The search package remains independent of core. When encrypted-field exclusion is enabled, its database reader loads every active live map for the entity across global, tenant-global, and organization scopes, applies a stable scope/creation/id ordering, and unions field rules locally. A lookup error aborts indexing, and an empty result is not cached, so a transient failure or newly materialized map cannot become a five-minute plaintext-indexing window.
 
 ## Data Models
 
@@ -56,8 +60,10 @@ The `entities seed-encryption` command and exported `upsertEncryptionMapSpecs` s
 ## Test Coverage
 
 - Atomic-upsert unit coverage starts overlapping seeders for one nullable scope and asserts one active canonical record.
+- Auth bootstrap and integrations credential writer coverage starts overlapping materializers for one scope and asserts that both use the conflict-safe path; credentials coverage also pins cache invalidation.
 - API coverage asserts POST uses the atomic helper and duplicate GET data resolves deterministically without dropping active fields.
 - Shared-service coverage supplies duplicate rows with disjoint fields and conflicting hash metadata, then proves all fields remain encrypted and precedence is deterministic.
+- Search coverage pins duplicate merging, cross-scope union, fail-closed lookup errors, retry after failure, and non-caching of empty results.
 - Migration coverage pins canonical ordering, active-row field union, loser soft deletion, `NULLS NOT DISTINCT`, and the live-row predicate.
 - Integration coverage runs simultaneous CLI and API seed requests against a real database and asserts exactly one live active row for tenant-global and organization scopes. A temporary-table migration fixture proves deterministic active-field union, oldest-row canonicalization, loser soft deletion, and global `NULL/NULL` uniqueness without mutating application data.
 
@@ -82,11 +88,12 @@ Operator action: run the normal deployment migration before starting the new app
 ## Final Compliance Report
 
 - Tenant/global scope: nullable values are compared as equal by the database invariant.
-- Encryption behavior: field-level AES/KMS behavior, scope fallback, and cache contracts are unchanged; defensive reads can only add missing encryption coverage.
+- Encryption behavior: field-level AES/KMS behavior and runtime scope fallback are unchanged; live writers invalidate affected map caches, and defensive reads can only add missing encryption coverage.
 - Backward compatibility: additive index and internal implementation changes only; public contracts are preserved.
 - Migration workflow: module-scoped migration and `.snapshot-open-mercato.json` update; migration is not applied locally.
 - Logging: duplicate diagnostics contain entity/scope identifiers and counts only, never plaintext, ciphertext, fields, or keys.
 
 ## Changelog
 
+- 2026-10-04: Added the auth and integrations writers plus the package-local search reader to the audited inventory; specified fail-closed search lookup/cache behavior.
 - 2026-10-04: Spec authored after revalidating the live schema, all materialization entry points, runtime readers, and existing coverage.

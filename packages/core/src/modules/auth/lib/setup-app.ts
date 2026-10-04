@@ -7,8 +7,9 @@ import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/
 import { normalizeTenantId } from './tenantAccess'
 import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
-import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import { upsertCanonicalEncryptionMap } from '@open-mercato/core/modules/entities/lib/encryption-maps'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -163,6 +164,39 @@ export type SetupInitialTenantResult = {
   reusedExistingUser: boolean
 }
 
+export async function upsertSetupEncryptionMaps(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string,
+  specs: readonly ModuleEncryptionMap[],
+): Promise<string[]> {
+  const materializedEntityIds: string[] = []
+  for (const spec of specs) {
+    if (spec.keyScope === 'system') continue
+    await upsertCanonicalEncryptionMap(em, {
+      entityId: spec.entityId,
+      tenantId,
+      organizationId,
+      fields: spec.fields,
+      isActive: true,
+    })
+    materializedEntityIds.push(spec.entityId)
+  }
+  return materializedEntityIds
+}
+
+export async function invalidateSetupEncryptionMaps(
+  encryptionService: Pick<TenantDataEncryptionService, 'invalidateMap'>,
+  entityIds: readonly string[],
+  tenantId: string,
+  organizationId: string,
+): Promise<void> {
+  for (const entityId of entityIds) {
+    await encryptionService.invalidateMap(entityId, tenantId, organizationId)
+  }
+  await encryptionService.invalidateMap('auth:user', tenantId, null)
+}
+
 export async function setupInitialTenant(
   em: EntityManager,
   options: SetupInitialTenantOptions,
@@ -224,6 +258,7 @@ export async function setupInitialTenant(
   let tenantId: string | undefined
   let organizationId: string | undefined
   let reusedExistingUser = false
+  let materializedEncryptionEntityIds: string[] = []
   const userSnapshots: Array<{ user: User; roles: string[]; created: boolean; generatedPassword?: string | null }> = []
 
   await em.transactional(async (tem) => {
@@ -375,25 +410,12 @@ export async function setupInitialTenant(
         // Persisting one here would make the tenant-scoped encryption CLIs believe they
         // own that entity and re-wrap its `system:<entityId>` ciphertext under the tenant
         // DEK, which runtime decryption can no longer read.
-        for (const spec of defaultEncryptionMaps) {
-          if (spec.keyScope === 'system') continue
-          const existing = await findOneWithDecryption(tem, EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null }, {}, { tenantId: String(tenant.id), organizationId: String(organization.id) })
-          if (!existing) {
-            tem.persist(tem.create(EncryptionMap, {
-              entityId: spec.entityId,
-              tenantId: tenant.id,
-              organizationId: organization.id,
-              fieldsJson: spec.fields,
-              isActive: true,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            }))
-          } else {
-            existing.fieldsJson = spec.fields
-            existing.isActive = true
-          }
-        }
-        await tem.flush()
+        materializedEncryptionEntityIds = await upsertSetupEncryptionMaps(
+          tem,
+          String(tenant.id),
+          String(organization.id),
+          defaultEncryptionMaps,
+        )
       }
     })
 
@@ -404,8 +426,12 @@ export async function setupInitialTenant(
         ? new TenantDataEncryptionService(tem as any, { kms: createKmsService() })
         : null
       if (encryptionService) {
-        await encryptionService.invalidateMap('auth:user', String(tenantId), String(organizationId))
-        await encryptionService.invalidateMap('auth:user', String(tenantId), null)
+        await invalidateSetupEncryptionMaps(
+          encryptionService,
+          materializedEncryptionEntityIds,
+          String(tenantId),
+          String(organizationId),
+        )
       }
 
       for (const base of baseUsers) {

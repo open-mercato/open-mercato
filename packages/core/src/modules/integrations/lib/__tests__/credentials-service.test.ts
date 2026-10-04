@@ -6,12 +6,12 @@ import type { IntegrationScope } from '@open-mercato/shared/modules/integrations
 import { decryptWithAesGcm, encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
-import { EncryptionMap } from '../../../entities/data/entities'
 import { IntegrationCredentials } from '../../data/entities'
 import {
   buildCredentialsFilter,
   createCredentialsService,
   CredentialsEncryptionUnavailableError,
+  ensureCredentialsEncryptionMap,
 } from '../credentials-service'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -48,6 +48,9 @@ function createMockEntityManager() {
       return em
     }),
     flush: jest.fn(async () => undefined),
+    getConnection: jest.fn(() => ({
+      execute: jest.fn(async () => [{ id: 'map-1', updated_at: new Date() }]),
+    })),
   }
   return { em, persisted }
 }
@@ -112,7 +115,6 @@ describe('integration credentials service encryption', () => {
     const dek = generateDek()
     mockKms(dek)
     mockFindOneWithDecryption.mockImplementation(async (_em, entity) => {
-      if (entity === EncryptionMap) return null
       if (entity === IntegrationCredentials) return null
       return null
     })
@@ -197,6 +199,43 @@ describe('integration credentials service encryption', () => {
       'utf8',
     )
     expect(source).not.toContain('om-emergency-fallback-rotate-me')
+  })
+})
+
+describe('integration credentials encryption-map materialization', () => {
+  it('uses conflict-safe upserts and invalidates the canonical scope under concurrent first saves', async () => {
+    const rows = new Map<string, { id: string; updated_at: Date }>()
+    let arrivals = 0
+    let release: (() => void) | undefined
+    const bothArrived = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const execute = jest.fn(async (_sql: string, params: readonly unknown[]) => {
+      arrivals += 1
+      if (arrivals === 2) release?.()
+      await bothArrived
+      const key = `${String(params[0])}:${String(params[1])}:${String(params[2])}`
+      const saved = rows.get(key) ?? { id: 'canonical-map', updated_at: new Date() }
+      rows.set(key, saved)
+      return [saved]
+    })
+    const em = { getConnection: () => ({ execute }) } as never
+    const invalidateMap = jest.fn(async () => undefined)
+
+    await Promise.all([
+      ensureCredentialsEncryptionMap(em, scope, { invalidateMap }),
+      ensureCredentialsEncryptionMap(em, scope, { invalidateMap }),
+    ])
+
+    expect(rows.size).toBe(1)
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute.mock.calls.every(([sql]) => String(sql).includes('on conflict'))).toBe(true)
+    expect(invalidateMap).toHaveBeenCalledTimes(2)
+    expect(invalidateMap).toHaveBeenCalledWith(
+      'integrations:integration_credentials',
+      scope.tenantId,
+      scope.organizationId,
+    )
   })
 })
 

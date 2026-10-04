@@ -1,15 +1,19 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { decryptWithAesGcm, encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
-import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import {
+  parseDecryptedFieldValue,
+  type TenantDataEncryptionService,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
   getBundle,
   getIntegration,
   resolveIntegrationCredentialsSchema,
   type IntegrationScope,
 } from '@open-mercato/shared/modules/integrations/types'
-import { EncryptionMap } from '../../entities/data/entities'
+import { upsertCanonicalEncryptionMap } from '../../entities/lib/encryption-maps'
 import { IntegrationCredentials } from '../data/entities'
 
 const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
@@ -102,40 +106,33 @@ export function buildCredentialsFilter(integrationId: string, scope: Integration
   return base
 }
 
-export function createCredentialsService(em: EntityManager) {
+type EncryptionMapCacheInvalidator = Pick<TenantDataEncryptionService, 'invalidateMap'>
+
+export async function ensureCredentialsEncryptionMap(
+  em: EntityManager,
+  scope: IntegrationScope,
+  encryptionService?: EncryptionMapCacheInvalidator | null,
+): Promise<void> {
   const credentialsEncryptionSpec = [{ field: 'credentials' }]
+  await upsertCanonicalEncryptionMap(em, {
+    entityId: 'integrations:integration_credentials',
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    fields: credentialsEncryptionSpec,
+    isActive: true,
+  })
+  const invalidator = encryptionService ?? resolveTenantEncryptionService(em)
+  await invalidator?.invalidateMap(
+    'integrations:integration_credentials',
+    scope.tenantId,
+    scope.organizationId,
+  )
+}
 
-  async function ensureCredentialsEncryptionMap(scope: IntegrationScope): Promise<void> {
-    const existing = await findOneWithDecryption(
-      em,
-      EncryptionMap,
-      {
-        entityId: 'integrations:integration_credentials',
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      },
-      undefined,
-      scope,
-    )
-
-    if (!existing) {
-      const created = em.create(EncryptionMap, {
-        entityId: 'integrations:integration_credentials',
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        fieldsJson: credentialsEncryptionSpec,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(created)
-      return
-    }
-
-    existing.fieldsJson = credentialsEncryptionSpec
-    existing.isActive = true
-  }
+export function createCredentialsService(
+  em: EntityManager,
+  encryptionService?: EncryptionMapCacheInvalidator | null,
+) {
 
   /**
    * Resolve the DEK this tenant's credentials blob is sealed with, or `null` when the operator
@@ -276,7 +273,7 @@ export function createCredentialsService(em: EntityManager) {
 
     async save(integrationId: string, credentials: Record<string, unknown>, scope: IntegrationScope): Promise<void> {
       const encryptedCredentials = await encryptCredentialsBlob(credentials, scope)
-      await ensureCredentialsEncryptionMap(scope)
+      await ensureCredentialsEncryptionMap(em, scope, encryptionService)
 
       const row = await findOneWithDecryption(
         em,
