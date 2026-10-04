@@ -235,6 +235,27 @@ describe('integration credentials encryption-map materialization', () => {
       scope.organizationId,
     )
   })
+
+  it('exposes additive post-commit deferral without invalidating inside the caller transaction', async () => {
+    const { em } = createMockEntityManager()
+    const invalidateMap = jest.fn(async () => undefined)
+    const afterCommitCallbacks: Array<() => void | Promise<void>> = []
+
+    await ensureCredentialsEncryptionMap(em as never, scope, { invalidateMap }, {
+      deferAfterCommit: (callback) => afterCommitCallbacks.push(callback),
+    })
+
+    expect(invalidateMap).not.toHaveBeenCalled()
+    expect(afterCommitCallbacks).toHaveLength(1)
+
+    await afterCommitCallbacks[0]?.()
+
+    expect(invalidateMap).toHaveBeenCalledWith(
+      'integrations:integration_credentials',
+      scope.tenantId,
+      scope.organizationId,
+    )
+  })
 })
 
 /**

@@ -34,7 +34,15 @@ All live materializers converge through the entities helper:
 - device and phone-call encryption-map upgrade actions
 - `POST /api/entities/encryption`
 
+The audit also covered the only historical direct SQL writers, `Migration20260722120000` and `Migration20260822120000`; both are migration-time backfills rather than live application writers. Runtime readers are the shared exact/fallback and all-organizations aggregate resolver, the deterministic management API reader, and search's fail-closed cross-scope union reader.
+
 The helper returns the scopes it materialized. Upgrade execution supplies an additive post-commit callback registrar; device and phone-call actions register exact-scope invalidation there, and the callbacks run only after the outer action transaction has committed. `TenantDataEncryptionService.invalidateMap` removes both the exact map tag and the tenant-wide all-organizations aggregate tag, including positive, negative, in-flight, memory, and configured shared-cache entries. A rolled-back action never runs those callbacks.
+
+The integrations credentials writer uses the same rule. Its existing `save` contract accepts an optional post-commit callback registrar. Autocommit callers keep immediate invalidation; the `sync_excel` import route, which saves credentials inside a larger mapping/credentials/state transaction, collects the callback and runs it only after that transaction resolves. A rollback discards the callback.
+
+The CLI intentionally remains per-map autocommit. It invalidates each scope immediately after that scope's upsert succeeds, so a later failed module declaration cannot leave an earlier committed map hidden behind a stale cache entry. Transactional callers of the exported multi-spec helper continue to collect its returned scopes and invalidate only after their owning commit.
+
+Map-cache invalidation advances a process-global per-tag epoch before clearing the exact and aggregate entries. Every database read, shared-cache read, and shared-cache write captures and rechecks that epoch; an invalidated in-flight hit or miss retries instead of returning or repopulating stale data. Shared-cache set/delete operations are serialized per tag, preserving `old set → invalidate delete → fresh set` ordering when invalidation overlaps an asynchronous cache write.
 
 Historical SQL backfill migrations remain unchanged. They run sequentially before the new uniqueness migration on a fresh database; on an upgraded database the new index protects any later write.
 
@@ -70,6 +78,8 @@ The `entities seed-encryption` command and exported `upsertEncryptionMapSpecs` s
 - Migration coverage pins canonical ordering, active-row field union, loser soft deletion, `NULLS NOT DISTINCT`, and the live-row predicate.
 - Integration coverage runs simultaneous CLI and API seed requests against a real database and asserts exactly one live active row for tenant-global and organization scopes. A temporary-table migration fixture proves deterministic active-field union, oldest-row canonicalization, loser soft deletion, and global `NULL/NULL` uniqueness without mutating application data.
 - Cache regressions prime both exact and aggregate positive entries and an exact negative entry, change the backing map, and prove post-commit invalidation exposes the fresh coverage immediately. Upgrade-service regressions prove invalidation runs after commit and is skipped on rollback.
+- Deterministic epoch regressions suspend an exact hit, exact miss, and all-organizations aggregate database read across invalidation; each first caller retries to the committed value, the next caller sees that value, and the database read count is exactly two rather than the vulnerable stale/stale count of one. A shared-cache regression also suspends an aggregate set and proves the ordering is stale set, invalidate delete, then fresh refill.
+- Sync Excel route coverage proves deferred credential-map invalidation occurs after the outer transaction's commit and is absent after rollback. CLI coverage commits one map, fails the next, and proves the completed scope was already invalidated.
 
 ## Risks & Impact Review
 
@@ -78,8 +88,10 @@ The `entities seed-encryption` command and exported `upsertEncryptionMapSpecs` s
 | NULL scopes bypass uniqueness | Critical | `NULLS NOT DISTINCT` covers both nullable scope columns | Requires PostgreSQL 15+, already a platform assumption |
 | Deduplication drops an encrypted field | Critical | Union active duplicate fields before retiring losers | Conflicting hash targets use deterministic earliest non-null precedence |
 | Rolling deploy reads duplicates before migration | High | Runtime union plus deterministic ordering | A stale process can retain a cached pre-deploy map until its normal TTL |
-| A map commits while a cached hit or miss still describes the old scope | Critical | Invalidate exact and all-organizations tags after the owning transaction commits | A shared-cache backend outage can still delay cross-process invalidation and is surfaced as an action failure |
+| A map commits while a cached hit or miss still describes the old scope | Critical | Advance exact/all-organizations epochs before clearing; stale in-flight database and shared-cache operations retry and cannot refill either cache | A shared-cache backend outage is surfaced as an action failure |
 | An outer setup/upgrade transaction fails after map materialization | Critical | Execute the upsert through the transactional EM; discard deferred invalidations on rollback | None in the database/cache ordering covered here |
+| A credentials map invalidates inside a larger transaction that later rolls back | Critical | Optional post-commit registrar on credentials writes; `sync_excel` runs callbacks only after its outer commit | Other callers remain autocommit and invalidate immediately |
+| A later CLI spec fails after earlier autocommits | Critical | Invalidate each successfully materialized scope before advancing to the next spec | The command reports the later failure while completed writes remain cache-coherent |
 | Retrying a seeder changes encryption declarations | Medium | Atomic upsert preserves the existing update/reactivate semantics | Concurrent callers with intentionally different specs remain last-writer-wins, as before |
 | Migration destroys auditability | Medium | Losers are soft-deleted and retained | Down migration removes the index but intentionally does not recreate duplicates |
 
@@ -101,6 +113,7 @@ Operator action: run the normal deployment migration before starting the new app
 
 ## Changelog
 
+- 2026-10-04: Closed the final transaction/cache review blockers with deferred `sync_excel` credential invalidation, per-tag cache epochs and serialized shared-cache mutations, per-autocommit CLI invalidation, and deterministic hit/miss/aggregate plus commit/rollback/partial-failure tests.
 - 2026-10-04: Added the auth and integrations writers plus the package-local search reader to the audited inventory; specified fail-closed search lookup/cache behavior.
 - 2026-10-04: Bound canonical upserts to the caller transaction, added post-commit exact/aggregate invalidation for live upgrade actions, and added rollback plus primed hit/miss regressions.
 - 2026-10-04: Spec authored after revalidating the live schema, all materialization entry points, runtime readers, and existing coverage.

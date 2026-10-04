@@ -150,4 +150,31 @@ describe('entities CLI system-scope guards', () => {
     expect(invalidateMap).toHaveBeenCalledWith('customers:person', 'tenant-1', null)
     expect(logSpy.mock.calls.flat().join('\n')).toContain('Skipping onboarding:onboarding_request: system-scoped map')
   })
+
+  it('invalidates every completed autocommit before a later map fails', async () => {
+    declaredMaps.push({
+      entityId: 'customers:company',
+      keyScope: 'tenant',
+      fields: [{ field: 'name' }],
+    })
+    let writes = 0
+    execute.mockImplementation(async () => {
+      writes += 1
+      if (writes === 2) throw new Error('second map failed')
+      return [{ id: 'map-1', updated_at: new Date('2020-01-01T00:00:00.000Z') }]
+    })
+
+    try {
+      await expect(loadCommand('seed-encryption').run(['--tenant', 'tenant-1']))
+        .rejects.toThrow('second map failed')
+    } finally {
+      declaredMaps.pop()
+    }
+
+    expect(invalidateMap.mock.calls).toEqual([
+      ['customers:person', 'tenant-1', null],
+    ])
+    expect(logSpy.mock.calls.flat().join('\n')).toContain('Seeded encryption map for customers:person')
+    expect(logSpy.mock.calls.flat().join('\n')).not.toContain('Seeded encryption map for customers:company')
+  })
 })

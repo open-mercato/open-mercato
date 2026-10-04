@@ -36,6 +36,11 @@ type SqlConnection = {
   execute(sql: string, params?: readonly unknown[]): Promise<unknown>
 }
 
+type InflightMapRead = {
+  epoch: number
+  promise: Promise<EncryptionMapRecord | null>
+}
+
 const MAP_MISS_TTL_MS = 5 * 60 * 1000
 // Mirror the Vault KMS default DEK TTL so a rotated/revoked tenant key is picked
 // up by long-lived processes without a restart (#2746). The service-level cache
@@ -239,7 +244,9 @@ function getSqlConnection(em: EntityManager): SqlConnection | null {
 export class TenantDataEncryptionService {
   private static globalMemoryCache = new Map<string, EncryptionMapRecord>()
   private static globalAggregateMemoryCache = new Map<string, { at: number; record: EncryptionMapRecord }>()
-  private static globalInflightMaps = new Map<string, Promise<EncryptionMapRecord | null>>()
+  private static globalInflightMaps = new Map<string, InflightMapRead>()
+  private static globalMapEpochs = new Map<string, number>()
+  private static globalCacheMutations = new Map<string, Promise<void>>()
   private static globalDekCache = new Map<string, TenantDek>()
   private static globalInflightDeks = new Map<string, Promise<TenantDek | null>>()
   private static globalMissCache = new Map<string, number>()
@@ -250,6 +257,8 @@ export class TenantDataEncryptionService {
   private readonly dekCache = TenantDataEncryptionService.globalDekCache
   private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
   private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
+  private readonly mapEpochs = TenantDataEncryptionService.globalMapEpochs
+  private readonly cacheMutations = TenantDataEncryptionService.globalCacheMutations
   private readonly missCache = TenantDataEncryptionService.globalMissCache
   private readonly systemDefaultMaps: Map<string, ModuleEncryptionMap>
 
@@ -386,6 +395,29 @@ export class TenantDataEncryptionService {
     }
   }
 
+  private getMapEpoch(tag: string): number {
+    return this.mapEpochs.get(tag) ?? 0
+  }
+
+  private advanceMapEpoch(tag: string): void {
+    this.mapEpochs.set(tag, this.getMapEpoch(tag) + 1)
+  }
+
+  private async waitForCacheMutation(tag: string): Promise<void> {
+    await this.cacheMutations.get(tag)
+  }
+
+  private async queueCacheMutation(tag: string, mutation: () => Promise<void>): Promise<void> {
+    const previous = this.cacheMutations.get(tag)
+    const current = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(mutation)
+    this.cacheMutations.set(tag, current)
+    try {
+      await current
+    } finally {
+      if (this.cacheMutations.get(tag) === current) this.cacheMutations.delete(tag)
+    }
+  }
+
   private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
     const shouldSkipLookup = (tag: string) => {
       const expiresAt = this.missCache.get(tag)
@@ -405,41 +437,59 @@ export class TenantDataEncryptionService {
     ]
     for (const candidate of candidates) {
       const tag = cacheKey(candidate)
-      if (shouldSkipLookup(tag)) continue
-      if (this.inflightMaps.has(tag)) {
-        const pending = this.inflightMaps.get(tag)!
-        const resolved = await pending.catch(() => null)
-        if (resolved) return this.applySystemDefault(resolved, key.entityId)
+      let tryNextCandidate = false
+      while (!tryNextCandidate) {
+        const epoch = this.getMapEpoch(tag)
+        if (shouldSkipLookup(tag)) break
+        const inflight = this.inflightMaps.get(tag)
+        if (inflight?.epoch === epoch) {
+          try {
+            const resolved = await inflight.promise
+            if (this.getMapEpoch(tag) !== epoch) continue
+            if (resolved) return this.applySystemDefault(resolved, key.entityId)
+            recordMiss(tag)
+            break
+          } catch {
+            if (this.getMapEpoch(tag) !== epoch) continue
+          }
+        }
+        const mem = this.memoryCache.get(tag)
+        if (mem) return this.applySystemDefault(mem, key.entityId)
+        if (this.cache && typeof this.cache.get === 'function') {
+          await this.waitForCacheMutation(tag)
+          if (this.getMapEpoch(tag) !== epoch) continue
+          const cached = await this.cache.get(tag)
+          if (this.getMapEpoch(tag) !== epoch) continue
+          if (cached) return this.applySystemDefault(cached as EncryptionMapRecord, key.entityId)
+        }
+        const pending = this.fetchMap(candidate)
+        const inflightRead = { epoch, promise: pending }
+        this.inflightMaps.set(tag, inflightRead)
+        let loaded: EncryptionMapRecord | null
+        try {
+          loaded = await pending
+        } finally {
+          if (this.inflightMaps.get(tag) === inflightRead) this.inflightMaps.delete(tag)
+        }
+        if (this.getMapEpoch(tag) !== epoch) continue
+        if (!loaded) {
+          recordMiss(tag)
+          debug('🔍 encmap.miss', {
+            entityId: candidate.entityId,
+            tenantId: candidate.tenantId,
+            organizationId: candidate.organizationId,
+          })
+          tryNextCandidate = true
+          continue
+        }
+        this.missCache.delete(tag)
+        this.memoryCache.set(tag, loaded)
+        if (this.cache && typeof this.cache.set === 'function') {
+          await this.queueCacheMutation(tag, () => this.cache!.set(tag, loaded!, { ttl: 300 }))
+          if (this.getMapEpoch(tag) !== epoch) continue
+        }
+        return this.applySystemDefault(loaded, key.entityId)
       }
-      const mem = this.memoryCache.get(tag)
-      if (mem) return this.applySystemDefault(mem, key.entityId)
-      if (this.cache && typeof this.cache.get === 'function') {
-        const cached = await this.cache.get(tag)
-        if (cached) return this.applySystemDefault(cached as EncryptionMapRecord, key.entityId)
-      }
-      const pending = this.fetchMap(candidate)
-      this.inflightMaps.set(tag, pending)
-      let loaded: EncryptionMapRecord | null
-      try {
-        loaded = await pending
-      } finally {
-        this.inflightMaps.delete(tag)
-      }
-      if (!loaded) {
-        recordMiss(tag)
-        debug('🔍 encmap.miss', {
-          entityId: candidate.entityId,
-          tenantId: candidate.tenantId,
-          organizationId: candidate.organizationId,
-        })
-        continue
-      }
-      this.missCache.delete(tag)
-      this.memoryCache.set(tag, loaded)
-      if (this.cache && typeof this.cache.set === 'function') {
-        await this.cache.set(tag, loaded, { ttl: 300 })
-      }
-      return this.applySystemDefault(loaded, key.entityId)
     }
     return this.applySystemDefault(null, key.entityId)
   }
@@ -480,47 +530,60 @@ export class TenantDataEncryptionService {
     tenantId: string | null,
   ): Promise<EncryptedFieldRule[]> {
     const tag = allOrganizationsCacheKey(entityId, tenantId)
-    const missExpiresAt = this.missCache.get(tag)
-    if (missExpiresAt) {
-      if (missExpiresAt > Date.now()) return []
-      this.missCache.delete(tag)
-    }
-    const mem = this.aggregateMemoryCache.get(tag)
-    if (mem) {
-      if (mem.at + AGGREGATE_CACHE_TTL_MS > Date.now()) return mem.record.fields
-      this.aggregateMemoryCache.delete(tag)
-    }
-    if (this.cache && typeof this.cache.get === 'function') {
-      const cached = await this.cache.get(tag)
-      if (cached) {
-        const record = cached as EncryptionMapRecord
-        this.aggregateMemoryCache.set(tag, { at: Date.now(), record })
-        return record.fields
+    while (true) {
+      const epoch = this.getMapEpoch(tag)
+      const missExpiresAt = this.missCache.get(tag)
+      if (missExpiresAt) {
+        if (missExpiresAt > Date.now()) return []
+        this.missCache.delete(tag)
       }
+      const mem = this.aggregateMemoryCache.get(tag)
+      if (mem) {
+        if (mem.at + AGGREGATE_CACHE_TTL_MS > Date.now()) return mem.record.fields
+        this.aggregateMemoryCache.delete(tag)
+      }
+      if (this.cache && typeof this.cache.get === 'function') {
+        await this.waitForCacheMutation(tag)
+        if (this.getMapEpoch(tag) !== epoch) continue
+        const cached = await this.cache.get(tag)
+        if (this.getMapEpoch(tag) !== epoch) continue
+        if (cached) {
+          const record = cached as EncryptionMapRecord
+          this.aggregateMemoryCache.set(tag, { at: Date.now(), record })
+          return record.fields
+        }
+      }
+      const inflight = this.inflightMaps.get(tag)
+      if (inflight?.epoch === epoch) {
+        const loaded = await inflight.promise
+        if (this.getMapEpoch(tag) !== epoch) continue
+        return loaded?.fields ?? []
+      }
+      const pending = (async (): Promise<EncryptionMapRecord | null> => {
+        const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId)
+        return fields.length ? { entityId, fields } : null
+      })()
+      const inflightRead = { epoch, promise: pending }
+      this.inflightMaps.set(tag, inflightRead)
+      let loaded: EncryptionMapRecord | null
+      try {
+        loaded = await pending
+      } finally {
+        if (this.inflightMaps.get(tag) === inflightRead) this.inflightMaps.delete(tag)
+      }
+      if (this.getMapEpoch(tag) !== epoch) continue
+      if (!loaded) {
+        this.missCache.set(tag, Date.now() + MAP_MISS_TTL_MS)
+        return []
+      }
+      this.missCache.delete(tag)
+      this.aggregateMemoryCache.set(tag, { at: Date.now(), record: loaded })
+      if (this.cache && typeof this.cache.set === 'function') {
+        await this.queueCacheMutation(tag, () => this.cache!.set(tag, loaded!, { ttl: 300 }))
+        if (this.getMapEpoch(tag) !== epoch) continue
+      }
+      return loaded.fields
     }
-    const inflight = this.inflightMaps.get(tag)
-    if (inflight) return (await inflight)?.fields ?? []
-    const pending = (async (): Promise<EncryptionMapRecord | null> => {
-      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId)
-      return fields.length ? { entityId, fields } : null
-    })()
-    this.inflightMaps.set(tag, pending)
-    let loaded: EncryptionMapRecord | null
-    try {
-      loaded = await pending
-    } finally {
-      this.inflightMaps.delete(tag)
-    }
-    if (!loaded) {
-      this.missCache.set(tag, Date.now() + MAP_MISS_TTL_MS)
-      return []
-    }
-    this.missCache.delete(tag)
-    this.aggregateMemoryCache.set(tag, { at: Date.now(), record: loaded })
-    if (this.cache && typeof this.cache.set === 'function') {
-      await this.cache.set(tag, loaded, { ttl: 300 })
-    }
-    return loaded.fields
   }
 
   /**
@@ -546,12 +609,17 @@ export class TenantDataEncryptionService {
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
     const tags = [cacheKey({ entityId, tenantId, organizationId }), allOrganizationsCacheKey(entityId, tenantId)]
     for (const tag of tags) {
+      this.advanceMapEpoch(tag)
       this.memoryCache.delete(tag)
       this.aggregateMemoryCache.delete(tag)
       this.inflightMaps.delete(tag)
       this.missCache.delete(tag)
-      if (this.cache && typeof (this.cache as any).delete === 'function') {
-        await (this.cache as any).delete(tag)
+    }
+    for (const tag of tags) {
+      if (this.cache && typeof this.cache.delete === 'function') {
+        await this.queueCacheMutation(tag, async () => {
+          await this.cache!.delete(tag)
+        })
       }
     }
   }

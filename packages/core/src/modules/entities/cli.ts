@@ -294,6 +294,7 @@ export async function upsertEncryptionMapSpecs(
   organizationId: string | null,
   specs: ModuleEncryptionMap[],
   logger: (msg: string) => void = () => {},
+  onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
 ): Promise<Array<{ entityId: string; tenantId: string; organizationId: string | null }>> {
   const materializedScopes: Array<{ entityId: string; tenantId: string; organizationId: string | null }> = []
   for (const spec of specs) {
@@ -308,14 +309,29 @@ export async function upsertEncryptionMapSpecs(
       fields: spec.fields,
       isActive: true,
     })
-    materializedScopes.push({ entityId: spec.entityId, tenantId, organizationId })
+    const materializedScope = { entityId: spec.entityId, tenantId, organizationId }
+    materializedScopes.push(materializedScope)
+    await onMaterializedScope?.(materializedScope)
     logger(`🔒 Seeded encryption map for ${spec.entityId} ✨`)
   }
   return materializedScopes
 }
 
-async function upsertEncryptionMaps(em: EntityManager, tenantId: string, organizationId: string | null, logger: (msg: string) => void) {
-  return upsertEncryptionMapSpecs(em, tenantId, organizationId, getDefaultEncryptionMaps(resolveEncryptionMapModules()), logger)
+async function upsertEncryptionMaps(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string | null,
+  logger: (msg: string) => void,
+  onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
+) {
+  return upsertEncryptionMapSpecs(
+    em,
+    tenantId,
+    organizationId,
+    getDefaultEncryptionMaps(resolveEncryptionMapModules()),
+    logger,
+    onMaterializedScope,
+  )
 }
 
 export async function invalidateEncryptionMapScopes(
@@ -350,9 +366,10 @@ const seedEncryptionMaps: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as EntityManager
     const logger = (msg: string) => console.log(msg)
-    const materializedScopes = await upsertEncryptionMaps(em, tenantId, organizationId, logger)
     const encryptionService = resolve('tenantEncryptionService') as Pick<TenantDataEncryptionService, 'invalidateMap'>
-    await invalidateEncryptionMapScopes(encryptionService, materializedScopes)
+    await upsertEncryptionMaps(em, tenantId, organizationId, logger, async (scope) => {
+      await invalidateEncryptionMapScopes(encryptionService, [scope])
+    })
     console.log('✅ Encryption maps seeded')
   },
 }

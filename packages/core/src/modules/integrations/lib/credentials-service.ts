@@ -108,10 +108,15 @@ export function buildCredentialsFilter(integrationId: string, scope: Integration
 
 type EncryptionMapCacheInvalidator = Pick<TenantDataEncryptionService, 'invalidateMap'>
 
+export type CredentialsWriteOptions = {
+  deferAfterCommit?: (callback: () => void | Promise<void>) => void
+}
+
 export async function ensureCredentialsEncryptionMap(
   em: EntityManager,
   scope: IntegrationScope,
   encryptionService?: EncryptionMapCacheInvalidator | null,
+  options?: CredentialsWriteOptions,
 ): Promise<void> {
   const credentialsEncryptionSpec = [{ field: 'credentials' }]
   await upsertCanonicalEncryptionMap(em, {
@@ -122,11 +127,12 @@ export async function ensureCredentialsEncryptionMap(
     isActive: true,
   })
   const invalidator = encryptionService ?? resolveTenantEncryptionService(em)
-  await invalidator?.invalidateMap(
-    'integrations:integration_credentials',
-    scope.tenantId,
-    scope.organizationId,
+  if (!invalidator) return
+  const invalidate = () => invalidator.invalidateMap(
+    'integrations:integration_credentials', scope.tenantId, scope.organizationId,
   )
+  if (options?.deferAfterCommit) options.deferAfterCommit(invalidate)
+  else await invalidate()
 }
 
 export function createCredentialsService(
@@ -271,9 +277,14 @@ export function createCredentialsService(
       return this.getRaw(definition.bundleId, scope)
     },
 
-    async save(integrationId: string, credentials: Record<string, unknown>, scope: IntegrationScope): Promise<void> {
+    async save(
+      integrationId: string,
+      credentials: Record<string, unknown>,
+      scope: IntegrationScope,
+      options?: CredentialsWriteOptions,
+    ): Promise<void> {
       const encryptedCredentials = await encryptCredentialsBlob(credentials, scope)
-      await ensureCredentialsEncryptionMap(em, scope, encryptionService)
+      await ensureCredentialsEncryptionMap(em, scope, encryptionService, options)
 
       const row = await findOneWithDecryption(
         em,
@@ -304,10 +315,11 @@ export function createCredentialsService(
       fieldKey: string,
       value: unknown,
       scope: IntegrationScope,
+      options?: CredentialsWriteOptions,
     ): Promise<Record<string, unknown>> {
       const current = (await this.getRaw(integrationId, scope)) ?? {}
       const updated = { ...current, [fieldKey]: value }
-      await this.save(integrationId, updated, scope)
+      await this.save(integrationId, updated, scope, options)
       return updated
     },
 
