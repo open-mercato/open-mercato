@@ -97,7 +97,7 @@ export function FilterBar({
     </div>
   ) : null
   const controls = (
-    <div className={`flex flex-wrap items-center gap-2 ${searchAlign === 'left' && searchBlock ? 'sm:ml-auto' : ''}`}>
+    <div className={`flex min-w-0 max-w-full flex-wrap items-center gap-2 ${searchAlign === 'left' && searchBlock ? 'sm:ml-auto' : ''}`}>
       {filters.length > 0 && (
         <Button variant="outline" onClick={() => setOpen(true)}>
           <ListFilter aria-hidden="true" className="size-4 opacity-80" />

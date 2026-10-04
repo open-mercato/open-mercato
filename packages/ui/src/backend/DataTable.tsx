@@ -1181,7 +1181,7 @@ function ViewSwitcherDropdown({
   const activeName = allViews.find((v) => v.id === activePerspectiveId)?.name.trim() || ''
   const activeLabel = activeName || t('ui.dataTable.perspectives.allViews', 'All views')
   return (
-    <div className="inline-flex h-9 items-center rounded-md border border-input text-sm">
+    <div className="inline-flex h-9 min-w-0 max-w-full items-center rounded-md border border-input text-sm">
       <Button
         data-testid="data-table-open-views-sidebar"
         type="button"
@@ -1200,7 +1200,9 @@ function ViewSwitcherDropdown({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-full max-w-[200px] rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+            // `shrink min-w-0` undoes the Button default `shrink-0`, so the
+            // active view name truncates instead of pushing the page wider.
+            className="h-full min-w-0 max-w-[200px] shrink rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
           >
             <span className="truncate">{activeLabel}</span>
             <ChevronDown className="size-3.5 shrink-0 ml-1.5" />
@@ -3369,7 +3371,7 @@ function DataTableImpl<T extends RowData>({
       </Button>
     ) : null
     const leadingItems = advancedFilterButton || perspectiveButtonLeading || saveViewButton ? (
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
         {advancedFilterButton}
         {perspectiveButtonLeading}
         {saveViewButton}
