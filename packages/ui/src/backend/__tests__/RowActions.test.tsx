@@ -200,3 +200,54 @@ describe('RowActions — keyboard navigation (#6718)', () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('RowActions — focus after an item is activated', () => {
+
+  it('returns focus to the trigger so it is not lost with the unmounted menu', () => {
+    // Activating an item unmounts the menu. Without handing focus back, it fell
+    // to <body>, and a confirmation dialog opened by the action then had nothing
+    // to restore focus to when it closed.
+    const onSelect = jest.fn()
+    renderMenu([{ id: 'delete', label: 'Delete', onSelect }])
+    openMenu()
+    expect(document.activeElement).toBe(itemNamed('Delete'))
+
+    fireEvent.click(itemNamed('Delete'))
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: TRIGGER_LABEL }))
+  })
+
+  it('hands focus back before the action runs so the action can move it', () => {
+    const elsewhere = document.createElement('button')
+    document.body.appendChild(elsewhere)
+    let focusedWhenActionRan: Element | null = null
+    const onSelect = jest.fn(() => {
+      focusedWhenActionRan = document.activeElement
+      elsewhere.focus()
+    })
+    renderMenu([{ id: 'open-panel', label: 'Open panel', onSelect }])
+    openMenu()
+
+    fireEvent.click(itemNamed('Open panel'))
+
+    expect(focusedWhenActionRan).toBe(screen.getByRole('button', { name: TRIGGER_LABEL }))
+    expect(document.activeElement).toBe(elsewhere)
+    elsewhere.remove()
+  })
+
+  it('does not take focus when the item is activated while focus is elsewhere (#6771)', () => {
+    const onSelect = jest.fn()
+    renderMenu([{ id: 'poll-now', label: 'Poll now', onSelect }])
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    field.focus()
+    fireEvent.pointerEnter(screen.getByRole('button', { name: TRIGGER_LABEL }), { pointerType: 'mouse' })
+
+    fireEvent.click(itemNamed('Poll now'))
+
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(field)
+    field.remove()
+  })
+})
