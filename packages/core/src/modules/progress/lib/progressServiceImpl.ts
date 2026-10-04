@@ -93,9 +93,24 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     return em.findOne(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
   }
 
+  function isJobWithinScope(job: ProgressJob, ctx: ProgressServiceContext): boolean {
+    if (job.tenantId !== ctx.tenantId) return false
+    if (ctx.organizationIds !== undefined) {
+      if (ctx.organizationIds === null) return true
+      return typeof job.organizationId === 'string' && ctx.organizationIds.includes(job.organizationId)
+    }
+    if (ctx.organizationId) return job.organizationId === ctx.organizationId
+    return true
+  }
+
   async function ensureThrottleEntry(jobId: string, ctx: ProgressServiceContext): Promise<JobUpdateThrottleEntry> {
     const cached = jobUpdateThrottle.get(jobId)
-    if (cached) return cached
+    if (cached) {
+      if (!isJobWithinScope(cached.job, ctx)) {
+        throw new Error(`[internal] Progress job ${jobId} not found`)
+      }
+      return cached
+    }
     const job = await em.findOneOrFail(ProgressJob, jobScopeFilter(jobId, ctx), { disableIdentityMap: true })
     const entry: JobUpdateThrottleEntry = {
       job,
@@ -428,7 +443,8 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         return job
       }
 
-      const entry = jobUpdateThrottle.get(jobId)
+      const cachedEntry = jobUpdateThrottle.get(jobId)
+      const entry = cachedEntry && isJobWithinScope(cachedEntry.job, ctx) ? cachedEntry : undefined
       const snapshot = entry?.job ?? job
       const now = new Date()
       const data: EntityData<ProgressJob> = {
@@ -486,7 +502,8 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         return job
       }
 
-      const entry = jobUpdateThrottle.get(jobId)
+      const cachedEntry = jobUpdateThrottle.get(jobId)
+      const entry = cachedEntry && isJobWithinScope(cachedEntry.job, ctx) ? cachedEntry : undefined
       const snapshot = entry?.job ?? job
       const now = new Date()
       const data: EntityData<ProgressJob> = {

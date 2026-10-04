@@ -94,6 +94,7 @@ Progress lifecycle and count updates must remain correct when app and worker pro
 6. Cancellation checks bypass the entity-manager identity map so workers observe requests written by another process.
 7. Stale-job sweeps re-check status and timestamps in each conditional update. Running jobs use the configured heartbeat timeout; pending jobs that never start fail after 15 minutes. A later queue delivery may recover the latter through `failed → running`.
 8. Heartbeat persistence is independent of progress-event broadcast coalescing and occurs at least every five seconds while updates continue.
+9. A service-local throttled update entry may be reused only when its cached job still satisfies the current tenant and organization scope. Tenant mismatch, a finite organization set that excludes the job, and an explicit empty set fail before returning or mutating the cached snapshot; omitted legacy scope and explicit-null unrestricted/system scope retain their established behavior.
 
 ### Client-Local Progress Rules
 
@@ -212,6 +213,7 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 - Unit: concurrent stale sweepers emit one failure event and a fresh heartbeat defeats the stale predicate.
 - Unit: explicit finite empty organization access remains an `$in: []` predicate across progress detail, update, cancellation, active/recent, cancellation polling, and stale-sweep queries.
 - Unit: job creation rejects empty, missing-target, and out-of-set finite scopes before persistence while allowing in-set, omitted legacy, and explicit-null unrestricted contexts.
+- Unit: same-service `updateProgress` and `incrementProgress` calls inside one throttle window reject tenant mismatch, out-of-set finite organization scope, and explicit empty scope without returning foreign data, writing, or emitting; omitted legacy and explicit-null unrestricted reuse remain functional.
 - Route: orgless non-superadmins use the request-resolved selected/multi-organization scope; disallowed or freshly revoked access returns empty/not-found responses, while same-organization and canonical superadmin access remain functional.
 - Route: a request-scope result whose normalized tenant differs from the authenticated tenant returns only empty/non-disclosing responses and performs no progress ORM/service data calls.
 - Unit: `runBulkDelete` emits start, step, and terminal progress events.
@@ -247,6 +249,6 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 
 | Date | Change |
 |------|--------|
-| 2026-10-04 | Defined fail-closed request-resolved organization scoping for every progress API/service query, including explicit empty, finite multi-org, and canonical unrestricted behavior. |
+| 2026-10-04 | Defined fail-closed request-resolved organization scoping for every progress API/service query and service-local throttle cache reuse, including explicit empty, finite multi-org, tenant mismatch, and canonical unrestricted behavior. |
 | 2026-07-27 | Documented multi-instance CAS transitions, post-increment winner reloads, stale-pending recovery, and concurrency regression coverage. |
 | 2026-05-13 | Created framework spec to make progress mandatory for bulk and future long-running operations. |

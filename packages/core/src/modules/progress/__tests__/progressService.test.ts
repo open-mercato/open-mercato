@@ -5,6 +5,7 @@ import {
   calculateProgressPercent,
   STALE_PENDING_TIMEOUT_SECONDS,
   STALE_SWEEP_ERROR_PREFIX,
+  type ProgressServiceContext,
 } from '../lib/progressService'
 import type { ProgressJob } from '../data/entities'
 
@@ -1405,6 +1406,7 @@ describe('progress service — broadcast coalescing (#2972)', () => {
       id: 'job-1',
       jobType: 'import',
       status: 'running',
+      tenantId: baseCtx.tenantId,
       processedCount: 0,
       totalCount: 1000,
       progressPercent: 0,
@@ -1412,6 +1414,105 @@ describe('progress service — broadcast coalescing (#2972)', () => {
       meta: null,
       ...overrides,
     }) as unknown as ProgressJob
+
+  const authorizedCtx = {
+    tenantId: 'tenant-allowed',
+    organizationId: 'org-allowed',
+    organizationIds: ['org-allowed'],
+  }
+
+  const unauthorizedReuseCases: Array<[string, ProgressServiceContext]> = [
+    ['mismatched tenant', {
+      tenantId: 'tenant-denied',
+      organizationId: 'org-allowed',
+      organizationIds: ['org-allowed'],
+    }],
+    ['mismatched finite organization set', {
+      tenantId: 'tenant-allowed',
+      organizationId: 'org-denied',
+      organizationIds: ['org-denied'],
+    }],
+    ['explicit empty organization scope', {
+      tenantId: 'tenant-allowed',
+      organizationId: null,
+      organizationIds: [],
+    }],
+  ]
+
+  const permittedReuseCases: Array<[string, ProgressServiceContext]> = [
+    ['omitted organizationIds with the exact legacy organization', {
+      tenantId: 'tenant-allowed',
+      organizationId: 'org-allowed',
+    }],
+    ['omitted legacy organization scope', {
+      tenantId: 'tenant-allowed',
+    }],
+    ['explicit-null unrestricted organization scope', {
+      tenantId: 'tenant-allowed',
+      organizationId: null,
+      organizationIds: null,
+    }],
+  ]
+
+  describe.each(['updateProgress', 'incrementProgress'] as const)('%s cached scope enforcement', (operation) => {
+    it.each(unauthorizedReuseCases)('rejects %s without returning or mutating the cached job', async (_scenario, deniedCtx) => {
+      process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+      const em = buildEm()
+      const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+      const job = buildRunningJob({
+        tenantId: authorizedCtx.tenantId,
+        organizationId: authorizedCtx.organizationId,
+      })
+      em.findOneOrFail.mockResolvedValue(job)
+
+      const service = createProgressService(em as never, eventBus)
+      if (operation === 'updateProgress') {
+        await service.updateProgress('job-1', { processedCount: 1 }, authorizedCtx)
+      } else {
+        await service.incrementProgress('job-1', 1, authorizedCtx)
+      }
+
+      const authorizedCount = job.processedCount
+      em.findOne.mockClear()
+      em.nativeUpdate.mockClear()
+      eventBus.emit.mockClear()
+
+      const deniedCall = operation === 'updateProgress'
+        ? service.updateProgress('job-1', { processedCount: 2 }, deniedCtx)
+        : service.incrementProgress('job-1', 1, deniedCtx)
+
+      await expect(deniedCall).rejects.toThrow('[internal] Progress job job-1 not found')
+      expect(job.processedCount).toBe(authorizedCount)
+      expect(em.findOneOrFail).toHaveBeenCalledTimes(1)
+      expect(em.findOne).not.toHaveBeenCalled()
+      expect(em.nativeUpdate).not.toHaveBeenCalled()
+      expect(eventBus.emit).not.toHaveBeenCalled()
+    })
+
+    it.each(permittedReuseCases)('reuses the cached job for %s', async (_scenario, permittedCtx) => {
+      process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+      const em = buildEm()
+      const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+      const job = buildRunningJob({
+        tenantId: authorizedCtx.tenantId,
+        organizationId: authorizedCtx.organizationId,
+      })
+      em.findOneOrFail.mockResolvedValue(job)
+
+      const service = createProgressService(em as never, eventBus)
+      if (operation === 'updateProgress') {
+        await service.updateProgress('job-1', { processedCount: 1 }, authorizedCtx)
+        await service.updateProgress('job-1', { processedCount: 2 }, permittedCtx)
+        expect(job.processedCount).toBe(2)
+      } else {
+        await service.incrementProgress('job-1', 1, authorizedCtx)
+        await service.incrementProgress('job-1', 1, permittedCtx)
+        expect(job.processedCount).toBe(2)
+      }
+
+      expect(em.findOneOrFail).toHaveBeenCalledTimes(1)
+    })
+  })
 
   it('coalesces rapid successive updates within the interval into a single write + broadcast', async () => {
     process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
