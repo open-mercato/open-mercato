@@ -742,7 +742,7 @@ test.describe('TC-AUTH-065: transaction-bound auth replay concurrency', () => {
         await blocker.query('begin')
         try {
           const blockerPid = Number((await blocker.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid)
-          await blocker.query('select id from roles where id = $1 for update', [roleId])
+          await blocker.query('select id from roles where id = $1::uuid for update', [roleId])
           await blocker.query(
             `insert into role_acls
               (id, role_id, tenant_id, features_json, is_super_admin, organizations_json, created_at, updated_at)
@@ -766,6 +766,139 @@ test.describe('TC-AUTH-065: transaction-bound auth replay concurrency', () => {
       expect(after.executionState).toBe('done')
     } finally {
       await deleteRoleIfExists(request, superadminToken, roleId)
+    }
+  })
+
+  test('rejects replay when an API-key role insertion commits behind the role parent lock', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const tenantId = expectId(scope.tenantId, 'Admin token should include tenant id')
+    const organizationId = expectId(scope.organizationId, 'Admin token should include organization id')
+    const actorUserId = expectId(scope.userId, 'Admin token should include user id')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    let roleId: string | null = null
+    let apiKeyId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, { name: `Replay API-key phantom ${stamp}` })
+      await updateRoleName(request, adminToken, roleId, `Replay API-key phantom after ${stamp}`)
+      const sourceLog = await latestReplayLog(roleId, actorUserId)
+      const before = await readRoleReplayState(roleId, sourceLog.id)
+      apiKeyId = await withClient(async (blocker) => {
+        await blocker.query('begin')
+        try {
+          const blockerPid = Number((await blocker.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid)
+          await blocker.query('select id from roles where id = $1 for update', [roleId])
+          const insertedId = expectId(
+            (await blocker.query<{ id: string }>(
+              `insert into api_keys
+                (id, name, tenant_id, organization_id, key_hash, key_prefix, roles_json, created_at, updated_at)
+               select gen_random_uuid(), $2, $3, $4, 'test-hash', $5, jsonb_build_array($1::text), now(), now()
+                 from roles
+                where id = $1::uuid
+                returning id`,
+              [roleId, `Replay API-key phantom ${stamp}`, tenantId, organizationId, `phantom-${stamp}`.slice(0, 12)],
+            )).rows[0]?.id,
+            'API-key phantom insert should return id',
+          )
+          const pending = undoAction(request, adminToken, sourceLog.undo_token)
+          await withClient((observer) => waitUntilBlockedBy(observer, blockerPid))
+          await blocker.query('commit')
+          const response = await pending
+          expect(response.status(), await response.text()).toBe(409)
+          return insertedId
+        } catch (error) {
+          await blocker.query('rollback').catch(() => undefined)
+          throw error
+        }
+      })
+
+      const after = await readRoleReplayState(roleId, sourceLog.id)
+      expect(after.name).toBe(before.name)
+      expect(after.executionState).toBe('done')
+    } finally {
+      if (apiKeyId) {
+        await withClient((client) => client.query('delete from api_keys where id = $1', [apiKeyId])).catch(() => undefined)
+      }
+      await deleteRoleIfExists(request, adminToken, roleId)
+    }
+  })
+
+  test('serializes inverse protected-role user writers without a deadlock', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const tenantId = expectId(scope.tenantId, 'Admin token should include tenant id')
+    const organizationId = expectId(scope.organizationId, 'Admin token should include organization id')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    let roleAId: string | null = null
+    let roleBId: string | null = null
+    let userAId: string | null = null
+    let userBId: string | null = null
+
+    try {
+      roleAId = await createRoleFixture(request, superadminToken, { name: `Protected inverse A ${stamp}`, tenantId })
+      roleBId = await createRoleFixture(request, superadminToken, { name: `Protected inverse B ${stamp}`, tenantId })
+      await withClient((client) => client.query(
+        'update roles set min_active_holders = 1 where id = any($1::uuid[])',
+        [[roleAId, roleBId]],
+      ))
+      userAId = await createUserFixture(request, superadminToken, {
+        email: `protected-inverse-a-${stamp}@example.com`,
+        password: 'StrongSecret123!',
+        organizationId,
+        roles: [roleAId],
+      })
+      userBId = await createUserFixture(request, superadminToken, {
+        email: `protected-inverse-b-${stamp}@example.com`,
+        password: 'StrongSecret123!',
+        organizationId,
+        roles: [roleBId],
+      })
+
+      const statuses = await withCredentialIsolatedRequest(async (requestA) => (
+        withCredentialIsolatedRequest(async (requestB) => (
+          withClient(async (blockerA) => withClient(async (blockerB) => {
+            await blockerA.query('begin')
+            await blockerB.query('begin')
+            try {
+              const pidA = Number((await blockerA.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid)
+              const pidB = Number((await blockerB.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid)
+              await blockerA.query('select id from users where id = $1 for update', [userAId])
+              await blockerB.query('select id from users where id = $1 for update', [userBId])
+              const pending = [
+                apiRequest(requestA, 'PUT', '/api/auth/users', {
+                  token: adminToken,
+                  data: { id: userAId, roles: [] },
+                  timeout: 5_000,
+                  retryTransport: false,
+                }),
+                apiRequest(requestB, 'PUT', '/api/auth/users', {
+                  token: adminToken,
+                  data: { id: userBId, roles: [] },
+                  timeout: 5_000,
+                  retryTransport: false,
+                }),
+              ]
+              await withClient((observer) => waitUntilBlockedCount(observer, [pidA, pidB], 2))
+              await blockerA.query('commit')
+              await blockerB.query('commit')
+              return (await Promise.all(pending)).map((response) => response.status())
+            } catch (error) {
+              await blockerA.query('rollback').catch(() => undefined)
+              await blockerB.query('rollback').catch(() => undefined)
+              throw error
+            }
+          }))
+        ))
+      ))
+
+      expect(statuses).toEqual([400, 400])
+    } finally {
+      await deleteUserIfExists(request, superadminToken, userBId)
+      await deleteUserIfExists(request, superadminToken, userAId)
+      await deleteRoleIfExists(request, superadminToken, roleBId)
+      await deleteRoleIfExists(request, superadminToken, roleAId)
     }
   })
 

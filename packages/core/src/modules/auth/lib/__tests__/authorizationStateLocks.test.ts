@@ -19,11 +19,33 @@ import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { lockRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { lockReplayAuthorizationState } from '@open-mercato/core/modules/auth/lib/commandReplay'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+
+function withTransactionMethods<T extends object>(em: T): T & {
+  begin: jest.Mock
+  commit: jest.Mock
+  rollback: jest.Mock
+  flush: jest.Mock
+  isInTransaction: () => boolean
+} {
+  let inTransaction = false
+  return Object.assign(em, {
+    begin: jest.fn(async () => { inTransaction = true }),
+    commit: jest.fn(async () => { inTransaction = false }),
+    rollback: jest.fn(async () => { inTransaction = false }),
+    flush: jest.fn(async () => undefined),
+    isInTransaction: () => inTransaction,
+  })
+}
+
+async function inTransaction(em: object, phase: () => Promise<void>): Promise<void> {
+  await withAtomicFlush(em as never, [phase], { transaction: true })
+}
 
 describe('authorization state lock ordering', () => {
   it('locks referencing API-key parents before role parents in canonical id order', async () => {
     const lockOrder: string[] = []
-    const em = {
+    const em = withTransactionMethods({
       find: jest.fn(async (entity: unknown) => entity === ApiKey
         ? [{ id: 'key-b' }, { id: 'key-a' }]
         : []),
@@ -33,7 +55,7 @@ describe('authorization state lock ordering', () => {
         }
         return entity === ApiKey ? { id: where.id } : { id: where.id }
       }),
-    }
+    })
 
     await lockRoleWriterAuthorizationState(em as never, ['role-b', 'role-a', 'role-b'])
 
@@ -63,7 +85,7 @@ describe('authorization state lock ordering', () => {
 
   it('locks an API-key actor before every role referenced by rolesJson', async () => {
     const lockOrder: string[] = []
-    const em = {
+    const em = withTransactionMethods({
       find: jest.fn(async (entity: unknown, where: { id?: { $in?: string[] } }) => {
         if (entity === ApiKey && where?.id?.$in) {
           return [{ id: 'key-actor', rolesJson: ['role-b', 'role-a'] }]
@@ -80,13 +102,13 @@ describe('authorization state lock ordering', () => {
         if (entity === Role) return { id: where.id }
         return null
       }),
-    }
+    })
 
-    await lockReplayAuthorizationState(
+    await inTransaction(em, () => lockReplayAuthorizationState(
       em as never,
       { auth: { sub: 'api_key:key-actor', tenantId: 'tenant-1', orgId: null } },
       {},
-    )
+    ))
 
     expect(lockOrder).toEqual([
       'key:key-actor',
@@ -112,7 +134,7 @@ describe('authorization state lock ordering', () => {
 
   it('rejects a membership phantom instead of appending earlier-rank locks', async () => {
     let userRoleRead = 0
-    const em = {
+    const em = withTransactionMethods({
       find: jest.fn(async (entity: unknown) => {
         if (entity === UserRole) {
           userRoleRead += 1
@@ -123,27 +145,131 @@ describe('authorization state lock ordering', () => {
         return []
       }),
       findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
-    }
+    })
 
-    await expect(lockReplayAuthorizationState(
+    await expect(inTransaction(em, () => lockReplayAuthorizationState(
       em as never,
       { auth: { sub: 'user-a', tenantId: null, orgId: null } },
       {},
-    )).rejects.toMatchObject({ status: 409 })
+    ))).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('rejects an API-key role-reference insertion discovered after the role lock', async () => {
+    let referenceRead = 0
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: { $or?: unknown }) => {
+        if (entity === ApiKey && where.$or) {
+          referenceRead += 1
+          return referenceRead === 1 ? [] : [{ id: 'inserted-key', rolesJson: ['role-a'] }]
+        }
+        return []
+      }),
+      findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
+    })
+
+    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: null },
+      { targetRoleId: 'role-a' },
+    ))).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('allows a removed API-key role reference to reach the post-lock authorization check', async () => {
+    let referenceRead = 0
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: { $or?: unknown }) => {
+        if (entity === ApiKey && where.$or) {
+          referenceRead += 1
+          return referenceRead === 1 ? [{ id: 'removed-key', rolesJson: ['role-a'] }] : []
+        }
+        return []
+      }),
+      findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
+    })
+
+    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: null },
+      { targetRoleId: 'role-a' },
+    ))).resolves.toBeUndefined()
   })
 
   it('rejects any late target outside a sealed replay footprint', async () => {
-    const em = {
+    const em = withTransactionMethods({
       find: jest.fn(async () => []),
       findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
-    }
-    await lockReplayAuthorizationState(
+    })
+    await expect(inTransaction(em, async () => {
+      await lockReplayAuthorizationState(
+        em as never,
+        { auth: { sub: 'user-a', tenantId: null, orgId: null } },
+        { targetUserId: 'user-b' },
+      )
+      await lockRoleWriterAuthorizationState(em as never, ['role-late'])
+    })).rejects.toThrow('lock footprint was extended after it was sealed')
+  })
+
+  it('releases a replay lease after commit when reusing the same EntityManager', async () => {
+    const lockedUsers: string[] = []
+    const em = withTransactionMethods({
+      find: jest.fn(async () => []),
+      findOne: jest.fn(async (_entity: unknown, where: { id?: string }, options?: { lockMode?: LockMode }) => {
+        if (options?.lockMode === LockMode.PESSIMISTIC_WRITE && where.id) lockedUsers.push(where.id)
+        return { id: where.id }
+      }),
+    })
+
+    await inTransaction(em, () => lockReplayAuthorizationState(
       em as never,
       { auth: { sub: 'user-a', tenantId: null, orgId: null } },
       { targetUserId: 'user-b' },
-    )
+    ))
+    await inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'user-a', tenantId: null, orgId: null } },
+      { targetUserId: 'user-b' },
+    ))
+    await inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'user-a', tenantId: null, orgId: null } },
+      { targetUserId: 'user-c' },
+    ))
 
-    await expect(lockRoleWriterAuthorizationState(em as never, ['role-late']))
-      .rejects.toThrow('lock footprint was extended after it was sealed')
+    expect(lockedUsers).toEqual(['user-a', 'user-b', 'user-a', 'user-b', 'user-a', 'user-c'])
+    expect(em.commit).toHaveBeenCalledTimes(3)
+  })
+
+  it('releases a replay lease after rollback when reusing the same EntityManager', async () => {
+    const lockedUsers: string[] = []
+    const em = withTransactionMethods({
+      find: jest.fn(async () => []),
+      findOne: jest.fn(async (_entity: unknown, where: { id?: string }, options?: { lockMode?: LockMode }) => {
+        if (options?.lockMode === LockMode.PESSIMISTIC_WRITE && where.id) lockedUsers.push(where.id)
+        return { id: where.id }
+      }),
+    })
+
+    await expect(inTransaction(em, async () => {
+      await lockReplayAuthorizationState(
+        em as never,
+        { auth: { sub: 'user-a', tenantId: null, orgId: null } },
+        { targetUserId: 'user-b' },
+      )
+      throw new Error('force rollback')
+    })).rejects.toThrow('force rollback')
+    await inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'user-a', tenantId: null, orgId: null } },
+      { targetUserId: 'user-b' },
+    ))
+    await inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'user-a', tenantId: null, orgId: null } },
+      { targetUserId: 'user-c' },
+    ))
+
+    expect(lockedUsers).toEqual(['user-a', 'user-b', 'user-a', 'user-b', 'user-a', 'user-c'])
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).toHaveBeenCalledTimes(2)
   })
 })

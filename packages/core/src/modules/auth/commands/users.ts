@@ -724,17 +724,33 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         const destinationRoles = parsed.roles
           ? await Promise.all(parsed.roles.map((role) => resolveRole(em, role, targetTenantId)))
           : []
-        await lockUserRoleWriterAuthorizationState(em, {
-          userIds: [parsed.id],
-          roleIds: destinationRoles
-            .filter((role): role is Role => role !== null)
-            .map((role) => String(role.id)),
-        })
-        // Floor check must run inside the transaction so that LockMode.PESSIMISTIC_WRITE locks Role rows properly
-        await enforceProtectedRoleFloor(em, userTenantId, parsed.id, {
+        const floorOptions = {
           deactivating: parsed.isConfirmed === false || isTenantChanging,
           newRoles: parsed.roles,
-        }, ctx)
+        }
+        const protectedRoleIds = await discoverProtectedRoleIds(
+          em,
+          userTenantId,
+          floorOptions,
+          ctx,
+        )
+        await lockUserRoleWriterAuthorizationState(em, {
+          userIds: [parsed.id],
+          roleIds: [
+            ...destinationRoles
+              .filter((role): role is Role => role !== null)
+              .map((role) => String(role.id)),
+            ...protectedRoleIds,
+          ],
+        })
+        await enforceProtectedRoleFloor(
+          em,
+          userTenantId,
+          parsed.id,
+          floorOptions,
+          ctx,
+          protectedRoleIds,
+        )
 
         // Email is unique per-tenant, not globally (see Migration20260610120000:
         // users_tenant_email_hash_uniq) — a matching email in another tenant must not block
@@ -1057,9 +1073,26 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
             logEntry: redoLogEntry,
           })
         }
-        await lockUserRoleWriterAuthorizationState(em, { userIds: [id], roleIds: [] })
         const userTenantId = existing.tenantId ? String(existing.tenantId) : null
-        await enforceProtectedRoleFloor(em, userTenantId, id, { deleting: true }, ctx)
+        const floorOptions = { deleting: true }
+        const protectedRoleIds = await discoverProtectedRoleIds(
+          em,
+          userTenantId,
+          floorOptions,
+          ctx,
+        )
+        await lockUserRoleWriterAuthorizationState(em, {
+          userIds: [id],
+          roleIds: protectedRoleIds,
+        })
+        await enforceProtectedRoleFloor(
+          em,
+          userTenantId,
+          id,
+          floorOptions,
+          ctx,
+          protectedRoleIds,
+        )
 
         await em.nativeDelete(UserAcl, { user: id })
         await em.nativeDelete(UserRole, { user: id })
@@ -1732,12 +1765,30 @@ function couldReduceActiveHolders(options: ProtectedRoleFloorOptions): boolean {
   return options.deleting === true || options.deactivating === true || options.newRoles !== undefined
 }
 
+async function discoverProtectedRoleIds(
+  em: EntityManager,
+  tenantId: string | null,
+  options: ProtectedRoleFloorOptions,
+  ctx?: CommandRuntimeContext,
+): Promise<string[]> {
+  if (ctx?.systemActor === true || !couldReduceActiveHolders(options)) return []
+  const normalizedTenantId = normalizeTenantId(tenantId) ?? null
+  if (!normalizedTenantId) return []
+  const roles = await findWithDecryption(em, Role, {
+    tenantId: normalizedTenantId,
+    minActiveHolders: { $gt: 0 },
+    deletedAt: null,
+  }, { orderBy: { id: 'ASC' } }, { tenantId: normalizedTenantId, organizationId: null })
+  return roles.map((role) => String(role.id))
+}
+
 async function enforceProtectedRoleFloor(
   em: EntityManager,
   tenantId: string | null,
   userId: string,
   options: ProtectedRoleFloorOptions,
   ctx?: CommandRuntimeContext,
+  lockedProtectedRoleIds?: readonly string[],
 ): Promise<void> {
   // Internal automation (CLI, migrations, tenant teardown) must never be blocked by the
   // floor. Superadmins are deliberately NOT exempt — see the spec's Risks section.
@@ -1747,15 +1798,24 @@ async function enforceProtectedRoleFloor(
   const normalizedTenantId = normalizeTenantId(tenantId) ?? null
   if (!normalizedTenantId) return
 
-  // Find all protected roles in this tenant, acquiring a pessimistic write lock in a deterministic primary key order
-  const protectedRoles = await findWithDecryption(em, Role, {
-    tenantId: normalizedTenantId,
-    minActiveHolders: { $gt: 0 },
-    deletedAt: null
-  }, {
-    lockMode: LockMode.PESSIMISTIC_WRITE,
-    orderBy: { id: 'ASC' }
-  }, { tenantId: normalizedTenantId, organizationId: null })
+  const protectedRoles = lockedProtectedRoleIds
+    ? await findWithDecryption(em, Role, {
+        id: { $in: [...lockedProtectedRoleIds] },
+        tenantId: normalizedTenantId,
+        minActiveHolders: { $gt: 0 },
+        deletedAt: null,
+      }, {
+        orderBy: { id: 'ASC' },
+        refresh: true,
+      }, { tenantId: normalizedTenantId, organizationId: null })
+    : await findWithDecryption(em, Role, {
+        tenantId: normalizedTenantId,
+        minActiveHolders: { $gt: 0 },
+        deletedAt: null,
+      }, {
+        lockMode: LockMode.PESSIMISTIC_WRITE,
+        orderBy: { id: 'ASC' },
+      }, { tenantId: normalizedTenantId, organizationId: null })
 
   if (protectedRoles.length === 0) return
 

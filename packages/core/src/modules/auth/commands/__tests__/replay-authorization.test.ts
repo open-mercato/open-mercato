@@ -54,6 +54,7 @@ import type {
   CommandRuntimeContext,
 } from '@open-mercato/shared/lib/commands'
 import { lockReplayAuthorizationState } from '@open-mercato/core/modules/auth/lib/commandReplay'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 const tenantA = '11111111-1111-4111-8111-111111111111'
 const tenantB = '22222222-2222-4222-8222-222222222222'
@@ -263,10 +264,11 @@ describe('auth command replay authorization', () => {
       ],
     })
 
-    await lockReplayAuthorizationState(harness.em as never, harness.ctx, {
-      targetUserId: userId,
-      targetRoleId: roleId,
-    })
+    await withAtomicFlush(harness.em as never, [() => lockReplayAuthorizationState(
+      harness.em as never,
+      harness.ctx,
+      { targetUserId: userId, targetRoleId: roleId },
+    )], { transaction: true })
 
     const parentLockEntities = harness.em.findOne.mock.calls
       .filter(([, , options]) => options?.lockMode)
@@ -281,6 +283,7 @@ describe('auth command replay authorization', () => {
       UserRole,
       ApiKey,
       UserRole,
+      ApiKey,
       Organization,
       UserRole,
       UserAcl,

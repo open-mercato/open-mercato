@@ -38,7 +38,7 @@ interface MockContainer {
 }
 
 interface MockCommandBus {
-  execute: jest.Mock<Promise<{ result: { id: string }; logEntry: null }>, [string, Record<string, unknown>]>
+  execute: jest.Mock<Promise<{ result: Record<string, unknown>; logEntry: null }>, [string, Record<string, unknown>]>
 }
 
 const queue: QueueEntry[] = []
@@ -133,7 +133,28 @@ describe('API Keys route', () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.transactional.mockImplementation((cb) => cb(mockEm))
-    mockCommandBus.execute.mockResolvedValue({ result: { id: 'key-1' }, logEntry: null })
+    mockCommandBus.execute.mockImplementation(async (commandId, options) => {
+      if (commandId !== 'api_keys.keys.create') return { result: { id: 'key-1' }, logEntry: null }
+      const input = options.input as {
+        name: string
+        description?: string | null
+        tenantId: string | null
+        organizationId: string | null
+        roleIds: string[]
+      }
+      return {
+        result: {
+          id: 'key-1',
+          name: input.name,
+          keyPrefix: secretFixture.prefix,
+          secret: secretFixture.secret,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          roles: input.roleIds.map((id) => ({ id, name: id === 'role-123' ? 'Manager' : null })),
+        },
+        logEntry: null,
+      }
+    })
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',
@@ -235,20 +256,18 @@ describe('API Keys route', () => {
       tenantId: '123e4567-e89b-12d3-a456-426614174000',
     })
     expect(payload.roles).toEqual([{ id: 'role-123', name: 'Manager' }])
-    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledTimes(1)
-    const createArgs = mockDataEngine.createOrmEntity.mock.calls[0][0]
-    expect(createArgs.data).toMatchObject({
-      name: 'Integration key',
-      description: 'Machine access',
-      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      tenantId: '123e4567-e89b-12d3-a456-426614174000',
-      createdBy: 'user-1',
-      rolesJson: ['role-123'],
-      keyPrefix: secretFixture.prefix,
-      keyHash: `hashed:${secretFixture.secret}`,
-    })
-    expect(mockHashApiKey).toHaveBeenCalledWith(secretFixture.secret)
-    expect(mockRbac.invalidateUserCache).toHaveBeenCalledWith('api_key:key-1')
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.create',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          name: 'Integration key',
+          description: 'Machine access',
+          organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          tenantId: '123e4567-e89b-12d3-a456-426614174000',
+          roleIds: ['role-123'],
+        }),
+      }),
+    )
   })
 
   it('preserves an explicit null organization for a tenant-scoped API key', async () => {
@@ -267,12 +286,10 @@ describe('API Keys route', () => {
 
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toMatchObject({ organizationId: null })
-    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        organizationId: null,
-        createdBy: 'user-1',
-      }),
-    }))
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.create',
+      expect.objectContaining({ input: expect.objectContaining({ organizationId: null }) }),
+    )
   })
 
   it('rejects a tenant-scoped API key when the actor has an organization allowlist', async () => {
@@ -286,7 +303,7 @@ describe('API Keys route', () => {
 
     expect(res.status).toBe(403)
     await expect(res.json()).resolves.toEqual({ error: 'Organization out of scope' })
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('rejects role-backed API keys when the requested role grants features outside the actor ACL', async () => {
@@ -320,7 +337,7 @@ describe('API Keys route', () => {
 
     expect(res.status).toBe(403)
     expect(payload.error).toContain('Cannot grant feature wildcard auth.*')
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('rejects creation when organization is outside the allowed scope', async () => {
@@ -342,7 +359,7 @@ describe('API Keys route', () => {
     expect(res.status).toBe(403)
     const payload = await res.json()
     expect(payload.error).toBe('Organization out of scope')
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('denies creation when the resolved organization allowlist is empty', async () => {
@@ -360,7 +377,7 @@ describe('API Keys route', () => {
     expect(res.status).toBe(403)
     const payload = await res.json()
     expect(payload.error).toBe('Organization out of scope')
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('denies tenant-wide creation for an organization-restricted principal', async () => {
@@ -379,7 +396,7 @@ describe('API Keys route', () => {
     expect(res.status).toBe(403)
     const payload = await res.json()
     expect(payload.error).toBe('Organization out of scope')
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('preserves unrestricted (null allowlist) creation for a non-superadmin', async () => {
@@ -395,9 +412,12 @@ describe('API Keys route', () => {
       }),
     )
     expect(res.status).toBe(201)
-    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledTimes(1)
-    const createArgs = mockDataEngine.createOrmEntity.mock.calls[0][0]
-    expect(createArgs.data).toMatchObject({ organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' })
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.create',
+      expect.objectContaining({
+        input: expect.objectContaining({ organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }),
+      }),
+    )
   })
 
   it('allows a superadmin to create across organizations despite an empty allowlist', async () => {
@@ -422,7 +442,7 @@ describe('API Keys route', () => {
       }),
     )
     expect(res.status).toBe(201)
-    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledTimes(1)
+    expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
   })
 
   it('denies deletion when the resolved organization allowlist is empty', async () => {

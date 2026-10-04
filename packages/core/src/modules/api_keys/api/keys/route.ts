@@ -8,26 +8,16 @@ import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '../../data/entities'
 import { createApiKeySchema } from '../../data/validators'
-import { generateApiKeySecret, hashApiKey } from '../../services/apiKeyService'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { assertActorCanGrantRoles } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { CreateApiKeyCommandInput } from '../../commands/keys'
 
 type ApiKeyCrudCtx = CrudCtx & {
-  __apiKeySecret?: { secret: string; prefix: string }
-  __apiKeyHash?: string
-  __apiKeyRoleIds?: string[]
-  __apiKeyRoles?: Role[]
   __apiKeyOrganizationId?: string | null
-  __apiKeyTenantId?: string | null
-}
-
-type ApiKeyEntityWithMeta = ApiKey & {
-  __apiKeySecret?: string
-  __apiKeyRoles?: Role[]
 }
 
 const listQuerySchema = z.object({
@@ -87,6 +77,83 @@ function json(payload: unknown, init: ResponseInit = { status: 200 }) {
   })
 }
 
+async function prepareCreateCommandInput(
+  input: z.infer<typeof createApiKeySchema>,
+  ctx: CrudCtx,
+): Promise<CreateApiKeyCommandInput> {
+  const auth = ctx.auth
+  const { translate } = await resolveTranslations()
+  if (!auth?.tenantId) {
+    throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
+  }
+
+  const requestedTenant = Object.prototype.hasOwnProperty.call(input, 'tenantId')
+    ? input.tenantId
+    : auth.tenantId
+  const targetTenantId = await enforceTenantSelection(ctx, requestedTenant)
+  const em = ctx.container.resolve('em') as EntityManager
+  const roleTokens = input.roles.filter((value) => value.trim().length > 0)
+  const roleEntities: Role[] = []
+  for (const token of roleTokens) {
+    const value = token.trim()
+    const effectiveTenantId = targetTenantId ?? auth.tenantId
+    const normalizedEffectiveTenantId = effectiveTenantId.toLowerCase()
+    let role: Role | null = null
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+      role = await em.findOne(Role, { id: value, deletedAt: null })
+    }
+    if (!role) {
+      const candidates = await em.find(Role, {
+        name: value,
+        deletedAt: null,
+        $or: [{ tenantId: effectiveTenantId }, { tenantId: null }],
+      } as FilterQuery<Role>, { limit: 5 })
+      role = candidates.find((candidate) => (
+        candidate.tenantId !== null
+        && String(candidate.tenantId).toLowerCase() === normalizedEffectiveTenantId
+      )) ?? candidates.find((candidate) => candidate.tenantId === null) ?? null
+    }
+    if (!role) {
+      throw json({ error: translate('api_keys.errors.roleNotFound', `Role ${value} not found`, { identifier: value }) }, { status: 400 })
+    }
+    const roleTenantId = role.tenantId ? String(role.tenantId).toLowerCase() : null
+    if (roleTenantId && roleTenantId !== normalizedEffectiveTenantId) {
+      throw json({ error: translate('api_keys.errors.roleWrongTenant', `Role ${role.name} belongs to another tenant`, { role: role.name ?? value }) }, { status: 400 })
+    }
+    roleEntities.push(role)
+  }
+  await assertActorCanGrantRoles({
+    em,
+    rbacService: ctx.container.resolve('rbacService') as RbacService,
+    actorUserId: auth.sub,
+    tenantId: targetTenantId,
+    organizationId: auth.orgId ?? null,
+    roles: roleEntities,
+  })
+
+  const allowedIds = ctx.organizationScope?.allowedIds ?? null
+  const organizationId = Object.prototype.hasOwnProperty.call(input, 'organizationId')
+    ? input.organizationId ?? null
+    : ctx.selectedOrganizationId ?? auth.orgId ?? null
+  const isSuperAdmin = await resolveIsSuperAdmin(ctx)
+  if (!isOrganizationAccessAllowed({
+    isSuperAdmin,
+    allowedOrganizationIds: allowedIds,
+    targetOrganizationId: organizationId,
+  })) {
+    throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
+  }
+
+  return {
+    name: input.name,
+    description: input.description ?? null,
+    tenantId: targetTenantId,
+    organizationId,
+    roleIds: roleEntities.map((role) => String(role.id)),
+    expiresAt: input.expiresAt ?? null,
+  }
+}
+
 const crud = makeCrudRoute<
   z.infer<typeof createApiKeySchema>,
   never,
@@ -99,47 +166,14 @@ const crud = makeCrudRoute<
   },
   orm: { entity: ApiKey, orgField: null },
   list: { schema: listQuerySchema },
-  create: {
-    schema: createApiKeySchema,
-    mapToEntity: (input, ctx) => {
-      const scopedCtx = ctx as ApiKeyCrudCtx
-      const secretData = scopedCtx.__apiKeySecret
-      const keyHash = scopedCtx.__apiKeyHash
-      if (!secretData || !keyHash) throw new Error('API key secret not prepared')
-      const roleIds = Array.isArray(scopedCtx.__apiKeyRoleIds) ? scopedCtx.__apiKeyRoleIds : []
-      const organizationId = scopedCtx.__apiKeyOrganizationId ?? null
-      const tenantId = scopedCtx.__apiKeyTenantId ?? null
-      return {
-        name: input.name,
-        description: input.description ?? null,
-        tenantId,
-        organizationId,
-        keyHash,
-        keyPrefix: secretData.prefix,
-        rolesJson: roleIds,
-        createdBy: ctx.auth?.sub ?? null,
-        expiresAt: input.expiresAt ?? null,
-      }
-    },
-    response: (entity) => {
-      const meta = entity as ApiKeyEntityWithMeta
-      const secret = meta.__apiKeySecret
-      const roles = meta.__apiKeyRoles
-      return {
-        id: String(entity.id),
-        name: entity.name,
-        keyPrefix: entity.keyPrefix,
-        secret,
-        tenantId: entity.tenantId ?? null,
-        organizationId: entity.organizationId ?? null,
-        roles: Array.isArray(roles)
-          ? roles.map((role) => ({ id: String(role.id), name: role.name ?? null }))
-          : (Array.isArray(entity.rolesJson) ? entity.rolesJson.map((id: string) => ({ id, name: null })) : []),
-      }
-    },
-  },
   del: { idFrom: 'query' },
   actions: {
+    create: {
+      commandId: 'api_keys.keys.create',
+      schema: createApiKeySchema,
+      mapInput: ({ parsed, ctx }) => prepareCreateCommandInput(parsed, ctx),
+      response: ({ result }) => result,
+    },
     delete: {
       commandId: 'api_keys.keys.delete',
       mapInput: ({ raw }) => ({ id: String(raw.query?.id ?? '') }),
@@ -228,110 +262,6 @@ const crud = makeCrudRoute<
       }
 
       throw json(payload)
-    },
-    beforeCreate: async (input, ctx) => {
-      const auth = ctx.auth
-      const { translate } = await resolveTranslations()
-      if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
-
-      const requestedTenant = Object.prototype.hasOwnProperty.call(input, 'tenantId') ? input.tenantId : auth.tenantId
-      const scopedCtx = ctx as ApiKeyCrudCtx
-      const targetTenantId = await enforceTenantSelection(scopedCtx, requestedTenant)
-      scopedCtx.__apiKeyTenantId = targetTenantId
-
-      const secretData = generateApiKeySecret()
-      scopedCtx.__apiKeySecret = secretData
-      scopedCtx.__apiKeyHash = await hashApiKey(secretData.secret)
-
-      const em = (ctx.container.resolve('em') as EntityManager)
-      const roleTokens = Array.isArray(input.roles) ? input.roles.filter((value) => typeof value === 'string' && value.trim().length > 0) : []
-      const roleEntities: Role[] = []
-      const roleIds: string[] = []
-      for (const token of roleTokens) {
-        const value = token.trim()
-        const rawTenantId = targetTenantId ?? auth.tenantId ?? null
-        const effectiveTenantId = typeof rawTenantId === 'string' && rawTenantId.trim().length > 0 ? rawTenantId.trim() : null
-        const normalizedEffectiveTenantId = effectiveTenantId ? effectiveTenantId.toLowerCase() : null
-        let role: Role | null = null
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
-          role = await em.findOne(Role, { id: value, deletedAt: null })
-        }
-        if (!role) {
-          const nameFilter: FilterQuery<Role> = { name: value, deletedAt: null }
-          if (normalizedEffectiveTenantId) {
-            nameFilter.$or = [
-              { tenantId: effectiveTenantId },
-              { tenantId: null },
-            ]
-          } else {
-            nameFilter.tenantId = null
-          }
-          const candidates = await em.find(Role, nameFilter, { limit: 5 })
-          if (normalizedEffectiveTenantId) {
-            role =
-              candidates.find((candidate) => {
-                if (!candidate.tenantId) return false
-                return String(candidate.tenantId).toLowerCase() === normalizedEffectiveTenantId
-              }) ??
-              candidates.find((candidate) => candidate.tenantId === null) ??
-              null
-          } else {
-            role = candidates.find((candidate) => candidate.tenantId === null) ?? null
-          }
-          if (!role) {
-            role = candidates[0] ?? null
-          }
-        }
-        if (!role) {
-          throw json({ error: translate('api_keys.errors.roleNotFound', `Role ${value} not found`, { identifier: value }) }, { status: 400 })
-        }
-        const roleTenantId = role.tenantId ? String(role.tenantId) : null
-        const normalizedRoleTenantId = roleTenantId ? roleTenantId.toLowerCase() : null
-        if (normalizedRoleTenantId && normalizedEffectiveTenantId && normalizedRoleTenantId !== normalizedEffectiveTenantId) {
-          throw json({ error: translate('api_keys.errors.roleWrongTenant', `Role ${role.name} belongs to another tenant`, { role: role.name ?? value }) }, { status: 400 })
-        }
-        roleEntities.push(role)
-        roleIds.push(String(role.id))
-      }
-      await assertActorCanGrantRoles({
-        em,
-        rbacService: ctx.container.resolve('rbacService') as RbacService,
-        actorUserId: auth.sub,
-        tenantId: targetTenantId,
-        organizationId: auth.orgId ?? null,
-        roles: roleEntities,
-      })
-      scopedCtx.__apiKeyRoles = roleEntities
-      scopedCtx.__apiKeyRoleIds = roleIds
-
-      const allowedIds = ctx.organizationScope?.allowedIds ?? null
-      const organizationId = Object.prototype.hasOwnProperty.call(input, 'organizationId')
-        ? input.organizationId ?? null
-        : ctx.selectedOrganizationId ?? auth.orgId ?? null
-      const isSuperAdmin = await resolveIsSuperAdmin(scopedCtx)
-      if (
-        !isOrganizationAccessAllowed({
-          isSuperAdmin,
-          allowedOrganizationIds: allowedIds,
-          targetOrganizationId: organizationId,
-        })
-      ) {
-        throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
-      }
-      scopedCtx.__apiKeyOrganizationId = organizationId ?? null
-
-      return { ...input, organizationId }
-    },
-    afterCreate: async (entity, ctx) => {
-      const scopedCtx = ctx as ApiKeyCrudCtx
-      const secretData = scopedCtx.__apiKeySecret
-      const roles = scopedCtx.__apiKeyRoles
-      if (secretData) (entity as ApiKeyEntityWithMeta).__apiKeySecret = secretData.secret
-      if (roles) (entity as ApiKeyEntityWithMeta).__apiKeyRoles = roles
-      try {
-        const rbac = (ctx.container.resolve('rbacService') as RbacService)
-        await rbac.invalidateUserCache(`api_key:${entity.id}`)
-      } catch {}
     },
     beforeDelete: async (id, ctx) => {
       const auth = ctx.auth

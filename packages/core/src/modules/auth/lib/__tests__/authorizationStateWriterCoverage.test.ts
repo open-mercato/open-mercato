@@ -13,6 +13,8 @@ const writerCoverage = [
   ['src/modules/auth/lib/setup-app.ts', 'lockUserRoleWriterAuthorizationState'],
   ['src/modules/auth/lib/setup-app.ts', 'lockRoleAclWriterAuthorizationState'],
   ['src/modules/auth/lib/executionPrincipal.ts', 'lockAuthorizationState'],
+  ['src/modules/api_keys/api/keys/route.ts', "commandId: 'api_keys.keys.create'"],
+  ['src/modules/api_keys/services/apiKeyService.ts', 'lockRoleWriterAuthorizationState'],
 ] as const
 
 const enterpriseWriterCoverage = [
@@ -29,5 +31,22 @@ describe('authorization-state writer protocol coverage', () => {
   it.each(enterpriseWriterCoverage)('%s uses %s', (relativePath, helper) => {
     const source = readFileSync(path.resolve(enterpriseRoot, relativePath), 'utf8')
     expect(source).toContain(helper)
+  })
+
+  it('keeps both service-level rolesJson insertions behind role-parent locks', () => {
+    const source = readFileSync(
+      path.resolve(coreRoot, 'src/modules/api_keys/services/apiKeyService.ts'),
+      'utf8',
+    )
+    const createApiKey = source.slice(
+      source.indexOf('export async function createApiKey('),
+      source.indexOf('export async function deleteApiKey('),
+    )
+    const createSessionApiKey = source.slice(
+      source.indexOf('export async function createSessionApiKey('),
+      source.indexOf('export async function findApiKeyBySessionToken('),
+    )
+    expect(createApiKey).toContain('lockRoleWriterAuthorizationState')
+    expect(createSessionApiKey).toContain('lockRoleWriterAuthorizationState')
   })
 })

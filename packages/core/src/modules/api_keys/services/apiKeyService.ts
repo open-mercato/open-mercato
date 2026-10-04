@@ -9,7 +9,10 @@ import { getSharedApiKeyAuthCache } from '@open-mercato/shared/lib/auth/apiKeyAu
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { lockAuthorizationApiKeyRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import {
+  lockAuthorizationApiKeyRows,
+  lockRoleWriterAuthorizationState,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 const logger = createLogger('api_keys').child({ component: 'api-key-service' })
 
@@ -130,23 +133,32 @@ export async function verifyApiKey(secret: string, keyHash: string): Promise<boo
 export async function createApiKey(
   em: EntityManager,
   input: CreateApiKeyInput,
-  opts: { rbac?: RbacService } = {},
+  opts: {
+    rbac?: RbacService
+    authorizeRoles?: (roleIds: readonly string[]) => Promise<void> | void
+  } = {},
 ): Promise<ApiKeyWithSecret> {
   const { secret, prefix } = generateApiKeySecret()
   const keyHash = await hashApiKey(secret)
-  const record = em.create(ApiKey, {
-    name: input.name,
-    description: input.description ?? null,
-    tenantId: input.tenantId ?? null,
-    organizationId: input.organizationId ?? null,
-    keyHash,
-    keyPrefix: prefix,
-    rolesJson: Array.isArray(input.roles) ? input.roles : [],
-    createdBy: input.createdBy ?? null,
-    expiresAt: input.expiresAt ?? null,
-    createdAt: new Date(),
-  })
-  await em.persist(record).flush()
+  const roleIds = Array.from(new Set((input.roles ?? []).filter(Boolean))).sort()
+  let record!: ApiKey
+  await withAtomicFlush(em, [async () => {
+    await lockRoleWriterAuthorizationState(em, roleIds)
+    await opts.authorizeRoles?.(roleIds)
+    record = em.create(ApiKey, {
+      name: input.name,
+      description: input.description ?? null,
+      tenantId: input.tenantId ?? null,
+      organizationId: input.organizationId ?? null,
+      keyHash,
+      keyPrefix: prefix,
+      rolesJson: roleIds,
+      createdBy: input.createdBy ?? null,
+      expiresAt: input.expiresAt ?? null,
+      createdAt: new Date(),
+    })
+    em.persist(record)
+  }], { transaction: true, label: 'api_keys.create' })
   if (opts.rbac) {
     await opts.rbac.invalidateUserCache(`api_key:${record.id}`)
   }
@@ -232,23 +244,27 @@ export async function createSessionApiKey(
   // Encrypt the secret for later retrieval (used by MCP server for API calls)
   const encryptedSecret = await encryptSessionSecret(secret, input.tenantId ?? null)
 
-  const record = em.create(ApiKey, {
-    name: `__session_${input.sessionToken}__`,
-    description: 'Ephemeral session API key for AI chat',
-    tenantId: input.tenantId ?? null,
-    organizationId: input.organizationId ?? null,
-    keyHash,
-    keyPrefix: prefix,
-    rolesJson: input.userRoles,
-    createdBy: input.userId,
-    sessionToken: input.sessionToken,
-    sessionUserId: input.userId,
-    sessionSecretEncrypted: encryptedSecret,
-    expiresAt,
-    createdAt: new Date(),
-  })
-
-  await em.persist(record).flush()
+  const roleIds = Array.from(new Set(input.userRoles.filter(Boolean))).sort()
+  let record!: ApiKey
+  await withAtomicFlush(em, [async () => {
+    await lockRoleWriterAuthorizationState(em, roleIds)
+    record = em.create(ApiKey, {
+      name: `__session_${input.sessionToken}__`,
+      description: 'Ephemeral session API key for AI chat',
+      tenantId: input.tenantId ?? null,
+      organizationId: input.organizationId ?? null,
+      keyHash,
+      keyPrefix: prefix,
+      rolesJson: roleIds,
+      createdBy: input.userId,
+      sessionToken: input.sessionToken,
+      sessionUserId: input.userId,
+      sessionSecretEncrypted: encryptedSecret,
+      expiresAt,
+      createdAt: new Date(),
+    })
+    em.persist(record)
+  }], { transaction: true, label: 'api_keys.session.create' })
 
   return {
     keyId: record.id,

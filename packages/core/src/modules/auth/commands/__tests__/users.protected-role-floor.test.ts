@@ -356,12 +356,12 @@ describe('auth.users protected role floor checks', () => {
 
     await expect(handler.execute({ id: userId }, ctx)).rejects.toThrow(CrudHttpError)
 
-    const roleCall = findMock.mock.calls.find(call => call[0] === Role)
-    expect(roleCall[2]).toEqual(
-      expect.objectContaining({
-        lockMode: LockMode.PESSIMISTIC_WRITE,
-        orderBy: { id: 'ASC' }
-      })
+    const roleDiscoveryCall = findMock.mock.calls.find(call => call[0] === Role)
+    expect(roleDiscoveryCall[2]).toEqual({ orderBy: { id: 'ASC' } })
+    expect(findOneMock).toHaveBeenCalledWith(
+      Role,
+      { id: mockAdminRole.id },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
     )
     const userRoleCall = findMock.mock.calls.find(call => call[0] === UserRole)
     expect(userRoleCall[1]).toEqual(

@@ -5,6 +5,10 @@ import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modul
 import { lockOrganizationHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
 
 function uniqueSortedIds(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.length > 0))).sort()
@@ -65,6 +69,11 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
   const canonicalRight = uniqueSortedIds(right)
   return canonicalLeft.length === canonicalRight.length
     && canonicalLeft.every((value, index) => value === canonicalRight[index])
+}
+
+function hasUnexpectedIds(expected: readonly string[], observed: readonly string[]): boolean {
+  const expectedIds = new Set(expected)
+  return observed.some((id) => !expectedIds.has(id))
 }
 
 function authorizationStateDrift(): CrudHttpError {
@@ -158,7 +167,10 @@ export async function lockAuthorizationState(
   targets: AuthorizationStateLockTargets,
   options: { sealReplayFootprint?: boolean } = {},
 ): Promise<void> {
-  const existingLease = replayLockLeases.get(em as object)
+  const transactionLifetime = getTransactionLifetime(em)
+  const existingLease = transactionLifetime
+    ? replayLockLeases.get(transactionLifetime)
+    : undefined
   if (existingLease) {
     assertLeaseContains(existingLease, targets)
     return
@@ -244,6 +256,11 @@ export async function lockAuthorizationState(
 
   await lockAuthorizationRoleRows(em, roleIds)
 
+  const stableReferencingApiKeyIds = await findApiKeyIdsReferencingRoles(em, roleIds)
+  if (hasUnexpectedIds(referencingApiKeyIds, stableReferencingApiKeyIds)) {
+    throw authorizationStateDrift()
+  }
+
   for (const tenantId of tenantIds) {
     await lockOrganizationHierarchyForTenant(em, tenantId)
   }
@@ -278,11 +295,17 @@ export async function lockAuthorizationState(
   }
 
   if (options.sealReplayFootprint) {
-    replayLockLeases.set(em as object, {
+    if (!transactionLifetime) {
+      throw new Error('[internal] Replay authorization locks require an explicit transaction lifetime')
+    }
+    replayLockLeases.set(transactionLifetime, {
       apiKeyIds: new Set(apiKeyIds),
       userIds: new Set(userIds),
       roleIds: new Set(roleIds),
       tenantIds: new Set(tenantIds),
+    })
+    onTransactionLifetimeComplete(em, () => {
+      replayLockLeases.delete(transactionLifetime)
     })
   }
 }
