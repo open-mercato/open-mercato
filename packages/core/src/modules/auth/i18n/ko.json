@@ -160,6 +160,8 @@
   "auth.acl.features.directory.organizations.view": "View organizations",
   "auth.acl.features.directory.tenants.manage": "Manage tenants",
   "auth.acl.features.directory.tenants.view": "View tenants",
+  "auth.acl.features.document_generators.documents.generate": "Generate documents",
+  "auth.acl.features.document_generators.documents.view": "View documents",
   "auth.acl.features.documents.create": "Create documents",
   "auth.acl.features.documents.delete": "Delete documents",
   "auth.acl.features.documents.edit": "Edit documents",
