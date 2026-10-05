@@ -32,7 +32,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -167,6 +169,7 @@ type FormDetail = {
   defaultLocale: string
   supportedLocales: string[]
   currentPublishedVersionId: string | null
+  updatedAt: string
   versions: Array<{
     id: string
     versionNumber: number
@@ -174,7 +177,13 @@ type FormDetail = {
     schemaHash: string
     publishedAt: string | null
     changelog: string | null
+    updatedAt: string
   }>
+}
+
+type LockMutationResponse = {
+  ok: true
+  updatedAt: string
 }
 
 type FieldOption = {
@@ -351,6 +360,8 @@ export function FormStudio({ formId }: { formId: string }) {
   const dirtyFlagRef = React.useRef(false)
   const schemaRef = React.useRef<FormSchema>(DEFAULT_SCHEMA)
   const selectionRef = React.useRef<StudioSelection>(null)
+  const formUpdatedAtRef = React.useRef<string | null>(null)
+  const versionUpdatedAtRef = React.useRef<string | null>(null)
   // Phase 4 — gridRefs ownership lives here so dragOverlayContent can measure
   // the target section's pixel rect when computing the overlay width. The
   // canvas writes section grid nodes into this Map via the ref-prop below.
@@ -367,6 +378,14 @@ export function FormStudio({ formId }: { formId: string }) {
   React.useEffect(() => {
     selectionRef.current = selection
   }, [selection])
+
+  React.useEffect(() => {
+    formUpdatedAtRef.current = form?.updatedAt ?? null
+  }, [form?.updatedAt])
+
+  React.useEffect(() => {
+    versionUpdatedAtRef.current = version?.updatedAt ?? null
+  }, [version?.updatedAt])
 
   const reload = React.useCallback(async () => {
     setIsLoading(true)
@@ -428,40 +447,34 @@ export function FormStudio({ formId }: { formId: string }) {
     void reload()
   }, [reload])
 
-  // optimistic-lock-exempt: debounced autosave editor. Every mutating call in
-  // this file is an autosave write — the draft schema, the form name/description,
-  // and the locale set — fired on a debounce while the designer types. A
-  // per-write expected-version header is the wrong mechanism for that shape: the
-  // version moves on every batch, and a 409 raised mid-typing has no sensible
-  // recovery.
-  //
-  // Stated plainly: draft writes currently have NO concurrency control at all.
-  // `forms.form_version.update_draft` accepts no expected version, overwrites
-  // the draft wholesale, and recomputes `schemaHash` from what it just wrote —
-  // so the hash is a pure function of the caller's own write and is never
-  // compared against anything. Two designers on one draft silently
-  // last-write-wins and neither is told. A concurrency signal that suits an
-  // autosave editor is tracked in
-  // .ai/specs/2026-09-30-forms-module-into-core.md § Known limitations.
   const persistDraftRaw = React.useCallback(async (next: FormSchema) => {
     if (!draftVersionId) return
     setAutosaveState('saving')
     const call = await runMutation({
-      operation: () => apiCall(
-        `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(draftVersionId)}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ schema: next }),
-        },
+      operation: () => withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(versionUpdatedAtRef.current),
+        () => apiCall<LockMutationResponse>(
+          `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(draftVersionId)}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ schema: next }),
+          },
+        ),
       ),
       context: { formId, versionId: draftVersionId },
       mutationPayload: { formId, versionId: draftVersionId },
     })
     if (!call.ok) {
       setAutosaveState('error')
+      if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
       const errPayload = call.result as { error?: string } | undefined
       flash(t(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
       return
+    }
+    const updatedAt = call.result?.updatedAt
+    if (updatedAt) {
+      versionUpdatedAtRef.current = updatedAt
+      setVersion((current) => current ? { ...current, updatedAt } : current)
     }
     setAutosaveState('idle')
     dirtyFlagRef.current = false
@@ -1305,16 +1318,26 @@ export function FormStudio({ formId }: { formId: string }) {
     () =>
       autosaveDebounce(async (payload: { name?: string; description?: string | null }) => {
         const call = await runMutation({
-          operation: () => apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
-            method: 'PATCH',
-            body: JSON.stringify(payload),
-          }),
+          operation: () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(formUpdatedAtRef.current),
+            () => apiCall<LockMutationResponse>(`/api/forms/${encodeURIComponent(formId)}`, {
+              method: 'PATCH',
+              body: JSON.stringify(payload),
+            }),
+          ),
           context: { formId },
           mutationPayload: { formId, ...payload },
         })
         if (!call.ok) {
+          if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
           const errPayload = call.result as { error?: string } | undefined
           flash(t(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
+          return
+        }
+        const updatedAt = call.result?.updatedAt
+        if (updatedAt) {
+          formUpdatedAtRef.current = updatedAt
+          setForm((current) => current ? { ...current, updatedAt } : current)
         }
       }, 1000),
     [formId, runMutation, t],
@@ -1345,17 +1368,30 @@ export function FormStudio({ formId }: { formId: string }) {
         payload.supportedLocales.includes(current) ? current : payload.defaultLocale,
       )
       const call = await runMutation({
-        operation: () => apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
-        }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(formUpdatedAtRef.current),
+          () => apiCall<LockMutationResponse>(`/api/forms/${encodeURIComponent(formId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          }),
+        ),
         context: { formId },
         mutationPayload: { formId, ...payload },
       })
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) {
+          await reload()
+          return
+        }
         const errPayload = call.result as { error?: string } | undefined
         flash(t(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
         await reload()
+        return
+      }
+      const updatedAt = call.result?.updatedAt
+      if (updatedAt) {
+        formUpdatedAtRef.current = updatedAt
+        setForm((current) => current ? { ...current, updatedAt } : current)
       }
     },
     [formId, reload, runMutation, t],
@@ -1849,6 +1885,7 @@ export function FormStudio({ formId }: { formId: string }) {
           <PublishDialog
             formId={formId}
             versionId={draftVersionId}
+            updatedAt={version?.updatedAt ?? null}
             onClose={() => setShowPublishDialog(false)}
             onPublished={() => {
               setShowPublishDialog(false)
@@ -3153,12 +3190,13 @@ function OptionsEditor({
 type PublishDialogProps = {
   formId: string
   versionId: string
+  updatedAt: string | null
   onClose: () => void
   onPublished: () => void
   t: ReturnType<typeof useT>
 }
 
-function PublishDialog({ formId, versionId, onClose, onPublished, t }: PublishDialogProps) {
+function PublishDialog({ formId, versionId, updatedAt, onClose, onPublished, t }: PublishDialogProps) {
   const [changelog, setChangelog] = React.useState('')
   const [busy, setBusy] = React.useState(false)
   const { runMutation } = useGuardedMutation({ contextId: 'forms.form.publish' })
@@ -3167,24 +3205,28 @@ function PublishDialog({ formId, versionId, onClose, onPublished, t }: PublishDi
     if (busy) return
     setBusy(true)
     const call = await runMutation({
-      operation: () => apiCall<{ versionId: string }>(
-        `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(versionId)}/publish`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ changelog: changelog.trim() || null }),
-        },
+      operation: () => withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt),
+        () => apiCall<{ versionId: string; updatedAt: string }>(
+          `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(versionId)}/publish`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ changelog: changelog.trim() || null }),
+          },
+        ),
       ),
       context: { formId, versionId },
       mutationPayload: { formId, versionId },
     })
     setBusy(false)
     if (!call.ok) {
+      if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
       const errPayload = call.result as { error?: string } | undefined
       flash(t(errPayload?.error ?? 'forms.errors.internal'), 'error')
       return
     }
     onPublished()
-  }, [busy, changelog, formId, onPublished, runMutation, t, versionId])
+  }, [busy, changelog, formId, onPublished, runMutation, t, updatedAt, versionId])
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>

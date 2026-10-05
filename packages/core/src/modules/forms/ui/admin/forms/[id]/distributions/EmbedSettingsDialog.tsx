@@ -22,7 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -34,6 +36,7 @@ type DistributionDetailResponse = {
   id: string
   publicSlug: string | null
   settings: Record<string, unknown> | null
+  updatedAt: string
 }
 
 function readEmbedFromSettings(settings: Record<string, unknown> | null): {
@@ -87,6 +90,7 @@ export function EmbedSettingsDialog({
   const [loading, setLoading] = React.useState(true)
   const [submitting, setSubmitting] = React.useState(false)
   const [baseSettings, setBaseSettings] = React.useState<Record<string, unknown> | null>(null)
+  const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
   const [enabled, setEnabled] = React.useState(false)
   const [domains, setDomains] = React.useState<string[]>([])
   const [theme, setTheme] = React.useState<EmbedTheme>('auto')
@@ -108,6 +112,7 @@ export function EmbedSettingsDialog({
           return
         }
         setBaseSettings(resp.result.settings ?? null)
+        setUpdatedAt(resp.result.updatedAt)
         const embed = readEmbedFromSettings(resp.result.settings ?? null)
         setEnabled(embed.enabled)
         setDomains(embed.allowedDomains)
@@ -149,29 +154,36 @@ export function EmbedSettingsDialog({
 
     setSubmitting(true)
     try {
-      await runMutation({
-        operation: async () => {
-          const resp = await apiCall(`/api/forms/distributions/${encodeURIComponent(distributionId)}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          })
-          if (!resp.ok) {
-            flash(t('forms.distribution.embed.save_failed'), 'error')
-            throw new Error('forms.distribution.embed.save_failed')
-          }
-          flash(t('forms.distribution.embed.save_success'), 'success')
-          onSaved()
-        },
+      const resp = await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCall<{ id: string; updatedAt: string }>(
+            `/api/forms/distributions/${encodeURIComponent(distributionId)}`,
+            {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+          ),
+        ),
         context: { distributionId },
         mutationPayload: { distributionId, ...body },
       })
+      if (!resp.ok) {
+        if (!surfaceRecordConflict({ status: resp.status, body: resp.result }, t)) {
+          flash(t('forms.distribution.embed.save_failed'), 'error')
+        }
+        return
+      }
+      if (resp.result?.updatedAt) setUpdatedAt(resp.result.updatedAt)
+      flash(t('forms.distribution.embed.save_success'), 'success')
+      onSaved()
     } catch {
       // flash already surfaced; keep dialog open for correction
     } finally {
       setSubmitting(false)
     }
-  }, [autoResize, baseSettings, distributionId, domains, enabled, loading, onSaved, runMutation, submitting, t, theme])
+  }, [autoResize, baseSettings, distributionId, domains, enabled, loading, onSaved, runMutation, submitting, t, theme, updatedAt])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {

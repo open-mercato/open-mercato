@@ -8,7 +8,9 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -137,20 +139,16 @@ export default function FormsListPage() {
       variant: 'destructive',
     })
     if (!ok) return
-    // optimistic-lock-exempt: idempotent state transition. DELETE here runs the
-    // `forms.form.archive` command, which stamps `archived_at` and no-ops on an
-    // already-archived form; it edits no field a concurrent designer could be
-    // holding, and `forms.form.restore` reverses it. The module's write routes
-    // are hand-rolled rather than `makeCrudRoute`, so no server side reads a
-    // version header yet — sending one from here would be theatre. Real
-    // end-to-end locking for the forms admin surface is tracked in
-    // .ai/specs/2026-09-30-forms-module-into-core.md § Known limitations.
     const call = await runMutation({
-      operation: () => apiCall(`/api/forms/${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
+      operation: () => withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCall(`/api/forms/${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
+      ),
       context: { formId: row.id },
       mutationPayload: { formId: row.id },
     })
     if (!call.ok) {
+      if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
       const errPayload = call.result as { error?: string } | undefined
       flash(t(errPayload?.error ?? 'forms.errors.internal'), 'error')
       return

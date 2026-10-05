@@ -7,7 +7,9 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -148,23 +150,29 @@ export function DistributionsPanel({ formId }: { formId: string }) {
 
   const patchStatus = React.useCallback(
     async (row: DistributionRow, nextStatus: DistributionStatus) => {
-      await runMutation({
-        operation: async () => {
-          const resp = await apiCall(`/api/forms/distributions/${encodeURIComponent(row.id)}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ status: nextStatus }),
-          })
-          if (!resp.ok) {
-            flash(t('forms.distribution.status.failed'), 'error')
-            throw new Error('forms.distribution.status.failed')
-          }
-          flash(t('forms.distribution.status.success'), 'success')
-          reload()
-        },
+      const resp = await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCall<{ id: string; updatedAt: string }>(
+            `/api/forms/distributions/${encodeURIComponent(row.id)}`,
+            {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ status: nextStatus }),
+            },
+          ),
+        ),
         context: { distributionId: row.id, nextStatus },
         mutationPayload: { distributionId: row.id, status: nextStatus },
       })
+      if (!resp.ok) {
+        if (!surfaceRecordConflict({ status: resp.status, body: resp.result }, t)) {
+          flash(t('forms.distribution.status.failed'), 'error')
+        }
+        return
+      }
+      flash(t('forms.distribution.status.success'), 'success')
+      reload()
     },
     [reload, runMutation, t],
   )
