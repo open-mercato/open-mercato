@@ -20,8 +20,8 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 0 | 0.1 | Spec amendments + analysis reports (D1–D22) | inline | done | 8040682f1a |
-| 0 | 0.2 | Run-folder commit (this plan) | inline | done | a16fd069f5 |
-| 1 | 1.1 | Shared catalog-visibility canonical scope hash | dispatch:standard | todo | — |
+| 0 | 0.2 | Run-folder commit (this plan) | inline | done | 5f186e62c2 |
+| 1 | 1.1 | Shared catalog-visibility canonical scope hash | dispatch:standard | done | pending |
 | 1 | 1.2 | Catalog PricingContext priceKindId + customerIds | dispatch:capable | todo | — |
 | 1 | 1.3 | Catalog price-row index migration (pricing-engine Phase 2b) | inline | todo | — |
 | 1 | 1.4 | customer_groups multi-id resolution (customerIds input) | dispatch:capable | todo | — |
