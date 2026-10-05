@@ -178,11 +178,12 @@ describe('DocumentEntityLink label encryption', () => {
         hrefSnapshot: { name: 'hrefSnapshot', fieldName: 'href_snapshot' },
       },
     }
+    const em = {}
 
     await subscriber.beforeCreate({
       entity,
       meta: metadata,
-      em: {},
+      em,
       changeSet,
     } as never)
 
@@ -191,6 +192,7 @@ describe('DocumentEntityLink label encryption', () => {
       entity,
       TENANT_ID,
       ORGANIZATION_ID,
+      { em },
     )
     expect(changeSet.payload.label_snapshot).toBe(ciphertext)
     expect(changeSet.payload.href_snapshot).toBe(entity.hrefSnapshot)
