@@ -121,7 +121,7 @@ export function EmbedSettingsDialog({
     return () => {
       cancelled = true
     }
-  }, [distributionId, onClose])
+  }, [distributionId, onClose, t])
 
   const addDomain = React.useCallback(() => {
     const normalized = normalizeEmbedOrigin(domainDraft)
@@ -131,7 +131,7 @@ export function EmbedSettingsDialog({
     }
     setDomains((current) => (current.includes(normalized) ? current : [...current, normalized]))
     setDomainDraft('')
-  }, [domainDraft])
+  }, [domainDraft, t])
 
   const removeDomain = React.useCallback((value: string) => {
     setDomains((current) => current.filter((entry) => entry !== value))
@@ -171,7 +171,7 @@ export function EmbedSettingsDialog({
     } finally {
       setSubmitting(false)
     }
-  }, [autoResize, baseSettings, distributionId, domains, enabled, loading, onSaved, runMutation, submitting, theme])
+  }, [autoResize, baseSettings, distributionId, domains, enabled, loading, onSaved, runMutation, submitting, t, theme])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -194,7 +194,7 @@ export function EmbedSettingsDialog({
       // fall through
     }
     flash(t('forms.distribution.copy.failed'), 'error')
-  }, [publicSlug])
+  }, [publicSlug, t])
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
@@ -256,7 +256,7 @@ export function EmbedSettingsDialog({
                   {domains.map((domain) => (
                     <li
                       key={domain}
-                      className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-2 py-1"
+                      className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-2 py-1"
                     >
                       <span className="font-mono text-xs text-foreground">{domain}</span>
                       <Button
@@ -295,7 +295,7 @@ export function EmbedSettingsDialog({
             </div>
 
             <FormField label={t('forms.distribution.embed.snippet_label', { fallback: 'Embed snippet' })}>
-              <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2 text-xs text-foreground">
+              <pre className="overflow-x-auto rounded-md border border-border bg-muted/30 p-2 text-xs text-foreground">
                 {embedSnippet(publicSlug)}
               </pre>
               <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={copySnippet}>

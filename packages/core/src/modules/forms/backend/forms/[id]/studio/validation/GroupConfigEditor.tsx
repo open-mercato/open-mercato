@@ -4,7 +4,8 @@ import * as React from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
+import { Label } from '@open-mercato/ui/primitives/label'
 import {
   Select,
   SelectContent,
@@ -67,6 +68,8 @@ export function GroupConfigEditor({
   onMaxItemsChange,
 }: GroupConfigEditorProps) {
   const t = useT()
+  const minItemsId = React.useId()
+  const maxItemsId = React.useId()
   return (
     <div className="space-y-3">
       <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -115,13 +118,11 @@ export function GroupConfigEditor({
                     ))}
                   </SelectContent>
                 </Select>
-                <label className="flex items-center gap-2 whitespace-nowrap text-sm">
-                  <Switch
-                    checked={subField.required}
-                    onCheckedChange={(next) => onUpdateSubField(subField.key, { required: Boolean(next) })}
-                  />
-                  {t('forms.studio.field.group.subFieldRequired')}
-                </label>
+                <SwitchField
+                  label={t('forms.studio.field.group.subFieldRequired')}
+                  checked={subField.required}
+                  onCheckedChange={(next) => onUpdateSubField(subField.key, { required: Boolean(next) })}
+                />
               </div>
             </li>
           ))}
@@ -133,10 +134,11 @@ export function GroupConfigEditor({
       </Button>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-muted-foreground">
+          <Label htmlFor={minItemsId} className="block text-xs font-medium text-muted-foreground">
             {t('forms.studio.field.group.minItems')}
-          </label>
+          </Label>
           <Input
+            id={minItemsId}
             type="number"
             inputMode="numeric"
             min={0}
@@ -146,10 +148,11 @@ export function GroupConfigEditor({
           />
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-muted-foreground">
+          <Label htmlFor={maxItemsId} className="block text-xs font-medium text-muted-foreground">
             {t('forms.studio.field.group.maxItems')}
-          </label>
+          </Label>
           <Input
+            id={maxItemsId}
             type="number"
             inputMode="numeric"
             min={1}

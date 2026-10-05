@@ -5,11 +5,13 @@ import { useSearchParams } from 'next/navigation'
 import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
 import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
 import { navigateWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormRunner } from '../../../../../../ui/public'
 
 type Props = { params: { orgSlug: string; id: string } }
 
 export default function PortalSubmissionContinuePage({ params }: Props) {
+  const t = useT()
   // Route params come from the `params` prop the (frontend) catch-all passes.
   // `useParams()` returns `{ slug }` under the catch-all, so `id` was undefined
   // and this page could never resume a submission. Query-string values still
@@ -43,7 +45,7 @@ export default function PortalSubmissionContinuePage({ params }: Props) {
             }}
           />
         ) : (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{t('forms.runner.loading')}</p>
         )}
       </main>
     </PortalShell>

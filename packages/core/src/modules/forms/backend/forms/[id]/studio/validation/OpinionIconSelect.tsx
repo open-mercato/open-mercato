@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
+import { Label } from '@open-mercato/ui/primitives/label'
 
 export type OpinionIconValue = 'star' | 'dot' | 'thumb'
 
@@ -24,13 +25,14 @@ export type OpinionIconSelectProps = {
  */
 export function OpinionIconSelect({ value, onChange }: OpinionIconSelectProps) {
   const t = useT()
+  const selectId = React.useId()
   return (
     <div className="space-y-1">
-      <label className="block text-xs font-medium text-muted-foreground">
+      <Label htmlFor={selectId} className="block text-xs font-medium text-muted-foreground">
         {t('forms.studio.field.opinion.icon.label')}
-      </label>
+      </Label>
       <Select value={value} onValueChange={(next) => onChange(next as OpinionIconValue)}>
-        <SelectTrigger>
+        <SelectTrigger id={selectId}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

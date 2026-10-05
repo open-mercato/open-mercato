@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { FormRunner } from '../../../../runner/FormRunner'
 import { pickHiddenFromUrl } from '../../../../runner/tamper-check'
 
@@ -31,20 +32,20 @@ export default function PublicFormRunnerPage() {
       .then((result) => {
         if (cancelled) return
         if (result.result) setContext(result.result)
-        else setError('Failed to load form.')
+        else setError(t('forms.runner.error.generic'))
       })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load form.')
+      .catch(() => {
+        if (!cancelled) setError(t('forms.runner.error.generic'))
       })
     return () => {
       cancelled = true
     }
-  }, [formId])
+  }, [formId, t])
 
   if (error) {
     return (
       <main className="mx-auto max-w-xl px-4 py-10">
-        <Alert variant="destructive">{error}</Alert>
+        <Alert status="error" style="light">{error}</Alert>
       </main>
     )
   }
@@ -52,7 +53,7 @@ export default function PublicFormRunnerPage() {
   if (!context) {
     return (
       <main className="mx-auto max-w-xl px-4 py-10">
-        <p className="text-sm text-muted-foreground">{t('forms.runner.completion.subtitle')}</p>
+        <LoadingMessage label={t('forms.runner.loading')} />
       </main>
     )
   }

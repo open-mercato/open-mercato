@@ -68,7 +68,7 @@ export function ReviewStep({
         </h2>
       </header>
 
-      <Alert variant="warning">
+      <Alert status="warning" style="light">
         <AlertTitle>
           {t('forms.runner.review.title', { fallback: 'Review your answers' })}
         </AlertTitle>

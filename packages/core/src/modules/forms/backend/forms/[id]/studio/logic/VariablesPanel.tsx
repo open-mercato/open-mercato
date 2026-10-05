@@ -5,6 +5,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Alert } from '@open-mercato/ui/primitives/alert'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import {
   Select,
   SelectContent,
@@ -152,7 +154,7 @@ export function VariablesPanel({ schema, entries, onChange }: VariablesPanelProp
                 <span className="font-mono text-xs text-foreground">
                   {entry.name} <span className="text-muted-foreground">: {entry.type}</span>
                 </span>
-                <code className="mt-1 max-w-xs truncate text-[10px] text-muted-foreground">
+                <code className="mt-1 max-w-xs truncate text-xs text-muted-foreground">
                   {JSON.stringify(entry.formula)}
                 </code>
               </div>
@@ -215,14 +217,13 @@ export function VariablesPanel({ schema, entries, onChange }: VariablesPanelProp
               fieldKeys.map((key) => {
                 const checked = draft.selectedFields.includes(key)
                 return (
-                  <label key={key} className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(event) => handleToggleField(key, event.target.checked)}
-                    />
-                    <span className="font-mono">{key}</span>
-                  </label>
+                  <CheckboxField
+                    key={key}
+                    label={<span className="font-mono text-xs">{key}</span>}
+                    size="sm"
+                    checked={checked}
+                    onCheckedChange={(next) => handleToggleField(key, next === true)}
+                  />
                 )
               })
             )}
@@ -233,9 +234,10 @@ export function VariablesPanel({ schema, entries, onChange }: VariablesPanelProp
             <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
               {t('forms.studio.parameters.variables.rawHint')}
             </summary>
-            <textarea
+            <Textarea
               className="mt-1 h-24 w-full rounded-md border border-border bg-background p-2 font-mono text-xs"
-              placeholder={'{"+": [{"var": "a"}, {"var": "b"}]}'}
+              aria-label={t('forms.studio.parameters.variables.rawHint')}
+              placeholder={t('forms.studio.parameters.variables.rawPlaceholder')}
               value={draft.rawJson}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, rawJson: event.target.value }))
@@ -248,7 +250,7 @@ export function VariablesPanel({ schema, entries, onChange }: VariablesPanelProp
           value={draft.defaultValue}
           onChange={(event) => setDraft((current) => ({ ...current, defaultValue: event.target.value }))}
         />
-        {error ? <Alert variant="destructive">{error}</Alert> : null}
+        {error ? <Alert status="error" style="light">{error}</Alert> : null}
         <Button variant="outline" size="sm" type="button" onClick={handleAdd}>
           {t('forms.studio.parameters.variables.add')}
         </Button>

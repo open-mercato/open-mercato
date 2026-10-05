@@ -172,9 +172,9 @@ export function ColorControl({
       : t('forms.studio.style.color.tokenTrigger', 'Choose a token')
 
   return (
-    <div className="space-y-1">
-      <span className="block text-xs font-medium text-foreground">{label}</span>
-      <div className="flex items-center gap-1.5">
+    <fieldset className="space-y-1">
+      <legend className="block text-xs font-medium text-foreground">{label}</legend>
+      <div className="flex items-center gap-2">
         <Popover open={tokenOpen} onOpenChange={setTokenOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -193,7 +193,7 @@ export function ColorControl({
             </Button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-56 p-2">
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label={label}>
+            <div className="flex flex-wrap gap-2" role="group" aria-label={label}>
               {swatches.map((swatch) => {
                 const selected = value === swatch.token
                 const swatchLabel = t(swatch.labelKey, swatch.fallbackLabel)
@@ -252,6 +252,6 @@ export function ColorControl({
           {aaWarning}
         </p>
       ) : null}
-    </div>
+    </fieldset>
   )
 }

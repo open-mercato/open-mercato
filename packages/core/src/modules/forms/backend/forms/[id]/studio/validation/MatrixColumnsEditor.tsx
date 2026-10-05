@@ -4,6 +4,7 @@ import * as React from 'react'
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { OmMatrixColumnInput } from '../schema-helpers'
 
@@ -48,6 +49,7 @@ function nextColumnValue(columns: ReadonlyArray<OmMatrixColumnInput>): string {
 
 export function MatrixColumnsEditor({ locale, columns, onChange }: MatrixColumnsEditorProps) {
   const t = useT()
+  const inputIdPrefix = React.useId()
   const handleAdd = React.useCallback(() => {
     const newColumn: OmMatrixColumnInput = {
       value: nextColumnValue(columns),
@@ -99,10 +101,12 @@ export function MatrixColumnsEditor({ locale, columns, onChange }: MatrixColumns
           >
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
               <div className="space-y-1">
-                <label className="block text-xs text-muted-foreground">
+                <Label htmlFor={`${inputIdPrefix}-${index}-value`} className="block text-xs text-muted-foreground">
                   {t('forms.studio.field.matrix.columns.value')}
-                </label>
+                </Label>
                 <Input
+                  id={`${inputIdPrefix}-${index}-value`}
+                  aria-label={`${t('forms.studio.field.matrix.columns.value')} ${index + 1}`}
                   value={column.value}
                   onChange={(event) =>
                     handlePatch(index, { value: event.target.value })
@@ -110,10 +114,12 @@ export function MatrixColumnsEditor({ locale, columns, onChange }: MatrixColumns
                 />
               </div>
               <div className="space-y-1">
-                <label className="block text-xs text-muted-foreground">
+                <Label htmlFor={`${inputIdPrefix}-${index}-label`} className="block text-xs text-muted-foreground">
                   {t('forms.studio.field.matrix.columns.label')}
-                </label>
+                </Label>
                 <Input
+                  id={`${inputIdPrefix}-${index}-label`}
+                  aria-label={`${t('forms.studio.field.matrix.columns.label')} ${index + 1}`}
                   value={resolveLabel(column, locale)}
                   onChange={(event) =>
                     handlePatch(index, setLabel(column, locale, event.target.value))

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type SignatureMode = 'drawn' | 'typed'
@@ -26,6 +27,7 @@ export function SignatureConfigEditor({
   onModesChange,
 }: SignatureConfigEditorProps) {
   const t = useT()
+  const clauseId = React.useId()
   const enabled = new Set<SignatureMode>(modes.length > 0 ? modes : ALL_MODES)
 
   const toggleMode = (mode: SignatureMode, checked: boolean) => {
@@ -40,11 +42,12 @@ export function SignatureConfigEditor({
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <label className="block text-xs font-medium text-muted-foreground">
+        <Label htmlFor={clauseId} className="block text-xs font-medium text-muted-foreground">
           {t('forms.studio.signature.clause.label', { fallback: 'Consent statement' })}
           <span className="ml-1 uppercase">{locale}</span>
-        </label>
+        </Label>
         <Textarea
+          id={clauseId}
           rows={4}
           value={clause}
           placeholder={t('forms.studio.signature.clause.placeholder', {

@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type FileConstraintsEditorProps = {
@@ -45,15 +46,18 @@ export function FileConstraintsEditor({
   onMultipleChange,
 }: FileConstraintsEditorProps) {
   const t = useT()
+  const acceptId = React.useId()
+  const maxSizeId = React.useId()
   const acceptValue = Array.isArray(accept) ? accept.join(', ') : ''
   const sizeMb = typeof maxSizeBytes === 'number' ? maxSizeBytes / (1024 * 1024) : undefined
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <label className="block text-xs font-medium text-muted-foreground">
+        <Label htmlFor={acceptId} className="block text-xs font-medium text-muted-foreground">
           {t('forms.studio.field.file.accept')}
-        </label>
+        </Label>
         <Input
+          id={acceptId}
           type="text"
           placeholder="image/*, application/pdf"
           value={acceptValue}
@@ -61,10 +65,11 @@ export function FileConstraintsEditor({
         />
       </div>
       <div className="space-y-1">
-        <label className="block text-xs font-medium text-muted-foreground">
+        <Label htmlFor={maxSizeId} className="block text-xs font-medium text-muted-foreground">
           {t('forms.studio.field.file.maxSizeMb')}
-        </label>
+        </Label>
         <Input
+          id={maxSizeId}
           type="number"
           inputMode="decimal"
           min={0}
@@ -73,10 +78,12 @@ export function FileConstraintsEditor({
           onChange={(event) => onMaxSizeChange(parseSizeMb(event.target.value))}
         />
       </div>
-      <label className="flex items-center justify-between gap-2 text-sm">
-        <span className="font-medium text-foreground">{t('forms.studio.field.file.multiple')}</span>
-        <Switch checked={multiple} onCheckedChange={(next) => onMultipleChange(Boolean(next))} />
-      </label>
+      <SwitchField
+        label={t('forms.studio.field.file.multiple')}
+        flip
+        checked={multiple}
+        onCheckedChange={(next) => onMultipleChange(Boolean(next))}
+      />
     </div>
   )
 }

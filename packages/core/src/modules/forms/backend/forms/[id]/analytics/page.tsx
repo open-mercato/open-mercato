@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { KpiCard, BarChart, LineChart, type BarChartDataItem } from '@open-mercato/ui/backend/charts'
@@ -106,7 +108,7 @@ export default function FormAnalyticsPage({ params }: { params?: { id?: string }
   )
 
   const title = formName
-    ? `${formName} · ${t('forms.analytics.title', { fallback: 'Analytics' })}`
+    ? `${formName} — ${t('forms.analytics.title', { fallback: 'Analytics' })}`
     : t('forms.analytics.title', { fallback: 'Analytics' })
 
   return (
@@ -117,7 +119,7 @@ export default function FormAnalyticsPage({ params }: { params?: { id?: string }
             <h1 className="text-lg font-semibold text-foreground">{title}</h1>
             {analytics?.scan.capped ? (
               <Tag variant="warning">
-                {t('forms.analytics.partial', 'Partial · most recent {limit} submissions', {
+                {t('forms.analytics.partial', 'Partial — most recent {limit} submissions', {
                   limit: analytics.scan.limit,
                 })}
               </Tag>
@@ -244,36 +246,44 @@ export default function FormAnalyticsPage({ params }: { params?: { id?: string }
 
 function AnsweredVsBlankTable({ fields }: { fields: FieldResponseStats[] }) {
   const t = useT()
-  if (fields.length === 0) return null
+  const columns = React.useMemo<ColumnDef<FieldResponseStats>[]>(() => [
+    {
+      id: 'fieldKey',
+      accessorKey: 'fieldKey',
+      header: t('forms.analytics.fields.field', { fallback: 'Field' }),
+      cell: ({ row }) => (
+        <span className="flex items-center gap-2">
+          {row.original.fieldKey}
+          {row.original.sensitive ? (
+            <Tag variant="warning">{t('forms.analytics.fields.sensitive', { fallback: 'Sensitive' })}</Tag>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      id: 'type',
+      accessorKey: 'type',
+      header: t('forms.analytics.fields.type', { fallback: 'Type' }),
+    },
+    {
+      id: 'answered',
+      accessorKey: 'answered',
+      header: t('forms.analytics.fields.answered', { fallback: 'Answered' }),
+    },
+    {
+      id: 'blank',
+      accessorKey: 'blank',
+      header: t('forms.analytics.fields.blank', { fallback: 'Blank' }),
+    },
+  ], [t])
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border text-left text-muted-foreground">
-            <th className="py-2 pr-4 font-medium">{t('forms.analytics.fields.field', { fallback: 'Field' })}</th>
-            <th className="py-2 pr-4 font-medium">{t('forms.analytics.fields.type', { fallback: 'Type' })}</th>
-            <th className="py-2 pr-4 font-medium">{t('forms.analytics.fields.answered', { fallback: 'Answered' })}</th>
-            <th className="py-2 font-medium">{t('forms.analytics.fields.blank', { fallback: 'Blank' })}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {fields.map((field) => (
-            <tr key={field.fieldKey} className="border-b border-border/50">
-              <td className="py-2 pr-4 text-foreground">
-                <span className="flex items-center gap-2">
-                  {field.fieldKey}
-                  {field.sensitive ? (
-                    <Tag variant="warning">{t('forms.analytics.fields.sensitive', { fallback: 'Sensitive' })}</Tag>
-                  ) : null}
-                </span>
-              </td>
-              <td className="py-2 pr-4 text-muted-foreground">{field.type}</td>
-              <td className="py-2 pr-4 text-foreground">{field.answered}</td>
-              <td className="py-2 text-muted-foreground">{field.blank}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      columns={columns}
+      data={fields}
+      emptyState={t('forms.analytics.fields.empty', {
+        fallback: 'No enumerable, non-sensitive fields to chart.',
+      })}
+    />
   )
 }

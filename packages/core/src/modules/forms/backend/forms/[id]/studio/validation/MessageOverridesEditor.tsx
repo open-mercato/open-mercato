@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type MessageOverrideRule =
@@ -34,6 +35,7 @@ export function MessageOverridesEditor({
   onChange,
 }: MessageOverridesEditorProps) {
   const t = useT()
+  const inputIdPrefix = React.useId()
   const [open, setOpen] = React.useState(false)
   if (applicableRules.length === 0) return null
   const localeMessages = messages?.[locale] ?? {}
@@ -57,12 +59,14 @@ export function MessageOverridesEditor({
           </span>
           {applicableRules.map((rule) => {
             const current = typeof localeMessages[rule] === 'string' ? localeMessages[rule] : ''
+            const inputId = `${inputIdPrefix}-${rule}`
             return (
               <div key={rule} className="space-y-1">
-                <label className="block text-xs text-muted-foreground">
+                <Label htmlFor={inputId} className="block text-xs text-muted-foreground">
                   {t(RULE_LABEL_KEY[rule])}
-                </label>
+                </Label>
                 <Input
+                  id={inputId}
                   value={current}
                   onChange={(event) => {
                     const next = event.target.value

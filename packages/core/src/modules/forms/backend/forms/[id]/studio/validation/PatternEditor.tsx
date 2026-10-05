@@ -109,7 +109,7 @@ export function PatternEditor({ fieldType, pattern, onChange }: PatternEditorPro
             autoCorrect="off"
           />
           {!draftIsValid ? (
-            <Alert variant="destructive">
+            <Alert status="error" style="light">
               <AlertDescription>
                 {t('forms.studio.validation.pattern.invalid')}
               </AlertDescription>

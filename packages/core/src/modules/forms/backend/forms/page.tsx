@@ -15,6 +15,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type FormStatus = 'draft' | 'active' | 'archived'
 
@@ -58,6 +59,7 @@ export default function FormsListPage() {
   const t = useT()
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation({ contextId: 'forms.form.archive' })
   const scopeVersion = useOrganizationScopeVersion()
 
   const [rows, setRows] = React.useState<FormRow[]>([])
@@ -115,9 +117,9 @@ export default function FormsListPage() {
           setTotal(payload.total)
           setTotalPages(payload.totalPages || 1)
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          flash(error instanceof Error ? error.message : t('forms.errors.internal'), 'error')
+          flash(t('forms.errors.internal'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -125,7 +127,7 @@ export default function FormsListPage() {
     }
     void load()
     return () => { cancelled = true }
-  }, [page, search, filterValues, reloadToken, scopeVersion])
+  }, [filterValues, page, reloadToken, scopeVersion, search, t])
 
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
 
@@ -143,7 +145,11 @@ export default function FormsListPage() {
     // version header yet — sending one from here would be theatre. Real
     // end-to-end locking for the forms admin surface is tracked in
     // .ai/specs/2026-09-30-forms-module-into-core.md § Known limitations.
-    const call = await apiCall(`/api/forms/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+    const call = await runMutation({
+      operation: () => apiCall(`/api/forms/${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
+      context: { formId: row.id },
+      mutationPayload: { formId: row.id },
+    })
     if (!call.ok) {
       const errPayload = call.result as { error?: string } | undefined
       flash(t(errPayload?.error ?? 'forms.errors.internal'), 'error')
@@ -151,7 +157,7 @@ export default function FormsListPage() {
     }
     flash(t('forms.list.actions.archiveSuccess'), 'success')
     reload()
-  }, [confirm, reload, t])
+  }, [confirm, reload, runMutation, t])
 
   const columns = React.useMemo<ColumnDef<FormRow>[]>(() => [
     {

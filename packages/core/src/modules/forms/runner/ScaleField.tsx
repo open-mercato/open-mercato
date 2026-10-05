@@ -1,6 +1,8 @@
 'use client'
 
 import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Slider } from '@open-mercato/ui/primitives/slider'
 
 export type ScaleFieldProps = {
   min: number
@@ -38,27 +40,26 @@ export function ScaleField({
 
   if (steps.length <= BUTTON_THRESHOLD) {
     return (
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label={ariaLabel}>
+      <div className="flex flex-wrap gap-2" role="group" aria-label={ariaLabel}>
         {steps.map((entry) => {
           const selected = value === entry
           return (
-            <button
+            <Button
               key={entry}
               type="button"
+              variant="outline"
               disabled={!interactive}
               aria-pressed={selected}
               onClick={() => onChange(entry)}
               className={
-                'inline-flex h-10 min-w-10 items-center justify-center rounded-md border px-2 text-sm font-medium tabular-nums transition-colors '
-                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
-                + 'disabled:cursor-not-allowed disabled:opacity-60 '
+                'h-10 min-w-10 px-2 text-sm font-medium tabular-nums '
                 + (selected
                   ? 'border-accent-indigo bg-accent-indigo text-accent-indigo-foreground'
                   : 'border-border bg-background text-foreground hover:border-accent-indigo hover:text-accent-indigo')
               }
             >
               {entry}
-            </button>
+            </Button>
           )
         })}
       </div>
@@ -79,20 +80,18 @@ export function ScaleField({
           </span>
         </div>
       </div>
-      <input
+      <Slider
         id={id}
-        type="range"
         min={min}
         max={safeMax}
         step={1}
-        value={sliderValue}
+        value={[sliderValue]}
         disabled={!interactive}
         aria-label={ariaLabel}
-        aria-valuenow={value ?? undefined}
-        aria-valuemin={min}
-        aria-valuemax={safeMax}
-        onChange={(event) => onChange(Number.parseInt(event.target.value, 10))}
-        className="block w-full cursor-pointer accent-accent-indigo disabled:cursor-not-allowed disabled:opacity-50"
+        onValueChange={(next) => {
+          const nextValue = next[0]
+          if (typeof nextValue === 'number') onChange(nextValue)
+        }}
       />
       <div className="flex justify-between text-xs tabular-nums text-muted-foreground">
         <span>{min}</span>

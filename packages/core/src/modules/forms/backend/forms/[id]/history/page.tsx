@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tag } from '@open-mercato/ui/primitives/tag'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -61,7 +61,9 @@ export default function FormHistoryPage({ params }: { params?: { id?: string } }
       setIsLoading(true)
       const call = await apiCall<FormDetail>(`/api/forms/${encodeURIComponent(formId)}`)
       if (!call.ok || !call.result) {
-        if (!cancelled) setError('forms.errors.form_not_found')
+        if (!cancelled) {
+          setError(call.status === 404 ? 'forms.errors.form_not_found' : 'forms.errors.internal')
+        }
       } else if (!cancelled) {
         setForm(call.result)
         if (call.result.versions.length >= 1) setBaseId(call.result.versions[0].id)
@@ -101,6 +103,19 @@ export default function FormHistoryPage({ params }: { params?: { id?: string } }
       <Page>
         <PageBody>
           <LoadingMessage label={t('forms.version.history.title')} />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (error === 'forms.errors.form_not_found') {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t(error)}
+            backHref="/backend/forms"
+            backLabel={t('forms.list.title')}
+          />
         </PageBody>
       </Page>
     )
@@ -165,7 +180,7 @@ export default function FormHistoryPage({ params }: { params?: { id?: string } }
                       size="sm"
                       onClick={() => setBaseId(entry.id)}
                     >
-                      Base
+                      {t('forms.history.base')}
                     </Button>
                     <Button
                       type="button"
@@ -173,7 +188,7 @@ export default function FormHistoryPage({ params }: { params?: { id?: string } }
                       size="sm"
                       onClick={() => setAgainstId(entry.id)}
                     >
-                      Against
+                      {t('forms.history.against')}
                     </Button>
                   </div>
                 </li>
@@ -197,7 +212,7 @@ export default function FormHistoryPage({ params }: { params?: { id?: string } }
                       <span className="mr-2 text-xs font-medium uppercase text-muted-foreground">{entry.kind}</span>
                       <span className="font-mono">{entry.key}</span>
                       {entry.kind === 'modified' && (
-                        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-muted/40 p-2 text-xs">
+                        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-muted/30 p-2 text-xs">
                           {JSON.stringify(entry.changes, null, 2)}
                         </pre>
                       )}

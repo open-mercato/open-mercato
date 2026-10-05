@@ -15,6 +15,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { buildLogoSrc } from '../../../../../ui/public/style/LogoHeader'
 import {
   Select,
@@ -142,9 +144,10 @@ const NONE_VALUE = '__none__'
 export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppearancePanelProps) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation({ contextId: 'forms.form.theme-logo' })
   const hasTheme = !!theme && Object.keys(theme).length > 0
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
-  const [logoBusy, setLogoBusy] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(false)
   const [logoError, setLogoError] = React.useState<string | null>(null)
 
   const patch = React.useCallback(
@@ -208,14 +211,18 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
     async (file: File | undefined) => {
       if (!file) return
       setLogoError(null)
-      setLogoBusy(true)
+      setIsLoading(true)
       try {
         const body = new FormData()
         body.append('file', file)
-        const response = await apiCall<{ assetId: string }>(
-          `/api/forms/${encodeURIComponent(formId)}/theme-logo`,
-          { method: 'POST', body },
-        )
+        const response = await runMutation({
+          operation: () => apiCall<{ assetId: string }>(
+            `/api/forms/${encodeURIComponent(formId)}/theme-logo`,
+            { method: 'POST', body },
+          ),
+          context: { formId },
+          mutationPayload: { formId },
+        })
         if (!response.ok || !response.result?.assetId) {
           setLogoError(t('forms.studio.style.logo.error', 'Could not upload that image.'))
           return
@@ -224,10 +231,10 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
       } catch {
         setLogoError(t('forms.studio.style.logo.error', 'Could not upload that image.'))
       } finally {
-        setLogoBusy(false)
+        setIsLoading(false)
       }
     },
-    [formId, patch, t, theme],
+    [formId, patch, runMutation, t, theme],
   )
 
   // Token-aware AA summary for the brand-color pairs an author actually controls
@@ -255,9 +262,9 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
     onPick: (next: Value | undefined) => void,
   ) => (
     <div className="space-y-1">
-      <label htmlFor={id} className="block text-xs font-medium text-foreground">
+      <Label htmlFor={id} className="block text-xs font-medium text-foreground">
         {label}
-      </label>
+      </Label>
       <Select
         value={current ?? NONE_VALUE}
         onValueChange={(next) => onPick(next === NONE_VALUE ? undefined : (next as Value))}
@@ -318,19 +325,20 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
             </Button>
           ) : null}
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-2 gap-2">
           {FORM_THEME_PRESETS.map((preset) => {
             const active = themesEqual(theme, preset.theme)
             const bg = backgroundToPreviewCss(preset.theme.background)
               ?? colorToPreviewCss(preset.theme.surface)
             return (
-              <button
+              <Button
                 key={preset.id}
                 type="button"
+                variant="outline"
                 aria-pressed={active}
                 onClick={() => { void applyPreset(preset.id) }}
                 className={cn(
-                  'flex items-center gap-2 rounded-md border p-1.5 text-left transition-colors hover:bg-muted/50',
+                  'h-auto justify-start gap-2 p-2 text-left hover:bg-muted/50',
                   active ? 'border-primary ring-1 ring-primary' : 'border-border',
                 )}
               >
@@ -351,7 +359,7 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
                 <span className="truncate text-xs font-medium text-foreground">
                   {t(preset.displayNameKey, preset.fallbackName)}
                 </span>
-              </button>
+              </Button>
             )
           })}
         </div>
@@ -374,10 +382,12 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
                   type="button"
                   variant="outline"
                   size="2xs"
-                  disabled={logoBusy}
+                  disabled={isLoading}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  {t('forms.studio.style.logo.replace', 'Replace')}
+                  {isLoading
+                    ? t('forms.studio.style.logo.uploading', 'Uploading…')
+                    : t('forms.studio.style.logo.replace', 'Replace')}
                 </Button>
                 <Button
                   type="button"
@@ -392,14 +402,14 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <label className="block text-xs font-medium text-muted-foreground">
+                <Label htmlFor="forms-studio-logo-size" className="block text-xs font-medium text-muted-foreground">
                   {t('forms.studio.style.logo.size', 'Size')}
-                </label>
+                </Label>
                 <Select
                   value={theme.logo.size ?? 'md'}
                   onValueChange={(value) => patchLogo({ size: value as OmLogoSize })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="forms-studio-logo-size">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -412,14 +422,14 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
                 </Select>
               </div>
               <div className="space-y-1">
-                <label className="block text-xs font-medium text-muted-foreground">
+                <Label htmlFor="forms-studio-logo-align" className="block text-xs font-medium text-muted-foreground">
                   {t('forms.studio.style.logo.align', 'Alignment')}
-                </label>
+                </Label>
                 <Select
                   value={theme.logo.align ?? 'start'}
                   onValueChange={(value) => patchLogo({ align: value as OmTextAlign })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="forms-studio-logo-align">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -438,10 +448,10 @@ export function FormAppearancePanel({ formId, theme, onThemeChange }: FormAppear
             type="button"
             variant="outline"
             size="2xs"
-            disabled={logoBusy}
+            disabled={isLoading}
             onClick={() => fileInputRef.current?.click()}
           >
-            {logoBusy
+            {isLoading
               ? t('forms.studio.style.logo.uploading', 'Uploading…')
               : t('forms.studio.style.logo.upload', 'Upload logo')}
           </Button>

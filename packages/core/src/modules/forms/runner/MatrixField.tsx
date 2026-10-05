@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Radio, RadioGroup } from '@open-mercato/ui/primitives/radio'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 /**
@@ -125,8 +126,8 @@ export function MatrixField({
           {rows.map((row) => {
             const rowLabel = resolveLocalizedLabel(row.label, locale, row.key)
             const rowValue = readRowValue(value, row.key)
-            return (
-              <tr key={row.key} className="border-t border-border">
+            const cells = (
+              <>
                 <th
                   scope="row"
                   className="px-3 py-2 text-left text-xs font-medium text-foreground align-middle"
@@ -165,26 +166,41 @@ export function MatrixField({
                       </td>
                     )
                   }
-                  const selected = typeof rowValue === 'string' && rowValue === column.value
                   return (
                     <td key={column.value} className="px-3 py-2 text-center align-middle">
-                      <input
-                        type="radio"
+                      <Radio
                         id={`${idPrefix}-${row.key}-${column.value}`}
-                        name={`${idPrefix}-${row.key}`}
+                        value={column.value}
                         aria-label={cellLabel}
                         disabled={readOnly}
-                        checked={selected}
-                        onChange={(event) => {
-                          if (!event.target.checked) return
-                          onChange(buildNextValue(value, row.key, column.value))
-                        }}
-                        className="h-4 w-4 accent-primary"
+                        className="mx-auto"
                       />
                     </td>
                   )
                 })}
-              </tr>
+              </>
+            )
+            if (row.multiple === true) {
+              return (
+                <tr key={row.key} className="border-t border-border">
+                  {cells}
+                </tr>
+              )
+            }
+            return (
+              <RadioGroup
+                key={row.key}
+                asChild
+                value={typeof rowValue === 'string' ? rowValue : ''}
+                disabled={readOnly}
+                onValueChange={(nextValue) => {
+                  onChange(buildNextValue(value, row.key, nextValue))
+                }}
+              >
+                <tr className="border-t border-border">
+                  {cells}
+                </tr>
+              </RadioGroup>
             )
           })}
         </tbody>

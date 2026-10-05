@@ -20,6 +20,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Tag } from '@open-mercato/ui/primitives/tag'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 /**
@@ -189,16 +190,18 @@ function RankingRowItem({ row, idPrefix, canEdit, t }: RankingRowItemProps) {
     >
       <Tag variant="neutral">{chipText}</Tag>
       <span className="flex-1 text-sm">{row.label}</span>
-      <button
+      <IconButton
         type="button"
+        variant="ghost"
+        size="lg"
         aria-label={t('forms.runner.field.ranking.dragHandle')}
         disabled={!canEdit}
-        className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+        className="text-muted-foreground hover:text-foreground"
         {...sortable.listeners}
         {...sortable.attributes}
       >
         <GripVertical aria-hidden="true" className="size-4" />
-      </button>
+      </IconButton>
     </li>
   )
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Copy, X } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
@@ -15,6 +15,13 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 
 export type InvitationStatus =
   | 'pending'
@@ -150,9 +157,9 @@ export function RecipientsTable({
         }
         setRows(resp.result.items)
         setTotal(resp.result.total)
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          flash(error instanceof Error ? error.message : t('forms.invitation.errors.load'), 'error')
+          flash(t('forms.invitation.errors.load'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -162,18 +169,7 @@ export function RecipientsTable({
     return () => {
       cancelled = true
     }
-  }, [distributionId, reloadToken])
-
-  React.useEffect(() => {
-    function handleKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [onClose])
+  }, [distributionId, reloadToken, t])
 
   const handleBulkAdd = React.useCallback(async () => {
     if (submitting) return
@@ -215,7 +211,7 @@ export function RecipientsTable({
     } finally {
       setSubmitting(false)
     }
-  }, [bulkValue, distributionId, onMutated, reload, runMutation, submitting])
+  }, [bulkValue, distributionId, onMutated, reload, runMutation, submitting, t])
 
   const handleBulkKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -247,7 +243,7 @@ export function RecipientsTable({
         mutationPayload: { invitationId: row.id },
       }).catch(() => undefined)
     },
-    [distributionId, onMutated, reload, runMutation],
+    [distributionId, onMutated, reload, runMutation, t],
   )
 
   const handleRevoke = React.useCallback(
@@ -285,7 +281,7 @@ export function RecipientsTable({
     if (createdLinks.length === 0) return
     const copied = await copyToClipboard(createdLinks.join('\n'))
     flash(t(copied ? 'forms.invitation.links.copied' : 'forms.invitation.links.copy_failed'), copied ? 'success' : 'error')
-  }, [createdLinks])
+  }, [createdLinks, t])
 
   const columns = React.useMemo<ColumnDef<InvitationRow>[]>(
     () => [
@@ -363,31 +359,19 @@ export function RecipientsTable({
   )
 
   const headerTitle = distributionTitle
-    ? `${distributionTitle} · ${t('forms.invitation.title', { fallback: 'Recipients' })}`
+    ? `${distributionTitle} — ${t('forms.invitation.title', { fallback: 'Recipients' })}`
     : t('forms.invitation.title', { fallback: 'Recipients' })
 
   return (
-    <div className="fixed inset-0 z-modal flex justify-end">
-      <div className="absolute inset-0 bg-foreground/40" onClick={onClose} aria-hidden="true" />
-      <aside
-        role="dialog"
-        aria-label={headerTitle}
-        aria-modal="true"
-        className="relative flex h-full w-full max-w-4xl flex-col gap-4 overflow-y-auto border-l border-border bg-background p-4 shadow-xl"
+    <Drawer open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DrawerContent
+        className="max-w-4xl"
+        closeAriaLabel={t('forms.invitation.close', { fallback: 'Close' })}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
-          <h2 className="text-lg font-semibold text-foreground">{headerTitle}</h2>
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="default"
-            onClick={onClose}
-            aria-label={t('forms.invitation.close', { fallback: 'Close' })}
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </IconButton>
-        </header>
-
+        <DrawerHeader>
+          <DrawerTitle>{headerTitle}</DrawerTitle>
+        </DrawerHeader>
+        <DrawerBody className="flex flex-col gap-4">
         <section className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3" onKeyDown={handleBulkKeyDown}>
           <label className="text-sm font-medium text-foreground" htmlFor="forms-invitation-bulk">
             {t('forms.invitation.add.title', { fallback: 'Add recipients' })}
@@ -399,7 +383,7 @@ export function RecipientsTable({
             id="forms-invitation-bulk"
             value={bulkValue}
             onChange={(event) => setBulkValue(event.target.value)}
-            placeholder={'jane@example.com,Jane Doe\njohn@example.com'}
+            placeholder={t('forms.invitation.add.placeholder')}
             rows={4}
           />
           <div className="flex items-center justify-end gap-2">
@@ -468,8 +452,9 @@ export function RecipientsTable({
           emptyState={t('forms.invitation.empty', { fallback: 'No recipients yet.' })}
         />
 
-        {ConfirmDialogElement}
-      </aside>
-    </div>
+          {ConfirmDialogElement}
+        </DrawerBody>
+      </DrawerContent>
+    </Drawer>
   )
 }

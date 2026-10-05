@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
 
 export type NpsAnchorsEditorProps = {
   locale: string
@@ -19,6 +20,8 @@ export type NpsAnchorsEditorProps = {
  */
 export function NpsAnchorsEditor({ low, high, onChange }: NpsAnchorsEditorProps) {
   const t = useT()
+  const lowId = React.useId()
+  const highId = React.useId()
   return (
     <div className="space-y-2">
       <span className="text-xs font-medium text-muted-foreground">
@@ -26,10 +29,11 @@ export function NpsAnchorsEditor({ low, high, onChange }: NpsAnchorsEditorProps)
       </span>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <label className="block text-xs text-muted-foreground">
+          <Label htmlFor={lowId} className="block text-xs text-muted-foreground">
             {t('forms.studio.field.nps.anchors.low')}
-          </label>
+          </Label>
           <Input
+            id={lowId}
             value={low}
             onChange={(event) => {
               const next = event.target.value
@@ -38,10 +42,11 @@ export function NpsAnchorsEditor({ low, high, onChange }: NpsAnchorsEditorProps)
           />
         </div>
         <div className="space-y-1">
-          <label className="block text-xs text-muted-foreground">
+          <Label htmlFor={highId} className="block text-xs text-muted-foreground">
             {t('forms.studio.field.nps.anchors.high')}
-          </label>
+          </Label>
           <Input
+            id={highId}
             value={high}
             onChange={(event) => {
               const next = event.target.value

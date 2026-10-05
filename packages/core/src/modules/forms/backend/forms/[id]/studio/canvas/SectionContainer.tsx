@@ -4,6 +4,8 @@ import * as React from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -193,22 +195,25 @@ export function SectionContainer(props: SectionContainerProps) {
         onClick={handleHeaderClick}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <button
+          <IconButton
             type="button"
-            className="shrink-0 cursor-grab active:cursor-grabbing rounded-md p-1 text-muted-foreground hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing"
             aria-label={dragHandleAriaLabel}
             {...attributes}
             {...listeners}
           >
             <GripVertical className="size-4" aria-hidden="true" />
-          </button>
+          </IconButton>
           {showTitleHeader ? (
             editingTitle ? (
-              <input
+              <Input
                 ref={inputRef}
                 data-no-dnd="true"
                 value={titleDraft}
                 placeholder={titlePlaceholder}
+                aria-label={titlePlaceholder}
                 onChange={(event) => setTitleDraft(event.target.value)}
                 onBlur={commit}
                 onKeyDown={(event) => {
@@ -220,20 +225,21 @@ export function SectionContainer(props: SectionContainerProps) {
                     cancel()
                   }
                 }}
-                className="flex-1 min-w-0 rounded-md border border-input bg-background px-2 py-1 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-8 min-w-0 flex-1 px-2 py-1 text-sm font-semibold"
               />
             ) : (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 onClick={(event) => {
                   event.stopPropagation()
                   onSelect(view.key)
                   setEditingTitle(true)
                 }}
-                className="flex-1 min-w-0 truncate text-left text-sm font-semibold text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+                className="h-auto min-w-0 flex-1 justify-start truncate px-0 py-0 text-left text-sm font-semibold text-foreground hover:underline"
               >
                 {visibleTitle}
-              </button>
+              </Button>
             )
           ) : (
             <span className="flex-1 text-sm italic text-muted-foreground">{titlePlaceholder}</span>

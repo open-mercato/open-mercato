@@ -181,7 +181,7 @@ export function InputParametersTab(props: InputParametersTabProps) {
               >
                 <span className="font-mono">{locale}</span>
                 {isDefault ? (
-                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <span className="text-overline font-semibold uppercase tracking-widest text-muted-foreground">
                     {t('forms.studio.parameters.locales.defaultBadge')}
                   </span>
                 ) : null}

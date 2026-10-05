@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { EmbeddedForm } from '../../../ui/public'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * External website embed host page (spec `2026-05-21-forms-render-surfaces.md`,
@@ -46,6 +48,7 @@ type DistributionEmbedContext = {
 }
 
 export default function EmbedHostPage({ params }: { params?: { slug?: string } }) {
+  const t = useT()
   const slug = params?.slug ?? ''
   const [presentation, setPresentation] = React.useState<EmbedPresentation | null>(null)
   const autoResizeRef = React.useRef(true)
@@ -133,6 +136,9 @@ export default function EmbedHostPage({ params }: { params?: { slug?: string } }
   }, [])
 
   if (!slug) return null
+  if (!presentation) {
+    return <LoadingMessage label={t('forms.runner.loading')} />
+  }
 
   return (
     <div className="min-h-0 bg-background p-4" data-om-embed-host="">

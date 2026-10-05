@@ -6,6 +6,8 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Tag } from '@open-mercato/ui/primitives/tag'
+import { RadioGroup } from '@open-mercato/ui/primitives/radio'
+import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { Trash2 } from '../lucide-icons'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -86,7 +88,7 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
     return (
       <div className="space-y-2">
         <Tag variant="warning">{t('forms.studio.logic.visibility.rawShape')}</Tag>
-        <pre className="max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-xs">
+        <pre className="max-h-40 overflow-auto rounded-md border border-border bg-muted/30 p-2 text-xs">
           {JSON.stringify(model.raw, null, 2)}
         </pre>
         <Button
@@ -191,24 +193,14 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
       {model.rows.length > 1 ? (
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">{t('forms.studio.logic.visibility.combineLabel')}</span>
-          <label className="flex items-center gap-1 text-xs">
-            <input
-              type="radio"
-              name="condition-combine"
-              checked={model.combine === 'and'}
-              onChange={() => commit({ ...model, combine: 'and' })}
-            />
-            {t('forms.studio.logic.visibility.combine.and')}
-          </label>
-          <label className="flex items-center gap-1 text-xs">
-            <input
-              type="radio"
-              name="condition-combine"
-              checked={model.combine === 'or'}
-              onChange={() => commit({ ...model, combine: 'or' })}
-            />
-            {t('forms.studio.logic.visibility.combine.or')}
-          </label>
+          <RadioGroup
+            value={model.combine}
+            onValueChange={(next) => commit({ ...model, combine: next as 'and' | 'or' })}
+            className="flex-row gap-3"
+          >
+            <RadioField value="and" label={t('forms.studio.logic.visibility.combine.and')} />
+            <RadioField value="or" label={t('forms.studio.logic.visibility.combine.or')} />
+          </RadioGroup>
         </div>
       ) : null}
       {model.rows.length > 0 ? (
@@ -216,7 +208,7 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
           <summary className="cursor-pointer text-xs font-medium uppercase text-muted-foreground">
             {t('forms.studio.logic.visibility.compiledJson')}
           </summary>
-          <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-xs">
+          <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-muted/30 p-2 text-xs">
             {JSON.stringify(compilePredicate(model), null, 2)}
           </pre>
         </details>
@@ -237,7 +229,7 @@ export function buildFieldSourceOptions(schema: FormSchema, currentLocale: strin
         ? String((labelMap as Record<string, unknown>)[currentLocale] ?? (labelMap as Record<string, unknown>).en ?? key)
         : key
     const typeLabel = resolveTypeLabel(omType, t)
-    result.push({ value: key, label: `${label} · ${typeLabel}`, fieldType: omType, namespace: 'field' })
+    result.push({ value: key, label: `${label} — ${typeLabel}`, fieldType: omType, namespace: 'field' })
   }
   const hiddenFields = (schema as Record<string, unknown>)['x-om-hidden-fields']
   if (Array.isArray(hiddenFields)) {
@@ -247,7 +239,7 @@ export function buildFieldSourceOptions(schema: FormSchema, currentLocale: strin
       if (typeof name !== 'string') continue
       result.push({
         value: `hidden.${name}`,
-        label: `${name} · ${t('forms.studio.logic.source.hidden')}`,
+        label: `${name} — ${t('forms.studio.logic.source.hidden')}`,
         fieldType: null,
         namespace: 'hidden',
       })
@@ -262,7 +254,7 @@ export function buildFieldSourceOptions(schema: FormSchema, currentLocale: strin
       const variableType = String((entry as Record<string, unknown>).type ?? '')
       result.push({
         value: `var.${name}`,
-        label: `${name} · ${t('forms.studio.logic.source.variable')}`,
+        label: `${name} — ${t('forms.studio.logic.source.variable')}`,
         fieldType: variableType,
         namespace: 'variable',
       })

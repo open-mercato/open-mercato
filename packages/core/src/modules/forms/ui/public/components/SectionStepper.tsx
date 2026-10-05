@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
 import { resolveSectionTitle, type RunnerSection } from '../types'
 
 export type SectionStepperProps = {
@@ -23,6 +24,15 @@ export function SectionStepper({
 }: SectionStepperProps) {
   const t = useT()
   if (sections.length === 0) return null
+  const steps: StepIndicatorStep[] = sections.map((section, index) => ({
+    id: section.key,
+    label: resolveSectionTitle(section, locale, defaultLocale),
+    status: index === currentIndex
+      ? 'current'
+      : completedSet.has(index) || index < currentIndex
+        ? 'complete'
+        : 'pending',
+  }))
   return (
     <nav
       aria-label={t('forms.runner.section.progress_aria', { fallback: 'Form progress' })}
@@ -35,42 +45,16 @@ export function SectionStepper({
           total: String(sections.length),
         })}
       </p>
-      <ol className="flex flex-wrap gap-2">
-        {sections.map((section, index) => {
-          const completed = completedSet.has(index)
-          const active = index === currentIndex
-          const visited = completed || index < currentIndex
-          const tone = active
-            ? 'border-primary bg-primary text-primary-foreground'
-            : completed
-              ? 'border-status-success-border bg-status-success-solid text-status-success-solid-foreground'
-              : visited
-                ? 'border-border bg-muted text-foreground'
-                : 'border-border bg-background text-muted-foreground'
-          const title = resolveSectionTitle(section, locale, defaultLocale)
-          const ordinal = `${index + 1}`
-          return (
-            <li key={section.key}>
-              <button
-                type="button"
-                onClick={() => onSelect(index)}
-                aria-current={active ? 'step' : undefined}
-                aria-label={title}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors hover:opacity-90 ${tone}`}
-                disabled={!visited && !active}
-              >
-                <span
-                  aria-hidden="true"
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-current text-[10px]"
-                >
-                  {ordinal}
-                </span>
-                <span className="hidden sm:inline">{title}</span>
-              </button>
-            </li>
-          )
-        })}
-      </ol>
+      <StepIndicator
+        steps={steps}
+        size="sm"
+        showNumbers
+        className="flex-wrap gap-2"
+        onStepClick={(stepId) => {
+          const index = sections.findIndex((section) => section.key === stepId)
+          if (index >= 0) onSelect(index)
+        }}
+      />
     </nav>
   )
 }

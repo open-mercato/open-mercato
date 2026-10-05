@@ -3,7 +3,6 @@
 import * as React from 'react'
 import { Plus } from 'lucide-react'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -120,9 +119,9 @@ export function DistributionsPanel({ formId }: { formId: string }) {
         if (summaryResp.ok && summaryResp.result) {
           setFormName(summaryResp.result.name)
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          flash(error instanceof Error ? error.message : t('forms.distribution.errors.load'), 'error')
+          flash(t('forms.distribution.errors.load'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -132,7 +131,7 @@ export function DistributionsPanel({ formId }: { formId: string }) {
     return () => {
       cancelled = true
     }
-  }, [formId, reloadToken, scopeVersion])
+  }, [formId, reloadToken, scopeVersion, t])
 
   const handleCopyLink = React.useCallback(
     async (row: DistributionRow) => {
@@ -144,7 +143,7 @@ export function DistributionsPanel({ formId }: { formId: string }) {
       const copied = await copyToClipboard(link)
       flash(t(copied ? 'forms.distribution.copy.success' : 'forms.distribution.copy.failed'), copied ? 'success' : 'error')
     },
-    [],
+    [t],
   )
 
   const patchStatus = React.useCallback(
@@ -167,7 +166,7 @@ export function DistributionsPanel({ formId }: { formId: string }) {
         mutationPayload: { distributionId: row.id, status: nextStatus },
       })
     },
-    [reload, runMutation],
+    [reload, runMutation, t],
   )
 
   const handlePause = React.useCallback(
@@ -309,12 +308,11 @@ export function DistributionsPanel({ formId }: { formId: string }) {
   )
 
   return (
-    <Page>
-      <PageBody>
+    <>
         <DataTable
           title={
             formName
-              ? `${formName} · ${t('forms.distribution.title', { fallback: 'Distribution' })}`
+              ? `${formName} — ${t('forms.distribution.title', { fallback: 'Distribution' })}`
               : t('forms.distribution.title', { fallback: 'Distribution' })
           }
           columns={columns}
@@ -370,7 +368,6 @@ export function DistributionsPanel({ formId }: { formId: string }) {
         ) : null}
 
         {ConfirmDialogElement}
-      </PageBody>
-    </Page>
+    </>
   )
 }

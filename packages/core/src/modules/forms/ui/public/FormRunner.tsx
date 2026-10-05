@@ -198,7 +198,7 @@ export function FormRunner(props: FormRunnerProps) {
       })
     }
     return (
-      <Alert variant="destructive">
+      <Alert status="error" style="light">
         <AlertTitle>{fallback}</AlertTitle>
         <AlertDescription>{message}</AlertDescription>
       </Alert>
@@ -362,7 +362,7 @@ export function FormRunner(props: FormRunnerProps) {
       />
 
       {conflictKeys.length > 0 ? (
-        <Alert variant="warning">
+        <Alert status="warning" style="light">
           <AlertDescription>
             {t('forms.runner.save_indicator.conflict', {
               fallback: 'We refreshed the form to merge a change made elsewhere.',

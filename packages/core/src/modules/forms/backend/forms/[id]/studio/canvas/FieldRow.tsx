@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Button } from '@open-mercato/ui/primitives/button'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { ArrowDown, ArrowUp, GripVertical, Trash2 } from '../lucide-icons'
 import { resolveLucideIcon } from '../lucide-icons'
@@ -220,18 +221,21 @@ export function FieldRow({
         />
       ) : null}
       <div className="flex items-start gap-2">
-        <button
+        <IconButton
           type="button"
-          className="mt-0.5 shrink-0 cursor-grab rounded-md p-1 text-muted-foreground hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+          variant="ghost"
+          size="sm"
+          className="mt-0.5 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing"
           aria-label={t('forms.studio.canvas.field.dragHandle')}
           {...attributes}
           {...listeners}
         >
           <GripVertical className="size-4" aria-hidden="true" />
-        </button>
-        <button
+        </IconButton>
+        <Button
           type="button"
-          className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          variant="ghost"
+          className="h-auto min-w-0 flex-1 justify-start px-0 py-0 text-left"
           onClick={() => onSelect(fieldKey)}
         >
           <span className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -242,7 +246,7 @@ export function FieldRow({
             {resolveTypeLabel(omType, t)}
           </span>
           {help ? <span className="mt-1 block text-xs text-muted-foreground">{help}</span> : null}
-        </button>
+        </Button>
         <div className="flex shrink-0 items-center gap-1">
           <IconButton
             aria-label={t('forms.studio.canvas.field.moveUp')}
