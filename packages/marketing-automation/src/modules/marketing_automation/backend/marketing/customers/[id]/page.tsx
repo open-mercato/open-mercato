@@ -612,7 +612,14 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           />
         </div>
 
-        <div className="mb-6">
+        {/*
+          Every panel below is one aspect of this person, and they were a flat stack of full-width
+          rows: a label on the far left, its value on the far right, and a thousand pixels of nothing
+          between them on a wide screen. Cards give each panel an edge, and two columns halve the
+          distance along a row.
+        */}
+        <div className="mb-6 grid items-start gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border bg-card p-4 lg:col-span-2">
           <SectionHeader
               title={t('marketing_automation.explain.title', 'Why did they not get a campaign?')}
               help={{
@@ -681,7 +688,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           ) : null}
         </div>
 
-        <div className="mb-6">
+        <div className="rounded-lg border bg-card p-4">
           <SectionHeader
               title={t('marketing_automation.profile.consent', 'Marketing consent')}
               help={{
@@ -738,7 +745,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         </div>
 
         {(profile.watches ?? []).length > 0 ? (
-          <div className="mb-6">
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.watches', 'Waiting for a price drop')}
               count={(profile.watches ?? []).length}
@@ -772,7 +779,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           </div>
         ) : null}
 
-        <div className="mb-6">
+        <div className="rounded-lg border bg-card p-4">
           <SectionHeader
               title={t('marketing_automation.profile.referral', 'Referrals')}
               help={{
@@ -811,7 +818,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           ) : null}
         </div>
 
-        <div className="mb-6">
+        <div className="rounded-lg border bg-card p-4">
           <SectionHeader
             title={t('marketing_automation.profile.recommendations', 'What the next message would offer')}
             count={(profile.recommendations ?? []).length}
@@ -846,7 +853,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         </div>
 
         {profile.preference && (profile.preference.maxPerWeek !== null || profile.preference.pausedUntil || profile.preference.locale) ? (
-          <div className="mb-6">
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.preference', 'What they asked for')}
               help={{
@@ -880,7 +887,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         ) : null}
 
         {(profile.segments ?? []).length > 0 ? (
-          <div className="mb-6">
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.segments', 'Segments')}
               count={(profile.segments ?? []).length}
@@ -898,7 +905,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         ) : null}
 
         {profile.tags.length > 0 ? (
-          <div className="mb-6">
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.tags', 'Tags')}
               help={{
@@ -914,8 +921,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           </div>
         ) : null}
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div>
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.scoreHistory', 'Recent score changes')}
               count={profile.recentScoreEntries.length}
@@ -946,7 +952,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             )}
           </div>
 
-          <div>
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.recentRuns', 'Recent campaign runs')}
               count={profile.recentRuns.length}
@@ -987,7 +993,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           when somebody says they never heard from us or unsubscribed weeks ago. Neither is answerable from a
           set of current values.
         */}
-        <div className="mb-6">
+        <div className="mb-6 rounded-lg border bg-card p-4">
           <SectionHeader
             title={t('marketing_automation.timeline.title', 'What happened')}
             help={{
