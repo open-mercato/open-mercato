@@ -23,8 +23,8 @@
 | 0 | 0.2 | Run-folder commit (this plan) | inline | done | 5f186e62c2 |
 | 1 | 1.1 | Shared catalog-visibility canonical scope hash | dispatch:standard | done | 8be09af845 |
 | 1 | 1.2 | Catalog PricingContext priceKindId + customerIds | dispatch:capable | done | a487032b25 |
-| 1 | 1.3 | Catalog price-row index migration (pricing-engine Phase 2b) | inline | done | pending |
-| 1 | 1.4 | customer_groups multi-id resolution (customerIds input) | dispatch:capable | todo | — |
+| 1 | 1.3 | Catalog price-row index migration (pricing-engine Phase 2b) | inline | done | 28e2ca0f38 |
+| 1 | 1.4 | customer_groups multi-id resolution (customerIds input) | dispatch:capable | done | pending |
 | 1 | 1.5 | customer_groups CustomerGroupTerms.assortment_scope column + stub replacement | dispatch:standard | todo | — |
 | 1 | 1.6 | Generate + review customer_groups assortment_scope migration | inline | todo | — |
 | 2 | 2.1 | Scaffold ecommerce module (index, acl, setup, di, events, i18n, modules.ts) | inline | todo | — |

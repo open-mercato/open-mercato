@@ -62,6 +62,7 @@ const MAX_ANCESTOR_DEPTH = CUSTOMER_GROUP_MAX_ANCESTOR_DEPTH
 // tenant/organization scoping").
 export type ResolveGroupsInput = {
   customerId: string | null
+  customerIds?: string[]
   tenantId: string
   at?: Date
 }
@@ -73,6 +74,7 @@ export type ResolveGroupsInput = {
 // since `resolveGroups` never returns those.
 export type ResolveTermsInput = {
   customerId: string | null
+  customerIds?: string[]
   tenantId: string
   at?: Date
   groupIds?: string[]
@@ -147,6 +149,26 @@ export async function loadCustomerGroupAncestorChain(
     currentId = group.parentId ?? null
   }
   return chain
+}
+
+export function resolveEffectiveCustomerIds(input: Pick<ResolveGroupsInput, 'customerId' | 'customerIds'>): string[] {
+  const distinctIds: string[] = []
+  for (const customerId of input.customerIds ?? []) {
+    if (typeof customerId !== 'string' || !customerId.length) continue
+    if (!distinctIds.includes(customerId)) distinctIds.push(customerId)
+  }
+  if (distinctIds.length) return distinctIds
+  return input.customerId == null ? [] : [input.customerId]
+}
+
+type RankedMembership = {
+  membership: CustomerGroupMembership
+  customerIndex: number
+}
+
+function compareRankedMemberships(left: RankedMembership, right: RankedMembership): number {
+  if (left.customerIndex !== right.customerIndex) return left.customerIndex - right.customerIndex
+  return right.membership.createdAt.getTime() - left.membership.createdAt.getTime()
 }
 
 function toGroupSummary(group: CustomerGroup): GroupResolution['groups'][number] {
@@ -236,30 +258,36 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
 
   async resolveGroups(input: ResolveGroupsInput): Promise<GroupResolution> {
     const at = input.at ?? new Date()
+    const customerIds = resolveEffectiveCustomerIds(input)
 
-    if (input.customerId == null) return this.resolveDefaultGroup(input.tenantId)
+    if (!customerIds.length) return this.resolveDefaultGroup(input.tenantId)
 
     const memberships = await this.em.find(CustomerGroupMembership, {
       tenantId: input.tenantId,
-      customerId: input.customerId,
+      customerId: customerIds.length === 1 ? customerIds[0] : { $in: customerIds },
       deletedAt: null,
     })
 
     const validMemberships = memberships.filter((membership) => isMembershipValidAt(membership, at))
     if (!validMemberships.length) return this.resolveDefaultGroup(input.tenantId)
 
-    // Precedence rule: when a customer has more than one membership row for the
-    // same group (e.g. re-added after a prior removal), the most recently created
-    // one is the one whose validity/attribution counts.
-    const latestMembershipByGroupId = new Map<string, CustomerGroupMembership>()
+    // Precedence rule (spec §6.0): one membership represents each group — the one of
+    // the earliest buyer identity (person before company), then the most recently
+    // created one (e.g. re-added after a prior removal).
+    const bestMembershipByGroupId = new Map<string, RankedMembership>()
     for (const membership of validMemberships) {
-      const existing = latestMembershipByGroupId.get(membership.groupId)
-      if (!existing || membership.createdAt.getTime() > existing.createdAt.getTime()) {
-        latestMembershipByGroupId.set(membership.groupId, membership)
+      const customerIndex = customerIds.indexOf(membership.customerId)
+      const candidate: RankedMembership = {
+        membership,
+        customerIndex: customerIndex === -1 ? customerIds.length : customerIndex,
+      }
+      const existing = bestMembershipByGroupId.get(membership.groupId)
+      if (!existing || compareRankedMemberships(candidate, existing) < 0) {
+        bestMembershipByGroupId.set(membership.groupId, candidate)
       }
     }
 
-    const groupIds = Array.from(latestMembershipByGroupId.keys())
+    const groupIds = Array.from(bestMembershipByGroupId.keys())
     const groups = await this.em.find(CustomerGroup, {
       id: { $in: groupIds },
       tenantId: input.tenantId,
@@ -269,9 +297,7 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
 
     const sortedGroups = groups.slice().sort((a, b) => {
       if (b.priority !== a.priority) return b.priority - a.priority
-      const membershipA = latestMembershipByGroupId.get(a.id)!
-      const membershipB = latestMembershipByGroupId.get(b.id)!
-      return membershipB.createdAt.getTime() - membershipA.createdAt.getTime()
+      return compareRankedMemberships(bestMembershipByGroupId.get(a.id)!, bestMembershipByGroupId.get(b.id)!)
     })
 
     if (!sortedGroups.length) return this.resolveDefaultGroup(input.tenantId)
@@ -296,7 +322,12 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
   async resolveTerms(input: ResolveTermsInput): Promise<ResolvedTerms> {
     const groupIds = input.groupIds
       ?? (
-        await this.resolveGroups({ customerId: input.customerId, tenantId: input.tenantId, at: input.at })
+        await this.resolveGroups({
+          customerId: input.customerId,
+          customerIds: input.customerIds,
+          tenantId: input.tenantId,
+          at: input.at,
+        })
       ).groupIds
 
     if (!groupIds.length) return tenantDefaultTerms()
