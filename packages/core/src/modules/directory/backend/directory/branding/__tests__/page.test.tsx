@@ -4,10 +4,10 @@
 
 import * as React from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
-import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import OrganizationBrandingPage from '../page'
 import { QueryClient } from '@tanstack/react-query'
 import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import OrganizationBrandingPage from '../page'
 
 const readApiResultOrThrowMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
@@ -67,7 +67,10 @@ const brandingPayload = {
 }
 
 beforeEach(() => {
-  emitOrganizationScopeChanged({ organizationId: brandingPayload.organizationId, tenantId: brandingPayload.tenantId })
+  emitOrganizationScopeChanged({
+    organizationId: brandingPayload.organizationId,
+    tenantId: brandingPayload.tenantId,
+  })
   readApiResultOrThrowMock.mockReset()
   apiCallOrThrowMock.mockReset()
   flashMock.mockReset()
@@ -86,6 +89,75 @@ beforeEach(() => {
 })
 
 describe('OrganizationBrandingPage', () => {
+  it('explains the single-organization requirement without requesting branding for all organizations', () => {
+    emitOrganizationScopeChanged({ organizationId: null, tenantId: brandingPayload.tenantId })
+
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    expect(screen.getByText('Organization branding')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveAttribute('data-status', 'information')
+    expect(screen.getByText('Branding is managed for one organization at a time. Select a single organization to continue.')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to load organization branding')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Logo URL')).not.toBeInTheDocument()
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it('hides the form for all organizations and restores it when one organization is selected', async () => {
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    await screen.findByLabelText('Logo URL')
+
+    act(() => {
+      emitOrganizationScopeChanged({ organizationId: null, tenantId: brandingPayload.tenantId })
+    })
+
+    expect(screen.getByRole('alert')).toHaveAttribute('data-status', 'information')
+    expect(screen.queryByRole('button', { name: /Save branding/ })).not.toBeInTheDocument()
+
+    act(() => {
+      emitOrganizationScopeChanged({
+        organizationId: brandingPayload.organizationId,
+        tenantId: brandingPayload.tenantId,
+      })
+    })
+
+    expect(await screen.findByLabelText('Logo URL')).toHaveValue(brandingPayload.logoUrl)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('loads the newly selected organization without retaining the previous file selection', async () => {
+    const otherOrganizationId = '33333333-3333-4333-8333-333333333333'
+    const otherBranding = { ...brandingPayload, organizationId: otherOrganizationId, organizationName: 'Other organization' }
+    readApiResultOrThrowMock.mockResolvedValueOnce(brandingPayload).mockResolvedValue(otherBranding)
+
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    const fileInput = await screen.findByLabelText('Upload logo')
+    fireEvent.change(fileInput, { target: { files: [new File(['logo'], 'acme.png', { type: 'image/png' })] } })
+
+    act(() => {
+      emitOrganizationScopeChanged({ organizationId: otherOrganizationId, tenantId: brandingPayload.tenantId })
+    })
+
+    expect(await screen.findByText('Other organization')).toBeInTheDocument()
+    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+    expect(screen.getByAltText('Other organization logo preview')).toHaveAttribute('src', brandingPayload.logoUrl)
+    fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
+    await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalled())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith('/api/attachments', expect.anything(), expect.anything())
+  })
+
+  it('continues to show an error when branding fails to load for a selected organization', async () => {
+    readApiResultOrThrowMock.mockRejectedValue(new Error('Service unavailable'))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    renderWithProviders(<OrganizationBrandingPage />, { queryClient })
+
+    expect(await screen.findByText('Failed to load organization branding')).toBeInTheDocument()
+    expect(screen.getByText('Service unavailable')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Logo URL')).not.toBeInTheDocument()
+  })
+
   it('renders current organization branding', async () => {
     renderWithProviders(<OrganizationBrandingPage />)
 
@@ -129,13 +201,14 @@ describe('OrganizationBrandingPage', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     renderWithProviders(<OrganizationBrandingPage />, { queryClient })
     await screen.findByText('Acme')
-    readApiResultOrThrowMock.mockRejectedValue(new Error('Select a single organization before changing sidebar branding.'))
+    readApiResultOrThrowMock.mockClear()
 
     act(() => emitOrganizationScopeChanged({ organizationId: null, tenantId: brandingPayload.tenantId }))
 
     expect(screen.queryByText('Acme')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Save branding/ })).not.toBeInTheDocument()
-    await screen.findByText('Select a single organization before changing sidebar branding.')
+    expect(screen.getByRole('alert')).toHaveAttribute('data-status', 'information')
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
     readApiResultOrThrowMock.mockResolvedValue(brandingPayload)
     act(() => emitOrganizationScopeChanged({ organizationId: brandingPayload.organizationId, tenantId: brandingPayload.tenantId }))
     await screen.findByText('Acme')
