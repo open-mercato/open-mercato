@@ -8,6 +8,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerRole, CustomerRoleAcl } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { createRoleSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { resolveAdminTargetOrganization } from '@open-mercato/core/modules/customer_accounts/lib/adminOrganizationScope'
 
 export const metadata = {}
 
@@ -25,6 +26,20 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url)
+  const requestedOrganizationId = url.searchParams.get('organizationId')
+  let organizationId = auth.orgId
+  if (requestedOrganizationId) {
+    const target = await resolveAdminTargetOrganization({ container, auth, request: req, requestedOrganizationId })
+    if (!target.ok) return target.response
+    organizationId = target.organizationId
+    if (organizationId !== auth.orgId) {
+      const hasTargetAccess = await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.view'], { tenantId: auth.tenantId, organizationId })
+      if (!hasTargetAccess) {
+        return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
+      }
+    }
+  }
+
   const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1)
   const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '50', 10) || 50))
   const search = (url.searchParams.get('search') || '').trim()
@@ -33,7 +48,7 @@ export async function GET(req: Request) {
 
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     deletedAt: null,
   }
 
@@ -179,14 +194,21 @@ const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
 
 const getMethodDoc: OpenApiMethodDoc = {
   summary: 'List customer roles (admin)',
-  description: 'Returns all customer roles for the tenant.',
+  description: 'Returns customer roles for the caller\'s active organization, or for the organization passed as organizationId when it is within the caller\'s organization scope.',
   tags: ['Customer Accounts Admin'],
+  query: z.object({
+    page: z.number().int().positive().optional(),
+    pageSize: z.number().int().positive().max(100).optional(),
+    search: z.string().optional(),
+    organizationId: z.string().uuid().optional(),
+  }),
   responses: [{
     status: 200,
     description: 'Role list',
     schema: z.object({ ok: z.literal(true), items: z.array(roleSchema), total: z.number(), totalPages: z.number(), page: z.number() }),
   }],
   errors: [
+    { status: 400, description: 'Organization not found or outside the caller scope', schema: errorSchema },
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions', schema: errorSchema },
   ],

@@ -20,6 +20,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { buildPortalRootUrl, buildPortalUrlPattern } from '../../../lib/portalUrl'
 import { useDemoPortalAccounts } from '../useDemoPortalAccounts'
@@ -54,10 +55,12 @@ function formatDate(value: string | null | undefined, fallback: string): string 
   return date.toLocaleDateString()
 }
 
-async function fetchRoleFilterOptions(): Promise<Array<{ value: string; label: string; id: string }>> {
+async function fetchRoleFilterOptions(organizationId?: string | null): Promise<Array<{ value: string; label: string; id: string }>> {
   try {
+    const params = new URLSearchParams({ pageSize: '100' })
+    if (organizationId) params.set('organizationId', organizationId)
     const call = await apiCall<{ items?: Array<{ id: string; name: string }> }>(
-      '/api/customer_accounts/admin/roles?pageSize=100',
+      `/api/customer_accounts/admin/roles?${params.toString()}`,
     )
     if (!call.ok) return []
     const items = Array.isArray(call.result?.items) ? call.result!.items : []
@@ -86,6 +89,8 @@ function CreateUserDialog({
   const [email, setEmail] = React.useState('')
   const [displayName, setDisplayName] = React.useState('')
   const [password, setPassword] = React.useState('')
+  const [organizationId, setOrganizationId] = React.useState<string | null>(null)
+  const [organizationRoleOptions, setOrganizationRoleOptions] = React.useState<Array<{ id: string; label: string }> | null>(null)
   const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 
@@ -93,6 +98,27 @@ function CreateUserDialog({
     setEmail('')
     setDisplayName('')
     setPassword('')
+    setOrganizationId(null)
+    setSelectedRoleIds([])
+  }, [])
+
+  React.useEffect(() => {
+    if (!organizationId) {
+      setOrganizationRoleOptions(null)
+      return
+    }
+    let cancelled = false
+    setOrganizationRoleOptions([])
+    fetchRoleFilterOptions(organizationId).then((opts) => {
+      if (!cancelled) setOrganizationRoleOptions(opts)
+    })
+    return () => { cancelled = true }
+  }, [organizationId])
+
+  const availableRoleOptions = organizationId ? organizationRoleOptions ?? [] : roleOptions
+
+  const handleOrganizationChange = React.useCallback((next: string | null) => {
+    setOrganizationId(next ?? null)
     setSelectedRoleIds([])
   }, [])
 
@@ -115,6 +141,7 @@ function CreateUserDialog({
               displayName: displayName.trim(),
               password,
               roleIds: selectedRoleIds.length > 0 ? selectedRoleIds : undefined,
+              organizationId: organizationId ?? undefined,
             }),
           },
         )
@@ -133,7 +160,7 @@ function CreateUserDialog({
     } finally {
       setIsSubmitting(false)
     }
-  }, [displayName, email, onCreated, onOpenChange, onRunMutation, password, resetForm, selectedRoleIds, t])
+  }, [displayName, email, onCreated, onOpenChange, onRunMutation, organizationId, password, resetForm, selectedRoleIds, t])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -189,11 +216,24 @@ function CreateUserDialog({
               autoComplete="new-password"
             />
           </div>
-          {roleOptions.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="create-organization">
+              {t('customer_accounts.admin.createUser.fields.organization', 'Organization')}
+            </label>
+            <OrganizationSelect
+              id="create-organization"
+              value={organizationId}
+              onChange={handleOrganizationChange}
+              includeEmptyOption
+              emptyOptionLabel={t('customer_accounts.admin.createUser.fields.organizationCurrent', 'Current organization')}
+              className="w-full h-9 rounded border px-2 text-sm"
+            />
+          </div>
+          {availableRoleOptions.length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-medium">{t('customer_accounts.admin.createUser.fields.roles', 'Roles')}</p>
               <div className="flex flex-wrap gap-2">
-                {roleOptions.map((role) => {
+                {availableRoleOptions.map((role) => {
                   const isSelected = selectedRoleIds.includes(role.id)
                   return (
                     <Button

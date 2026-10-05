@@ -24,6 +24,8 @@
   "customer_accounts.admin.createUser.fields.displayNamePlaceholder": "홍길동",
   "customer_accounts.admin.createUser.fields.email": "이메일",
   "customer_accounts.admin.createUser.fields.emailPlaceholder": "user@example.com",
+  "customer_accounts.admin.createUser.fields.organization": "조직",
+  "customer_accounts.admin.createUser.fields.organizationCurrent": "현재 조직",
   "customer_accounts.admin.createUser.fields.password": "비밀번호",
   "customer_accounts.admin.createUser.fields.passwordPlaceholder": "최소 8자",
   "customer_accounts.admin.createUser.fields.roles": "역할",

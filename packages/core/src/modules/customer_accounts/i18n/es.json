@@ -24,6 +24,8 @@
   "customer_accounts.admin.createUser.fields.displayNamePlaceholder": "Juan García",
   "customer_accounts.admin.createUser.fields.email": "Correo electrónico",
   "customer_accounts.admin.createUser.fields.emailPlaceholder": "usuario@ejemplo.com",
+  "customer_accounts.admin.createUser.fields.organization": "Organización",
+  "customer_accounts.admin.createUser.fields.organizationCurrent": "Organización actual",
   "customer_accounts.admin.createUser.fields.password": "Contraseña",
   "customer_accounts.admin.createUser.fields.passwordPlaceholder": "Mín. 8 caracteres",
   "customer_accounts.admin.createUser.fields.roles": "Roles",

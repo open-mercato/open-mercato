@@ -77,6 +77,11 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
   emitCustomerAccountsEvent: jest.fn(async () => undefined),
 }))
 
+const mockResolveOrganizationScopeForRequest = jest.fn()
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: (args: unknown) => mockResolveOrganizationScopeForRequest(args),
+}))
+
 import { GET, POST } from '@open-mercato/core/modules/customer_accounts/api/admin/users'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -528,5 +533,154 @@ describe('admin /api/customer_accounts/admin/users — POST role validation', ()
       (call) => (call[2] as any)?.customerEntityId === ownedCompanyId,
     )
     expect(companyUpdate).toBeDefined()
+  })
+})
+
+describe('admin /api/customer_accounts/admin/users — POST target organization (#5576)', () => {
+  const targetOrgId = '66666666-6666-4666-8666-666666666666'
+  const createdUserId = '77777777-7777-4777-8777-777777777777'
+
+  function postRequest(body: Record<string, unknown>) {
+    return buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'new@example.com',
+        password: 'Secret123!',
+        displayName: 'New User',
+        ...body,
+      }),
+    })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockFindByEmail.mockResolvedValue(null)
+    mockCreateUser.mockResolvedValue({ id: createdUserId, email: 'new@example.com', displayName: 'New User' })
+    mockEmCreate.mockImplementation((_entity: unknown, data: unknown) => data)
+    mockEmFind.mockResolvedValue([])
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: targetOrgId,
+      filterIds: [targetOrgId],
+      allowedIds: null,
+      tenantId,
+    })
+  })
+
+  it('creates the user in the requested organization and scopes roles to it', async () => {
+    mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
+      if (entity === CustomerRole && where?.organizationId === targetOrgId) return [{ id: roleAlpha.id, name: 'Alpha' }]
+      return []
+    })
+
+    const res = await POST(postRequest({ organizationId: targetOrgId, roleIds: [roleAlpha.id] }))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedId: targetOrgId, tenantId }),
+    )
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith(
+      adminId,
+      ['customer_accounts.manage'],
+      { tenantId, organizationId: targetOrgId },
+    )
+    const roleFinds = mockEmFind.mock.calls.filter((call) => call[0] === CustomerRole)
+    expect(roleFinds[0][1]).toMatchObject({ tenantId, organizationId: targetOrgId })
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: targetOrgId },
+    )
+  })
+
+  it('rejects an organization the scope resolver refuses to grant', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: orgId,
+      filterIds: [orgId],
+      allowedIds: [orgId],
+      tenantId,
+      selectionRejected: true,
+    })
+
+    const res = await POST(postRequest({ organizationId: targetOrgId }))
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body).toEqual({ ok: false, error: 'Organization not found' })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('rejects an organization resolved under a different tenant', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: targetOrgId,
+      filterIds: [targetOrgId],
+      allowedIds: null,
+      tenantId: '88888888-8888-4888-8888-888888888888',
+    })
+
+    const res = await POST(postRequest({ organizationId: targetOrgId }))
+
+    expect(res.status).toBe(400)
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 when the caller lacks customer_accounts.manage in the requested organization', async () => {
+    mockRbac.userHasAllFeatures.mockImplementation(async (_sub: string, _features: string[], scope: any) => (
+      scope.organizationId !== targetOrgId
+    ))
+
+    const res = await POST(postRequest({ organizationId: targetOrgId }))
+
+    expect(res.status).toBe(403)
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed organizationId before resolving scope', async () => {
+    const res = await POST(postRequest({ organizationId: 'not-a-uuid' }))
+
+    expect(res.status).toBe(400)
+    expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('keeps the caller organization when no organizationId is sent', async () => {
+    const res = await POST(postRequest({}))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: orgId },
+    )
+  })
+
+  it('falls back to the actor organization under an all-organizations selection instead of creating an org-less user', async () => {
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId: null, actorOrgId: orgId, actorTenantId: tenantId, isSuperAdmin: true })
+
+    const res = await POST(postRequest({}))
+
+    expect(res.status).toBe(201)
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: orgId },
+    )
+  })
+
+  it('answers organization_scope_required when no organization can be resolved', async () => {
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId: null, isSuperAdmin: true })
+
+    const res = await POST(postRequest({}))
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body.code).toBe('organization_scope_required')
+    expect(mockCreateUser).not.toHaveBeenCalled()
   })
 })
