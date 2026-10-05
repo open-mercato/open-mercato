@@ -7,23 +7,22 @@
 ## Screen order
 
 0. **Why this exists** — no screen, to camera (2 min)
-1. Dashboard — the **Marketing this week** tile (optional, 30 s)
-2. **Campaigns** — the campaign list (1 min)
-3. **Results** for "Welcome new customers" (4 min)
-4. **Runs** for the same campaign (1.5 min)
-5. **Customer profile** — Riley Nguyen (4 min)
-6. Campaign editor, "Welcome new customers" — canvas, steps, **Send rules**, **Preview** (4 min)
-7. Campaign editor, "Win back quiet buyers" — scheduled trigger and **Audience** (2 min)
-8. **Segments** (1 min)
-9. **Score rules** (40 s)
-10. **Content blocks** (30 s)
-11. **Price watches** (40 s)
-12. **Referrals** (30 s)
-13. **Lead routing** (40 s)
-14. **Inbound hooks** and **Inbound requests** (1 min)
-15. **Marketing settings** (1 min)
-16. **Getting started** (40 s)
-17. **Background jobs** (40 s)
+1. **Campaigns** — the campaign list (1 min)
+2. **Results** for "Welcome new customers" (4 min)
+3. **Runs** for the same campaign (1.5 min)
+4. **Customer profile** — Riley Nguyen (4 min)
+5. Campaign editor, "Welcome new customers" — canvas, steps, **Send rules**, **Preview** (4 min)
+6. Campaign editor, "Win back quiet buyers" — scheduled trigger and **Audience** (2 min)
+7. **Segments** (1 min)
+8. **Score rules** (40 s)
+9. **Content blocks** (30 s)
+10. **Price watches** (40 s)
+11. **Referrals** (30 s)
+12. **Lead routing** (40 s)
+13. **Inbound hooks** and **Inbound requests** (1 min)
+14. **Marketing settings** (1 min)
+15. **Getting started** (40 s)
+16. **Background jobs** (40 s)
 
 ## Three sentences to open with
 
@@ -45,10 +44,10 @@
 
 **How that differs from wiring up Klaviyo or Mailchimp — four concrete things:**
 
-1. **The audience is a query against live data, not against an export.** "Bought at least once and nothing for 90 days" is evaluated against the real orders at the moment of sending. In an external tool it is a copy from the last sync — which is where "we miss you" emails to somebody who bought yesterday come from.
-2. **One customer database, not two.** Nothing to reconcile, no duplicates, no argument about which side is right.
-3. **Consent lives with the customer.** An unsubscribe takes effect immediately and across every campaign at once, not after the next sync. A GDPR erasure actually erases, because there is no second copy somewhere else.
-4. **Revenue closes the loop without guessing.** The orders are in the same system, so "this campaign earned that much" is a join across two tables rather than query parameters on links and faith in cookies.
+0. **The audience is a query against live data, not against an export.** "Bought at least once and nothing for 90 days" is evaluated against the real orders at the moment of sending. In an external tool it is a copy from the last sync — which is where "we miss you" emails to somebody who bought yesterday come from.
+1. **One customer database, not two.** Nothing to reconcile, no duplicates, no argument about which side is right.
+2. **Consent lives with the customer.** An unsubscribe takes effect immediately and across every campaign at once, not after the next sync. A GDPR erasure actually erases, because there is no second copy somewhere else.
+3. **Revenue closes the loop without guessing.** The orders are in the same system, so "this campaign earned that much" is a join across two tables rather than query parameters on links and faith in cookies.
 
 **What it is NOT:** it is not switched on for everyone, and it does not pretend to replace a team. It is opt-in, and it still runs without the sales or catalog modules — it simply tells you, honestly, what it cannot measure without them.
 
@@ -56,19 +55,7 @@
 
 ---
 
-## 1. Dashboard — the "Marketing this week" tile
-
-**Path:** `http://localhost:3000/backend` — the **Marketing this week** tile.
-
-**What to show:** the tile itself: **Messages sent** with how many were held back and how many failed underneath it, **Engagement** (opened / clicked), **Attributed revenue**, and the counter at the bottom, "X of Y campaigns live". Open the **Period** selector to show the window can be changed.
-
-**What to say:** We start on the screen everybody opens first thing in the morning. This tile answers one question — what went out this week, who engaged with it, and what it earned — across the whole organisation rather than one campaign at a time. Messages held back and messages that failed are counted next to the sends, not folded into them. That way "sent" always means exactly what it says.
-
-**The point:** There is no "delivered" figure anywhere on this tile, because the platform gets no delivery feedback from the mail provider — a "delivered" number would only be the sent count wearing a more confident name.
-
----
-
-## 2. Campaigns — the campaign list
+## 1. Campaigns — the campaign list
 
 **Path:** `/backend/marketing/campaigns`
 
@@ -80,7 +67,7 @@
 
 ---
 
-## 3. Results — "Welcome new customers"
+## 2. Results — "Welcome new customers"
 
 **Path:** `/backend/marketing/campaigns/5cc6005e-c037-4a5d-928f-a2667aebd030/results` (or open the campaign and click **Results** in the header)
 
@@ -101,7 +88,7 @@
 
 ---
 
-## 4. Runs — who got stuck, and where
+## 3. Runs — who got stuck, and where
 
 **Path:** click **Runs** in the campaign header (`/backend/marketing/campaigns/5cc6005e-c037-4a5d-928f-a2667aebd030/runs`)
 
@@ -113,7 +100,7 @@
 
 ---
 
-## 5. Customer profile — Riley Nguyen
+## 4. Customer profile — Riley Nguyen
 
 **Path:** in **Runs**, click the customer name → **Open the customer profile**. Direct: `/backend/marketing/customers/b0494b70-f980-4317-b509-5611f6febe20`
 
@@ -133,7 +120,7 @@
 
 ---
 
-## 6. The campaign editor — how this is put together
+## 5. The campaign editor — how this is put together
 
 **Path:** `/backend/marketing/campaigns/5cc6005e-c037-4a5d-928f-a2667aebd030`
 
@@ -158,7 +145,7 @@
 
 ---
 
-## 7. "Win back quiet buyers" — a scheduled trigger and the audience builder
+## 6. "Win back quiet buyers" — a scheduled trigger and the audience builder
 
 **Path:** `/backend/marketing/campaigns/4377aaaa-abc3-49b4-8077-20ac0acd2694`
 
@@ -170,7 +157,7 @@
 
 ---
 
-## 8. Segments
+## 7. Segments
 
 **Path:** `/backend/marketing/segments`
 
@@ -182,7 +169,7 @@
 
 ---
 
-## 9. Score rules
+## 8. Score rules
 
 **Path:** `/backend/marketing/score-rules`
 
@@ -194,7 +181,7 @@
 
 ---
 
-## 10. Content blocks
+## 9. Content blocks
 
 **Path:** `/backend/marketing/content-blocks`
 
@@ -206,7 +193,7 @@
 
 ---
 
-## 11. Price watches
+## 10. Price watches
 
 **Path:** `/backend/marketing/demand`
 
@@ -218,7 +205,7 @@
 
 ---
 
-## 12. Referrals
+## 11. Referrals
 
 **Path:** `/backend/marketing/referrals`
 
@@ -230,7 +217,7 @@
 
 ---
 
-## 13. Lead routing
+## 12. Lead routing
 
 **Path:** `/backend/marketing/lead-routing`
 
@@ -242,7 +229,7 @@
 
 ---
 
-## 14. Inbound hooks and Inbound requests
+## 13. Inbound hooks and Inbound requests
 
 **Path:** `/backend/marketing/inbound-hooks`, then `/backend/marketing/inbound-requests` (or **Show what arrived**)
 
@@ -254,7 +241,7 @@
 
 ---
 
-## 15. Marketing settings
+## 14. Marketing settings
 
 **Path:** `/backend/marketing/settings`
 
@@ -268,7 +255,7 @@
 
 ---
 
-## 16. Getting started
+## 15. Getting started
 
 **Path:** `/backend/marketing/setup`
 
@@ -280,7 +267,7 @@
 
 ---
 
-## 17. Background jobs
+## 16. Background jobs
 
 **Path:** `/backend/marketing/jobs`
 
@@ -308,7 +295,6 @@
 - **Draft with AI** in the email step inspector. The API keys in `apps/mercato/.env` are empty, so you'll get "No AI model is configured for this installation." Describe the feature instead and show **Brand voice** in settings; don't press the button.
 - **Send a test to me** — it sends a real email to the signed-in account's address. Unless you verified before recording that the email channel actually sends, don't press it: a failure shows "The transport refused the test message."
 - The preference centre and the unsubscribe page (customer portal). Those need a customer session, not an admin one. Talk about them at the **What they asked for** section on the profile, but don't try to open them.
-- The **Marketing this week** tile — check before recording that it's enabled on this dashboard. If it isn't, start at screen 2; you lose nothing.
 
 **Looks weak unless you explain it:**
 
@@ -325,7 +311,6 @@ Prefix: `http://localhost:3000`
 
 | Screen | URL |
 |---|---|
-| Dashboard | `/backend` |
 | Campaigns | `/backend/marketing/campaigns` |
 | Welcome new customers — editor | `/backend/marketing/campaigns/5cc6005e-c037-4a5d-928f-a2667aebd030` |
 | Welcome new customers — Results | `/backend/marketing/campaigns/5cc6005e-c037-4a5d-928f-a2667aebd030/results` |
