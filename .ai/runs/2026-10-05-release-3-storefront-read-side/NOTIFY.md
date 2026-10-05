@@ -45,3 +45,6 @@
 - Env decisions: integration fixture activates DomainMappings via direct DB update (no API reaches `active` without DNS/TLS, same as existing dbFixtures tests); custom host sent as a real `Host` header because the ephemeral app runs NODE_ENV=production (X-Force-Host only honored in test mode); ephemeral app needs a non-placeholder JWT_SECRET (passed as a throwaway env var).
 - Open for final gate: resolution P95 latency budget not measured yet.
 - SAFETY STOP: 20 consecutive Steps landed (1.1–2.11 incl. fix rows). Halting dispatch for owner review before Phase 3 (Omnibus). Resume with `om-auto-continue-pr-loop 12` from Step 3.1.
+
+## 2026-10-05T15:05:51Z — resume started (om-auto-continue-pr-loop)
+- Resuming at Step 3.1 (Omnibus MVP) after the owner-review safety stop.
