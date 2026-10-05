@@ -8,7 +8,6 @@ import {
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CatalogPriceKind } from '@open-mercato/core/modules/catalog/data/entities'
 import type { CustomerGroupsService } from '@open-mercato/core/modules/customer_groups/services/customerGroupsService'
@@ -294,12 +293,17 @@ async function buildBuyerContext(
   }
 }
 
+async function readPortalSession(request: Request) {
+  const { getCustomerAuthFromRequest } = await import('@open-mercato/core/modules/customer_accounts/lib/customerAuth')
+  return getCustomerAuthFromRequest(request)
+}
+
 export async function resolveBuyerContext(
   container: BuyerContextContainer,
   store: ResolvedStore,
   request: Request | null,
 ): Promise<BuyerContext> {
-  const auth = request ? await getCustomerAuthFromRequest(request) : null
+  const auth = request ? await readPortalSession(request) : null
   if (auth && (auth.tenantId !== store.tenantId || auth.orgId !== store.organizationId)) {
     logger.debug('Portal session scope does not match the resolved store', { storeId: store.store.id })
     throw new StorefrontResolutionError(401, 'portal_session_scope_mismatch')

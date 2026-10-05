@@ -38,7 +38,8 @@
 | 2 | 2.8 | Public GET /api/ecommerce/storefront/context | dispatch:standard | done | e397b297e4 |
 | 2 | 2.9 | Subscribers: cache invalidation, domain re-binding, misconfiguration notifications | dispatch:standard | done | 3d6bd9e6b1 |
 | 2 | 2.9-fix | Explicit comparator in priceScopeKey group-id sort (checkpoint 3 regression) | inline | done | ad6984039f |
-| 2 | 2.10 | ecommerce search.ts | dispatch:cheap | done | pending |
+| 2 | 2.10 | ecommerce search.ts | dispatch:cheap | done | 56a708e730 |
+| 2 | 2.10-fix | Lazy-load portal auth so ecommerce DI never imports next/server | inline | done | pending |
 | 2 | 2.11 | Integration tests: resolution + buyer context + cache isolation (SPEC-029 Phase 1 gate) | dispatch:capable | todo | — |
 | 3 | 3.1 | Omnibus: CatalogPriceHistoryEntry entity + migration | dispatch:capable | todo | — |
 | 3 | 3.2 | Omnibus: history capture wired into price commands and undo | dispatch:capable | todo | — |
@@ -124,6 +125,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **2.9 Subscribers** — store/binding/domain/group/price invalidation; `domain_mapping.replaced` re-binding; misconfiguration notifications via `createForFeature`, throttled (§9.4).
 - **2.9-fix Explicit comparator in priceScopeKey group-id sort (checkpoint 3 regression)** — `explicit-sort-comparators` repo-wide guard flagged a bare `.sort()` in `lib/buyerContext.ts`; use a code-unit comparator (locale-independent, so the hash is stable).
 - **2.10 search.ts** — stores by name/code/slug, `aclFeatures: ['ecommerce.stores.view']` (D16).
+- **2.10-fix Lazy-load portal auth so ecommerce DI never imports next/server** — found starting the ephemeral env: `di.ts → storeContextService → buyerContext → customer_accounts/lib/customerAuth → next/server` crashes non-Next processes. Dynamic import at session-read time + structural test over di/search/subscribers import graphs.
 - **2.11 Integration tests** — §16 Resolution, Buyer context, Cache isolation, API tenant isolation.
 
 ### Phase 3 — Omnibus MVP (`2026-06-30-omnibus-price-tracking.md` Phases 1–3)
