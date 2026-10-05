@@ -41,8 +41,8 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: (props: { rowActions?: (row: ChannelRow) => React.ReactNode }) => {
-    capturedRowActions = props.rowActions ?? null
+  DataTable: (props: { rowActions: (row: ChannelRow) => React.ReactNode }) => {
+    capturedRowActions = props.rowActions
     return <div data-testid="data-table-mock" />
   },
 }))
@@ -80,7 +80,9 @@ const privateMailbox: ChannelRow = {
 }
 
 async function clickShareWithTeam() {
-  if (!capturedRowActions) throw new Error('[internal] DataTable received no rowActions prop')
+  if (!capturedRowActions) {
+    throw new Error('[internal] row actions renderer was not captured')
+  }
   render(<>{capturedRowActions(privateMailbox)}</>)
   fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
   const shareAction = await screen.findByRole('menuitem', { name: 'Share with team' })
@@ -98,7 +100,7 @@ describe('profile communication channels — share toggle conflict', () => {
     await act(async () => {
       render(<ProfileCommunicationChannelsPage />)
     })
-    await waitFor(() => expect(capturedRowActions).toBeInstanceOf(Function))
+    await waitFor(() => expect(capturedRowActions).not.toBeNull())
   })
 
   it('raises the conflict bar instead of toasting the raw record_modified code on a 409', async () => {
