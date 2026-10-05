@@ -73,6 +73,8 @@ export async function GET(req: Request) {
         name: campaign.name,
         description: campaign.description ?? null,
         isEnabled: campaign.isEnabled,
+        // So the list can tell an automatic pause from a deliberate one; null means nobody's guardrail did it.
+        breakerTrippedAt: campaign.breakerTrippedAt ? campaign.breakerTrippedAt.toISOString() : null,
         stepCount: definition.success ? definition.data.steps.length : 0,
         /**
          * Each trigger with the key that names it in words.

@@ -290,6 +290,7 @@
   "marketing_automation.list.empty.action": "Sprawdź, czego wymaga ta instalacja",
   "marketing_automation.list.empty.description": "Kampania reaguje na zdarzenie, decyduje kogo dotyczy, a potem wykonuje kolejne kroki.",
   "marketing_automation.list.empty.title": "Brak kampanii",
+  "marketing_automation.list.pausedByBreaker": "Zapauzowana automatycznie",
   "marketing_automation.list.title": "Kampanie",
   "marketing_automation.nav.group": "Marketing",
   "marketing_automation.notifications.campaignNotice.body": "{message}",

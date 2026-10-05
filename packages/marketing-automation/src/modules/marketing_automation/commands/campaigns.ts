@@ -765,7 +765,12 @@ const setCampaignEnabledCommand: CommandHandler<
      * Only on enabling. Disabling leaves it where it was: a campaign switched off for an unrelated reason and
      * switched on later should not arrive with a cleared slate it never earned.
      */
-    if (changed && payload.isEnabled) campaign.breakerResetAt = new Date()
+    if (changed && payload.isEnabled) {
+      campaign.breakerResetAt = new Date()
+      // Enabling is the statement that the cause is dealt with, so the badge goes with the counts. Leaving it
+      // would show "paused automatically" on a campaign somebody has just switched back on.
+      campaign.breakerTrippedAt = null
+    }
     await em.flush()
 
     if (changed) {
