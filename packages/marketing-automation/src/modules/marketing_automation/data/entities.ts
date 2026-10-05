@@ -14,7 +14,7 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
 @Index({ name: 'mkt_campaigns_scope_enabled_idx', properties: ['tenantId', 'organizationId', 'isEnabled'] })
 @Index({ name: 'mkt_campaigns_scope_deleted_idx', properties: ['tenantId', 'organizationId', 'deletedAt'] })
 export class MarketingCampaign {
-  [OptionalProps]?: 'isEnabled' | 'breakerResetAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isEnabled' | 'breakerResetAt' | 'breakerTrippedAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -45,6 +45,21 @@ export class MarketingCampaign {
    */
   @Property({ name: 'breaker_reset_at', type: Date, nullable: true })
   breakerResetAt?: Date | null
+
+  /**
+   * When the deliverability breaker switched this campaign off, if it was the breaker that did.
+   *
+   * Without it, a campaign the module paused automatically is indistinguishable from one somebody switched off
+   * on purpose: both render a plain off toggle. The obvious action on an off toggle is to switch it back on —
+   * and the breaker undoes that on the next sweep, so an operator can fight their own guardrail without ever
+   * being told it is there. The in-app notification said so once; it is read, dismissed, or seen by a different
+   * person.
+   *
+   * Cleared when somebody enables the campaign, in the same place `breakerResetAt` is set, because that is the
+   * act that says "I have dealt with the cause".
+   */
+  @Property({ name: 'breaker_tripped_at', type: Date, nullable: true })
+  breakerTrippedAt?: Date | null
 
   /** Default off: a half-authored campaign must never send. */
   @Property({ name: 'is_enabled', type: 'boolean', default: false })
