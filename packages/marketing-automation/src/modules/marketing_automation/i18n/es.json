@@ -290,6 +290,7 @@
   "marketing_automation.list.empty.action": "Comprobar qué necesita esta instalación",
   "marketing_automation.list.empty.description": "Una campaña reacciona a algo que ocurre, decide a quién se aplica y después ejecuta una serie de pasos.",
   "marketing_automation.list.empty.title": "Todavía no hay campañas",
+  "marketing_automation.list.pausedByBreaker": "Pausada automáticamente",
   "marketing_automation.list.title": "Campañas",
   "marketing_automation.nav.group": "Marketing",
   "marketing_automation.notifications.campaignNotice.body": "{message}",

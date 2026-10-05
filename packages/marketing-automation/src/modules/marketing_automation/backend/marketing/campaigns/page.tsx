@@ -6,6 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -40,6 +41,8 @@ type CampaignRow = {
   id: string
   name: string
   isEnabled: boolean
+  /** Set when the deliverability breaker switched it off; null when a person did, or nobody has. */
+  breakerTrippedAt?: string | null
   stepCount: number
   triggerSummary: string
   updatedAt: string
@@ -264,7 +267,20 @@ export default function CampaignsListPage() {
     {
       accessorKey: 'isEnabled',
       header: t('marketing_automation.list.columns.enabled', 'Enabled'),
-      cell: ({ row }) => <BooleanIcon value={row.original.isEnabled} />,
+      /**
+       * An automatic pause reads differently from a deliberate one.
+       *
+       * Both used to render the same plain off icon, so the obvious action — switch it back on — was the one the
+       * breaker undoes on the next sweep. An operator could fight their own guardrail without being told it was
+       * there, because the notification that said so is read once and dismissed.
+       */
+      cell: ({ row }) => (row.original.breakerTrippedAt && !row.original.isEnabled ? (
+        <StatusBadge variant="warning">
+          {t('marketing_automation.list.pausedByBreaker', 'Paused automatically')}
+        </StatusBadge>
+      ) : (
+        <BooleanIcon value={row.original.isEnabled} />
+      )),
     },
     {
       accessorKey: 'triggerSummary',
