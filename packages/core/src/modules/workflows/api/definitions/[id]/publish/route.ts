@@ -22,6 +22,7 @@ import type { WorkflowIoContract } from '../../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { serializeWorkflowDefinition } from '../../serialize'
 import { findSubWorkflowCallers } from '../../../../lib/caller-graph'
+import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import {
   authorizeWorkflowGrantChange,
   normalizeGrantedFeatures,
@@ -164,6 +165,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     await syncWorkflowDefinitionPrincipal(container, published)
     em.persist(published)
     await em.flush()
+
+    // The minted version is now the one unpinned starts and event triggers
+    // resolve to, so the cached trigger set still pointing at the previous
+    // version must be dropped.
+    invalidateTriggerCache(tenantId, organizationId)
 
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
