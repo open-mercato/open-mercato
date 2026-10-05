@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { FormDistribution } from '../../../data/entities'
 import {
   distributionCloseCommandSchema,
@@ -109,10 +109,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json(serializeDistribution(distribution))
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('distributions.detail.GET', error)
   }
 }
@@ -126,7 +122,7 @@ export async function PATCH(req: Request) {
     const distributionId = extractDistributionId(req)
     if (!distributionId) return jsonError(400, 'forms.errors.invalid_id')
 
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsedBody = patchBodySchema.parse(body)
 
     // A PATCH carrying only { status: 'closed' } routes to the close command;
@@ -176,10 +172,6 @@ export async function PATCH(req: Request) {
       },
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('distributions.detail.PATCH', error)
   }
 }

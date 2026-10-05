@@ -310,6 +310,18 @@ describe('SubmissionService', () => {
     })).rejects.toMatchObject({ code: 'STALE_BASE', httpStatus: 409 })
   })
 
+  it('rejects an oversized patch before opening a database transaction', async () => {
+    const { service } = createTestSetup({ autosaveIntervalMs: 0 })
+    await expect(service.save({
+      submissionId: randomUUID(),
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      baseRevisionId: randomUUID(),
+      patch: { full_name: 'x'.repeat(300 * 1024) },
+      savedBy: randomUUID(),
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', httpStatus: 413 })
+  })
+
   it('drops patch fields outside the actor editable set and emits a tampering marker', async () => {
     const warnLogs: Array<{ payload: Record<string, unknown>; message?: string }> = []
     const { service, em, formId, formVersionId } = createTestSetup({ autosaveIntervalMs: 0 })

@@ -26,7 +26,6 @@ import {
 } from '@open-mercato/core/modules/attachments/lib/imageSafety'
 import { buildAttachmentFileUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { Form } from '../../../data/entities'
 import { buildFormsRouteContext, handleRouteError, jsonError } from '../../helpers'
 
@@ -121,10 +120,6 @@ export async function POST(
 
     return NextResponse.json({ assetId }, { status: 201 })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('theme-logo', error)
   }
 }

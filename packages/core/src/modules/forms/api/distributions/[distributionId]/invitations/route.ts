@@ -5,7 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { FormDistribution, FormInvitation } from '../../../../data/entities'
 import {
   invitationCreateCommandSchema,
@@ -131,10 +131,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ items, total: items.length })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('invitations.GET', error)
   }
 }
@@ -148,7 +144,7 @@ export async function POST(req: Request) {
     const distributionId = extractDistributionId(req)
     if (!distributionId) return jsonError(400, 'forms.errors.invalid_id')
 
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsedBody = requestBodySchema.parse(body)
     const scoped = withScopedPayload({ ...parsedBody, distributionId }, ctx, translate)
     const input = invitationCreateCommandSchema.parse(scoped) satisfies FormInvitationCreateCommandInput
@@ -176,10 +172,6 @@ export async function POST(req: Request) {
       },
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('invitations.POST', error)
   }
 }

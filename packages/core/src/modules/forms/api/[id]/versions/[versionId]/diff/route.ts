@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { FormVersion } from '../../../../../data/entities'
 import { formVersionDiffQuerySchema } from '../../../../../data/validators'
 import { buildFormsRouteContext, handleRouteError, jsonError } from '../../../../helpers'
@@ -117,10 +116,6 @@ export async function GET(req: Request) {
       diff: differ.diff(againstCompiled, baseCompiled),
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms.versions.diff.GET', error)
   }
 }

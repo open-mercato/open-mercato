@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { ComponentType } from 'react'
+import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import { FIELD_TYPE_DEFAULT_PATTERNS } from './field-type-patterns'
 import { FILE_TYPE } from './file-field'
 import { SIGNATURE_TYPE } from './signature-field'
@@ -267,20 +268,6 @@ export const SCALE_TYPE: FieldTypeSpec = {
 // is enforced by JSON-Schema `required`, never by the field validator.
 // ----------------------------------------------------------------------------
 
-const FORMAT_REGEX_CACHE: Map<string, RegExp> = new Map()
-
-function resolveFormatRegex(source: string): RegExp | null {
-  const cached = FORMAT_REGEX_CACHE.get(source)
-  if (cached) return cached
-  try {
-    const compiled = new RegExp(source)
-    FORMAT_REGEX_CACHE.set(source, compiled)
-    return compiled
-  } catch {
-    return null
-  }
-}
-
 function makeFormatValidator(
   format: 'email' | 'phone' | 'website',
   fallbackMessage: string,
@@ -291,9 +278,8 @@ function makeFormatValidator(
     const overrideRaw = fieldNode['x-om-pattern']
     const override = typeof overrideRaw === 'string' && overrideRaw.length > 0 ? overrideRaw : null
     const source = override ?? FIELD_TYPE_DEFAULT_PATTERNS[format]
-    const regex = resolveFormatRegex(source)
-    if (!regex) return fallbackMessage
-    return regex.test(value) ? true : fallbackMessage
+    const result = testLinearRegex(source, value)
+    return result.ok && result.matched ? true : fallbackMessage
   }
 }
 

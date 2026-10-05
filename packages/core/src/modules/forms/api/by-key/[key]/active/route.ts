@@ -15,7 +15,8 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
-import { SubmissionService, SubmissionServiceError, isSubmissionServiceError } from '../../../../services/submission-service'
+import { SubmissionService, isSubmissionServiceError } from '../../../../services/submission-service'
+import { sliceFormDefinition } from '../../../../lib/form-definition-slicing'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -43,11 +44,7 @@ export async function GET(
       formKey: key,
     })
 
-    // Caller's available roles — for now we treat the customer as a generic
-    // "patient"-like actor. Phase 1d's renderer will refine this once it
-    // resolves the submission context. We always include 'admin' implicitly
-    // when the caller has the matching feature.
-    const callerRoles = resolveCallerRoles(auth.resolvedFeatures)
+    const callerRoles = resolveCallerRoles(auth.resolvedFeatures, formVersion.schema)
 
     const fieldIndex: Record<string, unknown> = {}
     for (const [fieldKey, descriptor] of Object.entries(compiled.fieldIndex)) {
@@ -65,6 +62,11 @@ export async function GET(
         required: descriptor.required,
       }
     }
+    const slicedDefinition = sliceFormDefinition(
+      formVersion.schema,
+      formVersion.uiSchema,
+      new Set(Object.keys(fieldIndex)),
+    )
 
     return NextResponse.json({
       form: {
@@ -81,8 +83,8 @@ export async function GET(
         registryVersion: compiled.registryVersion,
         roles: Array.isArray(formVersion.roles) ? formVersion.roles : [],
       },
-      schema: formVersion.schema,
-      uiSchema: formVersion.uiSchema,
+      schema: slicedDefinition.schema,
+      uiSchema: slicedDefinition.uiSchema,
       fieldIndex,
       callerRoles,
     })
@@ -91,13 +93,10 @@ export async function GET(
   }
 }
 
-function resolveCallerRoles(features: string[]): string[] {
-  // Customers don't carry a "role" claim per-form; we expose the wildcard
-  // bucket so the renderer can refine. Admin staff calling this route would
-  // hit the admin variant; portal callers default to declared customer roles.
-  // Phase 1d/2a will tighten this to look up the active actor row.
+function resolveCallerRoles(features: string[], schema: Record<string, unknown>): string[] {
   if (features.includes('*')) return ['admin']
-  return ['patient', 'customer', 'guardian']
+  const defaultRole = schema['x-om-default-actor-role']
+  return typeof defaultRole === 'string' && defaultRole.length > 0 ? [defaultRole] : []
 }
 
 function mapError(error: unknown): NextResponse {

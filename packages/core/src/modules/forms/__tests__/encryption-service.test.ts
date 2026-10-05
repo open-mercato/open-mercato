@@ -240,6 +240,16 @@ describe('resolveKmsAdapter', () => {
     expect(resolveKmsAdapter(env)).toBeInstanceOf(DevDeterministicKmsAdapter)
   })
 
+  it('requires an explicit dev key id when no master key is set', () => {
+    const env = {} as NodeJS.ProcessEnv
+    expect(() => resolveKmsAdapter(env)).toThrow(FormsEncryptionError)
+    try {
+      resolveKmsAdapter(env)
+    } catch (error) {
+      expect((error as FormsEncryptionError).code).toBe('KMS_KEY_ID_MISSING')
+    }
+  })
+
   it('prefers an operator-registered factory over env resolution', () => {
     const custom = new EnvMasterKeyKmsAdapter(Buffer.alloc(32, 2))
     setKmsAdapterFactory(() => custom)

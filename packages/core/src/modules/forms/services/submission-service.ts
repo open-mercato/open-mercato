@@ -40,6 +40,8 @@ import {
 } from './visibility-resolver'
 import { buildTamperingMarker, type StructuredLogger } from '../lib/log-redaction'
 import { formsEventPayloadSchemas } from '../events-payloads'
+import { validateFieldValue } from './field-validation-service'
+import type { FieldNode } from '../backend/forms/[id]/studio/schema-helpers'
 
 const DEFAULT_AUTOSAVE_INTERVAL_MS = (() => {
   const raw = process.env.FORMS_AUTOSAVE_INTERVAL_MS
@@ -53,6 +55,13 @@ const DEFAULT_REVISION_CAP = (() => {
   if (!raw) return 10_000
   const parsed = Number.parseInt(raw, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000
+})()
+
+const MAX_SUBMISSION_PAYLOAD_BYTES = (() => {
+  const raw = process.env.FORMS_MAX_SUBMISSION_PAYLOAD_BYTES
+  if (!raw) return 256 * 1024
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 256 * 1024
 })()
 
 export type SubmissionServiceErrorCode =
@@ -508,6 +517,7 @@ export class SubmissionService {
   // --------------------------------------------------------------------------
 
   async save(args: SaveArgs): Promise<RevisionInsertOutcome> {
+    assertSubmissionPayloadSize(args.patch)
     const em = this.emFactory()
     const result = await em.transactional(async (trx) => {
       const submission = await trx.findOne(
@@ -626,6 +636,7 @@ export class SubmissionService {
           merged[key] = value
         }
       }
+      assertSubmissionPayloadSize(merged)
 
       // Validate merged payload
       const ajvValid = compiled.ajv(merged)
@@ -640,6 +651,7 @@ export class SubmissionService {
           })),
         })
       }
+      validateCompiledFieldRules(compiled, formVersion.schema, merged)
 
       // Compute changed field keys vs prior
       const changedFieldKeys = computeChangedFieldKeys(priorPlain, merged)
@@ -1169,6 +1181,50 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values))
+}
+
+function assertSubmissionPayloadSize(payload: Record<string, unknown>): void {
+  const bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8')
+  if (bytes <= MAX_SUBMISSION_PAYLOAD_BYTES) return
+  throw new SubmissionServiceError(
+    'VALIDATION_FAILED',
+    'Submission payload exceeds the configured size limit.',
+    413,
+    { maxBytes: MAX_SUBMISSION_PAYLOAD_BYTES },
+  )
+}
+
+function validateCompiledFieldRules(
+  compiled: CompiledFormVersion,
+  schema: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): void {
+  const properties =
+    schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties)
+      ? (schema.properties as Record<string, unknown>)
+      : {}
+  for (const [fieldKey, descriptor] of Object.entries(compiled.fieldIndex)) {
+    if (!(fieldKey in payload)) continue
+    const rawNode = properties[fieldKey]
+    const fieldNode =
+      rawNode && typeof rawNode === 'object' && !Array.isArray(rawNode)
+        ? (rawNode as FieldNode)
+        : undefined
+    const result = validateFieldValue(
+      payload[fieldKey],
+      descriptor.validations,
+      'en',
+      descriptor.validationMessages,
+      fieldNode,
+    )
+    if (result.valid) continue
+    throw new SubmissionServiceError(
+      'VALIDATION_FAILED',
+      'Submission field failed validation.',
+      422,
+      { errors: [{ fieldKey, rule: result.rule, message: result.message }] },
+    )
+  }
 }
 
 /**

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   formVersionPublishCommandSchema,
   formVersionPublishRequestSchema,
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     const { formId, versionId } = extractIds(req)
     if (!formId || !versionId) return jsonError(400, 'forms.errors.invalid_id')
 
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsed = formVersionPublishRequestSchema.parse(body)
     const scoped = withScopedPayload({ ...parsed, formId, versionId }, ctx, translate)
     const input = formVersionPublishCommandSchema.parse(scoped) satisfies FormVersionPublishCommandInput
@@ -76,10 +76,6 @@ export async function POST(req: Request) {
       },
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms.versions.publish.POST', error)
   }
 }

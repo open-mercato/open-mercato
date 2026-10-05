@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { Form, FormVersion } from '../data/entities'
 import {
   formVersionArchiveCommandSchema,
@@ -311,6 +312,12 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
 
     const em = resolveEntityManager(ctx).fork()
     const version = await findFormVersionInScope(em, parsed.versionId, parsed.tenantId, parsed.organizationId)
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: FORM_VERSION_RESOURCE_KIND,
+      resourceId: version.id,
+      current: version.updatedAt,
+      request: ctx.request,
+    })
     if (version.formId !== parsed.formId) {
       throw new CrudHttpError(400, { error: 'forms.errors.version_form_mismatch' })
     }
@@ -498,6 +505,12 @@ const publishVersionCommand: CommandHandler<FormVersionPublishCommandInput, {
       if (!version) {
         throw new CrudHttpError(404, { error: 'forms.errors.version_not_found' })
       }
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: FORM_VERSION_RESOURCE_KIND,
+        resourceId: version.id,
+        current: version.updatedAt,
+        request: ctx.request,
+      })
       const form = await txEm.findOne(Form, {
         id: version.formId,
         tenantId: parsed.tenantId,
@@ -688,6 +701,12 @@ const archiveVersionCommand: CommandHandler<FormVersionArchiveCommandInput, { ve
 
     const em = resolveEntityManager(ctx).fork()
     const version = await findFormVersionInScope(em, parsed.versionId, parsed.tenantId, parsed.organizationId)
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: FORM_VERSION_RESOURCE_KIND,
+      resourceId: version.id,
+      current: version.updatedAt,
+      request: ctx.request,
+    })
     if (version.formId !== parsed.formId) {
       throw new CrudHttpError(400, { error: 'forms.errors.version_form_mismatch' })
     }

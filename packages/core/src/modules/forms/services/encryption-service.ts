@@ -230,10 +230,11 @@ export function setKmsAdapterFactory(factory: KmsAdapterFactory | null): void {
  * Resolution order:
  *   1. operator-registered factory (`setKmsAdapterFactory`) — always wins;
  *   2. `EnvMasterKeyKmsAdapter` when `FORMS_ENCRYPTION_MASTER_KEY` is set;
- *   3. `DevDeterministicKmsAdapter` (dev fallback).
+ *   3. `DevDeterministicKmsAdapter` when an explicit dev key id is configured.
  *
- * Throws `INSECURE_KMS_IN_PRODUCTION` when running in production with only the
- * dev fallback available — refusing to protect PHI with the dev adapter.
+ * Throws when no adapter can be resolved. Even local development must opt in
+ * to the deterministic adapter with `FORMS_ENCRYPTION_KMS_KEY_ID`; silently
+ * sharing a built-in key would make encrypted data recoverable by anyone.
  */
 export function resolveKmsAdapter(env: NodeJS.ProcessEnv = process.env): KmsAdapter {
   if (registeredKmsAdapterFactory) {
@@ -251,8 +252,14 @@ export function resolveKmsAdapter(env: NodeJS.ProcessEnv = process.env): KmsAdap
         + 'cloud-KMS adapter via setKmsAdapterFactory(...) / the kmsAdapter DI slot.',
     )
   }
-  const kmsKeyId = env.FORMS_ENCRYPTION_KMS_KEY_ID ?? ''
-  return new DevDeterministicKmsAdapter(kmsKeyId || 'forms-dev-fallback-key-id')
+  const kmsKeyId = env.FORMS_ENCRYPTION_KMS_KEY_ID?.trim()
+  if (!kmsKeyId) {
+    throw new FormsEncryptionError(
+      'KMS_KEY_ID_MISSING',
+      'FORMS_ENCRYPTION_KMS_KEY_ID is required when no forms encryption master key or KMS adapter is configured.',
+    )
+  }
+  return new DevDeterministicKmsAdapter(kmsKeyId)
 }
 
 function decodeMasterKey(encoded: string): Buffer | null {

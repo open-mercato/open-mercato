@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { Form, FormVersion } from '../../data/entities'
 import {
   formArchiveCommandSchema,
@@ -115,10 +115,6 @@ export async function GET(req: Request) {
       })),
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms[id].GET', error)
   }
 }
@@ -132,7 +128,7 @@ export async function PATCH(req: Request) {
     const id = extractFormId(req)
     if (!id) return jsonError(400, 'forms.errors.invalid_id')
 
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsed = formPatchRequestSchema.parse(body)
     const scoped = withScopedPayload({ ...parsed, id }, ctx, translate)
     const renameInput = formRenameCommandSchema.parse(scoped) satisfies FormRenameCommandInput
@@ -157,10 +153,6 @@ export async function PATCH(req: Request) {
       },
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms[id].PATCH', error)
   }
 }
@@ -197,10 +189,6 @@ export async function DELETE(req: Request) {
       },
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms[id].DELETE', error)
   }
 }

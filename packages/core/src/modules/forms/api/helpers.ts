@@ -9,6 +9,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
@@ -66,6 +67,10 @@ export function jsonError(status: number, error: string): NextResponse {
 export function handleRouteError(scope: string, error: unknown): NextResponse {
   if (isCrudHttpError(error)) {
     return NextResponse.json(error.body, { status: error.status })
+  }
+  const interceptorRejection = getCommandInterceptorHttpRejection(error)
+  if (interceptorRejection) {
+    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   }
   // Every forms admin route validates its payload with a bare `schema.parse(...)`
   // inside the try block this catches, so a rejected payload arrives here as a

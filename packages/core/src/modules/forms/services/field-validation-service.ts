@@ -7,16 +7,15 @@
  * and the submission service share one source of truth (MUST 15).
  *
  * Determinism guarantees:
- * - Pure functions — no I/O, no DI, no module-scoped state besides a regex
- *   cache keyed on the source string.
+ * - Pure functions — no I/O and no DI.
  * - `null` / `undefined` short-circuit every rule as `{ valid: true }`. The
  *   existing JSON-Schema `required` keyword is the only authority on
  *   required-ness; this service only enforces declared shape rules.
- * - The `pattern` rule is wrapped in a wall-clock guard (R-1 mitigation —
- *   catastrophic regex). Patterns that take more than 50ms to evaluate are
- *   reported as failures so the studio surfaces them as an inline alert.
+ * - Pattern rules use the shared RE2-compatible linear-time engine, so an
+ *   authored expression cannot block the event loop through backtracking.
  */
 
+import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import { OM_FIELD_KEYWORDS } from '../schema/jsonschema-extensions'
 import { FIELD_TYPE_DEFAULT_PATTERNS } from '../schema/field-type-patterns'
 import type { FieldNode } from '../backend/forms/[id]/studio/schema-helpers'
@@ -73,22 +72,6 @@ const DEFAULT_MESSAGES: Record<ValidationRuleType, (rule: ValidationRule) => str
   matrixRowsRequired: () => 'Please answer every required row.',
 }
 
-const REGEX_TIMEOUT_MS = 50
-
-const REGEX_CACHE: Map<string, RegExp> = new Map()
-
-function compileRegex(source: string): RegExp | null {
-  const cached = REGEX_CACHE.get(source)
-  if (cached) return cached
-  try {
-    const compiled = new RegExp(source)
-    REGEX_CACHE.set(source, compiled)
-    return compiled
-  } catch {
-    return null
-  }
-}
-
 // ============================================================================
 // Compile rules from a field node
 // ============================================================================
@@ -109,7 +92,11 @@ export function compileFieldValidationRules(
   const node = fieldNode as Record<string, unknown>
   const rules: ValidationRule[] = []
 
-  const pattern = node[OM_FIELD_KEYWORDS.pattern]
+  const extensionPattern = node[OM_FIELD_KEYWORDS.pattern]
+  const pattern =
+    typeof extensionPattern === 'string' && extensionPattern.length > 0
+      ? extensionPattern
+      : node.pattern
   if (typeof pattern === 'string' && pattern.length > 0) {
     rules.push({ type: 'pattern', pattern })
   }
@@ -230,22 +217,9 @@ function applyRule(
   switch (rule.type) {
     case 'pattern': {
       if (typeof value !== 'string') return { valid: true }
-      const regex = compileRegex(rule.pattern)
-      if (!regex) {
-        return failed(rule, locale, messages, 'Invalid regular expression.')
-      }
-      const started = Date.now()
-      let matched = false
-      try {
-        matched = regex.test(value)
-      } catch {
-        return failed(rule, locale, messages)
-      }
-      const elapsed = Date.now() - started
-      if (elapsed > REGEX_TIMEOUT_MS) {
-        return failed(rule, locale, messages, 'Regular expression took too long to evaluate.')
-      }
-      return matched ? { valid: true } : failed(rule, locale, messages)
+      const result = testLinearRegex(rule.pattern, value)
+      if (!result.ok) return failed(rule, locale, messages, 'Invalid or oversized regular expression.')
+      return result.matched ? { valid: true } : failed(rule, locale, messages)
     }
     case 'minLength': {
       if (typeof value !== 'string') return { valid: true }
@@ -267,20 +241,9 @@ function applyRule(
       if (typeof value !== 'string') return { valid: true }
       if (value.length === 0) return { valid: true }
       const source = resolveFormatPatternSource(rule.format, fieldNode)
-      const regex = compileRegex(source)
-      if (!regex) return failed(rule, locale, messages, 'Invalid regular expression.')
-      const started = Date.now()
-      let matched = false
-      try {
-        matched = regex.test(value)
-      } catch {
-        return failed(rule, locale, messages)
-      }
-      const elapsed = Date.now() - started
-      if (elapsed > REGEX_TIMEOUT_MS) {
-        return failed(rule, locale, messages, 'Regular expression took too long to evaluate.')
-      }
-      return matched ? { valid: true } : failed(rule, locale, messages)
+      const result = testLinearRegex(source, value)
+      if (!result.ok) return failed(rule, locale, messages, 'Invalid or oversized regular expression.')
+      return result.matched ? { valid: true } : failed(rule, locale, messages)
     }
     case 'rankingExhaustive': {
       // Phase E — exhaustive ranking. `value` must be an array of length
@@ -331,9 +294,7 @@ function failed(
   return { valid: false, rule: rule.type, message: fallback }
 }
 
-/**
- * Test-only helper — clears the module-level regex cache between tests.
- */
+/** @deprecated Linear regex compilation is shared and bounded; no local cache remains. */
 export function __resetFieldValidationServiceCacheForTests(): void {
-  REGEX_CACHE.clear()
+  return undefined
 }

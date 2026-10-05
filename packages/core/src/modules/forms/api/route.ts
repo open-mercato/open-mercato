@@ -5,7 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { Form, FormVersion } from '../data/entities'
 import {
   formCreateRequestSchema,
@@ -164,10 +164,6 @@ export async function GET(req: Request) {
       totalPages: Math.ceil(total / pageSize),
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms.GET', error)
   }
 }
@@ -178,7 +174,7 @@ export async function POST(req: Request) {
     if (!organizationId || !tenantId) {
       return jsonError(400, 'forms.errors.organization_required')
     }
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsedBody = formCreateRequestSchema.parse(body) satisfies FormCreateRequestInput
     const scoped = withScopedPayload(parsedBody as Record<string, unknown>, ctx, translate)
 
@@ -202,10 +198,6 @@ export async function POST(req: Request) {
       },
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms.POST', error)
   }
 }

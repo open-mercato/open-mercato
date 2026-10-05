@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { Form } from '../data/entities'
 import {
   formArchiveCommandSchema,
@@ -175,6 +176,12 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
 
     const em = resolveEntityManager(ctx).fork()
     const form = await findFormInScope(em, parsed.id, parsed.tenantId, parsed.organizationId)
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: FORM_RESOURCE_KIND,
+      resourceId: form.id,
+      current: form.updatedAt,
+      request: ctx.request,
+    })
 
     let touched = false
     if (parsed.name !== undefined) {
@@ -300,6 +307,12 @@ const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: stri
 
     const em = resolveEntityManager(ctx).fork()
     const form = await findFormInScope(em, parsed.id, parsed.tenantId, parsed.organizationId)
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: FORM_RESOURCE_KIND,
+      resourceId: form.id,
+      current: form.updatedAt,
+      request: ctx.request,
+    })
 
     if (form.status !== 'archived') {
       const now = new Date()
@@ -383,6 +396,12 @@ const restoreFormCommand: CommandHandler<FormRestoreCommandInput, { formId: stri
 
     const em = resolveEntityManager(ctx).fork()
     const form = await findFormInScope(em, parsed.id, parsed.tenantId, parsed.organizationId)
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: FORM_RESOURCE_KIND,
+      resourceId: form.id,
+      current: form.updatedAt,
+      request: ctx.request,
+    })
 
     if (form.status === 'archived') {
       const now = new Date()

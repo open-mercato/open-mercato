@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { FormVersion } from '../../../../data/entities'
 import {
   OM_ROOT_KEYWORDS,
@@ -123,10 +123,6 @@ export async function GET(req: Request) {
       answerMappings: readAnswerMappings(version.schema),
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms.versions[versionId].GET', error)
   }
 }
@@ -140,7 +136,7 @@ export async function PATCH(req: Request) {
     const { formId, versionId } = extractIds(req)
     if (!formId || !versionId) return jsonError(400, 'forms.errors.invalid_id')
 
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const body = (await readJsonSafe<Record<string, unknown>>(req, {})) ?? {}
     const parsed = formVersionPatchRequestSchema.parse(body)
     const scoped = withScopedPayload({ ...parsed, formId, versionId }, ctx, translate)
     const input = formVersionUpdateDraftCommandSchema.parse(scoped) satisfies FormVersionUpdateDraftCommandInput
@@ -165,10 +161,6 @@ export async function PATCH(req: Request) {
       },
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('forms.versions[versionId].PATCH', error)
   }
 }

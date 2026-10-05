@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { FormDistribution } from '../data/entities'
 import {
   distributionCloseCommandSchema,
@@ -284,6 +285,12 @@ const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInp
       parsed.tenantId,
       parsed.organizationId,
     )
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: FORM_DISTRIBUTION_RESOURCE_KIND,
+      resourceId: distribution.id,
+      current: distribution.updatedAt,
+      request: ctx.request,
+    })
 
     const previousStatus = distribution.status
     let touched = false
@@ -425,6 +432,12 @@ const closeDistributionCommand: CommandHandler<FormDistributionCloseCommandInput
       parsed.tenantId,
       parsed.organizationId,
     )
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: FORM_DISTRIBUTION_RESOURCE_KIND,
+      resourceId: distribution.id,
+      current: distribution.updatedAt,
+      request: ctx.request,
+    })
 
     if (distribution.status !== 'closed') {
       distribution.status = 'closed'

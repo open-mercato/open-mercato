@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import {
   invitationRevokeCommandSchema,
   type FormInvitationRevokeCommandInput,
@@ -68,10 +67,6 @@ export async function DELETE(req: Request) {
       },
     })
   } catch (error) {
-    const interceptorRejection = getCommandInterceptorHttpRejection(error)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
     return handleRouteError('invitations.DELETE', error)
   }
 }

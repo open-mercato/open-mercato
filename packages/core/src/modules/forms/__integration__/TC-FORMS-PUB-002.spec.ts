@@ -16,10 +16,9 @@ import {
  * TC-FORMS-PUB-002: replaying a stale `base_revision_id` on autosave is a 409
  * `STALE_BASE`.
  *
- * This is the module's only real concurrency guard — there is no
- * `x-om-ext-optimistic-lock-expected-updated-at` handling anywhere in forms, so
- * the append-only revision chain is what protects a submission from two
- * participants (or two tabs) clobbering each other.
+ * Submission answer writes use their append-only revision id as the concurrency
+ * token. The module's separately user-editable Form, FormVersion, and
+ * FormDistribution aggregates use the standard updated-at header contract.
  *
  * The 409 body carries `details.currentRevisionId`, which is what a client needs
  * to re-base; asserting it keeps the recovery path part of the contract.

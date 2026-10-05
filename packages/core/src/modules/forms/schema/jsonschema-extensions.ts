@@ -1,4 +1,5 @@
 import type Ajv from 'ajv'
+import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import { validateJsonLogicGrammar } from './jsonlogic-grammar'
 import type { OmFieldStyle, OmSectionStyle, OmTheme } from './style-extensions'
 import {
@@ -592,10 +593,8 @@ export const OM_FIELD_VALIDATORS: Record<OmFieldKeyword, (value: unknown) => str
     if (typeof value !== 'string' || value.length === 0) {
       return 'x-om-pattern must be a non-empty regex source string.'
     }
-    try {
-      new RegExp(value)
-    } catch {
-      return 'x-om-pattern must compile as a JavaScript regular expression.'
+    if (!testLinearRegex(value, '').ok) {
+      return 'x-om-pattern must compile as a bounded linear-time regular expression.'
     }
     return null
   },

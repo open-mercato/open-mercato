@@ -3,6 +3,7 @@ import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 import type { ValidateFunction } from 'ajv'
 import { z } from 'zod'
+import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import {
   FieldTypeRegistry,
   defaultFieldTypeRegistry,
@@ -266,14 +267,10 @@ export class FormVersionCompiler {
         )
       }
       if (typeof fieldNode.pattern === 'string') {
-        try {
-          // Throws on invalid regex source.
-
-          new RegExp(fieldNode.pattern)
-        } catch {
+        if (!testLinearRegex(fieldNode.pattern, '').ok) {
           throw new FormCompilationError(
             'INVALID_REGEX_PATTERN',
-            `Field "${fieldKey}" has an invalid regular expression pattern.`,
+            `Field "${fieldKey}" has an invalid or unbounded regular expression pattern.`,
             ['properties', fieldKey, 'pattern'],
           )
         }
@@ -714,7 +711,7 @@ function unique(values: string[]): string[] {
 }
 
 function compileAjv(schema: Record<string, unknown>): ValidateFunction {
-  const ajv = new Ajv({ allErrors: true, useDefaults: false, strict: false })
+  const ajv = new Ajv({ allErrors: false, useDefaults: false, strict: false })
   addFormats(ajv)
   addOmKeywords(ajv)
   try {
@@ -735,7 +732,7 @@ function compileAjv(schema: Record<string, unknown>): ValidateFunction {
 function stripOmKeywordsForAjv(schema: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(
     JSON.stringify(schema, (key, value) => {
-      if (typeof key === 'string' && key.startsWith('x-om-')) return undefined
+      if (typeof key === 'string' && (key.startsWith('x-om-') || key === 'pattern')) return undefined
       return value
     }),
   ) as Record<string, unknown>
