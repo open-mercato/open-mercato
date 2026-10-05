@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { KpiCard } from '@open-mercato/ui/backend/charts'
+import { HelpTip } from '@open-mercato/ui/backend/HelpTip'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
@@ -411,6 +412,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
             title={t('marketing_automation.profile.kpi.score', 'Lead score')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.score', 'Lead score')}
+                body={t('marketing_automation.help.profile.kpi.score', 'The sum of every entry in this person\u2019s score ledger, never a stored number \u2014 that is what stops a step delivered twice from awarding twice. The tier underneath is derived from the score, so it cannot be stale.')}
+              />
+            )}
             value={profile.score.points}
             footer={
               <span className="inline-flex items-center gap-1">
@@ -437,6 +444,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             <>
               <KpiCard
                 title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+                body={t('marketing_automation.help.profile.kpi.orders', 'How many orders they have placed and how long since the last one, read from the sales module. On an installation without it this tile has nothing to report.')}
+              />
+            )}
                 value={profile.orders.count}
                 footer={
                   <span>
@@ -449,6 +462,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
               />
               <KpiCard
                 title={t('marketing_automation.profile.kpi.spend', 'Lifetime spend')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.spend', 'Lifetime spend')}
+                body={t('marketing_automation.help.profile.kpi.spend', 'Everything they have spent, with where that puts them among this shop\u2019s OWN buyers rather than against a fixed threshold. The per-order figure is an average, so it is rounded.')}
+              />
+            )}
                 value={profile.orders.totalGross}
                 footer={
                   <span>
@@ -467,6 +486,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           ) : (
             <KpiCard
               title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+                body={t('marketing_automation.help.profile.kpi.orders', 'How many orders they have placed and how long since the last one, read from the sales module. On an installation without it this tile has nothing to report.')}
+              />
+            )}
               value={null}
               footer={<span>{t('marketing_automation.profile.noSalesModule', 'No sales module installed')}</span>}
             />
@@ -479,6 +504,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           {/* What they buy, in the same vocabulary an audience uses — so the screen teaches the field name. */}
           <KpiCard
             title={t('marketing_automation.profile.kpi.categories', 'Buys from')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.categories', 'Buys from')}
+                body={t('marketing_automation.help.profile.kpi.categories', 'The product categories they have bought from. A category is read from the catalogue rather than from the order, because it is a current classification while a sku is a historical fact.')}
+              />
+            )}
             // Null, not zero, without the modules: `KpiCard` renders an absent value as absent, and "we cannot
             // see what they buy" is not the same claim as "they buy from nothing".
             value={profile.orders ? profile.orders.categories.length : null}
@@ -494,6 +525,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           />
           <KpiCard
             title={t('marketing_automation.profile.kpi.rfm', 'RFM')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.rfm', 'RFM')}
+                body={t('marketing_automation.help.profile.kpi.rfm', 'Recency, frequency and spend, each scored 1\u20135 against this shop\u2019s own buyers rather than fixed day counts: \u201cbought in the last 30 days\u201d is excellent for coffee and meaningless for mattresses.\n\nBelow a minimum number of buyers nothing is scored, and somebody who has never bought scores nothing rather than 1-1-1 \u2014 which would read as the worst customer in the shop.')}
+              />
+            )}
             /* The sortable number is the total out of 15; the three digits an operator actually reads are
                spelled out underneath, because a card cannot show both as its headline. */
             value={profile.rfm ? profile.rfm.total : null}
@@ -518,6 +555,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           */}
           <KpiCard
             title={t('marketing_automation.profile.kpi.projectedValue', 'Projected value')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.projectedValue', 'Projected value')}
+                body={t('marketing_automation.help.profile.kpi.projectedValue', 'A projection from the pace this customer actually buys at. It needs a second order first: one purchase is not a rate, and projecting from it ranks a one-off big spender above somebody who buys every month.\n\nThe pace is measured from their first order to now, so two orders in one week followed by two years of silence do not read as a hundred a year for ever.')}
+              />
+            )}
             value={profile.value?.projectedHorizonGross ?? null}
             footer={
               <span>
@@ -530,6 +573,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           />
           <KpiCard
             title={t('marketing_automation.profile.kpi.nps', 'Latest NPS')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.nps', 'Latest NPS')}
+                body={t('marketing_automation.help.profile.kpi.nps', 'The last score they gave, 0 to 10, with the band it falls in. A missing answer is never stored as 0 \u2014 0 is a valid score and the worst one.')}
+              />
+            )}
             value={profile.nps ? profile.nps.score : null}
             footer={
               <span>
@@ -541,6 +590,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           />
           <KpiCard
             title={t('marketing_automation.profile.kpi.messages', 'Messages sent')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.messages', 'Messages sent')}
+                body={t('marketing_automation.help.profile.kpi.messages', 'What we sent them and what they did with it. Opens and clicks are counted in distinct runs, not in events, so one person opening the same message four times is one.\n\n\u201cQuiet for N days\u201d runs from their last open or click \u2014 or, for somebody who has never opened anything, from the first message we sent.')}
+              />
+            )}
             value={profile.messages.sent}
             footer={
               <span>
