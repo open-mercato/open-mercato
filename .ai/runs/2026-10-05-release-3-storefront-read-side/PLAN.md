@@ -31,6 +31,7 @@
 | 2 | 2.2 | ecommerce entities + validators | dispatch:standard | done | adbb805f34 |
 | 2 | 2.3 | Generate + review ecommerce migration | inline | done | efe8cbec4d |
 | 2 | 2.4 | Admin CRUD routes: stores, domain bindings, channel bindings | dispatch:standard | done | pending |
+| 2 | 2.4-fix | Store create branding gate + cascade soft-delete of bindings on store delete | dispatch:standard | todo | — |
 | 2 | 2.5 | lib/cacheKeys.ts typed storefront cache + structural guard test | dispatch:capable | todo | — |
 | 2 | 2.6 | lib/storeContext.ts host/slug resolution, locale, failure modes | dispatch:capable | todo | — |
 | 2 | 2.7 | lib/buyerContext.ts buyer identity, groups, terms, taxMode, digest | dispatch:capable | todo | — |
@@ -114,6 +115,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **2.2 Entities + validators** — `EcommerceStore`, `EcommerceStoreDomainBinding`, `EcommerceStoreChannelBinding` (§5; includes `price_sort_fallback`; `require_authentication` lands in 5.1), closed zod `settings` schema (§5.1.1 without display availability keys, D12), channel `assortment_scope` validator rejecting `allOf`.
 - **2.3 Generate + review ecommerce migration.**
 - **2.4 Admin CRUD routes** — `makeCrudRoute` for the three entities (§9.2), `openApi`, optimistic lock, `indexer`, general store PUT rejects `settings.branding` changes, events emitted.
+- **2.4-fix Store create branding gate + cascade soft-delete of bindings on store delete** — found during 2.4: `POST /stores` must reject non-default `settings.branding` unless the caller has `ecommerce.branding.manage`; deleting a store soft-deletes its domain and channel bindings (emitting their `.deleted` events) so the domain/prefix is released.
 - **2.5 lib/cacheKeys.ts + structural guard** — `buildStorefrontCacheKey(ctx, parts)`, `storefrontCache(container, ctx)` typed accessor (the only `resolve('cache')` in the module); `__tests__/no-raw-cache-access.test.ts` (§6.1 Enforcement, D7).
 - **2.6 lib/storeContext.ts** — host → `domainMappingService.resolveByHostname` (`active` only, D1) → one ecommerce query (bindings + store + default channel, longest prefix) (D6); `storeSlug` behind `OM_ECOMMERCE_DEV_STORE_SLUG` (D18); locale order; §6.2 failure modes; resolution cache + tags.
 - **2.7 lib/buyerContext.ts** — `getCustomerAuthFromRequest`; tenant/org mismatch → 401 (D4); person+company ids read fresh (D3/D3a); groups/terms via multi-id input; priceKind override; `taxMode` from `CatalogPriceKind.displayMode`; `customerOverlayId` EXISTS probe; assortment = `intersectScopes(channel, groupScope)` (require_authentication short-circuit lands in 5.1); `priceScopeKey`, `assortmentScopeHash` (shared hash), `digest`; buyer cache with `customer:*` + `customer-group:*` tags.

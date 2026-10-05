@@ -17,3 +17,7 @@
 - Decision: Tasks-table Commit cells are back-filled by the following commit (a commit cannot embed its own SHA).
 - Decision: unrelated wms snapshot drift from `yarn db:generate` is discarded each time; catalog/customer_groups snapshots hand-limited to the intended entries.
 - Note (minor, for final review): `hashEffectiveScope` uses node:crypto and is exported from the catalog-visibility barrel; client imports of that barrel would pull it in.
+
+## 2026-10-05T11:47:14Z — scope decision (2.4-fix appended)
+- 2.4 executor flagged: POST /stores accepts branding without ecommerce.branding.manage; store delete leaves bindings holding the domain+prefix. Decision: gate branding on create by feature; cascade soft-delete bindings on store delete. Appended Step 2.4-fix.
+- Note for spec changelog: branding fonts are stored as allowlist ids (ECOMMERCE_BRANDING_FONTS), not CSS strings (2.2 decision).
