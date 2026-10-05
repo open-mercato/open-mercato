@@ -619,10 +619,23 @@ export class ActionLogService {
 
     if (this.tenantEncryptionService?.isEnabled()) {
       let legacyEntry: ActionLog | null = null
-      for (let offset = 0; ; offset += REPLAY_QUERY_BATCH_SIZE) {
-        const entries = await this.em.find(ActionLog, where as FilterQuery<ActionLog>, {
+      let cursor: { id: string; orderedAt: Date } | null = null
+      while (true) {
+        const pageWhere: Record<string, unknown> = cursor
+          ? {
+              $and: [
+                where,
+                {
+                  $or: [
+                    { [orderField]: { $lt: cursor.orderedAt } },
+                    { [orderField]: cursor.orderedAt, id: { $lt: cursor.id } },
+                  ],
+                },
+              ],
+            }
+          : where
+        const entries: ActionLog[] = await this.em.find(ActionLog, pageWhere as FilterQuery<ActionLog>, {
           limit: REPLAY_QUERY_BATCH_SIZE,
-          offset,
           orderBy,
         })
         await this.decryptEntries(entries)
@@ -632,6 +645,12 @@ export class ActionLogService {
           if (entryKind === 'legacy' && !legacyEntry) legacyEntry = entry
         }
         if (entries.length < REPLAY_QUERY_BATCH_SIZE) return legacyEntry
+        const lastEntry: ActionLog | undefined = entries.at(-1)
+        if (!lastEntry) return legacyEntry
+        cursor = {
+          id: String(lastEntry.id),
+          orderedAt: orderField === 'createdAt' ? lastEntry.createdAt : lastEntry.updatedAt,
+        }
       }
     }
 

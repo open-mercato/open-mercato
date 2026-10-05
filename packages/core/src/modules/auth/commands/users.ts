@@ -37,7 +37,10 @@ import {
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { getTransactionLifetime } from '@open-mercato/shared/lib/commands/transaction-lifetime'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -214,7 +217,7 @@ async function notifyRoleChanges(
   if (!tenantId) return
   const organizationId = user.organizationId ? String(user.organizationId) : null
 
-  try {
+  const createNotifications = async () => {
     const notificationService = resolveNotificationService(ctx.container)
     if (assignedRoles.length) {
       const assignedType = notificationTypes.find((type) => type.type === 'auth.role.assigned')
@@ -239,9 +242,24 @@ async function notifyRoleChanges(
         await notificationService.create(notificationInput, { tenantId, organizationId })
       }
     }
-  } catch (err) {
-    logger.error('Failed to create notification', { err })
   }
+  const safelyCreateNotifications = async () => {
+    try {
+      await createNotifications()
+    } catch (err) {
+      logger.error('Failed to create notification', { err })
+    }
+  }
+
+  const transactionalEm = ctx.transactionalEm
+  if (transactionalEm && getTransactionLifetime(transactionalEm)) {
+    onTransactionLifetimeComplete(transactionalEm, async (outcome) => {
+      if (outcome === 'committed') await safelyCreateNotifications()
+    })
+    return
+  }
+
+  await safelyCreateNotifications()
 }
 
 type CreateUserResult = { user: User; warning?: 'invite_email_failed' }

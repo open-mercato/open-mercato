@@ -27,6 +27,12 @@ function isPersistedRoleGrant(entry: unknown): entry is PersistedRoleGrant {
 function buildRoleSyncEntityManager(
   roles: Array<{ id: string; name: string }>,
   rolesAfterLock = roles,
+  roleState: {
+    grantsBeforeLock?: Array<{ id: string; roleId: string; userId: string; ssoConfigId: string }>
+    grantsAfterLock?: Array<{ id: string; roleId: string; userId: string; ssoConfigId: string }>
+    userRolesBeforeLock?: Array<{ id: string; role: { id: string }; deletedAt: Date | null }>
+    userRolesAfterLock?: Array<{ id: string; role: { id: string }; deletedAt: Date | null }>
+  } = {},
 ) {
   const persisted: unknown[] = []
   let authorizationStateLocked = false
@@ -45,8 +51,16 @@ function buildRoleSyncEntityManager(
     }),
     find: jest.fn(async (entity: unknown) => {
       if (entity === Role) return authorizationStateLocked ? rolesAfterLock : roles
-      if (entity === SsoRoleGrant) return []
-      if (entity === UserRole) return []
+      if (entity === SsoRoleGrant) {
+        return authorizationStateLocked
+          ? roleState.grantsAfterLock ?? roleState.grantsBeforeLock ?? []
+          : roleState.grantsBeforeLock ?? []
+      }
+      if (entity === UserRole) {
+        return authorizationStateLocked
+          ? roleState.userRolesAfterLock ?? roleState.userRolesBeforeLock ?? []
+          : roleState.userRolesBeforeLock ?? []
+      }
       return []
     }),
     findOne: jest.fn(async (entity: unknown) => {
@@ -258,6 +272,81 @@ describe('SSO app role mappings', () => {
       { refresh: true },
     )
     expect(em.create).not.toHaveBeenCalledWith(UserRole, expect.anything())
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
+  })
+
+  it('rejects a post-lock SSO grant-removal footprint expansion before membership or grant writes', async () => {
+    const em = buildRoleSyncEntityManager(
+      [
+        { id: 'role-employee', name: 'employee' },
+        { id: 'role-admin', name: 'admin' },
+      ],
+      [
+        { id: 'role-employee', name: 'employee' },
+        { id: 'role-admin', name: 'admin' },
+      ],
+      {
+        grantsBeforeLock: [],
+        grantsAfterLock: [{
+          id: 'grant-admin',
+          roleId: 'role-admin',
+          userId: 'user-1',
+          ssoConfigId: 'cfg-1',
+        }],
+      },
+    )
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: '[internal] Authorization state changed while acquiring its lock footprint',
+      },
+    })
+
+    expect(lockUserRoleWriterAuthorizationState).toHaveBeenCalledWith(
+      expect.anything(),
+      { userIds: ['user-1'], roleIds: ['role-employee'] },
+    )
+    expect(em.create).not.toHaveBeenCalledWith(UserRole, expect.anything())
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
+  })
+
+  it('rejects a post-lock soft-deleted membership cleanup footprint expansion before writes', async () => {
+    const em = buildRoleSyncEntityManager(
+      [
+        { id: 'role-employee', name: 'employee' },
+        { id: 'role-admin', name: 'admin' },
+      ],
+      [
+        { id: 'role-employee', name: 'employee' },
+        { id: 'role-admin', name: 'admin' },
+      ],
+      {
+        userRolesBeforeLock: [],
+        userRolesAfterLock: [{
+          id: 'user-role-admin',
+          role: { id: 'role-admin' },
+          deletedAt: new Date('2026-10-05T00:00:00.000Z'),
+        }],
+      },
+    )
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: '[internal] Authorization state changed while acquiring its lock footprint',
+      },
+    })
+
+    expect(lockUserRoleWriterAuthorizationState).toHaveBeenCalledWith(
+      expect.anything(),
+      { userIds: ['user-1'], roleIds: ['role-employee'] },
+    )
+    expect(em.create).not.toHaveBeenCalledWith(UserRole, expect.anything())
+    expect(em.remove).not.toHaveBeenCalled()
     expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
   })
 })

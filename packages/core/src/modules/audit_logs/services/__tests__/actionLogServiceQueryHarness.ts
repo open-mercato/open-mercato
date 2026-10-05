@@ -44,11 +44,28 @@ function matchesFilter(row: ActionLogQueryRow, filter: Record<PropertyKey, unkno
       ))) return false
       continue
     }
+    if (key === '$and') {
+      if (!Array.isArray(expected) || !expected.every((branch) => (
+        branch !== null
+        && typeof branch === 'object'
+        && matchesFilter(row, branch as Record<PropertyKey, unknown>)
+      ))) return false
+      continue
+    }
 
     const actual = row[key]
-    if (expected !== null && typeof expected === 'object' && '$ne' in expected) {
-      if (actual === (expected as { $ne: unknown }).$ne) return false
-      continue
+    if (expected !== null && typeof expected === 'object') {
+      if ('$ne' in expected) {
+        if (actual === (expected as { $ne: unknown }).$ne) return false
+        continue
+      }
+      if ('$lt' in expected) {
+        const upperBound = (expected as { $lt: unknown }).$lt
+        const actualValue = actual instanceof Date ? actual.getTime() : actual
+        const upperBoundValue = upperBound instanceof Date ? upperBound.getTime() : upperBound
+        if (!(actualValue != null && upperBoundValue != null && actualValue < upperBoundValue)) return false
+        continue
+      }
     }
     if (actual !== expected) return false
   }
@@ -58,7 +75,10 @@ function matchesFilter(row: ActionLogQueryRow, filter: Record<PropertyKey, unkno
 
 export function buildActionLogQueryHarness(
   rows: ActionLogQueryRow[],
-  options: { encryptionEnabled?: boolean } = {},
+  options: {
+    encryptionEnabled?: boolean
+    afterFind?: (rows: ActionLogQueryRow[], callCount: number) => void
+  } = {},
 ) {
   const resolveMatches = (
     where: Record<PropertyKey, unknown>,
@@ -92,7 +112,11 @@ export function buildActionLogQueryHarness(
     _entity: unknown,
     where: Record<PropertyKey, unknown>,
     queryOptions?: { limit?: number; offset?: number; orderBy?: Record<string, string> },
-  ) => resolveMatches(where, queryOptions))
+  ) => {
+    const matches = resolveMatches(where, queryOptions)
+    options.afterFind?.(rows, find.mock.calls.length)
+    return matches
+  })
   const tenantEncryptionService = options.encryptionEnabled
     ? {
         isEnabled: () => true,

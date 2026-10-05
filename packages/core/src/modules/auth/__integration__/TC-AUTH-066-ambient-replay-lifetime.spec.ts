@@ -5,11 +5,14 @@ import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamic
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
+import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { getTransactionLifetime } from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createUserFixture,
+  createRoleFixture,
+  deleteRoleIfExists,
   deleteUserIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
@@ -54,6 +57,34 @@ async function replayState(userId: string, logId: string): Promise<Pick<ReplayRo
     const row = result.rows[0]
     if (!row) throw new Error('[internal] Ambient replay state is unavailable')
     return row
+  })
+}
+
+async function countRoleAssignedNotifications(userId: string): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from notifications
+        where source_entity_type = 'auth:user'
+          and source_entity_id = $1
+          and type = 'auth.role.assigned'`,
+      [userId],
+    )
+    return Number(result.rows[0]?.count ?? 0)
+  })
+}
+
+async function countUserRole(userId: string, roleId: string): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from user_roles
+        where user_id = $1
+          and role_id = $2
+          and deleted_at is null`,
+      [userId, roleId],
+    )
+    return Number(result.rows[0]?.count ?? 0)
   })
 }
 
@@ -185,6 +216,80 @@ test.describe.serial('TC-AUTH-066: caller-owned replay transaction lifetime', ()
       expect(retried.name).not.toBe(source.name)
     } finally {
       await deleteUserIfExists(request, adminToken, userId)
+    }
+  })
+
+  test('outer rollback suppresses role-changing redo notifications until a real commit', async ({ request }) => {
+    test.slow()
+
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const organizationId = expectId(scope.organizationId, 'Admin token should include organization id')
+    const actorUserId = expectId(scope.userId, 'Admin token should include user id')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    const rollbackError = new Error('TC-AUTH-066 deliberate role redo rollback')
+    let roleId: string | null = null
+    let userId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, { name: `Ambient role ${stamp}` })
+      userId = await createUserFixture(request, adminToken, {
+        email: `ambient-role-rollback-${stamp}@example.com`,
+        password: 'StrongSecret123!',
+        organizationId,
+        roles: [],
+      })
+      const update = await apiRequest(request, 'PUT', '/api/auth/users', {
+        token: adminToken,
+        data: { id: userId, roles: [roleId] },
+      })
+      expect(update.status(), await update.text()).toBe(200)
+      const source = await latestReplayRow(userId, actorUserId)
+      const undo = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
+        token: adminToken,
+        data: { undoToken: source.undo_token },
+      })
+      expect(undo.status(), await undo.text()).toBe(200)
+      expect(await countUserRole(userId, roleId)).toBe(0)
+      const notificationsBefore = await countRoleAssignedNotifications(userId)
+
+      await bootstrapFromAppRoot(resolveAppRoot())
+      const container = await createRequestContainer()
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const actionLogService = container.resolve('actionLogService') as ActionLogService
+      const em = container.resolve('em') as EntityManager
+      const sourceLog = await actionLogService.findById(source.id)
+      expect(sourceLog).not.toBeNull()
+
+      await expect(withAtomicFlush(em, [async () => {
+        const transactionLifetime = getTransactionLifetime(em)
+        await commandBus.execute('auth.users.update', {
+          input: { id: userId, roles: [roleId] },
+          ctx: {
+            ...runtimeContext(container, scope),
+            transactionalEm: em,
+            transactionLifetime: transactionLifetime!,
+          },
+          redoLogEntry: sourceLog!,
+        })
+        expect(await countRoleAssignedNotifications(userId!)).toBe(notificationsBefore)
+        throw rollbackError
+      }], { transaction: true, label: 'TC-AUTH-066.role-redo-rollback' })).rejects.toBe(rollbackError)
+
+      expect((await replayState(userId, source.id)).execution_state).toBe('undone')
+      expect(await countUserRole(userId, roleId)).toBe(0)
+      expect(await countRoleAssignedNotifications(userId)).toBe(notificationsBefore)
+
+      const retry = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/redo', {
+        token: adminToken,
+        data: { logId: source.id },
+      })
+      expect(retry.status(), await retry.text()).toBe(200)
+      expect(await countUserRole(userId, roleId)).toBe(1)
+      expect(await countRoleAssignedNotifications(userId)).toBe(notificationsBefore + 1)
+    } finally {
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
     }
   })
 })

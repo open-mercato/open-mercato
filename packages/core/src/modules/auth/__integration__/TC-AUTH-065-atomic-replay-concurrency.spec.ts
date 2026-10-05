@@ -66,6 +66,34 @@ async function latestReplayLog(userId: string, actorUserId: string): Promise<Rep
   })
 }
 
+async function countRoleAssignedNotifications(userId: string): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from notifications
+        where source_entity_type = 'auth:user'
+          and source_entity_id = $1
+          and type = 'auth.role.assigned'`,
+      [userId],
+    )
+    return Number(result.rows[0]?.count ?? 0)
+  })
+}
+
+async function countUserRole(userId: string, roleId: string): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: string }>(
+      `select count(*)::text as count
+         from user_roles
+        where user_id = $1
+          and role_id = $2
+          and deleted_at is null`,
+      [userId, roleId],
+    )
+    return Number(result.rows[0]?.count ?? 0)
+  })
+}
+
 async function undoAction(
   request: APIRequestContext,
   token: string,
@@ -472,6 +500,79 @@ test.describe('TC-AUTH-065: transaction-bound auth replay concurrency', () => {
         await client.query(`drop function if exists "${functionName}"()`)
       }).catch(() => undefined)
       await deleteUserIfExists(request, adminToken, userId)
+    }
+  })
+
+  test('suppresses role notifications when redo action-log persistence fails', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const actorUserId = expectId(scope.userId, 'Admin token should include user id')
+    const organizationId = expectId(scope.organizationId, 'Admin token should include organization id')
+    const stamp = `${Date.now()}_${randomInt(1_000_000)}`
+    const functionName = `om_fail_role_redo_${stamp}`
+    const triggerName = `om_fail_role_redo_trigger_${stamp}`
+    let roleId: string | null = null
+    let userId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, { name: `Replay notification ${stamp}` })
+      userId = await createUserFixture(request, adminToken, {
+        email: `replay-notification-${stamp}@example.com`,
+        password: 'StrongSecret123!',
+        organizationId,
+        roles: [],
+      })
+      const update = await apiRequest(request, 'PUT', '/api/auth/users', {
+        token: adminToken,
+        data: { id: userId, roles: [roleId] },
+      })
+      expect(update.status(), await update.text()).toBe(200)
+      const sourceLog = await latestReplayLog(userId, actorUserId)
+      const undoResponse = await undoAction(request, adminToken, sourceLog.undo_token)
+      expect(undoResponse.status(), await undoResponse.text()).toBe(200)
+      expect(await countUserRole(userId, roleId)).toBe(0)
+
+      const notificationsBefore = await countRoleAssignedNotifications(userId)
+      const replayBefore = await readReplayState(userId, sourceLog.id)
+      await withClient(async (client) => {
+        await client.query(
+          `create function "${functionName}"() returns trigger language plpgsql as $$
+           begin
+             raise exception 'injected redo action-log persistence failure';
+           end
+           $$`,
+        )
+        await client.query(
+          `create trigger "${triggerName}"
+             before insert on action_logs
+             for each row
+             execute function "${functionName}"()`,
+        )
+      })
+
+      const failedRedo = await redoAction(request, adminToken, sourceLog.id)
+      expect(failedRedo.status()).toBe(400)
+      const replayAfterFailure = await readReplayState(userId, sourceLog.id)
+      expect(replayAfterFailure.executionState).toBe('undone')
+      expect(replayAfterFailure.logCount).toBe(replayBefore.logCount)
+      expect(await countUserRole(userId, roleId)).toBe(0)
+      expect(await countRoleAssignedNotifications(userId)).toBe(notificationsBefore)
+
+      await withClient(async (client) => {
+        await client.query(`drop trigger if exists "${triggerName}" on action_logs`)
+        await client.query(`drop function if exists "${functionName}"()`)
+      })
+      const successfulRedo = await redoAction(request, adminToken, sourceLog.id)
+      expect(successfulRedo.status(), await successfulRedo.text()).toBe(200)
+      expect(await countUserRole(userId, roleId)).toBe(1)
+      expect(await countRoleAssignedNotifications(userId)).toBe(notificationsBefore + 1)
+    } finally {
+      await withClient(async (client) => {
+        await client.query(`drop trigger if exists "${triggerName}" on action_logs`)
+        await client.query(`drop function if exists "${functionName}"()`)
+      }).catch(() => undefined)
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
     }
   })
 

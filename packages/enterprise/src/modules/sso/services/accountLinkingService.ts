@@ -238,9 +238,13 @@ export class AccountLinkingService {
       userId: user.id,
       ssoConfigId: config.id,
     })
+    let allUserRoles = await em.find(UserRole, { user: user.id } as FilterQuery<UserRole>)
     const lockedRoleIds = new Set([
       ...desiredRoleIds,
       ...existingGrants.map((grant) => grant.roleId),
+      ...allUserRoles
+        .filter((userRole) => userRole.deletedAt)
+        .map((userRole) => String(userRole.role?.id ?? userRole.role)),
     ])
     await lockUserRoleWriterAuthorizationState(em, {
       userIds: [String(user.id)],
@@ -254,14 +258,24 @@ export class AccountLinkingService {
       userId: user.id,
       ssoConfigId: config.id,
     }, { refresh: true })
+    allUserRoles = await em.find(
+      UserRole,
+      { user: user.id } as FilterQuery<UserRole>,
+      { refresh: true },
+    )
 
     desiredRoleIds = resolveActiveRoleIds(allRoles, desiredRoleNames)
-    assertDesiredRolesWereLocked(desiredRoleIds, lockedRoleIds)
     const existingGrantedRoleIds = new Set(existingGrants.map((g) => g.roleId))
 
     // Compute diff
     const toAdd = [...desiredRoleIds].filter((id) => !existingGrantedRoleIds.has(id))
     const toRemove = existingGrants.filter((g) => !desiredRoleIds.has(g.roleId))
+    const softDeletedUserRoles = allUserRoles.filter((userRole) => userRole.deletedAt)
+    assertRoleMutationFootprintWasLocked([
+      ...desiredRoleIds,
+      ...toRemove.map((grant) => grant.roleId),
+      ...softDeletedUserRoles.map((userRole) => String(userRole.role?.id ?? userRole.role)),
+    ], lockedRoleIds)
 
     // Add new roles
     for (const roleId of toAdd) {
@@ -292,14 +306,11 @@ export class AccountLinkingService {
     }
 
     // Clean up orphaned soft-deleted UserRole rows (ghost rows from previous soft-delete logic)
-    const allUserRoles = await em.find(UserRole, { user: user.id } as FilterQuery<UserRole>)
-    for (const ur of allUserRoles) {
-      if (ur.deletedAt) {
-        em.remove(ur)
-      }
+    for (const userRole of softDeletedUserRoles) {
+      em.remove(userRole)
     }
 
-    if (toAdd.length > 0 || toRemove.length > 0 || allUserRoles.some((ur) => ur.deletedAt)) {
+    if (toAdd.length > 0 || toRemove.length > 0 || softDeletedUserRoles.length > 0) {
       await em.flush()
     }
   }
@@ -317,11 +328,11 @@ export class AccountLinkingService {
   }
 }
 
-function assertDesiredRolesWereLocked(
-  desiredRoleIds: ReadonlySet<string>,
+function assertRoleMutationFootprintWasLocked(
+  roleIds: Iterable<string>,
   lockedRoleIds: ReadonlySet<string>,
 ): void {
-  for (const roleId of desiredRoleIds) {
+  for (const roleId of roleIds) {
     if (!lockedRoleIds.has(roleId)) {
       throw conflict('[internal] Authorization state changed while acquiring its lock footprint')
     }

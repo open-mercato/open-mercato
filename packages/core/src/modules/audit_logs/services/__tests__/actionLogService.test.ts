@@ -662,20 +662,50 @@ describe('ActionLogService API-key replay freshness queries', () => {
     await expect(invoke(service)).resolves.toBeNull()
   })
 
-  it('continues encrypted-history scanning when a full page of newer legacy rows precedes the canonical key row', async () => {
+  it.each(queries)('$name uses deletion-safe encrypted keyset scanning when an eligible row leaves the first page', async ({ executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
     const legacyRows = Array.from({ length: 100 }, (_, index) => row(`legacy-${index}`, {
       contextJson: { source: 'api' },
       createdAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+      executionState,
+      undoToken,
       updatedAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
     }))
-    const { find, service } = buildActionLogQueryHarness([
+    const rows = [
       ...legacyRows,
-      row('canonical'),
-    ], { encryptionEnabled: true })
+      row('canonical', { executionState, undoToken }),
+    ]
+    const { find, service } = buildActionLogQueryHarness(rows, {
+      encryptionEnabled: true,
+      afterFind: (mutableRows, callCount) => {
+        if (callCount !== 1) return
+        const firstPageRow = mutableRows.find((entry) => entry.id === 'legacy-99')
+        if (firstPageRow) firstPageRow.executionState = executionState === 'done' ? 'undone' : 'redone'
+      },
+    })
 
-    await expect(service.latestUndoableForActor(keySubject, { tenantId, organizationId }))
+    await expect(invoke(service))
       .resolves.toMatchObject({ id: 'canonical' })
     expect(find).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(queries)('$name preserves the direct plaintext canonical-first query', async ({ executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
+    const legacyRows = Array.from({ length: 100 }, (_, index) => row(`legacy-${index}`, {
+      contextJson: { source: 'api' },
+      createdAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+      executionState,
+      undoToken,
+      updatedAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+    }))
+    const { find, findOne, service } = buildActionLogQueryHarness([
+      ...legacyRows,
+      row('canonical', { executionState, undoToken }),
+    ])
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'canonical' })
+    expect(find).not.toHaveBeenCalled()
+    expect(findOne).toHaveBeenCalledTimes(1)
   })
 })
 
