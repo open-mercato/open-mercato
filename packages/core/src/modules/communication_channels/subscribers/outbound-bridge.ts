@@ -2,6 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, CommunicationChannel, MessageChannelLink } from '../data/entities'
 import { Message } from '../../messages/data/entities'
+import { isIngestedInboundMessage } from '../lib/inbound-message-origin'
+import { isOutboundDeliveryIntended } from '../lib/outbound-delivery-intent'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 
@@ -38,6 +40,12 @@ type MessageSentPayload = {
   recipientUserIds?: string[]
   sendViaEmail?: boolean
   externalEmail?: string | null
+  /**
+   * Set by `messages.messages.forward` to the message the forward was built
+   * from. The only place an operator's delivery intent is recorded — see
+   * `lib/outbound-delivery-intent`.
+   */
+  forwardedFrom?: string | null
   tenantId: string
   organizationId?: string | null
 }
@@ -88,14 +96,13 @@ export default async function handler(
   if (message.sourceEntityType === 'communication_channels.send_as_user') {
     return
   }
-  // Inbound ingest path: when `ingest-inbound-message` composes a new platform
-  // Message for an incoming email, the messages module also emits
-  // `messages.message.sent` (the Message row is fresh and marked sent). Without
-  // this guard, we'd treat it as outbound and queue a redundant SMTP delivery —
-  // which fails because inbound MCLs carry recipient info in `channelPayload`,
-  // not `channelMetadata`, and the failure marker then leaks back onto the
-  // inbound link itself.
-  if (message.sourceEntityType === 'communication_channels.external_conversation') {
+  // (a1) Intent gate. The origin test at (c1) answers "did the ingest command
+  // compose this?"; this one answers "did an operator mean this to leave the
+  // platform?". Between them sits every internal message that shares the channel
+  // thread — most importantly a forward, whose body is the quoted conversation
+  // plus the operator's own commentary about the correspondent. Free (no query),
+  // so it runs before the mapping lookup.
+  if (!isOutboundDeliveryIntended({ message, forwardedFromMessageId: payload.forwardedFrom })) {
     return
   }
   if (!message.threadId) return // Internal-only; no channel routing.
@@ -126,6 +133,23 @@ export default async function handler(
     undefined,
     dscope,
   )
+  // (c1) Inbound ingest path: when `ingest-inbound-message` composes a platform
+  // Message for an incoming message, the messages module also emits
+  // `messages.message.sent` (the Message row is fresh and marked sent). Without
+  // this guard we'd treat it as outbound and queue a redundant delivery — which
+  // fails because inbound MCLs carry recipient info in `channelPayload`, not
+  // `channelMetadata`, and the failure marker then leaks back onto the inbound
+  // link itself.
+  //
+  // The guard used to be `sourceEntityType === external_conversation`, but an
+  // operator's reply inherits that value from the message it answers, so every
+  // operator message in a channel thread was dropped here — silently, which is
+  // the delivery half of #5535. `isIngestedInboundMessage` distinguishes the
+  // ingested message from an operator's own message in the same conversation.
+  if (await isIngestedInboundMessage(em, { message, existingLink, tenantId: payload.tenantId })) {
+    return
+  }
+
   if (
     existingLink &&
     (existingLink.deliveryStatus === 'queued' ||
