@@ -108,6 +108,7 @@ export const setup: ModuleSetupConfig = {
       'customers.roles.view',
       'customers.roles.manage',
       'customers.email.compose',
+      'customers.email.share_conversation',
       // Required so the staff-absent fallback to /api/auth/users succeeds for employees too.
       // See `admin` entry above for full rationale.
       'auth.users.list',

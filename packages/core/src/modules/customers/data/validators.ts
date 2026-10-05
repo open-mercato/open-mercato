@@ -566,6 +566,11 @@ const interactionUpdateBaseSchema = z
   .merge(
     scopedSchema
       .extend({
+        // Re-link an existing interaction to a different person/company, the same way
+        // `dealId` below already re-links it to a different deal (#5938). Not nullable:
+        // `CustomerInteraction.entity` is a required relation, so there is no "detach"
+        // state to express — that depends on #5935 making the column nullable first.
+        entityId: z.string().uuid().optional(),
         interactionType: z.string().trim().min(1).max(100).optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
@@ -797,6 +802,23 @@ export const labelUnassignCommandSchema = scopedSchema.extend({
 
 export type LabelAssignCommandInput = z.infer<typeof labelAssignCommandSchema>
 export type LabelUnassignCommandInput = z.infer<typeof labelUnassignCommandSchema>
+
+/**
+ * Set (or clear) the caller's own email-conversation share for one Person.
+ *
+ * Deliberately carries NO owner field: the command derives the owner from the
+ * authenticated actor, so there is no request shape that could share another
+ * user's mailbox.
+ */
+export const emailConversationShareSetCommandSchema = scopedSchema.extend({
+  personEntityId: uuid(),
+  shared: z.boolean(),
+  expectedUpdatedAt: z.string().min(1).nullable().optional(),
+})
+
+export type EmailConversationShareSetCommandInput = z.infer<
+  typeof emailConversationShareSetCommandSchema
+>
 
 export const personCompanyLinkCreateSchema = scopedSchema.extend({
   personEntityId: uuid(),

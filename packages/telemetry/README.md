@@ -170,7 +170,13 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {
     const { registerTelemetryForNextjs } =
       await import('@open-mercato/telemetry/nextjs')
-    await registerTelemetryForNextjs()
+    try {
+      await registerTelemetryForNextjs()
+    } catch (err) {
+      const nodeProcess = process
+      nodeProcess.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+      nodeProcess.exit(1)
+    }
   }
 }
 ```
