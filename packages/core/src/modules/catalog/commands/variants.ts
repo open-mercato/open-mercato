@@ -27,6 +27,7 @@ import {
   type VariantUpdateInput,
 } from '../data/validators'
 import { isValidGtin, normalizeGtinValue } from '../lib/gtin'
+import { capturePriceHistoryEntries } from '../lib/omnibus'
 import type { CatalogGtinType } from '../data/types'
 import {
   cloneJson,
@@ -1080,6 +1081,7 @@ const deleteVariantCommand: CommandHandler<
     }
     em.remove(record)
     await em.flush()
+    await capturePriceHistoryEntries(em, priceSnapshots, 'delete')
     for (const priceSnapshot of priceSnapshots) {
       const resetValues = buildCustomFieldResetMap(priceSnapshot.custom ?? undefined, undefined)
       if (!Object.keys(resetValues).length) continue
@@ -1185,6 +1187,9 @@ const deleteVariantCommand: CommandHandler<
       await restoreVariantPricesFromSnapshots(em, record, before.prices, dataEngine)
     }
     await em.flush()
+    await capturePriceHistoryEntries(em, before.prices, 'undo', {
+      metadata: { undoneCommand: 'catalog.variants.delete' },
+    })
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

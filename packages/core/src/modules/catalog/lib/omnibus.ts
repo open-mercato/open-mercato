@@ -190,3 +190,72 @@ export async function capturePriceHistoryEntry(
     return null
   }
 }
+
+export type RecordPriceHistoryBatchResult = { recorded: number; duplicates: number }
+
+function uniquePricesById(prices: PriceHistoryPriceInput[]): PriceHistoryPriceInput[] {
+  const seen = new Set<string>()
+  const unique: PriceHistoryPriceInput[] = []
+  for (const price of prices) {
+    if (seen.has(price.id)) continue
+    seen.add(price.id)
+    unique.push(price)
+  }
+  return unique
+}
+
+export async function recordPriceHistoryEntries(
+  em: EntityManager,
+  prices: PriceHistoryPriceInput[],
+  changeType: PriceHistoryChangeType,
+  options: BuildHistoryEntryOptions = {},
+): Promise<RecordPriceHistoryBatchResult> {
+  const unique = uniquePricesById(prices)
+  if (!unique.length) return { recorded: 0, duplicates: 0 }
+  const batchOptions: BuildHistoryEntryOptions = { ...options, recordedAt: options.recordedAt ?? new Date() }
+  const entries = unique.map((price) => buildHistoryEntry(price, changeType, batchOptions))
+  const historyEm = em.fork()
+  for (const entry of entries) {
+    historyEm.persist(historyEm.create(CatalogPriceHistoryEntry, entry))
+  }
+  try {
+    await historyEm.flush()
+  } catch (err) {
+    if (!isUniqueViolation(err, PRICE_HISTORY_IDEMPOTENCY_CONSTRAINT)) throw err
+    let recorded = 0
+    let duplicates = 0
+    for (const price of unique) {
+      const result = await recordPriceHistoryEntry(em, price, changeType, batchOptions)
+      if (result === 'duplicate') duplicates += 1
+      else recorded += 1
+    }
+    return { recorded, duplicates }
+  }
+  return { recorded: entries.length, duplicates: 0 }
+}
+
+export async function capturePriceHistoryEntries(
+  em: EntityManager,
+  prices: PriceHistoryPriceInput[] | null | undefined,
+  changeType: PriceHistoryChangeType,
+  options: BuildHistoryEntryOptions = {},
+): Promise<RecordPriceHistoryBatchResult | null> {
+  if (!prices || !prices.length) return null
+  try {
+    return await recordPriceHistoryEntries(em, prices, changeType, options)
+  } catch (err) {
+    logger.error('[internal] catalog price history batch capture failed', {
+      priceIds: prices.map((price) => price.id),
+      changeType,
+      tenantId: prices[0].tenantId,
+      organizationId: prices[0].organizationId,
+      err,
+    })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.price_history_capture_failed',
+      attributes: { priceCount: prices.length, changeType },
+    })
+    return null
+  }
+}

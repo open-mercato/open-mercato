@@ -13,7 +13,7 @@ import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
 } from "@open-mercato/shared/lib/commands/helpers";
-import type { EntityManager } from "@mikro-orm/postgresql";
+import type { EntityManager, FilterQuery } from "@mikro-orm/postgresql";
 import { UniqueConstraintViolationException } from "@mikro-orm/core";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
@@ -77,6 +77,11 @@ import {
   findOneWithDecryption,
 } from "@open-mercato/shared/lib/encryption/find";
 import { canonicalizeUnitCode } from "../lib/unitCodes";
+import {
+  capturePriceHistoryEntries,
+  priceHistoryInputFromRecord,
+  type PriceHistoryPriceInput,
+} from "../lib/omnibus";
 import {
   resolveCanonicalUnitCode,
 } from "../lib/unitResolution";
@@ -1023,6 +1028,28 @@ async function removeProductVariants(
   for (const variant of variants) {
     em.remove(variant);
   }
+}
+
+async function loadProductPricesForHistory(
+  em: EntityManager,
+  product: CatalogProduct,
+  variants: CatalogProductVariant[],
+): Promise<PriceHistoryPriceInput[]> {
+  const scope = {
+    tenantId: product.tenantId,
+    organizationId: product.organizationId,
+  };
+  const variantIds = variants.map((variant) => variant.id);
+  const ownership: FilterQuery<CatalogProductPrice>[] = [{ product: product.id }];
+  if (variantIds.length) ownership.push({ variant: { $in: variantIds } });
+  const prices = await findWithDecryption(
+    em.fork(),
+    CatalogProductPrice,
+    { ...scope, $or: ownership },
+    { populate: ["priceKind", "variant"] },
+    scope,
+  );
+  return prices.map((price) => priceHistoryInputFromRecord(price));
 }
 
 async function emitProductVariantCleanupSideEffects(opts: {
@@ -2233,6 +2260,11 @@ const deleteProductCommand: CommandHandler<
       em,
       record,
     );
+    const deletedPrices = await loadProductPricesForHistory(
+      em,
+      record,
+      variants,
+    );
     await withAtomicFlush(
       em,
       [
@@ -2256,6 +2288,7 @@ const deleteProductCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    await capturePriceHistoryEntries(em, deletedPrices, "delete");
     await emitProductVariantCleanupSideEffects({
       dataEngine,
       ctx,

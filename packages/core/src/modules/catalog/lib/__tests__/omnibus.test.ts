@@ -5,8 +5,10 @@ import { CatalogPriceHistoryEntry } from '../../data/entities'
 import {
   buildHistoryEntry,
   buildPriceHistoryIdempotencyKey,
+  capturePriceHistoryEntries,
   capturePriceHistoryEntry,
   priceHistoryInputFromRecord,
+  recordPriceHistoryEntries,
   recordPriceHistoryEntry,
   type PriceHistoryPriceInput,
 } from '../omnibus'
@@ -295,5 +297,122 @@ describe('capturePriceHistoryEntry', () => {
     await expect(capturePriceHistoryEntry(fake.em, PRICE, 'undo')).resolves.toBe('recorded')
     expect(fake.rows[0]).toMatchObject({ changeType: 'undo' })
     expect(reportError).not.toHaveBeenCalled()
+  })
+})
+
+const SECOND_PRICE: PriceHistoryPriceInput = { ...PRICE, id: '88888888-8888-4888-8888-888888888888' }
+
+function idempotencyViolation(): Error {
+  return Object.assign(new Error('duplicate key value violates unique constraint "catalog_price_history_idempotency_uq"'), {
+    code: '23505',
+    constraint: 'catalog_price_history_idempotency_uq',
+  })
+}
+
+describe('recordPriceHistoryEntries', () => {
+  it('persists every entry through one forked entity manager and a single flush', async () => {
+    const fake = buildFakeEm()
+    await expect(
+      recordPriceHistoryEntries(fake.em, [PRICE, SECOND_PRICE], 'delete', { recordedAt: RECORDED_AT }),
+    ).resolves.toEqual({ recorded: 2, duplicates: 0 })
+    expect(fake.fork).toHaveBeenCalledTimes(1)
+    expect(fake.flush).toHaveBeenCalledTimes(1)
+    expect(fake.rows.map((row) => row.priceId)).toEqual([PRICE.id, SECOND_PRICE.id])
+    expect(fake.rows.every((row) => row.changeType === 'delete')).toBe(true)
+    expect(fake.rows.every((row) => (row.recordedAt as Date).getTime() === RECORDED_AT.getTime())).toBe(true)
+  })
+
+  it('shares one recordedAt across the batch when none is given', async () => {
+    const fake = buildFakeEm()
+    await recordPriceHistoryEntries(fake.em, [PRICE, SECOND_PRICE], 'delete')
+    expect(new Set(fake.rows.map((row) => (row.recordedAt as Date).toISOString())).size).toBe(1)
+  })
+
+  it('deduplicates prices by id', async () => {
+    const fake = buildFakeEm()
+    await expect(recordPriceHistoryEntries(fake.em, [PRICE, PRICE], 'delete')).resolves.toEqual({
+      recorded: 1,
+      duplicates: 0,
+    })
+    expect(fake.rows).toHaveLength(1)
+  })
+
+  it('is a no-op for an empty batch', async () => {
+    const fake = buildFakeEm()
+    await expect(recordPriceHistoryEntries(fake.em, [], 'delete')).resolves.toEqual({ recorded: 0, duplicates: 0 })
+    expect(fake.fork).not.toHaveBeenCalled()
+  })
+
+  it('falls back to per-entry recording when the batch hits an idempotency violation', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    let flushCount = 0
+    const fork = jest.fn(() => {
+      const pending: Array<Record<string, unknown>> = []
+      return {
+        create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+        persist: jest.fn((row: Record<string, unknown>) => {
+          pending.push(row)
+        }),
+        flush: jest.fn(async () => {
+          flushCount += 1
+          if (flushCount === 1 || pending.some((row) => row.priceId === PRICE.id)) throw idempotencyViolation()
+          rows.push(...pending.splice(0))
+        }),
+      }
+    })
+    const em = { fork } as unknown as EntityManager
+    await expect(
+      recordPriceHistoryEntries(em, [PRICE, SECOND_PRICE], 'delete', { recordedAt: RECORDED_AT }),
+    ).resolves.toEqual({ recorded: 1, duplicates: 1 })
+    expect(rows.map((row) => row.priceId)).toEqual([SECOND_PRICE.id])
+  })
+
+  it('rethrows other database errors', async () => {
+    const fake = buildFakeEm(new Error('connection refused'))
+    await expect(recordPriceHistoryEntries(fake.em, [PRICE], 'delete')).rejects.toThrow('connection refused')
+  })
+})
+
+describe('capturePriceHistoryEntries', () => {
+  let reportError: jest.Mock
+  let unregister: () => void
+
+  beforeEach(() => {
+    reportError = jest.fn()
+    unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+  })
+
+  afterEach(() => {
+    unregister()
+  })
+
+  it('returns the batch result on success', async () => {
+    const fake = buildFakeEm()
+    await expect(capturePriceHistoryEntries(fake.em, [PRICE, SECOND_PRICE], 'undo')).resolves.toEqual({
+      recorded: 2,
+      duplicates: 0,
+    })
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  it('swallows recording failures and reports them', async () => {
+    const failure = new Error('database down')
+    const fake = buildFakeEm(failure)
+    await expect(capturePriceHistoryEntries(fake.em, [PRICE, SECOND_PRICE], 'delete')).resolves.toBeNull()
+    expect(reportError).toHaveBeenCalledWith(
+      failure,
+      expect.objectContaining({
+        module: 'catalog',
+        code: 'catalog.price_history_capture_failed',
+        attributes: { priceCount: 2, changeType: 'delete' },
+      }),
+    )
+  })
+
+  it('is a no-op for missing or empty batches', async () => {
+    const fake = buildFakeEm()
+    await expect(capturePriceHistoryEntries(fake.em, null, 'delete')).resolves.toBeNull()
+    await expect(capturePriceHistoryEntries(fake.em, [], 'delete')).resolves.toBeNull()
+    expect(fake.fork).not.toHaveBeenCalled()
   })
 })
