@@ -218,6 +218,36 @@ describe('messages /api/messages POST', () => {
     )
   })
 
+  it('forces email delivery for a public message a user composes, even when the client sends sendViaEmail=false (#6090)', async () => {
+    // The route, not the compose command, owns this rule: the command honors the
+    // caller so internal callers (ingest, send-as-user) can compose public
+    // messages without echoing them through the tenant system email channel.
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        visibility: 'public',
+        externalEmail: 'external-recipient@example.test',
+        recipients: [],
+        subject: 'Subject',
+        body: 'Body',
+        sendViaEmail: false,
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.compose',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          visibility: 'public',
+          externalEmail: 'external-recipient@example.test',
+          sendViaEmail: true,
+        }),
+      }),
+    )
+  })
+
   it('passes draft compose input to command bus without route side effects', async () => {
     const response = await POST(new Request('http://localhost', {
       method: 'POST',
