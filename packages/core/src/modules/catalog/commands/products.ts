@@ -82,6 +82,7 @@ import {
   priceHistoryInputFromRecord,
   type PriceHistoryPriceInput,
 } from "../lib/omnibus";
+import { resolveOmnibusCache } from "../lib/omnibusCache";
 import {
   resolveCanonicalUnitCode,
 } from "../lib/unitResolution";
@@ -2288,7 +2289,9 @@ const deleteProductCommand: CommandHandler<
       ],
       { transaction: true },
     );
-    await capturePriceHistoryEntries(em, deletedPrices, "delete");
+    await capturePriceHistoryEntries(em, deletedPrices, "delete", {
+      cache: resolveOmnibusCache(ctx.container),
+    });
     await emitProductVariantCleanupSideEffects({
       dataEngine,
       ctx,

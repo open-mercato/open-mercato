@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CatalogPriceHistoryEntry } from '../data/entities'
 import type { CatalogPriceKind, CatalogProductPrice } from '../data/entities'
 import type { PriceHistoryChangeType, PriceHistoryEntryInput, PriceHistorySource } from './omnibusTypes'
+import { invalidateOmnibusCache } from './omnibusCache'
 
 export const PRICE_HISTORY_IDEMPOTENCY_CONSTRAINT = 'catalog_price_history_idempotency_uq'
 
@@ -39,7 +41,28 @@ export type BuildHistoryEntryOptions = {
   metadata?: Record<string, unknown> | null
 }
 
+export type CapturePriceHistoryOptions = BuildHistoryEntryOptions & {
+  cache?: CacheStrategy | null
+}
+
 export type RecordPriceHistoryResult = 'recorded' | 'duplicate'
+
+async function invalidateOmnibusCacheForPrices(
+  cache: CacheStrategy | null | undefined,
+  prices: PriceHistoryPriceInput[],
+): Promise<void> {
+  if (!cache) return
+  await invalidateOmnibusCache(
+    cache,
+    prices.map((price) => ({
+      tenantId: price.tenantId,
+      organizationId: price.organizationId,
+      productId: price.productId,
+      variantId: price.variantId,
+      offerId: price.offerId,
+    })),
+  )
+}
 
 export function buildPriceHistoryIdempotencyKey(
   priceId: string,
@@ -169,11 +192,13 @@ export async function capturePriceHistoryEntry(
   em: EntityManager,
   price: PriceHistoryPriceInput | null | undefined,
   changeType: PriceHistoryChangeType,
-  options: BuildHistoryEntryOptions = {},
+  options: CapturePriceHistoryOptions = {},
 ): Promise<RecordPriceHistoryResult | null> {
   if (!price) return null
   try {
-    return await recordPriceHistoryEntry(em, price, changeType, options)
+    const result = await recordPriceHistoryEntry(em, price, changeType, options)
+    await invalidateOmnibusCacheForPrices(options.cache, [price])
+    return result
   } catch (err) {
     logger.error('[internal] catalog price history capture failed', {
       priceId: price.id,
@@ -238,11 +263,13 @@ export async function capturePriceHistoryEntries(
   em: EntityManager,
   prices: PriceHistoryPriceInput[] | null | undefined,
   changeType: PriceHistoryChangeType,
-  options: BuildHistoryEntryOptions = {},
+  options: CapturePriceHistoryOptions = {},
 ): Promise<RecordPriceHistoryBatchResult | null> {
   if (!prices || !prices.length) return null
   try {
-    return await recordPriceHistoryEntries(em, prices, changeType, options)
+    const result = await recordPriceHistoryEntries(em, prices, changeType, options)
+    await invalidateOmnibusCacheForPrices(options.cache, prices)
+    return result
   } catch (err) {
     logger.error('[internal] catalog price history batch capture failed', {
       priceIds: prices.map((price) => price.id),
