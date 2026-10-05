@@ -17,6 +17,7 @@ export type { DocumentHistoryQuery }
 export type DocumentHistoryPage = {
   items: GeneratedDocumentDto[]
   total: number
+  totalIsCapped?: boolean
   page: number
   pageSize: number
 }
