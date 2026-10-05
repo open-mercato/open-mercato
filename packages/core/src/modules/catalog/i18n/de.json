@@ -683,6 +683,7 @@
   "catalog.products.validation.canonicalUrlInvalid": "Die kanonische URL muss mit http:// oder https:// beginnen.",
   "catalog.products.validation.countryCodeInvalid": "Das Ursprungsland muss ein zweibuchstabiger ISO-Code sein.",
   "catalog.products.validation.handleFormat": "Handle darf nur Kleinbuchstaben, Ziffern, Bindestriche oder Unterstriche enthalten.",
+  "catalog.products.validation.invalidNumber": "Gib eine gültige Zahl ein.",
   "catalog.products.validation.lifecycleDateRange": "Das Auslaufdatum darf nicht vor dem Einführungsdatum liegen.",
   "catalog.products.validation.orderQtyRange": "Die maximale Bestellmenge darf nicht kleiner als die minimale sein.",
   "catalog.products.validation.referenceUnitRequired": "Referenzeinheit ist erforderlich, wenn die Grundpreisanzeige aktiviert ist.",
