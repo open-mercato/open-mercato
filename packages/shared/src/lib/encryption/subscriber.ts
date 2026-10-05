@@ -1,4 +1,5 @@
 import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
 import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantDataEncryptionService'
@@ -247,7 +248,13 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return
     }
     const { tenantId, organizationId } = resolveScope(target)
-    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
+    // Hand the flushing EntityManager to the policy read so it runs on this
+    // transaction's own connection instead of acquiring a second pooled one
+    // (an uncached lookup from inside an open write transaction deadlocks the
+    // pool once every slot is held by such a transaction).
+    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId, {
+      em: em as EntityManager | undefined,
+    })
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
       : {}
@@ -349,7 +356,9 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     // drop the pending write (e.g. an undo handler that mutates an entity, then loads a related
     // encrypted entity whose deep-decrypt recurses back into the still-dirty entity before flush).
     const hadPendingChanges = syncOriginal ? this.hasPendingChanges(target, resolvedMeta, em as any) : false
-    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
+    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId, {
+      em: em as EntityManager | undefined,
+    })
     Object.assign(target, decrypted)
     this.restoreDecryptedJsonColumns(target, resolvedMeta)
     if (syncOriginal && !hadPendingChanges) {

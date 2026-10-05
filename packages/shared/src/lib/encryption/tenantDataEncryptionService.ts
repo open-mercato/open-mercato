@@ -227,13 +227,25 @@ export function resolveEncryptionKeyId(
   return keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
 }
 
-function getSqlConnection(em: EntityManager): SqlConnection | null {
-  const source = em as { getConnection?: () => unknown }
-  const conn = source.getConnection?.()
-  if (!conn || typeof conn !== 'object') return null
-  const candidate = conn as { execute?: unknown }
+/**
+ * Runs a map lookup on an EntityManager rather than on `em.getConnection()`.
+ *
+ * `AbstractSqlConnection.execute` falls back to the pool whenever it is handed no
+ * transaction context, so the connection-level call takes a SECOND pooled
+ * connection while the caller already holds one for its open write transaction.
+ * Policy resolution is uncached and runs for every encrypt/decrypt decision, so
+ * under concurrency every in-flight write waits on a connection that only another
+ * waiting write could release — the pool deadlocks at `DB_POOL_MAX` and never
+ * recovers. `SqlEntityManager.execute` forwards `getTransactionContext()`, so the
+ * lookup reuses the caller's own connection, provided callers hand in the
+ * EntityManager that owns the transaction (the flush subscriber passes
+ * `args.em`). Reading the policy inside that transaction is also what an atomic,
+ * transaction-aware map write needs.
+ */
+function getSqlExecutor(em: EntityManager): SqlConnection | null {
+  const candidate = em as unknown as { execute?: unknown }
   if (typeof candidate.execute !== 'function') return null
-  return candidate as SqlConnection
+  return candidate as unknown as SqlConnection
 }
 
 export class TenantDataEncryptionService {
@@ -326,9 +338,9 @@ export class TenantDataEncryptionService {
     return dek
   }
 
-  private async fetchMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
+  private async fetchMap(key: MapCacheKey, em?: EntityManager): Promise<EncryptionMapRecord | null> {
     // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
-    const conn = getSqlConnection(this.em)
+    const conn = getSqlExecutor(em ?? this.em)
     if (!conn) return null
     const sql = `
       select entity_id, fields_json
@@ -382,7 +394,7 @@ export class TenantDataEncryptionService {
    * shared across calls: no invalidation protocol can make process-local state authoritative after
    * an independent worker commits a map mutation.
    */
-  private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
+  private async getMap(key: MapCacheKey, em?: EntityManager): Promise<EncryptionMapRecord | null> {
     const candidates: MapCacheKey[] = [
       key,
       { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
@@ -395,7 +407,7 @@ export class TenantDataEncryptionService {
       visited.add(tag)
       while (true) {
         const epoch = globalEncryptionMapEpochs.get(tag) ?? 0
-        const loaded = await this.fetchMap(candidate)
+        const loaded = await this.fetchMap(candidate, em)
         if ((globalEncryptionMapEpochs.get(tag) ?? 0) !== epoch) continue
         if (loaded) return this.applySystemDefault(loaded, key.entityId)
         debug('🔍 encmap.miss', {
@@ -412,8 +424,9 @@ export class TenantDataEncryptionService {
   private async fetchAllOrganizationFieldRules(
     entityId: string,
     tenantId: string | null,
+    em?: EntityManager,
   ): Promise<EncryptedFieldRule[]> {
-    const conn = getSqlConnection(this.em)
+    const conn = getSqlExecutor(em ?? this.em)
     if (!conn) return []
     const sql = `
       select fields_json
@@ -439,11 +452,12 @@ export class TenantDataEncryptionService {
   private async getAllOrganizationFieldRules(
     entityId: string,
     tenantId: string | null,
+    em?: EntityManager,
   ): Promise<EncryptedFieldRule[]> {
     const tag = allOrganizationsCacheKey(entityId, tenantId)
     while (true) {
       const epoch = globalEncryptionMapEpochs.get(tag) ?? 0
-      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId)
+      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId, em)
       if ((globalEncryptionMapEpochs.get(tag) ?? 0) !== epoch) continue
       return fields
     }
@@ -463,10 +477,11 @@ export class TenantDataEncryptionService {
     tenantId: string | null,
     organizationId: string | null,
     map: EncryptionMapRecord | null,
+    em?: EntityManager,
   ): Promise<EncryptedFieldRule[]> {
     const mapRules = normalizeEncryptedFieldRules(map?.fields)
     if (organizationId != null) return mapRules
-    return mergeEncryptedFieldRules([mapRules, await this.getAllOrganizationFieldRules(entityId, tenantId)])
+    return mergeEncryptedFieldRules([mapRules, await this.getAllOrganizationFieldRules(entityId, tenantId, em)])
   }
 
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
@@ -506,19 +521,20 @@ export class TenantDataEncryptionService {
     entityId: string,
     tenantId: string | null | undefined,
     organizationId?: string | null,
-    options?: { ignoreRuntimeHealth?: boolean }
+    options?: { ignoreRuntimeHealth?: boolean; em?: EntityManager }
   ): Promise<string[]> {
     if (options?.ignoreRuntimeHealth) {
       if (!isTenantDataEncryptionEnabled()) return []
     } else if (!this.isEnabled()) {
       return []
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, options?.em)
     const fields = await this.resolveFieldRulesForScope(
       entityId,
       tenantId ?? null,
       organizationId ?? null,
       map,
+      options?.em,
     )
     return fields.map((rule) => rule.field)
   }
@@ -607,18 +623,19 @@ export class TenantDataEncryptionService {
     payload: Record<string, unknown>,
     tenantId: string | null | undefined,
     organizationId?: string | null,
-    options?: { createMissingDek?: boolean }
+    options?: { createMissingDek?: boolean; em?: EntityManager }
   ): Promise<Record<string, unknown>> {
     if (!this.isEnabled()) {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, options?.em)
     const fields = await this.resolveFieldRulesForScope(
       entityId,
       tenantId ?? null,
       organizationId ?? null,
       map,
+      options?.em,
     )
     if (!fields.length) {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
@@ -638,18 +655,20 @@ export class TenantDataEncryptionService {
     entityId: string,
     payload: Record<string, unknown>,
     tenantId: string | null | undefined,
-    organizationId?: string | null
+    organizationId?: string | null,
+    options?: { em?: EntityManager }
   ): Promise<Record<string, unknown>> {
     if (!isTenantDataEncryptionEnabled()) {
       debug('⚪️ decrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, options?.em)
     const fields = await this.resolveFieldRulesForScope(
       entityId,
       tenantId ?? null,
       organizationId ?? null,
       map,
+      options?.em,
     )
     if (!fields.length) {
       debug('⚪️ decrypt.skip.no-map', { entityId, tenantId })

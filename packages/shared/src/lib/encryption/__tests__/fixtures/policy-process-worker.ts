@@ -60,7 +60,7 @@ const cache = {
 }
 
 const service = new TenantDataEncryptionService(
-  { getConnection: () => ({ execute }) } as never,
+  { execute, getConnection: () => ({ execute }) } as never,
   {
     cache: cache as never,
     kms: {

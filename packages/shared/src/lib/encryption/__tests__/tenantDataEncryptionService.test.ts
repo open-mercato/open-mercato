@@ -306,6 +306,7 @@ describe('TenantDataEncryptionService system-scoped maps', () => {
     ))
     const service = new TenantDataEncryptionService(
       {
+        execute: jest.fn(async () => []),
         getConnection: () => ({ execute: jest.fn(async () => []) }),
       } as never,
       {
@@ -371,6 +372,7 @@ describe('TenantDataEncryptionService.getEncryptedFieldNames', () => {
       ]
     })
     const service = new TenantDataEncryptionService({
+      execute,
       getConnection: () => ({ execute }),
     } as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
@@ -398,7 +400,7 @@ describe('TenantDataEncryptionService canonical map reads and invalidation', () 
       if (params[2] === organizationId) return [{ entity_id: entityId, fields_json: exactFields }]
       return []
     })
-    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    const service = new TenantDataEncryptionService({ execute, getConnection: () => ({ execute }) } as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
 
     await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
@@ -433,7 +435,7 @@ describe('TenantDataEncryptionService canonical map reads and invalidation', () 
       }
       return []
     })
-    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    const service = new TenantDataEncryptionService({ execute, getConnection: () => ({ execute }) } as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
 
     await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId)).resolves.toEqual([])
@@ -467,7 +469,7 @@ describe('TenantDataEncryptionService canonical map reads and invalidation', () 
       }
       return [{ entity_id: entityId, fields_json: snapshot }]
     })
-    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    const service = new TenantDataEncryptionService({ execute, getConnection: () => ({ execute }) } as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
 
     const firstRead = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
@@ -501,7 +503,7 @@ describe('TenantDataEncryptionService canonical map reads and invalidation', () 
       }
       return snapshot.length ? [{ entity_id: entityId, fields_json: snapshot }] : []
     })
-    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    const service = new TenantDataEncryptionService({ execute, getConnection: () => ({ execute }) } as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
 
     const firstRead = service.getEncryptedFieldNames(entityId, tenantId, organizationId)
@@ -537,7 +539,7 @@ describe('TenantDataEncryptionService canonical map reads and invalidation', () 
       }
       return [{ fields_json: snapshot }]
     })
-    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    const service = new TenantDataEncryptionService({ execute, getConnection: () => ({ execute }) } as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
 
     const firstRead = service.getEncryptedFieldNames(entityId, tenantId, null)
@@ -575,7 +577,7 @@ describe('TenantDataEncryptionService canonical map reads and invalidation', () 
       return []
     })
     const service = new TenantDataEncryptionService(
-      { getConnection: () => ({ execute }) } as never,
+      { execute, getConnection: () => ({ execute }) } as never,
       { cache: cache as never },
     )
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
@@ -622,7 +624,7 @@ describe('TenantDataEncryptionService canonical map reads and invalidation', () 
     })
     const makeService = () => {
       const service = new TenantDataEncryptionService(
-        { getConnection: () => ({ execute }) } as never,
+        { execute, getConnection: () => ({ execute }) } as never,
         { cache: cache as never },
       )
       jest.spyOn(service, 'isEnabled').mockReturnValue(true)
@@ -675,7 +677,7 @@ describe('TenantDataEncryptionService canonical map reads and invalidation', () 
     ))
     const makeService = () => {
       const service = new TenantDataEncryptionService(
-        { getConnection: () => ({ execute }) } as never,
+        { execute, getConnection: () => ({ execute }) } as never,
         { cache: cache as never },
       )
       jest.spyOn(service, 'isEnabled').mockReturnValue(true)
@@ -732,7 +734,7 @@ describe('TenantDataEncryptionService duplicate map fail-safe', () => {
       ]
     })
     const service = new TenantDataEncryptionService(
-      { getConnection: () => ({ execute }) } as never,
+      { execute, getConnection: () => ({ execute }) } as never,
       {
         kms: {
           getTenantDek: jest.fn(async () => ({ tenantId, key: fixedKey, fetchedAt: new Date() })),
@@ -789,7 +791,7 @@ describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', (
       return [{ fields_json: [{ field: 'description', hashField: 'description_hash' }] }]
     })
     const service = new TenantDataEncryptionService(
-      { getConnection: () => ({ execute }) } as never,
+      { execute, getConnection: () => ({ execute }) } as never,
       {
         kms: {
           getTenantDek: jest.fn(async (keyId: string) => (
@@ -889,7 +891,7 @@ describe('TenantDataEncryptionService map read failures (issue #6334)', () => {
   const mapRow = (entityId: string) => [{ entity_id: entityId, fields_json: [{ field: 'display_name' }] }]
 
   function makeService(execute: jest.Mock) {
-    const service = new TenantDataEncryptionService({ getConnection: () => ({ execute }) } as never)
+    const service = new TenantDataEncryptionService({ execute, getConnection: () => ({ execute }) } as never)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
     return service
   }
