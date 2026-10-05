@@ -112,6 +112,16 @@ export type CommandLogMetadata = {
    * Omitted preserves the command handler's existing replay behavior.
    */
   replayable?: boolean
+  /**
+   * Overrides the command input persisted in the audit entry's redo envelope.
+   * The default is the raw input, which for credential-bearing commands would put
+   * a plaintext secret at rest in `action_logs`. A handler that still wants its
+   * operation to be undoable supplies a redacted projection here instead of
+   * switching the whole entry to `replayable: false` — suppressing the undo token
+   * removes the operator's ability to revert a write that carries no secret of its
+   * own (undoing a user create only deletes a row).
+   */
+  redoInput?: unknown
   tenantId?: string | null
   organizationId?: string | null
   actorUserId?: string | null

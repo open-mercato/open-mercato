@@ -185,6 +185,45 @@ describe('CommandBus', () => {
     expect(persistedJson).not.toContain('passwordHash')
   })
 
+  it('persists a redacted redoInput without dropping the undo token', async () => {
+    // A credential-bearing create must keep the secret out of `action_logs`
+    // WITHOUT losing undo: undoing a create only deletes the row, so suppressing
+    // the whole entry (`replayable: false`) would remove a safe affordance.
+    const log = jest.fn(async (entry: Record<string, unknown>) => ({ id: 'log-redacted', ...entry }))
+    registerCommand({
+      id: 'test.command.redacted-input',
+      execute: jest.fn(async () => ({ ok: true })),
+      undo: jest.fn(async () => undefined),
+      buildLog: jest.fn(() => ({
+        redoInput: { email: 'person@example.com' },
+        actionLabel: 'Create user',
+        resourceKind: 'auth.user',
+        resourceId: 'user-1',
+        payload: { undo: { after: { id: 'user-1', email: 'person@example.com' } } },
+      })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log }) })
+
+    await new CommandBus().execute('test.command.redacted-input', {
+      input: { email: 'person@example.com', password: 'plain-text-secret' },
+      ctx: {
+        container,
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+      },
+    })
+
+    const persisted = log.mock.calls[0]?.[0] as Record<string, unknown>
+    const commandPayload = persisted.commandPayload as Record<string, unknown>
+    expect(typeof persisted.undoToken).toBe('string')
+    expect(commandPayload.__redoInput).toEqual({ email: 'person@example.com' })
+    expect(JSON.stringify(persisted)).not.toContain('plain-text-secret')
+  })
+
   it('records the system actor marker when a trusted command has no auth actor', async () => {
     const logMock = jest.fn(async () => ({ id: 'system-log-entry' }))
     registerCommand({

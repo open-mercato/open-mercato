@@ -920,7 +920,7 @@ describe('auth command replay authorization', () => {
     expect(harness.actionLogService.log).not.toHaveBeenCalled()
   })
 
-  it('marks new password create logs non-replayable and omits credential snapshots', async () => {
+  it('keeps password-bearing create logs undoable while omitting every credential', async () => {
     const handler = commandRegistry.get('auth.users.create') as CommandHandler<
       Record<string, unknown>,
       { user: User }
@@ -938,8 +938,14 @@ describe('auth command replay authorization', () => {
       snapshots: {},
     })
 
-    expect(metadata).toMatchObject({ replayable: false })
-    expect(metadata?.payload).toBeUndefined()
+    // Undoing a create only deletes the row, so it stays available: the entry
+    // keeps its undo token and its after-snapshot (which carries the original id
+    // so a redo restores it). Only the credentials are withheld.
+    expect(metadata?.replayable).toBeUndefined()
+    expect(metadata?.payload).toBeDefined()
+    expect(
+      (metadata as { redoInput?: Record<string, unknown> } | null | undefined)?.redoInput,
+    ).not.toHaveProperty('password')
     expect(JSON.stringify(metadata)).not.toContain('new-secret-password')
     expect(JSON.stringify(metadata)).not.toContain('hash-current')
   })

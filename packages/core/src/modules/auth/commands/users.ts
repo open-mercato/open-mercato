@@ -384,22 +384,26 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
       user.organizationId ? String(user.organizationId) : null
     )
     const snapshot = captureUserSnapshots(user, roles, undefined, custom)
-    const replayable = typeof input.password !== 'string' || input.password.length === 0
+    // Creating a user is undoable no matter how the account got its credentials —
+    // the undo only deletes the row, and it needs no secret to do so. What must
+    // never reach `action_logs` is the credential itself: the plaintext `password`
+    // the caller sent (dropped from the redo input) and the derived `passwordHash`
+    // (dropped from the undo snapshot). A redo therefore restores the original row
+    // and id WITHOUT a password, and the account needs a reset to sign in again.
+    const { password: _plaintextPassword, ...redoInput } = input
     return {
-      replayable,
+      redoInput,
       actionLabel: translate('auth.audit.users.create', 'Create user'),
       resourceKind: 'auth.user',
       resourceId: String(user.id),
       tenantId: user.tenantId ? String(user.tenantId) : null,
       organizationId: user.organizationId ? String(user.organizationId) : null,
       snapshotAfter: snapshot.view,
-      payload: replayable
-        ? {
-            undo: {
-              after: snapshot.undo,
-            },
-          }
-        : undefined,
+      payload: {
+        undo: {
+          after: withoutPasswordHash(snapshot.undo),
+        },
+      },
     }
   },
   undo: async ({ input, logEntry, ctx }) => {
@@ -483,8 +487,10 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
 
     await invalidateUserCache(ctx, userId)
   },
-  // Password-bearing creates are audit-only. Redo therefore reaches this handler
-  // only for credential-free creates and restores the original stable id (#2506).
+  // Restores the original stable id (#2506). The after-snapshot deliberately
+  // carries no `passwordHash` (see buildLog), so a redone account comes back
+  // without a credential and needs a password reset — redo never fabricates one
+  // and never resurrects a hash from the audit log.
   redo: async ({ input, logEntry, ctx }) => {
     const after = resolveRedoSnapshot<UserUndoSnapshot>(logEntry)
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for user create' })
@@ -508,7 +514,9 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
           user.emailHash = emailHash
           user.organizationId = after.organizationId ?? null
           user.tenantId = after.tenantId ?? null
-          user.passwordHash = after.passwordHash ?? null
+          // Only overwrite the credential when the snapshot actually recorded one;
+          // an absent key means "not captured", never "clear the password".
+          if ('passwordHash' in after) user.passwordHash = after.passwordHash ?? null
           user.name = after.name ?? null
           user.isConfirmed = after.isConfirmed
           await em.flush()
@@ -1269,11 +1277,16 @@ function normalizeUserAclSnapshots(acls: UserAclSnapshot[]): UserAclSnapshot[] {
 }
 
 function normalizeUserReplaySnapshot(snapshot: UserUndoSnapshot): UserUndoSnapshot {
-  return {
+  // The credential never takes part in the "has the target changed?" comparison.
+  // A create's stored snapshot deliberately omits `passwordHash` (it must not sit
+  // in `action_logs`), so comparing it against a live snapshot that still carries
+  // the hash would report every password-bearing account as changed and refuse
+  // the replay.
+  return withoutPasswordHash({
     ...snapshot,
     roles: [...snapshot.roles].sort((left, right) => left.localeCompare(right)),
     acls: normalizeUserAclSnapshots(snapshot.acls),
-  }
+  }) as UserUndoSnapshot
 }
 
 function toUserUpdateReplayState(snapshot: UserUndoSnapshot): SerializedUser {

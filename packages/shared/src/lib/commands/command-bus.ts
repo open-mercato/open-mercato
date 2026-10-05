@@ -850,6 +850,9 @@ export class CommandBus {
       relatedResourceKind: secondary?.relatedResourceKind ?? primary?.relatedResourceKind ?? null,
       relatedResourceId: secondary?.relatedResourceId ?? primary?.relatedResourceId ?? null,
       undoToken: secondary?.undoToken ?? primary?.undoToken ?? null,
+      // A redacted redo input always wins: it exists precisely because the raw
+      // input carries a secret that must not reach `action_logs`.
+      redoInput: secondary?.redoInput !== undefined ? secondary.redoInput : primary?.redoInput,
       payload: secondary?.payload ?? primary?.payload ?? null,
       snapshotBefore: secondary?.snapshotBefore ?? primary?.snapshotBefore ?? null,
       snapshotAfter: secondary?.snapshotAfter ?? primary?.snapshotAfter ?? null,
@@ -929,7 +932,8 @@ export class CommandBus {
     if (metadata.replayable === false) {
       delete payload.commandPayload
     } else {
-      const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, options.input)
+      const redoInput = metadata.redoInput !== undefined ? metadata.redoInput : options.input
+      const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, redoInput)
       payload.commandPayload = redoEnvelope
     }
 
