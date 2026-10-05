@@ -37,10 +37,27 @@ export type EcommerceResolutionCache = {
   deleteByTags(tags: string[]): Promise<number>
 }
 
+/**
+ * Buyer-context cache (§8, step 6): one entry per (store, customerUserId | anonymous), holding the
+ * locale-independent buyer layer only. Tagged per store, per identity in `customerIds` and per
+ * contributing group so membership, terms, group and price events can evict it.
+ */
+export type BuyerContextCache = {
+  get(customerUserId: string | null): Promise<BuyerContext | null>
+  set(buyer: BuyerContext): Promise<void>
+  deleteByTags(tags: string[]): Promise<number>
+}
+
+export type BuyerContextCacheScope = { tenantId: string; storeId: string }
+
 export type CacheContainer = { resolve: (name: string) => unknown }
+
+export const BUYER_CONTEXT_TTL_MS = 60_000
 
 const STOREFRONT_KEY_NAMESPACE = 'ecommerce:storefront'
 const RESOLUTION_KEY_NAMESPACE = 'ecommerce:resolution'
+const BUYER_KEY_NAMESPACE = 'ecommerce:buyer'
+const ANONYMOUS_SEGMENT = 'anonymous'
 const NULL_SEGMENT = '-'
 
 const SCOPE_SEGMENTS: Record<StorefrontCacheScope, string> = {
@@ -89,6 +106,10 @@ export function buildStorefrontCacheKey(
 
 export function buildEcommerceResolutionCacheKey(parts: string[]): string {
   return `${RESOLUTION_KEY_NAMESPACE}:${encodeParts(parts)}`
+}
+
+export function buildBuyerContextCacheKey(storeId: string, customerUserId: string | null): string {
+  return `${BUYER_KEY_NAMESPACE}:${encodeParts([storeId, customerUserId ?? ANONYMOUS_SEGMENT])}`
 }
 
 export function ecommerceStoreTag(storeId: string): string {
@@ -208,6 +229,28 @@ export function ecommerceResolutionCache(container: CacheContainer | null | unde
     get: (parts) => access.get(buildEcommerceResolutionCacheKey(parts)),
     set: (parts, value, options) =>
       access.set(buildEcommerceResolutionCacheKey(parts), value, options.ttlMs, options.tags),
+    deleteByTags: (tags) => access.deleteByTags(tags),
+  }
+}
+
+export function buyerContextCache(
+  container: CacheContainer | null | undefined,
+  scope: BuyerContextCacheScope,
+): BuyerContextCache {
+  const access = createTenantScopedAccess({
+    cache: resolveCacheService(container),
+    tenantId: scope.tenantId,
+    baseTags: [ecommerceStoreTag(scope.storeId)],
+  })
+  return {
+    get: (customerUserId) => access.get<BuyerContext>(buildBuyerContextCacheKey(scope.storeId, customerUserId)),
+    set: (buyer) =>
+      access.set(
+        buildBuyerContextCacheKey(scope.storeId, buyer.customerUserId),
+        buyer,
+        BUYER_CONTEXT_TTL_MS,
+        buyerContextTags(buyer),
+      ),
     deleteByTags: (tags) => access.deleteByTags(tags),
   }
 }

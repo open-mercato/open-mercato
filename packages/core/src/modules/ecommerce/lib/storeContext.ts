@@ -50,8 +50,10 @@ export type StorefrontResolutionErrorCode =
   | 'store_draft'
   | 'store_archived'
   | 'store_misconfigured'
+  | 'portal_session_scope_mismatch'
+  | 'portal_session_invalid'
 
-export type StorefrontResolutionStatus = 400 | 403 | 404 | 410 | 503
+export type StorefrontResolutionStatus = 400 | 401 | 403 | 404 | 410 | 503
 
 export class StorefrontResolutionError extends Error {
   readonly status: StorefrontResolutionStatus
