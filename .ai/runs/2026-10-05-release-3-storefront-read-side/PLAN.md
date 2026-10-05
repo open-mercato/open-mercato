@@ -36,7 +36,8 @@
 | 2 | 2.6 | lib/storeContext.ts host/slug resolution, locale, failure modes | dispatch:capable | done | 0d05fb429c |
 | 2 | 2.7 | lib/buyerContext.ts buyer identity, groups, terms, taxMode, digest | dispatch:capable | done | 4b57c2ddd0 |
 | 2 | 2.8 | Public GET /api/ecommerce/storefront/context | dispatch:standard | done | e397b297e4 |
-| 2 | 2.9 | Subscribers: cache invalidation, domain re-binding, misconfiguration notifications | dispatch:standard | done | pending |
+| 2 | 2.9 | Subscribers: cache invalidation, domain re-binding, misconfiguration notifications | dispatch:standard | done | 3d6bd9e6b1 |
+| 2 | 2.9-fix | Explicit comparator in priceScopeKey group-id sort (checkpoint 3 regression) | inline | done | pending |
 | 2 | 2.10 | ecommerce search.ts | dispatch:cheap | todo | — |
 | 2 | 2.11 | Integration tests: resolution + buyer context + cache isolation (SPEC-029 Phase 1 gate) | dispatch:capable | todo | — |
 | 3 | 3.1 | Omnibus: CatalogPriceHistoryEntry entity + migration | dispatch:capable | todo | — |
@@ -121,6 +122,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **2.7 lib/buyerContext.ts** — `getCustomerAuthFromRequest`; tenant/org mismatch → 401 (D4); person+company ids read fresh (D3/D3a); groups/terms via multi-id input; priceKind override; `taxMode` from `CatalogPriceKind.displayMode`; `customerOverlayId` EXISTS probe; assortment = `intersectScopes(channel, groupScope)` (require_authentication short-circuit lands in 5.1); `priceScopeKey`, `assortmentScopeHash` (shared hash), `digest`; buyer cache with `customer:*` + `customer-group:*` tags.
 - **2.8 Public /context route** — §9.1 projection, cache headers, declarative rate limit, 401/404/410/503 mapping.
 - **2.9 Subscribers** — store/binding/domain/group/price invalidation; `domain_mapping.replaced` re-binding; misconfiguration notifications via `createForFeature`, throttled (§9.4).
+- **2.9-fix Explicit comparator in priceScopeKey group-id sort (checkpoint 3 regression)** — `explicit-sort-comparators` repo-wide guard flagged a bare `.sort()` in `lib/buyerContext.ts`; use a code-unit comparator (locale-independent, so the hash is stable).
 - **2.10 search.ts** — stores by name/code/slug, `aclFeatures: ['ecommerce.stores.view']` (D16).
 - **2.11 Integration tests** — §16 Resolution, Buyer context, Cache isolation, API tenant isolation.
 

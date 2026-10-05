@@ -80,7 +80,7 @@ export function computePriceScopeKey(input: {
   priceKindId: string | null
   customerGroupIds: string[]
 }): string {
-  const sortedGroupIds = [...input.customerGroupIds].sort()
+  const sortedGroupIds = [...input.customerGroupIds].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
   return sha256Truncated([
     input.channelId,
     input.currencyCode,
