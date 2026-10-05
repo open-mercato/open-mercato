@@ -594,6 +594,25 @@ export const priceHistoryQuerySchema = z
     { message: 'from must not be later than to', path: ['from'] },
   )
 
+export const omnibusPreviewQuerySchema = z
+  .object({
+    priceKindId: uuid(),
+    currencyCode: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{3}$/, 'currency code must be a three-letter ISO code'),
+    productId: uuid().optional(),
+    variantId: uuid().optional(),
+    offerId: uuid().optional(),
+    channelId: uuid().optional(),
+  })
+  .strict()
+  .refine((value) => Boolean(value.productId || value.variantId || value.offerId), {
+    message: 'one of productId, variantId or offerId is required',
+    path: ['productId'],
+  })
+
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
@@ -613,3 +632,4 @@ export type ProductUnitConversionCreateInput = z.infer<typeof productUnitConvers
 export type ProductUnitConversionUpdateInput = z.infer<typeof productUnitConversionUpdateSchema>
 export type ProductUnitConversionDeleteInput = z.infer<typeof productUnitConversionDeleteSchema>
 export type PriceHistoryQuery = z.infer<typeof priceHistoryQuerySchema>
+export type OmnibusPreviewQuery = z.infer<typeof omnibusPreviewQuerySchema>

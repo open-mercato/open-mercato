@@ -56,6 +56,11 @@ import {
   PRODUCT_SEARCH_EXPRESSION_SQL,
 } from "../../lib/productSearch";
 import { canonicalizeUnitCode, toUnitLookupKey } from "../../lib/unitCodes";
+import {
+  attachProductListOmnibusBlocks,
+  type OmnibusProductListEntry,
+} from "../../lib/omnibusProductListEnrichment";
+import { omnibusBlockSchema, type OmnibusBlock } from "../../lib/omnibusTypes";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('catalog')
@@ -404,6 +409,7 @@ type ProductListItem = Record<string, unknown> & {
   categories?: Array<Record<string, unknown>>;
   categoryIds?: string[];
   tags?: string[];
+  omnibus?: OmnibusBlock;
 };
 
 async function decorateProductsAfterList(
@@ -755,10 +761,20 @@ async function decorateProductsAfterList(
     }
     const priceResults = await pricingService.resolvePriceMany(resolveInputs);
 
+    const omnibusEntries: OmnibusProductListEntry[] = [];
     for (let i = 0; i < resolveIndices.length; i++) {
       const item = items[resolveIndices[i]];
       const best = priceResults[i];
       if (best) {
+        if (typeof item.id === "string") {
+          omnibusEntries.push({
+            item,
+            productId: item.id,
+            candidates: resolveInputs[i].rows,
+            best,
+            context: resolveInputs[i].context,
+          });
+        }
         item.pricing = {
           kind: resolvePriceKindCode(best),
           price_kind_id:
@@ -787,6 +803,13 @@ async function decorateProductsAfterList(
         item.pricing = null;
       }
     }
+
+    await attachProductListOmnibusBlocks({
+      em,
+      container: ctx.container,
+      tenantId: ctx.auth?.tenantId ?? null,
+      entries: omnibusEntries,
+    });
   } catch (error) {
     logger.error('decorateProductsAfterList Failed to load unit conversions', { err: error });
   }
@@ -1075,6 +1098,11 @@ const productListItemSchema = z.object({
   categoryIds: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   pricing: z.record(z.string(), z.unknown()).nullable().optional(),
+  omnibus: omnibusBlockSchema
+    .optional()
+    .describe(
+      "EU Omnibus reference-price block for the presented price. Present only when Omnibus is enabled for the tenant and the product has a resolved price.",
+    ),
 });
 
 export const openApi = createCatalogCrudOpenApi({

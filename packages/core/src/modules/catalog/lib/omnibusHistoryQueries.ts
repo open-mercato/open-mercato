@@ -177,3 +177,42 @@ export async function fetchOmnibusFirstOfferIds(
   }
   return ids
 }
+
+export type OmnibusLatestPriceEntryLookup = {
+  tenantId: string
+  organizationId: string
+  priceId: string
+}
+
+export async function fetchOmnibusLatestPriceEntryIds(
+  em: EntityManager,
+  lookups: OmnibusLatestPriceEntryLookup[],
+): Promise<Array<string | null>> {
+  if (!lookups.length) return []
+  const query = sql<FirstOfferRow>`
+    WITH w AS (
+      SELECT * FROM unnest(
+        ${lookups.map((lookup) => lookup.tenantId)}::uuid[],
+        ${lookups.map((lookup) => lookup.organizationId)}::uuid[],
+        ${lookups.map((lookup) => lookup.priceId)}::uuid[]
+      ) WITH ORDINALITY AS t(tenant_id, organization_id, price_id, ord)
+    )
+    SELECT w.ord, latest.id
+    FROM w
+    CROSS JOIN LATERAL (
+      SELECT h.id FROM catalog_price_history_entries h
+      WHERE h.tenant_id = w.tenant_id
+        AND h.organization_id = w.organization_id
+        AND h.price_id = w.price_id
+      ORDER BY h.recorded_at DESC, h.id DESC
+      LIMIT 1
+    ) latest
+  `
+  const result = await query.execute(kyselyFor(em))
+  const ids: Array<string | null> = lookups.map(() => null)
+  for (const row of result.rows) {
+    const index = Number(row.ord) - 1
+    if (index >= 0 && index < ids.length) ids[index] = row.id
+  }
+  return ids
+}

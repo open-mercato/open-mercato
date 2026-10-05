@@ -179,3 +179,20 @@ export type OmnibusBlock = {
   applicable: boolean
   applicabilityReason: OmnibusApplicabilityReason
 }
+
+export const omnibusBlockSchema = z.object({
+  presentedPriceKindId: z.string().uuid().nullable(),
+  lookbackDays: z.number().int(),
+  minimizationAxis: omnibusMinimizationAxisSchema,
+  promotionAnchorAt: z.string().nullable(),
+  windowStart: z.string().nullable(),
+  windowEnd: z.string().nullable(),
+  coverageStartAt: z.string().nullable(),
+  lowestPriceNet: z.string().nullable(),
+  lowestPriceGross: z.string().nullable(),
+  previousPriceNet: z.string().nullable(),
+  previousPriceGross: z.string().nullable(),
+  currencyCode: z.string(),
+  applicable: z.boolean(),
+  applicabilityReason: omnibusApplicabilityReasonSchema,
+}) satisfies z.ZodType<OmnibusBlock>
