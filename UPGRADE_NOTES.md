@@ -24,6 +24,65 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Redoing an `auth.users.create` no longer restores the account's password
+
+Creating a user writes an audit entry, and that entry used to carry the credential twice: the
+plaintext `password` from the command input (persisted verbatim in `action_logs.command_payload`
+as the redo input) and the derived `password_hash` (persisted in the undo snapshot). Both are now
+withheld — the redo input is stored without `password`, and the undo snapshot without
+`passwordHash`.
+
+The operation itself stays fully undoable and redoable, and redo still restores the original row
+with its original id (#2506). What changes is that an account restored by **redo** comes back
+**without a credential** and must go through a password reset before it can sign in again. Undo is
+unaffected: it only deletes the row and never needed a secret.
+
+**Action for operators:** after redoing a user-create, send the account a password reset. The
+account is otherwise intact (same id, email, name, roles, organization, custom fields).
+
+**Action for module authors:** none, unless your own command takes a secret in its input. In that
+case set the new `redoInput` on the metadata your `buildLog` returns — a projection of the input
+with the secret removed — instead of marking the whole entry `replayable: false`:
+
+```ts
+buildLog: async ({ input, result }) => {
+  const { password: _secret, ...redoInput } = input
+  return { redoInput, /* …the rest of the metadata… */ }
+}
+```
+
+`replayable: false` suppresses the undo token as well, which removes the operator's ability to
+revert a write that may carry no secret of its own. Reach for `redoInput` first; keep
+`replayable: false` for the case where replaying genuinely cannot be made safe (an `auth.users.update`
+that changes a password still uses it, because restoring the previous credential would require
+storing it).
+
+### Module API routes answer a thrown `CrudHttpError` with its own status instead of `500`
+
+The `/api/[...slug]` dispatcher now maps a `CrudHttpError` that escapes a route handler onto that
+error's own status and body. Previously only handlers that caught it themselves produced the right
+answer; an uncaught one reached Next.js as an unhandled throw, and the caller saw
+`500 Internal Server Error` — so a deliberate 403/404/409 was indistinguishable from a crash.
+
+**Action for module authors:** none to make it work — a handler may now `throw forbidden()` /
+`notFound()` / `conflict()` without wiring its own `isCrudHttpError` catch. Review any code that
+treated a 500 from your route as the expected outcome of a guard; it now receives the real status.
+Routes that already catch `CrudHttpError` are unchanged.
+
+### `resolveAttachmentOrganizationId` is deprecated in favour of `resolveAttachmentRequestScope`
+
+`@open-mercato/core/modules/attachments/lib/requestScope` now exports
+`resolveAttachmentRequestScope(container, auth, request)`, which returns
+`{ denied, organizationId }` rather than a bare organization id. A principal whose organization
+visibility resolves to the empty set is reported as `denied`, so each route answers with the status
+its own contract documents (the file and image routes answer `404`, keeping a foreign-tenant id
+indistinguishable from a missing one).
+
+`resolveAttachmentOrganizationId` remains exported and now **throws** `forbidden()` for a denied
+scope instead of returning `null` — returning `null` there would drop the organization predicate
+entirely and read across the tenant. Migrate to `resolveAttachmentRequestScope` so the deny becomes
+a response your route chooses.
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
