@@ -65,6 +65,7 @@ describe('applyDeliverabilityGuardrails', () => {
 
   function harness(rows: Array<{ campaign_id: string; sent: string; failed: string }>) {
     const executed: Array<{ command: string; input: Record<string, unknown>; ctx: Record<string, unknown> }> = []
+    const stamped: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = []
     const em = {
       getConnection: () => ({ execute: async () => rows }),
       findOne: async (_entity: unknown, where: { id: string }) => ({
@@ -72,6 +73,13 @@ describe('applyDeliverabilityGuardrails', () => {
         name: `Campaign ${where.id}`,
         updatedAt: new Date('2026-09-30T08:00:00.000Z'),
       }),
+      // The breaker stamps which campaigns IT paused, so the screen can tell that from a deliberate pause.
+      nativeUpdate: async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+        stamped.push({ where, data })
+        return 1
+      },
+      // The capability probe comes through the same door; these tests are about an installation that has sales.
+      execute: async () => [{ sales: true, catalog: true }],
     }
     const container = {
       resolve: (key: string) => {
@@ -83,7 +91,7 @@ describe('applyDeliverabilityGuardrails', () => {
         }
       },
     }
-    return { em, container, executed }
+    return { em, container, executed, stamped }
   }
 
   it('pauses the campaign and reports the trip', async () => {
@@ -113,6 +121,21 @@ describe('applyDeliverabilityGuardrails', () => {
      */
     expect(executed[0].ctx).toMatchObject({ systemActor: true, selectedOrganizationId: 'o1' })
     expect(executed[0].input).toMatchObject({ tenantId: 't1', organizationId: 'o1' })
+  })
+
+  it('stamps which campaigns IT paused, so the screen can tell that from a deliberate pause', async () => {
+    /**
+     * Without the stamp, an automatic pause and a manual one render the same off toggle — and the obvious action
+     * on an off toggle is to switch it back on, which the breaker undoes on the next sweep. An operator could
+     * fight their own guardrail without being told it was there.
+     */
+    const { em, container, stamped } = harness([{ campaign_id: 'c1', sent: '2', failed: '30' }])
+    const { applyDeliverabilityGuardrails } = await import('../deliverability')
+    await applyDeliverabilityGuardrails(em as never, container as never, scope, new Date())
+    expect(stamped).toHaveLength(1)
+    expect(stamped[0].data.breakerTrippedAt).toBeInstanceOf(Date)
+    // Scoped, like every other write in this module.
+    expect(stamped[0].where).toMatchObject({ id: 'c1', tenantId: 't1', organizationId: 'o1' })
   })
 
   it('leaves a healthy campaign alone', async () => {
