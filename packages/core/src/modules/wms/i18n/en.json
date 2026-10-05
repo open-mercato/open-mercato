@@ -283,6 +283,7 @@
   "wms.backend.inventory.cycleCount.errors.ambiguousLot": "Multiple lots found at this location — select a lot to continue.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Enable auto-adjust to commit a variance.",
   "wms.backend.inventory.cycleCount.errors.balance": "Failed to load system on-hand.",
+  "wms.backend.inventory.cycleCount.errors.belowCommitted": "Counted quantity is below the {committed} units reserved or allocated here. Release the affected reservations before posting this count.",
   "wms.backend.inventory.cycleCount.errors.scope": "Complete setup and select a count location.",
   "wms.backend.inventory.cycleCount.errors.scopeEstimate": "Failed to estimate count scope.",
   "wms.backend.inventory.cycleCount.errors.submit": "Failed to post cycle count.",
