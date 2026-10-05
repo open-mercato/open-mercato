@@ -785,6 +785,20 @@ export class CatalogPriceKind {
   name: 'catalog_product_variant_prices_product_scope_idx',
   properties: ['product', 'organizationId', 'tenantId'],
 })
+@Index({
+  name: 'catalog_product_variant_prices_customer_idx',
+  expression:
+    'create index "catalog_product_variant_prices_customer_idx" on "catalog_product_variant_prices" ("customer_id", "organization_id", "tenant_id") where "customer_id" is not null',
+})
+@Index({
+  name: 'catalog_product_variant_prices_customer_group_idx',
+  expression:
+    'create index "catalog_product_variant_prices_customer_group_idx" on "catalog_product_variant_prices" ("customer_group_id", "organization_id", "tenant_id") where "customer_group_id" is not null',
+})
+@Index({
+  name: 'catalog_product_variant_prices_product_lookup_idx',
+  properties: ['product', 'currencyCode', 'channelId', 'organizationId', 'tenantId'],
+})
 export class CatalogProductPrice {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
 

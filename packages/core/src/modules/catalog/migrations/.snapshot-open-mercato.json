@@ -2308,6 +2308,38 @@
           "keyName": "catalog_product_variant_prices_variant_scope_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "catalog_product_variant_prices_customer_group_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"catalog_product_variant_prices_customer_group_idx\" on \"catalog_product_variant_prices\" (\"customer_group_id\", \"organization_id\", \"tenant_id\") where \"customer_group_id\" is not null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "catalog_product_variant_prices_customer_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"catalog_product_variant_prices_customer_idx\" on \"catalog_product_variant_prices\" (\"customer_id\", \"organization_id\", \"tenant_id\") where \"customer_id\" is not null"
+        },
+        {
+          "columnNames": [
+            "product_id",
+            "currency_code",
+            "channel_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "catalog_product_variant_prices_product_lookup_idx",
+          "primary": false,
+          "unique": false
         }
       ],
       "checks": [],
