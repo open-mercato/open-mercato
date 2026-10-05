@@ -7,7 +7,7 @@ type AnyBuilder = any
 
 export type NormalizedFilter = { field: string; op: FilterOp; value?: unknown; orGroup?: string; qualified?: string | null }
 
-const VALID_OPS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'nin', 'like', 'ilike', 'exists'] as const
+const VALID_OPS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'nin', 'like', 'ilike', 'exists', 'overlap'] as const
 
 const normalizeField = (key: string) => (key.startsWith('cf_') ? `cf:${key.slice(3)}` : key)
 

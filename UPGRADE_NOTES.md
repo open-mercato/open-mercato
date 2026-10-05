@@ -53,6 +53,29 @@ accent-insensitive predicate — in that case build it from
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
 
+### `FilterOp` gained an `overlap` member; `query_index` gained a doc-enrichment hook (storefront public API §3.3, §14a)
+
+`FilterOp` (`@open-mercato/shared/lib/query/types`) is now
+`'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap'`,
+and `WhereOps` accepts the matching `$overlap`. `overlap` means "has any of" over a multi-valued
+field: on an index-document string array it compiles to jsonb `(doc -> '<key>') ?| $n::text[]`, on a
+`cf:*` key to "any stored value is in the set", and on an array-typed base column to `&&`. Values are
+always bound as parameters. **An empty value list matches nothing** (it compiles to `false`, never to
+a dropped predicate).
+
+**Action for module authors:** only if your code has an exhaustive `switch (op)` over `FilterOp` that
+ends in a `never` check (or a `Record<FilterOp, …>` lookup) — add an `'overlap'` case, otherwise
+TypeScript reports the new member as unhandled. Code that passes filters to the query engine needs
+no change.
+
+`query_index` also exposes an optional, programmatic extension point —
+`registerIndexDocEnricher({ id, entityType, keys, enrich })` from
+`@open-mercato/core/modules/query_index/lib/doc-enrichers` — that lets the module owning an entity add
+computed keys to its `entity_indexes.doc` once per indexing batch. It is registered from a module's
+`di.ts`; there is no new auto-discovered file. Entities without an enricher index exactly as before.
+An enricher that throws writes its declared keys as `null`; consumers MUST read `null` (or a missing
+key) as "not indexed". Enriched keys are kept out of `search_text` and `search_tokens`.
+
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
 `createOpenAICompatibleProvider(preset)`
