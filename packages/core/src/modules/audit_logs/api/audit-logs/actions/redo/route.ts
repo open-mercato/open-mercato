@@ -208,10 +208,7 @@ export async function POST(req: Request) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Redo failed', { err })
-    const details = process.env.OM_TEST_MODE === '1' && err instanceof Error
-      ? `${err.name}: ${err.message} ${err.stack?.split('\n').slice(1, 8).join(' | ') ?? ''}`
-      : undefined
-    return NextResponse.json({ error: 'Redo failed', ...(details ? { details } : {}) }, { status: 400 })
+    return NextResponse.json({ error: 'Redo failed' }, { status: 400 })
   }
 }
 
