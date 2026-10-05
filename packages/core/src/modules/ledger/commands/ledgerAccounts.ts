@@ -61,7 +61,7 @@ async function accountHasPostedEntries(em: EntityManager, accountId: string, sco
  * Rejects an `accountTypeId` that doesn't exist, is soft-deleted, or
  * belongs to a different organization/tenant. Neither `create` nor
  * `update` checked this before — `accountTypeId` was stored verbatim from
- * the input (PR #6340 review, M5).
+ * the input.
  */
 async function requireExistingAccountType(
   em: EntityManager,
@@ -86,7 +86,7 @@ async function requireExistingAccountType(
  * Whether another `LedgerAccount` still names `accountId` as its
  * `parentAccountId` — deleting an account out from under a child would
  * leave that child pointing at a soft-deleted parent, which nothing else
- * checks for (PR #6340 review, m4).
+ * checks for.
  */
 async function accountHasChildren(em: EntityManager, accountId: string, scope: Scope): Promise<boolean> {
   const count = await em.count(LedgerAccount, {
@@ -105,7 +105,7 @@ async function accountHasChildren(em: EntityManager, accountId: string, scope: S
  * appear in its own create payload), or would close a cycle through the
  * existing parent chain (also only reachable via update, since a newly
  * created leaf can't yet be any other account's ancestor). `selfId` is
- * `null` on create. PR #6340 review, M5.
+ * `null` on create.
  */
 async function requireValidParentAccount(
   em: EntityManager,
@@ -316,10 +316,10 @@ const deleteLedgerAccountCommand: CommandHandler<LedgerAccountDeleteInput, { led
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
 
-    // PR #6340 review, n2: the account row, the posted-entries/children
-    // checks, and the soft-delete write all now happen inside one
-    // transaction, holding a `for update` lock on the account row for the
-    // whole span — the same shape `fiscalPeriods.ts`'s
+    // The account row, the posted-entries/children checks, and the
+    // soft-delete write all now happen inside one transaction, holding a
+    // `for update` lock on the account row for the whole span — the same
+    // shape `fiscalPeriods.ts`'s
     // `toggleFiscalPeriodLock` uses for its own row. Before this, the
     // lookup and checks ran in autocommit (no lock held), so a concurrent
     // `postJournalEntry` (which takes `for share` on this same row, see

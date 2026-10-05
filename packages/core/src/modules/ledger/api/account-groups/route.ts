@@ -11,7 +11,7 @@ import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../opena
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
-// `/api/ledger/account-groups` — read-only list (PR #6340 review nit).
+// `/api/ledger/account-groups` — read-only list.
 // No POST/PUT/DELETE: `LedgerAccountGroup` rows are permanently
 // system-seeded reference data (`seedPolishAccountGroups`, called from
 // `setup.ts`'s `seedDefaults` — same convention as the `currencies`
@@ -82,7 +82,7 @@ export async function GET(req: Request) {
 
   const { id, page, pageSize, search, jurisdiction, sortField, sortDir } = parsed.data
   let filter: Record<string, unknown> = { tenantId: auth.tenantId }
-  // Selected organization, not the user's home auth.orgId (PR #6340 review, M6).
+  // Selected organization, not the user's home auth.orgId.
   if (organizationId) filter.organizationId = organizationId
 
   if (id) filter.id = id

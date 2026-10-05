@@ -16,16 +16,14 @@ import {
   createAccountTypeFixture,
   createAccountFixture,
   seedJournalEntryInDb,
-  deleteJournalEntryInDb,
 } from '@open-mercato/core/helpers/integration/ledgerFixtures';
 
 /**
  * TC-GL-003: `GET /api/ledger/{account-types,accounts,fiscal-periods,
  * journal-entries}` scope to the organization selected for the request, not
- * the caller's home organization (a coverage gap flagged in PR #6340 review,
- * wojciechszyjka: M6).
+ * the caller's home organization.
  *
- * Before the M6 fix, all four routes filtered by `auth.orgId` — the token's
+ * Before this fix, all four routes filtered by `auth.orgId` — the token's
  * own home organization — and only fell back to no filter at all when that
  * was absent. A superadmin token's home organization is whatever org the
  * environment minted it against, which is neither of the two throwaway
@@ -210,8 +208,9 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
       expect(journalEntryIds, 'org B journal-entries list should include org B\'s entry').toContain(journalEntryBId);
       expect(journalEntryIds, 'org B journal-entries list must not include org A\'s entry').not.toContain(journalEntryAId);
     } finally {
-      await deleteJournalEntryInDb(journalEntryAId);
-      await deleteJournalEntryInDb(journalEntryBId);
+      // JournalEntry ships no DELETE route (append-only by design — see
+      // `seedJournalEntryInDb`'s doc comment); the seeded entries are left
+      // behind but scoped to org A/B, both deleted below.
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', accountAId);
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', accountBId);
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeAId);

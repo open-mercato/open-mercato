@@ -47,11 +47,11 @@ const TYPE_BADGE_VARIANT: Record<JournalEntryRow['type'], 'default' | 'secondary
 }
 
 /**
- * Translates a journal entry's `type` for display (PR #6340 review, m1) —
- * the type badge and filter options previously showed the raw
- * NORMAL/OPENING/CLOSING/REVERSAL enum value untranslated. Written as a
- * switch over literal key strings (not a template-literal lookup) so the
- * repo's `i18n-check-usage` key-extraction scan can find each key.
+ * Translates a journal entry's `type` for display — the type badge and
+ * filter options previously showed the raw NORMAL/OPENING/CLOSING/REVERSAL
+ * enum value untranslated. Written as a switch over literal key strings
+ * (not a template-literal lookup) so the repo's `i18n-check-usage`
+ * key-extraction scan can find each key.
  */
 function journalEntryTypeLabel(type: JournalEntryRow['type'], t: TranslateFn): string {
   switch (type) {

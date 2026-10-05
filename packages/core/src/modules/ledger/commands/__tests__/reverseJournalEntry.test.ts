@@ -107,8 +107,8 @@ function seedOriginalEntry(em: ReturnType<typeof buildFakeEm>) {
   })
   em.seedSequenceCounter({ organizationId: ORG, tenantId: TENANT }, 2)
   // The reversal re-posts through the same `requireValidPostingReferences`
-  // path as a fresh entry (PR #6340 review's M5 fix) — needs the original
-  // entry's currency/accounts to resolve as real, scoped, non-deleted rows.
+  // path as a fresh entry — needs the original entry's currency/accounts
+  // to resolve as real, scoped, non-deleted rows.
   em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
   em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
   em.seed(LedgerAccount, { id: REVENUE_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
@@ -233,9 +233,7 @@ describe('ledger.reverseJournalEntry', () => {
     expect(reversalEntry?.description).toBe('Reversal of journal entry #1')
   })
 
-  // PR #6340 review, M3 ("Coverage gaps"): the review's own M3 finding
-  // asked for "a guard, ideally backed by a partial unique index, plus a
-  // test" — this covers the double-reversal case the guard added to
+  // Covers the double-reversal case the guard added to
   // `loadOriginalEntry` exists to reject, on top of the application-layer
   // guard already exercised indirectly by every other test in this file
   // passing with a single reversal.

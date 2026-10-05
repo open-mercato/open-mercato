@@ -211,7 +211,12 @@ export async function checkAuthorization(
     }
     const featureContainer = await ensureContainer()
     const rbac = featureContainer.resolve<RbacService>('rbacService')
-    const featureContext = await resolveFeatureCheckContext({ container: featureContainer, auth, request: req })
+    const featureContext = await resolveFeatureCheckContext({
+      container: featureContainer,
+      auth,
+      request: req,
+      requiredFeatures,
+    })
     const { organizationId } = featureContext
     const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
       tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,

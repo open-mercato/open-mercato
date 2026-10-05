@@ -99,8 +99,8 @@ function seedLockedPeriod(em: ReturnType<typeof buildFakeEm>, start: string, end
 
 /**
  * Seeds the `Currency` and `LedgerAccount` rows `balancedInput()`'s ids
- * reference — required since PR #6340 review's M5 fix
- * (`requireValidPostingReferences`) now rejects a post whose currency or
+ * reference — required since `requireValidPostingReferences` now rejects
+ * a post whose currency or
  * any line's account doesn't resolve to a real, scoped, non-deleted
  * record. Only the tests that exercise a real successful post need this;
  * the ones that reject earlier (zod validation, fiscal-period checks)
@@ -209,9 +209,8 @@ describe('ledger.postJournalEntry', () => {
     })
   })
 
-  // PR #6340 review, M5 ("Coverage gaps"): the review flagged "no tests for
-  // ... posting to an out-of-scope or deleted account" alongside the M5
-  // finding itself — these three cover currencyId, a missing accountId,
+  // Covers the previously-missing "posting to an out-of-scope or deleted
+  // account" case: these three cover currencyId, a missing accountId,
   // and a soft-deleted accountId, and confirm the sequence allocator
   // (em.execute) is never reached, matching the fix's own doc comment
   // ("a request that fails this check never burns a sequence number").
@@ -283,8 +282,8 @@ describe('ledger.postJournalEntry', () => {
 
   // This exercises the fake EntityManager's `Promise.all` interleaving, which
   // resolves each call synchronously in turn — it cannot reproduce real
-  // Postgres MVCC contention (PR #6340 review nit: "can't detect a race
-  // because the fake is single-threaded", confirmed correct on inspection).
+  // Postgres MVCC contention (can't detect a race because the fake is
+  // single-threaded).
   // What it DOES prove, and the reason it stays: the allocator issues one
   // atomic `INSERT ... ON CONFLICT ... RETURNING` per call rather than a
   // separate SELECT-then-UPDATE, which is the actual property real Postgres
@@ -315,13 +314,13 @@ describe('ledger.postJournalEntry', () => {
     // a single `INSERT ... ON CONFLICT ... RETURNING` statement, not a
     // separate SELECT followed by an UPDATE — checked across every one of
     // the concurrent calls, not just the first.
-    // `claimNextSequenceNumber` now calls `em.execute(...)` directly (PR
-    // #6340 review's M2 fix), not `em.getConnection().execute(...)` — assert
+    // `claimNextSequenceNumber` calls `em.execute(...)` directly, not
+    // `em.getConnection().execute(...)` — assert
     // on `em.execute` itself rather than a connection obtained via
     // `getConnection()`, which this path no longer calls.
     // Each successful post now also issues `SET CONSTRAINTS ...`
-    // calls (PR #6340 review, m5 and its own nit fix below) — filtered
-    // out below so this assertion still targets only the sequence
+    // calls — filtered out below so this assertion still targets only the
+    // sequence
     // allocator's own calls.
     const sequenceCalls = em.execute.mock.calls.filter((call) => /insert into journal_entry_sequence/i.test(call[0] as string))
     expect(sequenceCalls).toHaveLength(CONCURRENT_POSTS)
@@ -331,8 +330,8 @@ describe('ledger.postJournalEntry', () => {
       expect(sql).toMatch(/on conflict/i)
       expect(sql).toMatch(/returning/i)
     }
-    // PR #6340 review, nit: `runPostJournalEntry` now also restores
-    // `SET CONSTRAINTS ... DEFERRED` right after forcing `... IMMEDIATE`
+    // `runPostJournalEntry` also restores `SET CONSTRAINTS ... DEFERRED`
+    // right after forcing `... IMMEDIATE`
     // (SET CONSTRAINTS is transaction-scoped, not statement-scoped — without
     // restoring it, a composed caller sharing this transaction would have
     // every later statement checked immediately too). So each successful

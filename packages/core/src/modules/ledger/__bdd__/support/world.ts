@@ -110,9 +110,9 @@ export class FakeEntityManager {
   async commit(): Promise<void> {}
   async rollback(): Promise<void> {}
 
-  // PR #6340 review, n2: `deleteLedgerAccount` now wraps its lock+check+write
-  // in `em.transactional(cb)` (mirroring `toggleFiscalPeriodLock`'s own
-  // shape), and this fake previously had no such method at all — calling it
+  // `deleteLedgerAccount` wraps its lock+check+write in `em.transactional(cb)`
+  // (mirroring `toggleFiscalPeriodLock`'s own shape), and this fake
+  // previously had no such method at all — calling it
   // threw a raw `TypeError`, which propagated as a rejection but without the
   // `CrudHttpError` shape (`.status`) the `delete_blocking.feature` scenario
   // asserts on. This fake has no real transaction semantics to begin with
@@ -132,19 +132,19 @@ export class FakeEntityManager {
   /**
    * `claimNextSequenceNumber` (postJournalEntry.ts) calls `em.execute(...)`
    * directly — never `em.getConnection().execute(...)` — specifically so
-   * the statement joins the caller's transaction context (PR #6340 review
-   * M2). This fake mirrors that exact call shape; `getConnection().execute`
-   * below is kept only because it was the original (pre-M2) call site and
-   * nothing has needed it removed.
+   * the statement joins the caller's transaction context. This fake mirrors
+   * that exact call shape; `getConnection().execute` below is kept only
+   * because it was the original call site and nothing has needed it
+   * removed.
    */
   async execute<T = unknown>(sql: string, params: unknown[]): Promise<T> {
     return this.rawExecute(sql, params) as Promise<T>
   }
 
   private async rawExecute(sql: string, params: unknown[]): Promise<{ next_value: string }[]> {
-    // `SET CONSTRAINTS ... IMMEDIATE` (postJournalEntry.ts, PR #6340 review
-    // m5) forces Postgres's deferred balance-check trigger to run before
-    // commit — this fake has no triggers at all, so it's a safe no-op here.
+    // `SET CONSTRAINTS ... IMMEDIATE` (postJournalEntry.ts) forces Postgres's
+    // deferred balance-check trigger to run before commit — this fake has
+    // no triggers at all, so it's a safe no-op here.
     if (sql.toLowerCase().includes('set constraints')) return []
     if (!sql.includes('journal_entry_sequence')) {
       throw new Error(`FakeEntityManager.execute(): unhandled raw SQL — ${sql}`)

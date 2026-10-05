@@ -73,6 +73,17 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
   { id: 'customers', from: '@open-mercato/core' },
+  // customer_groups (Release 2 part 1 — .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md
+  // §14 Phase 1-2). The package ships with the scaffold but stays disabled by default:
+  // enabling it here makes the scaffold ship the module's fact-sheet, which the
+  // `every module fact-sheet a scaffold ships is required by at least one catalog case`
+  // guard (packages/create-app/src/lib/module-facts-build.test.ts) then requires a
+  // dedicated AI-harness case for — authoring one means running the full
+  // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
+  // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
+  // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
+  // work, same as channel_discord's byte-budget call below.
+  // { id: 'customer_groups', from: '@open-mercato/core' },
   { id: 'perspectives', from: '@open-mercato/core' },
   { id: 'entities', from: '@open-mercato/core' },
   { id: 'configs', from: '@open-mercato/core' },
@@ -83,6 +94,16 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sales', from: '@open-mercato/core' },
   { id: 'warranty_claims', from: '@open-mercato/core' },
   { id: 'wms', from: '@open-mercato/core' },
+  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  // { id: 'availability', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -94,16 +115,11 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
-  // General Ledger core engine (PR #6340). Ships with the scaffold but stays
-  // disabled in the template: no case in
-  // packages/create-app/agentic/shared/ai/harness/cases.json lists
-  // .ai/guides/modules/ledger/index.md in context.required, so enabling it
-  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
-  // module fact-sheet a scaffold ships is required by at least one catalog
-  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
-  // then enable it in the template. Tracked in TEMPLATE_COMMENTED_MODULES
-  // (scripts/template-sync.ts) so 'template-sync --check' treats this as a
-  // deliberate divergence rather than drift (PR #6340 review, m12).
+  // General Ledger core engine — ships with the scaffold but stays disabled
+  // here until its module fact-sheet gains catalog coverage (run the
+  // om-refresh-standalone-harness skill to add it, then enable this line).
+  // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
+  // deliberate divergence, not drift.
   // { id: 'ledger', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },

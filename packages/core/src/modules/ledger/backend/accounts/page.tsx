@@ -45,12 +45,12 @@ type ResponsePayload = {
 export default function LedgerAccountsPage() {
   const t = useT()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
-  // PR #6340 review, m3: the create/edit pages already require
-  // `ledger.accounts.manage` at the route level, but this list page only
-  // requires `ledger.accounts.view` (correctly — view-only users should
-  // see the chart of accounts). It was rendering New/Edit/Delete to those
-  // same view-only users with no client-side check, so the only thing
-  // stopping them was hitting the gated page after the fact.
+  // The create/edit pages already require `ledger.accounts.manage` at the
+  // route level, but this list page only requires `ledger.accounts.view`
+  // (correctly — view-only users should see the chart of accounts). It was
+  // rendering New/Edit/Delete to those same view-only users with no
+  // client-side check, so the only thing stopping them was hitting the
+  // gated page after the fact.
   const { payload } = useBackendChrome()
   const canManage = hasFeature(payload?.grantedFeatures, 'ledger.accounts.manage')
   const [rows, setRows] = React.useState<LedgerAccountRow[]>([])
@@ -103,8 +103,8 @@ export default function LedgerAccountsPage() {
 
           // Resolve `accountTypeId`/`parentAccountId` to human-readable labels for
           // the columns below, batched into one request per reference via `?ids=`
-          // (PR #6340 review nit: raw UUIDs were shown instead). Best-effort: on
-          // failure the columns just keep showing the raw id.
+          // (raw UUIDs were shown before). Best-effort: on failure the columns
+          // just keep showing the raw id.
           const accountTypeIds = [...new Set(items.map((row) => row.accountTypeId).filter(Boolean))]
           const parentIds = [...new Set(items.map((row) => row.parentAccountId).filter((id): id is string => Boolean(id)))]
           Promise.all([

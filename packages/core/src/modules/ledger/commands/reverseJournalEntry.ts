@@ -22,7 +22,7 @@ type Scope = { organizationId: string; tenantId: string }
  * Loads the original entry and its lines, scoped to the caller's
  * organization/tenant — a `reverseJournalEntry` call cannot reach across
  * scopes any more than any other command can. Also rejects two cases the
- * domain never allows (PR #6340 review, M3):
+ * domain never allows:
  *
  * - Reversing a `REVERSAL` itself — a reversal is not the kind of entry
  *   that gets corrected by reversing it again; the correction path is to
@@ -33,10 +33,10 @@ type Scope = { organizationId: string; tenantId: string }
  *   Backed by a partial unique index
  *   (`journal_entries_single_reversal_idx`, see the migration) so this is
  *   also safe under concurrent requests, not just this application-layer
- *   check. The lookup below also requires `type: 'REVERSAL'` (PR #6340
- *   review, n3) — without it, a row with `referenceType: 'journal_entry'`
- *   set on a non-reversal entry (a stale row, or a caller that predates
- *   n3's schema restriction) would be mistaken for a real reversal here,
+ *   check. The lookup below also requires `type: 'REVERSAL'` — without it,
+ *   a row with `referenceType: 'journal_entry'` set on a non-reversal
+ *   entry (a stale row, or a caller that predates this schema
+ *   restriction) would be mistaken for a real reversal here,
  *   permanently blocking this entry from ever actually being reversed.
  *   The DB-level partial index carries the same `type = 'REVERSAL'`
  *   requirement so this stays correct under a concurrent insert too, not
@@ -77,7 +77,7 @@ async function loadOriginalEntry(
   // lines below — reading it through plain `em.find` skipped decryption,
   // so the copy would depend on how MikroORM happens to surface an
   // encrypted column rather than going through the documented decryption
-  // path (PR #6340 review, m9).
+  // path.
   const lines = await findWithDecryption(
     em,
     JournalEntryLine,
@@ -172,8 +172,8 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
     // the same way it sees any other posted entry. Only fired here when
     // this call opened (and therefore already fully committed) its own
     // transaction — see postJournalEntry.ts's isComposedPostingCall doc
-    // comment (PR #6340 review, M7). A composing caller must emit this
-    // event itself once its own outer transaction commits.
+    // comment. A composing caller must emit this event itself once its
+    // own outer transaction commits.
     if (!isComposedPostingCall(ctx)) {
       void emitLedgerEvent('ledger.journal_entry.posted', {
         journalEntryId: result.journalEntryId,

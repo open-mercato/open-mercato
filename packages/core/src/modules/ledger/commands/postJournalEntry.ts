@@ -35,28 +35,28 @@ import { emitLedgerEvent } from '../events'
 export type PostJournalEntryResult = {
   journalEntryId: string
   sequenceNumber: number
-  // PR #6340 review, nit: without this, a composing caller (M7 — one that
-  // opens its own outer transaction and calls this command via the normal
-  // `commandBus.execute` path, then must emit `ledger.journal_entry.posted`
-  // itself after its own commit) had no way to build the same event
-  // payload `emitPostedEvent` below builds, short of re-querying the lines
-  // it just asked this command to create. A plain serializable shape, not
-  // the `JournalEntryLine` entities themselves (`PostRunResult` below is
-  // the internal type that still carries those).
+  // Without this, a composing caller (one that opens its own outer
+  // transaction and calls this command via the normal `commandBus.execute`
+  // path, then must emit `ledger.journal_entry.posted` itself after its
+  // own commit) had no way to build the same event payload `emitPostedEvent`
+  // below builds, short of re-querying the lines it just asked this
+  // command to create. A plain serializable shape, not the
+  // `JournalEntryLine` entities themselves (`PostRunResult` below is the
+  // internal type that still carries those).
   lines: Array<{ id: string; accountId: string; debit: string; credit: string }>
 }
 
 type Scope = { organizationId: string; tenantId: string }
 
-// PR #6340 review, B1: this used to be a module-local `TranslateFn` widened
-// to `params?: Record<string, unknown>` for requireValidPostingReferences's
-// (M5) {placeholder} interpolation needs. `resolveTranslations().translate`
-// is actually a `TranslateWithFallbackFn` (params: `TranslateParams`,
-// i.e. `Record<string, string | number>`), and `Record<string, unknown>`
-// isn't assignable to that — every call site that passed the real
-// `translate` failed TS2345. Importing the real type instead of
-// re-declaring a wider one, as `reverseJournalEntry.ts` already did,
-// fixes it at the source rather than at each call site.
+// This used to be a module-local `TranslateFn` widened to
+// `params?: Record<string, unknown>` for requireValidPostingReferences's
+// {placeholder} interpolation needs. `resolveTranslations().translate` is
+// actually a `TranslateWithFallbackFn` (params: `TranslateParams`, i.e.
+// `Record<string, string | number>`), and `Record<string, unknown>` isn't
+// assignable to that — every call site that passed the real `translate`
+// failed TS2345. Importing the real type instead of re-declaring a wider
+// one, as `reverseJournalEntry.ts` already did, fixes it at the source
+// rather than at each call site.
 
 /**
  * Detects the deferred `journal_entry_lines_balanced` constraint trigger
@@ -100,7 +100,7 @@ function isBalanceTriggerViolation(err: unknown): boolean {
  * deferred balance trigger at commit, or is inside a caller's outer
  * transaction that rolls back would still have burned a sequence number,
  * breaking the gap-free numbering this module promises (art. 14 ust. 2
- * Ustawy o rachunkowości). Fixed 2026-09-23 per PR #6340 review, M2.
+ * Ustawy o rachunkowości). Fixed 2026-09-23.
  */
 async function claimNextSequenceNumber(em: EntityManager, scope: Scope): Promise<number> {
   const rows = await em.execute<{ next_value: string }[]>(
@@ -130,8 +130,8 @@ async function claimNextSequenceNumber(em: EntityManager, scope: Scope): Promise
  * called from inside `withPostingTransaction`'s transaction. Without this,
  * under READ COMMITTED, a post that reads the period as "unlocked" can
  * still commit after a concurrent `lockFiscalPeriod` commits — a posting
- * lands in a period an operator believed was already closed (PR #6340
- * review, M4). `for share` (not `for update`) is enough here: posting
+ * lands in a period an operator believed was already closed. `for share`
+ * (not `for update`) is enough here: posting
  * doesn't need to block other concurrent posts against the same period,
  * only to block a concurrent lock/unlock of it — `toggleFiscalPeriodLock`
  * takes the conflicting `for update` lock (see fiscalPeriods.ts).
@@ -213,9 +213,9 @@ export type PostRunResult = Omit<PostJournalEntryResult, 'lines'> & { lines: Jou
  */
 /**
  * Rejects a post whose `currencyId` or any line's `accountId` doesn't
- * exist, is soft-deleted, or belongs to a different organization/tenant
- * (PR #6340 review, M5). Without this, lines were persisted pointing at
- * deleted accounts or another tenant's account id, with no FK to catch it
+ * exist, is soft-deleted, or belongs to a different organization/tenant.
+ * Without this, lines were persisted pointing at deleted accounts or
+ * another tenant's account id, with no FK to catch it
  * — and the delete-once-posted guards in `ledgerAccounts.ts` could be
  * bypassed after the fact by posting against an account id that was never
  * real to begin with. Runs before `claimNextSequenceNumber`, so a request
@@ -240,8 +240,8 @@ async function requireValidPostingReferences(
   }
 
   const accountIds = [...new Set(input.lines.map((line) => line.accountId))]
-  // PR #6340 review, n2: `for share` on the referenced account rows closes
-  // a race with a concurrent delete (`ledgerAccounts.ts`'s
+  // `for share` on the referenced account rows closes a race with a
+  // concurrent delete (`ledgerAccounts.ts`'s
   // `deleteLedgerAccountCommand`, which takes `for update` on the same
   // row) — without a lock here, a delete's `accountHasPostedEntries`
   // check and this posting's own existence check could both read a
@@ -319,14 +319,13 @@ export async function runPostJournalEntry(
     await em.flush()
     // `journal_entry_lines_balanced` is `deferrable initially deferred`, so
     // it fires at COMMIT, not at `flush()` — the try/catch below never saw
-    // it, and the raw, untranslated Postgres error reached the caller (PR
-    // #6340 review, m5). Forcing the deferred check to run now, still
-    // inside this transaction and still inside this try, makes it
-    // catchable here instead of escaping past `withPostingTransaction`'s
-    // commit.
+    // it, and the raw, untranslated Postgres error reached the caller.
+    // Forcing the deferred check to run now, still inside this transaction
+    // and still inside this try, makes it catchable here instead of
+    // escaping past `withPostingTransaction`'s commit.
     await em.execute('set constraints "journal_entry_lines_balanced" immediate')
-    // PR #6340 review, nit: `SET CONSTRAINTS` is session/transaction-scoped,
-    // not statement-scoped — without restoring `deferred` here, the check
+    // `SET CONSTRAINTS` is session/transaction-scoped, not
+    // statement-scoped — without restoring `deferred` here, the check
     // above stays IMMEDIATE for the rest of this transaction. That's only
     // safe because this function always inserts one entry's lines in a
     // single flush; a composed caller sharing this transaction
@@ -344,8 +343,8 @@ export async function runPostJournalEntry(
         ),
       })
     }
-    // PR #6340 review, n3: `loadOriginalEntry`'s `existingReversal` check
-    // in reverseJournalEntry.ts is a read-then-write guard — two
+    // `loadOriginalEntry`'s `existingReversal` check in
+    // reverseJournalEntry.ts is a read-then-write guard — two
     // concurrent `reverseJournalEntry` calls for the same entry can both
     // pass that read before either commits, then both reach this flush.
     // The `journal_entries_single_reversal_idx` partial unique index (see
@@ -395,9 +394,9 @@ export async function withPostingTransaction<T>(
  * returns: when composed, that caller's outer transaction is still open at
  * that point, so emitting here would fire the event before the write is
  * actually durable, and a subsequent rollback would leave subscribers
- * having reacted to a posting and sequence number that never happened (PR
- * #6340 review, M7). In the composed case, the caller becomes responsible
- * for emitting the event itself, after its own commit.
+ * having reacted to a posting and sequence number that never happened. In
+ * the composed case, the caller becomes responsible for emitting the
+ * event itself, after its own commit.
  */
 export function isComposedPostingCall(ctx: CommandRuntimeContext): boolean {
   return Boolean(ctx.transactionalEm)

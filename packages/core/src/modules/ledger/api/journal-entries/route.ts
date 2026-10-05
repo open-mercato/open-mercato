@@ -111,14 +111,14 @@ export async function GET(req: Request) {
 
   const { id, page, pageSize, accountId, periodId, type, referenceType, referenceId, sortField, sortDir } = parsed.data
   let filter: Record<string, unknown> = { tenantId: auth.tenantId }
-  // Selected organization, not the user's home auth.orgId (PR #6340 review, M6).
+  // Selected organization, not the user's home auth.orgId.
   if (organizationId) filter.organizationId = organizationId
 
   if (id) filter.id = id
   // `?ids=` — comma-separated or repeated — documented by the shared OpenAPI
-  // factory (withIdsQueryParam) but previously ignored by every ledger GET
-  // (PR #6340 review nit). Malformed/unknown ids match nothing, never the
-  // unfiltered list (mergeIdFilter's own #4143 fail-closed behavior).
+  // factory (withIdsQueryParam) but previously ignored by every ledger GET.
+  // Malformed/unknown ids match nothing, never the unfiltered list
+  // (mergeIdFilter's own #4143 fail-closed behavior).
   const rawIds = readQueryParamList(url.searchParams, 'ids')
   if (isIdsParamProvided(rawIds)) {
     filter = mergeIdFilter(filter, parseIdsParam(rawIds), { idsParamProvided: true })
@@ -132,9 +132,9 @@ export async function GET(req: Request) {
   // Design decisions). Previously loaded every matching line id into
   // memory and filtered `JournalEntry.id $in [...ids]`; a busy account
   // could exceed Postgres's 65,535 bind-parameter limit and 500 the whole
-  // list (PR #6340 review, m10). A correlated `EXISTS` subquery pushes the
-  // join into the database instead, with a fixed, small number of bind
-  // parameters regardless of how many lines the account has.
+  // list. A correlated `EXISTS` subquery pushes the join into the database
+  // instead, with a fixed, small number of bind parameters regardless of
+  // how many lines the account has.
   if (accountId) {
     const params = organizationId ? [accountId, auth.tenantId, organizationId] : [accountId, auth.tenantId]
     const accountHasLine = raw(

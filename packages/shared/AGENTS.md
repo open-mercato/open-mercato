@@ -38,6 +38,7 @@ yarn workspace @open-mercato/shared build
 | `auth/organizationScope` | When an organization-scoped API route must resolve the caller's organization — falls back to `actorOrgId` for an "all organizations" selection, but only while the effective tenant is still the actor's tenant. On `null` for an authenticated caller answer with `organizationScopeRequiredResponse()` (400, code `organization_scope_required`) — never 401 | `@open-mercato/shared/lib/auth/organizationScope` — `resolveActiveOrganizationId(auth)`, `organizationScopeRequiredResponse()` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `browser/` | When persisting client UI state to `localStorage` — use the safe wrappers and the versioned-envelope helper instead of raw `localStorage` reads/writes | `@open-mercato/shared/lib/browser/safeLocalStorage`, `@open-mercato/shared/lib/browser/versionedPreference` |
+| `catalog-visibility/` | When combining buyer-facing catalog assortment grants (group-level, channel-level) into one effective visibility check — `AssortmentScope`/`EffectiveAssortmentScope` types plus the pure `matchesOne`/`matchesScope`/`unionScopes`/`intersectScopes` algebra. Imports nothing from `catalog`, `customer_groups`, `ecommerce`, or `cart` by construction; `customer_groups`'s `resolveAssortmentScope()` and `ecommerce`'s `BuyerContext.assortmentScope` composition build on top of it | `@open-mercato/shared/lib/catalog-visibility` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
 | `commands/flush` | When a command mutates entities across multiple phases (scalar + relation syncs) — wraps phases in a single atomic flush | `@open-mercato/shared/lib/commands/flush` — `withAtomicFlush(em, phases, { transaction? })` |
 | `commands/runCrudCommandWrite` | When a command writes an entity + custom fields + CRUD/index side effects in one logical operation — composes fork → atomic flush → custom-field write → side-effect queue in the only correct order. **Prefer this over composing the primitives by hand for new commands.** | `@open-mercato/shared/lib/commands/runCrudCommandWrite` — `runCrudCommandWrite({ ctx, entityId, action, scope, phases, customFields?, events?, indexer?, sideEffect })` |
@@ -199,6 +200,36 @@ throw new Error('[internal] Event bus not available in container')
 
 The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) live in `scripts/`. See `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md` for the full convention and the per-module allowlist format (`<module>/i18n/.hardcoded-allowlist.json`).
 
+### Zod `.refine()`/`superRefine` messages — opt in to translation via `params.i18nKey`
+
+A zod schema's built-in messages (`z.uuid()`'s "Invalid UUID", `min`/`max`, etc.) are not
+translated — that is a separate, larger effort and out of scope here. A `.refine()` or
+`superRefine` call's own `message`, however, is business-rule text this codebase writes, and
+it CAN opt in to translation: attach `params: { i18nKey, i18nFallback }` alongside `message`,
+and `makeCrudRoute`'s `handleError` (via `translateZodIssues` in
+`packages/shared/src/lib/crud/factory.ts`) translates that issue's `message` through
+`translate(i18nKey, i18nFallback)` before it reaches the client.
+
+```typescript
+const schema = z.object({ /* ... */ }).refine(
+  (value) => /* business rule */,
+  {
+    message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    params: {
+      i18nKey: 'ledger.errors.journalEntryLineNotOneSided',
+      i18nFallback: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    },
+  },
+)
+```
+
+This is per-schema, per-message and additive: an issue whose `params` has no `i18nKey` string
+is left exactly as `.refine()` produced it — zero behavior change for every schema that hasn't
+opted in. See `packages/core/src/modules/ledger/data/validators.ts` for the first real usage.
+
+MUST NOT rely on this for a schema's own built-in type/format messages — only a `.refine()`/
+`superRefine` custom `message` carries a `params` bag zod will pass through onto the issue.
+
 ### Request Scoping — use for scoped API payloads
 
 ```typescript
@@ -275,6 +306,7 @@ A command's `buildLog()` returns `payload: { undo: { before, after } }`, but the
 
 MUST rules:
 - Inside `undo()`, read the snapshot **only** through `extractUndoPayload<UndoPayload<TSnapshot>>(logEntry)` from `@open-mercato/shared/lib/commands/undo`. It unwraps `commandPayload` (and the redo envelope) and falls back to `snapshotBefore`/`snapshotAfter`.
+- Snapshot `Date`s come back as ISO strings: pass `{ dateFields: [...] }` (or `datePaths`) to `extractUndoPayload` before assigning them to entities (#6336).
 - NEVER access `logEntry.payload` in an undo handler. The `logEntry` parameter is typed as `CommandUndoLogEntry`, which intentionally omits `payload` so this footgun is a compile-time error.
 - Delete-undo should be robust to either deletion strategy: clear `deletedAt` when the row survives (soft delete), otherwise re-create the entity from the snapshot (mirror `packages/core/src/modules/sales/commands/configuration.ts`).
 

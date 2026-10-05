@@ -102,11 +102,11 @@ export class LedgerAccountGroup {
   name: 'ledger_account_types_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
-// PR #6340 review, n4: partial (`where deleted_at is null`) so a
-// soft-deleted account type's slug can be reused — see the migration's
-// own comment on this index for why a plain `@Unique` (a table
-// constraint, no `where` support in Postgres) couldn't express this and
-// had to become a partial unique index instead.
+// Partial (`where deleted_at is null`) so a soft-deleted account type's
+// slug can be reused — see the migration's own comment on this index for
+// why a plain `@Unique` (a table constraint, no `where` support in
+// Postgres) couldn't express this and had to become a partial unique
+// index instead.
 @Unique({
   name: 'ledger_account_types_scope_slug_unique',
   properties: ['organizationId', 'tenantId', 'slug'],
@@ -161,8 +161,8 @@ export class LedgerAccountType {
   name: 'ledger_accounts_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
-// PR #6340 review, n4: partial (`where deleted_at is null`) — same
-// reasoning as `ledger_account_types_scope_slug_unique` above.
+// Partial (`where deleted_at is null`) — same reasoning as
+// `ledger_account_types_scope_slug_unique` above.
 @Unique({
   name: 'ledger_accounts_scope_slug_unique',
   properties: ['organizationId', 'tenantId', 'slug'],
@@ -237,21 +237,20 @@ export class LedgerAccount {
   name: 'journal_entries_sequence_unique',
   properties: ['tenantId', 'organizationId', 'sequenceNumber'],
 })
-// PR #6340 review, n1: this partial unique index (the M3 double-reversal
-// guard) existed only in the raw migration SQL, not in ORM metadata — a
-// schema rebuilt from entity metadata, or a later `yarn db:generate` diff,
-// wouldn't know about it. `where` matches the migration's predicate
-// exactly.
+// This partial unique index (the double-reversal guard) existed only in
+// the raw migration SQL, not in ORM metadata — a schema rebuilt from
+// entity metadata, or a later `yarn db:generate` diff, wouldn't know
+// about it. `where` matches the migration's predicate exactly.
 //
-// PR #6340 review, n3: the predicate also requires `type = 'REVERSAL'`
-// (tightened from the original `reference_type = 'journal_entry' and
-// reference_id is not null`, which any entry type could satisfy). Without
-// this, an entry that isn't actually a reversal but happens to carry
-// `referenceType: 'journal_entry'`/`referenceId: <id>` (rejected for
-// external `postJournalEntry` callers by the schema as of n3, but the DB
-// constraint shouldn't rely on that alone) would occupy `<id>`'s slot in
-// this index, causing a genuine later reversal of `<id>` to fail with a
-// raw unique violation instead of ever being insertable. Requiring
+// The predicate also requires `type = 'REVERSAL'` (tightened from the
+// original `reference_type = 'journal_entry' and reference_id is not
+// null`, which any entry type could satisfy). Without this, an entry
+// that isn't actually a reversal but happens to carry `referenceType:
+// 'journal_entry'`/`referenceId: <id>` (rejected for external
+// `postJournalEntry` callers by the schema, but the DB constraint
+// shouldn't rely on that alone) would occupy `<id>`'s slot in this index,
+// causing a genuine later reversal of `<id>` to fail with a raw unique
+// violation instead of ever being insertable. Requiring
 // `type = 'REVERSAL'` means only real reversals participate in the
 // uniqueness check, while a concurrent double-reversal of the same entry
 // (two real REVERSAL rows both pointing at it) is still caught here, not
@@ -350,9 +349,9 @@ export class JournalEntry {
   name: 'journal_entry_lines_account_idx',
   properties: ['organizationId', 'accountId'],
 })
-// PR #6340 review, n1: `assert_journal_entry_balanced()` (the deferred
-// balance-check trigger) queries this table by `journal_entry_id` alone,
-// with no `organization_id` predicate — the existing
+// `assert_journal_entry_balanced()` (the deferred balance-check trigger)
+// queries this table by `journal_entry_id` alone, with no
+// `organization_id` predicate — the existing
 // `journal_entry_lines_entry_idx` above leads with `organization_id` and
 // so can't serve that lookup. This single-column index existed only in
 // the raw migration SQL, not in ORM metadata.
@@ -381,8 +380,8 @@ export class JournalEntryLine {
    * query/command code that reads or assigns `journalEntryId` needs to
    * change.
    *
-   * PR #6340 review, n1: the DB-level FK constraint
-   * (`journal_entry_lines_journal_entry_fk`, added for m6) previously
+   * The DB-level FK constraint
+   * (`journal_entry_lines_journal_entry_fk`) previously
    * existed only in the raw migration SQL, not in ORM metadata, so the
    * snapshot and a schema built from metadata alone didn't know about
    * it. `@ManyToOne` with `mapToPk: true` registers the same FK in

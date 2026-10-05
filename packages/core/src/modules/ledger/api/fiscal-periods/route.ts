@@ -121,17 +121,17 @@ export async function GET(req: Request) {
   }
   // Selected organization (resolveOrganizationScopeForRequest), not the user's
   // home auth.orgId — a user who switched organizations must see that
-  // organization's rows, not their home org's (PR #6340 review, M6). Superadmin
-  // with no explicit selection still lists across every organization.
+  // organization's rows, not their home org's. Superadmin with no explicit
+  // selection still lists across every organization.
   if (organizationId) {
     filter.organizationId = organizationId
   }
 
   if (id) filter.id = id
   // `?ids=` — comma-separated or repeated — documented by the shared OpenAPI
-  // factory (withIdsQueryParam) but previously ignored by every ledger GET
-  // (PR #6340 review nit). Malformed/unknown ids match nothing, never the
-  // unfiltered list (mergeIdFilter's own #4143 fail-closed behavior).
+  // factory (withIdsQueryParam) but previously ignored by every ledger GET.
+  // Malformed/unknown ids match nothing, never the unfiltered list
+  // (mergeIdFilter's own #4143 fail-closed behavior).
   const rawIds = readQueryParamList(url.searchParams, 'ids')
   if (isIdsParamProvided(rawIds)) {
     filter = mergeIdFilter(filter, parseIdsParam(rawIds), { idsParamProvided: true })

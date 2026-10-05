@@ -116,6 +116,18 @@ export type SeedJournalEntryInput = {
  * responsible for passing lines that actually balance (sum(debit) ==
  * sum(credit)) — this fixture does not validate that itself, unlike the real
  * `postJournalEntry` command.
+ *
+ * No matching delete helper: both tables are append-only
+ * (`journal_entries_append_only` / `journal_entry_lines_append_only` block
+ * UPDATE/DELETE), and an earlier version of this fixture removed a seeded
+ * entry by disabling those triggers with `ALTER TABLE ... DISABLE TRIGGER` —
+ * an ACCESS EXCLUSIVE lock on both tables that serializes every other ledger
+ * spec running in parallel against the same database. Callers instead leave
+ * the seeded rows in place and delete the throwaway organization they were
+ * seeded under (`deleteOrganizationIfExists` — same convention this module's
+ * fiscal-period fixtures already use, since `FiscalPeriod` has no delete
+ * route either): every real query scopes by `organizationId`, so rows left
+ * behind under a deleted organization are simply never read again.
  */
 export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promise<string> {
   const entryId = randomUUID();
@@ -157,52 +169,4 @@ export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promis
     }
     return entryId;
   });
-}
-
-/**
- * Best-effort cleanup for `seedJournalEntryInDb` — deletes lines, then the
- * entry. PR #6340 review, N1: this used to target the pre-rename singular
- * tables (`journal_entry`/`journal_entry_line`), so every call threw
- * `relation "journal_entry" does not exist` — silently, because the whole
- * function is wrapped in a best-effort `catch {}`. Even against the correct
- * plural tables, a plain DELETE would still fail: `journal_entries_append_only`
- * / `journal_entry_lines_append_only` (added for m6) block UPDATE/DELETE on
- * both tables by design, since a posted journal entry must never be mutated
- * or removed. Both triggers are disabled for the span of this one
- * transaction (`ALTER TABLE ... DISABLE TRIGGER` is transactional DDL, so a
- * rollback restores them) and re-enabled before commit — this only ever
- * touches rows this same fixture inserted directly via SQL in
- * `seedJournalEntryInDb`, never anything posted through the real
- * `postJournalEntry`/`reverseJournalEntry` commands, which have no reason to
- * bypass the append-only guarantee.
- */
-export async function deleteJournalEntryInDb(entryId: string | null): Promise<void> {
-  if (!entryId) return;
-  try {
-    await withClient(async (client) => {
-      await client.query('begin');
-      try {
-        await client.query('alter table "journal_entry_lines" disable trigger "journal_entry_lines_append_only"');
-        await client.query('alter table "journal_entries" disable trigger "journal_entries_append_only"');
-        await client.query('delete from journal_entry_lines where journal_entry_id = $1', [entryId]);
-        await client.query('delete from journal_entries where id = $1', [entryId]);
-        // The DELETE above queues a pending event for the deferred
-        // `journal_entry_lines_balanced` constraint trigger; Postgres
-        // refuses `ALTER TABLE ... ENABLE TRIGGER` on that table while an
-        // event is still pending (confirmed against a real Postgres:
-        // "cannot ALTER TABLE ... because it has pending trigger events").
-        // Forcing it to fire now is safe — no lines remain for this entry,
-        // so the balance check is vacuously satisfied.
-        await client.query('set constraints "journal_entry_lines_balanced" immediate');
-        await client.query('alter table "journal_entry_lines" enable trigger "journal_entry_lines_append_only"');
-        await client.query('alter table "journal_entries" enable trigger "journal_entries_append_only"');
-        await client.query('commit');
-      } catch (err) {
-        await client.query('rollback').catch(() => undefined);
-        throw err;
-      }
-    });
-  } catch {
-    // best-effort
-  }
 }

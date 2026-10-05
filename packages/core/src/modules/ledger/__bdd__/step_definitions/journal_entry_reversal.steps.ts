@@ -9,7 +9,7 @@
 // feature file quotes).
 //
 // Seeds a `Currency` and both `LedgerAccount`s used by the original entry:
-// `requireValidPostingReferences` (PR #6340 review M5) checks both exist
+// `requireValidPostingReferences` checks both exist
 // before any post/reversal reaches persistence, so without these every
 // scenario here — including the original, already-approved one — would
 // fail on "currency not found"/"account not found" rather than exercising

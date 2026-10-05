@@ -636,37 +636,12 @@ function classifyCrudError(err: unknown): { code: CrudErrorCode; pgSqlState: str
 }
 
 /**
- * Translates a `z.ZodError`'s `issues` before they reach the client (PR
- * #6340 review, m1). Every other error path in this factory (CrudHttpError,
- * the interceptor rejection, the DB-error branches below) already routes
- * its message through `translate()`; this was the one exception — a zod
- * schema's `.refine()` message (or a built-in zod message like
- * "Invalid UUID") is a plain string baked in at schema-definition time,
- * long before any request's locale is known, so it reached the client
- * untranslated regardless of the caller's `accept-language`/`locale`
- * cookie.
- *
- * The fix is opt-in and additive, not a retrofit of every existing zod
- * schema in the repo: a `.refine()` (or `superRefine`) call can now attach
- * `params: { i18nKey: '<dict key>', i18nFallback: '<the same English text
- * that used to be the `message`>' }` alongside its `message`, and this
- * function translates that issue's `message` via
- * `translate(i18nKey, i18nFallback)` when present. An issue with no
- * `i18nKey` (which is every zod schema in the repo today, including this
- * module's own built-in messages like "Invalid UUID" or "Required") is
- * left exactly as it was — `issue.message` unchanged — so adopting this
- * mechanism is a per-schema, per-message choice with zero behavior change
- * for every schema that hasn't opted in yet. See
- * `packages/core/src/modules/ledger/data/validators.ts` for the first real
- * usage of `i18nKey`/`i18nFallback` on a `.refine()` call.
- *
- * Translating zod's own built-in messages (type/format mismatches like
- * "Invalid UUID", "Required", `min`/`max` length messages) is a separate,
- * larger effort — each would need its own per-field `message`/`error`
- * override wired to this same convention — and is deliberately out of
- * scope here; this only covers `.refine()`/`superRefine`'s custom
- * `message`, which is where this repo's actual business-rule validation
- * text lives.
+ * Translates a `z.ZodError`'s `issues` before they reach the client. Every other error path
+ * in this factory (CrudHttpError, the interceptor rejection, the DB-error branches below)
+ * already routes its message through `translate()` — this covers a `.refine()`/`superRefine`
+ * issue whose `params` opts in via `i18nKey`/`i18nFallback`. An issue with no `i18nKey` (zod's
+ * own built-in messages included) is left exactly as it was. See "Zod .refine()/superRefine
+ * messages" in `packages/shared/AGENTS.md` for the full convention and rationale.
  */
 async function translateZodIssues(issues: z.ZodIssue[]): Promise<z.ZodIssue[]> {
   const withI18nKey = issues.some((issue) => {
@@ -1746,7 +1721,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (Array.isArray(payload)) return
         const items = Array.isArray((payload as any).items) ? (payload as any).items : []
         const tags = new Set<string>()
-        const scopeOrgIds = collectScopeOrganizationIds(ctx)
+        const scopeOrgIds = ormCfg.orgField ? collectScopeOrganizationIds(ctx) : [null]
         const crudSegment = deriveCrudSegmentTag(resourceKind, request)
         for (const target of resourceTargets) {
           for (const tag of buildCollectionTags(target, tenantForScope, scopeOrgIds)) {

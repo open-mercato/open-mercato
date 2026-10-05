@@ -58,7 +58,8 @@ export default function FiscalPeriodsPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
-  // PR #6340 review, m3 (same gap as backend/accounts/page.tsx).
+  // Client-side gate matching backend/accounts/page.tsx's own (view-only
+  // users must not see New/Edit/Delete on this list page).
   const { payload } = useBackendChrome()
   const canManage = hasFeature(payload?.grantedFeatures, 'ledger.periods.manage')
   const mutationContextId = 'ledger-fiscal-periods-list:mutation'

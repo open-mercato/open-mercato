@@ -3,17 +3,14 @@ import { z } from 'zod'
 // Numeric columns backing `debit`/`credit`/`amount_currency` are
 // `numeric(19,4)` — matches `JournalEntryLine`'s own column precision
 // (see data/entities.ts).
-// PR #6340 review, m1 (residual): this was `.regex(pattern, 'message')` —
-// zod's built-in format checks (regex/uuid/min/max/...) don't carry a
-// `params` bag onto their issue the way `.refine()`'s custom issues do
-// (confirmed by direct testing: `params` passed to `.regex()`'s object-form
-// message config is silently dropped from the resulting issue), so there
-// was no hook for `translateZodIssues` (see crud/factory.ts) to translate
-// through. Rewritten as an equivalent `.refine()` — same regex, same
-// pass/fail behavior — specifically to gain that hook; this is the
-// "amount"/"exchange rate" residual the review called out by line number
-// (validators.ts:8) alongside the three `.refine()` messages already
-// covered.
+// This was `.regex(pattern, 'message')` — zod's built-in format checks
+// (regex/uuid/min/max/...) don't carry a `params` bag onto their issue the
+// way `.refine()`'s custom issues do (confirmed by direct testing:
+// `params` passed to `.regex()`'s object-form message config is silently
+// dropped from the resulting issue), so there was no hook for
+// `translateZodIssues` (see crud/factory.ts) to translate through.
+// Rewritten as an equivalent `.refine()` — same regex, same pass/fail
+// behavior — specifically to gain that hook.
 const MONEY_PATTERN = /^\d+(\.\d{1,4})?$/
 const moneyStringSchema = z.string().refine((value) => MONEY_PATTERN.test(value), {
   message: 'Amount must be a non-negative decimal with at most 4 decimal places.',
@@ -28,8 +25,7 @@ const moneyStringSchema = z.string().refine((value) => MONEY_PATTERN.test(value)
 // for balance comparisons. `Number(...)` loses precision once a sum
 // approaches 1e13 (0.0001 falls below double precision there), so an
 // unbalanced entry could otherwise pass this check and only be caught by
-// the DB trigger (PR #6340 review, m7) — BigInt arithmetic has no such
-// ceiling.
+// the DB trigger — BigInt arithmetic has no such ceiling.
 function toMinorUnits(amount: string | undefined): bigint {
   if (!amount) return 0n
   const [whole, fraction = ''] = amount.split('.')
@@ -57,10 +53,11 @@ export const journalEntryLineInputSchema = z
     },
     {
       message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
-      // PR #6340 review, m1: `params.i18nKey`/`i18nFallback` is the new
-      // opt-in convention (see `translateZodIssues` in
-      // packages/shared/src/lib/crud/factory.ts) for routing a `.refine()`
-      // message through `translate()` before it reaches the client — this
+      // `params.i18nKey`/`i18nFallback` is the opt-in convention (see
+      // `translateZodIssues` in packages/shared/src/lib/crud/factory.ts,
+      // and "Zod .refine()/superRefine messages" in
+      // packages/shared/AGENTS.md) for routing a `.refine()` message
+      // through `translate()` before it reaches the client — this
       // schema's business-rule messages are the first real usage.
       params: { i18nKey: 'ledger.errors.journalEntryLineNotOneSided', i18nFallback: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.' },
     },
@@ -95,7 +92,7 @@ export const postJournalEntrySchema = z
       })
       .nullable()
       .optional(),
-    // PR #6340 review, n3: `'journal_entry'` is the internal marker value
+    // `'journal_entry'` is the internal marker value
     // `reverseJournalEntry.ts`'s `buildReversalCore` writes into a REVERSAL
     // entry's own `referenceType` to point back at the entry it reverses,
     // and it's what the double-reversal guard (the

@@ -21,7 +21,6 @@ import {
   createAccountTypeFixture,
   createAccountFixture,
   seedJournalEntryInDb,
-  deleteJournalEntryInDb,
 } from '@open-mercato/core/helpers/integration/ledgerFixtures';
 
 /**
@@ -224,14 +223,16 @@ test.describe('TC-GL-001: journal-entries list/filter/403', () => {
       expect(listAllIds, 'unfiltered listing should include the period-A entry').toContain(entryInPeriodAId);
       expect(listAllIds, 'unfiltered listing should include the period-B entry').toContain(entryInPeriodBId);
     } finally {
-      // PR #6340 review, m11: the fixtures above were created under the
-      // QA tenant/org's own scope (via `headers`'s selected-tenant/org
+      // The fixtures above were created under the QA tenant/org's own
+      // scope (via `headers`'s selected-tenant/org
       // cookies) — deleting them through superadminToken WITHOUT those same
       // headers resolves `ctx.selectedOrganizationId` to superadmin's own
       // home org instead (see api/accounts/route.ts), so the delete
       // silently no-ops against the wrong scope and the fixture leaks.
-      await deleteJournalEntryInDb(entryInPeriodAId);
-      await deleteJournalEntryInDb(entryInPeriodBId);
+      // JournalEntry ships no DELETE route (append-only by design — see
+      // `seedJournalEntryInDb`'s doc comment); the seeded entries are left
+      // behind but scoped to this test's own throwaway organization, which
+      // is deleted below.
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', cashAccountId, { headers });
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', revenueAccountId, { headers });
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeId, { headers });

@@ -21,7 +21,7 @@ let em: FakeEntityManager
 let outcome: PostJournalEntryResult | null
 let rejection: unknown
 
-// `requireValidPostingReferences` (postJournalEntry.ts, PR #6340 review M5)
+// `requireValidPostingReferences` (postJournalEntry.ts)
 // checks the currency and every line's account actually exist before any
 // post reaches persistence. Called from all three Given steps below,
 // including the two whose scenarios reject before ever reaching that check

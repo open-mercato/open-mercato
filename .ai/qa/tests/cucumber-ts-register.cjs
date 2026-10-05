@@ -1,7 +1,7 @@
 'use strict'
 
-// Custom `.ts`/`.tsx` require-hook for cucumber-js (PR #6340 review, M8
-// follow-up). Replaces the previous `tsx/cjs` requireModule entry, which
+// Custom `.ts`/`.tsx` require-hook for cucumber-js. Replaces the previous
+// `tsx/cjs` requireModule entry, which
 // the README documented as producing decorator output incompatible with
 // `@mikro-orm/decorators` (`TypeError: Cannot read properties of
 // undefined (reading 'constructor')` inside

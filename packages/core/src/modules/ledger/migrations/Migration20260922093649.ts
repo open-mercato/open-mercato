@@ -12,24 +12,23 @@ export class Migration20260922093649 extends Migration {
 
     this.addSql(`create table "ledger_account_types" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "slug" text not null, "name" text not null, "normal_balance" text not null, "parent_account_type_id" uuid null, "account_group_id" uuid null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "ledger_account_types_pkey" primary key ("id"));`);
     this.addSql(`create index "ledger_account_types_scope_idx" on "ledger_account_types" ("organization_id", "tenant_id");`);
-    // PR #6340 review, n4: a plain table `unique` constraint can't carry a
-    // `where` predicate in Postgres, so this was originally
-    // `alter table ... add constraint ... unique (...)`, meaning a
-    // soft-deleted account type's slug stayed reserved forever — deleting
-    // "misc" and creating a new "misc" would fail with a duplicate-slug
-    // error even though the old row is gone from every real listing. A
-    // partial unique INDEX (not a constraint) is the only way to scope
-    // this to live rows in Postgres. Since the whole module is still
-    // unreleased on this branch, this edits the one existing migration in
-    // place (same rationale as n3's own migration edit above).
+    // A plain table `unique` constraint can't carry a `where` predicate in
+    // Postgres, so this was originally `alter table ... add constraint ...
+    // unique (...)`, meaning a soft-deleted account type's slug stayed
+    // reserved forever — deleting "misc" and creating a new "misc" would
+    // fail with a duplicate-slug error even though the old row is gone
+    // from every real listing. A partial unique INDEX (not a constraint)
+    // is the only way to scope this to live rows in Postgres. Since the
+    // whole module is still unreleased on this branch, this edits the one
+    // existing migration in place rather than adding a new one.
     this.addSql(`create unique index "ledger_account_types_scope_slug_unique" on "ledger_account_types" ("organization_id", "tenant_id", "slug") where "deleted_at" is null;`);
 
     this.addSql(`create table "ledger_accounts" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "slug" text not null, "account_type_id" uuid not null, "parent_account_id" uuid null, "description" text null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "ledger_accounts_pkey" primary key ("id"));`);
     this.addSql(`create index "ledger_accounts_scope_idx" on "ledger_accounts" ("organization_id", "tenant_id");`);
-    // PR #6340 review, n4: same fix as `ledger_account_types_scope_slug_unique`
-    // above — a soft-deleted account's slug must be reusable, which a plain
-    // table `unique` constraint (no `where` support in Postgres) cannot
-    // express. Replaced with a partial unique index scoped to live rows.
+    // Same fix as `ledger_account_types_scope_slug_unique` above — a
+    // soft-deleted account's slug must be reusable, which a plain table
+    // `unique` constraint (no `where` support in Postgres) cannot express.
+    // Replaced with a partial unique index scoped to live rows.
     this.addSql(`create unique index "ledger_accounts_scope_slug_unique" on "ledger_accounts" ("organization_id", "tenant_id", "slug") where "deleted_at" is null;`);
 
     this.addSql(`create table "journal_entries" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "sequence_number" bigint not null, "posted_at" timestamptz not null, "operation_date" date not null, "document_type" text null, "document_number" text null, "document_date" date null, "description" text not null, "type" text not null default 'NORMAL', "currency_id" uuid not null, "exchange_rate" numeric(18,8) null, "reference_type" text null, "reference_id" uuid null, constraint "journal_entries_pkey" primary key ("id"));`);
@@ -44,9 +43,9 @@ export class Migration20260922093649 extends Migration {
     // reversed at most once. Partial so it constrains only this specific
     // reuse of the generic reference_type/reference_id pointer, not any
     // future referenceType. Backs the application-layer guard in
-    // reverseJournalEntry.ts (PR #6340 review, M3). Predicate tightened
-    // (PR #6340 review, n3) to also require type = 'REVERSAL': the
-    // original predicate let any entry type occupy a reference_id's slot
+    // reverseJournalEntry.ts. Predicate tightened to also require
+    // type = 'REVERSAL': the original predicate let any entry type
+    // occupy a reference_id's slot
     // in this index, so a non-reversal entry that happened to carry
     // reference_type='journal_entry'/reference_id=<id> (impossible for
     // postJournalEntry callers as of n3's schema restriction, but not
@@ -66,15 +65,14 @@ export class Migration20260922093649 extends Migration {
     // `journal_entry_id` alone, with no `organization_id` predicate — the
     // existing `journal_entry_lines_entry_idx` above leads with
     // `organization_id`, so it can't serve that query. Without this, every
-    // deferred balance check is a sequential scan of the whole table (PR
-    // #6340 review, M9).
+    // deferred balance check is a sequential scan of the whole table.
     this.addSql(`create index "journal_entry_lines_journal_entry_idx" on "journal_entry_lines" ("journal_entry_id");`);
     this.addSql(`alter table "journal_entry_lines" add constraint "journal_entry_lines_one_sided_chk" check (("debit" = 0 OR "credit" = 0) AND ("debit" > 0 OR "credit" > 0));`);
 
     // No cascade: this repo's append-only design (see the guard triggers
     // below) means a `journal_entry` row is never legitimately deleted, so
     // there is nothing for a cascade to do — the default RESTRICT-like
-    // behavior is what we want (PR #6340 review, m6).
+    // behavior is what we want.
     this.addSql(`alter table "journal_entry_lines" add constraint "journal_entry_lines_journal_entry_fk" foreign key ("journal_entry_id") references "journal_entries" ("id");`);
 
     this.addSql(`create table "journal_entry_sequences" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "next_value" bigint not null default 1, "created_at" timestamptz not null, constraint "journal_entry_sequences_pkey" primary key ("id"));`);
@@ -93,10 +91,10 @@ export class Migration20260922093649 extends Migration {
         total_debit numeric(19,4);
         total_credit numeric(19,4);
       begin
-        -- PR #6340 review, m6: the trigger now also fires on DELETE (a row
-        -- removed mid-transaction can leave the remaining lines unbalanced
-        -- just as an insert/update can), and NEW is null on a DELETE event,
-        -- so the id must come from OLD in that case.
+        -- The trigger also fires on DELETE (a row removed mid-transaction can
+        -- leave the remaining lines unbalanced just as an insert/update
+        -- can), and NEW is null on a DELETE event, so the id must come
+        -- from OLD in that case.
         target_journal_entry_id := coalesce(new.journal_entry_id, old.journal_entry_id);
 
         select coalesce(sum(debit), 0), coalesce(sum(credit), 0)
@@ -118,12 +116,12 @@ export class Migration20260922093649 extends Migration {
         execute procedure assert_journal_entry_balanced();
     `);
 
-    // PR #6340 review, m6: this module's design is append-only — no
-    // legitimate code path anywhere in `ledger` ever updates or deletes a
-    // posted `journal_entry`/`journal_entry_line` row (confirmed by
-    // grepping the module's commands). These triggers turn that design
-    // assumption into a DB-level guarantee rather than leaving it as an
-    // unenforced convention.
+    // This module's design is append-only — no legitimate code path
+    // anywhere in `ledger` ever updates or deletes a posted
+    // `journal_entry`/`journal_entry_line` row (confirmed by grepping the
+    // module's commands). These triggers turn that design assumption into
+    // a DB-level guarantee rather than leaving it as an unenforced
+    // convention.
     this.addSql(`
       create or replace function ledger_journal_entry_append_only() returns trigger as $$
       begin
