@@ -5,7 +5,9 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { ActionLog } from '../../../audit_logs/data/entities'
 import { SalesOrder, SalesOrderLine } from '../../data/entities'
+import { deriveHistoryChangedFields } from '../../lib/historyHelpers'
 import { DefaultSalesCalculationService, type SalesCalculationService } from '../../services/salesCalculationService'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -93,6 +95,7 @@ type TestEntityManager = {
   persist: (entity: object) => void
   remove: (entity: object) => void
   flush: () => Promise<void>
+  clear: () => void
   getKysely: () => { selectFrom: (table: string) => LockQuery }
 }
 
@@ -142,13 +145,27 @@ function seedGraph(orderId: string, amounts: number[]): Graph {
     invoicedQuantity: '0',
     returnedQuantity: '0',
   }))
-  return { order, lines }
+  return normalizePersistedDecimals({ order, lines })
 }
 
 function cloneGraph(graph: Graph): Graph {
   const order = Object.assign(new SalesOrder(), graph.order)
   const lines = graph.lines.map((line) => Object.assign(new SalesOrderLine(), line, { order }))
   return { order, lines }
+}
+
+function normalizePersistedDecimals(graph: Graph): Graph {
+  const persisted = cloneGraph(graph)
+  const lineDecimalFields = [
+    'quantity', 'reservedQuantity', 'fulfilledQuantity', 'invoicedQuantity', 'returnedQuantity',
+    'unitPriceNet', 'unitPriceGross', 'discountAmount', 'discountPercent', 'taxRate',
+    'taxAmount', 'totalNetAmount', 'totalGrossAmount',
+  ] as const
+  for (const line of persisted.lines) {
+    for (const field of lineDecimalFields) line[field] = Number(line[field]).toFixed(4)
+    line.normalizedQuantity = Number(line.normalizedQuantity).toFixed(6)
+  }
+  return persisted
 }
 
 function createWorld(amounts: number[] = [10, 20]): TestWorld {
@@ -181,6 +198,7 @@ function orderIdFromWhere(where: Record<string, unknown>): string {
 function createEntityManager(world: TestWorld, label: string): TestEntityManager {
   let active = false
   let graph: Graph | undefined
+  let flushedGraph: Graph | undefined
   let releaseLock: (() => void) | undefined
   let flushed = false
   const persistedLines = new Map<string, SalesOrderLine>()
@@ -188,7 +206,7 @@ function createEntityManager(world: TestWorld, label: string): TestEntityManager
   const removedLineIds = new Set<string>()
   const getGraph = (orderId: string): Graph | undefined => {
     if (!graph || graph.order.id !== orderId) {
-      const stored = world.graphs.get(orderId)
+      const stored = flushedGraph?.order.id === orderId ? flushedGraph : world.graphs.get(orderId)
       graph = stored ? cloneGraph(stored) : undefined
     }
     return graph
@@ -221,12 +239,17 @@ function createEntityManager(world: TestWorld, label: string): TestEntityManager
         for (const [lineId, line] of persistedLines) {
           if (lines.has(lineId) || createdLineIds.has(lineId)) lines.set(lineId, line)
         }
-        world.graphs.set(graph.order.id, cloneGraph({ order: graph.order, lines: [...lines.values()] }))
+        world.graphs.set(graph.order.id, normalizePersistedDecimals({ order: graph.order, lines: [...lines.values()] }))
       }
       world.trace.push(`${label}:commit`)
       finish()
     },
     rollback: async () => { world.trace.push(`${label}:rollback`); finish() },
+    clear: () => {
+      if (!active || !releaseLock) throw new Error('[internal] Audit reload must preserve the active order transaction')
+      world.trace.push(`${label}:clear`)
+      graph = undefined
+    },
     findOne: async (entity, where, options) => {
       if (entity !== SalesOrder) return null
       const orderId = orderIdFromWhere(where)
@@ -311,6 +334,7 @@ function createEntityManager(world: TestWorld, label: string): TestEntityManager
         graph.order.updatedAt = new Date(++world.version)
         flushed = true
       }
+      if (graph) flushedGraph = normalizePersistedDecimals(graph)
     },
   }
   return em
@@ -414,7 +438,7 @@ describe('sales order line transaction serialization (#6463)', () => {
     await overlap(world, lineInput({ id: FIRST_LINE_ID, quantity: 2, unitPriceNet: 10, unitPriceGross: 10 }),
       lineInput({ id: SECOND_LINE_ID, quantity: 3, unitPriceNet: 20, unitPriceGross: 20 }))
     expectConsistentGraph(world, 80, 2)
-    expect(world.graphs.get(ORDER_ID)!.lines.map((line) => line.quantity)).toEqual(['2', '3'])
+    expect(world.graphs.get(ORDER_ID)!.lines.map((line) => Number(line.quantity))).toEqual([2, 3])
   })
 
   it('calculates a parallel delete from the committed edit', async () => {
@@ -551,5 +575,30 @@ describe('sales order line transaction serialization (#6463)', () => {
     expect(Object.keys(secondResult).sort()).toEqual(['lineId', 'orderId'])
     expect(firstLog?.payload).toEqual({ undo: { before: firstBeforeSnapshot, after: firstAfterSnapshot } })
     expect(secondLog?.payload).toEqual({ undo: { before: secondBeforeSnapshot, after: secondAfterSnapshot } })
+  })
+
+  it('reports only quantity when managed decimals normalize to fixed-scale persisted values', async () => {
+    const world = createWorld()
+    world.pauseFirst = false
+    const input: LineInput = { body: {
+      id: FIRST_LINE_ID,
+      orderId: ORDER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      currencyCode: 'USD',
+      quantity: 2,
+    } }
+    const ctx = createContext(world, 'first')
+    const command = handler()
+    const prepared = await command.prepare?.(input, ctx)
+    const result = await command.execute(input, ctx)
+    const after = await command.captureAfter?.(input, result, ctx)
+    const log = await command.buildLog?.({ input, result, ctx, snapshots: { ...prepared, after } })
+    const actionLog = Object.assign(new ActionLog(), log, { commandId: command.id })
+
+    expectConsistentGraph(world, 40, 2)
+    expect(deriveHistoryChangedFields(actionLog)).toEqual(['quantity'])
+    expect(world.trace.indexOf('first:clear')).toBeGreaterThan(world.trace.indexOf('first:flush'))
+    expect(world.trace.indexOf('first:commit')).toBeGreaterThan(world.trace.indexOf('first:clear'))
   })
 })

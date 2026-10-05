@@ -7477,6 +7477,7 @@ async function writeLockedOrderLines(
         };
       },
       ...(captureSnapshots ? [async () => {
+        em.clear();
         after = await loadOrderSnapshot(em, orderId);
       }] : []),
     ],
