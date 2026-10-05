@@ -539,6 +539,8 @@
   "auth.profile.form.success": "Profil aktualisiert.",
   "auth.profile.subtitle": "Passwort ändern",
   "auth.profile.title": "Profil",
+  "auth.replay.errors.credentials": "Passwortänderungen können nicht wiederholt werden.",
+  "auth.replay.errors.stale": "Diese Aktion kann nicht wiederholt werden, weil sich das Ziel geändert hat.",
   "auth.reset.backToLogin": "Zurück zur Anmeldung",
   "auth.reset.description": "Gib deine E-Mail-Adresse ein, um einen Zurücksetzungslink zu erhalten",
   "auth.reset.error": "Etwas ist schiefgelaufen",

@@ -5,10 +5,15 @@ import { isEmailNotVerifiedError, resolveSsoCallbackErrorCode } from '../../lib/
 import { ScimToken, SsoIdentity, SsoRoleGrant } from '../../data/entities'
 import type { SsoConfig } from '../../data/entities'
 import type { SsoIdentityPayload } from '../../lib/types'
+import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn().mockResolvedValue(null),
   findWithDecryption: jest.fn().mockResolvedValue([]),
+}))
+
+jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => ({
+  lockUserRoleWriterAuthorizationState: jest.fn().mockResolvedValue(undefined),
 }))
 
 const config = { id: 'cfg-1', organizationId: 'org-1' } as unknown as SsoConfig
@@ -19,8 +24,21 @@ function isPersistedRoleGrant(entry: unknown): entry is PersistedRoleGrant {
   return typeof entry === 'object' && entry !== null && 'roleId' in entry && 'ssoConfigId' in entry
 }
 
-function buildRoleSyncEntityManager(roles: Array<{ id: string; name: string }>) {
+function buildRoleSyncEntityManager(
+  roles: Array<{ id: string; name: string }>,
+  rolesAfterLock = roles,
+  roleState: {
+    grantsBeforeLock?: Array<{ id: string; roleId: string; userId: string; ssoConfigId: string }>
+    grantsAfterLock?: Array<{ id: string; roleId: string; userId: string; ssoConfigId: string }>
+    userRolesBeforeLock?: Array<{ id: string; role: { id: string }; deletedAt: Date | null }>
+    userRolesAfterLock?: Array<{ id: string; role: { id: string }; deletedAt: Date | null }>
+  } = {},
+) {
   const persisted: unknown[] = []
+  let authorizationStateLocked = false
+  jest.mocked(lockUserRoleWriterAuthorizationState).mockImplementation(async () => {
+    authorizationStateLocked = true
+  })
 
   const em = {
     count: jest.fn().mockResolvedValue(0),
@@ -32,9 +50,17 @@ function buildRoleSyncEntityManager(roles: Array<{ id: string; name: string }>) 
       return { ...data }
     }),
     find: jest.fn(async (entity: unknown) => {
-      if (entity === Role) return roles
-      if (entity === SsoRoleGrant) return []
-      if (entity === UserRole) return []
+      if (entity === Role) return authorizationStateLocked ? rolesAfterLock : roles
+      if (entity === SsoRoleGrant) {
+        return authorizationStateLocked
+          ? roleState.grantsAfterLock ?? roleState.grantsBeforeLock ?? []
+          : roleState.grantsBeforeLock ?? []
+      }
+      if (entity === UserRole) {
+        return authorizationStateLocked
+          ? roleState.userRolesAfterLock ?? roleState.userRolesBeforeLock ?? []
+          : roleState.userRolesBeforeLock ?? []
+      }
       return []
     }),
     findOne: jest.fn(async (entity: unknown) => {
@@ -109,6 +135,10 @@ describe('OIDC callback unverified-email error mapping (#2741)', () => {
 })
 
 describe('SSO app role mappings', () => {
+  beforeEach(() => {
+    jest.mocked(lockUserRoleWriterAuthorizationState).mockReset()
+  })
+
   const roleConfig = {
     id: 'cfg-1',
     organizationId: 'org-1',
@@ -170,5 +200,153 @@ describe('SSO app role mappings', () => {
       .map((entry) => entry.roleId)
 
     expect(roleGrantIds).toEqual([])
+  })
+
+  it('recomputes mapped roles after a concurrent role rename completes while acquiring locks', async () => {
+    const em = buildRoleSyncEntityManager(
+      [{ id: 'role-employee', name: 'employee' }],
+      [{ id: 'role-employee', name: 'former-employee' }],
+    )
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toThrow(
+      'No roles could be resolved from IdP groups',
+    )
+
+    expect(lockUserRoleWriterAuthorizationState).toHaveBeenCalledWith(
+      expect.anything(),
+      { userIds: ['user-1'], roleIds: ['role-employee'] },
+    )
+    expect(em.find).toHaveBeenCalledWith(
+      Role,
+      { tenantId: 'tenant-1', deletedAt: null },
+      { refresh: true },
+    )
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
+  })
+
+  it('recomputes mapped roles after a concurrent role delete completes while acquiring locks', async () => {
+    const em = buildRoleSyncEntityManager(
+      [{ id: 'role-employee', name: 'employee' }],
+      [],
+    )
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toThrow(
+      'No roles could be resolved from IdP groups',
+    )
+
+    expect(lockUserRoleWriterAuthorizationState).toHaveBeenCalledWith(
+      expect.anything(),
+      { userIds: ['user-1'], roleIds: ['role-employee'] },
+    )
+    expect(em.find).toHaveBeenCalledWith(
+      Role,
+      { tenantId: 'tenant-1', deletedAt: null },
+      { refresh: true },
+    )
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
+  })
+
+  it('rejects a post-lock role footprint expansion before creating memberships', async () => {
+    const em = buildRoleSyncEntityManager(
+      [],
+      [{ id: 'role-employee', name: 'employee' }],
+    )
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: '[internal] Authorization state changed while acquiring its lock footprint',
+      },
+    })
+
+    expect(lockUserRoleWriterAuthorizationState).toHaveBeenCalledWith(
+      expect.anything(),
+      { userIds: ['user-1'], roleIds: [] },
+    )
+    expect(em.find).toHaveBeenCalledWith(
+      Role,
+      { tenantId: 'tenant-1', deletedAt: null },
+      { refresh: true },
+    )
+    expect(em.create).not.toHaveBeenCalledWith(UserRole, expect.anything())
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
+  })
+
+  it('rejects a post-lock SSO grant-removal footprint expansion before membership or grant writes', async () => {
+    const em = buildRoleSyncEntityManager(
+      [
+        { id: 'role-employee', name: 'employee' },
+        { id: 'role-admin', name: 'admin' },
+      ],
+      [
+        { id: 'role-employee', name: 'employee' },
+        { id: 'role-admin', name: 'admin' },
+      ],
+      {
+        grantsBeforeLock: [],
+        grantsAfterLock: [{
+          id: 'grant-admin',
+          roleId: 'role-admin',
+          userId: 'user-1',
+          ssoConfigId: 'cfg-1',
+        }],
+      },
+    )
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: '[internal] Authorization state changed while acquiring its lock footprint',
+      },
+    })
+
+    expect(lockUserRoleWriterAuthorizationState).toHaveBeenCalledWith(
+      expect.anything(),
+      { userIds: ['user-1'], roleIds: ['role-employee'] },
+    )
+    expect(em.create).not.toHaveBeenCalledWith(UserRole, expect.anything())
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
+  })
+
+  it('rejects a post-lock soft-deleted membership cleanup footprint expansion before writes', async () => {
+    const em = buildRoleSyncEntityManager(
+      [
+        { id: 'role-employee', name: 'employee' },
+        { id: 'role-admin', name: 'admin' },
+      ],
+      [
+        { id: 'role-employee', name: 'employee' },
+        { id: 'role-admin', name: 'admin' },
+      ],
+      {
+        userRolesBeforeLock: [],
+        userRolesAfterLock: [{
+          id: 'user-role-admin',
+          role: { id: 'role-admin' },
+          deletedAt: new Date('2026-10-05T00:00:00.000Z'),
+        }],
+      },
+    )
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['engineering']), 'tenant-1')).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: '[internal] Authorization state changed while acquiring its lock footprint',
+      },
+    })
+
+    expect(lockUserRoleWriterAuthorizationState).toHaveBeenCalledWith(
+      expect.anything(),
+      { userIds: ['user-1'], roleIds: ['role-employee'] },
+    )
+    expect(em.create).not.toHaveBeenCalledWith(UserRole, expect.anything())
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
   })
 })

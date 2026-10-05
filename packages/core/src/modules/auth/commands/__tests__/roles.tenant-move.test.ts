@@ -282,6 +282,12 @@ function makeCtx(
   em: object,
   { isSuperAdmin = false }: { isSuperAdmin?: boolean } = {},
 ): CommandRuntimeContext {
+  const transactionEm = em as Record<string, unknown>
+  if (typeof transactionEm.begin !== 'function') transactionEm.begin = jest.fn(async () => undefined)
+  if (typeof transactionEm.commit !== 'function') transactionEm.commit = jest.fn(async () => undefined)
+  if (typeof transactionEm.rollback !== 'function') transactionEm.rollback = jest.fn(async () => undefined)
+  if (typeof transactionEm.flush !== 'function') transactionEm.flush = jest.fn(async () => undefined)
+  if (typeof transactionEm.find !== 'function') transactionEm.find = jest.fn(async () => [])
   const container = {
     resolve: (token: string) => {
       switch (token) {
