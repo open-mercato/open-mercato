@@ -75,17 +75,15 @@ async function fetchRoleFilterOptions(organizationId?: string | null): Promise<A
 function CreateUserDialog({
   open,
   onOpenChange,
-  roleOptions,
   onCreated,
   onRunMutation,
-  requireOrganization,
+  activeOrganizationId,
 }: {
   open: boolean
   onOpenChange: (next: boolean) => void
-  roleOptions: Array<{ id: string; label: string }>
   onCreated: () => void
   onRunMutation: <T>(operation: () => Promise<T>) => Promise<T>
-  requireOrganization: boolean
+  activeOrganizationId: string | null
 }) {
   const t = useT()
   const [email, setEmail] = React.useState('')
@@ -104,22 +102,23 @@ function CreateUserDialog({
     setSelectedRoleIds([])
   }, [])
 
+  const requireOrganization = !activeOrganizationId
+  const roleOrganizationId = organizationId ?? activeOrganizationId
+
   React.useEffect(() => {
-    if (!organizationId) {
+    if (!open || !roleOrganizationId) {
       setOrganizationRoleOptions(null)
       return
     }
     let cancelled = false
-    setOrganizationRoleOptions([])
-    fetchRoleFilterOptions(organizationId).then((opts) => {
+    setOrganizationRoleOptions(null)
+    fetchRoleFilterOptions(roleOrganizationId).then((opts) => {
       if (!cancelled) setOrganizationRoleOptions(opts)
     })
     return () => { cancelled = true }
-  }, [organizationId])
+  }, [open, roleOrganizationId])
 
-  const availableRoleOptions = organizationId
-    ? organizationRoleOptions ?? []
-    : requireOrganization ? [] : roleOptions
+  const availableRoleOptions = organizationRoleOptions ?? []
 
   const handleOrganizationChange = React.useCallback((next: string | null) => {
     setOrganizationId(next ?? null)
@@ -284,13 +283,13 @@ function CreateUserDialog({
 export type PortalUsersPageClientProps = {
   portalOrigin: string
   portalOrgSlug?: string | null
-  requireOrganization?: boolean
+  activeOrganizationId?: string | null
 }
 
 export function PortalUsersPageClient({
   portalOrigin,
   portalOrgSlug = null,
-  requireOrganization = false,
+  activeOrganizationId = null,
 }: PortalUsersPageClientProps) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = useT()
@@ -669,10 +668,9 @@ export function PortalUsersPageClient({
       <CreateUserDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        roleOptions={roleOptions}
         onCreated={() => setReloadToken((token) => token + 1)}
         onRunMutation={runMutationWithContext}
-        requireOrganization={requireOrganization}
+        activeOrganizationId={activeOrganizationId}
       />
       {ConfirmDialogElement}
     </>

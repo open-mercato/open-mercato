@@ -10,14 +10,14 @@ export default async function CustomerAccountsPage() {
   const portalOrigin = resolvePortalRequestOrigin(await headers())
   const portalOrgSlug = await resolveCurrentOrgPortalSlug()
   const auth = await getAuthFromCookies().catch(() => null)
-  const requireOrganization = !resolveActiveOrganizationId(auth)
+  const activeOrganizationId = resolveActiveOrganizationId(auth)
   return (
     <Page>
       <PageBody className="space-y-4">
         <PortalUsersPageClient
           portalOrigin={portalOrigin}
           portalOrgSlug={portalOrgSlug}
-          requireOrganization={requireOrganization}
+          activeOrganizationId={activeOrganizationId}
         />
       </PageBody>
     </Page>

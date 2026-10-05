@@ -90,7 +90,7 @@ describe('PortalUsersPageClient — create user organization (#5576)', () => {
   })
 
   it('lets the admin pick an organization, loads its roles, and sends organizationId on create', async () => {
-    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" />)
+    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" activeOrganizationId="org-home" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
 
@@ -98,6 +98,9 @@ describe('PortalUsersPageClient — create user organization (#5576)', () => {
     await screen.findByRole('option', { name: 'Target Org' })
     expect(screen.getByRole('option', { name: 'Current organization' })).toBeInTheDocument()
     await screen.findByRole('button', { name: 'Current Buyer' })
+    expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/customer_accounts/admin/roles?pageSize=100&organizationId=org-home',
+    )
 
     fireEvent.change(organizationSelect, { target: { value: 'org-target' } })
 
@@ -127,7 +130,7 @@ describe('PortalUsersPageClient — create user organization (#5576)', () => {
   })
 
   it('omits organizationId when the current organization is kept', async () => {
-    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" />)
+    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" activeOrganizationId="org-home" />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
     const organizationSelect = await screen.findByLabelText('Organization')
@@ -145,7 +148,7 @@ describe('PortalUsersPageClient — create user organization (#5576)', () => {
   })
 
   it('requires an explicit organization under an all-organizations selection', async () => {
-    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" requireOrganization />)
+    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" activeOrganizationId={null} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
 
