@@ -982,6 +982,7 @@
   "ui.forms.select.clearOption": "— Borrar —",
   "ui.forms.select.emptyOption": "—",
   "ui.forms.status.saving": "Guardando…",
+  "ui.helpTip.ariaLabel": "¿Qué es esto?",
   "ui.inputs.amountInput.currencyLabel": "Moneda",
   "ui.inputs.amountInput.placeholder": "0,00",
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",

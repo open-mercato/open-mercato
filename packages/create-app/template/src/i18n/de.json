@@ -982,6 +982,7 @@
   "ui.forms.select.clearOption": "— Zurücksetzen —",
   "ui.forms.select.emptyOption": "—",
   "ui.forms.status.saving": "Speichern…",
+  "ui.helpTip.ariaLabel": "Was ist das?",
   "ui.inputs.amountInput.currencyLabel": "Währung",
   "ui.inputs.amountInput.placeholder": "0,00",
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",
