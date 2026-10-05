@@ -15,12 +15,14 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useMarketingMutation } from '../../../components/useMarketingMutation'
+import { useLockedMarketingMutation, useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { readApiErrorField } from '../../../components/apiError'
+
+const LIST_LIMIT = 100
 
 type BlockRow = { id: string; key: string; name: string; html: string; updatedAt: string }
 
@@ -33,10 +35,12 @@ type BlockRow = { id: string; key: string; name: string; html: string; updatedAt
 export default function ContentBlocksPage() {
   const t = useT()
   const runMutation = useMarketingMutation('content_blocks')
+  const runLockedMutation = useLockedMarketingMutation('content_blocks')
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const [rows, setRows] = React.useState<BlockRow[]>([])
+  const [truncated, setTruncated] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [selected, setSelected] = React.useState<BlockRow | null>(null)
@@ -61,6 +65,7 @@ export default function ContentBlocksPage() {
         return
       }
       setRows(result.result.items)
+      setTruncated(result.result.items.length >= LIST_LIMIT)
     } catch {
       setLoadFailed(true)
     } finally {
@@ -84,15 +89,13 @@ export default function ContentBlocksPage() {
     setSaving(true)
     try {
       if (selected) {
-        await runMutation(
-          () => withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(selected.updatedAt),
-            () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${selected.id}`, {
-              method: 'PUT',
-              body: JSON.stringify({ updatedAt: selected.updatedAt, name: draft.name, html: draft.html }),
-              headers: { 'content-type': 'application/json' },
-            }),
-          ),
+        await runLockedMutation(
+          selected.updatedAt,
+          () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${selected.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ updatedAt: selected.updatedAt, name: draft.name, html: draft.html }),
+            headers: { 'content-type': 'application/json' },
+          }),
           { id: selected.id, ...draft },
         )
       } else {
@@ -125,11 +128,9 @@ export default function ContentBlocksPage() {
     })
     if (!confirmed) return
     try {
-      await runMutation(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${row.id}`, { method: 'DELETE' }),
-        ),
+      await runLockedMutation(
+        row.updatedAt,
+        () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${row.id}`, { method: 'DELETE' }),
         { id: row.id },
       )
       if (selected?.id === row.id) startNew()
@@ -184,11 +185,17 @@ export default function ContentBlocksPage() {
           </div>
         ) : null}
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_24rem]">
+        <div className="grid gap-6 lg:grid-cols-[1fr_28rem]">
           <div>
             {/* Not under the error: an empty table there would still make a claim about data nobody read. */}
             {loadFailed ? null : (
               <DataTable
+                title={t('marketing_automation.blocks.title', 'Content blocks')}
+                titleHeadingLevel={1}
+                titleHelp={{
+                  title: t('marketing_automation.blocks.title', 'Content blocks'),
+                  body: t('marketing_automation.help.page.blocks'),
+                }}
                 columns={columns}
                 data={rows}
                 isLoading={loading}
@@ -207,6 +214,10 @@ export default function ContentBlocksPage() {
               title={selected
                 ? t('marketing_automation.blocks.editing', 'Editing {key}').replace('{key}', selected.key)
                 : t('marketing_automation.blocks.new', 'New block')}
+              help={{
+                title: t('marketing_automation.blocks.title', 'Content blocks'),
+                body: t('marketing_automation.help.blocks.editor'),
+              }}
             />
             <div className="space-y-1">
               <Label htmlFor="block-key">{t('marketing_automation.blocks.columns.key', 'Reference')}</Label>
@@ -248,6 +259,12 @@ export default function ContentBlocksPage() {
             </div>
           </aside>
         </div>
+        {truncated ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {t('marketing_automation.list.truncated', 'This screen lists at most {count} — there are probably more. Narrow what you are looking for rather than scrolling.')
+              .replace('{count}', String(LIST_LIMIT))}
+          </div>
+        ) : null}
       </PageBody>
     </Page>
   )

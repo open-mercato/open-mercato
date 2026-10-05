@@ -16,18 +16,12 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useMarketingMutation } from '../../../../components/useMarketingMutation'
+import { TierMedal } from '../../../../components/TierMedal'
+import { RecordRow } from '../../../../components/RecordRow'
+import { RUN_STATUS_VARIANTS } from '../../../../components/runStatus'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { readApiErrorField } from '../../../../components/apiError'
 
-/** The run statuses this module produces, mapped to the design system's own status vocabulary. */
-const RUN_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
-  completed: 'success',
-  running: 'info',
-  claimed: 'info',
-  waiting: 'neutral',
-  failed: 'warning',
-  dead: 'error',
-}
 
 type Explanation = {
   campaign?: { id: string; name: string; isEnabled: boolean }
@@ -378,22 +372,27 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
     <Page>
       <PageBody>
         {ConfirmDialogElement}
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div className="text-lg font-semibold text-foreground">
-            {profile.customer.displayName ?? t('marketing_automation.profile.unnamed', 'Unnamed customer')}
-            <div className="text-sm font-normal text-muted-foreground">{profile.customer.email ?? '—'}</div>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => void recalculateScore()}>
-              {t('marketing_automation.profile.rescore', 'Recalculate score')}
-            </Button>
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => void exportData()}>
-              {t('marketing_automation.gdpr.export', 'Export data')}
-            </Button>
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => void eraseData()}>
-              {t('marketing_automation.gdpr.erase', 'Erase data')}
-            </Button>
-          </div>
+        {/* A SectionHeader rather than `FormHeader mode="detail"`: that one is built for a record somebody
+            edits and deletes, and this page is read-only by design — every number on it is derived from
+            somewhere else. The actions here act on the customer, not on this view. */}
+        <div className="mb-4">
+          <SectionHeader
+            title={profile.customer.displayName ?? t('marketing_automation.profile.unnamed', 'Unnamed customer')}
+            action={(
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" disabled={busy} onClick={() => void recalculateScore()}>
+                  {t('marketing_automation.profile.rescore', 'Recalculate score')}
+                </Button>
+                <Button variant="outline" disabled={busy} onClick={() => void exportData()}>
+                  {t('marketing_automation.gdpr.export', 'Export data')}
+                </Button>
+                <Button variant="outline" disabled={busy} onClick={() => void eraseData()}>
+                  {t('marketing_automation.gdpr.erase', 'Erase data')}
+                </Button>
+              </div>
+            )}
+          />
+          <div className="text-sm text-muted-foreground">{profile.customer.email ?? '—'}</div>
         </div>
 
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -401,11 +400,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             title={t('marketing_automation.profile.kpi.score', 'Lead score')}
             value={profile.score.points}
             footer={
-              <span>
+              <span className="inline-flex items-center gap-1">
+                <TierMedal rank={profile.score.tierRank} />
                 {tierLabel}
                 {profile.score.pointsToNext !== null ? (
                   <>
-                    {' · '}
+                    {' — '}
                     {t('marketing_automation.profile.pointsToNext', '{count} to the next tier')
                       .replace('{count}', String(profile.score.pointsToNext))}
                   </>
@@ -545,7 +545,13 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         </div>
 
         <div className="mb-6">
-          <SectionHeader title={t('marketing_automation.explain.title', 'Why did they not get a campaign?')} />
+          <SectionHeader
+              title={t('marketing_automation.explain.title', 'Why did they not get a campaign?')}
+              help={{
+                title: t('marketing_automation.explain.title', 'Why did they not get a campaign?'),
+                body: t('marketing_automation.help.profile.explain'),
+              }}
+            />
           <div className="text-xs text-muted-foreground">
             {t(
               'marketing_automation.explain.hint',
@@ -577,11 +583,21 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           </div>
           {explanation ? (
             <div className="mt-2 space-y-1 rounded-sm border border-border p-2">
+              {/*
+                * The switched-off campaign gets a sentence of its own, because it is not a gate.
+                *
+                * Every other decider is a row in the table below and so its label is a noun phrase — "Quiet
+                * hours", "Consent" — which reads as written in "{gate} decided." `campaignDisabled` is added by
+                * the route rather than the engine and is a clause, so the shared sentence produced "The campaign
+                * is switched off decided."
+                */}
               <div className="text-sm font-medium text-foreground">
                 {explanation.wouldSend
                   ? t('marketing_automation.explain.wouldSend', 'This customer would receive it right now.')
-                  : t('marketing_automation.explain.wouldNot', 'They would not receive it right now — {gate} decided.')
-                      .replace('{gate}', t(`marketing_automation.explain.gate.${explanation.decidedBy}`, explanation.decidedBy ?? '—'))}
+                  : explanation.decidedBy === 'campaignDisabled'
+                    ? t('marketing_automation.explain.wouldNotDisabled', 'They would not receive it right now — the campaign is switched off.')
+                    : t('marketing_automation.explain.wouldNot', 'They would not receive it right now — {gate} decided.')
+                        .replace('{gate}', t(`marketing_automation.explain.gate.${explanation.decidedBy}`, explanation.decidedBy ?? '—'))}
               </div>
               {(explanation.gates ?? []).map((gate) => (
                 <div key={gate.gate} className="flex items-baseline justify-between gap-2 text-xs">
@@ -598,7 +614,13 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         </div>
 
         <div className="mb-6">
-          <SectionHeader title={t('marketing_automation.profile.consent', 'Marketing consent')} />
+          <SectionHeader
+              title={t('marketing_automation.profile.consent', 'Marketing consent')}
+              help={{
+                title: t('marketing_automation.profile.consent', 'Marketing consent'),
+                body: t('marketing_automation.help.profile.consent'),
+              }}
+            />
           {/* Three states, and the third one matters: "not recorded" is not the same as "agreed", and a
               screen that showed only a yes/no would invent a decision the customer never made. */}
           <StatusBadge variant={profile.consent.email === 'unsubscribed' ? 'error' : profile.consent.email === 'subscribed' ? 'success' : 'neutral'}>
@@ -652,10 +674,14 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             <SectionHeader
               title={t('marketing_automation.profile.watches', 'Waiting for a price drop')}
               count={(profile.watches ?? []).length}
+              help={{
+                title: t('marketing_automation.profile.watches', 'Waiting for a price drop'),
+                body: t('marketing_automation.help.profile.watches'),
+              }}
             />
             <ul className="space-y-1">
               {(profile.watches ?? []).map((watch) => (
-                <li key={watch.sku} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                <RecordRow key={watch.sku}>
                   <span className="font-mono text-xs text-foreground">{watch.sku}</span>
                   <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                     {/* Both numbers, because one without the other says nothing: the interesting fact is the
@@ -672,14 +698,20 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                         : t('marketing_automation.profile.watchNoPrice', 'not on sale')}
                     </span>
                   </span>
-                </li>
+                </RecordRow>
               ))}
             </ul>
           </div>
         ) : null}
 
         <div className="mb-6">
-          <SectionHeader title={t('marketing_automation.profile.referral', 'Referrals')} />
+          <SectionHeader
+              title={t('marketing_automation.profile.referral', 'Referrals')}
+              help={{
+                title: t('marketing_automation.profile.referral', 'Referrals'),
+                body: t('marketing_automation.help.profile.referral'),
+              }}
+            />
           {/* Two numbers, because they answer different questions: how many people used the code, and how
               many of those actually bought — which is the one a reward should be based on. */}
           {profile.referral?.code ? (
@@ -715,6 +747,10 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           <SectionHeader
             title={t('marketing_automation.profile.recommendations', 'What the next message would offer')}
             count={(profile.recommendations ?? []).length}
+            help={{
+              title: t('marketing_automation.profile.recommendations', 'What the next message would offer'),
+              body: t('marketing_automation.help.profile.recommendations'),
+            }}
           />
           {/* The SIGNAL is shown beside each product, because "because people like you bought it" and
               "because everybody buys it" are different promises, and only the first one is personal. */}
@@ -725,7 +761,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           ) : (
             <ul className="space-y-1">
               {(profile.recommendations ?? []).map((item) => (
-                <li key={item.sku} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                <RecordRow key={item.sku}>
                   <span className="truncate text-foreground">{item.name}</span>
                   <span className="flex shrink-0 items-center gap-2">
                     <span className="font-mono text-xs text-muted-foreground">{item.sku}</span>
@@ -735,7 +771,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                         : t('marketing_automation.profile.recommendationSource.bestSeller', 'Best seller')}
                     </StatusBadge>
                   </span>
-                </li>
+                </RecordRow>
               ))}
             </ul>
           )}
@@ -743,7 +779,13 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
 
         {profile.preference && (profile.preference.maxPerWeek !== null || profile.preference.pausedUntil || profile.preference.locale) ? (
           <div className="mb-6">
-            <SectionHeader title={t('marketing_automation.profile.preference', 'What they asked for')} />
+            <SectionHeader
+              title={t('marketing_automation.profile.preference', 'What they asked for')}
+              help={{
+                title: t('marketing_automation.profile.preference', 'What they asked for'),
+                body: t('marketing_automation.help.profile.preference'),
+              }}
+            />
             {/* Separate from consent on purpose: "subscribed, but at most one a week and paused until March"
                 is a customer nobody should be surprised by. */}
             <div className="space-y-1 text-sm text-muted-foreground">
@@ -774,6 +816,10 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             <SectionHeader
               title={t('marketing_automation.profile.segments', 'Segments')}
               count={(profile.segments ?? []).length}
+              help={{
+                title: t('marketing_automation.profile.segments', 'Segments'),
+                body: t('marketing_automation.help.profile.segments'),
+              }}
             />
             <div className="flex flex-wrap gap-1">
               {(profile.segments ?? []).map((segment) => (
@@ -785,7 +831,13 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
 
         {profile.tags.length > 0 ? (
           <div className="mb-6">
-            <SectionHeader title={t('marketing_automation.profile.tags', 'Tags')} />
+            <SectionHeader
+              title={t('marketing_automation.profile.tags', 'Tags')}
+              help={{
+                title: t('marketing_automation.profile.tags', 'Tags'),
+                body: t('marketing_automation.help.profile.tags'),
+              }}
+            />
             <div className="flex flex-wrap gap-1">
               {profile.tags.map((tag) => (
                 <span key={tag} className="rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">{tag}</span>
@@ -799,6 +851,10 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             <SectionHeader
               title={t('marketing_automation.profile.scoreHistory', 'Recent score changes')}
               count={profile.recentScoreEntries.length}
+              help={{
+                title: t('marketing_automation.profile.scoreHistory', 'Recent score changes'),
+                body: t('marketing_automation.help.profile.scoreHistory'),
+              }}
             />
             {profile.recentScoreEntries.length === 0 ? (
               <div className="text-sm text-muted-foreground">
@@ -807,16 +863,16 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             ) : (
               <ul className="space-y-1">
                 {profile.recentScoreEntries.map((entry) => (
-                  <li key={entry.id} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                  <RecordRow key={entry.id}>
                     <span className="text-foreground">
                       <span className="tabular-nums font-medium">{entry.points > 0 ? `+${entry.points}` : entry.points}</span>
                       {entry.source === 'rule' ? (
-                        <span className="text-muted-foreground"> · {t('marketing_automation.profile.scoreSource.rule', 'Score rules')}</span>
+                        <span className="text-muted-foreground"> — {t('marketing_automation.profile.scoreSource.rule', 'Score rules')}</span>
                       ) : null}
-                      {entry.reason ? <span className="text-muted-foreground"> · {entry.reason}</span> : null}
+                      {entry.reason ? <span className="text-muted-foreground"> — {entry.reason}</span> : null}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(entry.occurredAt)}</span>
-                  </li>
+                  </RecordRow>
                 ))}
               </ul>
             )}
@@ -826,6 +882,10 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             <SectionHeader
               title={t('marketing_automation.profile.recentRuns', 'Recent campaign runs')}
               count={profile.recentRuns.length}
+              help={{
+                title: t('marketing_automation.profile.recentRuns', 'Recent campaign runs'),
+                body: t('marketing_automation.help.profile.recentRuns'),
+              }}
             />
             {profile.recentRuns.length === 0 ? (
               <div className="text-sm text-muted-foreground">
@@ -834,18 +894,18 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             ) : (
               <ul className="space-y-1">
                 {profile.recentRuns.map((run) => (
-                  <li key={run.id} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                  <RecordRow key={run.id}>
                     <a className="truncate text-foreground underline" href={`/backend/marketing/campaigns/${run.campaignId}/runs`}>
                       {/* The written name, not the event id: every other line in this panel is for a person. */}
                       {run.triggerLabelKey ? t(run.triggerLabelKey, run.triggerEventId) : run.triggerEventId}
                     </a>
                     <span className="flex shrink-0 items-center gap-2">
-                      <StatusBadge variant={RUN_STATUS_VARIANTS[run.status] ?? 'neutral'}>
+                      <StatusBadge variant={RUN_STATUS_VARIANTS[run.status] ?? 'neutral'} dot>
                         {t(`marketing_automation.runs.status.${run.status}`, run.status)}
                       </StatusBadge>
                       <span className="text-xs text-muted-foreground">{formatDateTime(run.startedAt)}</span>
                     </span>
-                  </li>
+                  </RecordRow>
                 ))}
               </ul>
             )}

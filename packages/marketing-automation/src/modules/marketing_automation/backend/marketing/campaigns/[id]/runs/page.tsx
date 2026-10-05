@@ -8,6 +8,7 @@ import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -16,6 +17,7 @@ import { useMarketingMutation } from '../../../../../components/useMarketingMuta
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { RUN_STATUS_VARIANTS } from '../../../../../components/runStatus'
 
 type StepEntry = { stepId: string; type: string; status: string; at: string; detail: string | null }
 
@@ -36,6 +38,12 @@ type RunRow = {
   stepsDone: number
   stepsSkipped: number
   stepLog: StepEntry[]
+  /**
+   * Set only on the synthetic child rows the table nests under a run. The step log belongs under the
+   * run somebody clicked — rendered after the table it was a panel at the bottom of the page, which on
+   * any list longer than a screen reads as a button that does nothing.
+   */
+  stepEntry?: StepEntry
 }
 
 type RunsResponse = {
@@ -46,27 +54,6 @@ type RunsResponse = {
 
 const STATUS_FILTERS = ['waiting', 'running', 'completed', 'dead'] as const
 
-/**
- * A run's status is one of the few genuinely status-shaped values in this module, so it uses the DS
- * status tokens rather than colours of its own. `dead` and `failed` are errors because a customer is
- * stranded mid-journey; `waiting` is a warning rather than an error because it is the normal state
- * of a drip campaign between steps.
- */
-/**
- * The statuses a run row can actually hold.
- *
- * `failed` is kept although `failRun` never writes it to a RUN — `marketing_job_runs` uses that word, and a
- * reader comparing the two screens should not find one of them silently falling through to `neutral` if the
- * vocabularies are ever unified. A retry is not here because it is not stored: see the status cell below.
- */
-const STATUS_VARIANT: Record<string, StatusBadgeVariant> = {
-  running: 'info',
-  claimed: 'info',
-  waiting: 'warning',
-  completed: 'success',
-  failed: 'error',
-  dead: 'error',
-}
 
 export default function CampaignRunsPage({ params }: { params?: { id?: string } }) {
   const t = useT()
@@ -87,7 +74,6 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
    */
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [status, setStatus] = React.useState<string | null>(null)
-  const [expanded, setExpanded] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     if (!campaignId) return
@@ -150,6 +136,8 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
     {
       accessorKey: 'status',
       header: t('marketing_automation.runs.columns.status', 'Status'),
+      // A badge is a shape, not prose: "Retrying after an error" was wider than the column and lost its end.
+      meta: { truncate: false },
       /**
        * A run backing off after a FAILURE reads differently from one waiting on purpose.
        *
@@ -162,11 +150,21 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
        * error recorded, is a retry by definition.
        */
       cell: ({ row }) => {
+        const { stepEntry } = row.original
+        if (stepEntry) {
+          return (
+            <StatusBadge
+              variant={stepEntry.status === 'done' ? 'success' : stepEntry.status === 'failed' ? 'error' : 'neutral'}
+            >
+              {t(`marketing_automation.runs.step.${stepEntry.status}`, stepEntry.status)}
+            </StatusBadge>
+          )
+        }
         const retrying = row.original.status === 'waiting'
           && row.original.attempts > 0
           && Boolean(row.original.lastError)
         return (
-          <StatusBadge variant={retrying ? 'error' : STATUS_VARIANT[row.original.status] ?? 'neutral'} dot>
+          <StatusBadge variant={retrying ? 'error' : RUN_STATUS_VARIANTS[row.original.status] ?? 'neutral'} dot>
             {retrying
               ? t('marketing_automation.runs.status.retrying', 'Retrying after an error')
               : t(`marketing_automation.runs.status.${row.original.status}`, row.original.status)}
@@ -187,7 +185,14 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
        * profile, so the id is never something anybody has to copy.
        */
       cell: ({ row }) => {
-        const { subjectEntityId, subjectName, subjectEmail } = row.original
+        const { subjectEntityId, subjectName, subjectEmail, stepEntry } = row.original
+        if (stepEntry) {
+          return (
+            <span className="text-sm font-medium text-foreground">
+              {t(`marketing_automation.step.${stepEntry.type}.label`, stepEntry.type)}
+            </span>
+          )
+        }
         if (!subjectEntityId) return '—'
         return (
           <a
@@ -217,7 +222,9 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
        * not know falls back to itself — a campaign saved before a trigger was renamed should not render a
        * blank cell.
        */
-      cell: ({ row }) => (
+      cell: ({ row }) => row.original.stepEntry ? (
+        <span className="text-sm text-muted-foreground">{formatDateTime(row.original.stepEntry.at)}</span>
+      ) : (
         <span className="text-sm" title={row.original.triggerEventId}>
           {row.original.triggerLabelKey
             ? t(row.original.triggerLabelKey, row.original.triggerEventId)
@@ -228,38 +235,31 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
     {
       accessorKey: 'stepsDone',
       header: t('marketing_automation.runs.columns.progress', 'Progress'),
-      cell: ({ row }) => t('marketing_automation.runs.progressSummary', '{done} done, {skipped} skipped')
-        .replace('{done}', String(row.original.stepsDone))
-        .replace('{skipped}', String(row.original.stepsSkipped)),
+      cell: ({ row }) => row.original.stepEntry
+        ? <span className="text-sm text-muted-foreground">{row.original.stepEntry.detail ?? '—'}</span>
+        : t('marketing_automation.runs.progressSummary', '{done} done, {skipped} skipped')
+            .replace('{done}', String(row.original.stepsDone))
+            .replace('{skipped}', String(row.original.stepsSkipped)),
     },
     {
       accessorKey: 'startedAt',
       meta: { truncate: false },
       header: t('marketing_automation.runs.columns.startedAt', 'Started'),
-      cell: ({ row }) => formatDateTime(row.original.startedAt),
+      cell: ({ row }) => (row.original.stepEntry ? '' : formatDateTime(row.original.startedAt)),
     },
     {
       accessorKey: 'resumeAt',
       meta: { truncate: false },
       header: t('marketing_automation.runs.columns.resumeAt', 'Resumes'),
-      cell: ({ row }) => (row.original.resumeAt ? formatDateTime(row.original.resumeAt) : '—'),
+      cell: ({ row }) => {
+        if (row.original.stepEntry) return ''
+        return row.original.resumeAt ? formatDateTime(row.original.resumeAt) : '—'
+      },
     },
     {
       accessorKey: 'attempts',
       header: t('marketing_automation.runs.columns.attempts', 'Attempts'),
-    },
-    {
-      id: 'detail',
-      header: '',
-      cell: ({ row }) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setExpanded(expanded === row.original.id ? null : row.original.id)}
-        >
-          {t('marketing_automation.runs.action.steps', 'Steps')}
-        </Button>
-      ),
+      cell: ({ row }) => (row.original.stepEntry ? '' : String(row.original.attempts)),
     },
     {
       id: 'actions',
@@ -283,9 +283,18 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
         return <RowActions items={actions} />
       },
     },
-  ], [t, expanded, retry])
+  ], [t, retry])
 
-  const openRun = rows.find((row) => row.id === expanded) ?? null
+  /**
+   * The step log is rendered as child rows of its run, so it opens where it belongs: under the row
+   * somebody clicked. A run with no step yet gets no toggle rather than an empty drawer.
+   */
+  const stepSubRows = React.useCallback(
+    (row: RunRow) => (row.stepEntry || row.stepLog.length === 0
+      ? undefined
+      : row.stepLog.map((entry, index) => ({ ...row, id: `${row.id}:step:${index}`, stepEntry: entry }))),
+    [],
+  )
 
   return (
     <Page>
@@ -299,19 +308,22 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {campaignName ? <div className="mr-auto text-sm font-medium text-foreground">{campaignName}</div> : null}
-          <Button variant={status === null ? 'default' : 'outline'} size="sm" onClick={() => setStatus(null)}>
-            {t('marketing_automation.runs.filter.all', 'All')}
-          </Button>
-          {STATUS_FILTERS.map((value) => (
-            <Button
-              key={value}
-              variant={status === value ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setStatus(value)}
-            >
-              {t(`marketing_automation.runs.status.${value}`, value)}
-            </Button>
-          ))}
+          {/* Mutually exclusive, so a segmented control rather than buttons flipping their own variant:
+              five `default`/`outline` buttons only LOOK like a selection, and the one that is selected is
+              told apart from the rest by weight alone. */}
+          <SegmentedControl
+            value={status ?? 'all'}
+            onValueChange={(next) => setStatus(next === 'all' ? null : next)}
+          >
+            <SegmentedControlItem value="all">
+              {t('marketing_automation.runs.filter.all', 'All')}
+            </SegmentedControlItem>
+            {STATUS_FILTERS.map((value) => (
+              <SegmentedControlItem key={value} value={value}>
+                {t(`marketing_automation.runs.status.${value}`, value)}
+              </SegmentedControlItem>
+            ))}
+          </SegmentedControl>
         </div>
 
         {loadError ? (
@@ -330,6 +342,12 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
         {/* Not rendered after a failure: an empty table under the error would still say "has not run yet". */}
         {loadError ? null : (
         <DataTable
+          title={t('marketing_automation.runs.title', 'Runs')}
+          titleHeadingLevel={1}
+          titleHelp={{
+            title: t('marketing_automation.runs.title', 'Runs'),
+            body: t('marketing_automation.help.page.runs'),
+          }}
           columns={columns}
           data={rows}
           isLoading={loading}
@@ -342,43 +360,11 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
               )}
             />
           )}
+          getSubRows={stepSubRows}
+          expandable={(row) => !row.stepEntry && row.stepLog.length > 0}
         />
         )}
 
-        {openRun ? (
-          <div className="mt-4 rounded-md border border-border bg-card p-3">
-            <div className="mb-2 text-overline text-muted-foreground">
-              {t('marketing_automation.runs.action.steps', 'Steps')}
-            </div>
-            {openRun.lastError ? (
-              <div className="mb-2 text-xs text-status-error-text">
-                {t('marketing_automation.runs.columns.lastError', 'Last error')}: {openRun.lastError}
-              </div>
-            ) : null}
-            {openRun.stepLog.length === 0 ? (
-              <div className="text-xs text-muted-foreground">
-                {t('marketing_automation.runs.noSteps', 'No step has run yet.')}
-              </div>
-            ) : (
-              <ol className="space-y-1">
-                {openRun.stepLog.map((entry, index) => (
-                  <li key={`${entry.stepId}-${index}`} className="flex flex-wrap items-center gap-2 text-xs">
-                    <StatusBadge
-                      variant={entry.status === 'done' ? 'success' : entry.status === 'failed' ? 'error' : 'neutral'}
-                    >
-                      {t(`marketing_automation.runs.step.${entry.status}`, entry.status)}
-                    </StatusBadge>
-                    <span className="font-medium text-foreground">
-                      {t(`marketing_automation.step.${entry.type}.label`, entry.type)}
-                    </span>
-                    <span className="text-muted-foreground">{formatDateTime(entry.at)}</span>
-                    {entry.detail ? <span className="text-muted-foreground">— {entry.detail}</span> : null}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-        ) : null}
         {ConfirmDialogElement}
       </PageBody>
     </Page>

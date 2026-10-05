@@ -1,4 +1,4 @@
-import { CAMPAIGN_TEMPLATES, findCampaignTemplate } from '../templates'
+import { CAMPAIGN_TEMPLATES, findCampaignTemplate, localizeCampaignTemplate } from '../templates'
 import { findUnportableReferences, portableCampaignSchema } from '../portable'
 import { getMarketingStep, registerMarketingSteps } from '../engine/registry'
 import { builtInSteps } from '../../steps/index'
@@ -121,6 +121,55 @@ describe('the campaign templates', () => {
     // the moment somebody opened a file.
     for (const template of CAMPAIGN_TEMPLATES) {
       expect(JSON.stringify(template.document)).not.toContain('isEnabled')
+    }
+  })
+})
+
+describe('translating a template', () => {
+  const locales = ['pl', 'es', 'de', 'ko'] as const
+
+  test.each(CAMPAIGN_TEMPLATES.map((template) => [template.id, template] as const))(
+    '%s still validates after being translated',
+    (_id, template) => {
+      const pl = JSON.parse(
+        fs.readFileSync(path.join(MODULE_ROOT, 'i18n', 'pl.json'), 'utf8'),
+      ) as Record<string, string>
+      const localized = localizeCampaignTemplate(template, (key, fallback) => pl[key] ?? fallback)
+      expect(() => portableCampaignSchema.parse(localized.document)).not.toThrow()
+    },
+  )
+
+  test('a locale with no copy written for it yields the English document unchanged', () => {
+    for (const template of CAMPAIGN_TEMPLATES) {
+      const untouched = localizeCampaignTemplate(template, (_key, fallback) => fallback)
+      expect(untouched.document).toEqual(template.document)
+    }
+  })
+
+  /**
+   * A translated subject that lost `{{customer.displayName}}` greets somebody by nothing at all, and the loss is
+   * invisible until a real send. The interpolation tokens are part of the copy's contract, not decoration.
+   */
+  test.each(locales)('%s keeps every interpolation token the English copy had', (locale) => {
+    const dict = JSON.parse(
+      fs.readFileSync(path.join(MODULE_ROOT, 'i18n', `${locale}.json`), 'utf8'),
+    ) as Record<string, string>
+    for (const [key, english] of Object.entries(en)) {
+      if (!key.startsWith('marketing_automation.template.') || !key.includes('.copy.')) continue
+      const translated = dict[key]
+      expect(typeof translated).toBe('string')
+      const tokens = (source: string) => (source.match(/\{\{[^}]+\}\}/g) ?? []).sort()
+      expect(tokens(translated)).toEqual(tokens(english))
+    }
+  })
+
+  test('the English copy keys match the literals the documents ship', () => {
+    for (const template of CAMPAIGN_TEMPLATES) {
+      const prefix = `marketing_automation.template.${template.id}.copy`
+      expect(en[`${prefix}.name`]).toBe(template.document.name)
+      if (template.document.description) {
+        expect(en[`${prefix}.description`]).toBe(template.document.description)
+      }
     }
   })
 })

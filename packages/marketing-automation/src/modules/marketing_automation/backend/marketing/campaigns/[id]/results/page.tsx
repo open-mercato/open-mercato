@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { KpiCard, LineChart } from '@open-mercato/ui/backend/charts'
+import { HelpTip } from '@open-mercato/ui/backend/HelpTip'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -112,6 +113,12 @@ function formatMoney(amount: number | null, currencyCode: string | null): string
  * orders placed after a click — rather than computed twice in two screens. The A/B section is the only
  * part with an ACTION, and it is deliberately one click behind a suggestion: the server decides whether
  * a variant has earned the name "winner", the author decides whether to end the test.
+ *
+ * **The report sections are raw `<Table>`, not `DataTable`, and that is the choice rather than an oversight.**
+ * Every one of them has a fixed, small set of rows read straight from the figures above it — funnel stages,
+ * the steps of this campaign, the links in its messages, the lanes of its test. None is searched, sorted,
+ * filtered, paged or exported, so a `DataTable` would wrap each in a toolbar and an empty state that have
+ * nothing to do. The module's nine LIST screens are `DataTable`s; a report is not a list.
  */
 export default function CampaignResultsPage({ params }: { params?: { id?: string } }) {
   const t = useT()
@@ -237,16 +244,26 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
   return (
     <Page>
       <PageBody>
-        <div className="mb-4 flex items-baseline justify-between gap-3">
-          <div className="text-lg font-semibold text-foreground">{results.campaign.name}</div>
-          <a className="text-sm underline" href={`/backend/marketing/campaigns/${campaignId}/runs`}>
-            {t('marketing_automation.runs.title', 'Runs')}
-          </a>
+        <div className="mb-4">
+          <SectionHeader
+            title={results.campaign.name}
+            action={(
+              <a className="text-sm underline" href={`/backend/marketing/campaigns/${campaignId}/runs`}>
+                {t('marketing_automation.runs.title', 'Runs')}
+              </a>
+            )}
+          />
         </div>
 
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
             title={t('marketing_automation.results.kpi.sent', 'Sent')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.results.kpi.sent', 'Sent')}
+                body={t('marketing_automation.help.results.kpi.sent', 'Messages handed to the mail provider. It is not a delivery count: the platform gets no feedback from the provider, so a message that bounced afterwards still counts here.')}
+              />
+            )}
             value={results.sends.sent}
             footer={
               results.sends.suppressed > 0 ? (
@@ -259,16 +276,34 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
           />
           <KpiCard
             title={t('marketing_automation.results.kpi.opened', 'Opened')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.results.kpi.opened', 'Opened')}
+                body={t('marketing_automation.help.results.kpi.opened', 'People, not opens: somebody who opens the same message four times counts once. An open is recorded by an image inside the message, so a recipient who blocks images can read it without being counted.')}
+              />
+            )}
             value={results.uniqueRecipients.opened}
             footer={<span>{t('marketing_automation.results.uniqueNote', 'unique recipients')}</span>}
           />
           <KpiCard
             title={t('marketing_automation.results.kpi.clicked', 'Clicked')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.results.kpi.clicked', 'Clicked')}
+                body={t('marketing_automation.help.results.kpi.clicked', 'People who clicked at least one tracked link, counted once however many times they clicked. The unsubscribe link is deliberately not tracked.')}
+              />
+            )}
             value={results.uniqueRecipients.clicked}
             footer={<span>{t('marketing_automation.results.uniqueNote', 'unique recipients')}</span>}
           />
           <KpiCard
             title={t('marketing_automation.results.kpi.revenue', 'Attributed revenue')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.results.kpi.revenue', 'Attributed revenue')}
+                body={t('marketing_automation.help.results.kpi.revenue', 'Revenue from orders placed after somebody clicked this campaign, inside the window named under the number. Split equally between every campaign that customer clicked in that window.')}
+              />
+            )}
             value={results.attribution.length > 0 ? results.attribution[0].revenue : 0}
             footer={
               <span>
@@ -289,7 +324,13 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
         */}
         {(results.funnel?.stages?.[0]?.people ?? 0) > 0 ? (
           <div className="mb-6">
-            <SectionHeader title={t('marketing_automation.results.funnel', 'Funnel')} />
+            <SectionHeader
+              title={t('marketing_automation.results.funnel', 'Funnel')}
+              help={{
+                title: t('marketing_automation.results.funnel', 'Funnel'),
+                body: t('marketing_automation.help.results.funnel', 'Counted in people, not messages: somebody who gets three emails from this campaign counts once at each stage.'),
+              }}
+            />
             {/* The distinction is the whole reason the numbers are trustworthy, so it is stated on the screen. */}
             <div className="mb-2 text-xs text-muted-foreground">
               {t(
@@ -368,7 +409,13 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
             not run. */}
         {results.daily.some((point) => point.sent > 0 || point.opened > 0 || point.clicked > 0) ? (
           <div className="mb-6">
-            <SectionHeader title={t('marketing_automation.results.overTime', 'Over time')} />
+            <SectionHeader
+              title={t('marketing_automation.results.overTime', 'Over time')}
+              help={{
+                title: t('marketing_automation.results.overTime', 'Over time'),
+                body: t('marketing_automation.help.results.overTime', 'The same three figures as the tiles above, broken down by day.'),
+              }}
+            />
             <LineChart
               data={results.daily as unknown as Record<string, string | number | null>[]}
               index="date"
@@ -387,17 +434,33 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
 
         {results.attribution.length > 1 ? (
           <div className="mb-6">
-            <SectionHeader title={t('marketing_automation.results.byCurrency', 'Attributed revenue by currency')} />
-            <ul className="space-y-1">
-              {results.attribution.map((row) => (
-                <li key={`${row.campaignId}-${row.currencyCode}`} className="flex justify-between border-b border-border py-1 text-sm">
-                  <span className="text-muted-foreground">{row.currencyCode ?? '—'}</span>
-                  <span className="tabular-nums text-foreground">
-                    {row.revenue} · {t('marketing_automation.results.orders', '{count} orders').replace('{count}', String(row.orders))}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <SectionHeader
+              title={t('marketing_automation.results.byCurrency', 'Attributed revenue by currency')}
+              help={{
+                title: t('marketing_automation.results.byCurrency', 'Attributed revenue by currency'),
+                body: t('marketing_automation.help.results.byCurrency', 'Kept per currency and never summed — there are no exchange rates here.'),
+              }}
+            />
+            {/* A table, like the three report sections around it: this was the one figures list on the page
+                rendered as something else. */}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('marketing_automation.results.column.currency', 'Currency')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.revenue', 'Revenue')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.orders', 'Orders')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {results.attribution.map((row) => (
+                  <TableRow key={`${row.campaignId}-${row.currencyCode}`}>
+                    <TableCell className="text-muted-foreground">{row.currencyCode ?? '—'}</TableCell>
+                    <TableCell className="tabular-nums text-foreground">{row.revenue}</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">{row.orders}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         ) : null}
 
@@ -409,7 +472,13 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
           */}
         {results.stepFunnel.some((step) => step.people > 0) ? (
           <div className="mb-6">
-            <SectionHeader title={t('marketing_automation.results.stepFunnel', 'Step by step')} />
+            <SectionHeader
+              title={t('marketing_automation.results.stepFunnel', 'Step by step')}
+              help={{
+                title: t('marketing_automation.results.stepFunnel', 'Step by step'),
+                body: t('marketing_automation.help.results.stepFunnel', 'Where people stop inside the journey, in the order the campaign runs the steps.'),
+              }}
+            />
             <div className="mb-2 text-xs text-muted-foreground">
               {t(
                 'marketing_automation.results.stepFunnelHint',
@@ -474,6 +543,10 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
             <SectionHeader
               title={t('marketing_automation.results.links', 'What they clicked')}
               count={results.links.links.length}
+              help={{
+                title: t('marketing_automation.results.links', 'What they clicked'),
+                body: t('marketing_automation.help.results.links', 'Which links people clicked, counted in people rather than clicks.'),
+              }}
             />
             <Table>
               <TableHeader>
@@ -522,6 +595,10 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
         <SectionHeader
           title={t('marketing_automation.results.splits', 'A/B results')}
           count={splitSteps.length}
+          help={{
+            title: t('marketing_automation.results.splits', 'A/B results'),
+            body: t('marketing_automation.help.results.splits', 'Each lane measured against the people that lane reached, not against everyone in the campaign.'),
+          }}
         />
         {splitSteps.length === 0 ? (
           <div className="text-sm text-muted-foreground">

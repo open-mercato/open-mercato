@@ -975,6 +975,7 @@
   "ui.forms.select.clearOption": "— Clear —",
   "ui.forms.select.emptyOption": "—",
   "ui.forms.status.saving": "Saving…",
+  "ui.helpTip.ariaLabel": "What is this?",
   "ui.inputs.amountInput.currencyLabel": "Currency",
   "ui.inputs.amountInput.placeholder": "0.00",
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",

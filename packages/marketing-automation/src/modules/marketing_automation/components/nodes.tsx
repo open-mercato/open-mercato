@@ -38,7 +38,7 @@ function NodeShell({
     >
       {hasTarget ? <Handle type="target" position={Position.Left} className="!bg-muted-foreground" /> : null}
       <div className="text-sm font-medium text-foreground">{title}</div>
-      {subtitle ? <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div> : null}
+      {subtitle ? <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div> : null}
       {children ? <div className="mt-2 space-y-1">{children}</div> : null}
       {hasSource ? <Handle type="source" position={Position.Right} className="!bg-muted-foreground" /> : null}
     </div>
@@ -123,7 +123,7 @@ function LaneBadge({ laneKey }: { laneKey?: string | null }) {
   const t = useT()
   if (!laneKey) return null
   return (
-    <span className="ml-2 rounded-sm bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
+    <span className="ml-2 rounded-sm bg-muted px-2 py-1 text-xs font-normal text-muted-foreground">
       {t('marketing_automation.canvas.node.split.variant', 'Variant {key}').replace('{key}', laneKey)}
     </span>
   )

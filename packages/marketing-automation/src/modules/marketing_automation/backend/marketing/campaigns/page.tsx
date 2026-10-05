@@ -12,30 +12,15 @@ import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActi
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { CampaignTemplateGallery, type CampaignTemplateOption } from '../../../components/CampaignTemplateGallery'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@open-mercato/ui/primitives/select'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
-type TemplateOption = {
-  id: string
-  labelKey: string
-  descriptionKey: string
-  requiresKey: string
-  stepCount: number
-  triggerCount: number
-  document: unknown
-}
 
 type CampaignRow = {
   id: string
@@ -169,24 +154,9 @@ export default function CampaignsListPage() {
    * Both go through the same import endpoint, which is what guarantees a template cannot produce a campaign an
    * import could not — and both arrive DISABLED, so the author reads before anybody is messaged.
    */
-  const [templates, setTemplates] = React.useState<TemplateOption[] | null>(null)
+  const [galleryOpen, setGalleryOpen] = React.useState(false)
   const [importing, setImporting] = React.useState(false)
   const fileInput = React.useRef<HTMLInputElement | null>(null)
-
-  React.useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const result = await apiCall<{ items?: TemplateOption[] }>('/api/marketing_automation/templates')
-        if (cancelled) return
-        setTemplates(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
-      } catch {
-        // A missing template list is not worth an error on the campaign list: the New campaign button still works.
-        if (!cancelled) setTemplates([])
-      }
-    })()
-    return () => { cancelled = true }
-  }, [scopeVersion])
 
   const importDocument = async (document: unknown, successKey: string, fallback: string) => {
     setImporting(true)
@@ -335,34 +305,12 @@ export default function CampaignsListPage() {
       <PageBody>
         <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
           {/* A template is the difference between an installed module and a used one: an empty canvas asks the
-              author what a good campaign looks like, while a welcome sequence asks whether they agree with it. */}
-          {(templates ?? []).length > 0 ? (
-            <Select
-              value=""
-              disabled={importing}
-              onValueChange={(id) => {
-                const template = (templates ?? []).find((entry) => entry.id === id)
-                if (template) {
-                  void importDocument(
-                    template.document,
-                    'marketing_automation.template.created',
-                    'Campaign created from a template, and left disabled.',
-                  )
-                }
-              }}
-            >
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder={t('marketing_automation.action.fromTemplate', 'Start from a template…')} />
-              </SelectTrigger>
-              <SelectContent>
-                {(templates ?? []).map((template) => (
-                  <SelectItem key={template.id} value={template.id}>
-                    {t(template.labelKey, template.id)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
+              author what a good campaign looks like, while a welcome sequence asks whether they agree with it.
+              The gallery exists because the `Select` this replaced showed the label and discarded the
+              description, the requirement line and the step counts the API has always returned. */}
+          <Button type="button" variant="outline" disabled={importing} onClick={() => setGalleryOpen(true)}>
+            {t('marketing_automation.action.fromTemplate', 'Start from a template…')}
+          </Button>
           <input
             ref={fileInput}
             type="file"
@@ -384,12 +332,25 @@ export default function CampaignsListPage() {
         </div>
         {loadFailed ? (
           <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.errors.loadListFailed', 'Could not load the campaigns.')} />
+            <ErrorMessage
+              label={t('marketing_automation.errors.loadListFailed', 'Could not load the campaigns.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.runs.retry', 'Try again')}
+                </Button>
+              )}
+            />
           </div>
         ) : null}
         {/* Not under the error: an empty table there would still say "No campaigns yet". */}
         {loadFailed ? null : (
           <DataTable
+            title={t('marketing_automation.list.title', 'Campaigns')}
+            titleHeadingLevel={1}
+            titleHelp={{
+              title: t('marketing_automation.list.title', 'Campaigns'),
+              body: t('marketing_automation.help.page.campaigns'),
+            }}
             columns={columns}
             data={rows}
             isLoading={loading}
@@ -407,6 +368,19 @@ export default function CampaignsListPage() {
         )}
         {ConfirmDialogElement}
       </PageBody>
+      <CampaignTemplateGallery
+        open={galleryOpen}
+        onOpenChange={setGalleryOpen}
+        busy={importing}
+        onPick={(template: CampaignTemplateOption) => {
+          setGalleryOpen(false)
+          void importDocument(
+            template.document,
+            'marketing_automation.template.created',
+            'Campaign created from a template, and left disabled.',
+          )
+        }}
+      />
     </Page>
   )
 }

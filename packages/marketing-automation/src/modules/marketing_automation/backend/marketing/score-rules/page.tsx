@@ -8,18 +8,18 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useMarketingMutation } from '../../../components/useMarketingMutation'
+import { useLockedMarketingMutation, useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
@@ -81,6 +81,7 @@ function formatPoints(points: number): string {
 export default function ScoreRulesPage() {
   const t = useT()
   const runMutation = useMarketingMutation('score_rules')
+  const runLockedMutation = useLockedMarketingMutation('score_rules')
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -165,15 +166,13 @@ export default function ScoreRulesPage() {
         isEnabled: draft.isEnabled,
       }
       if (selected) {
-        await runMutation(
-          () => withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(selected.updatedAt),
-            () => apiCallOrThrow(`${RULES_PATH}/${selected.id}`, {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ ...payload, description: draft.description.trim() || null, updatedAt: selected.updatedAt }),
-            }),
-          ),
+        await runLockedMutation(
+          selected.updatedAt,
+          () => apiCallOrThrow(`${RULES_PATH}/${selected.id}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...payload, description: draft.description.trim() || null, updatedAt: selected.updatedAt }),
+          }),
         )
       } else {
         await runMutation(
@@ -209,11 +208,9 @@ export default function ScoreRulesPage() {
     })
     if (!confirmed) return
     try {
-      await runMutation(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCallOrThrow(`${RULES_PATH}/${row.id}`, { method: 'DELETE' }),
-        ),
+      await runLockedMutation(
+        row.updatedAt,
+        () => apiCallOrThrow(`${RULES_PATH}/${row.id}`, { method: 'DELETE' }),
       )
       if (selected?.id === row.id) resetDraft()
       await load()
@@ -235,11 +232,11 @@ export default function ScoreRulesPage() {
       accessorKey: 'isEnabled',
       header: t('marketing_automation.scoreRules.columns.status', 'Status'),
       cell: ({ row }) => (
-        <Badge variant={row.original.isEnabled ? 'success' : 'neutral'}>
+        <StatusBadge variant={row.original.isEnabled ? 'success' : 'neutral'} dot>
           {row.original.isEnabled
             ? t('marketing_automation.scoreRules.enabled', 'Active')
             : t('marketing_automation.scoreRules.disabled', 'Off')}
-        </Badge>
+        </StatusBadge>
       ),
     },
     {
@@ -266,13 +263,26 @@ export default function ScoreRulesPage() {
         {ConfirmDialogElement}
         {loadFailed ? (
           <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.scoreRules.loadFailed', 'Could not load the score rules.')} />
+            <ErrorMessage
+              label={t('marketing_automation.scoreRules.loadFailed', 'Could not load the score rules.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.runs.retry', 'Try again')}
+                </Button>
+              )}
+            />
           </div>
         ) : null}
 
         <div className="grid gap-6 lg:grid-cols-[1fr_28rem]">
           <div className="space-y-4">
             <DataTable
+              title={t('marketing_automation.scoreRules.title', 'Score rules')}
+              titleHeadingLevel={1}
+              titleHelp={{
+                title: t('marketing_automation.scoreRules.title', 'Score rules'),
+                body: t('marketing_automation.help.page.scoreRules'),
+              }}
               columns={columns}
               data={rows}
               isLoading={loading}
@@ -299,6 +309,10 @@ export default function ScoreRulesPage() {
               title={selected
                 ? t('marketing_automation.scoreRules.editing', 'Editing {name}').replace('{name}', selected.name)
                 : t('marketing_automation.scoreRules.new', 'New rule')}
+              help={{
+                title: t('marketing_automation.scoreRules.title', 'Score rules'),
+                body: t('marketing_automation.help.scoreRules.editor'),
+              }}
             />
             <div className="space-y-1">
               <Label htmlFor="score-rule-name">{t('marketing_automation.scoreRules.columns.name', 'Name')}</Label>
@@ -342,9 +356,7 @@ export default function ScoreRulesPage() {
               <Label htmlFor="score-rule-enabled">{t('marketing_automation.scoreRules.enabled', 'Active')}</Label>
             </div>
             <div className="space-y-1">
-              <div className="text-overline text-muted-foreground">
-                {t('marketing_automation.scoreRules.definition', 'Who gets the points')}
-              </div>
+              <Label>{t('marketing_automation.scoreRules.definition', 'Who gets the points')}</Label>
               <ConditionBuilder
                 value={draft.expression}
                 onChangeAction={(value) => setDraft({ ...draft, expression: value })}
