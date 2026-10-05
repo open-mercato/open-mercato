@@ -120,11 +120,11 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     organizationIds: scope.filterIds,
     userId: auth.sub,
   }
-  const existing = await progressService.getJob(params.id, progressContext)
-  if (!existing) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  }
-
+  // No existence pre-check here on purpose. `cancelJob` already loads the job
+  // through the SAME scoped filter and throws when it resolves to nothing, so a
+  // job outside the caller's organization scope is rejected exactly like one that
+  // does not exist — and the route keeps its documented answer for an unknown id
+  // (400 "Cannot cancel this job", TC-PROG-009) instead of a 404.
   try {
     await progressService.cancelJob(params.id, progressContext)
     return NextResponse.json({ ok: true })
