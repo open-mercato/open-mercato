@@ -34,3 +34,8 @@
 - Path-prefix matching uses `options.pathname` when given, else the request URL pathname. The public /context route (2.8) is an API path, so it must pass the storefront page path explicitly (e.g. a `path` query param) for prefix stores to resolve.
 - Dev slug rule: slug is unique per tenant; `resolveStoreBySlug(..., { tenantId })` scopes by tenant, otherwise the slug must be unique across tenants (ambiguous → 404). No `?tenant=` param was added.
 - Resolution cache entry = all bindings of a domain mapping (key per mapping id; tags ecommerce-store:*, ecommerce-domain:{host}, ecommerce-domain-mapping:{id}); longest-prefix selection is in memory so the key does not vary by path. Empty binding lists are cached (2.9 must invalidate by the mapping tag on binding create). The 503 misconfiguration throttle is an untagged 1h resolution-cache entry.
+
+## 2026-10-05T12:44:58Z — checkpoint 3 (steps 2.5–2.9-fix)
+- Store/buyer resolution, /context and subscribers green after one regression fix (bare sort → 2.9-fix).
+- Spec sync list (apply to SPEC-029 at run end): rate-limit keyPrefix `ecommerce_storefront_context` (spec §12 says ecommerce_context); route file at `api/storefront/context/route.ts` (spec §10 lists api/get/...); branding fonts stored as allowlist ids; `/context` takes `?path=` for path-prefix matching; price-row deletes rely on 60 s TTL; `sales.channel.*` not subscribed (no cached field depends on it).
+- Decision: integration tests run in the ephemeral environment (own containers + DB) — this is not a local `yarn db:migrate`.

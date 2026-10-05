@@ -1,16 +1,16 @@
 # Handoff — 2026-10-05-release-3-storefront-read-side
 
-**Last updated:** 2026-10-05T12:01:57Z
+**Last updated:** 2026-10-05T12:44:58Z
 **Branch:** spec/storefront-release-phase0-reconciliation
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/12 (draft, claimed)
-**Current phase/step:** Phase 2 Step 2.5
-**Last commit:** a0de6848be — feat(ecommerce): gate branding on store create and cascade binding deletes
+**Current phase/step:** Phase 2 Step 2.10
+**Last commit:** ad6984039f — fix(ecommerce): use an explicit comparator when hashing group ids
 
 ## What just happened
-- ecommerce module scaffold, entities, migration and admin CRUD (+ branding-on-create gate, binding cascade) landed; checkpoint 2 green.
+- Typed storefront cache + guard, store and buyer resolution, storeContextService, public /context and subscribers landed; checkpoint 3 green after one regression fix.
 
 ## Next concrete action
-- Step 2.5 — lib/cacheKeys.ts typed storefront cache + structural guard test.
+- Step 2.10 — ecommerce search.ts, then 2.11 integration suites in the ephemeral environment.
 
 ## Blockers / open questions
 - Owner approval needed before any `yarn db:migrate` (integration suites wait for it).
