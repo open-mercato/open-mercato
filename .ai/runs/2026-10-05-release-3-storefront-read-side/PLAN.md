@@ -43,6 +43,7 @@
 | 2 | 2.11 | Integration tests: resolution + buyer context + cache isolation (SPEC-029 Phase 1 gate) | dispatch:capable | done | c0ef621f3d |
 | 3 | 3.1 | Omnibus: CatalogPriceHistoryEntry entity + migration | dispatch:capable | done | c7b5340eaf |
 | 3 | 3.2 | Omnibus: history capture wired into price commands and undo | dispatch:capable | done | pending |
+| 3 | 3.2-fix | Omnibus: capture history for product/variant price cascades and variant-undo restores | dispatch:standard | todo | — |
 | 3 | 3.3 | Omnibus: GET /api/catalog/prices/history | dispatch:standard | todo | — |
 | 3 | 3.4 | Omnibus: catalogOmnibusService resolution + DI | dispatch:capable | todo | — |
 | 3 | 3.5 | Omnibus: omnibus-preview route + products-list enrichment | dispatch:standard | todo | — |
@@ -131,6 +132,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 ### Phase 3 — Omnibus MVP (`2026-06-30-omnibus-price-tracking.md` Phases 1–3)
 - **3.1 History entity + migration** — `CatalogPriceHistoryEntry`, lookback + idempotency indexes, manual immutability trigger per spec, snapshot.
 - **3.2 Capture** — `lib/omnibus.ts` (`buildHistoryEntry`, `recordPriceHistoryEntry`, idempotency key, `is_announced`) wired into price create/update/delete and all undo paths.
+- **3.2-fix Omnibus: capture history for product/variant price cascades and variant-undo restores** — found during 3.2: `products.ts:1019,2241` and `variants.ts:1077,1079` `nativeDelete` price rows and `variants.ts:353-420` re-creates them on undo without history rows; the spec's file manifest lists both command files.
 - **3.3 History route** — `GET /api/catalog/prices/history` (keyset cursor, `findWithDecryption`).
 - **3.4 Resolution service** — `catalogOmnibusService` (baseline + window, same-row net/gross, promotion anchoring, EU gating, `noChannelMode`, TTL cache) + DI.
 - **3.5 Preview + enrichment** — `GET /api/catalog/prices/omnibus-preview`, products-list `afterList` omnibus block.
