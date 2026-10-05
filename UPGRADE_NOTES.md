@@ -24,6 +24,49 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Documents attachments enforce owner permissions at host URLs (#6726)
+
+Host attachment file/image routes, library metadata and attachment mutations now apply
+Documents' existing sharing and feature checks. Organization membership or `attachments.manage`
+alone no longer grants access to an unshared document's files. Authorized owners, shared
+recipients and Documents managers keep their existing capabilities; editing/deleting attachments
+still requires document editing permission and a non-archived owner.
+
+**Operator action:** run the additive attachments migration before serving the new binaries,
+then regenerate and build modules. It adds `attachment_partitions.access_resolver_requirements`
+and backfills the required `documents.document-attachments` provider for existing primary or
+assignment references to the historical `documents:document` identifier. This backfill needs
+no enabled Documents module or Documents table. It preserves unrelated owners in shared
+partitions such as `privateAttachments`, other requirements and malformed policy data (which
+fails closed). Disabling or removing the required provider denies those protected owners;
+restore the provider/registration to restore access. There is no manager API to erase protection.
+
+Protected responses use `Cache-Control: private, no-store`. Purge any affected CDN/reverse-proxy
+copies cached before deployment; the new headers cannot recall cached or downloaded copies.
+A policy timeout returns HTTP 504 without bytes or partial list counts. List authorization has
+a 15-second total budget and a default 1.5-second per-provider budget.
+
+**Module author action:** modules can export `attachmentAccessResolvers` and
+`protectedAttachmentTargets` from `data/attachment-access.ts`, using types exported by
+`@open-mercato/core/modules/attachments`. Regenerate registrations after changing declarations.
+For a new adopter with existing partitions, invoke the trusted
+`syncAttachmentAccessProtection(em)` export during its upgrade/setup while its declarations
+are registered, before disabling that provider. Synchronization unions requirements and never
+removes them. New partition creation and protected uploads synchronize the active declarations.
+Custom code constructing attachment read/link services without DI must provide their optional
+lazy policy context when owner policies apply; missing context denies protected reads.
+The existing synchronous `checkAttachmentAccess` signature and all service method inputs remain
+unchanged. Resolver allows cannot override the baseline; feature checks belong inside the
+callback, and a named required provider cannot be replaced by an unrelated wildcard callback.
+
+**Rollback:** keep the additive schema and roll forward. Older binaries ignore these policies;
+block affected host endpoints at the deployment boundary before any emergency binary rollback.
+Dropping policy data is not a supported security rollback.
+
+This intentional tightening is covered by the pending Emergency Security Exception described
+in `BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
+A named human maintainer acknowledgment is required before merge.
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)

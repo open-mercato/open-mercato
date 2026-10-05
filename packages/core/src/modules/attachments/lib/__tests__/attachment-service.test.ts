@@ -1,3 +1,7 @@
+import type { AwilixContainer } from 'awilix'
+import { createAttachmentAccessContext } from '../access-runner'
+import { registerAttachmentAccessResolvers } from '../access-registry'
+import type { AttachmentAccessDecision, AttachmentAccessInput } from '../access-types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
@@ -614,5 +618,73 @@ describe('DefaultAttachmentService', () => {
 
     expect(em.remove).not.toHaveBeenCalled()
     expect(driver.delete).not.toHaveBeenCalled()
+  })
+})
+
+describe('DefaultAttachmentService owner policy boundary', () => {
+  const resolverId = 'documents.service-test'
+  const resolveOwner = jest.fn(async (_input: AttachmentAccessInput): Promise<AttachmentAccessDecision> => (
+    { ok: false, status: 404, reason: 'document_not_found' }
+  ))
+  const auth = { ...scopedAuth, sub: 'user-1' }
+  const readInput = {
+    attachmentId: 'attachment-1', auth,
+    expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    expectedAssignment: { type: 'documents:document', id: 'document-1' },
+  }
+
+  function harness(withContext = true) {
+    const base = createHarness({ partition: partition({
+      accessResolverRequirements: [{ resolverId, targetEntity: 'documents:document' }],
+    }) })
+    const container = { resolve: () => ({
+      loadAcl: async () => ({ isSuperAdmin: false, organizations: null }),
+      getEffectiveFeatures: async () => ['documents.view'],
+    }) } as unknown as AwilixContainer
+    const service = new DefaultAttachmentService(base.em, base.factory, null,
+      withContext ? () => createAttachmentAccessContext(container) : null)
+    return { ...base, service }
+  }
+
+  beforeEach(() => {
+    resolveOwner.mockReset()
+    resolveOwner.mockResolvedValue({ ok: false, status: 404, reason: 'document_not_found' })
+    registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [{
+      id: resolverId, targetPartition: '*', targetEntity: 'documents:document', resolve: resolveOwner,
+    }] }])
+  })
+  afterEach(() => registerAttachmentAccessResolvers([]))
+
+  it('denies an otherwise correctly scoped and linked read before storage', async () => {
+    const { service, factory, driver } = harness()
+    await expectStatus(service.readScoped(readInput), 404)
+    expect(resolveOwner).toHaveBeenCalledWith(expect.objectContaining({ action: 'read' }))
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+    expect(driver.read).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing-context', 'missing-provider'])('fails closed with %s for a protected read', async (failure) => {
+    if (failure === 'missing-provider') registerAttachmentAccessResolvers([])
+    const { service, factory, driver } = harness(failure !== 'missing-context')
+    await expectStatus(service.readScoped(readInput), 403)
+    expect(resolveOwner).not.toHaveBeenCalled()
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+    expect(driver.read).not.toHaveBeenCalled()
+  })
+
+  it('serves an allowed read and still enforces the caller expected owner and assignment', async () => {
+    resolveOwner.mockResolvedValue({ ok: true })
+    const { service, driver } = harness()
+    await expect(service.readScoped(readInput)).resolves.toMatchObject({ buffer: Buffer.from('file') })
+    expect(resolveOwner).toHaveBeenCalledTimes(1)
+    expect(driver.read).toHaveBeenCalledTimes(1)
+    driver.read.mockClear()
+    await expectStatus(service.readScoped({ ...readInput,
+      expectedOwner: { entityId: 'documents:document', recordId: 'another-document' },
+    }), 404)
+    await expectStatus(service.readScoped({ ...readInput,
+      expectedAssignment: { type: 'documents:document', id: 'another-document' },
+    }), 404)
+    expect(driver.read).not.toHaveBeenCalled()
   })
 })
