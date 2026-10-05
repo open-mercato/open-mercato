@@ -144,6 +144,7 @@ export function HistoryList({ resourceKind, resourceId, pageSize, columns, showF
           pageSize: state.pageSize,
           total: history.data?.total ?? 0,
           totalPages,
+          totalIsCapped: history.data?.totalIsCapped === true,
           onPageChange: setPage,
         }}
       />
