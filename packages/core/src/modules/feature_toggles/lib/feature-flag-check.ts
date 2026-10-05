@@ -63,15 +63,18 @@ const getCacheTags = (identifier: string, tenantId: string) => {
   return [getIdentifierTag(identifier), getTenantTag(tenantId)]
 }
 
+export function isFeatureToggleCacheDisabled(): boolean {
+  return process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED === '1' ||
+    process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED === 'true'
+}
+
 export class FeatureTogglesService {
   private cacheTtlMs: number = 1 * 60 * 1000 // 1 minute
   // Resolution cache can be disabled via env (e.g. integration tests that flip
   // overrides rapidly between cases). The 1-minute TTL is a production
   // optimization; under fast flag churn it can serve a stale value across
   // override set/clear despite invalidation, so tests opt out for determinism.
-  private readonly cacheDisabled: boolean =
-    process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED === '1' ||
-    process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED === 'true'
+  private readonly cacheDisabled: boolean = isFeatureToggleCacheDisabled()
   constructor(
     private readonly cache: CacheService,
     private readonly em: EntityManager
