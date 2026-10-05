@@ -38,7 +38,7 @@
 | 2 | 2.8 | Public GET /api/ecommerce/storefront/context | dispatch:standard | done | e397b297e4 |
 | 2 | 2.9 | Subscribers: cache invalidation, domain re-binding, misconfiguration notifications | dispatch:standard | done | 3d6bd9e6b1 |
 | 2 | 2.9-fix | Explicit comparator in priceScopeKey group-id sort (checkpoint 3 regression) | inline | done | ad6984039f |
-| 2 | 2.10 | ecommerce search.ts | dispatch:cheap | todo | — |
+| 2 | 2.10 | ecommerce search.ts | dispatch:cheap | done | pending |
 | 2 | 2.11 | Integration tests: resolution + buyer context + cache isolation (SPEC-029 Phase 1 gate) | dispatch:capable | todo | — |
 | 3 | 3.1 | Omnibus: CatalogPriceHistoryEntry entity + migration | dispatch:capable | todo | — |
 | 3 | 3.2 | Omnibus: history capture wired into price commands and undo | dispatch:capable | todo | — |
