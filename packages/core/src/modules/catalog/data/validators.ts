@@ -561,6 +561,39 @@ export const productUnitConversionDeleteSchema = scoped.extend({
   id: uuid(),
 })
 
+export const PRICE_HISTORY_MAX_PAGE_SIZE = 100
+
+export const PRICE_HISTORY_DEFAULT_PAGE_SIZE = 50
+
+export const priceHistoryQuerySchema = z
+  .object({
+    productId: uuid().optional(),
+    variantId: uuid().optional(),
+    priceKindId: uuid().optional(),
+    channelId: uuid().optional(),
+    currencyCode: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{3}$/, 'currency code must be a three-letter ISO code')
+      .optional(),
+    from: z.string().datetime({ offset: true }).optional(),
+    to: z.string().datetime({ offset: true }).optional(),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(PRICE_HISTORY_MAX_PAGE_SIZE)
+      .default(PRICE_HISTORY_DEFAULT_PAGE_SIZE),
+    cursor: z.string().trim().max(512).optional(),
+    includeTotal: z.enum(['true', 'false']).optional(),
+  })
+  .strict()
+  .refine(
+    (value) => !value.from || !value.to || new Date(value.from).getTime() <= new Date(value.to).getTime(),
+    { message: 'from must not be later than to', path: ['from'] },
+  )
+
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
@@ -579,3 +612,4 @@ export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>
 export type ProductUnitConversionCreateInput = z.infer<typeof productUnitConversionCreateSchema>
 export type ProductUnitConversionUpdateInput = z.infer<typeof productUnitConversionUpdateSchema>
 export type ProductUnitConversionDeleteInput = z.infer<typeof productUnitConversionDeleteSchema>
+export type PriceHistoryQuery = z.infer<typeof priceHistoryQuerySchema>

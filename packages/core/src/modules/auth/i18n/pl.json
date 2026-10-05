@@ -72,6 +72,7 @@
   "auth.acl.features.business_rules.view_logs": "Wyświetl dzienniki wykonywania reguł",
   "auth.acl.features.catalog.categories.manage": "Zarządzaj kategoriami katalogu",
   "auth.acl.features.catalog.categories.view": "Wyświetl kategorie katalogu",
+  "auth.acl.features.catalog.price_history.view": "Wyświetlaj historię cen w katalogu",
   "auth.acl.features.catalog.pricing.manage": "Zarządzaj cenami w katalogu",
   "auth.acl.features.catalog.products.manage": "Zarządzaj produktami w katalogu",
   "auth.acl.features.catalog.products.view": "Wyświetl produkty w katalogu",

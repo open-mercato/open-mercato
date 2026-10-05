@@ -72,6 +72,7 @@
   "auth.acl.features.business_rules.view_logs": "View rule execution logs",
   "auth.acl.features.catalog.categories.manage": "Manage catalog categories",
   "auth.acl.features.catalog.categories.view": "View catalog categories",
+  "auth.acl.features.catalog.price_history.view": "View catalog price history",
   "auth.acl.features.catalog.pricing.manage": "Manage catalog pricing",
   "auth.acl.features.catalog.products.manage": "Manage catalog products",
   "auth.acl.features.catalog.products.view": "View catalog products",
