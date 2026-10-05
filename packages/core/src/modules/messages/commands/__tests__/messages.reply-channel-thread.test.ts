@@ -312,20 +312,17 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
       expect(recipientRows(trx)).toEqual([])
     })
 
-    it('still refuses a reply to an internal system message that would address nobody', async () => {
+    it('keeps an internal note on a channel thread without addressing the system user', async () => {
       const command = commandRegistry.get('messages.messages.reply')
       const { container, trx } = makeContainer(null)
-      withAssignedOperator(container, {
-        ...inboundMessage,
-        visibility: null,
-        sourceEntityType: 'inbox_ops.proposal',
-        externalEmail: null,
-      })
+      withAssignedOperator(container, { ...inboundMessage, visibility: 'internal', externalEmail: null })
 
-      await expect(
-        command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never),
-      ).rejects.toThrow('No recipients available for reply')
-      expect(trx.create).not.toHaveBeenCalled()
+      await command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never)
+
+      const replyRow = trx.create.mock.calls.find(([entity]) => entity === Message)?.[1] as Record<string, unknown>
+      expect(replyRow.visibility).toBe('internal')
+      expect(recipientRows(trx)).toEqual([])
+      expect(sentEventPayload()?.recipientUserIds).toEqual([])
     })
   })
 

@@ -812,8 +812,9 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         recipientIds.add(input.userId)
       }
     }
-    const repliesExternally = original.visibility === 'public' || Boolean(original.externalEmail?.trim())
-    if (recipientIds.size === 0 && !repliesExternally) throw new Error('No recipients available for reply')
+    if (recipientIds.size === 0 && original.senderUserId !== SYSTEM_SENDER_USER_ID) {
+      throw new Error('No recipients available for reply')
+    }
 
     let messageId = ''
     let responseExternalEmail: string | null = null
