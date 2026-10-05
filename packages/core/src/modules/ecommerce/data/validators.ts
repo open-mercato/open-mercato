@@ -456,3 +456,13 @@ export type EcommerceStoreChannelBindingUpdateInput = z.infer<typeof ecommerceSt
 export const ecommerceStoreChannelBindingDeleteSchema = z.object({ id: uuid() }).strict()
 
 export type EcommerceStoreChannelBindingDeleteInput = z.infer<typeof ecommerceStoreChannelBindingDeleteSchema>
+
+export const ecommerceStorefrontContextQuerySchema = z
+  .object({
+    storeSlug: z.string().max(120).optional(),
+    locale: z.string().max(35).optional(),
+    path: z.string().max(2048).optional(),
+  })
+  .strict()
+
+export type EcommerceStorefrontContextQuery = z.infer<typeof ecommerceStorefrontContextQuerySchema>

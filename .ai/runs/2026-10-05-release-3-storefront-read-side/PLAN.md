@@ -34,8 +34,8 @@
 | 2 | 2.4-fix | Store create branding gate + cascade soft-delete of bindings on store delete | dispatch:standard | done | a0de6848be |
 | 2 | 2.5 | lib/cacheKeys.ts typed storefront cache + structural guard test | dispatch:capable | done | 1b551a100e |
 | 2 | 2.6 | lib/storeContext.ts host/slug resolution, locale, failure modes | dispatch:capable | done | 0d05fb429c |
-| 2 | 2.7 | lib/buyerContext.ts buyer identity, groups, terms, taxMode, digest | dispatch:capable | done | pending |
-| 2 | 2.8 | Public GET /api/ecommerce/storefront/context | dispatch:standard | todo | — |
+| 2 | 2.7 | lib/buyerContext.ts buyer identity, groups, terms, taxMode, digest | dispatch:capable | done | 4b57c2ddd0 |
+| 2 | 2.8 | Public GET /api/ecommerce/storefront/context | dispatch:standard | done | pending |
 | 2 | 2.9 | Subscribers: cache invalidation, domain re-binding, misconfiguration notifications | dispatch:standard | todo | — |
 | 2 | 2.10 | ecommerce search.ts | dispatch:cheap | todo | — |
 | 2 | 2.11 | Integration tests: resolution + buyer context + cache isolation (SPEC-029 Phase 1 gate) | dispatch:capable | todo | — |
