@@ -139,6 +139,7 @@ import {
   mapQuoteLineEntityToSnapshot,
   resolveUpsertDiscountFields,
   resolveUpsertTotalsOrigin,
+  resolveUpsertCalculatedAmounts,
 } from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
@@ -7572,11 +7573,8 @@ const orderLineUpsertCommand: CommandHandler<
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
       totalNetAmount:
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
       ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
@@ -7590,6 +7588,10 @@ const orderLineUpsertCommand: CommandHandler<
           ? cloneJson(parsed.customFields)
           : ((existingSnapshot as any)?.customFields ?? null),
     };
+    Object.assign(
+      updatedSnapshot,
+      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
+    );
     (updatedSnapshot as any).statusEntryId = statusEntryId;
     (updatedSnapshot as any).catalogSnapshot =
       parsed.catalogSnapshot ??
@@ -8064,11 +8066,8 @@ const quoteLineUpsertCommand: CommandHandler<
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
       totalNetAmount:
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
       ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
@@ -8082,6 +8081,10 @@ const quoteLineUpsertCommand: CommandHandler<
           ? cloneJson(parsed.customFields)
           : ((existingSnapshot as any)?.customFields ?? null),
     };
+    Object.assign(
+      updatedSnapshot,
+      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
+    );
     (updatedSnapshot as any).statusEntryId = statusEntryId;
     (updatedSnapshot as any).catalogSnapshot =
       parsed.catalogSnapshot ??
