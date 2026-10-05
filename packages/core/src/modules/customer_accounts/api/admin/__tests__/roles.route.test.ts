@@ -96,6 +96,14 @@ describe('admin /api/customer_accounts/admin/roles — GET organization filter (
     expect(mockEmFindAndCount).not.toHaveBeenCalled()
   })
 
+  it('answers 400 instead of a database error for a malformed organizationId', async () => {
+    const res = await GET(rolesRequest('?organizationId=not-a-uuid'))
+
+    expect(res.status).toBe(400)
+    expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
+    expect(mockEmFindAndCount).not.toHaveBeenCalled()
+  })
+
   it('checks the caller permission before resolving a requested organization', async () => {
     mockRbac.userHasAllFeatures.mockResolvedValue(false)
 

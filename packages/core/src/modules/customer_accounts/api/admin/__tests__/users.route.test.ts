@@ -638,6 +638,38 @@ describe('admin /api/customer_accounts/admin/users — POST target organization 
     expect(mockCreateUser).not.toHaveBeenCalled()
   })
 
+  it('lets a non-superadmin target another organization the scope resolver grants', async () => {
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+
+    const res = await POST(postRequest({ organizationId: targetOrgId }))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedId: targetOrgId, tenantId }),
+    )
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: targetOrgId },
+    )
+  })
+
+  it('accepts the active organization when a non-superadmin sends it explicitly', async () => {
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+
+    const res = await POST(postRequest({ organizationId: orgId }))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: orgId },
+    )
+  })
+
   it('rejects a malformed organizationId before resolving scope', async () => {
     const res = await POST(postRequest({ organizationId: 'not-a-uuid' }))
 

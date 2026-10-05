@@ -78,12 +78,14 @@ function CreateUserDialog({
   roleOptions,
   onCreated,
   onRunMutation,
+  requireOrganization,
 }: {
   open: boolean
   onOpenChange: (next: boolean) => void
   roleOptions: Array<{ id: string; label: string }>
   onCreated: () => void
   onRunMutation: <T>(operation: () => Promise<T>) => Promise<T>
+  requireOrganization: boolean
 }) {
   const t = useT()
   const [email, setEmail] = React.useState('')
@@ -115,7 +117,9 @@ function CreateUserDialog({
     return () => { cancelled = true }
   }, [organizationId])
 
-  const availableRoleOptions = organizationId ? organizationRoleOptions ?? [] : roleOptions
+  const availableRoleOptions = organizationId
+    ? organizationRoleOptions ?? []
+    : requireOrganization ? [] : roleOptions
 
   const handleOrganizationChange = React.useCallback((next: string | null) => {
     setOrganizationId(next ?? null)
@@ -126,6 +130,10 @@ function CreateUserDialog({
     event.preventDefault()
     if (!email.trim() || !displayName.trim() || !password.trim()) {
       flash(t('customer_accounts.admin.createUser.error.required', 'Email, name, and password are required'), 'error')
+      return
+    }
+    if (requireOrganization && !organizationId) {
+      flash(t('customer_accounts.admin.createUser.error.organizationRequired', 'Select an organization for the new user'), 'error')
       return
     }
     setIsSubmitting(true)
@@ -160,7 +168,7 @@ function CreateUserDialog({
     } finally {
       setIsSubmitting(false)
     }
-  }, [displayName, email, onCreated, onOpenChange, onRunMutation, organizationId, password, resetForm, selectedRoleIds, t])
+  }, [displayName, email, onCreated, onOpenChange, onRunMutation, organizationId, password, requireOrganization, resetForm, selectedRoleIds, t])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -224,8 +232,11 @@ function CreateUserDialog({
               id="create-organization"
               value={organizationId}
               onChange={handleOrganizationChange}
+              required={requireOrganization}
               includeEmptyOption
-              emptyOptionLabel={t('customer_accounts.admin.createUser.fields.organizationCurrent', 'Current organization')}
+              emptyOptionLabel={requireOrganization
+                ? t('customer_accounts.admin.createUser.fields.organizationPlaceholder', 'Select an organization')
+                : t('customer_accounts.admin.createUser.fields.organizationCurrent', 'Current organization')}
               className="w-full h-9 rounded border px-2 text-sm"
             />
           </div>
@@ -273,9 +284,14 @@ function CreateUserDialog({
 export type PortalUsersPageClientProps = {
   portalOrigin: string
   portalOrgSlug?: string | null
+  requireOrganization?: boolean
 }
 
-export function PortalUsersPageClient({ portalOrigin, portalOrgSlug = null }: PortalUsersPageClientProps) {
+export function PortalUsersPageClient({
+  portalOrigin,
+  portalOrgSlug = null,
+  requireOrganization = false,
+}: PortalUsersPageClientProps) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = useT()
   const router = useRouter()
@@ -656,6 +672,7 @@ export function PortalUsersPageClient({ portalOrigin, portalOrgSlug = null }: Po
         roleOptions={roleOptions}
         onCreated={() => setReloadToken((token) => token + 1)}
         onRunMutation={runMutationWithContext}
+        requireOrganization={requireOrganization}
       />
       {ConfirmDialogElement}
     </>
