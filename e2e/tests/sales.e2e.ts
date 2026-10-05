@@ -10,14 +10,14 @@ import { test, expect, unique } from './support/fixtures';
  * Playwright originals do.
  */
 test.describe('sales', { tags: ['sales'], session: 'admin' }, () => {
-  test('TC-SALES-001 creates a quote and adds a custom line', async ({ app, agent, web, stamp }) => {
+  test('TC-SALES-001 creates a quote and adds a custom line', async ({ app, agent, browser, stamp }) => {
     const lineName = `${stamp} Consulting`;
     await app.open('/backend/sales/documents/create?kind=quote');
 
     await agent.act('Create the quote for the customer {customer} on the sales channel {channel}. Pick the first address if one is offered.', {
       params: { customer: 'Brightside Solar', channel: 'Mercato Fashion Online' },
     });
-    await expect(web).toHaveURL(/\/backend\/sales\/(documents|quotes)\/[0-9a-f-]{36}/i, { timeout: 60_000 });
+    await expect(browser).toHaveURL(/\/backend\/sales\/(documents|quotes)\/[0-9a-f-]{36}/i, { timeout: 60_000 });
 
     await agent.act('On the Items tab, add a custom line named {name} with quantity {quantity} and a unit price of {price}', {
       params: { name: unique(lineName), quantity: 2, price: 30 },
@@ -31,14 +31,14 @@ test.describe('sales', { tags: ['sales'], session: 'admin' }, () => {
     await agent.assert(`the items table has a row "${lineName}" with quantity 2`);
   });
 
-  test('TC-INT-001 a quote becomes an order that is shipped and paid', { timeout: 420_000 }, async ({ app, agent, web, stamp }) => {
+  test('TC-INT-001 a quote becomes an order that is shipped and paid', { timeout: 420_000 }, async ({ app, agent, browser, stamp }) => {
     const lineName = `${stamp} Service`;
     await app.open('/backend/sales/documents/create?kind=quote');
 
     await agent.act('Create the quote for the customer {customer} on the sales channel {channel}. Pick the first address if one is offered.', {
       params: { customer: 'Brightside Solar', channel: 'Mercato Fashion Online' },
     });
-    await expect(web).toHaveURL(/\/backend\/sales\/(documents|quotes)\/[0-9a-f-]{36}/i, { timeout: 60_000 });
+    await expect(browser).toHaveURL(/\/backend\/sales\/(documents|quotes)\/[0-9a-f-]{36}/i, { timeout: 60_000 });
 
     await agent.act('On the Items tab, add a custom line named {name} with quantity 1 and a unit price of 50', { params: { name: unique(lineName) } });
     await agent.act('Convert this quote to an order using the Actions menu, confirming if asked');

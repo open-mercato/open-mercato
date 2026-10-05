@@ -9,7 +9,7 @@ const CATEGORIES = '/api/catalog/categories';
  * Ported from .ai/qa/scenarios/TC-CAT-001, 004, 007.
  */
 test.describe('catalog', { tags: ['catalog'], session: 'admin' }, () => {
-  test('TC-CAT-001 creates a product with a SKU', async ({ app, agent, api, stamp, web, screen }) => {
+  test('TC-CAT-001 creates a product with a SKU', async ({ app, agent, api, stamp, browser, screen }) => {
     const title = `${stamp} Sneaker`;
     const sku = stamp.replace(/\s+/g, '-').toUpperCase();
     await app.open('/backend/catalog/products');
@@ -25,8 +25,8 @@ test.describe('catalog', { tags: ['catalog'], session: 'admin' }, () => {
       },
     );
 
-    await expect(web).toHaveURL(/\/backend\/catalog\/products\/[0-9a-f-]{36}$/i, { timeout: 60_000 });
-    const productId = idFromUrl(await web.url());
+    await expect(browser).toHaveURL(/\/backend\/catalog\/products\/[0-9a-f-]{36}$/i, { timeout: 60_000 });
+    const productId = idFromUrl(await browser.url());
     api.track(PRODUCTS, productId);
     // A replayed step lands here before the product page has loaded; the title is in an input, so wait for the loading state to end.
     await expect(screen.getByText(/Loading product/)).toBeHidden({ timeout: 30_000 });

@@ -1,6 +1,5 @@
 import type { E2EConfig } from 'e2e';
-import { createAgent } from 'e2e/agent';
-import { playwright } from '@e2edev/playwright';
+import { web } from '@e2e-dev/web';
 import { gateway } from 'ai';
 
 // The Open Mercato admin runs at APP_URL (default: the local dev server).
@@ -16,7 +15,7 @@ const model = gateway(process.env.E2E_MODEL ?? 'openai/gpt-5.6-luna');
 
 export default {
   projectId: 'open-mercato',
-  targets: [{ name: 'web', engine: playwright({ url: APP_URL, viewport: { width: 1440, height: 900 } }) }],
+  targets: [{ name: 'web', engine: web({ viewport: { width: 1440, height: 900 } }), app: { url: APP_URL } }],
 
   // Dev-mode Next.js compiles a route on first visit, so budgets are generous.
   timeout: 240_000,
@@ -26,17 +25,14 @@ export default {
 
   agents: {
     default: {
-      executor: createAgent({
-        model,
-        system: [
+      model,
+      system: [
         'You are a careful QA engineer testing the Open Mercato admin, a B2B commerce and CRM backend.',
         'Complete exactly the goal you are given, verify the outcome on screen, and stop.',
         'Never invent data: use the values handed to you in params, and leave optional fields empty unless the goal names them.',
         'If a dialog you did not ask for appears (cookie notice, demo notice, "Talk to Open Mercato team" feedback), close it and continue.',
         'Prefer the visible labels of buttons and fields. Lists load asynchronously; wait for "Loading" indicators to disappear before judging a list.',
-        ].join(' '),
-      }),
-      model,
+      ].join(' '),
       context: [
         'Open Mercato vocabulary:',
         '- The admin lives under /backend with a left sidebar. List pages have a "Search" box and a "Create" button or link in the page header; the empty state may repeat the same "Create" link.',

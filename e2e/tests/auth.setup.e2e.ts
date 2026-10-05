@@ -1,4 +1,4 @@
-import { test as base } from '@e2edev/playwright';
+import { test as base } from '@e2e-dev/web';
 import { expect, credentials } from 'e2e';
 import { noticeAckCookies } from './support/fixtures';
 
@@ -12,18 +12,18 @@ import { noticeAckCookies } from './support/fixtures';
  */
 const PERSONAS = ['admin', 'employee'] as const;
 
-base.setup('sign in the demo personas', { sessions: [...PERSONAS] }, async ({ app, screen, session, web }) => {
+base.setup('sign in the demo personas', { sessions: [...PERSONAS] }, async ({ app, screen, session, browser }) => {
   for (const [index, name] of PERSONAS.entries()) {
     if (index > 0) await app.clearState();
     const user = credentials.user(name);
 
-    await web.setCookies(noticeAckCookies(app.baseUrl!));
+    await browser.setCookies(noticeAckCookies(app.baseUrl!));
     await app.open('/login');
     await screen.getByLabel('Email').fill(user.username);
     await screen.getByLabel('Password', { exact: true }).fill(user.password);
     await screen.getByRole('button', { name: 'Sign in' }).tap();
 
-    await expect(web).toHaveURL(/\/backend(?:[/?#].*)?$/, { timeout: 60_000 });
+    await expect(browser).toHaveURL(/\/backend(?:[/?#].*)?$/, { timeout: 60_000 });
     await expect(screen.getByRole('button', { name: user.username })).toBeVisible({ timeout: 30_000 });
 
     await session.save(name);

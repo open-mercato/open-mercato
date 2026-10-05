@@ -10,7 +10,7 @@ const PEOPLE = '/api/customers/people';
  * Ported from .ai/qa/scenarios/TC-CRM-001, 003, 004, 014, 015.
  */
 test.describe('crm', { tags: ['crm'], session: 'admin' }, () => {
-  test('TC-CRM-001 creates a company and finds it in the list', async ({ app, agent, api, stamp, web, screen }) => {
+  test('TC-CRM-001 creates a company and finds it in the list', async ({ app, agent, api, stamp, browser, screen }) => {
     const name = `${stamp} Company`;
     await app.open('/backend/customers/companies');
 
@@ -18,8 +18,8 @@ test.describe('crm', { tags: ['crm'], session: 'admin' }, () => {
       params: { name: unique(name), website: 'https://example.com' },
     });
 
-    await expect(web).toHaveURL(/\/backend\/customers\/companies-v2\/[0-9a-f-]{36}$/i, { timeout: 60_000 });
-    const companyId = idFromUrl(await web.url());
+    await expect(browser).toHaveURL(/\/backend\/customers\/companies-v2\/[0-9a-f-]{36}$/i, { timeout: 60_000 });
+    const companyId = idFromUrl(await browser.url());
     api.track(COMPANIES, companyId);
     await agent.assert(`the company detail page for "${name}" is showing`);
 
@@ -32,7 +32,7 @@ test.describe('crm', { tags: ['crm'], session: 'admin' }, () => {
     expect(items.some((item) => item.id === companyId)).toBe(true);
   });
 
-  test('TC-CRM-004 creates a person linked to an existing company', async ({ app, agent, api, stamp, web }) => {
+  test('TC-CRM-004 creates a person linked to an existing company', async ({ app, agent, api, stamp, browser }) => {
     const companyName = `${stamp} Employer`;
     await api.create(COMPANIES, { displayName: companyName });
     const firstName = stamp.replace(/\s+/g, '');
@@ -44,8 +44,8 @@ test.describe('crm', { tags: ['crm'], session: 'admin' }, () => {
       { params: { firstName: unique(firstName), lastName: 'Tester', email: unique(email), phone: '+1 555 010 0042', company: unique(companyName) } },
     );
 
-    await expect(web).toHaveURL(/\/backend\/customers\/people-v2\/[0-9a-f-]{36}$/i, { timeout: 60_000 });
-    const personId = idFromUrl(await web.url());
+    await expect(browser).toHaveURL(/\/backend\/customers\/people-v2\/[0-9a-f-]{36}$/i, { timeout: 60_000 });
+    const personId = idFromUrl(await browser.url());
     api.track(PEOPLE, personId);
 
     const details = await agent.extract('the full name of this person and the company they belong to', {

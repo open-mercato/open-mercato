@@ -6,9 +6,10 @@ them in a real browser, and deterministic checks (URL, API read-back, exact
 values) pin the outcome. It ports the `.ai/qa/scenarios/TC-*.md` scenarios
 that the Playwright `__integration__` specs cover with hand-written clicks.
 
-This folder is a standalone npm project on purpose. The monorepo pins
-`playwright` to 1.61 through `resolutions`, below what `@e2edev/playwright`
-needs, and Yarn workspaces would apply that pin here.
+This folder is a standalone npm project on purpose: the monorepo's Yarn
+workspaces and `resolutions` would otherwise reach into it. `@e2e-dev/web`
+brings its own pinned `playwright-core`, so nothing here depends on the
+repository's Playwright version.
 
 ## Run it
 
@@ -20,7 +21,7 @@ yarn test:integration:ephemeral:start      # or an ephemeral app; read the URL f
 # 2. Run the suite
 cd e2e
 npm install
-npx playwright install chromium            # once
+npx @e2e-dev/web install chromium          # once
 AI_GATEWAY_API_KEY=... npm test            # APP_URL=http://localhost:5001 npm test for another address
 ```
 
@@ -35,7 +36,8 @@ npm run test:live                          # ignore recorded agent steps, run th
 ```
 
 Every run writes `.e2e/report.json`; failures leave screenshots and a
-Playwright trace under `.e2e/artifacts/`.
+Playwright trace under `.e2e/artifacts/` (open one with
+`npx playwright-core@1.63.0 show-trace <file>`).
 
 ## How it is built
 

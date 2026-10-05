@@ -1,4 +1,4 @@
-import { test as base } from '@e2edev/playwright';
+import { test as base } from '@e2e-dev/web';
 import { OmApi, type Persona } from './api';
 
 export interface SuiteFixtures {
@@ -31,7 +31,7 @@ export const test = base.extend<SuiteFixtures>({
 });
 
 function requireBaseUrl(url: string | undefined): string {
-  if (!url) throw new Error('The web target must declare a url');
+  if (!url) throw new Error('The browser target must declare a url');
   return url.replace(/\/$/, '');
 }
 
