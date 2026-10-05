@@ -1,6 +1,11 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { runOmnibusBackfill, type OmnibusBackfillResult } from './lib/omnibusBackfill'
+import { resolveOmnibusCache } from './lib/omnibusCache'
+import { omnibusBackfillOptionsSchema } from './data/validators'
 import {
   installExampleCatalogData,
   seedCatalogExamplesForScope,
@@ -147,4 +152,73 @@ const installExamplesBundle: ModuleCli = {
   },
 }
 
-export default [seedUnitsCommand, seedPriceKindsCommand, seedExamplesCommand, installExamplesBundle]
+const OMNIBUS_BACKFILL_USAGE =
+  'Usage: mercato catalog omnibus:backfill --tenant <tenantId> [--org <organizationId>] [--channel-id <channelId> | --unscoped] [--batch-size N] [--dry-run]'
+
+function readFlag(rest: string[], name: string): boolean {
+  for (const part of rest) {
+    if (part === `--${name}`) return true
+    if (part.startsWith(`--${name}=`)) return parseBooleanToken(part.slice(name.length + 3)) === true
+  }
+  return false
+}
+
+export function parseOmnibusBackfillArgs(rest: string[]) {
+  const args = parseArgs(rest.filter((part) => part !== '--dry-run' && part !== '--unscoped'))
+  const rawBatchSize = args.batchSize ?? args['batch-size'] ?? args.batch
+  return omnibusBackfillOptionsSchema.safeParse({
+    tenantId: args.tenantId ?? args.tenant ?? '',
+    organizationId: args.organizationId ?? args.org ?? args.orgId ?? undefined,
+    channelId: args.channelId ?? args['channel-id'] ?? args.channel ?? undefined,
+    unscoped: readFlag(rest, 'unscoped'),
+    batchSize: rawBatchSize !== undefined ? Number(rawBatchSize) : undefined,
+    dryRun: readFlag(rest, 'dry-run'),
+  })
+}
+
+function printOmnibusBackfillResult(result: OmnibusBackfillResult) {
+  const label = result.dryRun ? '[omnibus:backfill] Dry run' : '[omnibus:backfill] Complete'
+  console.log(`${label} (tenant=${result.tenantId}, org=${result.organizationId ?? 'all'})`)
+  for (const target of result.targets) {
+    const key = target.coverageKey || '(unscoped)'
+    console.log(
+      `  ${key}: lookbackDays=${target.lookbackDays} recordedAt=${target.recordedAt} scanned=${target.scanned} alreadyCovered=${target.alreadyCovered} missing=${target.missing} created=${target.created} skippedIncomplete=${target.skippedIncomplete}`,
+    )
+  }
+  if (!result.dryRun) {
+    console.log(`  Coverage recorded: ${result.coverageRecorded.map((key) => key || '(unscoped)').join(', ') || 'none'}`)
+  }
+}
+
+const omnibusBackfillCommand: ModuleCli = {
+  command: 'omnibus:backfill',
+  async run(rest) {
+    const parsed = parseOmnibusBackfillArgs(rest)
+    if (!parsed.success) {
+      console.error(OMNIBUS_BACKFILL_USAGE)
+      for (const issue of parsed.error.issues) {
+        console.error(`  ${issue.path.join('.') || 'options'}: ${issue.message}`)
+      }
+      return
+    }
+    const container = await createRequestContainer()
+    try {
+      const result = await runOmnibusBackfill(
+        {
+          em: container.resolve<EntityManager>('em'),
+          moduleConfigService: container.resolve<ModuleConfigService>('moduleConfigService'),
+          cache: resolveOmnibusCache(container),
+        },
+        parsed.data,
+      )
+      printOmnibusBackfillResult(result)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+export default [seedUnitsCommand, seedPriceKindsCommand, seedExamplesCommand, installExamplesBundle, omnibusBackfillCommand]

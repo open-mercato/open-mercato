@@ -48,8 +48,8 @@
 | 3 | 3.3-fix | Translate ecommerce ACL feature titles (auth ACL i18n guard, missed in 2.1) | inline | done | 26e58e3c80 |
 | 3 | 3.4 | Omnibus: catalogOmnibusService resolution + DI | dispatch:capable | done | 4f3b6c1a7e |
 | 3 | 3.5 | Omnibus: omnibus-preview route + products-list enrichment | dispatch:standard | done | 7e2d0dde3d |
-| 3 | 3.6 | Omnibus: GET/PATCH /api/catalog/config/omnibus | dispatch:standard | done | pending |
-| 3 | 3.7 | Omnibus: ACL features, setup grants, backfill CLI | dispatch:standard | todo | — |
+| 3 | 3.6 | Omnibus: GET/PATCH /api/catalog/config/omnibus | dispatch:standard | done | 84be2e9457 |
+| 3 | 3.7 | Omnibus: ACL features, setup grants, backfill CLI | dispatch:standard | done | pending |
 | 3 | 3.8 | Omnibus: admin UI (settings panel + price editor reference row) + i18n | dispatch:standard | todo | — |
 | 3 | 3.9 | Omnibus: integration tests | dispatch:capable | todo | — |
 | 4 | 4.1 | Catalog: extract product filters to lib with descendant expansion | dispatch:standard | todo | — |

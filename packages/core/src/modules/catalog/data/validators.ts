@@ -656,6 +656,20 @@ export const omnibusConfigPatchSchema = z
   })
   .strict()
 
+export const omnibusBackfillOptionsSchema = z
+  .object({
+    tenantId: uuid(),
+    organizationId: uuid().optional(),
+    channelId: uuid().optional(),
+    unscoped: z.boolean().default(false),
+    batchSize: z.number().int().min(1).max(1000).default(500),
+    dryRun: z.boolean().default(false),
+  })
+  .refine((value) => !(value.channelId && value.unscoped), {
+    message: 'omnibus_backfill_channel_and_unscoped_exclusive',
+    path: ['unscoped'],
+  })
+
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
@@ -677,3 +691,5 @@ export type ProductUnitConversionDeleteInput = z.infer<typeof productUnitConvers
 export type PriceHistoryQuery = z.infer<typeof priceHistoryQuerySchema>
 export type OmnibusPreviewQuery = z.infer<typeof omnibusPreviewQuerySchema>
 export type OmnibusConfigPatch = z.infer<typeof omnibusConfigPatchSchema>
+export type OmnibusBackfillOptionsInput = z.input<typeof omnibusBackfillOptionsSchema>
+export type OmnibusBackfillOptions = z.infer<typeof omnibusBackfillOptionsSchema>
