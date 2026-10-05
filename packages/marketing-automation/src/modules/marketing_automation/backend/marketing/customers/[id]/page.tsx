@@ -103,6 +103,8 @@ type Profile = {
     id: string
     campaignId: string
     triggerEventId: string
+    /** The human name for that event, resolved by the API from the trigger catalogue. */
+    triggerLabelKey?: string | null
     status: string
     startedAt: string
     completedAt: string | null
@@ -834,7 +836,8 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                 {profile.recentRuns.map((run) => (
                   <li key={run.id} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
                     <a className="truncate text-foreground underline" href={`/backend/marketing/campaigns/${run.campaignId}/runs`}>
-                      {run.triggerEventId}
+                      {/* The written name, not the event id: every other line in this panel is for a person. */}
+                      {run.triggerLabelKey ? t(run.triggerLabelKey, run.triggerEventId) : run.triggerEventId}
                     </a>
                     <span className="flex shrink-0 items-center gap-2">
                       <StatusBadge variant={RUN_STATUS_VARIANTS[run.status] ?? 'neutral'}>

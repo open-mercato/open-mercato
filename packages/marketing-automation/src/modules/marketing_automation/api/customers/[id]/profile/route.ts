@@ -23,6 +23,7 @@ import { loadLatestNps, npsBand } from '../../../../lib/survey.js'
 import { resolveTier } from '../../../../lib/engine/tiers.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { readPathUuid } from '../../../shared.js'
+import { findTrigger } from '../../../../lib/trigger-catalog.js'
 
 /**
  * Everything this module knows about one customer, on one response.
@@ -268,6 +269,14 @@ export async function GET(req: Request) {
       id: run.id,
       campaignId: run.campaignId,
       triggerEventId: run.triggerEventId,
+      /**
+       * The label too, resolved the same way the runs screen resolves it.
+       *
+       * This screen printed the raw event id — `customers.person.created` — in a panel whose every other line is
+       * written for a person. The runs list has shown the human name for it all along, through the same catalogue
+       * lookup, so the two screens were describing the same fact in two languages.
+       */
+      triggerLabelKey: findTrigger(run.triggerEventId)?.labelKey ?? null,
       status: run.status,
       startedAt: run.startedAt.toISOString(),
       completedAt: run.completedAt ? run.completedAt.toISOString() : null,
