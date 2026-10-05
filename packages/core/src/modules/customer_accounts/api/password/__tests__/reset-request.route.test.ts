@@ -5,6 +5,7 @@ const mockCreateToken = jest.fn()
 const mockSendEmail = jest.fn()
 const mockEmit = jest.fn()
 const mockLoggerError = jest.fn()
+const mockReportError = jest.fn()
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -46,6 +47,10 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({ child: () => ({ error: (...args: unknown[]) => mockLoggerError(...args) }) }),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
 }))
 
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/password/reset-request'
@@ -107,7 +112,7 @@ describe('customer /api/customer_accounts/password/reset-request — token deliv
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
-  it('logs and still answers 200 when email delivery fails', async () => {
+  it('logs, reports and still answers 200 when email delivery fails', async () => {
     mockSendEmail.mockRejectedValue(new Error('smtp down'))
 
     const res = await POST(makeRequest({ email: 'buyer@example.com', tenantId }))
@@ -115,5 +120,9 @@ describe('customer /api/customer_accounts/password/reset-request — token deliv
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
     expect(mockLoggerError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'customer_accounts',
+      code: 'customer_accounts.password_reset_email_failed',
+    })
   })
 })

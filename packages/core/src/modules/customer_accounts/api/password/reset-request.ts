@@ -18,6 +18,7 @@ import {
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 import { sendCustomerPasswordResetEmail } from '@open-mercato/core/modules/customer_accounts/lib/authLinkEmails'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customer_accounts').child({ component: 'password-reset-request' })
 
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
       rawToken,
     }).catch((error) => {
       logger.error('Password reset email failed', { err: error })
+      getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.password_reset_email_failed' })
     })
     void import('@open-mercato/core/modules/customer_accounts/events').then(({ emitCustomerAccountsEvent }) =>
       emitCustomerAccountsEvent('customer_accounts.password_reset.requested', {
