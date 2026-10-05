@@ -1,6 +1,13 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import {
+  buildChanges,
+  requireId,
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+  emitCrudSideEffects,
+  emitCrudUndoSideEffects,
+} from '@open-mercato/shared/lib/commands/helpers'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -29,6 +36,23 @@ const categoryCrudEvents: CrudEventsConfig = {
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
+}
+
+function categoryHierarchyChangeEvents(previousDescendantIds: readonly string[]): CrudEventsConfig {
+  return {
+    ...categoryCrudEvents,
+    buildPayload: (ctx) => ({
+      id: ctx.identifiers.id,
+      organizationId: ctx.identifiers.organizationId,
+      tenantId: ctx.identifiers.tenantId,
+      hierarchyChanged: true,
+      previousDescendantIds: [...previousDescendantIds],
+    }),
+  }
+}
+
+function readDescendantIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
 }
 
 type CategorySnapshot = {
@@ -337,6 +361,9 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       record.description = parsed.description?.trim()?.length ? parsed.description.trim() : null
     }
 
+    const previousParentId = record.parentId ?? null
+    const previousDescendantIds = readDescendantIds(record.descendantIds)
+
     if (parsed.parentId !== undefined) {
       const requestedParent = parsed.parentId ? String(parsed.parentId) : null
       const safeParent = requestedParent && requestedParent !== record.id ? requestedParent : null
@@ -366,6 +393,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       values: custom,
     })
     const de = ctx.container.resolve('dataEngine') as DataEngine
+    const hierarchyChanged = (record.parentId ?? null) !== previousParentId
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -375,7 +403,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
-      events: categoryCrudEvents,
+      events: hierarchyChanged ? categoryHierarchyChangeEvents(previousDescendantIds) : categoryCrudEvents,
     })
     return { categoryId: record.id }
   },
@@ -463,6 +491,19 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
         organizationId: before.organizationId,
         tenantId: before.tenantId,
         values: resetValues,
+      })
+    }
+    if ((before.parentId ?? null) !== (payload?.after?.parentId ?? null)) {
+      await emitCrudUndoSideEffects({
+        dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        events: categoryHierarchyChangeEvents(readDescendantIds(payload?.after?.descendantIds)),
       })
     }
   },
@@ -607,6 +648,17 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
         values: before.custom,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: categoryHierarchyChangeEvents(readDescendantIds(before.descendantIds)),
+    })
   },
 }
 

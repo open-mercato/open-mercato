@@ -67,3 +67,10 @@
 - Omnibus MVP gate green: 8/8 TC-CAT-OMNI integration tests.
 - Pre-existing bug found by 3.9 (not fixed, out of scope): minimal-payload product-level price PUT → 403 in updatePriceCommand scope check. Follow-up issue candidate.
 - Env: executor installed Playwright chromium-headless-shell build 1228 into ~/.cache/ms-playwright (repo's playwright-core 1.61.1 needs it).
+
+## 2026-10-05T18:12:31Z — step 4.3 scope decisions
+- GIN index migration lives in **query_index** (`Migration20261005201500_query_index`), not catalog as the step text suggested: modules migrate alphabetically, so on a fresh DB a catalog migration runs before query_index creates `entity_indexes` (and CREATE INDEX CONCURRENTLY cannot be wrapped in a DO-block existence check). This matches the spec §3.3 ownership table. Manual DDL, not in any snapshot; guard test in `catalog/__tests__/product-scope-keys-index.test.ts`.
+- Reindex triggers: persistent subscribers on `catalog.category.updated` (only when the payload carries `hierarchyChanged: true`) and `catalog.category.deleted`. The category update command now adds `hierarchyChanged` + `previousDescendantIds` to the payload on a parent change (additive); category update/delete **undo** now emit `catalog.category.updated` with `hierarchyChanged` (previously emitted nothing). Subtree ≤ 500 products → per-product `query_index.upsert_one` from the worker; above → one scoped `query_index.reindex` job.
+- Product assignment edits need nothing extra: they go through product commands, which already emit with `productCrudIndexer`.
+- Tag deletion has no event (R16): covered by the next product reindex / periodic coverage only.
+- Spec sync list: `scope_keys` backfill per existing tenant = `yarn mercato query_index reindex --entity catalog:catalog_product --tenant <tenantId>` (omit `--tenant` for all tenants); until it completes, docs lack `scope_keys` and `isProductScopeIndexed(doc)` (catalog/lib/productScopeKeys.ts) returns false → Step 4.4 must fail closed.
