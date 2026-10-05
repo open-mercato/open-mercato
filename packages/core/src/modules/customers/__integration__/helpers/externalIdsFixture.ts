@@ -1,11 +1,10 @@
 import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import { MikroORM } from '@mikro-orm/postgresql'
 import type { SyncExternalIdMapping as ExternalIdMappingEntity } from '@open-mercato/core/modules/integrations/data/entities'
 import { resolveIntegrationDatabaseUrl } from '@open-mercato/core/helpers/integration/dbFixtures'
 
-const { SyncExternalIdMapping } = createRequire(import.meta.url)('@open-mercato/core/modules/integrations/data/entities') as {
-  SyncExternalIdMapping: new () => ExternalIdMappingEntity
-}
+const integrationEntitiesPath = createRequire(import.meta.url).resolve('@open-mercato/core/modules/integrations/data/entities')
 
 export async function createExternalIdsFixture(input: {
   organizationId: string
@@ -20,6 +19,9 @@ export async function createExternalIdsFixture(input: {
   }
   if (!input.organizationId || !input.tenantId) {
     throw new Error('[internal] Scoped integration fixtures require token organization and tenant IDs')
+  }
+  const { SyncExternalIdMapping } = await import(pathToFileURL(integrationEntitiesPath).href) as {
+    SyncExternalIdMapping: new () => ExternalIdMappingEntity
   }
   const orm = await MikroORM.init({ entities: [SyncExternalIdMapping], clientUrl: resolveIntegrationDatabaseUrl() })
   const em = orm.em.fork()
