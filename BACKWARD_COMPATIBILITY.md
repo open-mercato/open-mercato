@@ -502,3 +502,13 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
 
 **Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
+
+### 2026-10-01 — Passkey enrollment requires a verified WebAuthn registration response (#6800)
+
+**Surface:** `PUT /api/security/mfa/provider/passkey` confirmation payload, **STABLE** API request contract.
+
+**Emergency Security Exception requested; named human maintainer acknowledgment is pending and required before merge.** The removed `{ credentialId, publicKey, challenge }` shape persisted an arbitrary caller-supplied public key after comparing a disclosed setup challenge. Accepting that shape alongside the verified registration path would retain the vulnerability throughout any bridge release; no fallback or opt-in can safely preserve it. Only this unverified enrollment shape is removed. Existing registration settings and signed authentication remain unchanged.
+
+Clients must submit `{ setupId, payload: { response, label? } }`, where `response` comes from the browser's WebAuthn registration ceremony using the options returned by POST setup. Legacy and malformed outer confirmation payloads return HTTP 400 without activating a method. Existing stored keys remain usable with signed assertions, but their enrollment provenance may be uncertain; operators must assess exposure and arrange trusted re-enrollment where needed, with recovery access preserved.
+
+See [the enrollment specification](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md) and the 0.8.0 → 0.8.1 section of [UPGRADE_NOTES.md](UPGRADE_NOTES.md). Original report and proof of concept: @Sawarz (#5296, #6710). Automated reviews cannot acknowledge this waiver.
