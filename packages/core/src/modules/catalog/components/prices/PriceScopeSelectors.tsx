@@ -164,9 +164,11 @@ export function PriceCustomerSelect({
 export function PriceChannelSelect({
   value,
   onChange,
+  disabled,
 }: {
   value: string
   onChange: (next: string) => void
+  disabled?: boolean
 }) {
   const t = useT()
   const mapItem = React.useCallback((item: RemoteItem): ComboboxOption | null => {
@@ -180,6 +182,7 @@ export function PriceChannelSelect({
     <ComboboxInput
       value={value}
       onChange={onChange}
+      disabled={disabled}
       allowCustomValues={false}
       clearable
       placeholder={t('catalog.prices.select.channel.placeholder', 'Select a channel…')}
@@ -192,9 +195,13 @@ export function PriceChannelSelect({
 export function PricePriceKindSelect({
   value,
   onChange,
+  disabled,
+  clearable,
 }: {
   value: string
   onChange: (next: string) => void
+  disabled?: boolean
+  clearable?: boolean
 }) {
   const t = useT()
   const mapItem = React.useCallback((item: RemoteItem): ComboboxOption | null => {
@@ -208,7 +215,9 @@ export function PricePriceKindSelect({
     <ComboboxInput
       value={value}
       onChange={onChange}
+      disabled={disabled}
       allowCustomValues={false}
+      clearable={clearable}
       placeholder={t('catalog.prices.select.priceKind.placeholder', 'Select a price kind…')}
       loadSuggestions={(query) => loadOptions('/api/catalog/price-kinds', buildLookupParams(query, '20'), mapItem)}
       resolveLabel={(id) => resolveOne('/api/catalog/price-kinds', 'id', id, mapItem)}

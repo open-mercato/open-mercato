@@ -15,6 +15,7 @@ import {
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { ProductMediaManager } from './ProductMediaManager'
 import { MetadataEditor } from './MetadataEditor'
+import { PriceEditorOmnibusRow } from '../PriceEditorOmnibusRow'
 import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
@@ -444,6 +445,13 @@ export function VariantPricesSection({
                   onChange={(event) => updatePrice(kind.id, { amount: event.target.value })}
                   placeholder="0.00"
                 />
+                {values.id && draft?.priceId ? (
+                  <PriceEditorOmnibusRow
+                    variantId={values.id}
+                    priceKindId={kind.id}
+                    currencyCode={draft.currencyCode ?? kind.currencyCode}
+                  />
+                ) : null}
               </div>
             )
           })
