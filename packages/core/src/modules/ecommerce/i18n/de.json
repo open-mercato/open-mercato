@@ -3,5 +3,16 @@
   "ecommerce.notifications.store.assortmentEmpty.body": "Die Bereiche von Kanal und Kundengruppe lassen diesen Käufern keine sichtbaren Produkte.",
   "ecommerce.notifications.store.assortmentEmpty.title": "Shop-Sortiment ist für einige Käufer leer",
   "ecommerce.notifications.store.channelBindingMissing.body": "Der Storefront kann keine Anfragen bedienen, bis eine Standard-Kanalbindung konfiguriert ist.",
-  "ecommerce.notifications.store.channelBindingMissing.title": "Shop hat keinen Standard-Vertriebskanal"
+  "ecommerce.notifications.store.channelBindingMissing.title": "Shop hat keinen Standard-Vertriebskanal",
+  "ecommerce.validation.borderRadiusInvalid": "Der Eckenradius muss 0 oder ein Wert in rem (bis 5rem) oder px (bis 80px) sein.",
+  "ecommerce.validation.codeInvalid": "Der Code darf nur Kleinbuchstaben, Ziffern, Bindestriche und Unterstriche enthalten.",
+  "ecommerce.validation.colorInvalid": "Die Farbe muss ein OKLCH-Wert wie oklch(0.3 0.15 270) oder ein Hex-Wert wie #1a2b3c sein.",
+  "ecommerce.validation.currencyCodeInvalid": "Der Währungscode muss ein dreistelliger ISO-Code sein, zum Beispiel EUR.",
+  "ecommerce.validation.defaultLocaleNotSupported": "Die Standardsprache muss zu den unterstützten Sprachen gehören.",
+  "ecommerce.validation.fontNotAllowed": "Wählen Sie eine Schriftart aus der Liste der verfügbaren Schriftarten.",
+  "ecommerce.validation.localeInvalid": "Die Sprache muss ein Sprachcode wie en oder en-US sein.",
+  "ecommerce.validation.localesDuplicate": "Jede unterstützte Sprache darf nur einmal aufgeführt werden.",
+  "ecommerce.validation.pathPrefixInvalid": "Das Pfadpräfix darf nur Kleinbuchstaben, Ziffern, Bindestriche und Schrägstriche enthalten, zum Beispiel /shop.",
+  "ecommerce.validation.slugInvalid": "Der Slug darf nur Kleinbuchstaben, Ziffern und einzelne Bindestriche dazwischen enthalten.",
+  "ecommerce.validation.urlInvalid": "Geben Sie eine gültige http(s)-URL oder einen mit / beginnenden Pfad ein."
 }

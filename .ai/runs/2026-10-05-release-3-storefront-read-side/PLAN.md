@@ -27,8 +27,8 @@
 | 1 | 1.4 | customer_groups multi-id resolution (customerIds input) | dispatch:capable | done | 8904e86e46 |
 | 1 | 1.5 | customer_groups CustomerGroupTerms.assortment_scope column + stub replacement | dispatch:standard | done | fe885074f9 |
 | 1 | 1.6 | Generate + review customer_groups assortment_scope migration | inline | done | 068dda8806 |
-| 2 | 2.1 | Scaffold ecommerce module (index, acl, setup, di, events, i18n, modules.ts) | inline | done | pending |
-| 2 | 2.2 | ecommerce entities + validators | dispatch:standard | todo | — |
+| 2 | 2.1 | Scaffold ecommerce module (index, acl, setup, di, events, i18n, modules.ts) | inline | done | 384a10d53e |
+| 2 | 2.2 | ecommerce entities + validators | dispatch:standard | done | pending |
 | 2 | 2.3 | Generate + review ecommerce migration | inline | todo | — |
 | 2 | 2.4 | Admin CRUD routes: stores, domain bindings, channel bindings | dispatch:standard | todo | — |
 | 2 | 2.5 | lib/cacheKeys.ts typed storefront cache + structural guard test | dispatch:capable | todo | — |

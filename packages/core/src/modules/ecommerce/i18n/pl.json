@@ -3,5 +3,16 @@
   "ecommerce.notifications.store.assortmentEmpty.body": "Zakresy kanału i grupy klientów nie zostawiają tym kupującym żadnych widocznych produktów.",
   "ecommerce.notifications.store.assortmentEmpty.title": "Asortyment sklepu jest pusty dla części kupujących",
   "ecommerce.notifications.store.channelBindingMissing.body": "Sklep nie obsłuży żądań, dopóki nie zostanie skonfigurowane domyślne powiązanie z kanałem.",
-  "ecommerce.notifications.store.channelBindingMissing.title": "Sklep nie ma domyślnego kanału sprzedaży"
+  "ecommerce.notifications.store.channelBindingMissing.title": "Sklep nie ma domyślnego kanału sprzedaży",
+  "ecommerce.validation.borderRadiusInvalid": "Promień zaokrąglenia musi wynosić 0 lub być wartością w rem (do 5rem) albo px (do 80px).",
+  "ecommerce.validation.codeInvalid": "Kod może zawierać tylko małe litery, cyfry, myślniki i podkreślenia.",
+  "ecommerce.validation.colorInvalid": "Kolor musi być wartością OKLCH, np. oklch(0.3 0.15 270), lub wartością szesnastkową, np. #1a2b3c.",
+  "ecommerce.validation.currencyCodeInvalid": "Kod waluty musi być trzyliterowym kodem ISO, np. EUR.",
+  "ecommerce.validation.defaultLocaleNotSupported": "Domyślny język musi należeć do obsługiwanych języków.",
+  "ecommerce.validation.fontNotAllowed": "Wybierz czcionkę z listy dostępnych czcionek.",
+  "ecommerce.validation.localeInvalid": "Język musi być kodem języka, np. en lub en-US.",
+  "ecommerce.validation.localesDuplicate": "Każdy obsługiwany język może wystąpić tylko raz.",
+  "ecommerce.validation.pathPrefixInvalid": "Prefiks ścieżki może zawierać tylko małe litery, cyfry, myślniki i ukośniki, np. /shop.",
+  "ecommerce.validation.slugInvalid": "Slug może zawierać tylko małe litery, cyfry i pojedyncze myślniki między nimi.",
+  "ecommerce.validation.urlInvalid": "Podaj prawidłowy adres URL http(s) lub ścieżkę zaczynającą się od /."
 }

@@ -3,5 +3,16 @@
   "ecommerce.notifications.store.assortmentEmpty.body": "Los alcances del canal y del grupo de clientes no dejan productos visibles para estos compradores.",
   "ecommerce.notifications.store.assortmentEmpty.title": "El surtido de la tienda está vacío para algunos compradores",
   "ecommerce.notifications.store.channelBindingMissing.body": "La tienda no puede atender solicitudes hasta que se configure una vinculación de canal predeterminada.",
-  "ecommerce.notifications.store.channelBindingMissing.title": "La tienda no tiene un canal de venta predeterminado"
+  "ecommerce.notifications.store.channelBindingMissing.title": "La tienda no tiene un canal de venta predeterminado",
+  "ecommerce.validation.borderRadiusInvalid": "El radio de las esquinas debe ser 0 o un valor en rem (hasta 5rem) o px (hasta 80px).",
+  "ecommerce.validation.codeInvalid": "El código solo puede contener letras minúsculas, dígitos, guiones y guiones bajos.",
+  "ecommerce.validation.colorInvalid": "El color debe ser un valor OKLCH como oklch(0.3 0.15 270) o un valor hexadecimal como #1a2b3c.",
+  "ecommerce.validation.currencyCodeInvalid": "El código de moneda debe ser un código ISO de tres letras, por ejemplo EUR.",
+  "ecommerce.validation.defaultLocaleNotSupported": "El idioma predeterminado debe estar entre los idiomas admitidos.",
+  "ecommerce.validation.fontNotAllowed": "Elige una fuente de la lista de fuentes disponibles.",
+  "ecommerce.validation.localeInvalid": "El idioma debe ser un código de idioma como en o en-US.",
+  "ecommerce.validation.localesDuplicate": "Cada idioma admitido solo puede aparecer una vez.",
+  "ecommerce.validation.pathPrefixInvalid": "El prefijo de ruta solo puede contener letras minúsculas, dígitos, guiones y barras, por ejemplo /shop.",
+  "ecommerce.validation.slugInvalid": "El slug solo puede contener letras minúsculas, dígitos y guiones simples entre ellos.",
+  "ecommerce.validation.urlInvalid": "Introduce una URL http(s) válida o una ruta que empiece por /."
 }

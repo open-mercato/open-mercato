@@ -3,5 +3,16 @@
   "ecommerce.notifications.store.assortmentEmpty.body": "The channel and customer group scopes leave these buyers with no visible products.",
   "ecommerce.notifications.store.assortmentEmpty.title": "Store assortment is empty for some buyers",
   "ecommerce.notifications.store.channelBindingMissing.body": "The storefront cannot serve requests until a default channel binding is configured.",
-  "ecommerce.notifications.store.channelBindingMissing.title": "Store has no default sales channel"
+  "ecommerce.notifications.store.channelBindingMissing.title": "Store has no default sales channel",
+  "ecommerce.validation.borderRadiusInvalid": "Corner radius must be 0 or a value in rem (up to 5rem) or px (up to 80px).",
+  "ecommerce.validation.codeInvalid": "Code may contain only lowercase letters, digits, dashes and underscores.",
+  "ecommerce.validation.colorInvalid": "Colour must be an OKLCH value such as oklch(0.3 0.15 270) or a hex value such as #1a2b3c.",
+  "ecommerce.validation.currencyCodeInvalid": "Currency code must be a three-letter ISO code, for example EUR.",
+  "ecommerce.validation.defaultLocaleNotSupported": "The default locale must be one of the supported locales.",
+  "ecommerce.validation.fontNotAllowed": "Choose a font from the list of available fonts.",
+  "ecommerce.validation.localeInvalid": "Locale must be a language code such as en or en-US.",
+  "ecommerce.validation.localesDuplicate": "Each supported locale may be listed only once.",
+  "ecommerce.validation.pathPrefixInvalid": "Path prefix may contain only lowercase letters, digits, dashes and slashes, for example /shop.",
+  "ecommerce.validation.slugInvalid": "Slug may contain only lowercase letters, digits and single dashes between them.",
+  "ecommerce.validation.urlInvalid": "Enter a valid http(s) URL or a path starting with /."
 }
