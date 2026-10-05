@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
+
+`directory.organizations.update` (and so `PUT /api/directory/organizations` and
+`PUT /api/directory/organization-branding`) used to read an omitted `parentId` as "no parent" and an
+omitted `childIds` as "no children". Any partial update — including saving a sidebar logo — moved the
+organization to the top level and detached all of its children. Both fields are now left untouched
+when they are absent from the input, like every other field of the command.
+
+- To detach an organization from its parent send `parentId: null`; to remove its children send
+  `childIds: []`. Both worked before and still do.
+- A caller that relied on omission to clear the hierarchy must send those explicit values.
+- A request that sends `childIds` without `parentId` and lists the organization's current parent is
+  rejected with `400 Child cannot equal parent`.
+
+This does not repair trees that were already flattened. An affected `directory.organization` update
+in the audit log either lists `parentId` among its changes although only branding or name fields were
+edited, or — for a top-level organization that only lost its children — differs between the `before`
+and `after` `childParents` of its undo snapshot (the detached children get no log entry of their own).
+Re-assign the parent or the children on the organization edit page.
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
@@ -110,6 +130,25 @@ them in place would have flipped several translated strings to outdated text the
 precedence change landed. If you maintain a fork with its own `apps/<host>/src/i18n/*.json`, audit
 it the same way before upgrading: a key that duplicates a module key with a different value now
 silently wins, for better or for worse.
+
+### `CrudForm` now submits injected fields that reuse a host field id (PR #6709)
+
+A `crud-form:<entityId>:fields` injected field whose `id` matches a field the host form already
+declares replaces the host's input for that field (the injected entry wins the id lookup). Until
+now `CrudForm` still stripped every injected field id from the host payload before schema
+validation and `onSubmit`, so such an override silently dropped the edited value — the host
+received the stale initial value (or nothing). `CrudForm` now strips only **injected-only** ids
+(no host-declared counterpart); an injected field that reuses a host id is treated as the host
+field: its value reaches schema validation and the host `onSubmit` payload, and a dot-path id
+(e.g. `metadata.channel`) is collapsed into its nested shape like any declared dot-path field.
+Injected-only fields are unchanged: still stripped from the host payload and still delivered to
+widgets through `onBeforeSave`/`onSave`.
+
+**Action for module authors:** none if your injected field ids are unique (the common case). If
+a widget deliberately reuses a host field id, the host's `onSubmit` now receives that field's
+value — make sure the value matches what the host schema expects. If a widget reused a host id
+only by accident and persists the value itself in `onSave`, rename the injected field id so the
+host does not also submit it.
 
 ### `ChannelAdapter.fetchHistory` receives `scope.organizationId: null` for a channel with no organization (#6331)
 
