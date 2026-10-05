@@ -153,6 +153,44 @@ describe('messages sent subscriber', () => {
     )
   })
 
+  it('never notifies or emails the system user, so a channel reply is still delivered (#6391)', async () => {
+    const systemUserId = '00000000-0000-0000-0000-000000000000'
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'operator-1',
+      recipientUserIds: [systemUserId, 'u1'],
+      sendViaEmail: true,
+      externalEmail: 'customer@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(buildBatchNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ recipientUserIds: ['u1'] }),
+    )
+    expect(enqueueMock).toHaveBeenCalledTimes(2)
+    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: systemUserId }))
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external', email: 'customer@example.com' }))
+  })
+
+  it('skips the notification batch when the system user was the only recipient (#6391)', async () => {
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'operator-1',
+      recipientUserIds: ['00000000-0000-0000-0000-000000000000'],
+      sendViaEmail: true,
+      externalEmail: 'customer@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(createBatchMock).not.toHaveBeenCalled()
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external', email: 'customer@example.com' }))
+  })
+
   it('uses local strategy by default', async () => {
     await handle({
       messageId: 'message-1',

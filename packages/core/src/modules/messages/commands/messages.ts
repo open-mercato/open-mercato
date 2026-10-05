@@ -18,7 +18,7 @@ import {
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
-import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID } from '../lib/constants'
+import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -779,24 +779,29 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowReply === false) throw new Error('Reply is not allowed for this message type')
 
+    // The system sender is not a person: replying to it would address nobody
+    // and fail the `messages.message.sent` notification for the whole event
+    // (#6391). A channel reply reaches its correspondent through the thread's
+    // external address and channel, not through a platform recipient.
+    const isReplyRecipient = (userId: string) => userId !== input.userId && userId !== SYSTEM_SENDER_USER_ID
     const recipientIds = new Set(
       (input.recipients ?? [])
         .map((recipient) => recipient.userId)
-        .filter((recipientUserId) => recipientUserId !== input.userId),
+        .filter(isReplyRecipient),
     )
 
     if (recipientIds.size === 0) {
       const originalRecipients = await em.find(MessageRecipient, { messageId: original.id, deletedAt: null })
       if (input.replyAll) {
-        if (original.senderUserId !== input.userId) recipientIds.add(original.senderUserId)
+        if (isReplyRecipient(original.senderUserId)) recipientIds.add(original.senderUserId)
         for (const recipient of originalRecipients) {
-          if (recipient.recipientUserId !== input.userId) recipientIds.add(recipient.recipientUserId)
+          if (isReplyRecipient(recipient.recipientUserId)) recipientIds.add(recipient.recipientUserId)
         }
       } else if (original.senderUserId !== input.userId) {
-        recipientIds.add(original.senderUserId)
+        if (isReplyRecipient(original.senderUserId)) recipientIds.add(original.senderUserId)
       } else {
         for (const recipient of originalRecipients) {
-          if (recipient.recipientUserId !== input.userId) {
+          if (isReplyRecipient(recipient.recipientUserId)) {
             recipientIds.add(recipient.recipientUserId)
             break
           }
@@ -807,7 +812,8 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         recipientIds.add(input.userId)
       }
     }
-    if (recipientIds.size === 0) throw new Error('No recipients available for reply')
+    const repliesExternally = original.visibility === 'public' || Boolean(original.externalEmail?.trim())
+    if (recipientIds.size === 0 && !repliesExternally) throw new Error('No recipients available for reply')
 
     let messageId = ''
     let responseExternalEmail: string | null = null

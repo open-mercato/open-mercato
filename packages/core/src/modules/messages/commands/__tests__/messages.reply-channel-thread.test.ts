@@ -238,6 +238,97 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
   })
 
+  describe('reply recipients (#6391)', () => {
+    function recipientRows(trx: { create: jest.Mock }) {
+      return trx.create.mock.calls
+        .filter(([entity]) => entity === MessageRecipient)
+        .map(([, data]) => (data as { recipientUserId: string }).recipientUserId)
+    }
+
+    function sentEventPayload() {
+      const call = emitMessagesEventMock.mock.calls.find(([eventId]) => eventId === 'messages.message.sent') as
+        | [string, { recipientUserIds: string[]; externalEmail: string | null }]
+        | undefined
+      return call?.[1]
+    }
+
+    function withAssignedOperator(container: ReturnType<typeof makeContainer>['container'], message: Record<string, unknown>) {
+      const emFork = (container.resolve('em') as { fork: () => { findOne: jest.Mock; find: jest.Mock } }).fork()
+      emFork.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === Message && where.id === inboundMessageId) return message
+        if (entity === MessageRecipient) return { messageId: inboundMessageId, recipientUserId: operatorUserId }
+        return null
+      })
+      emFork.find.mockResolvedValue([{ messageId: inboundMessageId, recipientUserId: operatorUserId }])
+    }
+
+    it('never addresses the channel system user when replying to an inbound message', async () => {
+      const command = commandRegistry.get('messages.messages.reply')
+      const { container, trx } = makeContainer(grantedThread())
+      withAssignedOperator(container, { ...inboundMessage, externalEmail: 'customer@example.com' })
+
+      const result = await command!.execute(
+        { ...replyInput(), sendViaEmail: true },
+        commandCtx(container, ['messages.compose']) as never,
+      )
+
+      expect(recipientRows(trx)).toEqual([])
+      expect((result as { recipientUserIds: string[] }).recipientUserIds).toEqual([])
+      expect(sentEventPayload()).toEqual(expect.objectContaining({
+        recipientUserIds: [],
+        externalEmail: 'customer@example.com',
+      }))
+    })
+
+    it('drops the channel system user from a reply-all', async () => {
+      const command = commandRegistry.get('messages.messages.reply')
+      const { container, trx } = makeContainer(grantedThread())
+      withAssignedOperator(container, inboundMessage)
+      const emFork = (container.resolve('em') as { fork: () => { find: jest.Mock } }).fork()
+      emFork.find.mockResolvedValue([
+        { messageId: inboundMessageId, recipientUserId: operatorUserId },
+        { messageId: inboundMessageId, recipientUserId: otherOperatorUserId },
+      ])
+
+      await command!.execute(
+        { ...replyInput(), replyAll: true },
+        commandCtx(container, ['messages.compose']) as never,
+      )
+
+      expect(recipientRows(trx)).toEqual([otherOperatorUserId])
+      expect(sentEventPayload()?.recipientUserIds).toEqual([otherOperatorUserId])
+    })
+
+    it('drops the system user even when it is passed as an explicit recipient', async () => {
+      const command = commandRegistry.get('messages.messages.reply')
+      const { container, trx } = makeContainer(grantedThread())
+      withAssignedOperator(container, inboundMessage)
+
+      await command!.execute(
+        { ...replyInput(), recipients: [{ userId: systemUserId, type: 'to' as const }] },
+        commandCtx(container, ['messages.compose']) as never,
+      )
+
+      expect(recipientRows(trx)).toEqual([])
+    })
+
+    it('still refuses a reply to an internal system message that would address nobody', async () => {
+      const command = commandRegistry.get('messages.messages.reply')
+      const { container, trx } = makeContainer(null)
+      withAssignedOperator(container, {
+        ...inboundMessage,
+        visibility: null,
+        sourceEntityType: 'inbox_ops.proposal',
+        externalEmail: null,
+      })
+
+      await expect(
+        command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never),
+      ).rejects.toThrow('No recipients available for reply')
+      expect(trx.create).not.toHaveBeenCalled()
+    })
+  })
+
   describe('messages.messages.forward (#6355)', () => {
     function forwardInput() {
       return {
