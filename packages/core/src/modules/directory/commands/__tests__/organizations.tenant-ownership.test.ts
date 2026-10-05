@@ -577,7 +577,7 @@ describe('directory organization command tenant ownership', () => {
     const ctx = makeContext(harness)
     primeChangedCustomFieldSnapshots()
     const { logEntry } = await bus.execute('directory.organizations.update', {
-      input: { id: TARGET_ID, name: 'Updated before removal' },
+      input: { id: TARGET_ID, name: 'Updated before removal', childIds: [] },
       ctx,
     })
     if (!logEntry) throw new Error('[internal] Expected an undoable action log')
