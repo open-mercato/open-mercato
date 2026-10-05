@@ -88,6 +88,8 @@ const moduleEntities: Record<string, string[]> = {
   ],
   messages: ['Message'],
   notifications: ['NotificationTypeOverride', 'NotificationPreference'],
+  availability: ['AvailabilityPolicy'],
+  customer_groups: ['CustomerGroup', 'CustomerGroupTerms'],
 }
 
 function readEntitySource(moduleId: string): string {
@@ -189,6 +191,8 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   WorkflowDefinition: ['workflows/api/definitions/[id]/route.ts'],
   Organization: ['directory/api/organizations/route.ts'],
   Tenant: ['directory/api/tenants/route.ts'],
+  // CustomerGroupTerms — hand-written upsert route; the lock is enforced via
+  // `enforceCommandOptimisticLock` (case c).
 }
 
 function entityHasDeletedAt(moduleId: string, className: string): boolean {
