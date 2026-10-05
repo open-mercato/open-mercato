@@ -253,8 +253,9 @@ disposition live in [`.ai/analysis/forms-security-review.md`](../analysis/forms-
 ## Security findings fixed during the migration
 
 A dedicated review of the module's anonymous surface
-([`forms-security-review.md`](../analysis/forms-security-review.md)) raised two Criticals and four
-Highs. Four are fixed here; the ranked remainder stays in that document.
+([`forms-security-review.md`](../analysis/forms-security-review.md)) raised two Criticals, four
+Highs, and seven Mediums. The review document preserves the original evidence; all Critical, High,
+and Medium findings were resolved in this PR before the final review pass.
 
 | Sev | Finding | Fix |
 |---|---|---|
@@ -262,6 +263,14 @@ Highs. Four are fixed here; the ranked remainder stays in that document.
 | Critical | `getCurrent` guarded slicing with `if (args.viewerRole)`, so a null role meant "do not slice" rather than "no access"; `resolveRuntimePrincipal` emitted `role: null` for **every** customer session, so a portal customer needed only a submission UUID to read another customer's answers fully decrypted, plus its PDF and attachments | slicing is unconditional and resolves a sentinel no field can declare when no role is named; the customer branch resolves the caller's active actor row — the same authorization `save()` requires — and denies when there is none |
 | High | `z.string().url()` accepts `javascript:`, `data:` and `vbscript:`, and a distribution's `redirect_url` reaches `window.location.href` on the anonymous runner in the app's own origin under a CSP allowing `'unsafe-inline'` — stored XSS against every respondent | new `lib/navigable-url.ts` http/https-only policy, enforced in the validator **and** re-checked at both navigation sinks (pre-existing rows, and `x-om-redirect-url` which no validator covers) |
 | High | `submit()` never checked the actor row `save()` requires, so a caller who may not edit a submission could freeze someone else's draft | same actor lookup added |
+| High | anonymous starts created four durable rows per request while the limiter trusted raw `X-Forwarded-For` and failed open | the limiter now uses the platform's trusted-proxy depth, hashes resource identifiers, fails closed on unavailable/degraded service, and covers the public read/write routes |
+| High | uploads buffered the entire multipart body before authenticating and before applying the configured file ceiling | principal resolution now precedes body reads; declared and streamed body sizes are bounded before multipart parsing |
+| Medium | CAPTCHA-enabled distributions accepted any non-empty token when no provider was configured | the missing-provider sentinel and public start gate now fail closed with `CAPTCHA_UNAVAILABLE` |
+| Medium | user-controlled attachment content types were returned without the platform's sandbox download policy | participant attachments and generated PDFs now return a sandbox CSP and `nosniff` |
+| Medium | `by-key/:key/active` returned a role-sliced field index beside the unsliced raw schema/UI schema and invented three portal roles | both schemas are sliced to the same key set, and non-admin callers receive only the schema's declared default actor role |
+| Medium | anonymisation and retention left uploaded bytes, PDF snapshots, invitation PII, and submit metadata recoverable | anonymisation now clears attachment payloads/metadata, the snapshot reference, invitation PII, and submit metadata; retention scans with a stable keyset cursor |
+| Medium | Ajv evaluated all errors over uncapped values and authored regexes used the blocking JavaScript engine | submission payloads are capped, runtime Ajv short-circuits, and pattern checks use the shared RE2-compatible linear-time engine |
+| Medium | non-production encryption silently derived a wrap key from a repository-known fallback seed | local/dev encryption now requires an explicit `FORMS_ENCRYPTION_KMS_KEY_ID` when no master key or injected KMS adapter exists |
 
 One clarification worth recording against the review's **M6 (ReDoS through `x-om-pattern`)**,
 because the code reads as if it were already mitigated: `field-validation-service` does have a
@@ -281,13 +290,10 @@ Demonstrated incidentally by this module's own test suite: the single
 to bound the pattern (reject catastrophic backtracking at publish time) or the engine (RE2-style),
 not lean on that timer.
 
-Still open in that document and **not** fixed here: `public/start` creating four rows per
-unauthenticated request against a cap that counts only submits; the public upload route buffering
-the whole body before authenticating; the spoofable/fail-open rate limiter and presence-only
-CAPTCHA; attachment downloads missing the sandbox CSP the platform gives
-`/api/attachments/file/*`; incomplete GDPR erasure (attachments, PDF snapshots and invitation PII
-survive anonymize + retention); and `allErrors: true` on Ajv over an uncapped patch. Each needs its
-own change with integration coverage.
+The original review also called out the JavaScript regex timeout as a false mitigation: measuring
+elapsed time after `RegExp.test()` cannot interrupt catastrophic backtracking. The final fix moves
+runtime and authoring checks to the shared linear-time regex engine, preserving pattern validation
+without blocking the event loop.
 
 The review flagged H1 as a possible repo-wide trap, since `z.string().url()` accepting script
 schemes is not forms-specific. **Swept, and forms was the only module affected.** All eleven
@@ -355,31 +361,24 @@ root `AGENTS.md` forbids — so the follow-up should either extend the proxy wit
 module-declared response-header contract, or accept a documented exception with the same justification
 as `next.config.ts`'s existing `/api/attachments/file/:path*` block.
 
-### The module implements no optimistic locking (follow-up)
+### Optimistic locking is enforced on the three user-editable aggregates
 
 Root `AGENTS.md` requires optimistic locking on every new user-editable entity and edit/delete form,
-default ON. Forms does not have it: the entities carry `updated_at`, but every write route is
-hand-written rather than built with `makeCrudRoute`, so the framework's default-on path
-(`OM_OPTIMISTIC_LOCK`) never reaches them, and no route reads
-`buildOptimisticLockHeader` / `enforceCommandOptimisticLock`. A concurrent edit of a form
-definition, distribution or invitation therefore silently last-writes-wins.
+default ON. Forms uses hand-written command routes rather than `makeCrudRoute`, so the migration now
+wires the command-level async guard explicitly for `Form`, `FormVersion`, and `FormDistribution`.
+The custom admin callers send the loaded record's `updatedAt` token and surface the shared conflict
+bar on a 409. A stale form rename/archive, distribution update/close, or draft update/publish/archive
+therefore cannot silently overwrite a newer write.
 
-Not fixed here. Retrofitting it means touching ~15 write routes plus their commands and the
-corresponding UI surfaces, each needing its own 409 path and conflict bar — a change comparable in
-size to the rest of this migration, and one that alters observable behaviour on every admin write.
-It belongs in its own PR with its own tests.
+`TC-FORMS-LOCK-001` exercises the OSS floor end to end: one PATCH with the current token succeeds,
+then reusing the stale token returns the unified 409 body with current and expected versions while
+preserving the first value. Static coverage maps the three aggregates to their resource kinds so a
+future command cannot silently drop the guard.
 
-One thing bounds the risk: the highest-churn surface — submission autosave — already has a
-domain-specific equivalent, `base_revision_id`, checked server-side with a `STALE_BASE` 409.
-
-**Form-version drafts have no concurrency control at all**, and it is worth stating plainly because
-an earlier draft of this spec implied otherwise. `forms.form_version.update_draft` accepts no
-expected version, overwrites the draft wholesale, and then recomputes `schemaHash` from what it just
-wrote — so the hash is a pure function of the caller's own write and is never compared against
-anything. Two designers on one draft silently last-write-wins and neither is told. A per-write
-expected-version header is genuinely the wrong mechanism for a debounced autosave editor (a 409
-raised mid-typing has no sensible recovery), so this needs a signal designed for that shape rather
-than the standard header — which is exactly why it is deferred rather than bolted on.
+Submission autosave remains intentionally separate. Revisions are append-only and already carry the
+domain-specific `base_revision_id`; a stale save returns `STALE_BASE` 409. Invitations are lifecycle
+state-machine rows (create/send/revoke) rather than editable records, so their status preconditions
+remain the concurrency authority.
 
 ### A service-resolution failure answers an empty 500 (follow-up)
 
@@ -430,6 +429,9 @@ is static, so failing the boot with one clear message beats thirty runtime 500s.
 
 ## Changelog
 
+- 2026-10-05 — Review autofix resolved the conflict with `develop`, all Critical/High/Medium
+  security findings, missing aggregate optimistic locking, public schema leakage, and disabled
+  browser coverage; final validation and browser evidence remain in progress.
 - 2026-09-30 — Spec created alongside the in-progress migration. Vendoring, app registration,
   react-table drift, i18n keys, injection-host declaration and the lucide registry are done;
   migrations validity, the security and DS findings, integration coverage, browser QA and the code
