@@ -28,3 +28,9 @@
 
 ## 2026-10-05T12:01:57Z — checkpoint 2 (steps 2.1–2.4-fix)
 - ecommerce scaffold, entities, migration, admin CRUD green: typecheck core, 307 core tests, i18n sync, template parity.
+
+## 2026-10-05T12:15:58Z — implementation decisions (2.6)
+- Dangling binding (R3): a hard-deleted DomainMapping drops its hostname, so on the request path it is indistinguishable from an unknown host (resolveByHostname → null → 404, logged `reason=domain_mapping_not_active`). The "domain removed" diagnostic must come from the admin Domains tab (findById null) and/or the 2.9 `customer_accounts.domain_mapping.deleted` subscriber, which knows both host and id. Resolver logs distinct 404 reasons (`domain_binding_not_found`, `domain_routing_unavailable`, `slug_ambiguous` at warn).
+- Path-prefix matching uses `options.pathname` when given, else the request URL pathname. The public /context route (2.8) is an API path, so it must pass the storefront page path explicitly (e.g. a `path` query param) for prefix stores to resolve.
+- Dev slug rule: slug is unique per tenant; `resolveStoreBySlug(..., { tenantId })` scopes by tenant, otherwise the slug must be unique across tenants (ambiguous → 404). No `?tenant=` param was added.
+- Resolution cache entry = all bindings of a domain mapping (key per mapping id; tags ecommerce-store:*, ecommerce-domain:{host}, ecommerce-domain-mapping:{id}); longest-prefix selection is in memory so the key does not vary by path. Empty binding lists are cached (2.9 must invalidate by the mapping tag on binding create). The 503 misconfiguration throttle is an untagged 1h resolution-cache entry.

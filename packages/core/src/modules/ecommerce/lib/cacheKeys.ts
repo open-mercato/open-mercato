@@ -99,6 +99,10 @@ export function ecommerceDomainMappingTag(domainMappingId: string): string {
   return `ecommerce-domain-mapping:${domainMappingId}`
 }
 
+export function ecommerceDomainTag(hostname: string): string {
+  return `ecommerce-domain:${hostname}`
+}
+
 export function ecommerceCustomerTag(customerId: string): string {
   return `customer:${customerId}`
 }
