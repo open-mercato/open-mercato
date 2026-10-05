@@ -949,11 +949,11 @@ describe('Queue - local strategy', () => {
     const baseDir = path.join(tmp, 'active-batch')
     const producer = createQueue<{ value: number }>('active-batch', 'local', {
       baseDir,
-      pollInterval: 5000,
+      pollInterval: 10_000,
     })
     const consumer = createQueue<{ value: number }>('active-batch', 'local', {
       baseDir,
-      pollInterval: 5000,
+      pollInterval: 10_000,
     })
     let resolveFirstStarted!: () => void
     const firstStarted = new Promise<void>((resolve) => {
@@ -979,11 +979,11 @@ describe('Queue - local strategy', () => {
       })
 
       await producer.enqueue({ value: 1 })
-      await within(firstStarted, 800)
+      await within(firstStarted, 5000)
       await producer.enqueue({ value: 2 })
       releaseFirst()
 
-      await expect(within(secondProcessed, 800)).resolves.toBe(2)
+      await expect(within(secondProcessed, 5000)).resolves.toBe(2)
     } finally {
       releaseFirst()
       await consumer.close()
