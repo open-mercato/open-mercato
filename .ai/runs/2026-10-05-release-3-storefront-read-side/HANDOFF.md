@@ -1,16 +1,16 @@
 # Handoff — 2026-10-05-release-3-storefront-read-side
 
-**Last updated:** 2026-10-05T11:05:17Z
+**Last updated:** 2026-10-05T12:01:57Z
 **Branch:** spec/storefront-release-phase0-reconciliation
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/12 (draft, claimed)
-**Current phase/step:** Phase 2 Step 2.1
-**Last commit:** 068dda8806 — feat(customer_groups): add assortment_scope column migration to group terms
+**Current phase/step:** Phase 2 Step 2.5
+**Last commit:** a0de6848be — feat(ecommerce): gate branding on store create and cascade binding deletes
 
 ## What just happened
-- Phase 1 prerequisites landed (canonical scope hash, PricingContext priceKindId/customerIds, Phase 2b price indexes, customer_groups multi-id resolution + assortment_scope column); checkpoint 1 green.
+- ecommerce module scaffold, entities, migration and admin CRUD (+ branding-on-create gate, binding cascade) landed; checkpoint 2 green.
 
 ## Next concrete action
-- Step 2.1 — scaffold the ecommerce module.
+- Step 2.5 — lib/cacheKeys.ts typed storefront cache + structural guard test.
 
 ## Blockers / open questions
 - Owner approval needed before any `yarn db:migrate` (integration suites wait for it).

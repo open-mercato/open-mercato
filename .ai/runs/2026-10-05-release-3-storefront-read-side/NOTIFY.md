@@ -25,3 +25,6 @@
 ## 2026-10-05T11:53:55Z — implementation decision (2.4-fix)
 - Store delete cascade runs in the CRUD factory's `afterDelete` hook as its own `em.transactional` (find live bindings → nativeUpdate deleted_at), with a compensating restore of the store's deleted_at if the cascade fails (customer_groups `cascadeGroupDelete` precedent). Staging binding mutations in `beforeDelete` to ride the factory's store flush would put a query (`deleteOrmEntity`'s findOne) between dirty scalars and the flush — the SPEC-018 pattern core AGENTS.md forbids. Binding `.deleted` events + query-index removal go through dataEngine.markOrmEntityChange after commit, then per-binding CRUD cache invalidation.
 - Create branding gate: non-empty `settings.branding` without `ecommerce.branding.manage` (rbacService.userHasAllFeatures, wildcard-aware, fail-closed) → 403 with a `settings.branding` field error (status 403 per SPEC-029 §verification for the branding route; field-error shape as the 2.4 PUT case).
+
+## 2026-10-05T12:01:57Z — checkpoint 2 (steps 2.1–2.4-fix)
+- ecommerce scaffold, entities, migration, admin CRUD green: typecheck core, 307 core tests, i18n sync, template parity.
