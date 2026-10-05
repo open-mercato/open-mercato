@@ -13,11 +13,14 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 // Serving routes scope by the selected-organization (#3765), not raw auth.orgId.
 // Default to the auth home org so existing assertions hold; override per test.
 type AuthStub = { orgId?: string | null }
-const mockResolveAttachmentOrganizationId = jest.fn(
-  async (_container: unknown, auth: AuthStub | null | undefined) => auth?.orgId ?? null,
+const mockResolveAttachmentRequestScope = jest.fn(
+  async (_container: unknown, auth: AuthStub | null | undefined) => ({
+    denied: false,
+    organizationId: auth?.orgId ?? null,
+  }),
 )
 jest.mock('@open-mercato/core/modules/attachments/lib/requestScope', () => ({
-  resolveAttachmentOrganizationId: (...args: unknown[]) => mockResolveAttachmentOrganizationId(...args),
+  resolveAttachmentRequestScope: (...args: unknown[]) => mockResolveAttachmentRequestScope(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
@@ -99,8 +102,11 @@ describe('attachments image route', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    mockResolveAttachmentOrganizationId.mockImplementation(
-      async (_container: unknown, auth: AuthStub | null | undefined) => auth?.orgId ?? null,
+    mockResolveAttachmentRequestScope.mockImplementation(
+      async (_container: unknown, auth: AuthStub | null | undefined) => ({
+        denied: false,
+        organizationId: auth?.orgId ?? null,
+      }),
     )
   })
 
@@ -124,7 +130,7 @@ describe('attachments image route', () => {
   it('scopes the lookup to the currently selected organization, not the uploader home org (#3765)', async () => {
     // A multi-org admin viewing a thumbnail stored under the selected org:
     // auth.orgId stays 'org-1' (home) but the request scope resolves the selected org.
-    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: 'selected-org' })
     mockEm.findOne.mockImplementationOnce(async () => null)
 
     const response = await GET(

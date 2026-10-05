@@ -7,12 +7,14 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
     mockResolveOrganizationScopeForRequest(...args),
 }))
 
-import { resolveAttachmentOrganizationId } from '../requestScope'
+import { resolveAttachmentRequestScope } from '../requestScope'
 
-const container = { resolve: jest.fn() } as unknown as Parameters<typeof resolveAttachmentOrganizationId>[0]
+const container = { resolve: jest.fn() } as unknown as Parameters<typeof resolveAttachmentRequestScope>[0]
 const request = new Request('http://x/api/attachments')
 
-describe('resolveAttachmentOrganizationId', () => {
+type Auth = Parameters<typeof resolveAttachmentRequestScope>[1]
+
+describe('resolveAttachmentRequestScope', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
@@ -26,11 +28,9 @@ describe('resolveAttachmentOrganizationId', () => {
       allowedIds: ['home-org', 'selected-org'],
       tenantId: 't1',
     })
-    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Parameters<
-      typeof resolveAttachmentOrganizationId
-    >[1]
-    const resolved = await resolveAttachmentOrganizationId(container, auth, request)
-    expect(resolved).toBe('selected-org')
+    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Auth
+    const resolved = await resolveAttachmentRequestScope(container, auth, request)
+    expect(resolved).toEqual({ denied: false, organizationId: 'selected-org' })
     expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(
       expect.objectContaining({ container, auth, request }),
     )
@@ -43,34 +43,31 @@ describe('resolveAttachmentOrganizationId', () => {
       allowedIds: null,
       tenantId: 't1',
     })
-    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Parameters<
-      typeof resolveAttachmentOrganizationId
-    >[1]
-    const resolved = await resolveAttachmentOrganizationId(container, auth, request)
-    expect(resolved).toBe('home-org')
+    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Auth
+    const resolved = await resolveAttachmentRequestScope(container, auth, request)
+    expect(resolved).toEqual({ denied: false, organizationId: 'home-org' })
   })
 
-  it('denies an explicit empty scope before any attachment data service can be resolved', async () => {
+  it('denies an explicit empty scope instead of widening back to the home organization', async () => {
+    // The deny is reported, not thrown: the file/image routes answer it with their
+    // own 404 so a foreign-tenant id stays indistinguishable from a missing one,
+    // and an uncaught CrudHttpError can never surface as a 500.
     mockResolveOrganizationScopeForRequest.mockResolvedValue({
       selectedId: null,
       filterIds: [],
       allowedIds: [],
       tenantId: 't1',
     })
-    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Parameters<
-      typeof resolveAttachmentOrganizationId
-    >[1]
+    const auth = { sub: 'u1', tenantId: 't1', orgId: 'home-org' } as Auth
 
-    await expect(resolveAttachmentOrganizationId(container, auth, request)).rejects.toMatchObject({
-      status: 403,
-      body: { error: 'Forbidden' },
-    })
+    const resolved = await resolveAttachmentRequestScope(container, auth, request)
+    expect(resolved).toEqual({ denied: true, organizationId: null })
     expect(container.resolve).not.toHaveBeenCalled()
   })
 
-  it('returns null when there is no authenticated principal', async () => {
-    const resolved = await resolveAttachmentOrganizationId(container, null, request)
-    expect(resolved).toBeNull()
+  it('returns no organization when there is no authenticated principal', async () => {
+    const resolved = await resolveAttachmentRequestScope(container, null, request)
+    expect(resolved).toEqual({ denied: false, organizationId: null })
     expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
   })
 })

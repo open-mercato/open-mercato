@@ -59,14 +59,27 @@ export function resolveActiveOrganizationId(auth: OrganizationScopedAuth): strin
   return actorOrgId
 }
 
+/**
+ * True when the caller's organization scope was resolved to an explicitly empty set
+ * (`filterIds: []` or `allowedIds: []`), i.e. the principal can see no organization at
+ * all. An empty set is deny-all and MUST NOT be widened back to the home organization.
+ *
+ * Routes that would otherwise reveal a record's existence use this to answer with their
+ * own not-found response instead of letting `resolveSingleOrganizationIdOrDeny` throw —
+ * a thrown deny leaves the route's documented status (and the existence-oracle
+ * collapse of issue #5504) up to whoever catches it.
+ */
+export function isExplicitlyEmptyOrganizationScope(scope: FiniteOrganizationScope): boolean {
+  if (!scope) return false
+  return (Array.isArray(scope.filterIds) && scope.filterIds.length === 0)
+    || (Array.isArray(scope.allowedIds) && scope.allowedIds.length === 0)
+}
+
 export function resolveSingleOrganizationIdOrDeny(
   scope: FiniteOrganizationScope,
   auth: OrganizationHomeAuth,
 ): string | null {
-  if (scope && (
-    (Array.isArray(scope.filterIds) && scope.filterIds.length === 0)
-    || (Array.isArray(scope.allowedIds) && scope.allowedIds.length === 0)
-  )) {
+  if (isExplicitlyEmptyOrganizationScope(scope)) {
     throw forbidden()
   }
   if (scope?.selectedId) return scope.selectedId
