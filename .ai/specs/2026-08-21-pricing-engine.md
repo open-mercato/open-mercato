@@ -166,7 +166,29 @@ export type PricingContext = {
 
 `quantity`/`date` stay required exactly as they are today — an earlier draft of this section incorrectly showed them as optional and dropped `| null` from the six existing optional fields; both would have been undisclosed, silently-permissive behavior changes (`matchesContext`'s range/window checks would pass on `undefined` rather than erroring) riding alongside the one currency change this spec deliberately discloses. Only `customerGroupIds` and `currencyCode` are new; every other field is untouched. This satisfies "MAY add optional fields" without narrowing anything required. The *pricing module's* own resolver (Phase 3) treats `currencyCode` as required at its own entry point and returns "no price found" rather than guessing when it's absent from a caller that opted into the stricter contract; catalog's baseline resolver keeps today's behavior (no currency filtering) when the field is omitted, so the "strictly safer" currency fix is opt-in at the point of adoption, not a silent behavior change for existing callers. See Edge Cases below for the one caller-visible behavior change this still causes.
 
+### Amendment 2026-10-05 — `priceKindId` and `customerIds` (storefront release)
+
+*Added 2026-10-05 from the storefront release decisions (`.ai/specs/analysis/ANALYSIS-2026-10-05-storefront-release-decisions.md`, D2 and D3/D3a).* A pre-implementation audit of SPEC-029 found that the shipped `PricingContext` (`catalog/lib/pricing.ts:11-25`) has no price-kind input. `matchesContext` never filters by price kind, and `scorePrice` uses a row's kind only for the `custom`/`tier`/`promotion` score bonus. A channel's or group's `priceKindId` therefore changes nothing about which row `selectBestPrice` returns, and SPEC-029 §6.1a's "`taxMode` is derived from the resolved price kind's `displayMode`" can label an amount whose row belongs to the other kind. The storefront also resolves a buyer as a person **and** their company (SPEC-029 §6, roadmap ADR-7), which a single `customerId` cannot express. Two additive optional fields close both gaps:
+
+```ts
+export type PricingContext = {
+  // ...every field above, unchanged...
+  priceKindId?: string | null   // new 2026-10-05 — when set, only rows of this price kind match
+  customerIds?: string[]        // new 2026-10-05 — the buyer's customer entities, person first, then company
+}
+```
+
+| Function | `priceKindId` set | `customerIds` set |
+|---|---|---|
+| `matchesContext` | rejects a row whose price kind (`priceKind` id, resolved as `resolvePriceKindCode` already resolves the relation) differs from `ctx.priceKindId`; unset or `null` → today's behavior (kind not filtered) | a row with `customerId` matches only if `row.customerId ∈ ctx.customerIds`. When `customerIds` is absent, the legacy `ctx.customerId` is read as a one-element set, exactly as `customerGroupId` is read today |
+| `buildPriceRowFilter` | adds the clause `price_kind_id = ctx.priceKindId` | the customer clause becomes `customer_id IS NULL OR customer_id IN ctx.customerIds` |
+| `selectBestPrice` tie-break | — | among rows with an **equal** `scorePrice` score, a row scoped to `customerIds[0]` (the person) beats one scoped to a later id (the company). This rule is placed **before** the existing `startsAt` and `minQuantity` tie-breaks. The specificity score itself is unchanged |
+
+The soundness invariant (`matchesContext(row, ctx) ⇒ buildPriceRowFilter(ctx)` admits `row`) is unchanged. The property test's generators gain both dimensions: random `priceKindId` (including `null`) and random `customerIds` sets (empty, one id, two ids, plus the legacy `customerId`-only form). The test also gets a separate, example-based check of the person-over-company tie-break. Both fields are optional, so every existing caller compiles and behaves identically (`BACKWARD_COMPATIBILITY.md` § Types, "MAY add optional fields"). A consequence that callers must document: once a caller sets `priceKindId`, a contract row is honored only when it is authored against the buyer's resolved price kind.
+
 ### Row narrowing: `buildPriceRowFilter` (new, Phase 2)
+
+> **Status 2026-10-05:** shipped in #6268 (`catalog/lib/pricing.ts:102`, property test `catalog/lib/__tests__/buildPriceRowFilter.property.test.ts`). **No production caller uses it yet.** The admin products route still fetches price rows by product/variant + scope only (`catalog/api/products/route.ts:607-622`). Its first adopter is the storefront read path (`storefront-public-api.md` §6.1).
 
 *Added 2026-09-16.*
 
@@ -208,11 +230,13 @@ It is verified as a **property-based** test, not a fixture table: generate rando
 
 ### Phase 2b — the indexes that predicate needs (index-only migration)
 
+> **Status 2026-10-05: not shipped.** `catalog_product_variant_prices` still has only `catalog_product_variant_prices_variant_scope_idx` and `..._product_scope_idx` (`catalog/data/entities.ts:780-787`, and the same in the migration snapshot). Phase 2b is a **prerequisite of SPEC-029 Phase 1** (the `customerOverlayId` probe) and of **Storefront Public API Phase 1** (the R13 row-count gate). It must land before either one. The original predicate also referenced `deleted_at`, a column this table does not have; that is corrected below.
+
 A narrowing predicate over unindexed columns is a sequential scan with extra steps, so Phase 2b adds the partial indexes it is written for — **indexes only, no column or entity changes**, created `CONCURRENTLY`:
 
 | Index | Columns | Why partial |
 |---|---|---|
-| `catalog_product_variant_prices_customer_idx` | `(customer_id, organization_id, tenant_id)` `WHERE customer_id IS NOT NULL AND deleted_at IS NULL` | Contract rows are the sparse minority; the partial index is a fraction of the table's size and is also what serves ADR-7's cached `customerOverlayId` `EXISTS` probe |
+| `catalog_product_variant_prices_customer_idx` | `(customer_id, organization_id, tenant_id)` `WHERE customer_id IS NOT NULL` | Contract rows are the sparse minority; the partial index is a fraction of the table's size and is also what serves ADR-7's cached `customerOverlayId` `EXISTS` probe |
 | `catalog_product_variant_prices_customer_group_idx` | `(customer_group_id, organization_id, tenant_id)` `WHERE customer_group_id IS NOT NULL` | Same shape, group dimension |
 | `catalog_product_variant_prices_product_lookup_idx` | `(product_id, currency_code, channel_id, organization_id, tenant_id)` | The broad, non-contract read path — the common case, which today has only `(product_id, org, tenant)` |
 
@@ -336,6 +360,11 @@ Explicitly deferred / out of scope for this spec (named so the gap doesn't silen
 | Citation provenance | Pass | `2026-08-14-ecommerce-suite-roadmap.md`/ADR-4, `2026-08-14-cart-module.md`, and `2026-08-14-customer-groups-and-b2b-terms.md` ship in the same change as this document and are cited as settled sibling design (unimplemented, but agreed). The `PricingContext` ownership split with `customer-groups-and-b2b-terms.md` is stated in both documents, and the tie-break rule has one named owner rather than two provisional guesses |
 
 ## Changelog
+
+- **2026-10-05** — Storefront release amendments (owner decisions D2, D3/D3a in `ANALYSIS-2026-10-05-storefront-release-decisions.md`):
+  - **`PricingContext` gains `priceKindId?` and `customerIds?`** (Data Model → Amendment 2026-10-05). These are additive optional fields with stated `matchesContext`, `buildPriceRowFilter` and tie-break semantics (on equal score, person over company), and the property test is extended. They exist because the shipped resolver ignores price kind entirely, which reopened SPEC-029 §6.1a's tax-display derivation one layer down, and because the storefront buyer is now a person and a company at once.
+  - **Phase 2b predicate corrected.** `catalog_product_variant_prices` has no `deleted_at` column, so `deleted_at IS NULL` is removed from the customer partial index. Phase 2b is recorded as **not shipped** and as a prerequisite of SPEC-029 Phase 1 and Storefront Public API Phase 1.
+  - Row narrowing: recorded that `buildPriceRowFilter` shipped in #6268 but has no production caller yet.
 
 - **2026-09-19** — Phase 1 + Phase 2 implemented (PR #6268). Three factual corrections found during implementation, verified against actual code rather than assumed: (1) the "Cross-cutting rules" line naming `catalog.products.manage` as the Phase 1 reused feature was wrong — `api/prices/route.ts`'s real write gate is `catalog.pricing.manage`, a separate already-declared/already-granted feature; the "no new ACL surface" conclusion still holds. (2) Phase 1 Implementation Plan step 1's "verify `updated_at`; if missing, add it" resolved to "already present" (`Migration20251030150038.ts`) — no migration shipped. (3) The Row-narrowing section's claim that the property-based-testing harness (`fast-check`) "exists" was false — that sibling spec is itself unimplemented and the dependency is not installed anywhere in this repo; this implementation hand-rolls the same invariant check in plain Jest instead. Phase 2b (index-only migration) and Phase 3 (new `pricing` module) were explicitly out of scope for this PR per the implementer's brief and remain as stated in Phasing.
 
