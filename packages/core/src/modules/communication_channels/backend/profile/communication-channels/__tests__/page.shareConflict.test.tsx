@@ -81,7 +81,7 @@ const privateMailbox: ChannelRow = {
 
 async function clickShareWithTeam() {
   if (!capturedRowActions) {
-    throw new Error('[internal] table has no row actions')
+    throw new Error('[internal] row actions renderer was not captured')
   }
   render(<>{capturedRowActions(privateMailbox)}</>)
   fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
