@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
+import { TierMedal } from '../../../components/TierMedal'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -189,7 +190,14 @@ export default function MarketingSettingsPage() {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage label={t('marketing_automation.settings.loadFailed', 'Could not load the settings.')} />
+          <ErrorMessage
+              label={t('marketing_automation.settings.loadFailed', 'Could not load the settings.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.runs.retry', 'Try again')}
+                </Button>
+              )}
+            />
         </PageBody>
       </Page>
     )
@@ -199,6 +207,13 @@ export default function MarketingSettingsPage() {
     <Page>
       <PageBody>
         <div className="max-w-6xl space-y-8">
+          <SectionHeader
+            title={t('marketing_automation.settings.title', 'Marketing settings')}
+            help={{
+              title: t('marketing_automation.settings.title', 'Marketing settings'),
+              body: t('marketing_automation.help.settings.page'),
+            }}
+          />
           {/*
             Two columns from `xl` up, one below it.
             Nine independent settings in a single 672px column left most of a wide screen empty and put the
@@ -209,8 +224,14 @@ export default function MarketingSettingsPage() {
             column is a readable measure, not a monitor.
           */}
           <div className="space-y-8 xl:columns-2 xl:gap-8 xl:space-y-0 [&>div]:break-inside-avoid xl:[&>div]:mb-8">
-          <div className="space-y-2">
-            <SectionHeader title={t('marketing_automation.settings.productUrl', 'Product links in messages')} />
+          <div className="space-y-2 rounded-md border border-border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.settings.productUrl', 'Product links in messages')}
+              help={{
+                title: t('marketing_automation.settings.productUrl', 'Product links in messages'),
+                body: t('marketing_automation.help.settings.productUrl'),
+              }}
+            />
             <Label htmlFor="product-url-template">
               {t('marketing_automation.settings.productUrlTemplate', 'Product URL template')}
             </Label>
@@ -228,8 +249,14 @@ export default function MarketingSettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <SectionHeader title={t('marketing_automation.settings.routing', 'Lead routing')} />
+          <div className="space-y-2 rounded-md border border-border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.settings.routing', 'Lead routing')}
+              help={{
+                title: t('marketing_automation.settings.routing', 'Lead routing'),
+                body: t('marketing_automation.help.settings.routing'),
+              }}
+            />
             <div className="text-xs text-muted-foreground">
               {t('marketing_automation.settings.routingHint', 'The "Assign to a sales rep" step gives each new lead to whoever in this pool currently has the fewest.')}
             </div>
@@ -256,8 +283,14 @@ export default function MarketingSettingsPage() {
             )}
           </div>
 
-          <div className="space-y-2">
-            <SectionHeader title={t('marketing_automation.settings.referral', 'Referral links')} />
+          <div className="space-y-2 rounded-md border border-border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.settings.referral', 'Referral links')}
+              help={{
+                title: t('marketing_automation.settings.referral', 'Referral links'),
+                body: t('marketing_automation.help.settings.referral'),
+              }}
+            />
             <Label htmlFor="referral-url-template">
               {t('marketing_automation.settings.referralUrlTemplate', 'Referral URL template')}
             </Label>
@@ -272,8 +305,14 @@ export default function MarketingSettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <SectionHeader title={t('marketing_automation.settings.experiments', 'A/B tests')} />
+          <div className="space-y-2 rounded-md border border-border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.settings.experiments', 'A/B tests')}
+              help={{
+                title: t('marketing_automation.settings.experiments', 'A/B tests'),
+                body: t('marketing_automation.help.settings.experiments'),
+              }}
+            />
             <Label htmlFor="winner-metric">
               {t('marketing_automation.settings.winnerMetric', 'Decide a test on')}
             </Label>
@@ -338,8 +377,14 @@ export default function MarketingSettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <SectionHeader title={t('marketing_automation.settings.value', 'Customer value')} />
+          <div className="space-y-2 rounded-md border border-border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.settings.value', 'Customer value')}
+              help={{
+                title: t('marketing_automation.settings.value', 'Customer value'),
+                body: t('marketing_automation.help.settings.value'),
+              }}
+            />
             <Label htmlFor="value-horizon">
               {t('marketing_automation.settings.valueHorizon', 'Projection horizon, in years')}
             </Label>
@@ -368,8 +413,14 @@ export default function MarketingSettingsPage() {
             * it is an ACTION rather than a setting — so it saves itself on its own button instead of travelling
             * with the form below.
             */}
-          <div className="space-y-2">
-            <SectionHeader title={t('marketing_automation.settings.suppression', 'Suppression list')} />
+          <div className="space-y-2 rounded-md border border-border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.settings.suppression', 'Suppression list')}
+              help={{
+                title: t('marketing_automation.settings.suppression', 'Suppression list'),
+                body: t('marketing_automation.help.settings.suppression'),
+              }}
+            />
             <div className="text-xs text-muted-foreground">
               {t(
                 'marketing_automation.settings.suppressionHint',
@@ -419,8 +470,14 @@ export default function MarketingSettingsPage() {
             ) : null}
           </div>
 
-          <div className="space-y-2">
-            <SectionHeader title={t('marketing_automation.settings.voice', 'Brand voice')} />
+          <div className="space-y-2 rounded-md border border-border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.settings.voice', 'Brand voice')}
+              help={{
+                title: t('marketing_automation.settings.voice', 'Brand voice'),
+                body: t('marketing_automation.help.settings.voice'),
+              }}
+            />
             <Label htmlFor="brand-voice">{t('marketing_automation.settings.voiceLabel', 'How this shop writes')}</Label>
             <Textarea
               id="brand-voice"
@@ -434,8 +491,14 @@ export default function MarketingSettingsPage() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <SectionHeader title={t('marketing_automation.settings.tiers', 'Loyalty tiers')} />
+          <div className="space-y-2 rounded-md border border-border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.settings.tiers', 'Loyalty tiers')}
+              help={{
+                title: t('marketing_automation.settings.tiers', 'Loyalty tiers'),
+                body: t('marketing_automation.help.settings.tiers'),
+              }}
+            />
             <div className="text-xs text-muted-foreground">
               {t('marketing_automation.settings.tiersHint', 'A tier is the highest ladder step the lead score has reached. Derived, never stored.')}
             </div>
@@ -444,6 +507,9 @@ export default function MarketingSettingsPage() {
                 // Keyed by position only: the name is what is being typed, so a key built from it remounted the input
                 // on every keystroke and the field lost focus after one character. The row holds no state of its own.
                 <div key={`tier-${index}`} className="flex items-end gap-2">
+                  {/* The rung's medal, so the ladder reads as a ladder while it is being edited. The rows are
+                      sorted ascending, so the index IS the rank the runtime will resolve. */}
+                  <TierMedal rank={index} className="mb-2.5" />
                   <div className="flex-1 space-y-1">
                     <Label htmlFor={`tier-key-${index}`}>{t('marketing_automation.settings.tierKey', 'Tier')}</Label>
                     <Input

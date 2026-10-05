@@ -1,4 +1,5 @@
 import { executeRun } from './engine/executor.js'
+import { WAIT_STEP_TYPE } from './engine/chain-planner.js'
 import type { ExecutorSideEffects, RunState, SendPolicy } from './engine/executor.js'
 import type { StepHandler } from './engine/registry.js'
 import type { AutomationContext, CampaignStep, EngineLogger, StepOutcome } from './engine/types.js'
@@ -164,6 +165,9 @@ export async function previewJourney<TDeps>(
 
     // Only the outcomes this pass added; the executor carries the whole log forward.
     for (const outcome of transition.stepLog.slice(state.stepLog.length)) {
+      // A wait is shown as the pause below, which says how long it is and why the journey stopped. Its log
+      // entry — written so the step funnel can count who reached it — would print the same wait a second time.
+      if (outcome.type === WAIT_STEP_TYPE) continue
       entries.push({
         kind: 'step',
         at: outcome.at,

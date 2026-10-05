@@ -17,16 +17,26 @@ describe('buildFunnelBands', () => {
     ])
   })
 
-  it('gives a stage nobody reached a sliver rather than a line', () => {
+  it('closes to a point at a stage nobody reached', () => {
     const bands = buildFunnelBands([
       { key: 'entered', people: 10 },
       { key: 'ordered', people: 0 },
     ])
 
-    expect(bands[1].topRatio).toBeGreaterThan(0)
-    // Narrow enough that nobody reads it as a quantity.
-    expect(bands[1].topRatio).toBeLessThan(0.05)
-    expect(bands[0].bottomRatio).toBe(bands[1].topRatio)
+    // Zero is drawn as zero. A sliver here stacked into a hairline down the whole chart on a campaign
+    // where every stage after the first was empty, which reads as a broken drawing rather than as nobody.
+    expect(bands[1].topRatio).toBe(0)
+    expect(bands[0].bottomRatio).toBe(0)
+  })
+
+  it('keeps a stage somebody did reach visible however small its share', () => {
+    const bands = buildFunnelBands([
+      { key: 'entered', people: 10_000 },
+      { key: 'ordered', people: 1 },
+    ])
+
+    // 0.01% of the widest stage would round away to an invisible edge, so a reached stage has a floor.
+    expect(bands[1].topRatio).toBe(0.02)
   })
 
   it('scales against the widest stage, not the first', () => {

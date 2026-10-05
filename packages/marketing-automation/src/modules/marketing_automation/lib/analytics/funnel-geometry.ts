@@ -26,13 +26,15 @@ export type FunnelBand = {
 }
 
 /**
- * A stage nobody reached still gets a sliver.
+ * A stage nobody reached is zero wide, and the drawing ends in a point.
  *
- * At a true zero the band collapses to a line, the taper above it turns into a spike, and the stage looks
- * absent rather than empty — which is a different and wrong answer. The sliver is deliberately too narrow
- * to misread as a quantity.
+ * The first version gave it a 2% sliver so that the stage would not look absent. On a campaign where
+ * everybody dropped out after entering — four empty stages in a row — those slivers stacked into a single
+ * hairline running the height of the chart, which reads as a rendering fault rather than as "nobody got
+ * here", and the taper down to it reads as a spike. A true zero is the honest width; it is the caller's job
+ * to show the empty stages as empty, which it does by drawing a guide where there is no band.
  */
-const EMPTY_BAND_RATIO = 0.02
+const EMPTY_BAND_RATIO = 0
 
 export function buildFunnelBands(stages: FunnelInput[]): FunnelBand[] {
   if (stages.length === 0) return []
@@ -50,7 +52,11 @@ export function buildFunnelBands(stages: FunnelInput[]): FunnelBand[] {
   const ratioFor = (people: number): number => {
     if (widest <= 0) return EMPTY_BAND_RATIO
     const exact = Math.max(people, 0) / widest
-    return exact <= 0 ? EMPTY_BAND_RATIO : Math.max(exact, EMPTY_BAND_RATIO)
+    /**
+     * A floor for a stage somebody DID reach, so a handful of people out of thousands is still visible
+     * rather than rounding away to an invisible edge. It does not apply to zero: zero is drawn as zero.
+     */
+    return exact <= 0 ? EMPTY_BAND_RATIO : Math.max(exact, 0.02)
   }
 
   return stages.map((stage, at) => {

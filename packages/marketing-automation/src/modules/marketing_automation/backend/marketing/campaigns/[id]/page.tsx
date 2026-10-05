@@ -3,6 +3,9 @@
 import * as React from 'react'
 import type { Edge, Node } from '@xyflow/react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -13,6 +16,7 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { useMarketingMutation } from '../../../../components/useMarketingMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useUnsavedGuard } from '../../../../components/useUnsavedGuard'
@@ -23,6 +27,8 @@ import { CustomerPicker } from '../../../../components/CustomerPicker.js'
 import { findAudienceField, type AudienceField } from '../../../../lib/audience/field-catalog.js'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { CampaignCanvas } from '../../../../components/CampaignCanvas'
+import { CampaignTemplateGallery, type CampaignTemplateOption } from '../../../../components/CampaignTemplateGallery'
+import { RecordRow } from '../../../../components/RecordRow'
 import { ParamFields } from '../../../../components/ParamFields'
 import type { UiFieldSpec } from '../../../../components/ParamFields'
 import { AUDIENCE_NODE_ID, definitionToGraph, autoArrange, triggerNodeId } from '../../../../lib/canvas/graph-mapping'
@@ -174,6 +180,17 @@ function describeSaveError(error: unknown, t: (key: string, fallback?: string) =
   const detail = readApiErrorField(error, 'detail') ?? ''
   const message = t(code, code)
   return detail ? `${message} (${detail})` : message
+}
+
+/**
+ * A compact heading for one panel in the editor's two side columns.
+ *
+ * Ten of these repeated the same class string by hand. They stay compact labels rather than becoming
+ * `SectionHeader`s — this is a dense editor where a full section heading on every panel would crowd out the
+ * canvas — but one component means a change to how a panel is titled is one edit rather than ten.
+ */
+function PanelLabel({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn('text-overline text-muted-foreground', className)}>{children}</div>
 }
 
 export default function CampaignEditorPage({ params }: { params?: { id?: string } }) {
@@ -408,6 +425,34 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       setTestSending(false)
     }
   }
+
+  const [galleryOpen, setGalleryOpen] = React.useState(false)
+
+  /**
+   * Load a ready campaign onto the canvas as an UNSAVED draft.
+   *
+   * Deliberately not a create-and-navigate like the campaign list's version: the author is already in the
+   * editor, so the template becomes the thing in front of them, to rename, rewrite and save — or to abandon by
+   * leaving. It is only offered while the canvas is empty, so picking one can never destroy authored work.
+   */
+  const applyTemplate = React.useCallback((template: CampaignTemplateOption) => {
+    const document = template.document as {
+      name?: string
+      definition?: CampaignDefinition
+      triggers?: CampaignTriggerInput[]
+    }
+    if (!document?.definition) return
+    setDefinition(document.definition)
+    setTriggers(Array.isArray(document.triggers) ? document.triggers : [])
+    if (document.name) setName(document.name)
+    setSelectedNodeId(null)
+    setDirty(true)
+    setGalleryOpen(false)
+    flash(
+      t('marketing_automation.templates.loadedIntoEditor', 'Loaded onto the canvas. Nothing is saved until you press Save.'),
+      'success',
+    )
+  }, [t])
 
   const mutate = React.useCallback((next: Partial<{ definition: CampaignDefinition; triggers: CampaignTriggerInput[] }>) => {
     if (next.definition) setDefinition(next.definition)
@@ -782,10 +827,11 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   }, [campaignId])
 
   if (loading) {
-    return <Page><PageBody><div className="flex items-center justify-center py-16"><Spinner /></div></PageBody></Page>
+    return <Page><PageBody><LoadingMessage label={t('marketing_automation.canvas.loading', 'Loading the campaign…')} /></PageBody></Page>
   }
   if (error) {
-    return <Page><PageBody><div className="text-sm text-muted-foreground">{error}</div></PageBody></Page>
+    // A failure rendered in muted body colour reads as "nothing here" rather than "this broke".
+    return <Page><PageBody><ErrorMessage label={error} /></PageBody></Page>
   }
 
   const selectedStep = selectedLocation?.step ?? null
@@ -935,9 +981,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
         <div className="grid gap-4 lg:grid-cols-[14rem_1fr_20rem]">
           <aside className="space-y-4">
             <div>
-              <div className="mb-2 text-overline text-muted-foreground">
+              <PanelLabel className="mb-2">
                 {t('marketing_automation.canvas.palette.triggers', 'Triggers')}
-              </div>
+              </PanelLabel>
               <div className="space-y-1">
                 {(palette?.triggers ?? []).map((trigger) => (
                   <Button
@@ -964,9 +1010,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
               </div>
             </div>
             <div>
-              <div className="mb-2 text-overline text-muted-foreground">
+              <PanelLabel className="mb-2">
                 {t('marketing_automation.canvas.palette.schedules', 'On a schedule')}
-              </div>
+              </PanelLabel>
               <div className="space-y-1">
                 {(palette?.sweepSources ?? []).map((source) => (
                   <Button
@@ -985,9 +1031,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
               </div>
             </div>
             <div>
-              <div className="mb-2 text-overline text-muted-foreground">
+              <PanelLabel className="mb-2">
                 {t('marketing_automation.canvas.palette.steps', 'Steps')}
-              </div>
+              </PanelLabel>
               {addTarget ? (
                 <div className="mb-2 text-xs text-muted-foreground">
                   {t('marketing_automation.canvas.palette.addsToVariant', 'Adds to variant {key}').replace('{key}', addTarget.laneKey)}
@@ -1024,6 +1070,22 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
             </div>
           </aside>
 
+          <div className="space-y-2">
+            {/* An empty canvas asks the author what a good campaign looks like; a ready one asks whether they
+                agree with it, which is a far easier question. Offered only while there is nothing to lose. */}
+            {definition.steps.length === 0 ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border p-3">
+                <div className="flex-1 text-sm text-muted-foreground">
+                  {t(
+                    'marketing_automation.templates.emptyCanvasHint',
+                    'Start from a ready campaign and edit it, or build one step by step from the palette.',
+                  )}
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => setGalleryOpen(true)}>
+                  {t('marketing_automation.templates.browse', 'Browse ready campaigns')}
+                </Button>
+              </div>
+            ) : null}
           <CampaignCanvas
             nodes={nodes}
             edges={edges}
@@ -1031,13 +1093,14 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
             onSelectNode={setSelectedNodeId}
             onPositionsChange={onPositionsChange}
           />
+          </div>
 
           <aside className="space-y-3">
             {audienceSelected ? (
               <div className="space-y-2">
-                <div className="text-overline text-muted-foreground">
+                <PanelLabel>
                   {t('marketing_automation.canvas.node.audience.title', 'Audience')}
-                </div>
+                </PanelLabel>
                 {/*
                   The guided editor by default, the platform's own builder behind a toggle.
 
@@ -1068,15 +1131,17 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     }}
                   />
                 )}
-                <button
+                <Button
                   type="button"
-                  className="block text-xs text-muted-foreground underline"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-xs text-muted-foreground"
                   onClick={() => setAdvancedAudience((on) => !on)}
                 >
                   {advancedAudience
                     ? t('marketing_automation.audience.guided', 'Back to the guided editor')
                     : t('marketing_automation.audience.advanced', 'Advanced editor')}
-                </button>
+                </Button>
                 <Button variant="outline" disabled={estimating} onClick={() => void runEstimate()}>
                   {estimating ? <Spinner /> : t('marketing_automation.action.estimateAudience', 'Estimate audience')}
                 </Button>
@@ -1095,28 +1160,30 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
             {selectedStep && selectedLocation ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-overline text-muted-foreground">
+                  <PanelLabel>
                     {t(selectedStepMeta?.labelKey ?? `marketing_automation.step.${selectedStep.type}.label`, selectedStep.type)}
-                  </div>
+                  </PanelLabel>
                   <div className="flex gap-1">
-                    <Button
+                    <IconButton
+                      type="button"
                       variant="outline"
                       size="sm"
                       disabled={selectedLocation.index === 0}
                       aria-label={t('marketing_automation.action.moveUp', 'Move up')}
                       onClick={() => moveStep(selectedStep.id, -1)}
                     >
-                      ↑
-                    </Button>
-                    <Button
+                      <ArrowUp />
+                    </IconButton>
+                    <IconButton
+                      type="button"
                       variant="outline"
                       size="sm"
                       disabled={selectedLocation.index >= selectedLocation.siblingCount - 1}
                       aria-label={t('marketing_automation.action.moveDown', 'Move down')}
                       onClick={() => moveStep(selectedStep.id, 1)}
                     >
-                      ↓
-                    </Button>
+                      <ArrowDown />
+                    </IconButton>
                   </div>
                 </div>
                 {selectedLocation.lane ? (
@@ -1219,9 +1286,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                         beside the fields it fills — and it fills them only when the author says so. */}
                     {selectedStepMeta?.channel === 'email' ? (
                       <div className="space-y-2 rounded-sm border border-border p-2">
-                        <div className="text-overline text-muted-foreground">
+                        <PanelLabel>
                           {t('marketing_automation.ai.title', 'Draft with AI')}
-                        </div>
+                        </PanelLabel>
                         <Textarea
                           rows={2}
                           value={brief}
@@ -1340,9 +1407,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
 
             {selectedScheduleTrigger && selectedNodeId ? (
               <div className="space-y-3">
-                <div className="text-overline text-muted-foreground">
+                <PanelLabel>
                   {t('marketing_automation.canvas.node.schedule.title', 'Schedule')}
-                </div>
+                </PanelLabel>
                 <div className="space-y-1">
                   <Label htmlFor="schedule-interval">
                     {t('marketing_automation.field.schedule.interval', 'Run every')}
@@ -1434,9 +1501,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                 </div>
 
                 <div className="space-y-2">
-                  <div className="text-overline text-muted-foreground">
+                  <PanelLabel>
                     {t('marketing_automation.history.title', 'History')}
-                  </div>
+                  </PanelLabel>
                   {revisions === null ? (
                     <Button variant="outline" onClick={() => void loadRevisions()}>
                       {t('marketing_automation.history.load', 'Show saved versions')}
@@ -1448,17 +1515,17 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                   ) : (
                     <ul className="space-y-1">
                       {revisions.map((revision) => (
-                        <li key={revision.version} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-xs">
+                        <RecordRow key={revision.version} className="text-xs">
                           <span className="text-foreground">
                             {t('marketing_automation.history.version', 'v{version}').replace('{version}', String(revision.version))}
-                            {' · '}
+                            {' — '}
                             {formatDateTime(revision.createdAt)}
                             {revision.note.startsWith('restored:')
-                              ? ` · ${t('marketing_automation.history.restoredFrom', 'restored v{from}').replace('{from}', revision.note.slice('restored:'.length))}`
+                              ? ` — ${t('marketing_automation.history.restoredFrom', 'restored v{from}').replace('{from}', revision.note.slice('restored:'.length))}`
                               : ''}
                             {/* Promoting an A/B winner rewrites the campaign, so it is a version like any other. */}
                             {revision.note.startsWith('winner:')
-                              ? ` · ${t('marketing_automation.history.winnerApplied', 'promoted {variant}').replace('{variant}', revision.note.slice('winner:'.length))}`
+                              ? ` — ${t('marketing_automation.history.winnerApplied', 'promoted {variant}').replace('{variant}', revision.note.slice('winner:'.length))}`
                               : ''}
                           </span>
                           <span className="flex shrink-0 items-center gap-2">
@@ -1476,16 +1543,16 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                               {t('marketing_automation.history.restore', 'Restore')}
                             </Button>
                           </span>
-                        </li>
+                        </RecordRow>
                       ))}
                     </ul>
                   )}
                 </div>
 
                 <div className="space-y-2">
-                  <div className="text-overline text-muted-foreground">
+                  <PanelLabel>
                     {t('marketing_automation.preview.title', 'Preview for a customer')}
-                  </div>
+                  </PanelLabel>
                   <div className="text-xs text-muted-foreground">
                     {t('marketing_automation.preview.hint', 'Shows every step and when it would happen, with the send rules applied. Sends nothing.')}
                   </div>
@@ -1541,7 +1608,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                               <span className="truncate text-foreground">
                                 {t(`marketing_automation.step.${entry.type}.label`, entry.type)}
                                 {entry.status === 'skipped' ? (
-                                  <span className="text-muted-foreground"> · {entry.detail ?? t('marketing_automation.preview.skipped', 'skipped')}</span>
+                                  <span className="text-muted-foreground"> — {entry.detail ?? t('marketing_automation.preview.skipped', 'skipped')}</span>
                                 ) : null}
                               </span>
                               <span className="shrink-0 text-muted-foreground">{formatDateTime(entry.at)}</span>
@@ -1564,9 +1631,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                 </div>
 
                 <div className="space-y-3">
-                  <div className="text-overline text-muted-foreground">
+                  <PanelLabel>
                     {t('marketing_automation.sendPolicy.title', 'Send rules')}
-                  </div>
+                  </PanelLabel>
 
                   {/*
                     * The author's own hour, above the learned one because it outranks it.
@@ -1712,6 +1779,11 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
           </aside>
         </div>
       </PageBody>
+      <CampaignTemplateGallery
+        open={galleryOpen}
+        onOpenChange={setGalleryOpen}
+        onPick={applyTemplate}
+      />
       {/* The dialogue the leave guard asks with, and the delete confirmations if any are added later. */}
       {ConfirmDialogElement}
     </Page>

@@ -65,7 +65,7 @@ export function evaluateReadiness(facts: ReadinessFacts): ReadinessCheck[] {
       id: 'email_channel',
       severity: 'blocking',
       done: facts.emailChannelConfigured,
-      href: '/backend/settings/communication-channels',
+      href: '/backend/profile/communication-channels',
     },
     {
       id: 'tracking',
@@ -121,7 +121,7 @@ export function evaluateReadiness(facts: ReadinessFacts): ReadinessCheck[] {
        */
       severity: 'recommended',
       done: facts.schedulesRegistered !== false,
-      href: '/backend/settings/scheduler',
+      href: '/backend/config/scheduled-jobs',
     },
     {
       id: 'segments',

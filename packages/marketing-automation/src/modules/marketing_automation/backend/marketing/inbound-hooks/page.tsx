@@ -6,6 +6,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -22,6 +23,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+
+const LIST_LIMIT = 100
 
 const HOOKS_PATH = '/api/marketing_automation/inbound-hooks'
 
@@ -53,6 +56,7 @@ export default function InboundHooksPage() {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const [rows, setRows] = React.useState<HookRow[]>([])
+  const [truncated, setTruncated] = React.useState(false)
   const [campaigns, setCampaigns] = React.useState<Array<{ id: string; name: string }>>([])
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
@@ -82,6 +86,7 @@ export default function InboundHooksPage() {
         return
       }
       setRows(hooks.result.items)
+      setTruncated(hooks.result.items.length >= LIST_LIMIT)
       setCanManage(hooks.result?.canManage === true)
       setCampaigns((campaignList.ok && Array.isArray(campaignList.result?.items) ? campaignList.result.items : [])
         .flatMap((item) => (typeof item.id === 'string' && typeof item.name === 'string' ? [{ id: item.id, name: item.name }] : [])))
@@ -140,6 +145,33 @@ export default function InboundHooksPage() {
     }
   }
 
+  /**
+   * The exact call, with this hook's own URL already in it.
+   *
+   * The page described the contract in a sentence and left the reader to assemble the request — and the one
+   * thing they cannot assemble is the URL, which is shown once and never recoverable. Two identifying fields
+   * are offered because either works and neither is required: a `customerId` the sender already holds is
+   * exact, an `email` is what a form actually collects.
+   */
+  const buildCurl = (url: string) => [
+    `curl -X POST '${url}' \\`,
+    `  -H 'Content-Type: application/json' \\`,
+    `  -d '{`,
+    `    "email": "customer@example.com",`,
+    `    "plan": "pro",`,
+    `    "source": "webinar-form"`,
+    `  }'`,
+  ].join('\n')
+
+  const copyCurl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(buildCurl(url))
+      flash(t('marketing_automation.hooks.curlCopied', 'Command copied.'), 'success')
+    } catch {
+      flash(t('marketing_automation.hooks.copyFailed', 'Could not copy — select the URL and copy it manually.'), 'error')
+    }
+  }
+
   const copyUrl = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url)
@@ -174,12 +206,13 @@ export default function InboundHooksPage() {
     {
       id: 'activity',
       header: t('marketing_automation.hooks.columns.activity', 'Activity'),
+      meta: { truncate: true, maxWidth: '260px' },
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
           {row.original.receivedCount === 0
             ? t('marketing_automation.hooks.neverUsed', 'Never used')
-            : `${row.original.receivedCount} · ${row.original.lastReceivedAt ? formatDateTime(row.original.lastReceivedAt) : ''}`}
-          {row.original.lastOutcome ? ` · ${row.original.lastOutcome}` : ''}
+            : `${row.original.receivedCount} — ${row.original.lastReceivedAt ? formatDateTime(row.original.lastReceivedAt) : ''}`}
+          {row.original.lastOutcome ? ` — ${row.original.lastOutcome}` : ''}
         </span>
       ),
     },
@@ -201,6 +234,16 @@ export default function InboundHooksPage() {
             id: 'copy',
             label: t('marketing_automation.hooks.copyUrl', 'Copy URL'),
             onSelect: () => { void copyUrl(row.original.url as string) },
+          })
+          actions.push({
+            id: 'requests',
+            label: t('marketing_automation.hooks.showRequests', 'Show what arrived'),
+            onSelect: () => { window.location.href = `/backend/marketing/inbound-requests?hookId=${row.original.id}` },
+          })
+          actions.push({
+            id: 'copy-curl',
+            label: t('marketing_automation.hooks.copyCurl', 'Copy curl command'),
+            onSelect: () => { void copyCurl(row.original.url as string) },
           })
         }
         if (canManage) {
@@ -253,7 +296,13 @@ export default function InboundHooksPage() {
 
         {canManage ? (
         <div className="mb-6 space-y-2">
-          <SectionHeader title={t('marketing_automation.hooks.new', 'New hook')} />
+          <SectionHeader
+            title={t('marketing_automation.hooks.new', 'New hook')}
+            help={{
+              title: t('marketing_automation.hooks.title', 'Inbound hooks'),
+              body: t('marketing_automation.help.hooks.editor'),
+            }}
+          />
           <div className="flex flex-wrap items-end gap-2">
             <div className="w-64 space-y-1">
               <Label htmlFor="hook-campaign">{t('marketing_automation.hooks.columns.campaign', 'Campaign')}</Label>
@@ -290,12 +339,66 @@ export default function InboundHooksPage() {
               'POST JSON with customerId or email to the hook URL. Every other field is available to the campaign as trigger.<field>. The campaign must be triggered by "Inbound hook received".',
             )}
           </div>
+
+          {/*
+            The contract in full, next to the thing it describes.
+            
+            Collapsed by default: somebody who has wired one hook does not need it again, and somebody wiring
+            their first one needs all of it rather than a sentence. The URL is deliberately a placeholder here —
+            a real one is shown once and never recoverable, so it belongs on the row's "Copy curl command"
+            action, not in a block that would print somebody's live credential onto the screen.
+          */}
+          <ContextHelp
+            bulb={false}
+            title={t('marketing_automation.hooks.reference.title', 'How another system posts to a hook')}
+          >
+            <div className="space-y-3">
+              <pre className="overflow-x-auto rounded-md border border-border bg-muted p-3 text-xs leading-relaxed">
+{`curl -X POST 'https://your-shop.example/api/marketing_automation/inbound?t=<token>' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "email": "customer@example.com",
+    "plan": "pro",
+    "source": "webinar-form"
+  }'`}
+              </pre>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                <li>
+                  <code className="text-foreground">customerId</code>
+                  {' — '}
+                  {t('marketing_automation.hooks.reference.customerId', "The customer this is about. The id arrives from outside, so it is checked against this installation before it is trusted — nobody can start a campaign for somebody else's customer.")}
+                </li>
+                <li>
+                  <code className="text-foreground">email</code>
+                  {' — '}
+                  {t('marketing_automation.hooks.reference.email', 'Used to find the customer when the sender has no id. One of the two is needed; both are accepted.')}
+                </li>
+                <li>
+                  <code className="text-foreground">{'<anything else>'}</code>
+                  {' — '}
+                  {t('marketing_automation.hooks.reference.rest', 'Every other field reaches the campaign as trigger.<field>, so a step can interpolate it or an audience can compare it.')}
+                </li>
+              </ul>
+              <div className="text-xs text-muted-foreground">
+                {t(
+                  'marketing_automation.hooks.reference.limits',
+                  'The token is already in the URL, so no header authenticates the call. Bodies over 16 KB are refused rather than truncated. A verified signature always answers 202, whether or not the customer was found — otherwise the URL could be used to test who is on your list. What actually happened appears on the hook row here.',
+                )}
+              </div>
+            </div>
+          </ContextHelp>
         </div>
         ) : null}
 
         {/* Not under the error: an empty table there would still claim there are no hooks. */}
         {loadFailed ? null : (
           <DataTable
+            title={t('marketing_automation.hooks.title', 'Inbound hooks')}
+            titleHeadingLevel={1}
+            titleHelp={{
+              title: t('marketing_automation.hooks.title', 'Inbound hooks'),
+              body: t('marketing_automation.help.page.hooks'),
+            }}
             columns={columns}
             data={rows}
             isLoading={loading}
@@ -307,6 +410,12 @@ export default function InboundHooksPage() {
             )}
           />
         )}
+        {truncated ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {t('marketing_automation.list.truncated', 'This screen lists at most {count} — there are probably more. Narrow what you are looking for rather than scrolling.')
+              .replace('{count}', String(LIST_LIMIT))}
+          </div>
+        ) : null}
       </PageBody>
     </Page>
   )

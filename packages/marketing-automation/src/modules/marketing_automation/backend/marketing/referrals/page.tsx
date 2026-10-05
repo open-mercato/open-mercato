@@ -12,6 +12,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
+const LIST_LIMIT = 100
+
 type ReferralRow = {
   customerId: string
   /** Null when the caller may not read customer names, which is a permission rather than a missing person. */
@@ -34,6 +36,7 @@ export default function ReferralsPage() {
   const scopeVersion = useOrganizationScopeVersion()
 
   const [rows, setRows] = React.useState<ReferralRow[]>([])
+  const [truncated, setTruncated] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
 
@@ -55,6 +58,7 @@ export default function ReferralsPage() {
         return
       }
       setRows(result.result.items)
+      setTruncated(result.result.items.length >= LIST_LIMIT)
     } catch {
       setLoadFailed(true)
     } finally {
@@ -122,6 +126,12 @@ export default function ReferralsPage() {
         {/* Not under the error: an empty table there would still make a claim about data nobody read. */}
         {loadFailed ? null : (
           <DataTable
+            title={t('marketing_automation.referrals.title', 'Referrals')}
+            titleHeadingLevel={1}
+            titleHelp={{
+              title: t('marketing_automation.referrals.title', 'Referrals'),
+              body: t('marketing_automation.help.page.referrals'),
+            }}
             columns={columns}
             data={rows}
             isLoading={loading}
@@ -133,6 +143,12 @@ export default function ReferralsPage() {
             )}
           />
         )}
+        {truncated ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {t('marketing_automation.list.truncated', 'This screen lists at most {count} — there are probably more. Narrow what you are looking for rather than scrolling.')
+              .replace('{count}', String(LIST_LIMIT))}
+          </div>
+        ) : null}
       </PageBody>
     </Page>
   )

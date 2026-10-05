@@ -7,6 +7,7 @@ import { reportError } from '@open-mercato/telemetry'
 import { findPeopleByAddresses } from '@open-mercato/core/modules/customers/lib/findPeopleByAddresses'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { MarketingInboundHook } from '../../data/entities.js'
+import { recordInboundRequest } from '../../lib/inbound-requests.js'
 import { emitMarketingAutomationEvent } from '../../events.js'
 import { resolveTrackingSecret, resolveTrackingSecrets } from '../../lib/tracking/secret.js'
 import {
@@ -128,6 +129,32 @@ export async function POST(req: Request) {
         where id = ? and tenant_id = ? and organization_id = ?`,
       [new Date(), outcome, hook.id, scope.tenantId, scope.organizationId],
     )
+
+    /**
+     * The request itself, body and all, so somebody can answer "what did they actually send".
+     *
+     * The three counters above say a request arrived and how it ended; they cannot settle an argument with a
+     * partner who insists they posted the right thing. The same `outcome` vocabulary is reused rather than
+     * invented, so the hook row and this log never describe one request two different ways.
+     *
+     * Wrapped on its own because this endpoint answers 202 to every verified caller: a logging failure must
+     * not become a delivery failure, or the partner retries a request that was in fact accepted and the
+     * campaign runs twice.
+     */
+    try {
+      await recordInboundRequest(em, scope, {
+        hookId: hook.id,
+        subjectEntityId,
+        outcome,
+        body: parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
+          ? parsedBody as Record<string, unknown>
+          : null,
+        bodyBytes: Buffer.byteLength(raw, 'utf8'),
+      })
+    } catch (logError) {
+      logger.warn('[internal] marketing: could not log an inbound request', { err: logError })
+      reportError(logError)
+    }
 
     if (!subjectEntityId) return NextResponse.json(ACCEPTED, { status: 202 })
 

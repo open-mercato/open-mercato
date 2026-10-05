@@ -11,6 +11,7 @@ import {
 } from '@xyflow/react'
 import type { Edge, Node, NodeChange } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import { useTheme } from '@open-mercato/ui/theme'
 import { campaignNodeTypes } from './nodes'
 
 export type CampaignCanvasProps = {
@@ -62,6 +63,11 @@ function Canvas({
     ))
   }, [onNodesChange, onPositionsChange])
 
+  // xyflow ships one stylesheet for both themes and picks between them by `colorMode`. Without it the
+  // control buttons keep their light-theme white background while their icons inherit the dark theme's
+  // white `currentColor` — white on white, which reads as three blank squares.
+  const { resolvedTheme } = useTheme()
+
   const nodesWithSelection = React.useMemo(
     () => nodes.map((node) => ({ ...node, selected: node.id === selectedNodeId })),
     [nodes, selectedNodeId],
@@ -82,6 +88,7 @@ function Canvas({
         edgesFocusable={false}
         deleteKeyCode={null}
         fitView
+        colorMode={resolvedTheme}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={16} />

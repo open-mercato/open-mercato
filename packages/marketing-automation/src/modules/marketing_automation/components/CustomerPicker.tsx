@@ -118,14 +118,15 @@ export function CustomerPicker({ value, onChange, id }: CustomerPickerProps) {
         </div>
       ) : null}
       {rows.length > 0 ? (
-        <ul className="rounded-md border">
+        <ul className="rounded-md border border-border">
           {rows.map((row) => (
             <li key={row.id}>
-              <button
+              <Button
                 type="button"
-                className="block w-full px-2 py-1 text-left text-sm hover:bg-muted"
+                variant="ghost"
+                className="h-auto w-full justify-start px-2 py-1 text-left text-sm font-normal"
                 onClick={() => {
-                  const label = row.email ? `${row.name} · ${row.email}` : row.name
+                  const label = row.email ? `${row.name} — ${row.email}` : row.name
                   setChosen(label)
                   setRows([])
                   onChange(row.id, label)
@@ -133,7 +134,7 @@ export function CustomerPicker({ value, onChange, id }: CustomerPickerProps) {
               >
                 <span>{row.name}</span>
                 {row.email ? <span className="ml-2 text-xs text-muted-foreground">{row.email}</span> : null}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

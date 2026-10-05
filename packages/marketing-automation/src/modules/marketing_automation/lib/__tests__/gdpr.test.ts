@@ -269,6 +269,7 @@ describe('eraseSubjectData', () => {
       'marketing_referral_codes',
       'marketing_referral_redemptions',
       'marketing_subject_erasures',
+      'marketing_inbound_requests',
     ])
   })
 

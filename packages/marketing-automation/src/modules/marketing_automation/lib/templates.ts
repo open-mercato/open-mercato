@@ -244,3 +244,78 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
 export function findCampaignTemplate(id: string): CampaignTemplate | undefined {
   return CAMPAIGN_TEMPLATES.find((template) => template.id === id)
 }
+
+/**
+ * Step parameters that hold words a customer reads, per step type.
+ *
+ * Listed rather than inferred: a step's params are an open record, so substituting every string in them would
+ * eventually translate a sku, a tag name or a template placeholder. These five are the copy.
+ */
+const TRANSLATABLE_PARAMS: Record<string, readonly string[]> = {
+  send_email: ['subject', 'bodyHtml'],
+  nps_survey: ['subject', 'question'],
+  notify: ['message'],
+}
+
+/** `marketing_automation.template.welcome.copy.welcome-email.subject` and friends. */
+function copyKey(templateId: string, ...parts: string[]): string {
+  return `marketing_automation.template.${templateId}.copy.${parts.join('.')}`
+}
+
+/**
+ * The same template with its customer-facing words in the reader's language.
+ *
+ * The documents carry English literals because they are portable documents first — an export of one has to be
+ * importable anywhere, and a dictionary key in a `subject` would arrive at the other installation as the literal
+ * string `marketing_automation.…`. So the English stays in the document and a translation is layered over it
+ * here, keyed by template and step id, with the literal as the fallback. A locale that has not been written yet
+ * therefore yields the English template rather than an empty subject line.
+ *
+ * Pure on purpose: it takes the translate function rather than importing one, so it stays testable and usable
+ * from either side of the request.
+ */
+export function localizeCampaignTemplate(
+  template: CampaignTemplate,
+  translate: (key: string, fallback: string) => string,
+): CampaignTemplate {
+  const document = template.document
+  const localizeSteps = (steps: PortableCampaign['definition']['steps'], depth: number): PortableCampaign['definition']['steps'] => {
+    if (depth > 5) return steps
+    return steps.map((step) => {
+      const fields = TRANSLATABLE_PARAMS[step.type as string]
+      const params = step.params as Record<string, unknown> | undefined
+      let nextParams = params
+      if (fields && params) {
+        nextParams = { ...params }
+        for (const field of fields) {
+          const current = params[field]
+          if (typeof current !== 'string' || current.length === 0) continue
+          nextParams[field] = translate(copyKey(template.id, String(step.id), field), current)
+        }
+      }
+      const variants = (step as { variants?: Array<{ steps?: PortableCampaign['definition']['steps'] }> }).variants
+      const nextVariants = Array.isArray(variants)
+        ? variants.map((variant) => (
+          Array.isArray(variant.steps) ? { ...variant, steps: localizeSteps(variant.steps, depth + 1) } : variant
+        ))
+        : undefined
+      return {
+        ...step,
+        ...(nextParams ? { params: nextParams } : {}),
+        ...(nextVariants ? { variants: nextVariants } : {}),
+      } as typeof step
+    })
+  }
+
+  return {
+    ...template,
+    document: {
+      ...document,
+      name: translate(copyKey(template.id, 'name'), document.name),
+      description: document.description
+        ? translate(copyKey(template.id, 'description'), document.description)
+        : document.description,
+      definition: { ...document.definition, steps: localizeSteps(document.definition.steps, 0) },
+    },
+  }
+}

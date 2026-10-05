@@ -1,13 +1,5 @@
-import React from 'react'
-
-const activityIcon = React.createElement(
-  'svg',
-  { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' },
-  React.createElement('path', { d: 'M3 12h4l3 8 4-16 3 8h4' }),
-)
-
 export const metadata = {
-  icon: activityIcon,
+  icon: 'activity',
   requireAuth: true,
   requireFeatures: ['marketing_automation.runs.view'],
   pageGroup: 'Marketing',

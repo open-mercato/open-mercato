@@ -124,6 +124,7 @@ const expiringQuote: TriggerCatalogEntry = {
   requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.sales.quote.expiring.label',
   available: false,
+  blockedReasonKey: 'marketing_automation.trigger.unavailable.sweepOnly',
   contextKeys: ['trigger.quoteId', 'trigger.quoteNumber', 'trigger.quoteTotal', 'trigger.daysUntilExpiry'],
   async build(payload, em, scope) {
     const quoteId = readString(payload.quoteId)
@@ -187,6 +188,7 @@ const fulfilledOrder: TriggerCatalogEntry = {
   requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.marketing_automation.order.fulfilled.label',
   available: false,
+  blockedReasonKey: 'marketing_automation.trigger.unavailable.sweepOnly',
   contextKeys: ['trigger.orderId', 'trigger.orderNumber', 'trigger.orderTotal', 'trigger.daysSinceOrder'],
   async build(payload) {
     return { subjectEntityId: readString(payload.entityId), trigger: {} }
@@ -206,6 +208,7 @@ const reorderDue: TriggerCatalogEntry = {
   requiresModule: 'sales',
   labelKey: 'marketing_automation.trigger.marketing_automation.product.reorder_due.label',
   available: false,
+  blockedReasonKey: 'marketing_automation.trigger.unavailable.sweepOnly',
   contextKeys: [
     'trigger.sku', 'trigger.cycleDays', 'trigger.daysSinceLast', 'trigger.progress', 'trigger.purchases',
   ],

@@ -14,6 +14,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
+const LIST_LIMIT = 100
+
 type JobRow = {
   id: string
   kind: string
@@ -37,6 +39,49 @@ const STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
  * The screen for the morning-after question. A sweep that quietly stopped firing looks exactly like a sweep
  * with nothing to do — until this list shows the last one was on Friday.
  */
+/**
+ * A run that did nothing, and how many did nothing in a row before it.
+ *
+ * `idleRun` is set only on the collapsed summary rows.
+ */
+type JobDisplayRow = JobRow & { idleRun?: { count: number; oldestStartedAt: string } }
+
+/**
+ * Collapses consecutive runs that found no work into one row.
+ *
+ * The due-run scan fires every ninety seconds whether or not a journey is waiting, so an installation at rest
+ * produced a screen of identical rows reading "completed, 0, 0, 0" for ever — every row saying nothing
+ * happened, which answers neither question this page exists for. Deleting those rows instead would be worse:
+ * "the scan ran and found nothing" and "the scan stopped running" would become indistinguishable, and telling
+ * those two apart is the main reason to open this page at all.
+ *
+ * So they are summarised rather than hidden. The group keeps the newest run's own row, because that timestamp
+ * is the proof the job is alive, and carries the count and the oldest start so the quiet stretch is legible.
+ * Only a genuinely uneventful run collapses: anything with a counter above zero, an error, or a status other
+ * than `ok` stays a row of its own.
+ */
+function collapseIdleRuns(rows: JobRow[]): JobDisplayRow[] {
+  const didNothing = (row: JobRow): boolean => (
+    row.status === 'ok'
+    && !row.error
+    && Object.values(row.counters ?? {}).every((value) => value === 0)
+  )
+
+  const out: JobDisplayRow[] = []
+  for (const row of rows) {
+    const previous = out[out.length - 1]
+    if (previous && previous.kind === row.kind && didNothing(previous) && didNothing(row)) {
+      previous.idleRun = {
+        count: (previous.idleRun?.count ?? 1) + 1,
+        oldestStartedAt: row.startedAt,
+      }
+      continue
+    }
+    out.push({ ...row })
+  }
+  return out
+}
+
 type DeadLetter = {
   id: string
   source: string
@@ -51,6 +96,7 @@ export default function MarketingJobsPage() {
   const scopeVersion = useOrganizationScopeVersion()
 
   const [rows, setRows] = React.useState<JobRow[]>([])
+  const [truncated, setTruncated] = React.useState(false)
   /**
    * Dispatches that never ran, which until now nothing displayed.
    *
@@ -80,6 +126,7 @@ export default function MarketingJobsPage() {
         return
       }
       setRows(result.result.items)
+      setTruncated(result.result.items.length >= LIST_LIMIT)
       setDeadLetters(Array.isArray(result.result.deadLetters) ? result.result.deadLetters : [])
     } catch {
       setLoadFailed(true)
@@ -90,7 +137,7 @@ export default function MarketingJobsPage() {
 
   React.useEffect(() => { void load() }, [load, scopeVersion])
 
-  const columns = React.useMemo<ColumnDef<JobRow>[]>(() => [
+  const columns = React.useMemo<ColumnDef<JobDisplayRow>[]>(() => [
     {
       accessorKey: 'kind',
       header: t('marketing_automation.jobs.columns.kind', 'Job'),
@@ -123,6 +170,16 @@ export default function MarketingJobsPage() {
        */
       meta: { truncate: false },
       cell: ({ row }) => {
+        const idle = row.original.idleRun
+        if (idle) {
+          return (
+            <span className="text-xs text-muted-foreground">
+              {t('marketing_automation.jobs.idleRuns', 'Nothing to do, {count} times in a row since {since}')
+                .replace('{count}', String(idle.count))
+                .replace('{since}', formatDateTime(idle.oldestStartedAt) ?? idle.oldestStartedAt)}
+            </span>
+          )
+        }
         const counters = row.original.counters ?? {}
         const entries = Object.entries(counters)
         if (entries.length === 0) {
@@ -153,9 +210,46 @@ export default function MarketingJobsPage() {
     {
       id: 'error',
       header: '',
+      // Third-party failure text, so nothing here bounds its length but this.
+      meta: { truncate: true, maxWidth: '320px' },
       cell: ({ row }) => (row.original.error
         ? <span className="text-xs text-status-error-text">{row.original.error}</span>
         : null),
+    },
+  ], [t])
+
+  const displayRows = React.useMemo(() => collapseIdleRuns(rows), [rows])
+
+  const deadLetterColumns = React.useMemo<ColumnDef<DeadLetter>[]>(() => [
+    {
+      id: 'source',
+      header: t('marketing_automation.jobs.deadLetters.columns.source', 'Source'),
+      // The source is a queue name, which is longer than the default column: truncating cuts the badge in half.
+      meta: { truncate: false },
+      cell: ({ row }) => <StatusBadge variant="error" dot>{row.original.source}</StatusBadge>,
+    },
+    {
+      id: 'event',
+      header: t('marketing_automation.jobs.deadLetters.columns.event', 'Event'),
+      meta: { truncate: true, maxWidth: '220px' },
+      cell: ({ row }) => (
+        <span className="text-sm">
+          {row.original.eventId ?? t('marketing_automation.jobs.deadLetters.noEvent', 'no event id')}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'createdAt',
+      header: t('marketing_automation.jobs.columns.startedAt', 'Started'),
+      meta: { truncate: false },
+      cell: ({ row }) => formatDateTime(row.original.createdAt),
+    },
+    {
+      id: 'error',
+      header: t('marketing_automation.jobs.deadLetters.columns.error', 'Error'),
+      // Already redacted on the way in — this is third-party failure text, so nothing else bounds it.
+      meta: { truncate: true, maxWidth: '320px' },
+      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.error}</span>,
     },
   ], [t])
 
@@ -193,27 +287,27 @@ export default function MarketingJobsPage() {
             <SectionHeader
               title={t('marketing_automation.jobs.deadLetters.title', 'Dispatches that never ran')}
               count={deadLetters.length}
+              help={{
+                title: t('marketing_automation.jobs.deadLetters.title', 'Dispatches that never ran'),
+                body: t('marketing_automation.help.jobs.deadLetters'),
+              }}
             />
-            <ul className="space-y-1">
-              {deadLetters.map((entry) => (
-                <li key={entry.id} className="rounded-md border border-border p-2 text-xs">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <StatusBadge variant="error">{entry.source}</StatusBadge>
-                    <span className="text-foreground">{entry.eventId ?? t('marketing_automation.jobs.deadLetters.noEvent', 'no event id')}</span>
-                    <span className="text-muted-foreground">{formatDateTime(entry.createdAt)}</span>
-                  </div>
-                  {/* Already redacted on the way in — this is third-party failure text. */}
-                  <div className="mt-1 text-muted-foreground">{entry.error}</div>
-                </li>
-              ))}
-            </ul>
+            {/* A table, like the job log directly beneath it: two lists of the same kind of thing on one
+                screen, rendered two different ways, read as two unrelated features. */}
+            <DataTable columns={deadLetterColumns} data={deadLetters} />
           </div>
         ) : null}
         {/* Not under the error: an empty table there would still make a claim about data nobody read. */}
         {loadFailed ? null : (
           <DataTable
+            title={t('marketing_automation.jobs.title', 'Background jobs')}
+            titleHeadingLevel={1}
+            titleHelp={{
+              title: t('marketing_automation.jobs.title', 'Background jobs'),
+              body: t('marketing_automation.help.page.jobs'),
+            }}
             columns={columns}
-            data={rows}
+            data={displayRows}
             isLoading={loading}
             emptyState={(
               <ListEmptyState
@@ -223,6 +317,12 @@ export default function MarketingJobsPage() {
             )}
           />
         )}
+        {truncated ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {t('marketing_automation.list.truncated', 'This screen lists at most {count} — there are probably more. Narrow what you are looking for rather than scrolling.')
+              .replace('{count}', String(LIST_LIMIT))}
+          </div>
+        ) : null}
       </PageBody>
     </Page>
   )

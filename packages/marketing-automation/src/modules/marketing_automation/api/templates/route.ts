@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { CAMPAIGN_TEMPLATES } from '../../lib/templates.js'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CAMPAIGN_TEMPLATES, localizeCampaignTemplate } from '../../lib/templates.js'
 
 /**
  * The ready-made campaigns an author can start from.
@@ -33,8 +34,18 @@ export async function GET(req: Request) {
   const organizationId = resolveActiveOrganizationId(auth)
   if (!organizationId) return organizationScopeRequiredResponse()
 
+  /**
+   * The documents ship English copy and are translated on the way out.
+   *
+   * An author who starts from a template is going to rewrite the words anyway, but handing a Polish shop a
+   * Polish first draft is the difference between editing and translating. A locale with no copy written for it
+   * falls back to the English literal, so a template is never served with an empty subject line.
+   */
+  const { translate } = await resolveTranslations()
+  const localized = CAMPAIGN_TEMPLATES.map((template) => localizeCampaignTemplate(template, translate))
+
   return NextResponse.json({
-    items: CAMPAIGN_TEMPLATES.map((template) => ({
+    items: localized.map((template) => ({
       id: template.id,
       labelKey: template.labelKey,
       descriptionKey: template.descriptionKey,

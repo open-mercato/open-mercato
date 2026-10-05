@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
+import { RecordRow } from '../../../components/RecordRow'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -16,10 +17,10 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useMarketingMutation } from '../../../components/useMarketingMutation'
+import { useLockedMarketingMutation, useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import { useUnsavedGuard } from '../../../components/useUnsavedGuard'
@@ -66,6 +67,7 @@ type MembersAnswer = {
 export default function SegmentsPage() {
   const t = useT()
   const runMutation = useMarketingMutation('segments')
+  const runLockedMutation = useLockedMarketingMutation('segments')
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -105,7 +107,18 @@ export default function SegmentsPage() {
         const result = await apiCall<{ items?: SegmentRow[]; total?: number }>(
           `${SEGMENTS_PATH}?pageSize=${PAGE_SIZE}&page=${page}`,
         )
-        if (!result.ok || !Array.isArray(result.result?.items)) break
+        /**
+         * A non-ok FIRST page is a failure, not an empty list.
+         *
+         * `apiCall` resolves rather than throwing on 401/403/500, so an expired session fell through to an
+         * empty `collected` and the screen rendered "No segments yet" — a claim about data nobody managed to
+         * read, which is the one lie this module's other eight list screens were each written to avoid. A
+         * later page failing is a partial result and still worth showing, so only the first one reports.
+         */
+        if (!result.ok || !Array.isArray(result.result?.items)) {
+          if (page === 1) setLoadFailed(true)
+          break
+        }
         collected.push(...result.result.items)
         total = typeof result.result.total === 'number' ? result.result.total : collected.length
         if (result.result.items.length < PAGE_SIZE || collected.length >= total) break
@@ -194,15 +207,13 @@ export default function SegmentsPage() {
         expression: draft.expression,
       }
       if (selected) {
-        await runMutation(
-          () => withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(selected.updatedAt),
-            () => apiCallOrThrow(`${SEGMENTS_PATH}/${selected.id}`, {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ ...payload, description: draft.description.trim() || null, updatedAt: selected.updatedAt }),
-            }),
-          ),
+        await runLockedMutation(
+          selected.updatedAt,
+          () => apiCallOrThrow(`${SEGMENTS_PATH}/${selected.id}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...payload, description: draft.description.trim() || null, updatedAt: selected.updatedAt }),
+          }),
         )
       } else {
         await runMutation(
@@ -238,11 +249,9 @@ export default function SegmentsPage() {
     })
     if (!confirmed) return
     try {
-      await runMutation(
-        () => withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}`, { method: 'DELETE' }),
-        ),
+      await runLockedMutation(
+        row.updatedAt,
+        () => apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}`, { method: 'DELETE' }),
       )
       if (selected?.id === row.id) resetDraft()
       await load()
@@ -368,13 +377,26 @@ export default function SegmentsPage() {
         {ConfirmDialogElement}
         {loadFailed ? (
           <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.segments.loadFailed', 'Could not load the segments.')} />
+            <ErrorMessage
+              label={t('marketing_automation.segments.loadFailed', 'Could not load the segments.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.runs.retry', 'Try again')}
+                </Button>
+              )}
+            />
           </div>
         ) : null}
 
         <div className="grid gap-6 lg:grid-cols-[1fr_28rem]">
           <div className="space-y-4">
             <DataTable
+              title={t('marketing_automation.segments.title', 'Segments')}
+              titleHeadingLevel={1}
+              titleHelp={{
+                title: t('marketing_automation.segments.title', 'Segments'),
+                body: t('marketing_automation.help.page.segments'),
+              }}
               columns={columns}
               data={rows}
               isLoading={loading}
@@ -400,7 +422,13 @@ export default function SegmentsPage() {
 
             {selected && history && history.length > 1 ? (
               <div>
-                <SectionHeader title={t('marketing_automation.segments.history', 'Size over time')} />
+                <SectionHeader
+                  title={t('marketing_automation.segments.history', 'Size over time')}
+                  help={{
+                    title: t('marketing_automation.segments.history', 'Size over time'),
+                    body: t('marketing_automation.help.segments.history'),
+                  }}
+                />
                 {/* Drawn only with more than one point: a single dot is not a trend, and a chart of it
                     suggests one. */}
                 <LineChart
@@ -420,7 +448,13 @@ export default function SegmentsPage() {
 
             {selected ? (
               <div className="space-y-2">
-                <SectionHeader title={t('marketing_automation.segments.tools', 'Compare and act')} />
+                <SectionHeader
+                  title={t('marketing_automation.segments.tools', 'Compare and act')}
+                  help={{
+                    title: t('marketing_automation.segments.tools', 'Compare and act'),
+                    body: t('marketing_automation.help.segments.tools'),
+                  }}
+                />
                 <div className="flex flex-wrap items-end gap-2">
                   <div className="w-64 space-y-1">
                     <Label htmlFor="overlap-with">{t('marketing_automation.segments.overlapWith', 'Overlap with')}</Label>
@@ -467,6 +501,10 @@ export default function SegmentsPage() {
                 <SectionHeader
                   title={t('marketing_automation.segments.membersTitle', 'Members')}
                   count={(members.items ?? []).length}
+                  help={{
+                    title: t('marketing_automation.segments.membersTitle', 'Members'),
+                    body: t('marketing_automation.help.segments.membersTitle'),
+                  }}
                 />
                 <div className="text-xs text-muted-foreground">
                   {members.qualifier === 'exact'
@@ -481,11 +519,11 @@ export default function SegmentsPage() {
                 ) : (
                   <ul className="space-y-1">
                     {(members.items ?? []).map((member) => (
-                      <li key={member.id} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                      <RecordRow key={member.id}>
                         <a className="truncate underline" href={`/backend/marketing/customers/${member.id}`}>
                           {member.displayName ?? member.email ?? member.id}
                         </a>
-                      </li>
+                      </RecordRow>
                     ))}
                   </ul>
                 )}
@@ -498,6 +536,10 @@ export default function SegmentsPage() {
               title={selected
                 ? t('marketing_automation.segments.editing', 'Editing {name}').replace('{name}', selected.name)
                 : t('marketing_automation.segments.new', 'New segment')}
+              help={{
+                title: t('marketing_automation.segments.title', 'Segments'),
+                body: t('marketing_automation.help.segments.editor'),
+              }}
             />
             <div className="space-y-1">
               <Label htmlFor="segment-name">{t('marketing_automation.segments.columns.name', 'Name')}</Label>
@@ -522,9 +564,7 @@ export default function SegmentsPage() {
               />
             </div>
             <div className="space-y-1">
-              <div className="text-overline text-muted-foreground">
-                {t('marketing_automation.segments.definition', 'Who is in it')}
-              </div>
+              <Label>{t('marketing_automation.segments.definition', 'Who is in it')}</Label>
               {/* The platform's own condition builder: a segment IS an audience expression. */}
               <ConditionBuilder
                 value={draft.expression}

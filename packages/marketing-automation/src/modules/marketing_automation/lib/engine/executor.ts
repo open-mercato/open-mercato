@@ -216,6 +216,16 @@ export async function executeRun<TDeps>(
 
   for (const planned of planSteps(effectiveSteps, startIndex)) {
     if (planned.kind === 'pause') {
+      /**
+       * Logged on entry, because reaching a wait is the whole of what a wait does.
+       *
+       * Every other step writes its outcome here and the step funnel counts people from those entries, so an
+       * unlogged wait reported nobody — and, being the predecessor of whatever follows it, left the next step
+       * dividing by zero and showing no conversion at all. A run resumes AFTER the wait, so this is written
+       * once however many times the run is woken.
+       */
+      const waitStep = effectiveSteps[planned.index]
+      if (waitStep) stepLog.push(outcome(waitStep, 'done', now, `waiting ${planned.minutes} min`))
       return {
         kind: 'waiting',
         reason: 'wait',
