@@ -23,6 +23,7 @@
   "directory.branding.flash.saved": "Marca de la organización actualizada",
   "directory.branding.loading": "Cargando marca de la organización...",
   "directory.branding.nav": "Marca de la organización",
+  "directory.branding.organizationRequired": "La marca se gestiona para una organización a la vez. Selecciona una sola organización para continuar.",
   "directory.branding.previewAlt": "Vista previa del logo de {{name}}",
   "directory.branding.title": "Marca de la organización",
   "directory.branding.url.hint": "Usa una URL de imagen externa o deja el campo vacío para volver al logo predeterminado de Open Mercato.",

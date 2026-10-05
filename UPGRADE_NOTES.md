@@ -24,6 +24,86 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
+
+`directory.organizations.update` (and so `PUT /api/directory/organizations` and
+`PUT /api/directory/organization-branding`) used to read an omitted `parentId` as "no parent" and an
+omitted `childIds` as "no children". Any partial update — including saving a sidebar logo — moved the
+organization to the top level and detached all of its children. Both fields are now left untouched
+when they are absent from the input, like every other field of the command.
+
+- To detach an organization from its parent send `parentId: null`; to remove its children send
+  `childIds: []`. Both worked before and still do.
+- A caller that relied on omission to clear the hierarchy must send those explicit values.
+- A request that sends `childIds` without `parentId` and lists the organization's current parent is
+  rejected with `400 Child cannot equal parent`.
+
+This does not repair trees that were already flattened. An affected `directory.organization` update
+in the audit log either lists `parentId` among its changes although only branding or name fields were
+edited, or — for a top-level organization that only lost its children — differs between the `before`
+and `after` `childParents` of its undo snapshot (the detached children get no log entry of their own).
+Re-assign the parent or the children on the organization edit page.
+
+### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
+
+Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
+is implemented in the database: a migration installs the `unaccent` and `pg_trgm` extensions, creates
+an `IMMUTABLE` `om_immutable_unaccent(text)` wrapper in `public`, and builds a GIN trigram index on
+`catalog_products`.
+
+**Action for operators: make sure the migrating role can enable both extensions.** Enabling an
+extension requires `CREATE` on the database, and some managed PostgreSQL providers additionally
+require the extension to be allowlisted. The migration skips the create when an extension is already
+installed, and otherwise fails with a message naming the extension and the statement to run, rather
+than a bare `permission denied to create extension`. To pre-empt it:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "unaccent" SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS "pg_trgm" SCHEMA public;
+```
+
+The index is built with `CREATE INDEX CONCURRENTLY`, so product writes are not blocked during the
+upgrade, but the build is not instantaneous on a large catalog. Deploy the migration **before** the
+new application code: until `om_immutable_unaccent` exists, every product search fails with
+`function om_immutable_unaccent(text) does not exist`.
+
+**Action for module authors: none**, unless you query `catalog_products` with your own
+accent-insensitive predicate — in that case build it from
+`@open-mercato/shared/lib/db/accentInsensitiveSearch` so your expression matches the index verbatim.
+A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
+index for it.
+
+### OpenAI-compatible presets call Chat Completions by default (#4638)
+
+`createOpenAICompatibleProvider(preset)`
+(`@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-adapters/openai`) used to build every
+model with `openai(modelId)`, which `@ai-sdk/openai` v4 routes to the Responses API
+(`POST {baseURL}/responses`). OpenAI-compatible backends (DeepInfra, Groq, Together, Fireworks,
+OpenRouter, LiteLLM, Ollama, LM Studio, …) only implement Chat Completions, so every call answered
+`404 Not Found`.
+
+`OpenAICompatiblePreset` gained an optional `apiMode?: 'chat' | 'responses'` (type
+`OpenAICompatibleApiMode`). A preset that omits it now calls `POST {baseURL}/chat/completions`.
+The built-in `openai` preset sets `apiMode: 'responses'`, so native OpenAI keeps the Responses API
+and its provider-executed tools such as `web_search`.
+
+**Action for app authors:** a custom preset registered with `createOpenAICompatibleProvider` now
+uses Chat Completions. If its backend implements the Responses API and you rely on it, add
+`apiMode: 'responses'` to the preset.
+
+### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
+
+`reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
+`reviveSnapshotDates` helper and throws `[internal] Invalid <field> snapshot date` for a date
+field holding an unparsable string, instead of seeding an `Invalid Date` that failed later on
+flush. Valid ISO strings, `null` and `Date` values behave as before.
+
+`extractUndoPayload(logEntry, options?)` gained an optional second argument. Undo snapshots
+round-trip through `jsonb`, so `Date` fields come back as ISO strings; pass
+`{ datePaths: ['before.<entity>.<field>'] }` (exact paths) or `{ dateFields: ['<field>'] }`
+(key name at any depth) before assigning snapshot dates to entities. Without options the
+payload is returned unchanged.
+
 ### Gmail adapter no longer reads OAuth client config from `credentials._client`
 
 `GmailChannelAdapter.refreshCredentials` previously fell back to
@@ -38,8 +118,6 @@ now throws; a smuggled `_client` key on the per-user credentials blob is ignored
 
 See #3828 and
 [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) (`RefreshCredentialsInput`).
-
----
 
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 
@@ -68,6 +146,64 @@ precedence change landed. If you maintain a fork with its own `apps/<host>/src/i
 it the same way before upgrading: a key that duplicates a module key with a different value now
 silently wins, for better or for worse.
 
+### `CrudForm` now submits injected fields that reuse a host field id (PR #6709)
+
+A `crud-form:<entityId>:fields` injected field whose `id` matches a field the host form already
+declares replaces the host's input for that field (the injected entry wins the id lookup). Until
+now `CrudForm` still stripped every injected field id from the host payload before schema
+validation and `onSubmit`, so such an override silently dropped the edited value — the host
+received the stale initial value (or nothing). `CrudForm` now strips only **injected-only** ids
+(no host-declared counterpart); an injected field that reuses a host id is treated as the host
+field: its value reaches schema validation and the host `onSubmit` payload, and a dot-path id
+(e.g. `metadata.channel`) is collapsed into its nested shape like any declared dot-path field.
+Injected-only fields are unchanged: still stripped from the host payload and still delivered to
+widgets through `onBeforeSave`/`onSave`.
+
+**Action for module authors:** none if your injected field ids are unique (the common case). If
+a widget deliberately reuses a host field id, the host's `onSubmit` now receives that field's
+value — make sure the value matches what the host schema expects. If a widget reused a host id
+only by accident and persists the value itself in `onSave`, rename the injected field id so the
+host does not also submit it.
+
+### `ChannelAdapter.fetchHistory` receives `scope.organizationId: null` for a channel with no organization (#6331)
+
+The `communication_channels` poll worker used to hand `adapter.fetchHistory` a scope in which a
+channel's missing organization (`communication_channels.organization_id IS NULL` — tenant-wide
+channels and channels created before organization scoping) was replaced by the tenant id. An
+adapter that scoped its own storage or provider queries by `input.scope.organizationId` therefore
+looked in a bucket that does not exist.
+
+`FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
+(`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
+own organization — `null` when it has none. The Gmail push path and the reaction adapter inputs
+follow in the same release — see the next entry (#6634). `TenantScope` and the remaining adapter
+inputs are unchanged, and the hub still resolves channel credentials under the key they are written
+with (the tenant id for an organization-less channel).
+
+**Action for adapter authors:** if your `fetchHistory` reads `input.scope.organizationId`, handle
+`null` (a tenant-wide channel). TypeScript now flags code that passes it where a `string` is
+required. If you previously worked around the substitution by resolving the channel's real
+organization yourself, that workaround keeps working and can be dropped.
+
+### `applyPushNotification`, `sendReaction` and `removeReaction` receive `scope.organizationId: null` for a channel with no organization (#6634)
+
+Follow-up to #6331. The `communication_channels` Gmail push worker (`gmail-history-sync` →
+`adapter.applyPushNotification`) and the outbound reaction worker (`reaction-processor` →
+`adapter.sendReaction` / `adapter.removeReaction`) also replaced a channel's missing organization
+with the tenant id in the scope they hand the adapter. For Gmail this reached `fetchHistory` too,
+because `applyPushNotification` forwards its scope there.
+
+`ApplyPushNotificationInput.scope`, `SendReactionInput.scope` and `RemoveReactionInput.scope` are
+now typed as `ChannelScope` (`{ tenantId: string; organizationId: string | null }`), and both
+workers pass the channel's own organization — `null` when it has none. Channel credentials are
+still resolved under the key they are written with (the tenant id for an organization-less
+channel), so existing credential rows keep working.
+
+**Action for adapter authors:** if your `applyPushNotification`, `sendReaction` or
+`removeReaction` reads `input.scope.organizationId`, handle `null` (a tenant-wide channel).
+TypeScript now flags code that passes it where a `string` is required. The in-repo Gmail and
+Discord adapters needed no change.
+
 ### `customers` now requires `progress` to be enabled (#6302)
 
 `customers`'s deal bulk-update workers and lib (`lib/bulkDeals.ts`,
@@ -95,6 +231,28 @@ Module dependency check failed:
 and the `create-app` template already enable `progress`, so this repo's own apps and freshly
 scaffolded `classic`/`crm` apps are unaffected; the `wms` starter preset has been updated to add
 `progress` alongside `customers` for the same reason.
+
+### `ai_assistant` now ships its own encryption map (#6332)
+
+`@open-mercato/ai-assistant` previously declared no `encryption.ts`, so AI chat messages
+(`content`, `ui_parts`, `files_metadata`, `metadata`), conversation titles and pending-action
+payloads (`normalized_input`, `field_diff`, `records`) were stored in plaintext even with tenant
+data encryption enabled. The module now exports `defaultEncryptionMaps` for
+`ai_assistant:ai_chat_message`, `ai_assistant:ai_chat_conversation` and
+`ai_assistant:ai_pending_action`.
+
+`getDefaultEncryptionMaps` rejects two modules declaring a map for the same entity id, and the
+app bootstrap rethrows that error when encryption is enabled. An app that worked around the gap by
+declaring these maps in one of its own modules' `encryption.ts` will now fail to start with
+`Duplicate default encryption map for "ai_assistant:…"`.
+
+**Action for app authors:** delete any app-side `defaultEncryptionMaps` entries for the three
+`ai_assistant:*` entity ids. To keep a different field set, replace the shipped map through
+`overrides.encryption.maps['ai_assistant:ai_chat_message']` (and the other two ids) on a
+`src/modules.ts` entry instead of redeclaring it. Existing tenants pick the new maps up with
+`yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`; rows written
+before that stay plaintext (still readable) until rewritten, or until
+`yarn mercato entities rotate-encryption-key --tenant <tenantId>` encrypts them.
 
 ### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
 
@@ -160,6 +318,71 @@ company creation — including the `customer_accounts` portal-users group, which
 in create mode and renders its empty state. The bridge also keeps the shipped `example` module's
 `example.injection.customer-priority-field` field widget rendering on this page exactly as before,
 via the dual-published `:fields` child.
+
+### An explicit OTLP telemetry backend now fails startup when OpenTelemetry is not installed (#5799)
+
+Only relevant if `TELEMETRY_BACKEND` is set to `otlp`, `signoz`, or `newrelic`. `initTelemetry()`
+(`@open-mercato/telemetry`) used to catch a failed import of the optional `@opentelemetry/*`
+packages, log one warning, and start the console provider instead, so the deployment reported
+`Telemetry initialized` while exporting nothing to the configured endpoint. That fallback is gone:
+`initTelemetry()` now rejects with an `OtlpDependencyUnavailableError` that names the selected
+backend and the remediations below, with the original import failure kept as `cause`.
+`registerTelemetryForNextjs()` (`@open-mercato/telemetry/nextjs`) was documented as never letting a
+rejection escape Next's `register()`; it now rethrows this one error. Every other init failure still
+degrades to "no telemetry" with a warning, and function signatures and import paths are unchanged.
+
+**Who is affected:** deployments that select one of those three backends **and** run without the
+optional dependencies installed (for example, an image or install that omits optional
+dependencies). Telemetry-off (`TELEMETRY_BACKEND` unset, blank, `noop`, or unknown), `console`, and
+registered custom providers behave exactly as before. Standard Open Mercato images install optional
+dependencies and are unaffected.
+
+**What stops working:** those hosts no longer start. The `mercato` CLI, workers, and the scheduler
+print the message and exit with code 1. The Next.js web host depends on its `src/instrumentation.ts`:
+
+- `apps/mercato` and newly scaffolded create-app projects wrap the call, write the one-line message
+  to stderr, and exit with code 1;
+- a standalone app scaffolded earlier still has a bare `await registerTelemetryForNextjs()` in
+  `register()`, so the rejection escapes it and Next.js rethrows it as `An error occurred while
+  loading instrumentation hook: …` while preparing the server. There is no longer a warning and
+  console fallback.
+
+**Action for operators:** choose one:
+
+1. Rebuild or reinstall with optional dependencies included.
+2. Set `TELEMETRY_BACKEND=console` if local diagnostic output is what you want.
+3. Unset `TELEMETRY_BACKEND`, or set it to `noop`, to disable telemetry.
+
+No stored data or credentials are affected.
+
+**Action for standalone app authors:** after upgrading, re-run `yarn mercato telemetry init`. It
+upgrades both previously generated bootstrap shapes (the `NEXT_RUNTIME === 'nodejs'`-only guard and
+the `isTelemetryBackendEnabled()` guard) to the wrapped form below and is idempotent. If you
+customized `register()` so the shape no longer matches, it leaves the file alone, reports `manual`,
+and prints the canonical snippet for you to apply:
+
+```ts
+if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {
+  const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+  try {
+    await registerTelemetryForNextjs()
+  } catch (err) {
+    const nodeProcess = process
+    nodeProcess.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    nodeProcess.exit(1)
+  }
+}
+```
+
+**Docker Compose (additive):** `starters/docker/compose.fullapp.yml` (and its repo-root copy
+`docker-compose.fullapp.yml`) and the create-app `docker-compose.fullapp.yml` now forward
+`TELEMETRY_BACKEND`, `TELEMETRY_SAMPLING_RATIO`, `TELEMETRY_TRUST_INBOUND_TRACE`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`, and
+`OTEL_RESOURCE_ATTRIBUTES` into the `app` container. They also add an opt-in `telemetry` profile
+that runs a diagnostic OpenTelemetry Collector. Before this change the `app` container never saw
+these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enabled backend,
+telemetry now starts inside the container. Check that value before upgrading. See
+[`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
