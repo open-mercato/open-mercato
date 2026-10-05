@@ -26,6 +26,8 @@ type MessageSentPayload = {
   senderUserId: string
   recipientUserIds: string[]
   sendViaEmail: boolean
+  /** Set by compose for channel-ingested messages (#6093); see `resolveNotificationVariables`. */
+  inboundFromChannel?: boolean
   externalEmail?: string | null
   forwardedFrom?: string
   replyTo?: string
@@ -76,13 +78,23 @@ async function resolveNotificationVariables(payload: MessageSentPayload, ctx: Re
       ),
     ])
 
+    // #6093: a channel-ingested message is composed on behalf of the channel's
+    // system user (or, without one, the assignee), so `senderUserId` is not who
+    // wrote it. The correspondent is on the message itself.
+    const externalFrom = payload.inboundFromChannel
+      ? [message?.externalName, message?.externalEmail].find(
+          (value): value is string => typeof value === 'string' && value.trim().length > 0,
+        )
+      : undefined
+
     return {
       title: typeof message?.subject === 'string' ? message.subject : '',
-      from: typeof sender?.name === 'string' && sender.name.trim().length > 0
-        ? sender.name
-        : typeof sender?.email === 'string'
-          ? sender.email
-          : '',
+      from: externalFrom
+        ?? (typeof sender?.name === 'string' && sender.name.trim().length > 0
+          ? sender.name
+          : typeof sender?.email === 'string'
+            ? sender.email
+            : ''),
     }
   } catch {
     return { title: '', from: '' }

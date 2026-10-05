@@ -148,6 +148,7 @@ These functions are called directly by module code. Their signatures MUST NOT ch
 | `collectCustomFieldValues()` | `@open-mercato/ui/backend/utils/customFieldValues` | MUST NOT change |
 | `flash()` | `@open-mercato/ui` | MUST NOT change |
 | `CrudForm` component props | `@open-mercato/ui/backend/crud` | MUST NOT remove existing props |
+| Built-in `CrudFormGroup.id` values | any module's form-group builder (e.g. `createCompanyFormGroups`) | MUST NOT rename or remove an id a shipped form declares — `CrudForm`'s `hiddenGroupIds` addresses groups by id, and an unmatched id is ignored, so a rename makes a card the host hid silently reappear in production. Renames follow the deprecation protocol; pin a builder's ids with a guard test (pattern: `packages/core/src/modules/customers/components/__tests__/companyFormHiddenGroups.test.tsx`). MAY add new groups freely |
 | `DataTable` component props | `@open-mercato/ui/backend` | MUST NOT remove existing props |
 | `parseBooleanToken` / `parseBooleanWithDefault` | `@open-mercato/shared/lib/boolean` | MUST NOT change |
 
@@ -375,6 +376,22 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ---
 
+## Encrypt Path Rejects Wrong-Key Ciphertext (2026-09-11)
+
+`TenantDataEncryptionService.encryptFields` treats "already encrypted" as "decrypts under the current DEK" — a deliberate anti-forgery choice ([#2720](https://github.com/open-mercato/open-mercato/issues/2720)). Real ciphertext sealed under a *different* key failed that check too and was encrypted a second time, producing a nested envelope that no read path can undo, plus a lookup hash computed over ciphertext ([#5951](https://github.com/open-mercato/open-mercato/issues/5951)). That write is now rejected:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import path / exports (`@open-mercato/shared/lib/encryption/aes`) | New export `isEncryptedPayloadShape(value)` — a key-free structural check (`<iv>:<ct>:<tag>:v1` with a 12-byte IV, 16-byte tag and non-empty ciphertext). Explicitly NOT an "is this encrypted" oracle; the shape is forgeable | ✓ ADDITIVE (new export, nothing removed or renamed) |
+| Function behaviour (`encryptEntityPayload` / `encryptFields`) | A field holding a structurally well-formed envelope that does not decrypt under the current DEK now raises `TenantDataEncryptionError` with code `WRONG_KEY`, where it previously returned a payload containing a nested envelope. Signature, return type and every other input keep their byte-identical historical behaviour | ⚠️ Behaviour change on one previously-corrupting path. `WRONG_KEY` was already declared in `TenantDataEncryptionErrorCode` and emitted nowhere, so no existing handler changes meaning. Regression-tested in `tenantDataEncryptionService.test.ts` |
+| Encryption-at-rest guarantee (#2720) | Unchanged. Nothing is ever stored verbatim: a forgery whose shape is not length-valid (the check is length-based, not content-based) still fails the structural check and is encrypted as ordinary plaintext, and a length-valid one is rejected rather than persisted | ✓ Preserved (pinned by the retained `#2720` test cases) |
+| CLI behaviour (`mercato entities rotate-encryption-key`, `… backfill-system-encryption`) | A row whose ciphertext opens under neither `--old-key` nor the current tenant key is reported and skipped instead of rewritten; the backfill no longer passes already-encrypted columns to the encrypt path. Rows that rotated or backfilled successfully before are unaffected | ✓ Behaviour-preserving for every row that succeeded before; a row that was previously corrupted is now skipped instead — `rotate-encryption-key --old-key` reports it in the run summary, while `backfill-system-encryption` and `rotate-encryption-key` without `--old-key` skip it silently (see UPGRADE_NOTES.md) |
+| DB schema, API routes, event IDs, ACL features, DI names | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
+
+---
+
 ## Module Registry Registration Listeners (2026-08-12)
 
 [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
@@ -454,3 +471,34 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 **Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
+
+## Data Sync Retry, Resume and Run Again (2026-09-16)
+
+[`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (§2) | New exported types `ResumePoint` (a discriminated union of `none` / `noCommittedBatch` / `resumes`) and `ResumePointRun` | ✓ ADDITIVE (new types, nothing renamed — same shape as the `StartControlMap` addition before it) |
+| Import paths (§4) | New module `data_sync/lib/resume-point.ts` exporting `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint`, `ResumePointRun` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
+| API route URLs (§7) | **No change.** `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` are untouched — no new request field, no new response field, no new status code and no new error code. The UI starts sending the already-accepted `fromBeginning: true` for the first time, and reads `cursor` / `initialCursor` / `batchesCompleted`, all of which `GET /api/data_sync/runs` and `GET /api/data_sync/runs/[id]` have returned since 2026-08-12 | ✓ n/a |
+| Database schema (§8) | No change. No entity, column, migration or `.snapshot-open-mercato.json` update; no new run status — the vestigial `paused` status is left exactly as it was | ✓ n/a |
+| Auto-discovery, function signatures, event IDs, widget spot IDs, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Contract commitments**: the retry endpoint deliberately does **not** enforce `supportsStartControl('fullSync', entityType)` before honouring `fromBeginning: true`. [§ Data Sync Start Control Applicability (2026-09-02)](#data-sync-start-control-applicability-2026-09-02) already commits that the declaration "governs what the dashboard **offers**, never what the run API **accepts**", and `fromBeginning: true` on `retry` requests the identical thing as `fullSync: true` on `run` — a `null` start cursor — so the two siblings MUST answer identically. An adapter-declared restriction hides the from-the-beginning action in the UI and nothing more; a scripted or API client keeps the documented escape hatch. Making either endpoint strict is a breaking change under §7 and needs the deprecation protocol, not a UI spec.
+
+`ResumePoint` also has **no `fromBeginning` variant, by design**. `api/runs/[id]/retry.ts` resolves a resumable retry as `previous.cursor ?? resolveStartCursor(...)`, and `resolveStartCursor` reads the shared `sync_cursors` row — state the run row does not carry — so a run that committed no batch of its own may still resume at a cursor an earlier run wrote. `noCommittedBatch` therefore means only "this run committed nothing" and MUST NOT be widened by a caller into a positional claim about where a retry starts. A future additive `retryStartCursor` response field is the only way to close that gap; it is out of scope here.
+
+**Migration path for existing adapters and clients**: none. The module is new, every endpoint is unchanged, and an adapter or API client that ignores all of this behaves exactly as before.
+
+## Customers Quick-Create Injection Spot Bridge (2026-09-16)
+
+[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Widget Injection Spot IDs (§6) | `CrudForm` gains an additive `legacyInjectionSpotId?: string` prop. When set, its header/body/field widgets are dual-published alongside the primary `injectionSpotId`'s — `crud-form:customers.customer_entity` stays live on these two dialogs via the bridge, so nothing that already targets it stops rendering | ✓ ADDITIVE (bridge, not a removal — see Deprecation Protocol steps 1–3) |
+| Widget Injection Spot IDs (§6) | The two dialogs now also publish `crud-form:customers.person` / `…company` (previously published only by the person/company detail pages) | ✓ ADDITIVE ("MAY add new spot IDs to new or existing pages") |
+| Context passed to widgets at `crud-form:customers.person` / `…company` | These hosts' widgets now also mount with `operation: 'create'` and no `recordId` on the two quick-create dialogs, for the first time — previously always `operation: 'update'` with a concrete `recordId` | Disclosed in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) "Action for module authors"; not itself a contract surface change (§6 permits "new optional context fields", and `operation`/`recordId` were always part of the injection context shape) |
+| Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
+
+**Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
