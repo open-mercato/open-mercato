@@ -8,7 +8,6 @@
 
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { dismissRecordConflict, getRecordConflictForTest } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -48,12 +47,6 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   },
 }))
 
-jest.mock('@open-mercato/ui/backend/RowActions', () => ({
-  RowActions: ({ items }: { items: RowActionItem[] }) => (
-    <>{items.map((item) => <button key={item.id} onClick={item.onSelect}>{item.label}</button>)}</>
-  ),
-}))
-
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
   InjectionSpot: () => null,
   useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
@@ -88,11 +81,13 @@ const privateMailbox: ChannelRow = {
 
 async function clickShareWithTeam() {
   if (!capturedRowActions) {
-    throw new Error('[internal] table has no row actions renderer')
+    throw new Error('[internal] row actions renderer was not captured')
   }
   render(<>{capturedRowActions(privateMailbox)}</>)
+  fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+  const shareAction = await screen.findByRole('menuitem', { name: 'Share with team' })
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Share with team' }))
+    fireEvent.click(shareAction)
   })
 }
 
