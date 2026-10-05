@@ -24,6 +24,12 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Optional strict attachment storage configuration
+
+Attachment factory resolution now supports `OM_ATTACHMENT_STORAGE_POLICY=strict` across web, worker, CLI and direct/late factory instances. The default `legacy` policy preserves local fallback. Before opting in, verify partitions select explicit drivers and register provider-owned synchronous validators with `registerStorageDriverValidator`; the S3 package registers its validator automatically when enabled. Strict invalid configuration produces redacted typed errors and HTTP 503 instead of selecting local storage. It also rejects missing requested partitions before substituting defaults and validates deletion before removing attachment metadata.
+
+No migration or data rewrite is required. Set the policy consistently in every process; rollback is returning to `legacy` and restarting. Supported explicit-local storage, ambient S3 credentials and existing endpoint allowances remain available. See [the attachment API policy guide](apps/docs/docs/api/attachments.mdx#storage-configuration-policy) and [design PR #6819](https://github.com/open-mercato/open-mercato/pull/6819).
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)

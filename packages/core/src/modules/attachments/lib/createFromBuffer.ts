@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { StorageDriverFactory } from './drivers'
+import { assertAttachmentStoragePartitionExists } from './drivers/storageValidation'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from './partitions'
 import { buildAttachmentFileUrl } from './imageUrls'
 import { mergeAttachmentMetadata, upsertAssignment } from './metadata'
@@ -53,6 +54,7 @@ export async function createAttachmentFromBuffer(input: CreateAttachmentFromBuff
 
   let partition = await em.findOne(AttachmentPartition, { code })
   if (!partition) {
+    assertAttachmentStoragePartitionExists(false)
     await ensureDefaultPartitions(em)
     partition = await em.findOne(AttachmentPartition, { code })
   }

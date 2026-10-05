@@ -1,3 +1,4 @@
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -222,7 +223,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   })
 }
 
-export async function DELETE(req: NextRequest, ctx: RouteContext) {
+async function deleteLibraryAttachment(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -274,6 +275,8 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   return NextResponse.json({ ok: true })
 }
 
+export const DELETE = withAttachmentStorageErrors(deleteLibraryAttachment)
+
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
   summary: 'Attachment detail management',
@@ -314,6 +317,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Attachment deleted successfully', schema: z.object({ ok: z.literal(true) }) },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Invalid attachment ID', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
         { status: 404, description: 'Attachment not found', schema: attachmentErrorSchema },

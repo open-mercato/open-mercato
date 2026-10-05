@@ -2,8 +2,11 @@ import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   registerExternalStorageDriver,
+  registerStorageDriverValidator,
+  getAttachmentStoragePolicy,
   registerExternalCredentialEnhancer,
 } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { validateS3StorageConfiguration } from './lib/storage-validation'
 import { S3StorageDriver } from './lib/s3-driver'
 import { createStorageService } from './lib/storage-service'
 import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
@@ -19,6 +22,7 @@ type IntegrationCredentialsService = {
 
 // Module-level registration — runs at import time, before any DI container is built.
 // This avoids the singleton-proxy resolution issue when registering via DI.
+registerStorageDriverValidator('s3', validateS3StorageConfiguration)
 registerExternalStorageDriver('s3', (config: Record<string, unknown>) => {
   logger.debug('Creating S3StorageDriver', {
     bucket: config.bucket,
@@ -62,6 +66,7 @@ export function register(container: AppContainer) {
         sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
       }
     } catch (err) {
+      if (getAttachmentStoragePolicy() === 'strict') throw err
       logger.warn('Credential enhancer failed, using scoped partition config', { err })
       return scopedConfig
     }

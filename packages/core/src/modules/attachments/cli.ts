@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment } from './data/entities'
 import type { StorageDriverFactory } from './lib/drivers'
+import { isAttachmentStorageConfigurationError } from './lib/drivers/storageValidation'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -92,6 +93,7 @@ const deleteAttachments: ModuleCli = {
         console.log(`Not found: ${missing.join(', ')}`)
       }
     } catch (err) {
+      if (isAttachmentStorageConfigurationError(err)) throw err
       console.error('[attachments] delete command failed:', err)
     }
   },
