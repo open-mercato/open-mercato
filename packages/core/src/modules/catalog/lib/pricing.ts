@@ -20,6 +20,10 @@ export type PricingContext = {
   customerGroupIds?: string[]
   /** When set, only rows in this currency match. Omitted (the default): no currency filtering, unchanged legacy behavior. */
   currencyCode?: string | null
+  /** When set, only rows of this price kind (by `CatalogPriceKind` id) match. Unset or `null`: kind is not filtered, unchanged legacy behavior. */
+  priceKindId?: string | null
+  /** The buyer's customer entities, person first, then company. A row's `customerId` matches when it appears in this list. Falls back to `customerId` (above) when omitted. */
+  customerIds?: string[]
   quantity: number
   date: Date
 }
@@ -47,6 +51,15 @@ export function resolvePriceChannelId(row: PriceRow): string | null {
   return row.channelId ?? row.offer.channelId ?? null
 }
 
+export function resolvePriceKindId(row: PriceRow): string | null {
+  if (!row.priceKind) return null
+  return typeof row.priceKind === 'string' ? row.priceKind : row.priceKind.id ?? null
+}
+
+function resolveContextCustomerIds(ctx: PricingContext): string[] {
+  return ctx.customerIds ?? (ctx.customerId ? [ctx.customerId] : [])
+}
+
 export function resolvePriceKindCode(row: PriceRow): string {
   if (row.priceKind) {
     if (typeof row.priceKind === 'string') return row.priceKind
@@ -68,12 +81,13 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
   }
   if (row.userId && ctx.userId !== row.userId) return false
   if (row.userGroupId && ctx.userGroupId !== row.userGroupId) return false
-  if (row.customerId && ctx.customerId !== row.customerId) return false
+  if (row.customerId && !resolveContextCustomerIds(ctx).includes(row.customerId)) return false
   if (row.customerGroupId) {
     const candidateGroupIds = ctx.customerGroupIds ?? (ctx.customerGroupId ? [ctx.customerGroupId] : [])
     if (!candidateGroupIds.includes(row.customerGroupId)) return false
   }
   if (ctx.currencyCode && row.currencyCode !== ctx.currencyCode) return false
+  if (ctx.priceKindId && resolvePriceKindId(row) !== ctx.priceKindId) return false
   if (ctx.offerId && resolvePriceOfferId(row) && resolvePriceOfferId(row) !== ctx.offerId) return false
   return true
 }
@@ -86,7 +100,7 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
  * `.ai/specs/2026-08-21-pricing-engine.md` § Row narrowing).
  *
  * Covers only the dimensions that are plain column comparisons: customer,
- * customer-group, user, user-group, channel, currency. Quantity bounds,
+ * customer-group, user, user-group, channel, currency, price kind. Quantity bounds,
  * validity windows, and offer-derived channel resolution stay in
  * `matchesContext` — they are cheap over an already-narrowed set and are not
  * expressible as one column predicate (offer's own `channelId` lives on a
@@ -101,10 +115,11 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
  */
 export function buildPriceRowFilter(ctx: PricingContext): FilterQuery<CatalogProductPrice> {
   const customerGroupIds = ctx.customerGroupIds ?? (ctx.customerGroupId ? [ctx.customerGroupId] : [])
+  const customerIds = resolveContextCustomerIds(ctx)
 
   const clauses: FilterQuery<CatalogProductPrice>[] = [
-    ctx.customerId
-      ? { $or: [{ customerId: null }, { customerId: ctx.customerId }] }
+    customerIds.length
+      ? { $or: [{ customerId: null }, { customerId: { $in: customerIds } }] }
       : { customerId: null },
     customerGroupIds.length
       ? { $or: [{ customerGroupId: null }, { customerGroupId: { $in: customerGroupIds } }] }
@@ -122,6 +137,10 @@ export function buildPriceRowFilter(ctx: PricingContext): FilterQuery<CatalogPro
 
   if (ctx.currencyCode) {
     clauses.push({ currencyCode: ctx.currencyCode })
+  }
+
+  if (ctx.priceKindId) {
+    clauses.push({ priceKind: ctx.priceKindId })
   }
 
   return { $and: clauses } as FilterQuery<CatalogProductPrice>
@@ -148,9 +167,14 @@ function scorePrice(row: PriceRow): number {
 export function selectBestPrice(rows: PriceRow[], ctx: PricingContext): PriceRow | null {
   const candidates = rows.filter((row) => matchesContext(row, ctx))
   if (!candidates.length) return null
+  const customerIds = resolveContextCustomerIds(ctx)
+  const customerRank = (row: PriceRow): number => (row.customerId ? customerIds.indexOf(row.customerId) : -1)
   candidates.sort((a, b) => {
     const scoreDiff = scorePrice(b) - scorePrice(a)
     if (scoreDiff !== 0) return scoreDiff
+    const rankA = customerRank(a)
+    const rankB = customerRank(b)
+    if (rankA >= 0 && rankB >= 0 && rankA !== rankB) return rankA - rankB
     const startA = a.startsAt ? a.startsAt.getTime() : 0
     const startB = b.startsAt ? b.startsAt.getTime() : 0
     if (startA !== startB) return startB - startA

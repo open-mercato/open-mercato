@@ -309,7 +309,7 @@ describe('catalog pricing helpers', () => {
       currencyCode: 'USD',
     }) as any
     expect(filter.$and).toEqual([
-      { $or: [{ customerId: null }, { customerId: 'cust-1' }] },
+      { $or: [{ customerId: null }, { customerId: { $in: ['cust-1'] } }] },
       { $or: [{ customerGroupId: null }, { customerGroupId: { $in: ['group-a', 'group-b'] } }] },
       { userId: null },
       { userGroupId: null },
@@ -323,6 +323,85 @@ describe('catalog pricing helpers', () => {
     expect(filter.$and).toContainEqual({
       $or: [{ customerGroupId: null }, { customerGroupId: { $in: ['group-a'] } }],
     })
+  })
+
+  it('filters by priceKindId only when the context specifies one', () => {
+    const regularRow = baseRow({ id: 'regular' })
+    const wholesaleRow = baseRow({
+      id: 'wholesale',
+      priceKind: { id: 'pk-wholesale', code: 'wholesale', isPromotion: false } as any,
+    })
+    const idRefRow = baseRow({ id: 'id-ref', priceKind: 'pk-wholesale' as any })
+    const noKindRow = baseRow({ id: 'no-kind', priceKind: null as any })
+
+    expect(selectBestPrice([regularRow, wholesaleRow, idRefRow, noKindRow], ctx)).not.toBeNull()
+    expect(selectBestPrice([regularRow, noKindRow], { ...ctx, priceKindId: null })).not.toBeNull()
+
+    expect(selectBestPrice([regularRow, wholesaleRow], { ...ctx, priceKindId: 'pk-wholesale' })?.id).toBe('wholesale')
+    expect(selectBestPrice([regularRow, idRefRow], { ...ctx, priceKindId: 'pk-wholesale' })?.id).toBe('id-ref')
+    expect(selectBestPrice([regularRow, noKindRow], { ...ctx, priceKindId: 'pk-wholesale' })).toBeNull()
+  })
+
+  it('buildPriceRowFilter adds a price kind clause only when priceKindId is set', () => {
+    const unset = buildPriceRowFilter({ quantity: 1, date: new Date(), priceKindId: null }) as any
+    expect(unset.$and).not.toContainEqual(expect.objectContaining({ priceKind: expect.anything() }))
+
+    const scoped = buildPriceRowFilter({ quantity: 1, date: new Date(), priceKindId: 'pk-wholesale' }) as any
+    expect(scoped.$and).toContainEqual({ priceKind: 'pk-wholesale' })
+  })
+
+  it('matches customerIds as set membership, with legacy customerId still supported', () => {
+    const personRow = baseRow({ id: 'person-scoped', customerId: 'person-1' })
+    const companyRow = baseRow({ id: 'company-scoped', customerId: 'company-1' })
+
+    expect(selectBestPrice([companyRow], { ...ctx, customerIds: ['person-1', 'company-1'] })?.id).toBe('company-scoped')
+    expect(selectBestPrice([companyRow], { ...ctx, customerIds: ['person-1'] })).toBeNull()
+    expect(selectBestPrice([companyRow], { ...ctx, customerIds: [] })).toBeNull()
+
+    expect(selectBestPrice([personRow], { ...ctx, customerId: 'person-1' })?.id).toBe('person-scoped')
+    expect(selectBestPrice([personRow], { ...ctx, customerId: 'company-1' })).toBeNull()
+
+    expect(selectBestPrice([personRow], { ...ctx, customerId: 'company-1', customerIds: ['person-1'] })?.id).toBe(
+      'person-scoped',
+    )
+  })
+
+  it('buildPriceRowFilter uses $in over customerIds, falling back to the legacy customerId', () => {
+    const multi = buildPriceRowFilter({ quantity: 1, date: new Date(), customerIds: ['person-1', 'company-1'] }) as any
+    expect(multi.$and).toContainEqual({
+      $or: [{ customerId: null }, { customerId: { $in: ['person-1', 'company-1'] } }],
+    })
+
+    const legacy = buildPriceRowFilter({ quantity: 1, date: new Date(), customerId: 'person-1' }) as any
+    expect(legacy.$and).toContainEqual({ $or: [{ customerId: null }, { customerId: { $in: ['person-1'] } }] })
+
+    const empty = buildPriceRowFilter({ quantity: 1, date: new Date(), customerIds: [] }) as any
+    expect(empty.$and).toContainEqual({ customerId: null })
+  })
+
+  it('prefers the person-scoped row over the company-scoped row on an equal score', () => {
+    const personRow = baseRow({ id: 'person-scoped', customerId: 'person-1', unitPriceNet: '9.00' })
+    const companyRow = baseRow({
+      id: 'company-scoped',
+      customerId: 'company-1',
+      unitPriceNet: '8.00',
+      startsAt: new Date('2024-01-15T00:00:00Z'),
+    })
+    const buyer: PricingContext = { ...ctx, customerIds: ['person-1', 'company-1'] }
+
+    expect(selectBestPrice([companyRow, personRow], buyer)?.id).toBe('person-scoped')
+    expect(selectBestPrice([personRow, companyRow], buyer)?.id).toBe('person-scoped')
+
+    const companyOnly: PricingContext = { ...ctx, customerIds: ['company-1', 'person-1'] }
+    expect(selectBestPrice([personRow, companyRow], companyOnly)?.id).toBe('company-scoped')
+  })
+
+  it('keeps score precedence above the person-over-company tie-break', () => {
+    const personRow = baseRow({ id: 'person-scoped', customerId: 'person-1' })
+    const companyVariantRow = baseRow({ id: 'company-variant', customerId: 'company-1', variant: 'variant-1' as any })
+    const buyer: PricingContext = { ...ctx, customerIds: ['person-1', 'company-1'] }
+
+    expect(selectBestPrice([personRow, companyVariantRow], buyer)?.id).toBe('company-variant')
   })
 
   it('keeps stable registration order among resolvers at the same priority', async () => {
