@@ -1,9 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
-import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
 import { navigateWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { EmbeddedForm } from '../../../../../ui/public'
 
 type Props = { params: { orgSlug: string; key: string } }
@@ -16,27 +16,30 @@ export default function PortalFormRunnerPage({ params }: Props) {
   // and this page could never load a form.
   const orgSlug = String(params?.orgSlug ?? '')
   const formKey = String(params?.key ?? '')
-  const { user, logout } = useCustomerAuth(orgSlug)
+  const { auth } = usePortalContext()
+  const { user, loading } = auth
   const subjectType = 'customer'
   const subjectId = user?.id ?? ''
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Spinner />
+      </div>
+    )
+  }
+  if (!user) return null
+
   return (
-    <PortalShell
-      orgSlug={orgSlug}
-      authenticated={!!user}
-      onLogout={logout}
-      enableEventBridge
-    >
-      <main className="px-4 py-6 sm:px-6 lg:px-8">
-        <EmbeddedForm
-          source={{ kind: 'portal', formKey, subjectType, subjectId }}
-          onReturnHome={() => {
-            if (typeof window !== 'undefined') {
-              navigateWithPageReload(`/${orgSlug}/portal`)
-            }
-          }}
-        />
-      </main>
-    </PortalShell>
+    <main className="px-4 py-6 sm:px-6 lg:px-8">
+      <EmbeddedForm
+        source={{ kind: 'portal', formKey, subjectType, subjectId }}
+        onReturnHome={() => {
+          if (typeof window !== 'undefined') {
+            navigateWithPageReload(`/${orgSlug}/portal`)
+          }
+        }}
+      />
+    </main>
   )
 }

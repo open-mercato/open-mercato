@@ -20,9 +20,8 @@ import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
  * browser, and the answer reaches the admin inbox.
  *
  * The portal catch-all supplies route parameters through the component's
- * `params` prop. The field is located by its accessible label, which
- * works because `FieldShell` renders the schema's `x-om-label` through
- * `FormField` with a matching input id. The wait before advancing is not flake
+ * `params` prop. The field is located by its observed textbox role and accessible
+ * name. The wait before advancing is not flake
  * padding — `SubmissionService.save()` throttles saves to one per
  * `FORMS_AUTOSAVE_INTERVAL_MS / 2` (5s) measured from the revision `start` wrote
  * at page load, and the runner flushes dirty fields as part of `submit()`.
@@ -82,8 +81,12 @@ test.describe('TC-FORMS-PORTAL-002: signed-in customer submits the portal form',
       expect(page.url(), 'the signed-in customer stays on the form route').toContain(
         `/portal/forms/${published.formKey}`,
       )
+      await expect(
+        page.getByRole('navigation', { name: 'Portal navigation' }),
+        'the form uses the parent portal shell instead of rendering nested portal chrome',
+      ).toHaveCount(1)
 
-      const nameField = page.getByLabel('Full name', { exact: true })
+      const nameField = page.getByRole('textbox', { name: 'Full name', exact: true })
       await expect(nameField, 'the schema field renders with its x-om-label as the accessible name').toBeVisible({
         timeout: 60_000,
       })
