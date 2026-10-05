@@ -45,7 +45,7 @@
 | 3 | 3.2 | Omnibus: history capture wired into price commands and undo | dispatch:capable | done | 0ff66ab118 |
 | 3 | 3.2-fix | Omnibus: capture history for product/variant price cascades and variant-undo restores | dispatch:standard | done | fee1a34c0f |
 | 3 | 3.3 | Omnibus: GET /api/catalog/prices/history | dispatch:standard | done | a1ac0f6500 |
-| 3 | 3.3-fix | Translate ecommerce ACL feature titles (auth ACL i18n guard, missed in 2.1) | inline | done | pending |
+| 3 | 3.3-fix | Translate ecommerce ACL feature titles (auth ACL i18n guard, missed in 2.1) | inline | done | 26e58e3c80 |
 | 3 | 3.4 | Omnibus: catalogOmnibusService resolution + DI | dispatch:capable | todo | — |
 | 3 | 3.5 | Omnibus: omnibus-preview route + products-list enrichment | dispatch:standard | todo | — |
 | 3 | 3.6 | Omnibus: GET/PATCH /api/catalog/config/omnibus | dispatch:standard | todo | — |

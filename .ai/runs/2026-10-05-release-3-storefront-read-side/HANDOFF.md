@@ -1,17 +1,16 @@
 # Handoff — 2026-10-05-release-3-storefront-read-side
 
-**Last updated:** 2026-10-05T13:27:32Z
+**Last updated:** 2026-10-05T15:46:29Z
 **Branch:** spec/storefront-release-phase0-reconciliation
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/12 (draft)
-**Current phase/step:** Phase 3 Step 3.1 (not started — safety stop for owner review)
-**Last commit:** c0ef621f3d — test(ecommerce): integration coverage for storefront resolution, buyer context, cache and tenant isolation
+**Current phase/step:** Phase 3 Step 3.4
+**Last commit:** 26e58e3c80 — fix(ecommerce): translate ecommerce ACL feature titles
 
 ## What just happened
-- Phases 1–2 done: prerequisites (shared scope hash, PricingContext priceKindId/customerIds, Phase 2b indexes, customer_groups multi-id + assortment_scope) and the ecommerce module through SPEC-029 Phase 1 (entities, admin CRUD, store/buyer resolution, /context, subscribers, search). SPEC-029 Phase 1 gate green (12/12 integration, checkpoint 4).
-- Run paused at the executor-dispatch safety stop (~20 consecutive Steps).
+- Omnibus Phase 1 (history entity + immutability trigger, capture on all price write paths, history route) landed; checkpoint 5 green (full core/shared suites).
 
 ## Next concrete action
-- Owner review, then resume with `om-auto-continue-pr-loop 12` → Step 3.1 (Omnibus CatalogPriceHistoryEntry entity + migration, spec .ai/specs/2026-06-30-omnibus-price-tracking.md).
+- Step 3.4 — catalogOmnibusService resolution + DI.
 
 ## Blockers / open questions
 - None blocking. Resolution P95 budget still unmeasured (final gate).

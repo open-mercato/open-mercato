@@ -48,3 +48,8 @@
 
 ## 2026-10-05T15:05:51Z — resume started (om-auto-continue-pr-loop)
 - Resuming at Step 3.1 (Omnibus MVP) after the owner-review safety stop.
+
+## 2026-10-05T15:46:29Z — checkpoint 5 (steps 3.1–3.3-fix)
+- Omnibus history foundation green. Full core suite: only the pre-existing locale-dependent warranty_claims quantity test fails (passes under en_US).
+- Regression caught: ecommerce ACL feature titles lacked auth i18n keys (from 2.1) → 3.3-fix. Checkpoints now run full core + shared suites.
+- Known limitation (pre-existing, not in scope): undo of a product delete does not restore prices, so it records no history.
