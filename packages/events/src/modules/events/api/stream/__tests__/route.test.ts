@@ -381,6 +381,40 @@ describe('SSE event stream — abort listener hygiene', () => {
     try { await reader.cancel() } catch {}
   })
 
+  it('still receives home-organization events when "All organizations" is selected', async () => {
+    // An unrestricted admin's organization switcher persists `om_selected_org=__all__`,
+    // so the resolved scope has NO concrete `selectedId`. Deriving the connection's
+    // organization from `selectedId` alone leaves it null, and `matchesAudience`
+    // then drops every organization-scoped event — the bridge goes silent on the
+    // default selection (TC-WF-059).
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId: 't1',
+    })
+    const { req } = makeTrackedRequest({
+      headers: { cookie: 'auth_token=staff-token; om_selected_org=__all__' },
+    })
+    const res = await GET(req)
+    expect(res.status).toBe(200)
+
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    await mockGlobalEventTap?.(
+      'stream_privacy_test.browser',
+      { tenantId: 't1', marker: 'all-orgs-expected' },
+      { tenantId: 't1', organizationId: 'o1' },
+    )
+
+    const { value, done } = await reader.read()
+    expect(done).toBe(false)
+    expect(new TextDecoder().decode(value)).toContain('"marker":"all-orgs-expected"')
+
+    try { await reader.cancel() } catch {}
+  })
+
   it('resolves ordinary multi-org staff scope through DI when replacing an O1 stream with O2', async () => {
     const enqueueSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'enqueue')
     const ordinaryStaffAuth: MockAuth = {

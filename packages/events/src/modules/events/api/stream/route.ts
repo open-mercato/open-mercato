@@ -106,7 +106,13 @@ async function resolveConnectionIdentity(
   if (!organizationScopeService) return null
   const scope = await organizationScopeService.resolveForRequest({ auth: ctx.auth, request })
   const tenantId = normalizeId(scope.tenantId)
-  const organizationId = normalizeId(scope.selectedId)
+  // `selectedId` is null whenever the caller has "All organizations" selected —
+  // the default an unrestricted admin's organization switcher persists — so using
+  // it alone leaves the connection with no organization and `matchesAudience`
+  // then rejects EVERY organization-scoped event. Keep the home-organization
+  // fallback the bridge has always used; the allowed-set check below still
+  // refuses an organization the principal may not see.
+  const organizationId = normalizeId(scope.selectedId) ?? normalizeId(ctx.auth.orgId)
   if (!tenantId || tenantId !== canonicalTenantId || scope.selectionRejected) return null
   if (organizationId && Array.isArray(scope.allowedIds) && !scope.allowedIds.includes(organizationId)) {
     return null
