@@ -292,7 +292,7 @@ const forkDraftCommand: CommandHandler<FormVersionForkDraftCommandInput, { versi
 // forms.form_version.update_draft
 // ----------------------------------------------------------------------------
 
-const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { versionId: string }> = {
+const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { versionId: string; updatedAt: string }> = {
   id: 'forms.form_version.update_draft',
   async prepare(rawInput, ctx) {
     const parsed = formVersionUpdateDraftCommandSchema.parse(rawInput)
@@ -392,7 +392,7 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
       ])
     }
 
-    return { versionId: version.id }
+    return { versionId: version.id, updatedAt: version.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
@@ -451,6 +451,7 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
 const publishVersionCommand: CommandHandler<FormVersionPublishCommandInput, {
   versionId: string
   versionNumber: number
+  updatedAt: string
 }> = {
   id: 'forms.form_version.publish',
   async prepare(rawInput, ctx) {
@@ -593,7 +594,11 @@ const publishVersionCommand: CommandHandler<FormVersionPublishCommandInput, {
         ...(previousCurrent ? [FORMS_CACHE_TAGS.formVersion(previousCurrent)] : []),
       ])
 
-      return { versionId: version.id, versionNumber: version.versionNumber }
+      return {
+        versionId: version.id,
+        versionNumber: version.versionNumber,
+        updatedAt: version.updatedAt.toISOString(),
+      }
     })
   },
   captureAfter: async (_input, result, ctx) => {
@@ -681,7 +686,7 @@ const publishVersionCommand: CommandHandler<FormVersionPublishCommandInput, {
 // forms.form_version.archive
 // ----------------------------------------------------------------------------
 
-const archiveVersionCommand: CommandHandler<FormVersionArchiveCommandInput, { versionId: string }> = {
+const archiveVersionCommand: CommandHandler<FormVersionArchiveCommandInput, { versionId: string; updatedAt: string }> = {
   id: 'forms.form_version.archive',
   async prepare(rawInput, ctx) {
     const parsed = formVersionArchiveCommandSchema.parse(rawInput)
@@ -733,7 +738,7 @@ const archiveVersionCommand: CommandHandler<FormVersionArchiveCommandInput, { ve
       ])
     }
 
-    return { versionId: version.id }
+    return { versionId: version.id, updatedAt: version.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)

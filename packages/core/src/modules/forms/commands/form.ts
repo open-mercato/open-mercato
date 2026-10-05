@@ -155,7 +155,7 @@ const createFormCommand: CommandHandler<FormCreateCommandInput, { formId: string
 // forms.form.rename
 // ----------------------------------------------------------------------------
 
-const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string }> = {
+const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string; updatedAt: string }> = {
   id: 'forms.form.rename',
   async prepare(rawInput, ctx) {
     const parsed = formRenameCommandSchema.parse(rawInput)
@@ -235,7 +235,7 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
       ])
     }
 
-    return { formId: form.id }
+    return { formId: form.id, updatedAt: form.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
@@ -286,7 +286,7 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
 // forms.form.archive
 // ----------------------------------------------------------------------------
 
-const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: string }> = {
+const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: string; updatedAt: string }> = {
   id: 'forms.form.archive',
   async prepare(rawInput, ctx) {
     const parsed = formArchiveCommandSchema.parse(rawInput)
@@ -327,7 +327,7 @@ const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: stri
       ])
     }
 
-    return { formId: form.id }
+    return { formId: form.id, updatedAt: form.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
@@ -375,7 +375,7 @@ const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: stri
 // forms.form.restore
 // ----------------------------------------------------------------------------
 
-const restoreFormCommand: CommandHandler<FormRestoreCommandInput, { formId: string }> = {
+const restoreFormCommand: CommandHandler<FormRestoreCommandInput, { formId: string; updatedAt: string }> = {
   id: 'forms.form.restore',
   async prepare(rawInput, ctx) {
     const parsed = formRestoreCommandSchema.parse(rawInput)
@@ -415,7 +415,7 @@ const restoreFormCommand: CommandHandler<FormRestoreCommandInput, { formId: stri
       ])
     }
 
-    return { formId: form.id }
+    return { formId: form.id, updatedAt: form.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)

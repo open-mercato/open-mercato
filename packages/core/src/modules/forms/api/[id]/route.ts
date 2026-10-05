@@ -56,7 +56,7 @@ const detailResponseSchema = z.object({
   versions: z.array(versionSummarySchema),
 })
 
-const okSchema = z.object({ ok: z.literal(true) })
+const okSchema = z.object({ ok: z.literal(true), updatedAt: z.string() })
 const errorSchema = z.object({ error: z.string() })
 
 function extractFormId(req: Request): string {
@@ -144,11 +144,14 @@ export async function PATCH(req: Request) {
       payload: scoped as Record<string, unknown>,
       run: async () => {
         const commandBus = ctx.container.resolve('commandBus') as CommandBus
-        const { result, logEntry } = await commandBus.execute<FormRenameCommandInput, { formId: string }>(
+        const { result, logEntry } = await commandBus.execute<
+          FormRenameCommandInput,
+          { formId: string; updatedAt: string }
+        >(
           'forms.form.rename',
           { input: renameInput, ctx },
         )
-        const response = NextResponse.json({ ok: true })
+        const response = NextResponse.json({ ok: true, updatedAt: result?.updatedAt })
         return attachOperationMetadata(response, logEntry, FORM_RESOURCE_KIND, result?.formId ?? id)
       },
     })
@@ -180,11 +183,14 @@ export async function DELETE(req: Request) {
       payload: scoped as Record<string, unknown>,
       run: async () => {
         const commandBus = ctx.container.resolve('commandBus') as CommandBus
-        const { result, logEntry } = await commandBus.execute<FormArchiveCommandInput, { formId: string }>(
+        const { result, logEntry } = await commandBus.execute<
+          FormArchiveCommandInput,
+          { formId: string; updatedAt: string }
+        >(
           'forms.form.archive',
           { input: archiveInput, ctx },
         )
-        const response = NextResponse.json({ ok: true })
+        const response = NextResponse.json({ ok: true, updatedAt: result?.updatedAt })
         return attachOperationMetadata(response, logEntry, FORM_RESOURCE_KIND, result?.formId ?? id)
       },
     })

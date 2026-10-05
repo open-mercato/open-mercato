@@ -259,7 +259,7 @@ const createDistributionCommand: CommandHandler<FormDistributionCreateCommandInp
 // forms.distribution.update
 // ----------------------------------------------------------------------------
 
-const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInput, { distributionId: string }> = {
+const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInput, { distributionId: string; updatedAt: string }> = {
   id: 'forms.distribution.update',
   async prepare(rawInput, ctx) {
     const parsed = distributionUpdateCommandSchema.parse(rawInput)
@@ -354,7 +354,7 @@ const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInp
       await emitForms('forms.distribution.closed', { distributionId: distribution.id })
     }
 
-    return { distributionId: distribution.id }
+    return { distributionId: distribution.id, updatedAt: distribution.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
@@ -406,7 +406,7 @@ const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInp
 // forms.distribution.close
 // ----------------------------------------------------------------------------
 
-const closeDistributionCommand: CommandHandler<FormDistributionCloseCommandInput, { distributionId: string }> = {
+const closeDistributionCommand: CommandHandler<FormDistributionCloseCommandInput, { distributionId: string; updatedAt: string }> = {
   id: 'forms.distribution.close',
   async prepare(rawInput, ctx) {
     const parsed = distributionCloseCommandSchema.parse(rawInput)
@@ -450,7 +450,7 @@ const closeDistributionCommand: CommandHandler<FormDistributionCloseCommandInput
       ])
     }
 
-    return { distributionId: distribution.id }
+    return { distributionId: distribution.id, updatedAt: distribution.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)

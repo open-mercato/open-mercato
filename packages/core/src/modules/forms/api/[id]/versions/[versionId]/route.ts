@@ -73,7 +73,7 @@ function readAnswerMappings(schema: unknown): OmAnswerMappings {
   return out
 }
 
-const okSchema = z.object({ ok: z.literal(true) })
+const okSchema = z.object({ ok: z.literal(true), updatedAt: z.string() })
 const errorSchema = z.object({ error: z.string() })
 
 function extractIds(req: Request): { formId: string; versionId: string } {
@@ -152,11 +152,14 @@ export async function PATCH(req: Request) {
       payload: scoped as Record<string, unknown>,
       run: async () => {
         const commandBus = ctx.container.resolve('commandBus') as CommandBus
-        const { result, logEntry } = await commandBus.execute<FormVersionUpdateDraftCommandInput, { versionId: string }>(
+        const { result, logEntry } = await commandBus.execute<
+          FormVersionUpdateDraftCommandInput,
+          { versionId: string; updatedAt: string }
+        >(
           'forms.form_version.update_draft',
           { input, ctx },
         )
-        const response = NextResponse.json({ ok: true })
+        const response = NextResponse.json({ ok: true, updatedAt: result?.updatedAt })
         return attachOperationMetadata(response, logEntry, FORM_VERSION_RESOURCE_KIND, result?.versionId ?? versionId)
       },
     })

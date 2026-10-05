@@ -48,7 +48,7 @@ const distributionSchema = z.object({
   updatedAt: z.string(),
 })
 
-const patchResponseSchema = z.object({ id: z.string().uuid() })
+const patchResponseSchema = z.object({ id: z.string().uuid(), updatedAt: z.string() })
 const errorSchema = z.object({ error: z.string() })
 
 const patchBodySchema = distributionUpdateCommandSchema.omit({
@@ -146,9 +146,12 @@ export async function PATCH(req: Request) {
           const input = distributionCloseCommandSchema.parse(scoped) satisfies FormDistributionCloseCommandInput
           const { result, logEntry } = await commandBus.execute<
             FormDistributionCloseCommandInput,
-            { distributionId: string }
+            { distributionId: string; updatedAt: string }
           >('forms.distribution.close', { input, ctx })
-          const response = NextResponse.json({ id: result?.distributionId ?? distributionId })
+          const response = NextResponse.json({
+            id: result?.distributionId ?? distributionId,
+            updatedAt: result?.updatedAt,
+          })
           return attachOperationMetadata(
             response,
             logEntry,
@@ -160,9 +163,12 @@ export async function PATCH(req: Request) {
         const input = distributionUpdateCommandSchema.parse(scoped) satisfies FormDistributionUpdateCommandInput
         const { result, logEntry } = await commandBus.execute<
           FormDistributionUpdateCommandInput,
-          { distributionId: string }
+          { distributionId: string; updatedAt: string }
         >('forms.distribution.update', { input, ctx })
-        const response = NextResponse.json({ id: result?.distributionId ?? distributionId })
+        const response = NextResponse.json({
+          id: result?.distributionId ?? distributionId,
+          updatedAt: result?.updatedAt,
+        })
         return attachOperationMetadata(
           response,
           logEntry,

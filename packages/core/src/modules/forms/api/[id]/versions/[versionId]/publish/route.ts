@@ -25,6 +25,7 @@ export const metadata = {
 const responseSchema = z.object({
   versionId: z.string().uuid(),
   versionNumber: z.number().int(),
+  updatedAt: z.string(),
 })
 
 const errorSchema = z.object({ error: z.string() })
@@ -66,11 +67,12 @@ export async function POST(req: Request) {
         const commandBus = ctx.container.resolve('commandBus') as CommandBus
         const { result, logEntry } = await commandBus.execute<
           FormVersionPublishCommandInput,
-          { versionId: string; versionNumber: number }
+          { versionId: string; versionNumber: number; updatedAt: string }
         >('forms.form_version.publish', { input, ctx })
         const response = NextResponse.json({
           versionId: result?.versionId ?? versionId,
           versionNumber: result?.versionNumber ?? null,
+          updatedAt: result?.updatedAt,
         })
         return attachOperationMetadata(response, logEntry, FORM_VERSION_RESOURCE_KIND, result?.versionId ?? versionId)
       },
