@@ -53,6 +53,41 @@ accent-insensitive predicate — in that case build it from
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
 
+### Shipping carrier webhooks now update shipments; status sync applies forward skips
+
+Carrier webhooks were acknowledged (`202`) but never applied: `POST /api/shipping-carriers/webhook/[provider]`
+queued the job inside an extra `{ name, payload }` envelope, so the `shipping-carriers-webhook` worker found no
+provider key and returned without touching the shipment. The route now queues the job payload itself, and the
+worker still accepts the old envelope, so jobs already waiting in a queue at upgrade time are applied too.
+After upgrading, carrier webhooks start changing `carrier_shipments.unified_status` and emitting the shipment
+lifecycle events.
+
+Carriers report the current status, not every step, so `shipping_carriers` now applies a
+carrier-reported status that skips intermediate steps: from `label_created` and `picked_up` the
+shipment can move straight to `out_for_delivery`, `delivered`, `failed_delivery` or `returned`
+(previously only `picked_up` / `in_transit` / `cancelled`, and such reports were silently dropped).
+Backwards moves and moves out of `delivered` / `returned` / `cancelled` are still refused, and the
+user cancel gate is unchanged. Webhook and tracking-refresh updates now decide and write under a
+row lock, so concurrent carrier updates for one shipment cannot regress it. A user cancel
+(`POST /api/shipping-carriers/cancel`) still writes `cancelled` without that lock after the carrier call
+returns, so a `delivered` webhook committed while the cancel call is in flight can still be overwritten.
+
+`shipping_carriers.shipment.status_changed`, `.delivered` and `.returned` emitted by the webhook
+worker used to carry the raw carrier string of the **new** status in `previousStatus`. They now
+carry the unified status the shipment had before the change (as the tracking-refresh path already
+did), and gain an additive `carrierStatus` field with the raw carrier string.
+
+Every `shipping_carriers.shipment.*` event is now emitted with the shipment's tenant and organization as
+trusted event scope. Subscribers that act only on trusted scope — such as
+`warranty_claims:return-shipment-tracking`, which receives an `awaiting_return` claim when its return
+shipment is delivered — skipped these events before. Workflow and agent event triggers configured on
+`shipping_carriers.shipment.*` events need the same scope, so they also start firing after the upgrade.
+
+**Action for subscriber authors:** if a subscriber read the carrier's raw status from
+`previousStatus` on webhook-originated events, read `carrierStatus` instead. Subscribers waiting
+for `delivered` / `returned` may now receive them for shipments that never reported the
+intermediate statuses.
+
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
 `createOpenAICompatibleProvider(preset)`
