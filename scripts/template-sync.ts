@@ -338,6 +338,16 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // then enable it in the template.
   // { id: 'availability', from: '@open-mercato/core' },`,
   },
+  ecommerce: {
+    source: `  // Ecommerce store module (SPEC-029): store, hostname and channel binding,
+  // buyer-context resolution and the public storefront read API.
+  { id: 'ecommerce', from: '@open-mercato/core' },`,
+    template: `  // Ecommerce store module (.ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md).
+  // Stays commented out with customer_groups and availability, which it requires, until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage.
+  // { id: 'ecommerce', from: '@open-mercato/core' },`,
+  },
 }
 
 function commentOutTemplateModules(content: string, rel: string): string {

@@ -1,0 +1,7 @@
+{
+  "ecommerce.module.title": "Sklepy",
+  "ecommerce.notifications.store.assortmentEmpty.body": "Zakresy kanału i grupy klientów nie zostawiają tym kupującym żadnych widocznych produktów.",
+  "ecommerce.notifications.store.assortmentEmpty.title": "Asortyment sklepu jest pusty dla części kupujących",
+  "ecommerce.notifications.store.channelBindingMissing.body": "Sklep nie obsłuży żądań, dopóki nie zostanie skonfigurowane domyślne powiązanie z kanałem.",
+  "ecommerce.notifications.store.channelBindingMissing.title": "Sklep nie ma domyślnego kanału sprzedaży"
+}

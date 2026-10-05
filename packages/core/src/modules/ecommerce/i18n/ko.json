@@ -1,0 +1,7 @@
+{
+  "ecommerce.module.title": "스토어",
+  "ecommerce.notifications.store.assortmentEmpty.body": "채널 및 고객 그룹 범위로 인해 이 구매자들에게 표시되는 상품이 없습니다.",
+  "ecommerce.notifications.store.assortmentEmpty.title": "일부 구매자에게 스토어 상품 구성이 비어 있습니다",
+  "ecommerce.notifications.store.channelBindingMissing.body": "기본 채널 바인딩이 구성될 때까지 스토어프런트가 요청을 처리할 수 없습니다.",
+  "ecommerce.notifications.store.channelBindingMissing.title": "스토어에 기본 판매 채널이 없습니다"
+}

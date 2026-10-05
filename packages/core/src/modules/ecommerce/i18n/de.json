@@ -1,0 +1,7 @@
+{
+  "ecommerce.module.title": "Shops",
+  "ecommerce.notifications.store.assortmentEmpty.body": "Die Bereiche von Kanal und Kundengruppe lassen diesen Käufern keine sichtbaren Produkte.",
+  "ecommerce.notifications.store.assortmentEmpty.title": "Shop-Sortiment ist für einige Käufer leer",
+  "ecommerce.notifications.store.channelBindingMissing.body": "Der Storefront kann keine Anfragen bedienen, bis eine Standard-Kanalbindung konfiguriert ist.",
+  "ecommerce.notifications.store.channelBindingMissing.title": "Shop hat keinen Standard-Vertriebskanal"
+}

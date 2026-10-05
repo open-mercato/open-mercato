@@ -1,0 +1,7 @@
+{
+  "ecommerce.module.title": "Stores",
+  "ecommerce.notifications.store.assortmentEmpty.body": "The channel and customer group scopes leave these buyers with no visible products.",
+  "ecommerce.notifications.store.assortmentEmpty.title": "Store assortment is empty for some buyers",
+  "ecommerce.notifications.store.channelBindingMissing.body": "The storefront cannot serve requests until a default channel binding is configured.",
+  "ecommerce.notifications.store.channelBindingMissing.title": "Store has no default sales channel"
+}

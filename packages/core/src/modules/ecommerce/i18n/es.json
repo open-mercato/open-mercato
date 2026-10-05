@@ -1,0 +1,7 @@
+{
+  "ecommerce.module.title": "Tiendas",
+  "ecommerce.notifications.store.assortmentEmpty.body": "Los alcances del canal y del grupo de clientes no dejan productos visibles para estos compradores.",
+  "ecommerce.notifications.store.assortmentEmpty.title": "El surtido de la tienda está vacío para algunos compradores",
+  "ecommerce.notifications.store.channelBindingMissing.body": "La tienda no puede atender solicitudes hasta que se configure una vinculación de canal predeterminada.",
+  "ecommerce.notifications.store.channelBindingMissing.title": "La tienda no tiene un canal de venta predeterminado"
+}
