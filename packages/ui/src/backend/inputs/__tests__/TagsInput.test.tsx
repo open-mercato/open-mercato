@@ -2,7 +2,10 @@
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../../primitives/dialog'
 import { TagsInput } from '../TagsInput'
+
+const escapeSuggestions = [{ value: 'user-admin', label: 'admin@acme.com' }]
 
 describe('TagsInput', () => {
   it('does not add the typed query when selecting a suggestion', () => {
@@ -111,5 +114,83 @@ describe('TagsInput', () => {
     expect(loadSuggestions).not.toHaveBeenCalled()
 
     jest.useRealTimers()
+  })
+
+  describe('Escape on the suggestions list', () => {
+    it('closes only the suggestions and keeps Escape away from the host', () => {
+      const onHostKeyDown = jest.fn()
+
+      renderWithProviders(
+        <div onKeyDown={onHostKeyDown}>
+          <TagsInput value={[]} onChange={jest.fn()} suggestions={escapeSuggestions} />
+        </div>,
+      )
+
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'adm' } })
+      expect(screen.getByRole('button', { name: /admin@acme\.com/ })).toBeInTheDocument()
+
+      fireEvent.keyDown(input, { key: 'Escape' })
+
+      expect(screen.queryByRole('button', { name: /admin@acme\.com/ })).not.toBeInTheDocument()
+      expect(onHostKeyDown).not.toHaveBeenCalled()
+      expect(input).toHaveValue('adm')
+    })
+
+    it('lets Escape reach the host once the suggestions are closed', () => {
+      const onHostKeyDown = jest.fn()
+
+      renderWithProviders(
+        <div onKeyDown={(event) => onHostKeyDown(event.key)}>
+          <TagsInput value={[]} onChange={jest.fn()} suggestions={escapeSuggestions} />
+        </div>,
+      )
+
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'adm' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      fireEvent.keyDown(input, { key: 'Escape' })
+
+      expect(onHostKeyDown).toHaveBeenCalledTimes(1)
+      expect(onHostKeyDown).toHaveBeenCalledWith('Escape')
+    })
+
+    it('reopens the suggestions when the user keeps typing', () => {
+      renderWithProviders(
+        <TagsInput value={[]} onChange={jest.fn()} suggestions={escapeSuggestions} />,
+      )
+
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'adm' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      fireEvent.change(input, { target: { value: 'admi' } })
+
+      expect(screen.getByRole('button', { name: /admin@acme\.com/ })).toBeInTheDocument()
+    })
+
+    it('keeps an enclosing dialog open', () => {
+      const onOpenChange = jest.fn()
+
+      renderWithProviders(
+        <Dialog open onOpenChange={onOpenChange}>
+          <DialogContent>
+            <DialogTitle>Compose</DialogTitle>
+            <DialogDescription>Compose a message.</DialogDescription>
+            <TagsInput value={[]} onChange={jest.fn()} suggestions={escapeSuggestions} />
+          </DialogContent>
+        </Dialog>,
+      )
+
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'adm' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+
+      expect(screen.queryByRole('button', { name: /admin@acme\.com/ })).not.toBeInTheDocument()
+      expect(onOpenChange).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(input, { key: 'Escape' })
+
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
   })
 })
