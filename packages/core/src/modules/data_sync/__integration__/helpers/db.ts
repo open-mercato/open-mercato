@@ -72,6 +72,48 @@ export type SeedSyncRunInput = SyncRunScope & {
   createdAt?: Date
   updatedAt?: Date
   lastError?: string | null
+  /**
+   * The resume point a retry would start from. Seeding it matters for any test
+   * about what the UI tells an operator, because that sentence IS these three
+   * columns — a run seeded with the defaults looks like one that committed
+   * nothing, which is a different case entirely.
+   */
+  cursor?: string | null
+  initialCursor?: string | null
+  batchesCompleted?: number
+}
+
+export type SeedSyncCursorInput = SyncRunScope & {
+  integrationId: string
+  entityType: string
+  direction: 'import' | 'export'
+  cursor: string
+}
+
+/**
+ * Seeds the shared `sync_cursors` row a non-full run resolves its start position
+ * from. Without one, a retry of a run that committed no batch resolves `null`
+ * either way and a test claiming to prove the two request bodies differ passes
+ * vacuously.
+ */
+export async function seedSyncCursors(rows: SeedSyncCursorInput[]): Promise<void> {
+  if (rows.length === 0) return
+  await withClient(async (client) => {
+    for (const row of rows) {
+      await client.query(
+        `insert into sync_cursors
+           (id, integration_id, entity_type, direction, cursor, organization_id, tenant_id, updated_at)
+         values ($1, $2, $3, $4, $5, $6, $7, now())`,
+        [randomUUID(), row.integrationId, row.entityType, row.direction, row.cursor, row.organizationId, row.tenantId],
+      )
+    }
+  })
+}
+
+export async function deleteSyncCursorsByIntegration(integrationId: string): Promise<void> {
+  await withClient(async (client) => {
+    await client.query('delete from sync_cursors where integration_id = $1', [integrationId])
+  })
 }
 
 /**
@@ -109,14 +151,18 @@ export async function seedSyncRuns(rows: SeedSyncRunInput[]): Promise<string[]> 
         `insert into sync_runs
            (id, integration_id, entity_type, direction, status,
             created_count, updated_count, skipped_count, failed_count, batches_completed,
+            cursor, initial_cursor,
             last_error, organization_id, tenant_id, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, 0, 0, 0, 0, 0, $6, $7, $8, $9, $10)`,
+         values ($1, $2, $3, $4, $5, 0, 0, 0, 0, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
           id,
           row.integrationId,
           row.entityType,
           row.direction,
           row.status,
+          row.batchesCompleted ?? 0,
+          row.cursor ?? null,
+          row.initialCursor ?? null,
           row.lastError ?? null,
           row.organizationId,
           row.tenantId,

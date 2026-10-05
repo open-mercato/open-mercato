@@ -67,9 +67,10 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import {
   ensureCurrentUserFilterOption,
+  fetchCurrentUserName,
   fetchAssignableStaffMembers,
   mapAssignableStaffToFilterOptions,
-} from '../../../components/detail/assignableStaff'
+} from '../../../lib/assignableStaff'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -667,6 +668,20 @@ export default function CustomersDealsPage() {
       controller.abort()
     }
   }, [activeOrgId, scopeVersion])
+  React.useEffect(() => {
+    if (!currentUserId || ownerNames[currentUserId]) return
+    const controller = new AbortController()
+    let cancelled = false
+    void fetchCurrentUserName({ signal: controller.signal }).then((name) => {
+      if (!cancelled && name) {
+        setOwnerNames((current) => ({ [currentUserId]: name, ...current }))
+      }
+    })
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [currentUserId, ownerNames])
   const resolvedOwnerFilterOptions = React.useMemo(
     () => ensureCurrentUserFilterOption(
       ownerFilterOptions,
