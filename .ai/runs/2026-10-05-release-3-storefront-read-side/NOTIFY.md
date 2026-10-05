@@ -62,3 +62,8 @@
 - Omnibus resolution/config/backfill/UI green after one regression fix (bare sorts → 3.8-fix). UI smoke screenshot captured in the ephemeral env (port changes per start; read it from the start log).
 - Playwright note: the repo's `@playwright/test` resolves a chromium revision not installed here; screenshots use `executablePath` of the installed headless shell (1243).
 - Known gap (from 3.8): config page is gated by `catalog.settings.manage`, so view-only users cannot open the Omnibus panel yet (panel itself supports read-only).
+
+## 2026-10-05T17:48:10Z — checkpoint 7 (Phase 3 close)
+- Omnibus MVP gate green: 8/8 TC-CAT-OMNI integration tests.
+- Pre-existing bug found by 3.9 (not fixed, out of scope): minimal-payload product-level price PUT → 403 in updatePriceCommand scope check. Follow-up issue candidate.
+- Env: executor installed Playwright chromium-headless-shell build 1228 into ~/.cache/ms-playwright (repo's playwright-core 1.61.1 needs it).

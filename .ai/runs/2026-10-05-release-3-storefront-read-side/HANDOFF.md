@@ -1,16 +1,16 @@
 # Handoff — 2026-10-05-release-3-storefront-read-side
 
-**Last updated:** 2026-10-05T17:20:07Z
+**Last updated:** 2026-10-05T17:48:10Z
 **Branch:** spec/storefront-release-phase0-reconciliation
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/12 (draft)
-**Current phase/step:** Phase 3 Step 3.9
-**Last commit:** c73c7b42b6 — fix(catalog): use explicit comparators for omnibus channel sorts
+**Current phase/step:** Phase 4 Step 4.1
+**Last commit:** 2ea735bc2d — test(catalog): omnibus integration coverage
 
 ## What just happened
-- Omnibus resolution service, preview/enrichment, config API, backfill CLI and admin UI landed; checkpoint 6 green with a UI smoke screenshot.
+- Phase 3 (Omnibus MVP) closed: 8/8 integration tests green (checkpoint 7).
 
 ## Next concrete action
-- Step 3.9 — Omnibus integration tests (ephemeral env is up; URL in .ai/qa/ephemeral-env.json / start log).
+- Step 4.1 — catalog product filters extraction to lib with descendant expansion.
 
 ## Blockers / open questions
 - None blocking. Resolution P95 budget still unmeasured (final gate).
