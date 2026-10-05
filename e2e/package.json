@@ -1,0 +1,22 @@
+{
+  "name": "@open-mercato/e2e-agentic",
+  "private": true,
+  "type": "module",
+  "description": "Agentic end-to-end suite for Open Mercato, built on e2e (https://e2e.dev).",
+  "scripts": {
+    "test": "e2e run",
+    "test:headed": "e2e run --headed",
+    "test:live": "e2e run --no-cache",
+    "list": "e2e list",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@e2edev/playwright": "0.11.0-canary-20260917213813",
+    "@types/node": "^24.13.4",
+    "ai": "^7.0.102",
+    "e2e": "0.15.0-canary-20260917213813",
+    "playwright": "^1.63.0",
+    "typescript": "^5.9.3",
+    "zod": "^4.6.1"
+  }
+}
