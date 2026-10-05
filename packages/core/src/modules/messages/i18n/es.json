@@ -114,6 +114,7 @@
   "messages.errors.actionFailed": "No se pudo ejecutar la acción.",
   "messages.errors.archiveSenderMessageUnsupported": "No puedes archivar mensajes que enviaste.",
   "messages.errors.conversationActionFailed": "No se pudo actualizar la conversación.",
+  "messages.errors.conversationHasNoChannelThread": "La conversación no tiene un hilo de canal al que entregar el mensaje",
   "messages.errors.deleteFailed": "No se pudo eliminar el mensaje.",
   "messages.errors.forwardPreviewFailed": "No se pudo cargar la vista previa de reenvío.",
   "messages.errors.invalidContext": "Falta el contexto del mensaje.",
