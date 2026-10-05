@@ -33,7 +33,7 @@ Five sentences. Everything below is just showing them.
 1. Campaigns — 1 min
 2. Results — 4 min
 3. Runs — 1.5 min
-4. Customer profile — 4 min
+4. Customer profile (Avery Diaz) — 4 min
 5. Campaign editor — 4 min
 6. Win back — scheduled trigger — 2 min
 7. Segments — 1 min
@@ -125,15 +125,18 @@ Punch: retry here is not refreshing a page. It is a letter to a named person. So
 
 ## 4. Customer profile
 
-`/backend/marketing/customers/b0494b70-f980-4317-b509-5611f6febe20`
+`/backend/marketing/customers/0cfc83be-07a0-4bd7-aa0e-34854a2f4d2c` — Avery Diaz
 
-Show: the tiles, then **Why did they not get a campaign?**, then scroll to **What happened** at the bottom.
+This is the fullest profile in the demo data. Every panel has something in it.
+
+Show: the tiles, then **Why did they not get a campaign?**, then scroll past consent and the price watches to **What happened** at the bottom.
 
 Say:
 - One person, the way the engine sees them.
-- Lead score 50. That is not a stored number. It is the sum of a ledger. A step delivered twice cannot award twice.
-- RFM is scored against *this shop's* buyers. Not fixed day counts. "Bought in the last 30 days" is great for coffee and meaningless for mattresses.
-- The 5.4K projection needs a second order. One purchase is not a rate.
+- Lead score 30. That is not a stored number. It is the sum of a ledger. A step delivered twice cannot award twice.
+- RFM 8 out of 15, scored against *this shop's* buyers. Not fixed day counts. "Bought in the last 30 days" is great for coffee and meaningless for mattresses.
+- Projected value 3.4K, from 4.38 orders a year. It needs a second order before it appears at all. One purchase is not a rate.
+- NPS 9. A promoter.
 
 Then the best bit — **Why did they not get a campaign?**
 - Pick a campaign. Click **Explain**.
@@ -141,11 +144,13 @@ Then the best bit — **Why did they not get a campaign?**
 
 Punch: this is the question support gets every week. Everywhere else it becomes a ticket for engineering.
 
-At the bottom, **What happened**:
-- Entered the campaign. Message sent. Opened. Clicked. Points awarded. In order.
-- Only bad things are coloured. If everything is coloured, colour means nothing.
+Scroll on — two more worth a sentence each:
+- **Marketing consent.** They unsubscribed once, and later someone recorded consent back with the reason "confirmed by phone". Both are on the record. You can see who did it and why.
+- **Waiting for a price drop.** Three products. They asked to be told. That is demand that declared itself.
 
----
+At the bottom, **What happened**:
+- 26 entries. Entered the campaign, two messages, an open, the NPS question and the answer, the points, and both consent changes. In order.
+- Only bad things are coloured. If everything is coloured, colour means nothing.
 
 ## 5. Campaign editor
 
@@ -326,7 +331,7 @@ Pick one:
 | Runs | `/backend/marketing/campaigns/5cc6005e-c037-4a5d-928f-a2667aebd030/runs` |
 | Editor | `/backend/marketing/campaigns/5cc6005e-c037-4a5d-928f-a2667aebd030` |
 | Win back | `/backend/marketing/campaigns/4377aaaa-abc3-49b4-8077-20ac0acd2694` |
-| Profile | `/backend/marketing/customers/b0494b70-f980-4317-b509-5611f6febe20` |
+| Profile (Avery Diaz) | `/backend/marketing/customers/0cfc83be-07a0-4bd7-aa0e-34854a2f4d2c` |
 | Segments | `/backend/marketing/segments` |
 | Score rules | `/backend/marketing/score-rules` |
 | Content blocks | `/backend/marketing/content-blocks` |
