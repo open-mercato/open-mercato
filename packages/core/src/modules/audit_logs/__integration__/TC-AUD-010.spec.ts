@@ -100,6 +100,9 @@ async function collectVersionHistoryIds(page: Page, categoryId: string): Promise
  * Postgres: positions 6-9 straddle the 7-row page boundary and positions 20-22
  * straddle Version History's 20-row page boundary. Every traversal must return
  * each row exactly once, in the stable (created_at, id) order of the baseline.
+ * A second category is renamed 25 more times after its Version History panel
+ * opens; every Load more must advance the offset by a full page and still reach
+ * every original row.
  */
 test.describe('TC-AUD-010: action log pages keep rows that share a timestamp', () => {
   test('page traversal and Version History load more reach every tied row once', async ({ page, request }) => {
@@ -156,6 +159,64 @@ test.describe('TC-AUD-010: action log pages keep rows that share a timestamp', (
         'the panel renders one row per action log',
       ).toHaveCount(EXPECTED_TOTAL)
       await page.screenshot({ path: test.info().outputPath('version-history-tied-rows.png'), fullPage: true })
+    } finally {
+      await deleteCatalogCategoryIfExists(request, token, categoryId)
+    }
+  })
+
+  test('Version History load more keeps progressing when rows are written while the panel is open', async ({ page, request }) => {
+    let token: string | null = null
+    let categoryId: string | null = null
+    const liveRenameCount = VERSION_HISTORY_PAGE_SIZE + 5
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      const uniqueSuffix = `${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`
+      categoryId = await createCategoryFixture(request, token, { name: `aud010 live original ${uniqueSuffix}` })
+      for (let index = 1; index <= RENAME_COUNT; index += 1) {
+        await renameCategory(request, token, categoryId, `aud010 live rename ${index} ${uniqueSuffix}`)
+      }
+      const scope = { resourceKind: CATEGORY_RESOURCE_KIND, resourceId: categoryId }
+      const baseline = await listIds(request, token, { ...scope, pageSize: 200 })
+      expect(baseline.length, 'the category starts with one create log and one log per rename').toBe(EXPECTED_TOTAL)
+
+      const offsets: number[] = []
+      const receivedIds: string[] = []
+      page.on('response', async (response) => {
+        const url = new URL(response.url())
+        if (url.pathname !== ACTIONS_PATH || url.searchParams.get('resourceId') !== categoryId) return
+        offsets.push(Number(url.searchParams.get('offset') ?? 0))
+        const body = (await response.json()) as { items?: Array<{ id: string }> }
+        for (const item of body.items ?? []) receivedIds.push(item.id)
+      })
+
+      await login(page, 'admin')
+      await page.goto(`/backend/catalog/categories/${encodeURIComponent(categoryId)}/edit`)
+      await page.getByRole('button', { name: 'Version History' }).first().click()
+      const dialog = page.getByRole('dialog', { name: 'Version History' })
+      const rows = dialog.locator('.divide-y > div')
+      const loadMore = dialog.getByRole('button', { name: 'Load more' })
+      await expect(rows, 'the first page renders').toHaveCount(VERSION_HISTORY_PAGE_SIZE)
+
+      for (let index = 1; index <= liveRenameCount; index += 1) {
+        await renameCategory(request, token, categoryId, `aud010 live write ${index} ${uniqueSuffix}`)
+      }
+
+      for (let click = 1; click <= 5 && (await loadMore.isVisible()); click += 1) {
+        await loadMore.click()
+        await expect.poll(() => offsets.length, { message: `load more click ${click} issues one request` }).toBe(click + 1)
+        await expect
+          .poll(async () => !(await loadMore.isVisible()) || (await loadMore.isEnabled()), {
+            message: `load more click ${click} settles`,
+          })
+          .toBe(true)
+      }
+
+      await expect(loadMore, 'load more disappears once the oldest row arrives').toBeHidden()
+      expect(offsets, 'every click advances the offset by one full page').toEqual([0, 20, 40])
+      expect(baseline.every((id) => receivedIds.includes(id)), 'no original row is skipped').toBe(true)
+      await expect(rows, 'the panel renders each received row once').toHaveCount(new Set(receivedIds).size)
+      await page.screenshot({ path: test.info().outputPath('version-history-live-inserts.png'), fullPage: true })
     } finally {
       await deleteCatalogCategoryIfExists(request, token, categoryId)
     }
