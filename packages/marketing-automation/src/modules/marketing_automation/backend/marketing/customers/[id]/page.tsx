@@ -14,10 +14,11 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useMarketingMutation } from '../../../../components/useMarketingMutation'
 import { TierMedal } from '../../../../components/TierMedal'
 import { RecordRow } from '../../../../components/RecordRow'
+import { CustomerTimeline } from '../../../../components/CustomerTimeline'
 import { RUN_STATUS_VARIANTS } from '../../../../components/runStatus'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { readApiErrorField } from '../../../../components/apiError'
@@ -114,6 +115,18 @@ type Profile = {
  */
 export default function CustomerProfilePage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
+  /**
+   * Rounded, because these are averages and rates rather than stored amounts.
+   *
+   * An average order value is a division, so it arrives as `443.3333333333333` and was printed that way —
+   * thirteen decimal places of a number that is accurate to the penny at best. Two places is what money has;
+   * the same formatter rounds the orders-a-year rate, which is a division for the same reason.
+   */
+  const formatRounded = React.useCallback(
+    (amount: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(amount),
+    [locale],
+  )
   const runMutation = useMarketingMutation('customers')
   const customerId = typeof params?.id === 'string' ? params.id : ''
 
@@ -443,10 +456,10 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                       ? (profile.orders.averageGross === null
                           ? null
                           : t('marketing_automation.profile.averageOrder', '{amount} per order')
-                              .replace('{amount}', String(profile.orders.averageGross)))
+                              .replace('{amount}', formatRounded(profile.orders.averageGross)))
                       : t('marketing_automation.profile.spendPercentile', 'Top {share}% of buyers · {amount} per order')
                           .replace('{share}', String(100 - profile.value.grossPercentile))
-                          .replace('{amount}', String(profile.value.averageOrderGross))}
+                          .replace('{amount}', formatRounded(profile.value.averageOrderGross))}
                   </span>
                 }
               />
@@ -511,7 +524,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                 {profile.value?.ordersPerYear === undefined
                   ? t('marketing_automation.profile.noProjection', 'Needs a second order before a rate can be read')
                   : t('marketing_automation.profile.projectionBasis', '{rate} orders a year at this pace')
-                      .replace('{rate}', String(profile.value.ordersPerYear))}
+                      .replace('{rate}', formatRounded(profile.value.ordersPerYear))}
               </span>
             }
           />
@@ -910,6 +923,27 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
               </ul>
             )}
           </div>
+        </div>
+
+        {/*
+          Last, and full width, because it is the longest thing on the page.
+          The panels above are what is TRUE of this person now — score, tier, consent, what the next message
+          would offer. This is what actually happened to them, in order, which is the question support asks
+          when somebody says they never heard from us or unsubscribed weeks ago. Neither is answerable from a
+          set of current values.
+        */}
+        <div className="mb-6">
+          <SectionHeader
+            title={t('marketing_automation.timeline.title', 'What happened')}
+            help={{
+              title: t('marketing_automation.timeline.title', 'What happened'),
+              body: t(
+                'marketing_automation.help.profile.timeline',
+                'Everything this module recorded about this person, newest first: campaigns they entered, messages sent or held back, opens and clicks, points, consent changes, survey answers and referrals. It is assembled from the rows that already record each of those, so it cannot disagree with the screens that count them.',
+              ),
+            }}
+          />
+          <CustomerTimeline customerId={customerId} />
         </div>
       </PageBody>
     </Page>

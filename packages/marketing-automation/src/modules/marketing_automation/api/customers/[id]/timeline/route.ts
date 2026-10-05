@@ -15,6 +15,7 @@ import {
   MarketingReferralRedemption,
   MarketingSurveyPrompt,
 } from '../../../../data/entities.js'
+import { findTrigger } from '../../../../lib/trigger-catalog.js'
 import { readPathUuid } from '../../../shared.js'
 
 /**
@@ -87,6 +88,14 @@ export type TimelineEntry = {
   source: string | null
   /** The clicked URL, the reason a message was held back, the question that was asked. */
   detail: string | null
+  /**
+   * A translation key for `detail`, where the thing described has a written name.
+   *
+   * A trigger is the case that forces it: the run stores `customers.person.created`, and printing that at a
+   * person is the same mistake the run list made before it learned to say "Customer registered". The caller
+   * translates with `detail` as the fallback, so a trigger contributed by a module with no copy still reads.
+   */
+  detailKey: string | null
 }
 
 function readCustomerId(req: Request): string | null {
@@ -197,6 +206,7 @@ export async function GET(req: Request) {
       amount: null,
       source: null,
       detail: run.triggerEventId,
+      detailKey: findTrigger(run.triggerEventId)?.labelKey ?? null,
     })
   }
 
@@ -210,6 +220,7 @@ export async function GET(req: Request) {
       amount: null,
       source: null,
       detail: send.suppressionReason ?? null,
+      detailKey: null,
     })
   }
 
@@ -223,6 +234,7 @@ export async function GET(req: Request) {
       amount: null,
       source: null,
       detail: event.linkUrl ?? null,
+      detailKey: null,
     })
   }
 
@@ -236,6 +248,7 @@ export async function GET(req: Request) {
       amount: entry.points,
       source: entry.source,
       detail: entry.reason ?? null,
+      detailKey: null,
     })
   }
 
@@ -249,6 +262,7 @@ export async function GET(req: Request) {
       amount: null,
       source: consent.source,
       detail: consent.reason ?? null,
+      detailKey: null,
     })
   }
 
@@ -262,6 +276,7 @@ export async function GET(req: Request) {
       amount: null,
       source: null,
       detail: survey.question,
+      detailKey: null,
     })
     // Answered is its own entry, because the gap between asking and answering is itself the interesting part.
     if (survey.answeredAt && survey.score !== null && survey.score !== undefined) {
@@ -274,6 +289,7 @@ export async function GET(req: Request) {
         amount: survey.score,
         source: null,
         detail: survey.comment ?? null,
+        detailKey: null,
       })
     }
   }
@@ -290,6 +306,7 @@ export async function GET(req: Request) {
       amount: null,
       source: null,
       detail: referral.status,
+      detailKey: null,
     })
   }
 
@@ -303,6 +320,7 @@ export async function GET(req: Request) {
       amount: null,
       source: null,
       detail: request.outcome,
+      detailKey: null,
     })
   }
 
