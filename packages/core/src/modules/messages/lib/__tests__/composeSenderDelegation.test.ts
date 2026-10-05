@@ -206,8 +206,18 @@ describe('delegateComposeToSender', () => {
       objects: [{ entityModule: 'sales', entityType: 'order', entityId: 'order-1' }],
     })
 
+    const withLibraryAttachment = await delegateComposeToSender(containerWith(sendAsUser), actor, {
+      ...publicCompose,
+      attachmentRecordId: 'library-record-1',
+    })
+
     expect(withAttachments).toMatchObject({ ok: false, status: 422 })
     expect(withObjects).toMatchObject({ ok: false, status: 422 })
+    expect(withLibraryAttachment).toMatchObject({
+      ok: false,
+      status: 422,
+      fieldErrors: { [COMPOSE_SENDER_FIELD]: expect.any(String) },
+    })
     expect(sendAsUser).not.toHaveBeenCalled()
   })
 

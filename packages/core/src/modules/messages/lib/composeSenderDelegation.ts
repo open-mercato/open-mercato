@@ -68,6 +68,7 @@ export type ComposeSenderRequest = {
   isDraft?: boolean
   parentMessageId?: string
   attachmentIds?: string[]
+  attachmentRecordId?: string
   objects?: unknown[]
 }
 
@@ -128,7 +129,11 @@ export async function delegateComposeToSender(
   // `SendAsUserInput` carries recipients, subject, body and threading headers
   // and nothing else. Refusing is the only honest answer while that is true —
   // accepting would drop the payload after the message had already been sent.
-  if ((input.attachmentIds?.length ?? 0) > 0 || (input.objects?.length ?? 0) > 0) {
+  if (
+    (input.attachmentIds?.length ?? 0) > 0 ||
+    (input.objects?.length ?? 0) > 0 ||
+    input.attachmentRecordId
+  ) {
     return fail(
       422,
       t(

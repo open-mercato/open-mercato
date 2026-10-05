@@ -616,7 +616,7 @@ export async function POST(req: Request) {
         organizationId: scope.organizationId ?? null,
         auth: ctx.auth ?? null,
       },
-      input,
+      { ...input, parentMessageId: composeParentMessageId },
     )
     if (!delegated.ok) {
       return Response.json(
