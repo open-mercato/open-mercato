@@ -24,6 +24,34 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `staff` EP-40 capacity providers now drive the timesheet targets and may answer asynchronously (#6934)
+
+**Who is affected:** apps that register a capacity provider, or that replaced the
+`timeCapacityResolver` DI key. No change is required. The provider contract is additive.
+
+**What changed:**
+
+- The Timesheet footer, load bars, default expanded day and My Work KPIs now resolve their
+  target through `timeCapacityResolver.resolveCapacityAsync`, via the new
+  `GET /api/staff/timesheets/capacity` route. With no provider registered, every number
+  and the "Target (d × h)" caption are unchanged.
+- `CapacityProvider` gained an optional `resolveAsync`, for providers that read their own
+  data. `resolve` stays synchronous and required.
+- `CapacityResult` gained an optional `label` and `labelKey` for the footer caption.
+- Answers are now validated more strictly. Any of these falls back to the built-in:
+  negative minutes, a date key that is not a real calendar day, or a missing map. Days
+  outside the requested range are dropped. The total is recomputed as the sum of the
+  per-day targets, and a `null` total clears the per-day map.
+
+**Recommended:**
+
+- Move synchronous callers from `resolveTimesheetCapacity` /
+  `timeCapacityResolver.resolveCapacity` (both now `@deprecated`, and they never consult
+  `resolveAsync`) to `resolveTimesheetCapacityAsync` / `resolveCapacityAsync`.
+- A `timeCapacityResolver` override that implements, or replaces, only `resolveCapacity`
+  keeps working. Its answer is treated as contributed, so the footer shows a neutral
+  "Target". To report `isBuiltIn` yourself, also replace `resolveCapacityAsync`.
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)

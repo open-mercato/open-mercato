@@ -33,6 +33,8 @@ import { DurationInput } from '../time-tracking-ui/DurationInput'
 import { formatDuration } from '../time-tracking/duration'
 import {
   loadPercent,
+  resolveDayScaleMinutes,
+  resolveDayTargetMinutes,
   suggestNextStartClock,
   type TimesheetDay,
   type TimesheetEntry,
@@ -73,6 +75,11 @@ export type ListViewProps = {
   scaleMinutes: number | null
   /** Per-day target in minutes; `null` when the tenant cleared `targets.dailyHours`. */
   dailyTargetMinutes: number | null
+  /**
+   * Per-date targets answered by a contributed capacity provider (EP-40). When
+   * present they replace `dailyTargetMinutes` for each day's deviation and bar.
+   */
+  targetMinutesByDate?: Readonly<Record<string, number>> | null
   expandedDate: string | null
   onExpandedDateChange: (date: string | null) => void
   targets: readonly TimesheetLogTarget[]
@@ -226,6 +233,7 @@ function DefaultListView({
   days,
   scaleMinutes,
   dailyTargetMinutes,
+  targetMinutesByDate,
   expandedDate,
   onExpandedDateChange,
   targets,
@@ -253,8 +261,8 @@ function DefaultListView({
       <div className="flex flex-col gap-2">
         {days.map((day) => {
           const expanded = day.date === expandedDate
-          const deviation =
-            dailyTargetMinutes !== null && !day.isWeekend ? day.totalMinutes - dailyTargetMinutes : null
+          const dayTarget = resolveDayTargetMinutes(day, dailyTargetMinutes, targetMinutesByDate)
+          const deviation = dayTarget !== null ? day.totalMinutes - dayTarget : null
           return (
             <button
               key={day.date}
@@ -276,7 +284,10 @@ function DefaultListView({
                 {formatDayLabel(day.date, locale)}
               </span>
               <span className="min-w-0 flex-1">
-                <Progress value={loadPercent(day.totalMinutes, scaleMinutes)} size="sm" />
+                <Progress
+                  value={loadPercent(day.totalMinutes, resolveDayScaleMinutes(day.date, scaleMinutes, targetMinutesByDate))}
+                  size="sm"
+                />
               </span>
               <span
                 className={cn(
@@ -302,6 +313,7 @@ function DefaultListView({
         <ExpandedDay
           day={days.find((day) => day.date === expandedDate) ?? null}
           dailyTargetMinutes={dailyTargetMinutes}
+          targetMinutesByDate={targetMinutesByDate}
           targets={targets}
           showAuthor={showAuthor}
           authorNames={authorNames}
@@ -320,6 +332,7 @@ function DefaultListView({
 function ExpandedDay({
   day,
   dailyTargetMinutes,
+  targetMinutesByDate,
   targets,
   showAuthor,
   authorNames,
@@ -332,6 +345,7 @@ function ExpandedDay({
 }: {
   day: TimesheetDay | null
   dailyTargetMinutes: number | null
+  targetMinutesByDate?: Readonly<Record<string, number>> | null
   targets: readonly TimesheetLogTarget[]
   showAuthor: boolean
   authorNames: ReadonlyMap<string, string>
@@ -344,7 +358,8 @@ function ExpandedDay({
 }) {
   const t = useT()
   if (!day) return null
-  const deviation = dailyTargetMinutes !== null && !day.isWeekend ? day.totalMinutes - dailyTargetMinutes : null
+  const dayTarget = resolveDayTargetMinutes(day, dailyTargetMinutes, targetMinutesByDate)
+  const deviation = dayTarget !== null ? day.totalMinutes - dayTarget : null
 
   return (
     <div className="flex flex-col gap-3 border-t pt-4">
@@ -561,6 +576,7 @@ const listViewPropsSchema: z.ZodType<ListViewProps> = z.object({
   days: z.array(opaqueProp<TimesheetDay>()),
   scaleMinutes: z.number().nullable(),
   dailyTargetMinutes: z.number().nullable(),
+  targetMinutesByDate: z.record(z.string(), z.number()).nullable().optional(),
   expandedDate: z.string().nullable(),
   onExpandedDateChange: callbackProp<(date: string | null) => void>(),
   targets: z.array(opaqueProp<TimesheetLogTarget>()),
