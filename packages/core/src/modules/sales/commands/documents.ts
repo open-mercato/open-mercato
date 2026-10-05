@@ -7394,6 +7394,105 @@ async function assertOrderAcceptsNewLine(
   });
 }
 
+type OrderLineWriteResult = { orderId: string; lineId: string };
+type OrderLineLockDatabase = {
+  sales_orders: {
+    id: string;
+    tenant_id: string;
+    organization_id: string;
+    deleted_at: Date | null;
+  };
+};
+
+const preparedOrderLineWrites = new WeakSet<object>();
+const orderLineWriteSnapshots = new WeakMap<OrderLineWriteResult, OrderUndoPayload>();
+
+async function writeLockedOrderLines(
+  input: object,
+  ctx: CommandRuntimeContext,
+  orderId: string,
+  missingOrderMessage: string,
+  write: (em: EntityManager, order: SalesOrder) => Promise<{
+    lineId: string;
+    calculation: SalesDocumentCalculationResult;
+  }>,
+): Promise<OrderLineWriteResult> {
+  const em = (ctx.container.resolve("em") as EntityManager).fork();
+  const captureSnapshots = preparedOrderLineWrites.has(input);
+  let result!: OrderLineWriteResult;
+  let before: OrderGraphSnapshot | null = null;
+  let after: OrderGraphSnapshot | null = null;
+  let totalsEvent!: Parameters<typeof emitTotalsCalculated>[1];
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        const existingOrder = await findOneWithDecryption(
+          em,
+          SalesOrder,
+          { id: orderId, deletedAt: null },
+          {},
+          {
+            tenantId: ctx.auth?.tenantId ?? undefined,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+          },
+        );
+        if (!existingOrder) throw notFound(missingOrderMessage);
+        ensureOrderScope(ctx, existingOrder.organizationId, existingOrder.tenantId);
+        const scope = {
+          tenantId: existingOrder.tenantId,
+          organizationId: existingOrder.organizationId,
+        };
+        const lockedOrder = await em.getKysely<OrderLineLockDatabase>()
+          .selectFrom("sales_orders")
+          .select("id")
+          .where("id", "=", orderId)
+          .where("tenant_id", "=", scope.tenantId)
+          .where("organization_id", "=", scope.organizationId)
+          .where("deleted_at", "is", null)
+          .forNoKeyUpdate()
+          .executeTakeFirst();
+        if (!lockedOrder) throw notFound(missingOrderMessage);
+        const order = await findOneWithDecryption(
+          em,
+          SalesOrder,
+          { id: orderId, deletedAt: null, ...scope },
+          { refresh: true },
+          scope,
+        );
+        if (!order) throw notFound(missingOrderMessage);
+        ensureOrderScope(ctx, order.organizationId, order.tenantId);
+        await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+        if (captureSnapshots) before = await loadOrderSnapshot(em, order.id);
+        const { lineId, calculation } = await write(em, order);
+        result = { orderId: order.id, lineId };
+        totalsEvent = {
+          documentKind: "order",
+          documentId: order.id,
+          organizationId: order.organizationId,
+          tenantId: order.tenantId,
+          customerId: order.customerEntityId ?? null,
+          totals: calculation.totals,
+          lineCount: calculation.lines.length,
+        };
+      },
+      ...(captureSnapshots ? [async () => {
+        after = await loadOrderSnapshot(em, orderId);
+      }] : []),
+    ],
+    { transaction: true },
+  );
+  if (captureSnapshots) orderLineWriteSnapshots.set(result, { before, after });
+  let eventBus: EventBus | null = null;
+  try {
+    eventBus = ctx.container.resolve("eventBus") as EventBus;
+  } catch {
+    eventBus = null;
+  }
+  await emitTotalsCalculated(eventBus, totalsEvent);
+  return result;
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
@@ -7403,6 +7502,7 @@ const orderLineUpsertCommand: CommandHandler<
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
     if (!orderId) return {};
+    preparedOrderLineWrites.add(input);
     const em = ctx.container.resolve("em") as EntityManager;
     const snapshot = await loadOrderSnapshot(em, orderId);
     if (snapshot)
@@ -7416,113 +7516,84 @@ const orderLineUpsertCommand: CommandHandler<
   async execute(input, ctx) {
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
     const parsed = orderLineUpsertSchema.parse(rawBody);
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(em, SalesOrder, {
-      id: parsed.orderId,
-      deletedAt: null,
-    });
-    if (!order)
-      throw notFound("Sales order not found");
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    return writeLockedOrderLines(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
 
-    const [existingLines, adjustments] = await Promise.all([
-      em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
-      em.find(
-        SalesOrderAdjustment,
-        { order },
-        { orderBy: { position: "asc" } },
-      ),
-    ]);
-    const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
-    const existingSnapshot = parsed.id
-      ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
-      : null;
-    await assertOrderAcceptsNewLine(order, existingSnapshot);
-    await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
-    const priceMode =
-      parsed.priceMode === "gross"
-        ? "gross"
-        : parsed.priceMode === "net"
-          ? "net"
-          : null;
-    let unitPriceNet =
-      parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null;
-    let unitPriceGross =
-      parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
-    let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
-    if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
-      let taxService: TaxCalculationService | null = null;
-      try {
-        taxService = ctx.container.resolve(
-          "taxCalculationService",
-        ) as TaxCalculationService;
-      } catch {
-        taxService = null;
+      const [existingLines, adjustments] = await Promise.all([
+        em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
+        em.find(
+          SalesOrderAdjustment,
+          { order },
+          { orderBy: { position: "asc" } },
+        ),
+      ]);
+      const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
+      const existingSnapshot = parsed.id
+        ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
+        : null;
+      await assertOrderAcceptsNewLine(order, existingSnapshot);
+      await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
+      const priceMode =
+        parsed.priceMode === "gross"
+          ? "gross"
+          : parsed.priceMode === "net"
+            ? "net"
+            : null;
+      let unitPriceNet =
+        parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null;
+      let unitPriceGross =
+        parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
+      let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
+      if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
+        let taxService: TaxCalculationService | null = null;
+        try {
+          taxService = ctx.container.resolve(
+            "taxCalculationService",
+          ) as TaxCalculationService;
+        } catch {
+          taxService = null;
+        }
+        if (taxService) {
+          const taxResult = await taxService.calculateUnitAmounts({
+            amount:
+              priceMode === "gross"
+                ? (unitPriceGross ?? unitPriceNet ?? 0)
+                : (unitPriceNet ?? unitPriceGross ?? 0),
+            mode: priceMode,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            taxRateId: parsed.taxRateId ?? undefined,
+            taxRate: taxRate ?? undefined,
+          });
+          unitPriceNet = unitPriceNet ?? taxResult.netAmount;
+          unitPriceGross = unitPriceGross ?? taxResult.grossAmount;
+          taxRate = taxResult.taxRate ?? taxRate;
+        }
       }
-      if (taxService) {
-        const taxResult = await taxService.calculateUnitAmounts({
-          amount:
-            priceMode === "gross"
-              ? (unitPriceGross ?? unitPriceNet ?? 0)
-              : (unitPriceNet ?? unitPriceGross ?? 0),
-          mode: priceMode,
-          organizationId: parsed.organizationId,
-          tenantId: parsed.tenantId,
-          taxRateId: parsed.taxRateId ?? undefined,
-          taxRate: taxRate ?? undefined,
-        });
-        unitPriceNet = unitPriceNet ?? taxResult.netAmount;
-        unitPriceGross = unitPriceGross ?? taxResult.grossAmount;
-        taxRate = taxResult.taxRate ?? taxRate;
-      }
-    }
 
-    const metadata =
-      typeof parsed.metadata === "object" && parsed.metadata
-        ? { ...parsed.metadata }
-        : existingSnapshot?.metadata
-          ? cloneJson(existingSnapshot.metadata)
-          : {};
-    if (parsed.priceId) metadata.priceId = parsed.priceId;
-    if (priceMode) metadata.priceMode = priceMode;
+      const metadata =
+        typeof parsed.metadata === "object" && parsed.metadata
+          ? { ...parsed.metadata }
+          : existingSnapshot?.metadata
+            ? cloneJson(existingSnapshot.metadata)
+            : {};
+      if (parsed.priceId) metadata.priceId = parsed.priceId;
+      if (priceMode) metadata.priceMode = priceMode;
 
-    const statusEntryId =
-      parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
-    const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-    const lineUomInput = {
-      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-      productVariantId:
-        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-      quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-      normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
-      normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
-      uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
-    };
-    const uomResolver = createUomResolver();
-    let normalizedUom = await normalizeLineUom({
-      em,
-      resolver: uomResolver,
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      line: {
-        ...lineUomInput,
-        unitPriceNet: unitPriceNet ?? 0,
-        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      },
-    });
-    const convertedPrices = convertLineUnitPricesOnUnitChange({
-      existingSnapshot,
-      nextQuantityUnit: normalizedUom.quantityUnit,
-      nextUomSnapshot: normalizedUom.uomSnapshot,
-      unitPriceNet,
-      unitPriceGross,
-    });
-    if (convertedPrices.didConvert) {
-      unitPriceNet = convertedPrices.unitPriceNet;
-      unitPriceGross = convertedPrices.unitPriceGross;
-      normalizedUom = await normalizeLineUom({
+      const statusEntryId =
+        parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
+      const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
+      const lineUomInput = {
+        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productVariantId:
+          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+        quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+        quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+        normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
+        normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
+        uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
+      };
+      const uomResolver = createUomResolver();
+      let normalizedUom = await normalizeLineUom({
         em,
         resolver: uomResolver,
         organizationId: order.organizationId,
@@ -7533,157 +7604,156 @@ const orderLineUpsertCommand: CommandHandler<
           unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
         },
       });
-    }
-    const updatedSnapshot: SalesLineSnapshot & {
-      statusEntryId?: string | null;
-      catalogSnapshot?: Record<string, unknown> | null;
-      promotionSnapshot?: Record<string, unknown> | null;
-    } = {
-      id: lineId,
-      lineNumber:
-        parsed.lineNumber ??
-        existingSnapshot?.lineNumber ??
-        lineSnapshots.length + 1,
-      kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
-      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-      productVariantId:
-        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-      name: parsed.name ?? existingSnapshot?.name ?? null,
-      description: parsed.description ?? existingSnapshot?.description ?? null,
-      comment: parsed.comment ?? existingSnapshot?.comment ?? null,
-      quantity: normalizedUom.quantity,
-      quantityUnit: normalizedUom.quantityUnit,
-      normalizedQuantity: normalizedUom.normalizedQuantity,
-      normalizedUnit: normalizedUom.normalizedUnit,
-      uomSnapshot: normalizedUom.uomSnapshot
-        ? cloneJson(normalizedUom.uomSnapshot)
-        : null,
-      currencyCode:
-        parsed.currencyCode ??
-        existingSnapshot?.currencyCode ??
-        order.currencyCode,
-      unitPriceNet: unitPriceNet ?? 0,
-      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      ...resolveUpsertDiscountFields(
-        parsed.discountAmount,
-        parsed.discountAmountBasis,
+      const convertedPrices = convertLineUnitPricesOnUnitChange({
         existingSnapshot,
-      ),
-      discountPercent:
-        parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
-      taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
-      totalNetAmount:
-        parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
-      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
-      configuration:
-        parsed.configuration ?? existingSnapshot?.configuration ?? null,
-      promotionCode:
-        parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
-      metadata,
-      customFieldSetId:
-        parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
-      customFields:
-        parsed.customFields && typeof parsed.customFields === "object"
-          ? cloneJson(parsed.customFields)
-          : ((existingSnapshot as any)?.customFields ?? null),
-    };
-    (updatedSnapshot as any).statusEntryId = statusEntryId;
-    (updatedSnapshot as any).catalogSnapshot =
-      parsed.catalogSnapshot ??
-      (existingSnapshot as any)?.catalogSnapshot ??
-      null;
-    (updatedSnapshot as any).promotionSnapshot =
-      parsed.promotionSnapshot ??
-      (existingSnapshot as any)?.promotionSnapshot ??
-      null;
+        nextQuantityUnit: normalizedUom.quantityUnit,
+        nextUomSnapshot: normalizedUom.uomSnapshot,
+        unitPriceNet,
+        unitPriceGross,
+      });
+      if (convertedPrices.didConvert) {
+        unitPriceNet = convertedPrices.unitPriceNet;
+        unitPriceGross = convertedPrices.unitPriceGross;
+        normalizedUom = await normalizeLineUom({
+          em,
+          resolver: uomResolver,
+          organizationId: order.organizationId,
+          tenantId: order.tenantId,
+          line: {
+            ...lineUomInput,
+            unitPriceNet: unitPriceNet ?? 0,
+            unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+          },
+        });
+      }
+      const updatedSnapshot: SalesLineSnapshot & {
+        statusEntryId?: string | null;
+        catalogSnapshot?: Record<string, unknown> | null;
+        promotionSnapshot?: Record<string, unknown> | null;
+      } = {
+        id: lineId,
+        lineNumber:
+          parsed.lineNumber ??
+          existingSnapshot?.lineNumber ??
+          lineSnapshots.length + 1,
+        kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
+        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productVariantId:
+          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+        name: parsed.name ?? existingSnapshot?.name ?? null,
+        description: parsed.description ?? existingSnapshot?.description ?? null,
+        comment: parsed.comment ?? existingSnapshot?.comment ?? null,
+        quantity: normalizedUom.quantity,
+        quantityUnit: normalizedUom.quantityUnit,
+        normalizedQuantity: normalizedUom.normalizedQuantity,
+        normalizedUnit: normalizedUom.normalizedUnit,
+        uomSnapshot: normalizedUom.uomSnapshot
+          ? cloneJson(normalizedUom.uomSnapshot)
+          : null,
+        currencyCode:
+          parsed.currencyCode ??
+          existingSnapshot?.currencyCode ??
+          order.currencyCode,
+        unitPriceNet: unitPriceNet ?? 0,
+        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+        ...resolveUpsertDiscountFields(
+          parsed.discountAmount,
+          parsed.discountAmountBasis,
+          existingSnapshot,
+        ),
+        discountPercent:
+          parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
+        taxRate: taxRate ?? 0,
+        taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
+        totalNetAmount:
+          parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
+        totalGrossAmount:
+          parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+        ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
+        configuration:
+          parsed.configuration ?? existingSnapshot?.configuration ?? null,
+        promotionCode:
+          parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
+        metadata,
+        customFieldSetId:
+          parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
+        customFields:
+          parsed.customFields && typeof parsed.customFields === "object"
+            ? cloneJson(parsed.customFields)
+            : ((existingSnapshot as any)?.customFields ?? null),
+      };
+      (updatedSnapshot as any).statusEntryId = statusEntryId;
+      (updatedSnapshot as any).catalogSnapshot =
+        parsed.catalogSnapshot ??
+        (existingSnapshot as any)?.catalogSnapshot ??
+        null;
+      (updatedSnapshot as any).promotionSnapshot =
+        parsed.promotionSnapshot ??
+        (existingSnapshot as any)?.promotionSnapshot ??
+        null;
 
-    let nextLines = parsed.id
-      ? lineSnapshots.map((line) =>
-          line.id === parsed.id ? updatedSnapshot : line,
-        )
-      : [...lineSnapshots, updatedSnapshot];
-    nextLines = nextLines
-      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-      .map((line, index) => ({ ...line, lineNumber: index + 1 }));
+      let nextLines = parsed.id
+        ? lineSnapshots.map((line) =>
+            line.id === parsed.id ? updatedSnapshot : line,
+          )
+        : [...lineSnapshots, updatedSnapshot];
+      nextLines = nextLines
+        .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
+        .map((line, index) => ({ ...line, lineNumber: index + 1 }));
 
-    const sourceInputs = nextLines.map((line, index) => ({
-      ...line,
-      statusEntryId: (line as any).statusEntryId ?? null,
-      catalogSnapshot: (line as any).catalogSnapshot ?? null,
-      promotionSnapshot: (line as any).promotionSnapshot ?? null,
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      orderId: order.id,
-      lineNumber: line.lineNumber ?? index + 1,
-    }));
-    const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
-      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
-    );
-    const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+      const sourceInputs = nextLines.map((line, index) => ({
+        ...line,
+        statusEntryId: (line as any).statusEntryId ?? null,
+        catalogSnapshot: (line as any).catalogSnapshot ?? null,
+        promotionSnapshot: (line as any).promotionSnapshot ?? null,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        orderId: order.id,
+        lineNumber: line.lineNumber ?? index + 1,
+      }));
+      const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+        shippingSnapshot: order.shippingMethodSnapshot,
+        paymentSnapshot: order.paymentMethodSnapshot,
+        shippingMethodId: order.shippingMethodId ?? null,
+        paymentMethodId: order.paymentMethodId ?? null,
+        shippingMethodCode: order.shippingMethodCode ?? null,
+        paymentMethodCode: order.paymentMethodCode ?? null,
+      });
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "order",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
+      });
+      await applyOrderLineResults({
+        em,
+        order,
+        calculation,
+        sourceLines: sourceInputs,
+        existingLines,
+      });
+      applyOrderTotals(order, calculation.totals, calculation.lines.length);
+      return { lineId, calculation };
     });
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "order",
-      lines: calcLines,
-      adjustments: adjustmentDrafts,
-      context: calculationContext,
-      existingTotals: resolveExistingPaymentTotals(order),
-    });
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the line changes and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated order committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await applyOrderLineResults({
-            em,
-            order,
-            calculation,
-            sourceLines: sourceInputs,
-            existingLines,
-          });
-          applyOrderTotals(order, calculation.totals, calculation.lines.length);
-          await emitTotalsCalculated(eventBus, {
-            documentKind: "order",
-            documentId: order.id,
-            organizationId: order.organizationId,
-            tenantId: order.tenantId,
-            customerId: order.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
-          });
-        },
-      ],
-      { transaction: true },
-    );
-    return { orderId: order.id, lineId };
   },
   captureAfter: async (_input, result, ctx) => {
+    const lockedSnapshots = orderLineWriteSnapshots.get(result);
+    if (lockedSnapshots) return lockedSnapshots.after;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadOrderSnapshot(em, result.orderId);
   },
   buildLog: async ({ result, snapshots }) => {
-    const before = snapshots.before as OrderGraphSnapshot | undefined;
+    const before = (orderLineWriteSnapshots.get(result)?.before ?? snapshots.before) as OrderGraphSnapshot | undefined;
     const after = snapshots.after as OrderGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -7720,6 +7790,7 @@ const orderLineDeleteCommand: CommandHandler<
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
     const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
     if (!orderId) return {};
+    preparedOrderLineWrites.add(input);
     const em = ctx.container.resolve("em") as EntityManager;
     const snapshot = await loadOrderSnapshot(em, orderId);
     if (snapshot)
@@ -7735,134 +7806,104 @@ const orderLineDeleteCommand: CommandHandler<
     const parsed = orderLineDeleteSchema.parse(
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(em, SalesOrder, {
-      id: parsed.orderId,
-      deletedAt: null,
-    });
-    if (!order)
-      throw notFound(translate(
-          "sales.documents.detail.error",
-          "Document not found or inaccessible.",
-        ));
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
-    const shipmentCount = await em.count(SalesShipmentItem, {
-      orderLine: parsed.id,
-      shipment: { deletedAt: null },
-    });
-    if (shipmentCount > 0) {
-      throw new CrudHttpError(409, {
-        error: translate(
-          "sales.documents.items.errorDeleteShipped",
-          "Cannot delete a line that has shipped items.",
-        ),
+    return writeLockedOrderLines(input, ctx, parsed.orderId, translate(
+      "sales.documents.detail.error",
+      "Document not found or inaccessible.",
+    ), async (em, order) => {
+      const shipmentCount = await em.count(SalesShipmentItem, {
+        orderLine: parsed.id,
+        shipment: { deletedAt: null },
       });
-    }
-    const existingLines = await em.find(
-      SalesOrderLine,
-      { order },
-      { orderBy: { lineNumber: "asc" } },
-    );
-    const adjustments = await em.find(
-      SalesOrderAdjustment,
-      { order },
-      { orderBy: { position: "asc" } },
-    );
-    const filtered = existingLines.filter((line) => line.id !== parsed.id);
-    if (filtered.length === existingLines.length) {
-      throw notFound(translate(
-          "sales.documents.detail.error",
-          "Document not found or inaccessible.",
-        ));
-    }
-    if (filtered.length === 0) {
-      throw new CrudHttpError(409, {
-        error: translate(
-          "sales.documents.items.errorDeleteLast",
-          "An order must contain at least one line item.",
-        ),
+      if (shipmentCount > 0) {
+        throw new CrudHttpError(409, {
+          error: translate(
+            "sales.documents.items.errorDeleteShipped",
+            "Cannot delete a line that has shipped items.",
+          ),
+        });
+      }
+      const existingLines = await em.find(
+        SalesOrderLine,
+        { order },
+        { orderBy: { lineNumber: "asc" } },
+      );
+      const adjustments = await em.find(
+        SalesOrderAdjustment,
+        { order },
+        { orderBy: { position: "asc" } },
+      );
+      const filtered = existingLines.filter((line) => line.id !== parsed.id);
+      if (filtered.length === existingLines.length) {
+        throw notFound(translate(
+            "sales.documents.detail.error",
+            "Document not found or inaccessible.",
+          ));
+      }
+      if (filtered.length === 0) {
+        throw new CrudHttpError(409, {
+          error: translate(
+            "sales.documents.items.errorDeleteLast",
+            "An order must contain at least one line item.",
+          ),
+        });
+      }
+      const sourceInputs = filtered.map((line, index) => ({
+        ...mapOrderLineEntityToSnapshot(line),
+        statusEntryId: line.statusEntryId ?? null,
+        catalogSnapshot: line.catalogSnapshot
+          ? cloneJson(line.catalogSnapshot)
+          : null,
+        promotionSnapshot: line.promotionSnapshot
+          ? cloneJson(line.promotionSnapshot)
+          : null,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        orderId: order.id,
+        lineNumber: index + 1,
+      }));
+      const calcLines = sourceInputs.map((line, index) =>
+        createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+      );
+      const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
+      const salesCalculationService =
+        ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+      const calculationContext = buildCalculationContext({
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+        shippingSnapshot: order.shippingMethodSnapshot,
+        paymentSnapshot: order.paymentMethodSnapshot,
+        shippingMethodId: order.shippingMethodId ?? null,
+        paymentMethodId: order.paymentMethodId ?? null,
+        shippingMethodCode: order.shippingMethodCode ?? null,
+        paymentMethodCode: order.paymentMethodCode ?? null,
       });
-    }
-    const sourceInputs = filtered.map((line, index) => ({
-      ...mapOrderLineEntityToSnapshot(line),
-      statusEntryId: line.statusEntryId ?? null,
-      catalogSnapshot: line.catalogSnapshot
-        ? cloneJson(line.catalogSnapshot)
-        : null,
-      promotionSnapshot: line.promotionSnapshot
-        ? cloneJson(line.promotionSnapshot)
-        : null,
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      orderId: order.id,
-      lineNumber: index + 1,
-    }));
-    const calcLines = sourceInputs.map((line, index) =>
-      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
-    );
-    const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
-    const salesCalculationService =
-      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "order",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
+      });
+      await applyOrderLineResults({
+        em,
+        order,
+        calculation,
+        sourceLines: sourceInputs,
+        existingLines,
+      });
+      applyOrderTotals(order, calculation.totals, calculation.lines.length);
+      return { lineId: parsed.id, calculation };
     });
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: "order",
-      lines: calcLines,
-      adjustments: adjustmentDrafts,
-      context: calculationContext,
-      existingTotals: resolveExistingPaymentTotals(order),
-    });
-    let eventBus: EventBus | null = null;
-    try {
-      eventBus = ctx.container.resolve("eventBus") as EventBus;
-    } catch {
-      eventBus = null;
-    }
-    // Persist the line removal and recalculated totals atomically so a
-    // mid-build failure cannot leave a half-updated order committed (#2336).
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          await applyOrderLineResults({
-            em,
-            order,
-            calculation,
-            sourceLines: sourceInputs,
-            existingLines,
-          });
-          applyOrderTotals(order, calculation.totals, calculation.lines.length);
-          await emitTotalsCalculated(eventBus, {
-            documentKind: "order",
-            documentId: order.id,
-            organizationId: order.organizationId,
-            tenantId: order.tenantId,
-            customerId: order.customerEntityId ?? null,
-            totals: calculation.totals,
-            lineCount: calculation.lines.length,
-          });
-        },
-      ],
-      { transaction: true },
-    );
-    return { orderId: order.id, lineId: parsed.id };
   },
   captureAfter: async (_input, result, ctx) => {
+    const lockedSnapshots = orderLineWriteSnapshots.get(result);
+    if (lockedSnapshots) return lockedSnapshots.after;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadOrderSnapshot(em, result.orderId);
   },
   buildLog: async ({ result, snapshots }) => {
-    const before = snapshots.before as OrderGraphSnapshot | undefined;
+    const before = (orderLineWriteSnapshots.get(result)?.before ?? snapshots.before) as OrderGraphSnapshot | undefined;
     const after = snapshots.after as OrderGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
