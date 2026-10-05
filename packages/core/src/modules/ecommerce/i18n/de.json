@@ -1,4 +1,5 @@
 {
+  "ecommerce.errors.brandingPermissionRequired": "Sie haben keine Berechtigung, das Branding des Shops festzulegen.",
   "ecommerce.errors.brandingRouteRequired": "Das Branding kann hier nicht geändert werden. Speichern Sie es über den Branding-Endpunkt (PUT /api/ecommerce/stores/{id}/branding).",
   "ecommerce.errors.codeDuplicate": "Ein Shop mit diesem Code existiert bereits.",
   "ecommerce.errors.defaultChannelConflict": "Gleichzeitig wurde eine andere Kanalzuordnung dieses Shops zum Standard gemacht. Laden Sie neu und versuchen Sie es erneut.",

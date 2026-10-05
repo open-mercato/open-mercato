@@ -6,6 +6,12 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     translate: (_key: string, fallback?: string) => fallback ?? _key,
   }),
 }))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: { find: (entity: unknown, where: unknown) => Promise<unknown> }, entity: unknown, where: unknown) =>
+    em.find(entity, where),
+  findOneWithDecryption: (em: { findOne: (entity: unknown, where: unknown) => Promise<unknown> }, entity: unknown, where: unknown) =>
+    em.findOne(entity, where),
+}))
 const emitMock = jest.fn(async (..._args: unknown[]) => {})
 const invalidateCrudCacheMock = jest.fn(async (..._args: unknown[]) => {})
 jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
@@ -20,7 +26,8 @@ jest.mock('../../../events', () => ({
 import type { CrudCtx, CrudFactoryOptions } from '@open-mercato/shared/lib/crud/factory'
 import { storeCrud, toStoreUniqueConflict } from '../crud'
 import { metadata } from '../route'
-import { EcommerceStore } from '../../../data/entities'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { EcommerceStore, EcommerceStoreChannelBinding, EcommerceStoreDomainBinding } from '../../../data/entities'
 import { eventsConfig } from '../../../events'
 import { createFakeEm, uniqueViolation } from '../../__tests__/fakeEm'
 
@@ -34,9 +41,15 @@ const OTHER_STORE_ID = '44444444-4444-4444-8444-444444444444'
 
 const opts = (storeCrud as unknown as { opts: StoreCrudOptions }).opts
 
-function createCtx(em: unknown): CrudCtx {
+function createCtx(em: unknown, services: Record<string, unknown> = {}): CrudCtx {
+  const registry: Record<string, unknown> = { em, ...services }
   return {
-    container: { resolve: (name: string) => (name === 'em' ? em : undefined) },
+    container: {
+      resolve: (name: string) => {
+        if (!(name in registry)) throw new Error(`[internal] ${name} is not registered`)
+        return registry[name]
+      },
+    },
     auth: { tenantId: TENANT_ID, sub: 'user-1', orgId: ORG_ID },
     organizationScope: null,
     selectedOrganizationId: ORG_ID,
@@ -68,6 +81,21 @@ function makeStore(overrides: Partial<EcommerceStore> = {}): EcommerceStore {
     deletedAt: null,
     ...overrides,
   } as EcommerceStore
+}
+
+function createRbac(grantedFeatures: string[]) {
+  return {
+    userHasAllFeatures: jest.fn(async (_userId: string, required: string[]) =>
+      authorizeFeatures(required, { grantedFeatures, unrestricted: false, scopeAllowed: true }),
+    ),
+  }
+}
+
+function createDataEngine() {
+  return {
+    markOrmEntityChange: jest.fn(),
+    flushOrmEntityChanges: jest.fn(async () => {}),
+  }
 }
 
 const validCreateInput = {
@@ -151,6 +179,55 @@ describe('ecommerce store CRUD route', () => {
 
       expect(em.count).toHaveBeenCalledWith(EcommerceStore, { tenantId: TENANT_ID, code: 'outlet', deletedAt: null })
       expect(em.count).toHaveBeenCalledWith(EcommerceStore, { tenantId: TENANT_ID, slug: 'outlet', deletedAt: null })
+    })
+
+    it('rejects a non-empty branding with a 403 field error when the caller lacks ecommerce.branding.manage', async () => {
+      const { em } = createFakeEm()
+      const rbac = createRbac(['ecommerce.stores.manage', 'ecommerce.stores.view'])
+      const input = { ...validCreateInput, settings: { branding: { primaryColor: '#445566' } } }
+
+      await expect(opts.hooks!.beforeCreate!(input, createCtx(em, { rbacService: rbac }))).rejects.toMatchObject({
+        status: 403,
+        body: { fieldErrors: { 'settings.branding': 'You do not have permission to set the store branding.' } },
+      })
+      expect(rbac.userHasAllFeatures).toHaveBeenCalledWith('user-1', ['ecommerce.branding.manage'], {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+      })
+      expect(em.count).not.toHaveBeenCalled()
+    })
+
+    it('fails closed on a non-empty branding when no RBAC service is available', async () => {
+      const { em } = createFakeEm()
+      const input = { ...validCreateInput, settings: { branding: { primaryColor: '#445566' } } }
+
+      await expect(opts.hooks!.beforeCreate!(input, createCtx(em))).rejects.toMatchObject({ status: 403 })
+    })
+
+    it.each([
+      ['the exact feature', ['ecommerce.branding.manage']],
+      ['a module wildcard grant', ['ecommerce.*']],
+      ['a global wildcard grant', ['*']],
+    ])('accepts a non-empty branding when the caller holds %s', async (_label, granted) => {
+      const { em } = createFakeEm()
+      const input = { ...validCreateInput, settings: { branding: { primaryColor: '#445566' } } }
+
+      await expect(
+        opts.hooks!.beforeCreate!(input, createCtx(em, { rbacService: createRbac(granted) })),
+      ).resolves.toBeUndefined()
+      expect(em.count).toHaveBeenCalled()
+    })
+
+    it.each([
+      ['no settings', validCreateInput],
+      ['an empty branding', { ...validCreateInput, settings: { branding: {} } }],
+      ['a branding of blank values', { ...validCreateInput, settings: { branding: { primaryColor: '', logoUrl: '' } } }],
+    ])('accepts a create carrying %s without consulting RBAC', async (_label, input) => {
+      const { em } = createFakeEm()
+      const rbac = createRbac([])
+
+      await expect(opts.hooks!.beforeCreate!(input, createCtx(em, { rbacService: rbac }))).resolves.toBeUndefined()
+      expect(rbac.userHasAllFeatures).not.toHaveBeenCalled()
     })
 
     it('always inserts as non-primary and takes scope from the auth context, not the body', () => {
@@ -309,6 +386,153 @@ describe('ecommerce store CRUD route', () => {
       })
       const unrelated = new Error('boom')
       expect(toStoreUniqueConflict(unrelated, translate)).toBe(unrelated)
+    })
+  })
+
+  describe('delete', () => {
+    const DOMAIN_BINDING_ID = '55555555-5555-4555-8555-555555555555'
+    const CHANNEL_BINDING_ID = '66666666-6666-4666-8666-666666666666'
+    const DOMAIN_MAPPING_ID = '77777777-7777-4777-8777-777777777777'
+    const SALES_CHANNEL_ID = '88888888-8888-4888-8888-888888888888'
+
+    function makeDomainBinding(): EcommerceStoreDomainBinding {
+      return {
+        id: DOMAIN_BINDING_ID,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        storeId: STORE_ID,
+        domainMappingId: DOMAIN_MAPPING_ID,
+        pathPrefix: '/de',
+        isPrimary: true,
+        deletedAt: null,
+      } as EcommerceStoreDomainBinding
+    }
+
+    function makeChannelBinding(): EcommerceStoreChannelBinding {
+      return {
+        id: CHANNEL_BINDING_ID,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        storeId: STORE_ID,
+        salesChannelId: SALES_CHANNEL_ID,
+        isDefault: true,
+        deletedAt: null,
+      } as EcommerceStoreChannelBinding
+    }
+
+    it('soft-deletes the live bindings of the store in one transaction and announces them after commit', async () => {
+      const domainBinding = makeDomainBinding()
+      const channelBinding = makeChannelBinding()
+      const { em, calls } = createFakeEm({
+        findRows: (entity) => {
+          if (entity === EcommerceStoreDomainBinding) return [domainBinding]
+          if (entity === EcommerceStoreChannelBinding) return [channelBinding]
+          return []
+        },
+      })
+      const dataEngine = createDataEngine()
+
+      await opts.hooks!.afterDelete!(STORE_ID, createCtx(em, { dataEngine }))
+
+      expect(em.transactional).toHaveBeenCalledTimes(1)
+      expect(calls).toEqual(['find', 'nativeUpdate:others', 'find', 'nativeUpdate:others'])
+      const liveScope = { storeId: STORE_ID, organizationId: ORG_ID, tenantId: TENANT_ID, deletedAt: null }
+      expect(em.find).toHaveBeenCalledWith(EcommerceStoreDomainBinding, liveScope)
+      expect(em.find).toHaveBeenCalledWith(EcommerceStoreChannelBinding, liveScope)
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        EcommerceStoreDomainBinding,
+        { id: { $in: [DOMAIN_BINDING_ID] }, deletedAt: null },
+        { deletedAt: expect.any(Date) },
+      )
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        EcommerceStoreChannelBinding,
+        { id: { $in: [CHANNEL_BINDING_ID] }, deletedAt: null },
+        { deletedAt: expect.any(Date) },
+      )
+      expect(domainBinding.deletedAt).toBeInstanceOf(Date)
+      expect(channelBinding.deletedAt).toBeInstanceOf(Date)
+
+      expect(dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(2)
+      const marks = dataEngine.markOrmEntityChange.mock.calls.map(([mark]) => mark)
+      const domainMark = marks.find((mark) => mark.entity === domainBinding)
+      const channelMark = marks.find((mark) => mark.entity === channelBinding)
+      expect(domainMark).toMatchObject({
+        action: 'deleted',
+        identifiers: { id: DOMAIN_BINDING_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+        indexer: { entityType: 'ecommerce:ecommerce_store_domain_binding' },
+        events: { module: 'ecommerce', entity: 'store_domain_binding', persistent: true },
+      })
+      expect(channelMark).toMatchObject({
+        action: 'deleted',
+        identifiers: { id: CHANNEL_BINDING_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+        indexer: { entityType: 'ecommerce:ecommerce_store_channel_binding' },
+        events: { module: 'ecommerce', entity: 'store_channel_binding', persistent: true },
+      })
+      const declared = new Set(eventsConfig.events.map((event) => event.id))
+      expect(declared.has('ecommerce.store_domain_binding.deleted')).toBe(true)
+      expect(declared.has('ecommerce.store_channel_binding.deleted')).toBe(true)
+      expect(
+        domainMark.events.buildPayload({ action: 'deleted', entity: domainBinding, identifiers: domainMark.identifiers }),
+      ).toEqual({
+        id: DOMAIN_BINDING_ID,
+        storeId: STORE_ID,
+        domainMappingId: DOMAIN_MAPPING_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+      })
+      expect(
+        channelMark.events.buildPayload({ action: 'deleted', entity: channelBinding, identifiers: channelMark.identifiers }),
+      ).toEqual({
+        id: CHANNEL_BINDING_ID,
+        storeId: STORE_ID,
+        salesChannelId: SALES_CHANNEL_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+      })
+      expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+      expect(invalidateCrudCacheMock).toHaveBeenCalledWith(
+        expect.anything(),
+        'ecommerce.store.domain.binding',
+        { id: DOMAIN_BINDING_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+        TENANT_ID,
+        'deleted',
+      )
+      expect(invalidateCrudCacheMock).toHaveBeenCalledWith(
+        expect.anything(),
+        'ecommerce.store.channel.binding',
+        { id: CHANNEL_BINDING_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+        TENANT_ID,
+        'deleted',
+      )
+    })
+
+    it('announces nothing when the store has no live bindings', async () => {
+      const { em } = createFakeEm()
+      const dataEngine = createDataEngine()
+
+      await opts.hooks!.afterDelete!(STORE_ID, createCtx(em, { dataEngine }))
+
+      expect(em.nativeUpdate).not.toHaveBeenCalled()
+      expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+      expect(invalidateCrudCacheMock).not.toHaveBeenCalled()
+    })
+
+    it('restores the store and announces nothing when the binding cascade fails', async () => {
+      const failure = new Error('cascade failed')
+      const { em } = createFakeEm({
+        findRows: (entity) => (entity === EcommerceStoreDomainBinding ? [makeDomainBinding()] : []),
+        nativeUpdateError: (where) => (where.deletedAt === null ? failure : null),
+      })
+      const dataEngine = createDataEngine()
+
+      await expect(opts.hooks!.afterDelete!(STORE_ID, createCtx(em, { dataEngine }))).rejects.toBe(failure)
+
+      expect(em.nativeUpdate).toHaveBeenLastCalledWith(
+        EcommerceStore,
+        { id: STORE_ID, tenantId: TENANT_ID, deletedAt: { $ne: null } },
+        { deletedAt: null },
+      )
+      expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
     })
   })
 })

@@ -31,6 +31,7 @@ import {
   ECOMMERCE_EVENTS_MODULE,
   STORE_EVENT_ENTITY,
 } from '../../lib/crudEvents'
+import { announceStoreBindingCascade, cascadeStoreBindingDelete } from '../../lib/storeBindingCascade'
 
 const rawBodySchema = z.object({}).passthrough()
 type RawStoreInput = z.infer<typeof rawBodySchema>
@@ -120,6 +121,39 @@ function canonicalBranding(value: unknown): string {
     .filter(([, entry]) => entry !== undefined && entry !== null && entry !== '')
     .sort(([left], [right]) => left.localeCompare(right))
   return JSON.stringify(entries)
+}
+
+export const BRANDING_MANAGE_FEATURE = 'ecommerce.branding.manage'
+
+type FeatureChecker = {
+  userHasAllFeatures(
+    userId: string,
+    required: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<boolean>
+}
+
+export async function assertCreateBrandingAllowed(
+  settings: Partial<EcommerceStoreSettings> | null | undefined,
+  ctx: CrudCtx,
+  scope: { tenantId: string; organizationId: string },
+  translate: Translate,
+): Promise<void> {
+  if (canonicalBranding(settings?.branding) === canonicalBranding(undefined)) return
+  const subject = ctx.auth?.sub ?? null
+  let rbac: FeatureChecker | undefined
+  try {
+    rbac = ctx.container.resolve('rbacService') as FeatureChecker | undefined
+  } catch {
+    rbac = undefined
+  }
+  if (subject && rbac && (await rbac.userHasAllFeatures(subject, [BRANDING_MANAGE_FEATURE], scope))) return
+  throw fieldError(403, {
+    'settings.branding': translate(
+      'ecommerce.errors.brandingPermissionRequired',
+      'You do not have permission to set the store branding.',
+    ),
+  })
 }
 
 export function assertBrandingUnchanged(
@@ -335,6 +369,12 @@ export const storeCrud = makeCrudRoute<RawStoreInput, RawStoreInput, StoreListQu
       const result = ecommerceStoreCreateSchema.safeParse({ ...input, ...resolveWriteScope(ctx) })
       if (!result.success) return
       const { translate } = await resolveTranslations()
+      await assertCreateBrandingAllowed(
+        result.data.settings,
+        ctx,
+        { tenantId: result.data.tenantId, organizationId: result.data.organizationId },
+        translate,
+      )
       const check: StoreIdentifierCheck = {
         tenantId: result.data.tenantId,
         storeId: null,
@@ -364,6 +404,11 @@ export const storeCrud = makeCrudRoute<RawStoreInput, RawStoreInput, StoreListQu
       if (!cleared) return
       clearedPrimaryByUpdate.delete(store)
       await announceStoresUpdated(ctx.container, cleared)
+    },
+    afterDelete: async (id, ctx) => {
+      const em = ctx.container.resolve('em') as EntityManager
+      const cascade = await cascadeStoreBindingDelete(em, id, ctx)
+      await announceStoreBindingCascade(ctx.container, cascade)
     },
   },
 })

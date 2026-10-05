@@ -42,7 +42,7 @@ export const openApi = createEcommerceCrudOpenApi({
         .describe('Whether the created store is the organization primary store. False when a concurrent request won the promotion.'),
     }),
     description:
-      'Creates a store in the selected organization. Requesting isPrimary clears the previous primary store of the organization. A duplicate code or slug is rejected with a field-level 409.',
+      'Creates a store in the selected organization. Requesting isPrimary clears the previous primary store of the organization. A duplicate code or slug is rejected with a field-level 409. A non-empty settings.branding requires ecommerce.branding.manage and is otherwise rejected with a 403 field error.',
   },
   update: {
     schema: ecommerceStoreUpdateSchema,
@@ -53,6 +53,7 @@ export const openApi = createEcommerceCrudOpenApi({
   del: {
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Soft-deletes a store by id (?id= query parameter).',
+    description:
+      'Soft-deletes a store by id (?id= query parameter). Its live domain and channel bindings are soft-deleted with it, releasing their domain and path prefix, and each emits its own deleted event.',
   },
 })

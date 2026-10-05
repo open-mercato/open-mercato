@@ -38,7 +38,7 @@ export function buildStoreChannelBindingEventPayload(
   }
 }
 
-function resourceKindFor(entity: string): string {
+export function resourceKindFor(entity: string): string {
   const raw = `${ECOMMERCE_EVENTS_MODULE}.${entity}`
   return canonicalizeResourceTag(raw) ?? raw
 }

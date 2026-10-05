@@ -1,4 +1,5 @@
 {
+  "ecommerce.errors.brandingPermissionRequired": "스토어 브랜딩을 설정할 권한이 없습니다.",
   "ecommerce.errors.brandingRouteRequired": "여기서는 브랜딩을 변경할 수 없습니다. 브랜딩 엔드포인트(PUT /api/ecommerce/stores/{id}/branding)를 통해 저장하세요.",
   "ecommerce.errors.codeDuplicate": "이 코드를 사용하는 스토어가 이미 있습니다.",
   "ecommerce.errors.defaultChannelConflict": "동시에 이 스토어의 다른 채널 연결이 기본으로 지정되었습니다. 새로고침 후 다시 시도하세요.",

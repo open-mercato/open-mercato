@@ -1,4 +1,5 @@
 {
+  "ecommerce.errors.brandingPermissionRequired": "No tienes permiso para definir la marca de la tienda.",
   "ecommerce.errors.brandingRouteRequired": "La marca no se puede cambiar aquí. Guárdala mediante el endpoint de marca (PUT /api/ecommerce/stores/{id}/branding).",
   "ecommerce.errors.codeDuplicate": "Ya existe una tienda con este código.",
   "ecommerce.errors.defaultChannelConflict": "Otra vinculación de canal de esta tienda se convirtió en predeterminada al mismo tiempo. Recarga e inténtalo de nuevo.",
