@@ -400,10 +400,95 @@ describe('entities rotate-encryption-key CLI', () => {
     singleMapFixture()
     getAllMetadata.mockReturnValue(new Map())
 
-    await expect(
-      rotate.run(['--tenant', 'tenant-1', '--org', 'org-1']),
-    ).rejects.toThrow('Cannot process encryption map audit_logs:access_log')
+    const error = await rotate
+      .run(['--tenant', 'tenant-1', '--org', 'org-1'])
+      .then(() => null, (e: Error) => e)
 
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('audit_logs:access_log')
+    expect(error!.message).toContain('No rows were changed')
+    // The remediation has to be in the message: rotation has no --entity flag to route around a
+    // stale map with, so an operator who cannot act on this text cannot rotate at all.
+    expect(error!.message).toContain('is the module that owns it still enabled?')
+    expect(error!.message).toContain('encryption_maps')
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  // A map with no mapped fields has nothing to rotate, so skipping it cannot silently leave a
+  // field sealed under the old key — the failure mode the preflight exists to prevent.
+  it('skips a map that declares no encrypted fields instead of failing the run', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    find.mockImplementation(async (entity: any) => {
+      if (entity === EncryptionMap) {
+        return [
+          {
+            id: 'map-empty',
+            entityId: 'audit_logs:other_log',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            fieldsJson: [],
+            deletedAt: null,
+          },
+          {
+            id: 'map-1',
+            entityId: 'audit_logs:access_log',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            fieldsJson: [{ field: 'resource_id' }],
+            deletedAt: null,
+          },
+        ]
+      }
+      if (entity === Organization) return [{ id: 'org-1', tenantId: 'tenant-1' }]
+      return []
+    })
+    execute.mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }])
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('declares no encrypted fields'))
+    expect(execute).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  // encryption.mdx ("Backfilling system-scoped records") states that these commands walk
+  // encryption_maps and skip every row without a tenant, because a tenant key cannot open
+  // system-scoped ciphertext. A preflight that aborts on one would contradict the shipped docs
+  // and leave the operator no way to rotate the rest of the scope.
+  it('skips a tenantless map, as the system-scoped backfill docs promise, instead of failing', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    find.mockImplementation(async (entity: any) => {
+      if (entity === EncryptionMap) {
+        return [
+          {
+            id: 'map-systemish',
+            entityId: 'audit_logs:other_log',
+            tenantId: null,
+            organizationId: null,
+            fieldsJson: [{ field: 'resource_id' }],
+            deletedAt: null,
+          },
+          {
+            id: 'map-1',
+            entityId: 'audit_logs:access_log',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            fieldsJson: [{ field: 'resource_id' }],
+            deletedAt: null,
+          },
+        ]
+      }
+      if (entity === Organization) return [{ id: 'org-1', tenantId: 'tenant-1' }]
+      return []
+    })
+    execute.mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }])
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('backfill-system-encryption'))
+    expect(execute).toHaveBeenCalled()
+    warnSpy.mockRestore()
   })
 })

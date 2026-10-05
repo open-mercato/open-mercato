@@ -226,6 +226,52 @@ describe('module command argument logging', () => {
     expect(rotateEncryptionKey).toHaveBeenCalledTimes(2)
     consoleLogSpy.mockRestore()
   })
+
+  // The echoed command line lands in terminal scrollback and CI logs, so every option that
+  // carries a credential has to be covered — not just the one the encryption work introduced.
+  it('redacts passwords and API keys passed to any module command', async () => {
+    const setup = jest.fn().mockResolvedValue(undefined)
+    const chat = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      { id: 'auth', cli: [{ command: 'setup', run: setup }] } as Module,
+      { id: 'ai_assistant', cli: [{ command: 'chat', run: chat }] } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run(['node', 'mercato', 'auth', 'setup', '--password', 'hunter2-secret'])).toBe(0)
+    expect(await run(['node', 'mercato', 'ai_assistant', 'chat', '--api-key', 'sk-live-secret'])).toBe(0)
+    expect(await run(['node', 'mercato', 'ai_assistant', 'chat', '--apiKey=sk-inline-secret'])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('hunter2-secret')
+    expect(output).not.toContain('sk-live-secret')
+    expect(output).not.toContain('sk-inline-secret')
+    expect(output).toContain('--password ****')
+    expect(output).toContain('--api-key ****')
+    expect(output).toContain('--apiKey=****')
+    consoleLogSpy.mockRestore()
+  })
+
+  // `--key` is key material in `seeds encrypt|decrypt|load` and a custom-field key in
+  // `entities add-field`, so the redaction has to be per-command rather than global.
+  it('redacts --key only for the commands where it carries key material', async () => {
+    const encrypt = jest.fn().mockResolvedValue(undefined)
+    const addField = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      { id: 'seeds', cli: [{ command: 'encrypt', run: encrypt }] } as Module,
+      { id: 'entities', cli: [{ command: 'add-field', run: addField }] } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run(['node', 'mercato', 'seeds', 'encrypt', '--key', 'base64-seed-key'])).toBe(0)
+    expect(await run(['node', 'mercato', 'entities', 'add-field', '--key', 'priority_level'])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('base64-seed-key')
+    expect(output).toContain('--key ****')
+    expect(output).toContain('--key priority_level')
+    consoleLogSpy.mockRestore()
+  })
 })
 
 describe('db command failure output', () => {

@@ -51,3 +51,7 @@ Harden fallback encryption logging and the entities key-rotation/decryption oper
 - [x] Post-review fix: compare persisted generator mtimes to avoid filesystem precision failures — 09cdeeed8
 - [x] Post-review cleanup: tighten metadata registry typing — 27e6952c5
 - [ ] 2.2 Run the configured validation gate and complete automated code review
+- [x] Base merge: resolved the two KMS conflicts in favour of develop's #6847, which landed the same fingerprint removal independently and is a strict superset
+- [x] Post-review fix: widen argv redaction to `--password` / `--api-key` and the seeds-only `--key`
+- [x] Post-review fix: stop the map preflight aborting on maps with nothing to process, aggregate the real failures with their row ids and remediation
+- [x] Post-review fix: keep `decrypt-database --check` diagnosing past an unreachable DEK, then exit non-zero as incomplete

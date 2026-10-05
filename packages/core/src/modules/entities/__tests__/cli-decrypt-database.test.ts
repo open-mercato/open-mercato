@@ -162,9 +162,54 @@ describe('entities decrypt-database CLI', () => {
 
     await expect(
       getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
-    ).rejects.toThrow('Cannot process encryption map audit_logs:access_log')
+    ).rejects.toThrow('audit_logs:access_log')
 
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  // The operator has to clean up every offending map before the command can run at all, so
+  // naming only the first one would turn that into an N-run guessing game. Each line also
+  // carries the row id, because the remediation is a statement against that row.
+  it('names every unresolvable map, with its row id, in one failure', async () => {
+    setupDefaultMapFind([
+      makeMap({ id: 'map-1' }),
+      makeMap({ id: 'map-2', entityId: 'audit_logs:other_log' }),
+    ])
+    getAllMetadata.mockReturnValue(new Map())
+
+    const error = await getCmd()
+      .run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+      .then(() => null, (e: Error) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('2 encryption map(s)')
+    expect(error!.message).toContain('audit_logs:access_log (encryption_maps.id=map-1)')
+    expect(error!.message).toContain('audit_logs:other_log (encryption_maps.id=map-2)')
+    expect(error!.message).toContain('No rows were changed')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  // `fields_json` is nullable, and a map that declares no encrypted fields cannot leave
+  // ciphertext behind — so it is a no-op to report, not a reason to refuse the whole run and
+  // strand the operator on the command that exists to get their data back.
+  it('skips a map that declares no encrypted fields instead of failing the run', async () => {
+    setupDefaultMapFind([
+      makeMap({ id: 'map-empty', entityId: 'audit_logs:other_log', fieldsJson: [] }),
+      makeMap({ id: 'map-1' }),
+    ])
+    setupScopesAndRows([{ id: 'row-1', resource_id: 'iv:cipher:tag:v1', email_hash: 'old-hash' }])
+    mockDecrypt.mockReturnValue('decrypted-value')
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+
+    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('declares no encrypted fields'))
+    // The resolvable map was still processed rather than taken down with it.
+    const updateCalls = execute.mock.calls.filter(([sql]) => String(sql).match(/^update/i))
+    expect(updateCalls.length).toBeGreaterThan(0)
+    warnSpy.mockRestore()
   })
 
   it('--check mode: prints env value, map count, and sampling estimate without writes', async () => {
@@ -208,6 +253,38 @@ describe('entities decrypt-database CLI', () => {
     await getCmd().run(['--tenant', 'tenant-1', '--check'])
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('malformed payloads (sampled): 1'))
     warnSpy.mockRestore()
+  })
+
+  // --check writes nothing, so an unreachable DEK is the diagnosis the operator is asking for.
+  // Aborting mid-inspection removes the diagnostic and buys no safety; finish the sweep, then
+  // make the incomplete run exit non-zero so automation cannot read it as a clean bill.
+  it('--check mode: finishes the sweep when a DEK is unavailable, then fails as incomplete', async () => {
+    setupDefaultMapFind()
+    const kmsModule = require('@open-mercato/shared/lib/encryption/kms')
+    ;(kmsModule.createKmsService as jest.Mock).mockReturnValueOnce({
+      isHealthy: () => true,
+      getTenantDek: jest.fn(async () => null),
+      createTenantDek: jest.fn(async () => null),
+    })
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const error = await getCmd()
+      .run(['--tenant', 'tenant-1', '--check'])
+      .then(() => null, (e: Error) => e)
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No DEK available for tenant tenant-1'))
+    // It reached the closing summary rather than throwing out of the loop.
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('estimated encrypted candidates')
+    expect(output).toContain('not a proof of absence')
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('could not be inspected')
+    expect(error!.message).toContain('audit_logs:access_log')
+    expect(execute).not.toHaveBeenCalledWith('BEGIN')
+    warnSpy.mockRestore()
+    logSpy.mockRestore()
   })
 
   it('--dry-run: scans rows but does not execute UPDATE', async () => {

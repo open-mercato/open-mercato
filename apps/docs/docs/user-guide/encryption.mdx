@@ -101,6 +101,7 @@ Notes:
 - For entity rotation, provide the previous key through `TENANT_DATA_ENCRYPTION_OLD_KEY`; do not put key material in command arguments. The legacy `--old-key` form remains accepted for compatibility but warns because shell history and process listings can expose it.
 - Rotation only updates fields that can be decrypted with the previous key; mismatched rows are left untouched and make the command fail so automation cannot mistake a partial rotation for success.
 - Always pass `--tenant` (and `--org` when possible) during rotation to avoid accidental cross-tenant use.
+- Both commands preflight every selected encryption map before touching a row, and refuse to start when a map declares encrypted fields that cannot be located — most often a map left behind by a module that is no longer enabled. The error names every offending map with its `encryption_maps.id`; resolve each one by re-enabling the module that owns the entity, or, once that entity's data is confirmed gone, by soft-deleting the row (`UPDATE encryption_maps SET deleted_at = now() WHERE id = '…'`). Maps that declare no encrypted fields, and tenantless (system-scoped) maps, are reported and skipped rather than treated as errors.
 - Rotation always re-encrypts with the current KMS/fallback key. Ensure the new key is already active (Vault configured or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` set) before running these commands.
 - These commands are tenant-scoped. They skip entities whose map is system-scoped (see the next section) and say so, because a tenant key cannot open system-scoped ciphertext.
 
@@ -158,6 +159,8 @@ After a successful run:
 The `--confirm <tenantUuid>` flag is a required safety gate — it must exactly match `--tenant` to prevent accidental cross-tenant runs. See the [decrypt-database CLI reference](../cli/entities-decrypt-database) for the full option list, error codes, and troubleshooting.
 
 Malformed ciphertext makes the command exit non-zero. When `--deactivate-maps` is present, the maps remain active until every selected field decrypts successfully; investigate the reported rows and re-run before disabling encryption.
+
+`--check` writes nothing, so it always completes its sweep: an entity whose tenant DEK is unreachable is reported and skipped rather than ending the inspection, and the command then exits non-zero to mark the check incomplete. Treat the printed counts as covering only the entities it could reach.
 
 ## Debugging
 

@@ -432,47 +432,90 @@ interface EncryptionMapMeta {
   tenantId: string
 }
 
-function resolveMapMeta(
+// A map is only safe to act on when every mapped field resolves to a real column. The
+// distinction that matters for the exit code is whether skipping it could leave ciphertext
+// behind: a map that declares no fields, or that this command does not own, cannot — while a map
+// whose fields exist on paper but cannot be located is a reason to refuse the run.
+type EncryptionMapResolution =
+  | { status: 'ready'; mapMeta: EncryptionMapMeta }
+  | { status: 'nothing-to-process'; reason: string }
+  | { status: 'unresolvable'; reason: string }
+
+function classifyEncryptionMap(
   map: EncryptionMap,
   metaByEntityId: Map<string, any>,
-  warn: (msg: string) => void = () => {},
-): EncryptionMapMeta | null {
+): EncryptionMapResolution {
   const entityId = String(map.entityId)
+  const fields = Array.isArray(map.fieldsJson) ? map.fieldsJson : []
+  if (!fields.length) {
+    return { status: 'nothing-to-process', reason: 'the map declares no encrypted fields' }
+  }
+  // The "not this command's business" checks come before the consistency checks: a tenantless map
+  // is out of scope whether or not its entity still resolves, so testing scope first keeps an
+  // out-of-scope row from being reported as a blocking inconsistency.
+  const tenantId = map.tenantId ? String(map.tenantId) : null
+  if (!tenantId) {
+    // Documented behaviour (apps/docs/docs/user-guide/encryption.mdx, "Backfilling system-scoped
+    // records"): these commands walk encryption_maps and skip every row without a tenant, because
+    // a tenant key cannot open ciphertext sealed under a system key. That is
+    // `backfill-system-encryption`'s job, not this command's.
+    return {
+      status: 'nothing-to-process',
+      reason: 'the map has no tenant_id — use "mercato entities backfill-system-encryption" for system-scoped records',
+    }
+  }
   const meta = metaByEntityId.get(entityId)
   if (!meta) {
-    warn(`Skipping ${entityId}: metadata not found.`)
-    return null
+    return {
+      status: 'unresolvable',
+      reason: 'entity metadata is not registered in this app — is the module that owns it still enabled?',
+    }
   }
-  const fields = Array.isArray(map.fieldsJson) ? map.fieldsJson : []
-  if (!fields.length) return null
-  const tenantId = map.tenantId ? String(map.tenantId) : null
-  if (!tenantId) return null
-  return { entityId, meta, fields, tenantId }
+  if (!meta.tableName) {
+    return { status: 'unresolvable', reason: 'table metadata is missing' }
+  }
+  for (const rule of fields) {
+    if (!resolveProperty(meta, rule.field).columnName) {
+      return { status: 'unresolvable', reason: `mapped field "${rule.field}" was not found` }
+    }
+    if (rule.hashField && !resolveProperty(meta, rule.hashField).columnName) {
+      return { status: 'unresolvable', reason: `hash field "${rule.hashField}" was not found` }
+    }
+  }
+  return { status: 'ready', mapMeta: { entityId, meta, fields, tenantId } }
 }
 
-function requireMapMeta(
-  map: EncryptionMap,
+function resolveMapsOrFail(
+  maps: EncryptionMap[],
   metaByEntityId: ReturnType<typeof buildEntityMetaRegistry>,
-): EncryptionMapMeta {
-  const mapMeta = resolveMapMeta(map, metaByEntityId)
-  const entityId = String(map.entityId)
-  if (!mapMeta) {
-    return failCli(
-      `Cannot process encryption map ${entityId}: entity metadata, tenant scope, or mapped fields are missing. No rows were changed.`,
+): Array<{ map: EncryptionMap; mapMeta: EncryptionMapMeta }> {
+  const resolved: Array<{ map: EncryptionMap; mapMeta: EncryptionMapMeta }> = []
+  const unresolvable: string[] = []
+  for (const map of maps) {
+    const resolution = classifyEncryptionMap(map, metaByEntityId)
+    if (resolution.status === 'ready') {
+      resolved.push({ map, mapMeta: resolution.mapMeta })
+      continue
+    }
+    if (resolution.status === 'nothing-to-process') {
+      console.warn(`Skipping ${String(map.entityId)}: ${resolution.reason}.`)
+      continue
+    }
+    unresolvable.push(`  ${String(map.entityId)} (encryption_maps.id=${String(map.id)}): ${resolution.reason}`)
+  }
+  // Report every offending map at once: the operator has to clean up all of them before the
+  // command can run, and failing on the first one would make that an N-run guessing game.
+  if (unresolvable.length) {
+    failCli(
+      `${unresolvable.length} encryption map(s) in the selected scope cannot be processed, so this command would have `
+        + 'left their ciphertext untouched while reporting success. No rows were changed.\n'
+        + unresolvable.join('\n')
+        + '\nResolve each one before re-running: re-enable the module that owns the entity, or — once the entity\'s data '
+        + 'is confirmed gone — soft-delete the stale map row '
+        + '(UPDATE encryption_maps SET deleted_at = now() WHERE id = \'…\').',
     )
   }
-  if (!mapMeta.meta?.tableName) {
-    return failCli(`Cannot process encryption map ${entityId}: table metadata is missing. No rows were changed.`)
-  }
-  for (const rule of mapMeta.fields) {
-    if (!resolveProperty(mapMeta.meta, rule.field).columnName) {
-      return failCli(`Cannot process encryption map ${entityId}: mapped field "${rule.field}" was not found. No rows were changed.`)
-    }
-    if (rule.hashField && !resolveProperty(mapMeta.meta, rule.hashField).columnName) {
-      return failCli(`Cannot process encryption map ${entityId}: hash field "${rule.hashField}" was not found. No rows were changed.`)
-    }
-  }
-  return mapMeta
+  return resolved
 }
 
 function formatValueForColumn(prop: any, value: unknown): unknown {
@@ -559,10 +602,7 @@ const rotateEncryptionKey: ModuleCli = {
       console.log('No encryption maps found for the selected scope.')
       return
     }
-    const resolvedMaps = maps.map((map: EncryptionMap) => ({
-      map,
-      mapMeta: requireMapMeta(map, metaByEntityId),
-    }))
+    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
 
     const resolveScopes = async (tenantId: string, organizationId: string | null) => {
       if (organizationId) return [{ tenantId, organizationId }]
@@ -854,10 +894,7 @@ const decryptDatabase: ModuleCli = {
       console.log('No active encryption maps found for the selected scope.')
       return
     }
-    const resolvedMaps = maps.map((map: EncryptionMap) => ({
-      map,
-      mapMeta: requireMapMeta(map, metaByEntityId),
-    }))
+    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
 
     const kms = createKmsService()
     const dekCache = new Map<string, TenantDek | null>()
@@ -874,10 +911,18 @@ const decryptDatabase: ModuleCli = {
       console.log(`Active EncryptionMap records for scope: ${maps.length}`)
       let encryptedCandidatesSampled = 0
       let malformedPayloadCountSampled = 0
+      // --check writes nothing, so an unreachable DEK is the diagnosis the operator came for,
+      // not a reason to abort mid-inspection. Report every uninspectable entity, inspect the
+      // rest, and let the closing gate below make the incomplete run exit non-zero.
+      const uninspectableEntityIds: string[] = []
       for (const { map, mapMeta } of resolvedMaps) {
         const { entityId, meta, fields, tenantId } = mapMeta
         const dek = await getDek(tenantId).catch(() => null)
-        if (!dek) failCli(`No DEK available for tenant ${tenantId}; cannot inspect ${entityId}.`)
+        if (!dek) {
+          console.warn(`⚠ No DEK available for tenant ${tenantId}; cannot inspect ${entityId}.`)
+          uninspectableEntityIds.push(entityId)
+          continue
+        }
         const scopes = await resolveDecryptScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
         const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
         const tableName = meta.tableName
@@ -921,6 +966,13 @@ const decryptDatabase: ModuleCli = {
         console.log(`malformed payloads (sampled): ${malformedPayloadCountSampled}`)
       }
       console.log('not a proof of absence — run full command + rerun --check to confirm')
+      if (uninspectableEntityIds.length) {
+        failCli(
+          `${uninspectableEntityIds.length} entity/entities could not be inspected because no DEK was available `
+            + `(${uninspectableEntityIds.join(', ')}). The counts above cover only the rest, so treat this check as `
+            + 'incomplete.',
+        )
+      }
       return
     }
 
