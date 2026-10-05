@@ -1,9 +1,15 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
 import { Calendar, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  ComponentReplacementHandles,
+  registerComponent,
+} from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -48,6 +54,12 @@ import { ScheduleSection } from './editor/ScheduleSection'
 import { LocationField } from './editor/LocationField'
 import { useConflictProbe, useEditorLabelResolution } from './editor/hooks'
 
+/**
+ * @public @stable — BACKWARD_COMPATIBILITY.md public contract surface (types).
+ * This is the props contract a downstream replacement registered against
+ * `CALENDAR_EVENT_EDITOR_HANDLE` must satisfy, versioned as
+ * `customers.calendar_event_editor.props.v1` in `extension-points.ts`.
+ */
 export interface CalendarEventEditorProps {
   open: boolean
   mode: 'create' | 'edit'
@@ -346,7 +358,7 @@ function EditorBody({
   )
 }
 
-export function CalendarEventEditor({
+function DefaultCalendarEventEditor({
   open,
   mode,
   item,
@@ -563,4 +575,49 @@ export function CalendarEventEditor({
       </DialogContent>
     </Dialog>
   )
+}
+
+export const CALENDAR_EVENT_EDITOR_HANDLE = ComponentReplacementHandles.section(
+  'customers',
+  'calendar-event-editor',
+)
+
+const callbackProp = <TCallback,>() =>
+  z.custom<TCallback>((value) => typeof value === 'function', {
+    message: '[internal] expected a function prop',
+  })
+const opaqueProp = <TValue,>() => z.custom<TValue>(() => true)
+
+const calendarEventEditorPropsSchema: z.ZodType<CalendarEventEditorProps> = z.object({
+  open: z.boolean(),
+  mode: z.enum(['create', 'edit']),
+  item: opaqueProp<CalendarItem | null | undefined>().optional(),
+  defaultDate: opaqueProp<Date | undefined>().optional(),
+  defaultRange: opaqueProp<{ start: Date; end: Date } | null | undefined>().optional(),
+  typeLabels: opaqueProp<Record<string, string>>(),
+  typeIcons: opaqueProp<Record<string, string | null> | undefined>().optional(),
+  conflictScope: opaqueProp<ConflictScope | undefined>().optional(),
+  currentUserId: z.string().nullable().optional(),
+  resourcesEnabled: z.boolean().optional(),
+  staffEnabled: z.boolean().optional(),
+  onOpenChange: callbackProp<(open: boolean) => void>(),
+  onSaved: callbackProp<() => void>(),
+})
+
+registerComponent<CalendarEventEditorProps>({
+  id: CALENDAR_EVENT_EDITOR_HANDLE,
+  component: DefaultCalendarEventEditor,
+  metadata: {
+    module: 'customers',
+    description: 'Create/edit dialog for a calendar event (customer interaction).',
+    propsSchema: calendarEventEditorPropsSchema,
+  },
+})
+
+export function CalendarEventEditor(props: CalendarEventEditorProps) {
+  const Resolved = useRegisteredComponent<CalendarEventEditorProps>(
+    CALENDAR_EVENT_EDITOR_HANDLE,
+    DefaultCalendarEventEditor,
+  )
+  return <Resolved {...props} />
 }

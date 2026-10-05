@@ -1,4 +1,5 @@
 import {
+  componentExtensionHost,
   crudFormExtensionHost,
   dataTableExtensionHost,
   defineModuleExtensionPoints,
@@ -34,6 +35,11 @@ export const extensionPoints = defineModuleExtensionPoints({
     personStatusBadges: detailHost('detail:customers.person:status-badges', 'backend/customers/people-v2/[id]/page.tsx'),
     personFooter: detailHost('detail:customers.person:footer', 'backend/customers/people-v2/[id]/page.tsx'),
     personLegacyDetails: detailHost('customers.person.detail:details', 'backend/customers/people/[id]/page.tsx'),
+    calendarEventEditorComponent: componentExtensionHost({
+      componentId: 'section:customers.calendar-event-editor',
+      propsContract: 'customers.calendar_event_editor.props.v1',
+      source: 'components/calendar/CalendarEventEditor.tsx',
+    }),
   },
 })
 

@@ -136,3 +136,21 @@ This module is the reference implementation for the AI framework. Copy `ai-agent
 
 `<AiChat agent="customers.deal_analyzer" />` is injected on the Deals list page:
 - Deals list: `data-table:customers.deals.list:search-trailing` via the `ai-deal-analyzer-trigger` widget. Selected deal IDs are passed as `pageContext.recordId` (comma-separated UUIDs) so the agent can scope its `customers.analyze_deals` call to the operator's current selection.
+
+## Public Contract Surfaces
+
+### Replaceable components (BC surface #2 types + component handle — STABLE)
+
+| Handle | Component | Props contract |
+|--------|-----------|----------------|
+| `section:customers.calendar-event-editor` (`CALENDAR_EVENT_EDITOR_HANDLE`) | `components/calendar/CalendarEventEditor.tsx` | `customers.calendar_event_editor.props.v1` |
+
+The calendar event editor (create/edit dialog) registers itself through `registerComponent` and resolves itself through `useRegisteredComponent`, so a downstream module can `replace`/`wrapper`/`props`-transform it via `widgets/components.ts` without forking `CalendarScreen`. The handle is declared in `extension-points.ts` as `calendarEventEditorComponent` with `propsContract: 'customers.calendar_event_editor.props.v1'`.
+
+These three exported types are the editor's replacement contract and MUST follow the `BACKWARD_COMPATIBILITY.md` deprecation protocol (ADDITIVE-ONLY; a breaking change ships as a new `.v2` props contract alongside `.v1`):
+
+- `CalendarEventEditorProps` — `components/calendar/CalendarEventEditor.tsx`
+- `CalendarItem` — `components/calendar/types.ts`
+- `ConflictScope` — `lib/calendar/preferences.ts`
+
+A replacement reuses the editor's field/payload logic through the stable helpers in `lib/calendar/editorPayload.ts` (`buildInteractionPayload`, `parseItemToFormState`, `createDefaultFormState`, `KIND_CONFIG`) rather than reimplementing them.

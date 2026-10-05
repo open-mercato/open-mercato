@@ -3,6 +3,12 @@
 //   overlapping events — i.e. the current user is personally double-booked.
 // - 'all': any two visible org events that share an actor, even when the current
 //   user is in neither (team-wide scheduling awareness).
+/**
+ * @public @stable — BACKWARD_COMPATIBILITY.md public contract surface (types).
+ * Part of the `CalendarEventEditorProps` replacement contract (`conflictScope`).
+ * Changes are ADDITIVE-ONLY; a new scope value may be added, but existing values
+ * must not be renamed/removed outside the deprecation protocol.
+ */
 export type ConflictScope = 'mine' | 'all'
 
 export const CONFLICT_SCOPES: ConflictScope[] = ['mine', 'all']

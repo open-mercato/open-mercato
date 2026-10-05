@@ -51,6 +51,14 @@ export type CalendarInteractionPayload = z.infer<typeof calendarInteractionPaylo
 
 export type CalendarParticipant = { userId?: string; name?: string; email?: string; status?: string }
 
+/**
+ * A normalized calendar entry (an expanded interaction/occurrence).
+ *
+ * @public @stable — BACKWARD_COMPATIBILITY.md public contract surface (types).
+ * Part of the `CalendarEventEditorProps` replacement contract (`item`): a
+ * downstream replacement reads this shape for edit-mode prefill. Changes are
+ * ADDITIVE-ONLY; renaming/removing a field follows the deprecation protocol.
+ */
 export interface CalendarItem {
   id: string
   title: string
