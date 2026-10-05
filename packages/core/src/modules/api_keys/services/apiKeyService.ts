@@ -140,7 +140,7 @@ export async function createApiKey(
 ): Promise<ApiKeyWithSecret> {
   const { secret, prefix } = generateApiKeySecret()
   const keyHash = await hashApiKey(secret)
-  const roleIds = Array.from(new Set((input.roles ?? []).filter(Boolean))).sort()
+  const roleIds = Array.from(new Set((input.roles ?? []).filter(Boolean))).sort((left, right) => left.localeCompare(right))
   let record!: ApiKey
   await withAtomicFlush(em, [async () => {
     await lockRoleWriterAuthorizationState(em, roleIds)
@@ -244,7 +244,7 @@ export async function createSessionApiKey(
   // Encrypt the secret for later retrieval (used by MCP server for API calls)
   const encryptedSecret = await encryptSessionSecret(secret, input.tenantId ?? null)
 
-  const roleIds = Array.from(new Set(input.userRoles.filter(Boolean))).sort()
+  const roleIds = Array.from(new Set(input.userRoles.filter(Boolean))).sort((left, right) => left.localeCompare(right))
   let record!: ApiKey
   await withAtomicFlush(em, [async () => {
     await lockRoleWriterAuthorizationState(em, roleIds)

@@ -11,7 +11,7 @@ import {
 } from '@open-mercato/shared/lib/commands/transaction-lifetime'
 
 function uniqueSortedIds(values: readonly string[]): string[] {
-  return Array.from(new Set(values.filter((value) => value.length > 0))).sort()
+  return Array.from(new Set(values.filter((value) => value.length > 0))).sort((left, right) => left.localeCompare(right))
 }
 
 function relationId(value: unknown): string | null {

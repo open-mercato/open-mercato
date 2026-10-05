@@ -17,6 +17,7 @@ import {
   type CallOpenMercatoResult,
   type EmitEventResult,
 } from '../action-executor'
+import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
 
 describe('Action Executor', () => {
   // Type-safe result extractors
@@ -499,9 +500,11 @@ describe('Action Executor', () => {
           expiresAt: null,
           deletedAt: null,
         }
-        const em = {
-          findOne: jest.fn(async (Entity: any) => {
-            if (Entity?.name === 'ApiKey') return apiKeyProfile
+        const em = createTransactionalEntityManagerDouble({
+          findOne: jest.fn(async (Entity: any, query: any) => {
+            if (Entity?.name === 'ApiKey') {
+              return createdApiKeys.find((record) => record.id === query.id) ?? apiKeyProfile
+            }
             return null
           }),
           create: jest.fn((Entity: any, data: any) => {
@@ -511,7 +514,8 @@ describe('Action Executor', () => {
           }),
           persist: jest.fn(function persist(this: any) { return this }),
           flush: jest.fn(async () => undefined),
-        }
+          find: jest.fn(async () => []),
+        })
 
         return {
           context: {

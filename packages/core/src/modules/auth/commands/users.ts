@@ -1545,14 +1545,14 @@ async function stabilizeUserReplay(
     : null
   const currentTargetTenantId = normalizeTenantId(currentTarget?.tenantId) ?? null
   const relevantTenantIds = existingProtectedRoleIdsByTenant
-    ? Array.from(existingProtectedRoleIdsByTenant.keys()).sort()
+    ? Array.from(existingProtectedRoleIdsByTenant.keys()).sort((left, right) => left.localeCompare(right))
     : Array.from(new Set([
         normalizeTenantId(params.ctx.auth?.tenantId) ?? null,
         normalizeTenantId(before?.tenantId) ?? null,
         normalizeTenantId(after?.tenantId) ?? null,
         normalizeTenantId(params.logEntry.tenantId) ?? null,
         currentTargetTenantId,
-      ].filter((tenantId): tenantId is string => tenantId !== null))).sort()
+      ].filter((tenantId): tenantId is string => tenantId !== null))).sort((left, right) => left.localeCompare(right))
   const protectedRoleIdsByTenant = new Map(existingProtectedRoleIdsByTenant ?? [])
   if (!existingProtectedRoleIdsByTenant) {
     for (const tenantId of relevantTenantIds) {
