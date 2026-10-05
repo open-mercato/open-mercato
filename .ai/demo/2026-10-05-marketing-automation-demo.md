@@ -1,11 +1,12 @@
 # Marketing automation — scenariusz demo (nagranie ekranu)
 
-**Czas:** około 22 minuty. Sam przegląd wyników i profilu klienta to 9 minut — jeśli masz 10, zrób ekrany 1–5 i zakończ.
+**Czas:** około 24 minuty. Sam przegląd wyników i profilu klienta to 9 minut — jeśli masz 10, zrób ekrany 1–5 i zakończ.
 
 **Instalacja:** Acme Corp, `http://localhost:3000`, interfejs po angielsku. Nazwy ekranów i przycisków czytaj po angielsku, tak jak są na ekranie.
 
 ## Kolejność ekranów
 
+0. **Po co to jest** — bez ekranu, do kamery (2 min)
 1. Dashboard — kafel **Marketing this week** (opcjonalnie, 30 s)
 2. **Campaigns** — lista kampanii (1 min)
 3. **Results** kampanii „Welcome new customers" (4 min)
@@ -27,6 +28,31 @@
 ## Trzy zdania na otwarcie
 
 > To moduł marketing automation wbudowany w Open Mercato — kampanie, które reagują na to, co klient naprawdę zrobił w sklepie, bez eksportu danych do zewnętrznego narzędzia. Zobaczycie działającą kampanię powitalną, jej wyniki, profil jednego klienta z pełną historią, a potem edytor, w którym to wszystko się składa. Zwróćcie uwagę nie na listę funkcji, a na to, czego ten moduł **nie** pokazuje — bo prawie każda taka decyzja wynika z tego, że pokazanie tego byłoby kłamstwem.
+
+---
+
+## 0. Po co to jest — zanim cokolwiek klikniesz (2 min)
+
+**Nic nie pokazuj. Mów do kamery albo do slajdu tytułowego.**
+
+**Co powiedzieć:**
+
+> Open Mercato ma już wszystko, co wie o kliencie: zamówienia, pozycje, kategorie, kanały sprzedaży, oferty, tagi, zgody. Czego nie miało, to czegokolwiek, co z tą wiedzą **coś robi** — samo, w czasie, bez człowieka klikającego eksport.
+>
+> Tym zajmuje się ten moduł. Kampania to trzy rzeczy: co ją uruchamia, do kogo się stosuje i co się wtedy dzieje. Uruchamia ją zdarzenie, które naprawdę zaszło w sklepie — ktoś się zarejestrował, zamówienie zostało dostarczone, cena obserwowanego produktu spadła — albo cykliczny przegląd bazy, na przykład „klienci, którzy kupowali, ale od trzech miesięcy nie".
+>
+> Teraz najważniejsze zdanie całej prezentacji: **to nie jest integracja z narzędziem marketingowym, to jest to narzędzie w środku sklepu.** I z tego wynika wszystko, co zobaczycie dalej.
+
+**Czym to się różni od wpięcia Klaviyo czy Mailchimpa — cztery konkrety:**
+
+1. **Audytorium to zapytanie do żywych danych, nie do eksportu.** „Kupił przynajmniej raz i nic nie zamówił od 90 dni" liczy się na prawdziwych zamówieniach w momencie wysyłki. W zewnętrznym narzędziu to jest kopia sprzed synchronizacji — i stąd biorą się maile „wróć do nas" do kogoś, kto kupił wczoraj.
+2. **Jedna baza klientów, nie dwie.** Nie ma rozjazdu, nie ma duplikatów, nie ma pytania, która strona ma rację.
+3. **Zgoda mieszka przy kliencie.** Wypis działa natychmiast i we wszystkich kampaniach naraz, a nie po następnej synchronizacji. Usunięcie danych na żądanie RODO faktycznie usuwa, bo nie ma drugiej kopii u kogoś innego.
+4. **Przychód domyka pętlę bez zgadywania.** Zamówienia są w tym samym systemie, więc „ta kampania zarobiła tyle" to złączenie dwóch tabel, a nie doklejanie parametrów do linków i wiara w ciasteczka.
+
+**Czego to NIE jest:** to nie jest moduł włączony dla wszystkich i nie udaje, że zastąpi zespół. Jest opcjonalny, a bez modułu sprzedaży albo katalogu nadal działa — tyle że uczciwie mówi, czego wtedy nie policzy.
+
+**Puenta:** sklep, który już wie o kliencie wszystko, przestaje to oddawać na zewnątrz po to, żeby móc do niego napisać.
 
 ---
 

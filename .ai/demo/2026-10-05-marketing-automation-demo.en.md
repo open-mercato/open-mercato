@@ -1,11 +1,12 @@
 # Marketing automation — demo script (screen recording)
 
-**Length:** about 22 minutes. The results screen and the customer profile alone are 9 minutes — if you only have 10, do screens 1–5 and stop there.
+**Length:** about 24 minutes. The results screen and the customer profile alone are 9 minutes — if you only have 10, do screens 1–5 and stop there.
 
 **Installation:** Acme Corp, `http://localhost:3000`, interface in English.
 
 ## Screen order
 
+0. **Why this exists** — no screen, to camera (2 min)
 1. Dashboard — the **Marketing this week** tile (optional, 30 s)
 2. **Campaigns** — the campaign list (1 min)
 3. **Results** for "Welcome new customers" (4 min)
@@ -27,6 +28,31 @@
 ## Three sentences to open with
 
 > This is marketing automation built into Open Mercato — campaigns that react to what a customer actually did in the shop, with no export to a separate tool. You'll see a live welcome campaign and its results, one customer's full history, and then the editor where all of it is put together. Watch less for the feature list and more for what this module refuses to show you — because almost every one of those refusals is there because showing it would be a lie.
+
+---
+
+## 0. Why this exists — before you click anything (2 min)
+
+**Show nothing. Talk to the camera, or to a title slide.**
+
+**What to say:**
+
+> Open Mercato already holds everything it knows about a customer: orders, line items, categories, sales channels, quotes, tags, consent. What it did not have was anything that **acts** on that knowledge — on its own, over time, without somebody clicking export.
+>
+> That is what this module does. A campaign is three things: what starts it, who it applies to, and what then happens. It is started by something that actually happened in the shop — somebody registered, an order was delivered, a watched product got cheaper — or by a scheduled sweep of the customer base, like "people who have bought before and not for three months".
+>
+> Here is the sentence the whole demo rests on: **this is not an integration with a marketing tool, it is that tool living inside the shop.** Everything you are about to see follows from it.
+
+**How that differs from wiring up Klaviyo or Mailchimp — four concrete things:**
+
+1. **The audience is a query against live data, not against an export.** "Bought at least once and nothing for 90 days" is evaluated against the real orders at the moment of sending. In an external tool it is a copy from the last sync — which is where "we miss you" emails to somebody who bought yesterday come from.
+2. **One customer database, not two.** Nothing to reconcile, no duplicates, no argument about which side is right.
+3. **Consent lives with the customer.** An unsubscribe takes effect immediately and across every campaign at once, not after the next sync. A GDPR erasure actually erases, because there is no second copy somewhere else.
+4. **Revenue closes the loop without guessing.** The orders are in the same system, so "this campaign earned that much" is a join across two tables rather than query parameters on links and faith in cookies.
+
+**What it is NOT:** it is not switched on for everyone, and it does not pretend to replace a team. It is opt-in, and it still runs without the sales or catalog modules — it simply tells you, honestly, what it cannot measure without them.
+
+**The point:** a shop that already knows everything about a customer stops handing that knowledge to somebody else just to be able to write to them.
 
 ---
 
