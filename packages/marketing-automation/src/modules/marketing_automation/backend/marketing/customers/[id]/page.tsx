@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { KpiCard } from '@open-mercato/ui/backend/charts'
+import { HelpTip } from '@open-mercato/ui/backend/HelpTip'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
@@ -14,20 +15,15 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useMarketingMutation } from '../../../../components/useMarketingMutation'
+import { TierMedal } from '../../../../components/TierMedal'
+import { RecordRow } from '../../../../components/RecordRow'
+import { CustomerTimeline } from '../../../../components/CustomerTimeline'
+import { RUN_STATUS_VARIANTS } from '../../../../components/runStatus'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { readApiErrorField } from '../../../../components/apiError'
 
-/** The run statuses this module produces, mapped to the design system's own status vocabulary. */
-const RUN_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
-  completed: 'success',
-  running: 'info',
-  claimed: 'info',
-  waiting: 'neutral',
-  failed: 'warning',
-  dead: 'error',
-}
 
 type Explanation = {
   campaign?: { id: string; name: string; isEnabled: boolean }
@@ -120,6 +116,18 @@ type Profile = {
  */
 export default function CustomerProfilePage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
+  /**
+   * Rounded, because these are averages and rates rather than stored amounts.
+   *
+   * An average order value is a division, so it arrives as `443.3333333333333` and was printed that way —
+   * thirteen decimal places of a number that is accurate to the penny at best. Two places is what money has;
+   * the same formatter rounds the orders-a-year rate, which is a division for the same reason.
+   */
+  const formatRounded = React.useCallback(
+    (amount: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(amount),
+    [locale],
+  )
   const runMutation = useMarketingMutation('customers')
   const customerId = typeof params?.id === 'string' ? params.id : ''
 
@@ -378,34 +386,46 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
     <Page>
       <PageBody>
         {ConfirmDialogElement}
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div className="text-lg font-semibold text-foreground">
-            {profile.customer.displayName ?? t('marketing_automation.profile.unnamed', 'Unnamed customer')}
-            <div className="text-sm font-normal text-muted-foreground">{profile.customer.email ?? '—'}</div>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => void recalculateScore()}>
-              {t('marketing_automation.profile.rescore', 'Recalculate score')}
-            </Button>
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => void exportData()}>
-              {t('marketing_automation.gdpr.export', 'Export data')}
-            </Button>
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => void eraseData()}>
-              {t('marketing_automation.gdpr.erase', 'Erase data')}
-            </Button>
-          </div>
+        {/* A SectionHeader rather than `FormHeader mode="detail"`: that one is built for a record somebody
+            edits and deletes, and this page is read-only by design — every number on it is derived from
+            somewhere else. The actions here act on the customer, not on this view. */}
+        <div className="mb-4">
+          <SectionHeader
+            title={profile.customer.displayName ?? t('marketing_automation.profile.unnamed', 'Unnamed customer')}
+            action={(
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" disabled={busy} onClick={() => void recalculateScore()}>
+                  {t('marketing_automation.profile.rescore', 'Recalculate score')}
+                </Button>
+                <Button variant="outline" disabled={busy} onClick={() => void exportData()}>
+                  {t('marketing_automation.gdpr.export', 'Export data')}
+                </Button>
+                <Button variant="outline" disabled={busy} onClick={() => void eraseData()}>
+                  {t('marketing_automation.gdpr.erase', 'Erase data')}
+                </Button>
+              </div>
+            )}
+          />
+          <div className="text-sm text-muted-foreground">{profile.customer.email ?? '—'}</div>
         </div>
 
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
             title={t('marketing_automation.profile.kpi.score', 'Lead score')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.score', 'Lead score')}
+                body={t('marketing_automation.help.profile.kpi.score', 'The sum of every entry in this person\u2019s score ledger, never a stored number \u2014 that is what stops a step delivered twice from awarding twice. The tier underneath is derived from the score, so it cannot be stale.')}
+              />
+            )}
             value={profile.score.points}
             footer={
-              <span>
+              <span className="inline-flex items-center gap-1">
+                <TierMedal rank={profile.score.tierRank} />
                 {tierLabel}
                 {profile.score.pointsToNext !== null ? (
                   <>
-                    {' · '}
+                    {' — '}
                     {t('marketing_automation.profile.pointsToNext', '{count} to the next tier')
                       .replace('{count}', String(profile.score.pointsToNext))}
                   </>
@@ -424,6 +444,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             <>
               <KpiCard
                 title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+                body={t('marketing_automation.help.profile.kpi.orders', 'How many orders they have placed and how long since the last one, read from the sales module. On an installation without it this tile has nothing to report.')}
+              />
+            )}
                 value={profile.orders.count}
                 footer={
                   <span>
@@ -436,6 +462,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
               />
               <KpiCard
                 title={t('marketing_automation.profile.kpi.spend', 'Lifetime spend')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.spend', 'Lifetime spend')}
+                body={t('marketing_automation.help.profile.kpi.spend', 'Everything they have spent, with where that puts them among this shop\u2019s OWN buyers rather than against a fixed threshold. The per-order figure is an average, so it is rounded.')}
+              />
+            )}
                 value={profile.orders.totalGross}
                 footer={
                   <span>
@@ -443,10 +475,10 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                       ? (profile.orders.averageGross === null
                           ? null
                           : t('marketing_automation.profile.averageOrder', '{amount} per order')
-                              .replace('{amount}', String(profile.orders.averageGross)))
+                              .replace('{amount}', formatRounded(profile.orders.averageGross)))
                       : t('marketing_automation.profile.spendPercentile', 'Top {share}% of buyers · {amount} per order')
                           .replace('{share}', String(100 - profile.value.grossPercentile))
-                          .replace('{amount}', String(profile.value.averageOrderGross))}
+                          .replace('{amount}', formatRounded(profile.value.averageOrderGross))}
                   </span>
                 }
               />
@@ -454,6 +486,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           ) : (
             <KpiCard
               title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.orders', 'Orders')}
+                body={t('marketing_automation.help.profile.kpi.orders', 'How many orders they have placed and how long since the last one, read from the sales module. On an installation without it this tile has nothing to report.')}
+              />
+            )}
               value={null}
               footer={<span>{t('marketing_automation.profile.noSalesModule', 'No sales module installed')}</span>}
             />
@@ -466,6 +504,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           {/* What they buy, in the same vocabulary an audience uses — so the screen teaches the field name. */}
           <KpiCard
             title={t('marketing_automation.profile.kpi.categories', 'Buys from')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.categories', 'Buys from')}
+                body={t('marketing_automation.help.profile.kpi.categories', 'The product categories they have bought from. A category is read from the catalogue rather than from the order, because it is a current classification while a sku is a historical fact.')}
+              />
+            )}
             // Null, not zero, without the modules: `KpiCard` renders an absent value as absent, and "we cannot
             // see what they buy" is not the same claim as "they buy from nothing".
             value={profile.orders ? profile.orders.categories.length : null}
@@ -481,6 +525,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           />
           <KpiCard
             title={t('marketing_automation.profile.kpi.rfm', 'RFM')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.rfm', 'RFM')}
+                body={t('marketing_automation.help.profile.kpi.rfm', 'Recency, frequency and spend, each scored 1\u20135 against this shop\u2019s own buyers rather than fixed day counts: \u201cbought in the last 30 days\u201d is excellent for coffee and meaningless for mattresses.\n\nBelow a minimum number of buyers nothing is scored, and somebody who has never bought scores nothing rather than 1-1-1 \u2014 which would read as the worst customer in the shop.')}
+              />
+            )}
             /* The sortable number is the total out of 15; the three digits an operator actually reads are
                spelled out underneath, because a card cannot show both as its headline. */
             value={profile.rfm ? profile.rfm.total : null}
@@ -505,18 +555,30 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           */}
           <KpiCard
             title={t('marketing_automation.profile.kpi.projectedValue', 'Projected value')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.projectedValue', 'Projected value')}
+                body={t('marketing_automation.help.profile.kpi.projectedValue', 'A projection from the pace this customer actually buys at. It needs a second order first: one purchase is not a rate, and projecting from it ranks a one-off big spender above somebody who buys every month.\n\nThe pace is measured from their first order to now, so two orders in one week followed by two years of silence do not read as a hundred a year for ever.')}
+              />
+            )}
             value={profile.value?.projectedHorizonGross ?? null}
             footer={
               <span>
                 {profile.value?.ordersPerYear === undefined
                   ? t('marketing_automation.profile.noProjection', 'Needs a second order before a rate can be read')
                   : t('marketing_automation.profile.projectionBasis', '{rate} orders a year at this pace')
-                      .replace('{rate}', String(profile.value.ordersPerYear))}
+                      .replace('{rate}', formatRounded(profile.value.ordersPerYear))}
               </span>
             }
           />
           <KpiCard
             title={t('marketing_automation.profile.kpi.nps', 'Latest NPS')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.nps', 'Latest NPS')}
+                body={t('marketing_automation.help.profile.kpi.nps', 'The last score they gave, 0 to 10, with the band it falls in. A missing answer is never stored as 0 \u2014 0 is a valid score and the worst one.')}
+              />
+            )}
             value={profile.nps ? profile.nps.score : null}
             footer={
               <span>
@@ -528,6 +590,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           />
           <KpiCard
             title={t('marketing_automation.profile.kpi.messages', 'Messages sent')}
+            headerAction={(
+              <HelpTip
+                title={t('marketing_automation.profile.kpi.messages', 'Messages sent')}
+                body={t('marketing_automation.help.profile.kpi.messages', 'What we sent them and what they did with it. Opens and clicks are counted in distinct runs, not in events, so one person opening the same message four times is one.\n\n\u201cQuiet for N days\u201d runs from their last open or click \u2014 or, for somebody who has never opened anything, from the first message we sent.')}
+              />
+            )}
             value={profile.messages.sent}
             footer={
               <span>
@@ -544,8 +612,21 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           />
         </div>
 
-        <div className="mb-6">
-          <SectionHeader title={t('marketing_automation.explain.title', 'Why did they not get a campaign?')} />
+        {/*
+          Every panel below is one aspect of this person, and they were a flat stack of full-width
+          rows: a label on the far left, its value on the far right, and a thousand pixels of nothing
+          between them on a wide screen. Cards give each panel an edge, and two columns halve the
+          distance along a row.
+        */}
+        <div className="mb-6 grid items-start gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border bg-card p-4 lg:col-span-2">
+          <SectionHeader
+              title={t('marketing_automation.explain.title', 'Why did they not get a campaign?')}
+              help={{
+                title: t('marketing_automation.explain.title', 'Why did they not get a campaign?'),
+                body: t('marketing_automation.help.profile.explain'),
+              }}
+            />
           <div className="text-xs text-muted-foreground">
             {t(
               'marketing_automation.explain.hint',
@@ -577,11 +658,21 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           </div>
           {explanation ? (
             <div className="mt-2 space-y-1 rounded-sm border border-border p-2">
+              {/*
+                * The switched-off campaign gets a sentence of its own, because it is not a gate.
+                *
+                * Every other decider is a row in the table below and so its label is a noun phrase — "Quiet
+                * hours", "Consent" — which reads as written in "{gate} decided." `campaignDisabled` is added by
+                * the route rather than the engine and is a clause, so the shared sentence produced "The campaign
+                * is switched off decided."
+                */}
               <div className="text-sm font-medium text-foreground">
                 {explanation.wouldSend
                   ? t('marketing_automation.explain.wouldSend', 'This customer would receive it right now.')
-                  : t('marketing_automation.explain.wouldNot', 'They would not receive it right now — {gate} decided.')
-                      .replace('{gate}', t(`marketing_automation.explain.gate.${explanation.decidedBy}`, explanation.decidedBy ?? '—'))}
+                  : explanation.decidedBy === 'campaignDisabled'
+                    ? t('marketing_automation.explain.wouldNotDisabled', 'They would not receive it right now — the campaign is switched off.')
+                    : t('marketing_automation.explain.wouldNot', 'They would not receive it right now — {gate} decided.')
+                        .replace('{gate}', t(`marketing_automation.explain.gate.${explanation.decidedBy}`, explanation.decidedBy ?? '—'))}
               </div>
               {(explanation.gates ?? []).map((gate) => (
                 <div key={gate.gate} className="flex items-baseline justify-between gap-2 text-xs">
@@ -597,8 +688,14 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           ) : null}
         </div>
 
-        <div className="mb-6">
-          <SectionHeader title={t('marketing_automation.profile.consent', 'Marketing consent')} />
+        <div className="rounded-lg border bg-card p-4">
+          <SectionHeader
+              title={t('marketing_automation.profile.consent', 'Marketing consent')}
+              help={{
+                title: t('marketing_automation.profile.consent', 'Marketing consent'),
+                body: t('marketing_automation.help.profile.consent'),
+              }}
+            />
           {/* Three states, and the third one matters: "not recorded" is not the same as "agreed", and a
               screen that showed only a yes/no would invent a decision the customer never made. */}
           <StatusBadge variant={profile.consent.email === 'unsubscribed' ? 'error' : profile.consent.email === 'subscribed' ? 'success' : 'neutral'}>
@@ -648,14 +745,18 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         </div>
 
         {(profile.watches ?? []).length > 0 ? (
-          <div className="mb-6">
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.watches', 'Waiting for a price drop')}
               count={(profile.watches ?? []).length}
+              help={{
+                title: t('marketing_automation.profile.watches', 'Waiting for a price drop'),
+                body: t('marketing_automation.help.profile.watches'),
+              }}
             />
             <ul className="space-y-1">
               {(profile.watches ?? []).map((watch) => (
-                <li key={watch.sku} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                <RecordRow key={watch.sku}>
                   <span className="font-mono text-xs text-foreground">{watch.sku}</span>
                   <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
                     {/* Both numbers, because one without the other says nothing: the interesting fact is the
@@ -672,14 +773,20 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                         : t('marketing_automation.profile.watchNoPrice', 'not on sale')}
                     </span>
                   </span>
-                </li>
+                </RecordRow>
               ))}
             </ul>
           </div>
         ) : null}
 
-        <div className="mb-6">
-          <SectionHeader title={t('marketing_automation.profile.referral', 'Referrals')} />
+        <div className="rounded-lg border bg-card p-4">
+          <SectionHeader
+              title={t('marketing_automation.profile.referral', 'Referrals')}
+              help={{
+                title: t('marketing_automation.profile.referral', 'Referrals'),
+                body: t('marketing_automation.help.profile.referral'),
+              }}
+            />
           {/* Two numbers, because they answer different questions: how many people used the code, and how
               many of those actually bought — which is the one a reward should be based on. */}
           {profile.referral?.code ? (
@@ -711,10 +818,14 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           ) : null}
         </div>
 
-        <div className="mb-6">
+        <div className="rounded-lg border bg-card p-4">
           <SectionHeader
             title={t('marketing_automation.profile.recommendations', 'What the next message would offer')}
             count={(profile.recommendations ?? []).length}
+            help={{
+              title: t('marketing_automation.profile.recommendations', 'What the next message would offer'),
+              body: t('marketing_automation.help.profile.recommendations'),
+            }}
           />
           {/* The SIGNAL is shown beside each product, because "because people like you bought it" and
               "because everybody buys it" are different promises, and only the first one is personal. */}
@@ -725,7 +836,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           ) : (
             <ul className="space-y-1">
               {(profile.recommendations ?? []).map((item) => (
-                <li key={item.sku} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                <RecordRow key={item.sku}>
                   <span className="truncate text-foreground">{item.name}</span>
                   <span className="flex shrink-0 items-center gap-2">
                     <span className="font-mono text-xs text-muted-foreground">{item.sku}</span>
@@ -735,15 +846,21 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                         : t('marketing_automation.profile.recommendationSource.bestSeller', 'Best seller')}
                     </StatusBadge>
                   </span>
-                </li>
+                </RecordRow>
               ))}
             </ul>
           )}
         </div>
 
         {profile.preference && (profile.preference.maxPerWeek !== null || profile.preference.pausedUntil || profile.preference.locale) ? (
-          <div className="mb-6">
-            <SectionHeader title={t('marketing_automation.profile.preference', 'What they asked for')} />
+          <div className="rounded-lg border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.profile.preference', 'What they asked for')}
+              help={{
+                title: t('marketing_automation.profile.preference', 'What they asked for'),
+                body: t('marketing_automation.help.profile.preference'),
+              }}
+            />
             {/* Separate from consent on purpose: "subscribed, but at most one a week and paused until March"
                 is a customer nobody should be surprised by. */}
             <div className="space-y-1 text-sm text-muted-foreground">
@@ -770,10 +887,14 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         ) : null}
 
         {(profile.segments ?? []).length > 0 ? (
-          <div className="mb-6">
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.segments', 'Segments')}
               count={(profile.segments ?? []).length}
+              help={{
+                title: t('marketing_automation.profile.segments', 'Segments'),
+                body: t('marketing_automation.help.profile.segments'),
+              }}
             />
             <div className="flex flex-wrap gap-1">
               {(profile.segments ?? []).map((segment) => (
@@ -784,8 +905,14 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
         ) : null}
 
         {profile.tags.length > 0 ? (
-          <div className="mb-6">
-            <SectionHeader title={t('marketing_automation.profile.tags', 'Tags')} />
+          <div className="rounded-lg border bg-card p-4">
+            <SectionHeader
+              title={t('marketing_automation.profile.tags', 'Tags')}
+              help={{
+                title: t('marketing_automation.profile.tags', 'Tags'),
+                body: t('marketing_automation.help.profile.tags'),
+              }}
+            />
             <div className="flex flex-wrap gap-1">
               {profile.tags.map((tag) => (
                 <span key={tag} className="rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">{tag}</span>
@@ -794,11 +921,14 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           </div>
         ) : null}
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div>
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.scoreHistory', 'Recent score changes')}
               count={profile.recentScoreEntries.length}
+              help={{
+                title: t('marketing_automation.profile.scoreHistory', 'Recent score changes'),
+                body: t('marketing_automation.help.profile.scoreHistory'),
+              }}
             />
             {profile.recentScoreEntries.length === 0 ? (
               <div className="text-sm text-muted-foreground">
@@ -807,25 +937,29 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             ) : (
               <ul className="space-y-1">
                 {profile.recentScoreEntries.map((entry) => (
-                  <li key={entry.id} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                  <RecordRow key={entry.id}>
                     <span className="text-foreground">
                       <span className="tabular-nums font-medium">{entry.points > 0 ? `+${entry.points}` : entry.points}</span>
                       {entry.source === 'rule' ? (
-                        <span className="text-muted-foreground"> · {t('marketing_automation.profile.scoreSource.rule', 'Score rules')}</span>
+                        <span className="text-muted-foreground"> — {t('marketing_automation.profile.scoreSource.rule', 'Score rules')}</span>
                       ) : null}
-                      {entry.reason ? <span className="text-muted-foreground"> · {entry.reason}</span> : null}
+                      {entry.reason ? <span className="text-muted-foreground"> — {entry.reason}</span> : null}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(entry.occurredAt)}</span>
-                  </li>
+                  </RecordRow>
                 ))}
               </ul>
             )}
           </div>
 
-          <div>
+          <div className="rounded-lg border bg-card p-4">
             <SectionHeader
               title={t('marketing_automation.profile.recentRuns', 'Recent campaign runs')}
               count={profile.recentRuns.length}
+              help={{
+                title: t('marketing_automation.profile.recentRuns', 'Recent campaign runs'),
+                body: t('marketing_automation.help.profile.recentRuns'),
+              }}
             />
             {profile.recentRuns.length === 0 ? (
               <div className="text-sm text-muted-foreground">
@@ -834,22 +968,43 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             ) : (
               <ul className="space-y-1">
                 {profile.recentRuns.map((run) => (
-                  <li key={run.id} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                  <RecordRow key={run.id}>
                     <a className="truncate text-foreground underline" href={`/backend/marketing/campaigns/${run.campaignId}/runs`}>
                       {/* The written name, not the event id: every other line in this panel is for a person. */}
                       {run.triggerLabelKey ? t(run.triggerLabelKey, run.triggerEventId) : run.triggerEventId}
                     </a>
                     <span className="flex shrink-0 items-center gap-2">
-                      <StatusBadge variant={RUN_STATUS_VARIANTS[run.status] ?? 'neutral'}>
+                      <StatusBadge variant={RUN_STATUS_VARIANTS[run.status] ?? 'neutral'} dot>
                         {t(`marketing_automation.runs.status.${run.status}`, run.status)}
                       </StatusBadge>
                       <span className="text-xs text-muted-foreground">{formatDateTime(run.startedAt)}</span>
                     </span>
-                  </li>
+                  </RecordRow>
                 ))}
               </ul>
             )}
           </div>
+        </div>
+
+        {/*
+          Last, and full width, because it is the longest thing on the page.
+          The panels above are what is TRUE of this person now — score, tier, consent, what the next message
+          would offer. This is what actually happened to them, in order, which is the question support asks
+          when somebody says they never heard from us or unsubscribed weeks ago. Neither is answerable from a
+          set of current values.
+        */}
+        <div className="mb-6 rounded-lg border bg-card p-4">
+          <SectionHeader
+            title={t('marketing_automation.timeline.title', 'What happened')}
+            help={{
+              title: t('marketing_automation.timeline.title', 'What happened'),
+              body: t(
+                'marketing_automation.help.profile.timeline',
+                'Everything this module recorded about this person, newest first: campaigns they entered, messages sent or held back, opens and clicks, points, consent changes, survey answers and referrals. It is assembled from the rows that already record each of those, so it cannot disagree with the screens that count them.',
+              ),
+            }}
+          />
+          <CustomerTimeline customerId={customerId} />
         </div>
       </PageBody>
     </Page>

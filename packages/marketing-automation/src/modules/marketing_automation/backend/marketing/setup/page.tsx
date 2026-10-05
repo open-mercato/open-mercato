@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -66,7 +67,14 @@ export default function MarketingSetupPage() {
       <PageBody>
         {loadFailed ? (
           <div className="mb-3">
-            <ErrorMessage label={t('marketing_automation.setup.loadFailed', 'Could not check your setup.')} />
+            <ErrorMessage
+              label={t('marketing_automation.setup.loadFailed', 'Could not check your setup.')}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.runs.retry', 'Try again')}
+                </Button>
+              )}
+            />
           </div>
         ) : null}
 
@@ -116,12 +124,14 @@ export default function MarketingSetupPage() {
           const total = waiting.reduce((sum, queue) => sum + (queue.ready ?? 0), 0)
           const working = waiting.reduce((sum, queue) => sum + (queue.active ?? 0), 0)
           return (
-            <div className="mb-4 rounded-md border border-border p-3 text-sm">
-              <div className="font-medium text-foreground">
+            // An inline message is an Alert: the hand-built bordered box carried the same meaning with
+            // none of the status colour, icon or role that tells somebody how to weigh it.
+            <Alert status="information" style="light" className="mb-4">
+              <div className="font-medium">
                 {t('marketing_automation.setup.queued.title', '{count} background jobs are waiting')
                   .replace('{count}', String(total))}
               </div>
-              <div className="mt-1 text-xs text-muted-foreground">
+              <div className="mt-1 text-xs">
                 {working > 0
                   ? t('marketing_automation.setup.queued.working', '{count} are being processed right now.')
                       .replace('{count}', String(working))
@@ -130,7 +140,7 @@ export default function MarketingSetupPage() {
                       'None are being processed at this instant. If this number does not fall, check that a queue worker is running.',
                     )}
               </div>
-            </div>
+            </Alert>
           )
         })()}
 
@@ -153,7 +163,13 @@ export default function MarketingSetupPage() {
         <div className="space-y-2">
           <SectionHeader
             title={t('marketing_automation.setup.title', 'Getting started')}
-            count={readiness?.remaining ?? 0}
+            // Only while something is outstanding. A bare `0` beside the title read as a count of checks
+            // rather than a count of what is left, so a fully set up installation looked like it had none.
+            count={readiness?.remaining ? readiness.remaining : undefined}
+            help={{
+              title: t('marketing_automation.setup.title', 'Getting started'),
+              body: t('marketing_automation.help.setup.gettingStarted'),
+            }}
           />
           <ul className="space-y-2">
             {checks.map((check) => (
@@ -171,9 +187,20 @@ export default function MarketingSetupPage() {
                       {t(`marketing_automation.setup.check.${check.id}.title`, check.id)}
                     </span>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {t(`marketing_automation.setup.check.${check.id}.body`, '')}
-                  </div>
+                  {/*
+                    Shown only while the check is outstanding, like the "Open" link beside it.
+                    
+                    Each body is written in the voice of the thing being WRONG — "there is no email channel",
+                    "the two periodic jobs are not registered" — because that is when somebody needs it. Rendered
+                    unconditionally, a finished installation read as a list of warnings about things that are
+                    fine, and the schedules line stated something that was plainly untrue beside its own
+                    green "Done".
+                  */}
+                  {!check.done ? (
+                    <div className="text-xs text-muted-foreground">
+                      {t(`marketing_automation.setup.check.${check.id}.body`, '')}
+                    </div>
+                  ) : null}
                 </div>
                 {!check.done && check.href ? (
                   <Button variant="outline" size="sm" asChild>

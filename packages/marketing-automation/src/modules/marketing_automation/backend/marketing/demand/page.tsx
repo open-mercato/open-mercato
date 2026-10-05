@@ -11,6 +11,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
+const LIST_LIMIT = 100
+
 type DemandRow = { sku: string; watchers: number; notified: number }
 
 /**
@@ -24,6 +26,7 @@ export default function PriceWatchDemandPage() {
   const scopeVersion = useOrganizationScopeVersion()
 
   const [rows, setRows] = React.useState<DemandRow[]>([])
+  const [truncated, setTruncated] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
 
@@ -45,6 +48,7 @@ export default function PriceWatchDemandPage() {
         return
       }
       setRows(result.result.items)
+      setTruncated(result.result.items.length >= LIST_LIMIT)
     } catch {
       setLoadFailed(true)
     } finally {
@@ -93,6 +97,12 @@ export default function PriceWatchDemandPage() {
         {/* Not under the error: an empty table there would still make a claim about data nobody read. */}
         {loadFailed ? null : (
           <DataTable
+            title={t('marketing_automation.demand.title', 'Price watches')}
+            titleHeadingLevel={1}
+            titleHelp={{
+              title: t('marketing_automation.demand.title', 'Price watches'),
+              body: t('marketing_automation.help.page.demand'),
+            }}
             columns={columns}
             data={rows}
             isLoading={loading}
@@ -104,6 +114,12 @@ export default function PriceWatchDemandPage() {
             )}
           />
         )}
+        {truncated ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {t('marketing_automation.list.truncated', 'This screen lists at most {count} — there are probably more. Narrow what you are looking for rather than scrolling.')
+              .replace('{count}', String(LIST_LIMIT))}
+          </div>
+        ) : null}
       </PageBody>
     </Page>
   )

@@ -13,6 +13,11 @@ import { join } from 'node:path'
  * Asserted against the source because the alternative is rendering fifteen screens. A page that adds a
  * `method: 'POST'` without a `runMutation` beside it fails here on the first run.
  *
+ * Two helpers satisfy it, both built on `useGuardedMutation`: `runMutation`, and `runLockedMutation` for a
+ * write that also carries the record's expected version. The three side-panel editors use the second, which
+ * is why the pattern below matches either — not a relaxation, since neither reaches the network without the
+ * guard.
+ *
  * READ-ONLY POSTs are exempt and named individually. Several endpoints in this module are queries that happen
  * to take a body — the audience estimate, the journey preview, the render, the AI draft, the delivery
  * explanation. Wrapping those would put a record-lock dialog in front of a question.
@@ -67,15 +72,21 @@ describe('backend writes', () => {
         // The url sits a line or two above the method in every call in this module.
         const call = lines.slice(Math.max(0, index - 3), index + 1).join(' ')
         if (method[1] === 'POST' && READ_ONLY_POST.some((fragment) => call.includes(fragment))) return
-        // `runMutation(` wraps the call, so it sits a few lines above the method it is wrapping.
+        /**
+         * The guard wraps the call, so it sits a few lines above the method it is wrapping.
+         *
+         * Either helper counts and both go through `useGuardedMutation`: `runMutation` for a write with no
+         * record version, `runLockedMutation` for one that also carries the expected `updatedAt`. Matched as
+         * a whole word so a future `maybeRunMutation(` cannot satisfy this by accident.
+         */
         const window = lines.slice(Math.max(0, index - 8), index + 1).join('\n')
-        if (!window.includes('runMutation(')) unguarded.push(index + 1)
+        if (!/\brun(Locked)?Mutation\(/.test(window)) unguarded.push(index + 1)
       })
 
       // Named lines rather than a bare boolean: the failure has to say WHICH write slipped out.
       expect([name, unguarded]).toEqual([name, []])
       if (lines.some((line) => /method: '(POST|PUT|PATCH|DELETE)'/.test(line))) {
-        expect(source).toContain('useMarketingMutation(')
+        expect(/\buse(Locked)?MarketingMutation\(/.test(source)).toBe(true)
       }
     })
   }

@@ -260,6 +260,8 @@ export type ErasureReport = {
   linkUrls: number
   /** Dead letters deleted: raw third-party payloads with no replay path and nothing to keep. */
   deadLettersDeleted: number
+  /** Inbound request log rows deleted: the same reasoning, applied to the one table that keeps a body whole. */
+  inboundRequestsDeleted: number
 }
 
 /**
@@ -370,6 +372,28 @@ async function eraseWithin(
     [scope.tenantId, scope.organizationId, `%${subjectEntityId}%`],
   )
 
+  /**
+   * The inbound request log: DELETED, not unlinked, and the only table here where that is forced rather than
+   * chosen. Nulling `subject_entity_id` would leave the address sitting in `body`, so the row would still name
+   * the person it was supposed to forget. Nothing aggregates over this table, so deleting preserves no total —
+   * the reason contact preferences and product watches are deleted too.
+   *
+   * Matched on the link AND on the uuid appearing anywhere in the body, because a partner names the customer
+   * with whatever key they like and the resolved link is only set when we recognised them.
+   *
+   * **Known residue:** a request that identified somebody by EMAIL and matched no customer carries neither the
+   * link nor the uuid, so it is not reachable from a subject id and survives here. It ages out within
+   * `INBOUND_REQUEST_RETENTION_DAYS`, which is why that window is a week rather than the thirty days the
+   * redacted logs get. Closing it properly would mean passing the person's addresses into erasure and running
+   * a text match on them, which puts a plaintext address into a query in order to remove one.
+   */
+  const inboundRequestsDeleted = await em.execute(
+    `delete from marketing_inbound_requests
+      where tenant_id = ? and organization_id = ?
+        and (subject_entity_id = ? or body::text like ?)`,
+    [scope.tenantId, scope.organizationId, subjectEntityId, `%${subjectEntityId}%`],
+  )
+
   const runs = await em.nativeUpdate(MarketingCampaignRun, scoped, { subjectEntityId: null })
   const messages = await em.nativeUpdate(MarketingMessageSend, scoped, { subjectEntityId: null })
   const scoreEntries = await em.nativeUpdate(MarketingCustomerScoreEntry, scoped, { subjectEntityId: null })
@@ -474,6 +498,7 @@ async function eraseWithin(
     consentKept,
     linkUrls: Number(linkUrls ?? 0),
     deadLettersDeleted: Number(deadLettersDeleted ?? 0),
+    inboundRequestsDeleted: Number(inboundRequestsDeleted ?? 0),
   }
 }
 
@@ -507,4 +532,5 @@ export const SUBJECT_DATA_TABLES = [
   'marketing_referral_codes',
   'marketing_referral_redemptions',
   'marketing_subject_erasures',
+  'marketing_inbound_requests',
 ] as const

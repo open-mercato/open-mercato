@@ -991,6 +991,64 @@ export class MarketingJobRun {
 }
 
 /**
+ * One POST that reached an inbound hook, body and all.
+ *
+ * The hook row carries three counters — how many came, when the last one did, how it ended — which answers
+ * "is anything arriving" and nothing else. When a partner says they sent it and no campaign ran, the counters
+ * cannot settle the argument: there is no record of WHAT arrived.
+ *
+ * **This table deliberately keeps a third party's raw body**, which is the opposite of what
+ * `MarketingDispatchDeadLetter` does, and the departure is the whole point of the table. Three things follow
+ * from it and are not optional: the retention window is a week rather than the thirty days the redacted logs
+ * get (`lib/inbound-requests.ts`), erasure DELETES these rows instead of unlinking them, because nulling
+ * `subjectEntityId` would leave the address sitting in `body` (`lib/gdpr.ts`), and the screen that reads it is
+ * gated on managing campaigns rather than viewing them.
+ */
+@Entity({ tableName: 'marketing_inbound_requests' })
+@Index({ name: 'mkt_inbound_requests_hook_idx', properties: ['tenantId', 'organizationId', 'hookId', 'receivedAt'] })
+@Index({ name: 'mkt_inbound_requests_subject_idx', properties: ['tenantId', 'organizationId', 'subjectEntityId'] })
+export class MarketingInboundRequest {
+  [OptionalProps]?: 'receivedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** The hook the token named. An id, not a relation: modules do not own each other's rows. */
+  @Property({ name: 'hook_id', type: 'uuid' })
+  hookId!: string
+
+  /** Null when the payload named nobody this installation knows — which is an outcome, not a failure. */
+  @Property({ name: 'subject_entity_id', type: 'uuid', nullable: true })
+  subjectEntityId?: string | null
+
+  /** `started`, `no_subject`, `revoked`, `invalid_json`, `too_large`. Text so a new outcome needs no migration. */
+  @Property({ type: 'text' })
+  outcome!: string
+
+  /**
+   * What the partner posted, whole.
+   *
+   * Null when there was nothing parseable to keep — a malformed body is recorded as having arrived and as
+   * having been refused, which is what somebody debugging needs, without storing the broken text itself.
+   */
+  @Property({ type: 'json', nullable: true })
+  body?: Record<string, unknown> | null
+
+  /** The size as received, so a refused or unparseable body still says how much turned up. */
+  @Property({ name: 'body_bytes', type: 'integer' })
+  bodyBytes!: number
+
+  @Property({ name: 'received_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  receivedAt!: Date
+}
+
+/**
  * One customer's referral code.
  *
  * One live code per customer, not per campaign: a person hands out their code, and a second code for the same
