@@ -64,7 +64,9 @@ test.describe('TC-FORMS-CRUD-001: form CRUD round trip', () => {
         data: { name: 'QA CRUD 001 renamed' },
       })
       expect(patchRes.status(), 'patch should return 200').toBe(200)
-      expect(await readJsonSafe<{ ok?: boolean }>(patchRes)).toEqual({ ok: true })
+      const patchResult = await readJsonSafe<{ ok?: boolean; updatedAt?: string }>(patchRes)
+      expect(patchResult).toEqual(expect.objectContaining({ ok: true }))
+      expect(patchResult?.updatedAt, 'patch returns the fresh optimistic-lock token').toBeTruthy()
 
       const afterPatch = await apiRequest(request, 'GET', `/api/forms/${formId}`, { token: adminToken })
       const patched = await readJsonSafe<{ name?: string }>(afterPatch)
@@ -72,7 +74,9 @@ test.describe('TC-FORMS-CRUD-001: form CRUD round trip', () => {
 
       const deleteRes = await apiRequest(request, 'DELETE', `/api/forms/${formId}`, { token: adminToken })
       expect(deleteRes.status(), 'delete should return 200').toBe(200)
-      expect(await readJsonSafe<{ ok?: boolean }>(deleteRes)).toEqual({ ok: true })
+      const deleteResult = await readJsonSafe<{ ok?: boolean; updatedAt?: string }>(deleteRes)
+      expect(deleteResult).toEqual(expect.objectContaining({ ok: true }))
+      expect(deleteResult?.updatedAt, 'archive returns the fresh optimistic-lock token').toBeTruthy()
 
       const afterDelete = await apiRequest(request, 'GET', `/api/forms/${formId}`, { token: adminToken })
       expect(afterDelete.status(), 'archive is a soft transition, so the row stays readable').toBe(200)

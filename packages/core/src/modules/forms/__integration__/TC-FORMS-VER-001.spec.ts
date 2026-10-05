@@ -47,7 +47,9 @@ test.describe('TC-FORMS-VER-001: draft → publish lifecycle', () => {
         },
       })
       expect(patchRes.status(), 'updating the draft should return 200').toBe(200)
-      expect(await readJsonSafe<{ ok?: boolean }>(patchRes)).toEqual({ ok: true })
+      const patchResult = await readJsonSafe<{ ok?: boolean; updatedAt?: string }>(patchRes)
+      expect(patchResult).toEqual(expect.objectContaining({ ok: true }))
+      expect(patchResult?.updatedAt, 'draft update returns the fresh optimistic-lock token').toBeTruthy()
 
       const publishRes = await apiRequest(
         request,

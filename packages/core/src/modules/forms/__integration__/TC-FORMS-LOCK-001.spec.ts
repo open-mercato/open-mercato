@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
-import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  OPTIMISTIC_LOCK_CONFLICT_CODE,
+  OPTIMISTIC_LOCK_HEADER_NAME,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
@@ -38,7 +41,7 @@ test.describe('TC-FORMS-LOCK-001: form metadata optimistic locking', () => {
         expectedUpdatedAt?: string
       }>(staleWrite)
       expect(staleWrite.status(), JSON.stringify(conflict)).toBe(409)
-      expect(conflict?.code).toBe('OPTIMISTIC_LOCK_CONFLICT')
+      expect(conflict?.code).toBe(OPTIMISTIC_LOCK_CONFLICT_CODE)
       expect(conflict?.expectedUpdatedAt).toBe(initial!.updatedAt)
       expect(conflict?.currentUpdatedAt).not.toBe(initial!.updatedAt)
 
