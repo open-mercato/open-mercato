@@ -148,6 +148,44 @@ describe('useVersionHistory', () => {
     expect(screen.getByTestId('has-more').textContent).toBe('no')
     expect(screen.getByTestId('ids').textContent).toBe(rows.map((row) => row.id).join(','))
   })
+
+  it.each([5, 20, 25])(
+    'keeps progressing through a 61-row history when %i rows are written after the first page',
+    async (insertedCount) => {
+      const historicalRows = buildTiedHistory(61, [[17, 18, 19, 20, 21, 22], [38, 39, 40, 41]])
+      let serverRows = historicalRows
+      ;(apiCall as jest.Mock).mockImplementation(async (url: string) => serveHistoryPage(serverRows, url))
+
+      render(<Probe />)
+
+      await waitForCount(PAGE_SIZE)
+      const insertedRows = Array.from({ length: insertedCount }, (_unused, index) => {
+        const createdAt = new Date(NEWEST_TIMESTAMP + (insertedCount - index) * 1000).toISOString()
+        return { ...buildEntry(0), id: `inserted-${index}`, createdAt, updatedAt: createdAt }
+      })
+      serverRows = [...insertedRows, ...historicalRows]
+
+      for (let click = 0; click < 10 && screen.getByTestId('has-more').textContent === 'yes'; click += 1) {
+        const callsBefore = (apiCall as jest.Mock).mock.calls.length
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'load more' }))
+        })
+        await waitFor(() => {
+          expect(apiCall).toHaveBeenCalledTimes(callsBefore + 1)
+          expect(screen.getByTestId('loading').textContent).toBe('no')
+        })
+      }
+
+      expect(screen.getByTestId('has-more').textContent).toBe('no')
+      const offsets = (apiCall as jest.Mock).mock.calls.map((_call, index) => Number(requestedParams(index).get('offset') ?? 0))
+      expect(offsets).toEqual(offsets.map((_offset, index) => index * PAGE_SIZE))
+      expect(offsets).toHaveLength(Math.floor((historicalRows.length - PAGE_SIZE + insertedCount) / PAGE_SIZE) + 2)
+      const reachedInsertedRows = insertedRows.slice(PAGE_SIZE)
+      expect(screen.getByTestId('ids').textContent).toBe(
+        [...reachedInsertedRows, ...historicalRows].map((row) => row.id).join(','),
+      )
+    },
+  )
 })
 
 function buildTiedHistory(total: number, tiedGroups: number[][]): VersionHistoryEntry[] {
