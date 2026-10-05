@@ -11,7 +11,9 @@ import {
 import { BasicQueryEngine } from '../engine'
 import { normalizeFilters } from '../join-utils'
 import {
+  buildArrayColumnNoOverlapPredicate,
   buildArrayColumnOverlapPredicate,
+  buildJsonbNoOverlapPredicate,
   buildJsonbOverlapPredicate,
   buildScalarOverlapPredicate,
   jsonbDocKeyExpression,
@@ -153,5 +155,65 @@ describe('BasicQueryEngine overlap', () => {
     expect(compiled.sql).toContain('"b"."deleted_at" is null')
     expect(compiled.sql).not.toContain('&&')
     expect(compiled.sql).not.toContain('?|')
+  })
+})
+
+describe('noverlap predicate builders', () => {
+  it('compiles a jsonb has-none-of that requires a present array', () => {
+    const compiled = compileWhere(buildJsonbNoOverlapPredicate('ei.doc', 'scope_keys', ['cat:1', 'tag:2']))
+    expect(compiled.sql).toContain(
+      `(jsonb_typeof(("ei"."doc" -> 'scope_keys')) = 'array' and not (("ei"."doc" -> 'scope_keys') ?| $1::text[]))`,
+    )
+    expect(compiled.parameters).toEqual([['cat:1', 'tag:2']])
+  })
+
+  it('keeps only the array check for an empty jsonb value list', () => {
+    const compiled = compileWhere(buildJsonbNoOverlapPredicate('ei.doc', 'scope_keys', []))
+    expect(compiled.sql).toMatch(/where jsonb_typeof\(\("ei"\."doc" -> 'scope_keys'\)\) = 'array'$/)
+    expect(compiled.parameters).toEqual([])
+  })
+
+  it('compiles array-column has-none-of to not && and an empty list to is not null', () => {
+    const compiled = compileWhere(buildArrayColumnNoOverlapPredicate('ei.tags', ['a']))
+    expect(compiled.sql).toContain('not ("ei"."tags" && $1)')
+    expect(compiled.parameters).toEqual([['a']])
+    expect(compileWhere(buildArrayColumnNoOverlapPredicate('ei.tags', [])).sql).toContain('"ei"."tags" is not null')
+  })
+})
+
+describe('BasicQueryEngine noverlap', () => {
+  it('normalizes $noverlap from the object filter syntax', () => {
+    const filters = normalizeFilters({ scope_keys: { $noverlap: ['cat:1'] } })
+    expect(filters).toEqual([expect.objectContaining({ field: 'scope_keys', op: 'noverlap', value: ['cat:1'] })])
+  })
+
+  it('compiles an index-document noverlap inside the entity_indexes EXISTS', () => {
+    const compiled = db
+      .selectFrom('catalog_products as b')
+      .select('b.id')
+      .where((eb) => engine.buildIndexDocOpExpression(eb, {
+        entity: 'catalog:catalog_product',
+        field: 'scope_keys',
+        op: 'noverlap',
+        value: ['cat:1'],
+        recordIdColumn: 'b.id',
+        tenantId: 'tenant-1',
+        withDeleted: false,
+      }))
+      .compile()
+    expect(compiled.sql).toMatch(/exists \(select 1 as "one" from "entity_indexes" as "ei_\d+"/)
+    expect(compiled.sql).toMatch(/not \(\("ei_\d+"\."doc" -> 'scope_keys'\) \?\| \$\d+::text\[\]\)/)
+  })
+
+  it('applies not && on a base column', () => {
+    const builder = db.selectFrom('catalog_products as b').select('b.id')
+    const compiled = engine.applyColumnOp(builder, 'b.tags', 'noverlap', ['x']).compile()
+    expect(compiled.sql).toContain('not ("b"."tags" && $1)')
+    const expression = db
+      .selectFrom('catalog_products as b')
+      .select('b.id')
+      .where((eb) => engine.buildColumnOpExpression(eb, 'b.tags', 'noverlap', ['x']))
+      .compile()
+    expect(expression.sql).toContain('not ("b"."tags" && $1)')
   })
 })

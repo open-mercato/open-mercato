@@ -52,6 +52,22 @@ export function buildJsonbOverlapPredicate(docColumnRef: string, key: string, va
 }
 
 /**
+ * jsonb "has none of" over a string-array key of an index document (`noverlap`):
+ * `(jsonb_typeof(<expr>) = 'array' and not (<expr> ?| $n::text[]))`.
+ *
+ * Only a document whose key holds a JSON array can match: a missing key, a JSON `null` or a
+ * scalar never satisfies it, so an unindexed document can never slip through an exclusion.
+ * An empty value list excludes nothing (only the array check remains).
+ */
+export function buildJsonbNoOverlapPredicate(docColumnRef: string, key: string, value: unknown): RawBuilder<boolean> {
+  const values = normalizeOverlapValues(value)
+  const keyExpr = jsonbDocKeyExpression(docColumnRef, key)
+  const isArray = sql<boolean>`jsonb_typeof(${keyExpr}) = 'array'`
+  if (!values.length) return isArray
+  return sql<boolean>`(${isArray} and not (${keyExpr} ?| ${values}::text[]))`
+}
+
+/**
  * Postgres array overlap for array-typed columns: `<column> && $n`. The bound array takes its
  * element type from the column, so `text[]`, `varchar[]` and `uuid[]` columns all work.
  */
@@ -63,6 +79,20 @@ export function buildArrayColumnOverlapPredicate(
   if (!values.length) return sql<boolean>`false`
   const columnExpr = typeof column === 'string' ? sql.ref(column) : column
   return sql<boolean>`${columnExpr} && ${values}`
+}
+
+/**
+ * Postgres array "has none of" for array-typed columns (`noverlap`): `not (<column> && $n)`.
+ * A NULL column never matches; an empty value list excludes nothing (`<column> is not null`).
+ */
+export function buildArrayColumnNoOverlapPredicate(
+  column: string | RawBuilder<unknown>,
+  value: unknown,
+): RawBuilder<boolean> {
+  const values = normalizeOverlapValues(value)
+  const columnExpr = typeof column === 'string' ? sql.ref(column) : column
+  if (!values.length) return sql<boolean>`${columnExpr} is not null`
+  return sql<boolean>`not (${columnExpr} && ${values})`
 }
 
 /**

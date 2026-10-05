@@ -53,20 +53,26 @@ accent-insensitive predicate — in that case build it from
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
 
-### `FilterOp` gained an `overlap` member; `query_index` gained a doc-enrichment hook (storefront public API §3.3, §14a)
+### `FilterOp` gained `overlap` and `noverlap` members; `query_index` gained a doc-enrichment hook (storefront public API §3.3, §14a)
 
 `FilterOp` (`@open-mercato/shared/lib/query/types`) is now
-`'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap'`,
-and `WhereOps` accepts the matching `$overlap`. `overlap` means "has any of" over a multi-valued
+`'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap' | 'noverlap'`,
+and `WhereOps` accepts the matching `$overlap` and `$noverlap`. `overlap` means "has any of" over a multi-valued
 field: on an index-document string array it compiles to jsonb `(doc -> '<key>') ?| $n::text[]`, on a
 `cf:*` key to "any stored value is in the set", and on an array-typed base column to `&&`. Values are
 always bound as parameters. **An empty value list matches nothing** (it compiles to `false`, never to
 a dropped predicate).
 
+A second member, `noverlap` (`$noverlap`), is its negation — "has none of": on an index-document
+string array it compiles to `(jsonb_typeof(<expr>) = 'array' and not (<expr> ?| $n::text[]))`, so a
+missing, JSON-`null` or scalar key never matches; on an array-typed base column to `not (<col> && $n)`.
+An empty value list excludes nothing. It is not supported on `cf:*` keys (values are stored one row
+per value) and compiles to `false` there, so it can never widen a query.
+
 **Action for module authors:** only if your code has an exhaustive `switch (op)` over `FilterOp` that
-ends in a `never` check (or a `Record<FilterOp, …>` lookup) — add an `'overlap'` case, otherwise
-TypeScript reports the new member as unhandled. Code that passes filters to the query engine needs
-no change.
+ends in a `never` check (or a `Record<FilterOp, …>` lookup) — add `'overlap'` and `'noverlap'` cases,
+otherwise TypeScript reports the new members as unhandled. Code that passes filters to the query
+engine needs no change.
 
 `query_index` also exposes an optional, programmatic extension point —
 `registerIndexDocEnricher({ id, entityType, keys, enrich })` from

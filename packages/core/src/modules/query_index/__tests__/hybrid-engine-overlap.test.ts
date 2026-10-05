@@ -100,4 +100,30 @@ describe('HybridQueryEngine overlap', () => {
     expect(compiled.parameters).toEqual(['title', 'A', 'B'])
     expect(compiled.sql).not.toContain('?|')
   })
+
+  it('compiles an index-document noverlap to a negated ?| that requires a present array', () => {
+    const compiled = engine.applyIndexDocFilterFromAlias(base(), 'ei', ENTITY, 'scope_keys', 'noverlap', ['cat:1'], 'b.id').compile()
+    expect(compiled.sql).toContain(
+      `(jsonb_typeof(("ei"."doc" -> 'scope_keys')) = 'array' and not (("ei"."doc" -> 'scope_keys') ?| $1::text[]))`,
+    )
+    const grouped = base()
+      .where((eb) => engine.buildIndexDocFilterExpression(eb, 'ei', ENTITY, 'scope_keys', 'noverlap', ['cat:1'], 'b.id'))
+      .compile()
+    expect(grouped.sql).toContain(`not (("ei"."doc" -> 'scope_keys') ?| $1::text[])`)
+  })
+
+  it('compiles base-column noverlap to not &&', () => {
+    const compiled = base().where((eb) => engine.buildColumnFilterExpression(eb, 'b.tags', 'noverlap', ['x'])).compile()
+    expect(compiled.sql).toContain('not ("b"."tags" && $1)')
+  })
+
+  it('compiles cf noverlap to false on both cf paths so it never widens a query', () => {
+    expect(engine.cfFilterHasPredicate('noverlap', ['a'], sources)).toBe(true)
+    const viaExpression = base()
+      .where((eb) => engine.buildCfFilterExpression(eb, 'cf:labels', 'noverlap', ['a'], sources)!)
+      .compile()
+    expect(viaExpression.sql).toMatch(/where false$/)
+    const viaAlias = engine.applyCfFilterFromAlias(base(), 'ei', ENTITY, 'cf:labels', 'noverlap', ['a']).compile()
+    expect(viaAlias.sql).toMatch(/where false$/)
+  })
 })
