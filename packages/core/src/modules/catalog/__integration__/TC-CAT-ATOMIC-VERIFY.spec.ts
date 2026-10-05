@@ -140,7 +140,12 @@ test.describe('TC-CAT-ATOMIC-VERIFY: catalog atomic-write BC + data safety', () 
         data: updated,
       });
       expect(updateRes.status(), 'product updated').toBe(200);
-      expect((await updateRes.json()) as { ok?: boolean }).toEqual({ ok: true });
+      const updateBody = (await updateRes.json()) as { ok?: boolean; updatedAt?: string | null };
+      expect(updateBody.ok).toBe(true);
+      expect(
+        typeof updateBody.updatedAt === 'string' && updateBody.updatedAt.length > 0,
+        'update response echoes the refreshed optimistic-lock updatedAt version',
+      ).toBeTruthy();
 
       const afterUpdate = await readProduct(request, token, productId);
       expect(afterUpdate, 'updated product is readable').not.toBeNull();

@@ -20,6 +20,10 @@ name: Scheduled Dependency Audit
 # ci.yml had already accepted through `scripts/audit-ci-allowlist.json`, and it
 # refiled the tracking issue every day for a state no one could act on.
 #
+# The ci.yml job passes `--baseline <base yarn.lock>` so a change fails only on
+# advisories it introduces. This workflow deliberately passes none: it is the
+# one place pre-existing advisories are surfaced and tracked.
+#
 # Deliberately kept out of ci.yml: that workflow uses
 # `concurrency: ci-${{ github.ref }}` with `cancel-in-progress: true`, so a
 # scheduled run on refs/heads/develop would share the group with push runs and
