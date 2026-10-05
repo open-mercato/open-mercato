@@ -41,8 +41,8 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: (props: { rowActions?: (row: ChannelRow) => React.ReactNode }) => {
-    capturedRowActions = props.rowActions ?? null
+  DataTable: (props: { rowActions: (row: ChannelRow) => React.ReactNode }) => {
+    capturedRowActions = props.rowActions
     return <div data-testid="data-table-mock" />
   },
 }))
@@ -81,12 +81,13 @@ const privateMailbox: ChannelRow = {
 
 async function clickShareWithTeam() {
   if (!capturedRowActions) {
-    throw new Error('[internal] DataTable received no rowActions prop')
+    throw new Error('[internal] row actions renderer was not captured')
   }
   render(<>{capturedRowActions(privateMailbox)}</>)
   fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+  const shareAction = await screen.findByRole('menuitem', { name: 'Share with team' })
   await act(async () => {
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Share with team' }))
+    fireEvent.click(shareAction)
   })
 }
 
