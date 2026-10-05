@@ -359,6 +359,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
         throw new Error(t('forms.runner.save.error'))
       }
       const nextRevision = response.result.revision
+      submissionRevisionRef.current = nextRevision
       setSubmissionRevision(nextRevision)
       const remaining: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(dirtyFieldsRef.current)) {
