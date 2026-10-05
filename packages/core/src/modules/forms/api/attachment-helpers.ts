@@ -10,6 +10,14 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FormSubmission, FormVersion } from '../data/entities'
 import { AttachmentServiceError, isAttachmentServiceError } from '../services/attachment-service'
+import { resolveMaxUploadBytes } from '../services/upload-validation'
+
+const MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+export const SANDBOXED_DOWNLOAD_HEADERS = {
+  'content-security-policy': "default-src 'none'; sandbox",
+  'x-content-type-options': 'nosniff',
+} as const
 
 export type FieldUploadConfig = {
   fieldKey: string
@@ -86,10 +94,27 @@ export type ParsedUpload = {
  * `field_key` text part. Returns a 422 response describing the failure when
  * the body is malformed.
  */
-export async function parseUploadBody(req: Request): Promise<ParsedUpload | NextResponse> {
+export async function parseUploadBody(
+  req: Request,
+  maxFileBytes: number = resolveMaxUploadBytes(process.env),
+): Promise<ParsedUpload | NextResponse> {
+  const maxBodyBytes = maxFileBytes + MULTIPART_OVERHEAD_BYTES
+  const declaredLength = Number(req.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > maxBodyBytes) {
+    return NextResponse.json({ error: 'TOO_LARGE', message: 'Upload exceeds the allowed size.' }, { status: 413 })
+  }
+
+  const boundedBody = await readBoundedBody(req, maxBodyBytes)
+  if (boundedBody instanceof NextResponse) return boundedBody
+
   let form: FormData
   try {
-    form = await req.formData()
+    const boundedRequest = new Request(req.url, {
+      method: req.method,
+      headers: req.headers,
+      body: boundedBody as unknown as BodyInit,
+    })
+    form = await boundedRequest.formData()
   } catch {
     return NextResponse.json({ error: 'VALIDATION_FAILED', message: 'Expected multipart/form-data.' }, { status: 422 })
   }
@@ -101,6 +126,9 @@ export async function parseUploadBody(req: Request): Promise<ParsedUpload | Next
   if (!(filePart instanceof File)) {
     return NextResponse.json({ error: 'VALIDATION_FAILED', message: 'Missing file part.' }, { status: 422 })
   }
+  if (filePart.size > maxFileBytes) {
+    return NextResponse.json({ error: 'TOO_LARGE', message: 'Upload exceeds the allowed size.' }, { status: 413 })
+  }
   const arrayBuffer = await filePart.arrayBuffer()
   return {
     fieldKey: fieldKeyRaw,
@@ -108,4 +136,25 @@ export async function parseUploadBody(req: Request): Promise<ParsedUpload | Next
     contentType: filePart.type || 'application/octet-stream',
     bytes: Buffer.from(arrayBuffer),
   }
+}
+
+async function readBoundedBody(req: Request, maxBodyBytes: number): Promise<Buffer | NextResponse> {
+  if (!req.body) {
+    return NextResponse.json({ error: 'VALIDATION_FAILED', message: 'Expected multipart/form-data.' }, { status: 422 })
+  }
+
+  const reader = req.body.getReader()
+  const chunks: Buffer[] = []
+  let totalBytes = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    totalBytes += value.byteLength
+    if (totalBytes > maxBodyBytes) {
+      await reader.cancel()
+      return NextResponse.json({ error: 'TOO_LARGE', message: 'Upload exceeds the allowed size.' }, { status: 413 })
+    }
+    chunks.push(Buffer.from(value))
+  }
+  return Buffer.concat(chunks, totalBytes)
 }

@@ -27,7 +27,7 @@ import {
   serializeRevision,
   serializeSubmission,
 } from '../../../runtime-helpers'
-import { enforcePublicRateLimit, getClientIp } from '../../rate-limit'
+import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../rate-limit'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -40,6 +40,12 @@ export async function GET(
 ) {
   const params = await Promise.resolve(context.params)
   const submissionId = String(params.id)
+
+  const limited = await enforcePublicRateLimit(
+    req,
+    buildPublicRateLimitKey('submission-read', submissionId),
+  )
+  if (limited) return limited
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -74,7 +80,10 @@ export async function PATCH(
   const params = await Promise.resolve(context.params)
   const submissionId = String(params.id)
 
-  const limited = await enforcePublicRateLimit(`forms:public:save:${submissionId}:${getClientIp(req)}`)
+  const limited = await enforcePublicRateLimit(
+    req,
+    buildPublicRateLimitKey('submission-save', submissionId),
+  )
   if (limited) return limited
 
   let raw: unknown
@@ -153,6 +162,8 @@ const getMethodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 401, description: 'Missing or invalid access token / session', schema: errorSchema },
     { status: 404, description: 'Submission not found', schema: errorSchema },
+    { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
+    { status: 503, description: 'Rate limiting unavailable', schema: errorSchema },
   ],
 }
 
@@ -168,6 +179,7 @@ const patchMethodDoc: OpenApiMethodDoc = {
     { status: 409, description: 'Stale base_revision_id', schema: errorSchema },
     { status: 422, description: 'Validation failed', schema: errorSchema },
     { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
+    { status: 503, description: 'Rate limiting unavailable', schema: errorSchema },
   ],
 }
 

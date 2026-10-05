@@ -22,7 +22,7 @@ import {
   parseUploadBody,
   resolveFieldUploadConfig,
 } from '../../../../attachment-helpers'
-import { enforcePublicRateLimit, getClientIp } from '../../../rate-limit'
+import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../../rate-limit'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -36,12 +36,10 @@ export async function POST(
   const submissionId = String(params.id)
 
   const limited = await enforcePublicRateLimit(
-    `forms:public:upload:${submissionId}:${getClientIp(req)}`,
+    req,
+    buildPublicRateLimitKey('submission-upload', submissionId),
   )
   if (limited) return limited
-
-  const parsed = await parseUploadBody(req)
-  if (parsed instanceof NextResponse) return parsed
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -49,6 +47,9 @@ export async function POST(
 
   const principal = await resolveRuntimePrincipal({ req, submissionId, em })
   if (!principal) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
+
+  const parsed = await parseUploadBody(req)
+  if (parsed instanceof NextResponse) return parsed
 
   const config = await resolveFieldUploadConfig(em, {
     organizationId: principal.organizationId,
@@ -97,6 +98,7 @@ const postMethodDoc: OpenApiMethodDoc = {
     { status: 413, description: 'File empty or oversize', schema: errorSchema },
     { status: 422, description: 'Disallowed type / invalid field / scan rejected', schema: errorSchema },
     { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
+    { status: 503, description: 'Rate limiting unavailable', schema: errorSchema },
   ],
 }
 

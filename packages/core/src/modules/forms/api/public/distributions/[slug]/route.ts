@@ -14,17 +14,24 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DistributionService } from '../../../../services/distribution-service'
 import { mapDistributionError, serializeFormContext } from '../../../runtime-helpers'
+import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../rate-limit'
 
 export const metadata = {
   GET: { requireAuth: false },
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: { slug: string } | Promise<{ slug: string }> },
 ) {
   const params = await Promise.resolve(context.params)
   const slug = String(params.slug)
+
+  const limited = await enforcePublicRateLimit(
+    req,
+    buildPublicRateLimitKey('distribution-read', slug),
+  )
+  if (limited) return limited
 
   const container = await createRequestContainer()
   const service = container.resolve('formsDistributionService') as DistributionService
@@ -83,6 +90,8 @@ const getMethodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 404, description: 'Distribution or form not found', schema: errorSchema },
     { status: 410, description: 'Distribution closed, not yet open, or response cap reached', schema: errorSchema },
+    { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
+    { status: 503, description: 'Rate limiting unavailable', schema: errorSchema },
   ],
 }
 

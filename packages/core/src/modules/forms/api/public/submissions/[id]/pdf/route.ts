@@ -21,6 +21,8 @@ import {
   PdfSnapshotServiceError,
 } from '../../../../../services/pdf-snapshot-service'
 import { resolveRuntimePrincipal } from '../../../../../lib/runtime-principal'
+import { SANDBOXED_DOWNLOAD_HEADERS } from '../../../../attachment-helpers'
+import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../../rate-limit'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -32,6 +34,12 @@ export async function GET(
 ) {
   const params = await Promise.resolve(context.params)
   const submissionId = String(params.id)
+
+  const limited = await enforcePublicRateLimit(
+    req,
+    buildPublicRateLimitKey('submission-pdf', submissionId),
+  )
+  if (limited) return limited
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -51,6 +59,7 @@ export async function GET(
       headers: {
         'content-type': snapshot.contentType,
         'content-disposition': `attachment; filename="${sanitizeFilename(snapshot.filename)}"`,
+        ...SANDBOXED_DOWNLOAD_HEADERS,
       },
     })
   } catch (error) {
@@ -76,6 +85,8 @@ const getMethodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Missing or invalid access token / session' },
     { status: 404, description: 'Submission not found' },
     { status: 409, description: 'Submission not yet submitted' },
+    { status: 429, description: 'Rate limit exceeded' },
+    { status: 503, description: 'Rate limiting unavailable' },
   ],
 }
 

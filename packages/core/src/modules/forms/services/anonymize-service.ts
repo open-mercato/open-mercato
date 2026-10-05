@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
+  FormAttachment,
+  FormInvitation,
   FormSubmission,
   FormSubmissionRevision,
   FormVersion,
@@ -76,37 +78,46 @@ export class AnonymizeService {
     if (!submission) {
       throw new AnonymizeServiceError('SUBMISSION_NOT_FOUND', 'Submission not found.')
     }
-    if (submission.anonymizedAt) {
-      return {
-        revisionsAnonymized: 0,
-        submissionAnonymizedAt: submission.anonymizedAt,
-      }
-    }
-
-    const formVersion = await em.findOne(FormVersion, { id: submission.formVersionId })
-    if (!formVersion) {
-      throw new AnonymizeServiceError('FORM_VERSION_NOT_FOUND', 'Form version not found.')
-    }
-    const compiled: CompiledFormVersion = this.options.compiler.compile({
-      id: formVersion.id,
-      updatedAt: formVersion.updatedAt,
-      schema: formVersion.schema,
-      uiSchema: formVersion.uiSchema,
-    })
-
     const revisions = await em.find(
       FormSubmissionRevision,
       { submissionId: submission.id },
       { orderBy: { revisionNumber: 'asc' } },
     )
+    const attachments = await em.find(FormAttachment, {
+      submissionId: submission.id,
+      organizationId: submission.organizationId,
+    })
+    const invitations = await em.find(FormInvitation, {
+      submissionId: submission.id,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    })
+
+    const pendingRevisions = revisions.filter((revision) => !revision.anonymizedAt)
+    let compiled: CompiledFormVersion | null = null
+    if (pendingRevisions.length > 0) {
+      const formVersion = await em.findOne(FormVersion, {
+        id: submission.formVersionId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      })
+      if (!formVersion) {
+        throw new AnonymizeServiceError('FORM_VERSION_NOT_FOUND', 'Form version not found.')
+      }
+      compiled = this.options.compiler.compile({
+        id: formVersion.id,
+        updatedAt: formVersion.updatedAt,
+        schema: formVersion.schema,
+        uiSchema: formVersion.uiSchema,
+      })
+    }
 
     let anonymizedCount = 0
-    const now = new Date()
-    for (const revision of revisions) {
-      if (revision.anonymizedAt) continue
+    const now = submission.anonymizedAt ?? new Date()
+    for (const revision of pendingRevisions) {
       const plaintext = await this.options.encryption.decrypt(submission.organizationId, revision.data)
       const decoded = JSON.parse(plaintext.toString('utf-8')) as Record<string, unknown>
-      const tombstoned = applyTombstone(decoded, compiled)
+      const tombstoned = applyTombstone(decoded, compiled as CompiledFormVersion)
       const buffer = Buffer.from(JSON.stringify(tombstoned), 'utf-8')
       const reencrypted = await this.options.encryption.encrypt(submission.organizationId, buffer)
       revision.data = reencrypted
@@ -114,7 +125,24 @@ export class AnonymizeService {
       anonymizedCount += 1
     }
 
+    for (const attachment of attachments) {
+      attachment.removedAt = attachment.removedAt ?? now
+      attachment.payloadInline = null
+      attachment.fileId = null
+      attachment.contentType = null
+      attachment.filename = null
+      attachment.sizeBytes = null
+      attachment.uploadedBy = null
+    }
+
+    for (const invitation of invitations) {
+      invitation.recipientEmail = null
+      invitation.recipientName = null
+      invitation.recipientRef = null
+    }
+
     submission.anonymizedAt = now
+    submission.pdfSnapshotAttachmentId = null
     submission.submitMetadata = {
       anonymized_at: now.toISOString(),
     }

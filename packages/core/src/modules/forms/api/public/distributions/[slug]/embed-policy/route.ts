@@ -22,17 +22,24 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DistributionService } from '../../../../../services/distribution-service'
+import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../../rate-limit'
 
 export const metadata = {
   GET: { requireAuth: false },
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: { slug: string } | Promise<{ slug: string }> },
 ) {
   const params = await Promise.resolve(context.params)
   const slug = String(params.slug)
+
+  const limited = await enforcePublicRateLimit(
+    req,
+    buildPublicRateLimitKey('embed-policy', slug),
+  )
+  if (limited) return limited
 
   const container = await createRequestContainer()
   const service = container.resolve('formsDistributionService') as DistributionService
@@ -55,6 +62,10 @@ const getMethodDoc: OpenApiMethodDoc = {
     'Returns the Content-Security-Policy frame-ancestors directive authorizing which origins may frame the /embed/:slug host page. Fails closed to frame-ancestors none for non-embeddable or unknown distributions.',
   tags: ['Forms Public Runtime'],
   responses: [{ status: 200, description: 'Embed framing policy', schema: responseSchema }],
+  errors: [
+    { status: 429, description: 'Rate limit exceeded' },
+    { status: 503, description: 'Rate limiting unavailable' },
+  ],
 }
 
 export const openApi: OpenApiRouteDoc = {

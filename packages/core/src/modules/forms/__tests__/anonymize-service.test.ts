@@ -7,6 +7,8 @@ import { FormVersionCompiler } from '../services/form-version-compiler'
 import { defaultFieldTypeRegistry } from '../schema/field-type-registry'
 import { FormsEncryptionService, DevDeterministicKmsAdapter } from '../services/encryption-service'
 import {
+  FormAttachment,
+  FormInvitation,
   FormSubmission,
   FormSubmissionRevision,
   FormVersion,
@@ -130,7 +132,7 @@ async function buildHarness() {
     currentRevisionId: null,
     startedBy: 'starter',
     submitMetadata: { ip: '1.2.3.4', ua: 'Mozilla/5.0' },
-    pdfSnapshotAttachmentId: null,
+    pdfSnapshotAttachmentId: 'snapshot-1',
     anonymizedAt: null,
   })
   em.rows.set(FormSubmission, [submission])
@@ -171,10 +173,50 @@ async function buildHarness() {
   })
   em.rows.set(FormSubmissionRevision, [rev1, rev2])
 
+  const attachments = [
+    em.create(FormAttachment, {
+      id: 'upload-1',
+      submissionId: SUBMISSION_ID,
+      organizationId: ORG_ID,
+      fieldKey: 'document',
+      kind: 'user_upload',
+      fileId: '00000000-0000-0000-0000-000000000040',
+      payloadInline: Buffer.from('encrypted-upload'),
+      contentType: 'application/pdf',
+      filename: 'identity-document.pdf',
+      sizeBytes: 256,
+      uploadedBy: '00000000-0000-0000-0000-000000000030',
+    }),
+    em.create(FormAttachment, {
+      id: 'snapshot-1',
+      submissionId: SUBMISSION_ID,
+      organizationId: ORG_ID,
+      fieldKey: '__snapshot__',
+      kind: 'snapshot',
+      payloadInline: Buffer.from('encrypted-pdf'),
+      contentType: 'application/pdf',
+      filename: 'submission.pdf',
+      sizeBytes: 512,
+    }),
+  ]
+  em.rows.set(FormAttachment, attachments)
+
+  const invitation = em.create(FormInvitation, {
+    id: '00000000-0000-0000-0000-000000000050',
+    distributionId: '00000000-0000-0000-0000-000000000051',
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    recipientEmail: 'person@example.com',
+    recipientName: 'Example Person',
+    recipientRef: 'crm-contact-123',
+    submissionId: SUBMISSION_ID,
+  })
+  em.rows.set(FormInvitation, [invitation])
+
   // Stub the EncryptionKey row so the service can find a wrapped DEK if it queries.
   em.rows.set(FormsEncryptionKey, [])
 
-  return { em, encryption, compiler, submission, revisions: [rev1, rev2] }
+  return { em, encryption, compiler, submission, revisions: [rev1, rev2], attachments, invitation }
 }
 
 describe('AnonymizeService', () => {
@@ -197,6 +239,17 @@ describe('AnonymizeService', () => {
     expect(harness.submission.submitMetadata).toEqual({
       anonymized_at: expect.any(String),
     })
+    expect(harness.submission.pdfSnapshotAttachmentId).toBeNull()
+    for (const attachment of harness.attachments) {
+      expect(attachment.removedAt).toBeInstanceOf(Date)
+      expect(attachment.payloadInline).toBeNull()
+      expect(attachment.fileId).toBeNull()
+      expect(attachment.filename).toBeNull()
+      expect(attachment.uploadedBy).toBeNull()
+    }
+    expect(harness.invitation.recipientEmail).toBeNull()
+    expect(harness.invitation.recipientName).toBeNull()
+    expect(harness.invitation.recipientRef).toBeNull()
   })
 
   it('is idempotent — re-running a second time skips already-anonymized revisions', async () => {
@@ -211,6 +264,25 @@ describe('AnonymizeService', () => {
     const second = await service.anonymize(SUBMISSION_ID, SCOPE)
     expect(second.revisionsAnonymized).toBe(0)
     expect(second.submissionAnonymizedAt).toEqual(harness.submission.anonymizedAt)
+  })
+
+  it('finishes artifact erasure for a previously anonymized submission', async () => {
+    const harness = await buildHarness()
+    const priorAnonymizedAt = new Date('2026-05-09T10:00:00Z')
+    harness.submission.anonymizedAt = priorAnonymizedAt
+    for (const revision of harness.revisions) revision.anonymizedAt = priorAnonymizedAt
+    const service = new AnonymizeService({
+      em: harness.em as never,
+      compiler: harness.compiler,
+      encryption: harness.encryption,
+    })
+
+    const result = await service.anonymize(SUBMISSION_ID, SCOPE)
+
+    expect(result).toEqual({ revisionsAnonymized: 0, submissionAnonymizedAt: priorAnonymizedAt })
+    expect(harness.submission.pdfSnapshotAttachmentId).toBeNull()
+    expect(harness.attachments.every((attachment) => attachment.payloadInline === null)).toBe(true)
+    expect(harness.invitation.recipientEmail).toBeNull()
   })
 
   it('raises SUBMISSION_NOT_FOUND when the submission does not exist', async () => {
