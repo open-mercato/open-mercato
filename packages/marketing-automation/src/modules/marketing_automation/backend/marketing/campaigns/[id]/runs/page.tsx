@@ -52,6 +52,19 @@ type RunsResponse = {
   total?: number
 }
 
+/**
+ * The funnel's stages, as the runs list understands them. Mirrors `ENGAGEMENTS` in the runs route.
+ *
+ * The wording matches the funnel's own stage labels, because the reader got here by clicking one of them and
+ * a different word for the same stage reads as a different filter.
+ */
+const ENGAGEMENT_FILTERS = ['received', 'opened', 'clicked']
+const ENGAGEMENT_LABELS: Record<string, string> = {
+  received: 'Received a message',
+  opened: 'Opened',
+  clicked: 'Clicked',
+}
+
 const STATUS_FILTERS = ['waiting', 'running', 'completed', 'dead'] as const
 
 
@@ -74,6 +87,20 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
    */
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [status, setStatus] = React.useState<string | null>(null)
+  /**
+   * Which funnel stage these people are, when the reader arrived from one.
+   *
+   * Read from the URL rather than picked here, because it is a destination: the results screen counts a
+   * stage and links to the people in it, and a link that lands on an unfiltered list has answered a
+   * different question than the one that was clicked. It stays in the URL so the view can be shared.
+   */
+  const [engagement, setEngagement] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    const fromUrl = new URLSearchParams(window.location.search).get('engagement')
+    setEngagement(fromUrl && ENGAGEMENT_FILTERS.includes(fromUrl) ? fromUrl : null)
+  }, [])
 
   const load = React.useCallback(async () => {
     if (!campaignId) return
@@ -82,6 +109,7 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
     try {
       const query = new URLSearchParams({ pageSize: '50' })
       if (status) query.set('status', status)
+      if (engagement) query.set('engagement', engagement)
       const result = await apiCall<RunsResponse>(
         `/api/marketing_automation/campaigns/${campaignId}/runs?${query.toString()}`,
       )
@@ -98,7 +126,7 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
     } finally {
       setLoading(false)
     }
-  }, [campaignId, status, t])
+  }, [campaignId, status, engagement, t])
 
   React.useEffect(() => { void load() }, [load, scopeVersion])
 
@@ -325,6 +353,32 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
             ))}
           </SegmentedControl>
         </div>
+
+        {/*
+          Named, and removable, because arriving here filtered without being told is indistinguishable from
+          a campaign that only ever reached nine people.
+        */}
+        {engagement ? (
+          <div className="mb-3 flex items-center gap-2">
+            <StatusBadge variant="info">
+              {t(`marketing_automation.results.funnel.${engagement === 'received' ? 'sent' : engagement}`, ENGAGEMENT_LABELS[engagement] ?? engagement)}
+            </StatusBadge>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setEngagement(null)
+                if (typeof window !== 'undefined') {
+                  const next = new URL(window.location.href)
+                  next.searchParams.delete('engagement')
+                  window.history.replaceState(null, '', next.toString())
+                }
+              }}
+            >
+              {t('marketing_automation.runs.engagement.clear', 'Show everybody who entered')}
+            </Button>
+          </div>
+        ) : null}
 
         {loadError ? (
           <div className="mb-3">

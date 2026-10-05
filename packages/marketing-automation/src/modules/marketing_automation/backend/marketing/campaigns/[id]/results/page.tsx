@@ -120,6 +120,25 @@ function formatMoney(amount: number | null, currencyCode: string | null): string
  * filtered, paged or exported, so a `DataTable` would wrap each in a toolbar and an empty state that have
  * nothing to do. The module's nine LIST screens are `DataTable`s; a report is not a list.
  */
+/**
+ * Where a funnel stage's people can be read, one by one.
+ *
+ * The funnel counts; the runs list names. Linking the two is what turns "nine people clicked" from a number
+ * into a list somebody can act on, and the runs route resolves each stage from the SAME rows the funnel
+ * counts, so the two always agree.
+ *
+ * `entered` needs no filter — it is every run. `converted` has none: an order placed afterwards is decided
+ * in the sales module inside an attribution window, and deciding it a second time here is how two screens
+ * start disagreeing about what an attributed order is.
+ */
+function stageFilter(stageKey: string): string | null {
+  if (stageKey === 'entered') return ''
+  if (stageKey === 'sent') return 'received'
+  if (stageKey === 'opened') return 'opened'
+  if (stageKey === 'clicked') return 'clicked'
+  return null
+}
+
 export default function CampaignResultsPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const runMutation = useMarketingMutation('campaign_results')
@@ -350,6 +369,11 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                 people: stage.people,
                 label: t(`marketing_automation.results.funnel.${stage.key}`, stage.key),
               }))}
+              stageHref={(stageKey) => {
+                const filter = stageFilter(stageKey)
+                if (filter === null) return null
+                return `/backend/marketing/campaigns/${campaignId}/runs${filter ? `?engagement=${filter}` : ''}`
+              }}
               peopleLabel={(people) => String(people)}
               shareLabel={(share) => formatRate(share)}
               dropLabel={(fromPrevious) => t(
@@ -369,7 +393,20 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
               <TableBody>
                 {results.funnel.stages.map((stage) => (
                   <TableRow key={stage.key}>
-                    <TableCell>{t(`marketing_automation.results.funnel.${stage.key}`, stage.key)}</TableCell>
+                    <TableCell>
+                      {/* The stage name is the link, because the name is what a reader points at when they
+                          ask "who are those nine people". */}
+                      {stageFilter(stage.key) === null ? (
+                        t(`marketing_automation.results.funnel.${stage.key}`, stage.key)
+                      ) : (
+                        <a
+                          className="underline"
+                          href={`/backend/marketing/campaigns/${campaignId}/runs${stageFilter(stage.key) ? `?engagement=${stageFilter(stage.key)}` : ''}`}
+                        >
+                          {t(`marketing_automation.results.funnel.${stage.key}`, stage.key)}
+                        </a>
+                      )}
+                    </TableCell>
                     <TableCell className="tabular-nums">{stage.people}</TableCell>
                     {/* Both denominators, because operators quote both and would otherwise compute one wrongly. */}
                     <TableCell className="tabular-nums text-muted-foreground">{formatRate(stage.conversionFromPrevious)}</TableCell>

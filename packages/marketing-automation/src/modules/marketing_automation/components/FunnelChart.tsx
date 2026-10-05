@@ -11,6 +11,15 @@ export type FunnelChartProps = {
   /** Rendered on the join between two bands, e.g. "66.7%". */
   dropLabel: (fromPrevious: number) => string
   peopleLabel: (people: number) => string
+  /**
+   * Where a stage's people can be read one by one, or null for a stage that cannot be listed.
+   *
+   * The drawing is where somebody points when they ask "who are those nine", so the name and the count are
+   * the links rather than a row in the table underneath. The band itself stays decorative: it is a
+   * `clip-path` with no text, and a shape that narrows to nothing at an empty stage is not a target anybody
+   * can hit.
+   */
+  stageHref?: (stageKey: string) => string | null
 }
 
 const BAND_HEIGHT = 44
@@ -40,7 +49,7 @@ const JOIN_HEIGHT = 20
  * narrow one it fell off the shape entirely and floated in white space. A funnel is a picture whose whole
  * job is to be read at a glance, so nothing in it depends on the contrast of one colour against another.
  */
-export function FunnelChart({ stages, shareLabel, dropLabel, peopleLabel }: FunnelChartProps) {
+export function FunnelChart({ stages, shareLabel, dropLabel, peopleLabel, stageHref }: FunnelChartProps) {
   const bands = React.useMemo(() => buildFunnelBands(stages), [stages])
   if (bands.length === 0) return null
 
@@ -64,13 +73,16 @@ export function FunnelChart({ stages, shareLabel, dropLabel, peopleLabel }: Funn
     <div className="w-full max-w-3xl">
       {bands.map((band, at) => {
         const label = stages[at]?.label ?? band.key
+        const href = stageHref?.(band.key) ?? null
         const stageInset = insetFor(band.topRatio)
         const nextInset = insetFor(band.bottomRatio)
 
         return (
           <div key={band.key}>
             <div className="flex items-center gap-4" style={{ height: BAND_HEIGHT }}>
-              <span className="w-44 shrink-0 text-right text-sm font-medium">{label}</span>
+              <span className="w-44 shrink-0 text-right text-sm font-medium">
+                {href ? <a className="underline" href={href}>{label}</a> : label}
+              </span>
               <div className="relative h-full flex-1">
                 {band.topRatio === 0 ? guide : (
                   <div
@@ -87,7 +99,9 @@ export function FunnelChart({ stages, shareLabel, dropLabel, peopleLabel }: Funn
                 )}
               </div>
               <span className="flex w-28 shrink-0 items-baseline gap-2">
-                <span className="text-sm font-medium tabular-nums">{peopleLabel(band.people)}</span>
+                <span className="text-sm font-medium tabular-nums">
+                  {href ? <a className="underline" href={href}>{peopleLabel(band.people)}</a> : peopleLabel(band.people)}
+                </span>
                 {band.shareOfFirst === null ? null : (
                   <span className="text-xs tabular-nums text-muted-foreground">{shareLabel(band.shareOfFirst)}</span>
                 )}

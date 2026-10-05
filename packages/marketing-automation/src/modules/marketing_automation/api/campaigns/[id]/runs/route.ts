@@ -43,6 +43,21 @@ const MAX_PAGE_SIZE = 100
 const RUN_STATUSES = ['running', 'waiting', 'claimed', 'completed', 'failed', 'dead'] as const
 type RunStatus = (typeof RUN_STATUSES)[number]
 
+/**
+ * The funnel's stages, as a filter over the people in them.
+ *
+ * The results screen counts these stages and this list is how somebody gets from a count to the people
+ * behind it — which was the one thing the funnel could not do. The stages are defined by the same rows the
+ * funnel counts: a send for "received", a delivery event for the other two. Asking the sends and events
+ * about a run, rather than recomputing anything, is what keeps the two screens agreeing.
+ *
+ * `ordered` is deliberately absent. The funnel's last stage is an order placed afterwards, which lives in
+ * the sales module behind a conversion window; answering it here would be this module deciding what counts
+ * as an attributed order in a second place.
+ */
+const ENGAGEMENTS = ['received', 'opened', 'clicked'] as const
+type Engagement = (typeof ENGAGEMENTS)[number]
+
 function readCampaignId(req: Request): string | null {
   // .../campaigns/<id>/runs
   return readPathUuid(req, 2)
@@ -73,6 +88,8 @@ export async function GET(req: Request) {
   const page = Math.max(Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1, 1)
   const statusParam = url.searchParams.get('status')
   const status = RUN_STATUSES.includes(statusParam as RunStatus) ? (statusParam as RunStatus) : null
+  const engagementParam = url.searchParams.get('engagement')
+  const engagement = ENGAGEMENTS.includes(engagementParam as Engagement) ? (engagementParam as Engagement) : null
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
@@ -83,9 +100,39 @@ export async function GET(req: Request) {
   const campaign = await em.findOne(MarketingCampaign, { id: campaignId, ...scope, deletedAt: null })
   if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  /**
+   * Which runs reached this stage, asked once and turned into an id set.
+   *
+   * The stage is defined by the same rows the funnel counts — a send for "received", a delivery event for
+   * the other two — so the filter reads them rather than recomputing anything, and the two screens cannot
+   * drift apart. `distinct` because a run has many sends and many events and the question is only whether
+   * there is at least one.
+   *
+   * `em.execute` rather than `getConnection().execute`: the latter takes its own connection from the pool,
+   * which puts the statement outside any transaction context it is called within.
+   */
+  let engagedRunIds: string[] | null = null
+  if (engagement !== null) {
+    const sql = engagement === 'received'
+      ? `select distinct run_id from marketing_message_sends
+          where tenant_id = ? and organization_id = ? and campaign_id = ? and status = 'sent' and run_id is not null`
+      : `select distinct run_id from marketing_message_send_events
+          where tenant_id = ? and organization_id = ? and campaign_id = ? and type = ?`
+    const params = engagement === 'received'
+      ? [scope.tenantId, scope.organizationId, campaign.id]
+      : [scope.tenantId, scope.organizationId, campaign.id, engagement === 'clicked' ? 'clicked' : 'opened']
+    const rows = await em.execute<Array<{ run_id: string }>>(sql, params)
+    engagedRunIds = rows.map((row) => row.run_id).filter((id): id is string => !!id)
+  }
+
+  // Nobody reached the stage. `$in: []` is a query the ORM should not have to be trusted to get right.
+  if (engagedRunIds !== null && engagedRunIds.length === 0) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize })
+  }
+
   const [runs, total] = await em.findAndCount(
     MarketingCampaignRun,
-    { campaignId: campaign.id, ...scope, ...(status ? { status } : {}) },
+    { campaignId: campaign.id, ...scope, ...(status ? { status } : {}), ...(engagedRunIds ? { id: { $in: engagedRunIds } } : {}) },
     { orderBy: { startedAt: 'DESC' }, limit: pageSize, offset: (page - 1) * pageSize },
   )
 
