@@ -4,7 +4,8 @@ import * as React from 'react'
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Switch } from '@open-mercato/ui/primitives/switch'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { OmMatrixRowInput } from '../schema-helpers'
 
@@ -50,6 +51,7 @@ function nextRowKey(rows: ReadonlyArray<OmMatrixRowInput>): string {
 
 export function MatrixRowsEditor({ locale, rows, onChange }: MatrixRowsEditorProps) {
   const t = useT()
+  const inputIdPrefix = React.useId()
   const handleAdd = React.useCallback(() => {
     const newRow: OmMatrixRowInput = {
       key: nextRowKey(rows),
@@ -101,10 +103,12 @@ export function MatrixRowsEditor({ locale, rows, onChange }: MatrixRowsEditorPro
           >
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
               <div className="space-y-1">
-                <label className="block text-xs text-muted-foreground">
+                <Label htmlFor={`${inputIdPrefix}-${index}-key`} className="block text-xs text-muted-foreground">
                   {t('forms.studio.field.matrix.rows.key')}
-                </label>
+                </Label>
                 <Input
+                  id={`${inputIdPrefix}-${index}-key`}
+                  aria-label={`${t('forms.studio.field.matrix.rows.key')} ${index + 1}`}
                   value={row.key}
                   onChange={(event) =>
                     handlePatch(index, { key: event.target.value })
@@ -112,10 +116,12 @@ export function MatrixRowsEditor({ locale, rows, onChange }: MatrixRowsEditorPro
                 />
               </div>
               <div className="space-y-1">
-                <label className="block text-xs text-muted-foreground">
+                <Label htmlFor={`${inputIdPrefix}-${index}-label`} className="block text-xs text-muted-foreground">
                   {t('forms.studio.field.matrix.rows.label')}
-                </label>
+                </Label>
                 <Input
+                  id={`${inputIdPrefix}-${index}-label`}
+                  aria-label={`${t('forms.studio.field.matrix.rows.label')} ${index + 1}`}
                   value={resolveLabel(row, locale)}
                   onChange={(event) =>
                     handlePatch(index, setLabel(row, locale, event.target.value))
@@ -124,24 +130,20 @@ export function MatrixRowsEditor({ locale, rows, onChange }: MatrixRowsEditorPro
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-xs">
-                <Switch
+              <SwitchField
+                label={t('forms.studio.field.matrix.rows.multiple')}
                   checked={row.multiple === true}
                   onCheckedChange={(next) =>
                     handlePatch(index, { multiple: Boolean(next) || undefined })
                   }
-                />
-                <span>{t('forms.studio.field.matrix.rows.multiple')}</span>
-              </label>
-              <label className="flex items-center gap-2 text-xs">
-                <Switch
+              />
+              <SwitchField
+                label={t('forms.studio.field.matrix.rows.required')}
                   checked={row.required === true}
                   onCheckedChange={(next) =>
                     handlePatch(index, { required: Boolean(next) || undefined })
                   }
-                />
-                <span>{t('forms.studio.field.matrix.rows.required')}</span>
-              </label>
+              />
               <div className="ml-auto flex items-center gap-1">
                 <Button
                   type="button"

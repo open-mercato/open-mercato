@@ -38,18 +38,6 @@ import {
  * could never come.
  */
 test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
-  // AUTHORED BUT NOT YET VERIFIED — needs a browser-capable session to finish.
-  // * Fails on `toHaveValue` for the key field: the fill lands and then the value resets to
-  // "" (CI log shows the locator resolving 44 times to
-  // `<input value="" ... autofocus data-crud-focus-target>`), i.e. the known CrudForm
-  // hydration race this file's own `fillControlledInput` helper was written to guard.
-  // The guard is evidently not covering the autofocus target.
-  // * This is a test-authoring problem, not a module defect: the same create path is
-  // exercised green at the API layer by TC-FORMS-CRUD-001..004, and by hand against a
-  // live stack (POST /api/forms -> 201).
-  // * Never executed outside CI for the same missing-Chromium reason as PORTAL-002.
-  test.fixme(true, 'authored but never verified in a browser — see the note above')
-
   test('submits the create form and persists the reshaped payload', async ({ page, request }) => {
     test.slow()
 
@@ -72,10 +60,13 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
       const nameInput = page.locator('[data-crud-field-id="name"] input')
       const localesInput = page.locator('[data-crud-field-id="supportedLocales"] input')
 
-      await fillControlledInput(keyInput, key)
+      // Fill the autofocus target last. The CI trace showed the mount-time
+      // autofocus/hydration pass resetting only that first field; filling the
+      // two ordinary controlled fields first guarantees that pass has settled.
       await fillControlledInput(nameInput, name)
       // Overwrite the prefilled 'en' so the comma-splitting transform is exercised.
       await fillControlledInput(localesInput, 'en, pl')
+      await fillControlledInput(keyInput, key)
 
       // Re-read every field after the last fill: the settle window inside
       // `fillControlledInput` guards each field individually, but a late

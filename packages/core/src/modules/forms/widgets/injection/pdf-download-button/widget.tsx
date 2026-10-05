@@ -39,11 +39,11 @@ export function PdfDownloadButtonWidget({ context }: PdfDownloadButtonProps) {
   const t = useT()
   const submissionId = typeof context?.submissionId === 'string' ? context.submissionId : null
   const isSubmitted = context?.status === 'submitted'
-  const [downloading, setDownloading] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(false)
 
   const handleDownload = React.useCallback(async () => {
     if (!submissionId) return
-    setDownloading(true)
+    setIsLoading(true)
     try {
       const resp = await apiCall(`/api/forms/submissions/${encodeURIComponent(submissionId)}/pdf`)
       if (!resp.ok) {
@@ -66,7 +66,7 @@ export function PdfDownloadButtonWidget({ context }: PdfDownloadButtonProps) {
     } catch {
       flash(t('forms.compliance.pdf.unavailable', { fallback: 'PDF snapshot is being generated.' }), 'error')
     } finally {
-      setDownloading(false)
+      setIsLoading(false)
     }
   }, [submissionId, t])
 
@@ -77,7 +77,7 @@ export function PdfDownloadButtonWidget({ context }: PdfDownloadButtonProps) {
       type="button"
       variant="outline"
       size="sm"
-      disabled={!isSubmitted || downloading}
+      disabled={!isSubmitted || isLoading}
       onClick={handleDownload}
       data-forms-pdf-download=""
     >

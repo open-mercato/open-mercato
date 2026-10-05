@@ -379,7 +379,7 @@ export function PreviewSurface({
   return wrapInTheme(
     <div className={SPACE_BY_DENSITY[density]}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div role="tablist" aria-label="Author preview" className="flex flex-wrap gap-1">
+        <div role="tablist" aria-label={t('forms.studio.preview.ariaLabel')} className="flex flex-wrap gap-1">
           {pages.map((page, index) => {
             const isActive = index === activePageIndex
             const firstSectionKey = page.sectionKeys[0] ?? null
@@ -389,21 +389,22 @@ export function PreviewSurface({
               ? localizedTitle
               : t('forms.studio.canvas.page.chipLabel', { n: String(index + 1) })
             return (
-              <button
+              <Button
                 key={firstSectionKey ?? index}
                 type="button"
+                variant="outline"
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => setActivePageIndex(index)}
                 className={
-                  'rounded-md px-3 py-1 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
+                  'h-auto px-3 py-1 text-xs font-medium transition-colors duration-150 '
                   + (isActive
                     ? 'bg-muted text-foreground'
-                    : 'border border-border bg-background text-muted-foreground hover:bg-muted/40')
+                    : 'border border-border bg-background text-muted-foreground hover:bg-muted/30')
                 }
               >
                 {tabLabel}
-              </button>
+              </Button>
             )
           })}
         </div>
@@ -844,7 +845,11 @@ function FieldPreviewInput({
           onValueChange={(next) => onChange(next)}
         >
           <SelectTrigger id={id}>
-            <SelectValue placeholder={options.length === 0 ? '— No options configured —' : 'Select…'} />
+            <SelectValue
+              placeholder={options.length === 0
+                ? `— ${t('forms.runner.field.noOptions')} —`
+                : t('forms.runner.field.selectPlaceholder')}
+            />
           </SelectTrigger>
           <SelectContent>
             {options.map((option) => (
@@ -857,7 +862,7 @@ function FieldPreviewInput({
       )
     case 'select_many':
       if (options.length === 0) {
-        return <p className="text-xs text-muted-foreground">— No options configured —</p>
+        return <p className="text-xs text-muted-foreground">— {t('forms.runner.field.noOptions')} —</p>
       }
       return (
         <div className="space-y-2.5">
@@ -1035,7 +1040,7 @@ function FieldPreviewInput({
         : []
       return (
         <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-          <p>{subLabels.length > 0 ? subLabels.join(' · ') : t('forms.studio.field.group.empty')}</p>
+          <p>{subLabels.length > 0 ? subLabels.join(' — ') : t('forms.studio.field.group.empty')}</p>
           <p className="mt-1 text-xs">+ {t('forms.studio.field.group.addSubField')}</p>
         </div>
       )
@@ -1133,7 +1138,7 @@ function FormatPreviewInput({
         onBlur={handleBlur}
       />
       {error ? (
-        <Alert variant="destructive" className="px-3 py-2 text-xs">
+        <Alert status="error" style="light" className="px-3 py-2 text-xs">
           {error}
         </Alert>
       ) : null}
@@ -1189,21 +1194,21 @@ function NpsPreviewInput({ node, canEdit, value, onChange }: NpsPreviewInputProp
           const baseBand = npsBandClass(entry)
           const ringClass = selected ? ' ring-2 ring-primary' : ''
           return (
-            <button
+            <Button
               key={entry}
               type="button"
+              variant="outline"
               disabled={!canEdit}
               onClick={() => onChange(entry)}
               aria-pressed={selected}
               className={
-                'h-11 w-11 rounded-md border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
-                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
+                'h-11 w-11 px-0 text-sm font-medium tabular-nums '
                 + baseBand
                 + ringClass
               }
             >
               {entry}
-            </button>
+            </Button>
           )
         })}
       </div>
@@ -1259,20 +1264,20 @@ function OpinionScalePreviewInput({
           const IconComponent =
             icon === 'star' ? StarIcon : icon === 'thumb' ? ThumbIcon : CircleIcon
           return (
-            <button
+            <Button
               key={entry}
               type="button"
+              variant="outline"
               disabled={!canEdit}
               onClick={() => onChange(entry)}
               aria-pressed={filled}
               className={
-                'inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-background transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
-                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
+                'h-11 w-11 px-0 '
                 + (filled ? 'border-primary' : 'hover:border-primary')
               }
             >
-              <IconComponent aria-hidden="true" className={`size-7 ${iconClass}`} />
-            </button>
+              <IconComponent aria-hidden="true" className={`size-6 ${iconClass}`} />
+            </Button>
           )
         })}
       </div>

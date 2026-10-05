@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -61,9 +62,11 @@ export function RecallTokenPicker({ options, onInsert, ariaLabel }: RecallTokenP
             <ul className="max-h-48 space-y-1 overflow-auto">
               {filtered.map((entry) => (
                 <li key={entry.value}>
-                  <button
+                  <Button
                     type="button"
-                    className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-muted"
+                    variant="ghost"
+                    size="2xs"
+                    className="h-auto w-full justify-between px-2 py-1 text-left"
                     onClick={() => {
                       onInsert(`@{${entry.value}}`)
                       setOpen(false)
@@ -72,7 +75,7 @@ export function RecallTokenPicker({ options, onInsert, ariaLabel }: RecallTokenP
                   >
                     <span className="font-mono">{entry.value}</span>
                     <span className="text-muted-foreground">{entry.label}</span>
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>

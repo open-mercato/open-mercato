@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { ArrowRight, History, Lock, Trash2, X } from 'lucide-react'
+import { ArrowRight, History, Lock, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Tag } from '@open-mercato/ui/primitives/tag'
@@ -23,6 +23,14 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { extensionPoints } from '@open-mercato/core/modules/forms/extension-points'
 import { colorForSavedByRole } from './RowBadges'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import {
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 
 export const FORMS_DRAWER_REFRESH_EVENT = 'forms:submission-drawer:refresh'
 
@@ -71,6 +79,7 @@ export type DrawerInjectionContext = {
   formId: string
   status: DrawerSubmission['status']
   isAnonymized: boolean
+  retryLastMutation: () => Promise<boolean>
 }
 
 export type SubmissionDrawerProps = {
@@ -90,6 +99,7 @@ export function SubmissionDrawer({
 }: SubmissionDrawerProps) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'forms.submission.drawer' })
   const [detail, setDetail] = React.useState<DrawerSubmissionDetail | null>(null)
   const [revisions, setRevisions] = React.useState<DrawerRevision[]>([])
   const [activeRevisionId, setActiveRevisionId] = React.useState<string | null>(null)
@@ -109,35 +119,24 @@ export function SubmissionDrawer({
         ),
       ])
       if (!detailResp.ok || !detailResp.result) {
-        throw new Error(`Failed to load submission (status ${detailResp.status}).`)
+        throw new Error(t('forms.errors.submission_not_found'))
       }
       if (!revisionsResp.ok || !revisionsResp.result) {
-        throw new Error(`Failed to load revisions (status ${revisionsResp.status}).`)
+        throw new Error(t('forms.errors.internal'))
       }
       setDetail(detailResp.result)
       setRevisions(revisionsResp.result.items)
       setActiveRevisionId(detailResp.result.revision.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error.')
+      setError(err instanceof Error ? err.message : t('forms.errors.internal'))
     } finally {
       setIsLoading(false)
     }
-  }, [submissionId])
+  }, [submissionId, t])
 
   React.useEffect(() => {
     void reload()
   }, [reload])
-
-  React.useEffect(() => {
-    function handleKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [onClose])
 
   React.useEffect(() => {
     function handleRefresh() {
@@ -157,10 +156,14 @@ export function SubmissionDrawer({
       }),
     })
     if (!ok) return
-    const resp = await apiCall(
-      `/api/forms/submissions/${encodeURIComponent(detail.submission.id)}/reopen`,
-      { method: 'POST' },
-    )
+    const resp = await runMutation({
+      operation: () => apiCall(
+        `/api/forms/submissions/${encodeURIComponent(detail.submission.id)}/reopen`,
+        { method: 'POST' },
+      ),
+      context: { submissionId: detail.submission.id },
+      mutationPayload: { submissionId: detail.submission.id },
+    })
     if (!resp.ok) {
       flash(t('forms.drawer.reopen.failed'), 'error')
       return
@@ -168,7 +171,7 @@ export function SubmissionDrawer({
     flash(t('forms.drawer.reopen.success'), 'success')
     onMutated?.()
     void reload()
-  }, [confirm, detail, onMutated, reload, t])
+  }, [confirm, detail, onMutated, reload, runMutation, t])
 
   const handleRevokeActor = React.useCallback(
     async (actor: DrawerActor) => {
@@ -183,10 +186,14 @@ export function SubmissionDrawer({
       // and is idempotent, so there is no user-editable field two actors can
       // clobber. Junction/assignment tables are exempt from the `updated_at`
       // requirement per packages/core/AGENTS.md § Database Entities.
-      const resp = await apiCall(
-        `/api/forms/submissions/${encodeURIComponent(detail.submission.id)}/actors/${encodeURIComponent(actor.id)}`,
-        { method: 'DELETE' },
-      )
+      const resp = await runMutation({
+        operation: () => apiCall(
+          `/api/forms/submissions/${encodeURIComponent(detail.submission.id)}/actors/${encodeURIComponent(actor.id)}`,
+          { method: 'DELETE' },
+        ),
+        context: { submissionId: detail.submission.id, actorId: actor.id },
+        mutationPayload: { submissionId: detail.submission.id, actorId: actor.id },
+      })
       if (!resp.ok) {
         flash(t('forms.actor.revoke.failed'), 'error')
         return
@@ -195,7 +202,7 @@ export function SubmissionDrawer({
       onMutated?.()
       void reload()
     },
-    [confirm, detail, onMutated, reload, t],
+    [confirm, detail, onMutated, reload, runMutation, t],
   )
 
   if (isLoading) {
@@ -212,8 +219,8 @@ export function SubmissionDrawer({
   if (error || !detail) {
     return (
       <DrawerShell onClose={onClose} title={t('forms.drawer.error', { fallback: 'Error' })}>
-        <Alert variant="destructive">
-          <AlertDescription>{error ?? 'Submission not available.'}</AlertDescription>
+        <Alert status="error" style="light">
+          <AlertDescription>{error ?? t('forms.drawer.not_available')}</AlertDescription>
         </Alert>
         {ConfirmDialogElement}
       </DrawerShell>
@@ -229,13 +236,14 @@ export function SubmissionDrawer({
     formId,
     status: detail.submission.status,
     isAnonymized,
+    retryLastMutation,
   }
 
   return (
     <DrawerShell
       ref={triggerRef}
       onClose={onClose}
-      title={`${t('forms.drawer.title', { fallback: 'Submission' })} · v${detail.submission.formVersionNumber}`}
+      title={`${t('forms.drawer.title', { fallback: 'Submission' })} — v${detail.submission.formVersionNumber}`}
       headerExtras={
         <div className="flex items-center gap-2">
           <Tag variant={isAnonymized ? 'error' : 'success'} dot>
@@ -266,7 +274,7 @@ export function SubmissionDrawer({
 
         <section className="flex flex-col gap-3">
           {!isViewingLatest ? (
-            <div className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               <span>
                 {t('forms.drawer.replay_footer', {
                   fallback: 'Viewing as of rev {n}',
@@ -285,7 +293,7 @@ export function SubmissionDrawer({
           ) : null}
 
           {activeRevision.anonymizedAt ? (
-            <Alert variant="default">
+            <Alert status="information" style="light">
               <AlertDescription>
                 {t('forms.drawer.anonymized_revision', {
                   fallback: 'This revision has been anonymized — content unavailable.',
@@ -341,38 +349,21 @@ const DrawerShell = React.forwardRef<HTMLDivElement, {
   headerExtras?: React.ReactNode
   children: React.ReactNode
 }>(function DrawerShell({ onClose, title, headerExtras, children }, ref) {
+  const t = useT()
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div
-        className="absolute inset-0 bg-foreground/40"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <aside
+    <Drawer open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DrawerContent
         ref={ref}
-        role="dialog"
-        aria-label={title}
-        aria-modal="true"
-        className="relative flex h-full w-full max-w-3xl flex-col gap-4 overflow-y-auto border-l border-border bg-background p-4 shadow-xl"
+        className="max-w-3xl"
+        closeAriaLabel={t('forms.drawer.actions.close')}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-border pb-3">
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-          <div className="flex items-center gap-2">
-            {headerExtras}
-            <IconButton
-              type="button"
-              variant="ghost"
-              size="default"
-              onClick={onClose}
-              aria-label="Close drawer"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </IconButton>
-          </div>
-        </header>
-        <div className="flex-1 overflow-y-auto">{children}</div>
-      </aside>
-    </div>
+        <DrawerHeader className="items-center">
+          <DrawerTitle>{title}</DrawerTitle>
+          {headerExtras ? <div className="flex items-center gap-2">{headerExtras}</div> : null}
+        </DrawerHeader>
+        <DrawerBody>{children}</DrawerBody>
+      </DrawerContent>
+    </Drawer>
   )
 })
 
@@ -400,10 +391,12 @@ function RevisionTimeline({
           const active = rev.id === activeRevisionId
           return (
             <li key={rev.id}>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => onSelect(rev.id)}
-                className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition-colors ${
+                className={`h-auto w-full justify-start gap-2 px-2 py-1.5 text-left text-xs ${
                   active
                     ? 'border-primary bg-primary/10'
                     : 'border-border hover:bg-muted'
@@ -431,7 +424,7 @@ function RevisionTimeline({
                 {rev.anonymizedAt ? (
                   <Lock className="ml-auto h-3 w-3 text-muted-foreground" aria-hidden="true" />
                 ) : null}
-              </button>
+              </Button>
             </li>
           )
         })}
@@ -486,6 +479,7 @@ function ActorPanel({
   onRevoke: (actor: DrawerActor) => void
 }) {
   const t = useT()
+  const { runMutation } = useGuardedMutation({ contextId: 'forms.submission.actor.assign' })
   const [userId, setUserId] = React.useState('')
   const [role, setRole] = React.useState(formVersionRoles[0] ?? '')
   const [submitting, setSubmitting] = React.useState(false)
@@ -494,14 +488,18 @@ function ActorPanel({
     if (!userId || !role) return
     setSubmitting(true)
     try {
-      const resp = await apiCall(
-        `/api/forms/submissions/${encodeURIComponent(submissionId)}/actors`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ user_id: userId, role }),
-        },
-      )
+      const resp = await runMutation({
+        operation: () => apiCall(
+          `/api/forms/submissions/${encodeURIComponent(submissionId)}/actors`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ user_id: userId, role }),
+          },
+        ),
+        context: { submissionId, userId, role },
+        mutationPayload: { submissionId, userId, role },
+      })
       if (!resp.ok) {
         flash(t('forms.actor.assign.failed'), 'error')
         return
@@ -512,7 +510,7 @@ function ActorPanel({
     } finally {
       setSubmitting(false)
     }
-  }, [onAssigned, role, submissionId, userId])
+  }, [onAssigned, role, runMutation, submissionId, t, userId])
 
   const onKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {

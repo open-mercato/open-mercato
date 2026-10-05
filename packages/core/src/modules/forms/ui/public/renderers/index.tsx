@@ -468,7 +468,7 @@ export const InfoBlockRenderer: ComponentType<RunnerFieldRendererProps> = (props
   const label = resolveLocaleString(fieldNode['x-om-label'], locale, defaultLocale, '')
   const help = resolveLocaleString(fieldNode['x-om-help'], locale, defaultLocale, '')
   return (
-    <div className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+    <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
       {label ? <p className="font-medium text-foreground">{label}</p> : null}
       {help ? <p className="mt-1 whitespace-pre-line">{help}</p> : null}
     </div>
@@ -500,7 +500,7 @@ export const FileRenderer: ComponentType<RunnerFieldRendererProps> = (props) => 
   const acceptAttr = readAcceptAttr(fieldNode)
   const maxSizeBytes =
     typeof fieldNode['x-om-max-size-bytes'] === 'number' ? (fieldNode['x-om-max-size-bytes'] as number) : null
-  const refs: FileAttachmentRef[] = readFileRefs(value) ?? []
+  const refs = React.useMemo<FileAttachmentRef[]>(() => readFileRefs(value) ?? [], [value])
   const canUpload = Boolean(uploader && submissionId) && !disabled && (allowMultiple || refs.length === 0)
 
   const handleFiles = React.useCallback(
@@ -563,7 +563,7 @@ export const FileRenderer: ComponentType<RunnerFieldRendererProps> = (props) => 
             {refs.map((ref, index) => (
               <li
                 key={ref.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+                className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
               >
                 <span className="flex items-center gap-2 truncate text-foreground">
                   <Paperclip aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -681,7 +681,7 @@ export const SignatureRenderer: ComponentType<RunnerFieldRendererProps> = (props
       <div className="flex flex-col gap-3">
         {clauseText ? (
           <div
-            className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-foreground"
+            className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm text-foreground"
             aria-label={t('forms.runner.signature.clause_label', { fallback: 'Consent statement' })}
           >
             <p className="whitespace-pre-line">{clauseText}</p>
@@ -722,7 +722,7 @@ export const SignatureRenderer: ComponentType<RunnerFieldRendererProps> = (props
             value={typedName}
             disabled={disabled}
             placeholder={t('forms.runner.signature.typed_placeholder', { fallback: 'Type your full name' })}
-            className="font-[cursive] text-lg"
+            className="font-serif text-lg"
             onChange={(event) => {
               void emit({ mode: 'typed', typedName: event.target.value, affirmed })
             }}

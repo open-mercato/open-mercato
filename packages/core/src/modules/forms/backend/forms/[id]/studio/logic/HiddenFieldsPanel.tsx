@@ -67,7 +67,7 @@ export function HiddenFieldsPanel({ formId, entries, onChange }: HiddenFieldsPan
             <li key={entry.name} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1">
               <div className="flex flex-col">
                 <span className="font-mono text-xs text-foreground">{entry.name}</span>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {entry.defaultValue
                     ? t('forms.studio.parameters.hidden.defaultLabel', { value: entry.defaultValue })
                     : t('forms.studio.parameters.hidden.noDefault')}
@@ -100,7 +100,7 @@ export function HiddenFieldsPanel({ formId, entries, onChange }: HiddenFieldsPan
           />
         </div>
         {error ? (
-          <Alert variant="destructive">{error}</Alert>
+          <Alert status="error" style="light">{error}</Alert>
         ) : null}
         <Button variant="outline" size="sm" type="button" onClick={handleAdd}>
           {t('forms.studio.parameters.hidden.add')}
@@ -111,7 +111,7 @@ export function HiddenFieldsPanel({ formId, entries, onChange }: HiddenFieldsPan
           <label className="block text-xs font-medium text-muted-foreground">
             {t('forms.studio.parameters.hidden.urlSnippet.label')}
           </label>
-          <div className="rounded-md border border-border bg-muted/30 px-2 py-1 font-mono text-[11px] text-muted-foreground break-all">
+          <div className="rounded-md border border-border bg-muted/30 px-2 py-1 font-mono text-xs text-muted-foreground break-all">
             {urlSnippet}
           </div>
         </div>

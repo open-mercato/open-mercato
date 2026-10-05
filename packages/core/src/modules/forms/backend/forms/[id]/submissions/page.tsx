@@ -113,9 +113,9 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
         if (summaryResp.ok && summaryResp.result) {
           setFormSummary(summaryResp.result)
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          flash(error instanceof Error ? error.message : t('forms.errors.internal'), 'error')
+          flash(t('forms.errors.internal'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -125,7 +125,7 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
     return () => {
       cancelled = true
     }
-  }, [formId, page, search, filterValues, reloadToken, scopeVersion])
+  }, [filterValues, formId, page, reloadToken, scopeVersion, search, t])
 
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
 
@@ -181,21 +181,21 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
                 }
                 if (badge.kind === 'multi_role') {
                   return (
-                    <Tag key={`multirole-${index}`} variant="info" aria-label="Multiple roles">
+                    <Tag key={`multirole-${index}`} variant="info" aria-label={t('forms.inbox.badges.multiple_roles')}>
                       <Users className="h-3 w-3" aria-hidden="true" />
                     </Tag>
                   )
                 }
                 if (badge.kind === 'pdf_available') {
                   return (
-                    <Tag key={`pdf-${index}`} variant="success" aria-label="PDF available">
+                    <Tag key={`pdf-${index}`} variant="success" aria-label={t('forms.inbox.badges.pdf_available')}>
                       <FileIcon className="h-3 w-3" aria-hidden="true" />
                     </Tag>
                   )
                 }
                 if (badge.kind === 'anonymized') {
                   return (
-                    <Tag key={`anon-${index}`} variant="error" aria-label="Anonymized">
+                    <Tag key={`anon-${index}`} variant="error" aria-label={t('forms.submission.status.anonymized')}>
                       <Lock className="h-3 w-3" aria-hidden="true" />
                     </Tag>
                   )
@@ -226,7 +226,7 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
         <DataTable
           title={
             formSummary?.form?.name
-              ? `${formSummary.form.name} · ${t('forms.inbox.title', { fallback: 'Submissions' })}`
+              ? `${formSummary.form.name} — ${t('forms.inbox.title', { fallback: 'Submissions' })}`
               : t('forms.inbox.title', { fallback: 'Submissions' })
           }
           columns={columns}

@@ -105,7 +105,7 @@ function ManagedRoleRow({ role, hint }: { role: string; hint: string }) {
   return (
     <li className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/30 px-2 py-1">
       <span className="shrink-0 font-mono text-xs text-foreground">{role}</span>
-      <span className="min-w-0 truncate text-[11px] text-muted-foreground">{hint}</span>
+      <span className="min-w-0 truncate text-xs text-muted-foreground">{hint}</span>
     </li>
   )
 }
@@ -185,7 +185,7 @@ export function RolesEditor({
         <span className="block text-xs font-medium text-foreground">
           {t('forms.studio.parameters.roles.custom.label')}
         </span>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {t('forms.studio.parameters.roles.custom.helper')}
         </p>
         <div className="flex items-center gap-2">

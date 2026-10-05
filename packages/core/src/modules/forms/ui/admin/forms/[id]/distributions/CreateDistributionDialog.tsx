@@ -74,11 +74,11 @@ export function CreateDistributionDialog({
   const [redirectUrl, setRedirectUrl] = React.useState('')
   const [completionTitle, setCompletionTitle] = React.useState('')
   const [completionMessage, setCompletionMessage] = React.useState('')
-  const [submitting, setSubmitting] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(false)
   const [createdLink, setCreatedLink] = React.useState<string | null>(null)
 
   const handleSubmit = React.useCallback(async () => {
-    if (submitting) return
+    if (isLoading) return
     const trimmedLocale = defaultLocale.trim()
     if (!trimmedLocale) {
       flash(t('forms.distribution.errors.locale_required'), 'error')
@@ -108,7 +108,7 @@ export function CreateDistributionDialog({
       settings,
     }
 
-    setSubmitting(true)
+    setIsLoading(true)
     try {
       await runMutation({
         operation: async () => {
@@ -144,7 +144,7 @@ export function CreateDistributionDialog({
     } catch {
       // flash already surfaced; keep dialog open for correction
     } finally {
-      setSubmitting(false)
+      setIsLoading(false)
     }
   }, [
     allowMultipleSubmissions,
@@ -160,7 +160,8 @@ export function CreateDistributionDialog({
     redirectUrl,
     requireCustomerAuth,
     runMutation,
-    submitting,
+    isLoading,
+    t,
     title,
   ])
 
@@ -186,7 +187,7 @@ export function CreateDistributionDialog({
       // fall through to error flash
     }
     flash(t('forms.distribution.copy.failed'), 'error')
-  }, [createdLink])
+  }, [createdLink, t])
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
@@ -388,7 +389,7 @@ export function CreateDistributionDialog({
               <Button type="button" variant="ghost" size="default" onClick={onClose}>
                 {t('forms.distribution.create.cancel', { fallback: 'Cancel' })}
               </Button>
-              <Button type="button" size="default" disabled={submitting} onClick={handleSubmit}>
+              <Button type="button" size="default" disabled={isLoading} onClick={handleSubmit}>
                 {t('forms.distribution.create.submit', { fallback: 'Create distribution' })}
               </Button>
             </DialogFooter>

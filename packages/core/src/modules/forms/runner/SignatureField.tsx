@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 export type SignatureCaptureMode = 'drawn' | 'typed'
 
@@ -37,7 +38,7 @@ export function SignatureCanvas({
     context.lineCap = 'round'
     context.lineJoin = 'round'
     context.lineWidth = 2
-    context.strokeStyle = '#111827'
+    context.strokeStyle = getComputedStyle(canvas).color
     return context
   }, [])
 
@@ -126,14 +127,16 @@ export function SignatureCanvas({
         onPointerLeave={handlePointerUp}
       />
       <div>
-        <button
+        <Button
           type="button"
+          variant="link"
+          size="2xs"
           disabled={disabled || !value}
           onClick={clear}
-          className="text-xs font-medium text-muted-foreground underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-auto px-0 py-0 text-xs text-muted-foreground"
         >
           {clearLabel}
-        </button>
+        </Button>
       </div>
     </div>
   )

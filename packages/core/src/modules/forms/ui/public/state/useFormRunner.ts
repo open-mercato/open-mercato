@@ -18,6 +18,7 @@ import { mergeOnConflict, useAutosave } from './useAutosave'
 import { createAuthRuntimeClient, type RuntimeClient } from './runtime-client'
 import { collectMissingRequired, deriveLogicState } from './logic-derivation'
 import type { LogicState } from '../../../services/form-logic-evaluator'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 const DEFAULT_AUTOSAVE_MS = (() => {
   const raw =
@@ -104,6 +105,7 @@ export type UseFormRunnerResult = {
 }
 
 export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
+  const t = useT()
   const {
     formKey,
     subjectType,
@@ -308,49 +310,6 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     setDirtyKey((prev) => prev + 1)
   }, [])
 
-  // ---------- Autosave flush ----------
-  const flushAutosave = useCallback(async () => {
-    if (flushingRef.current) return
-    if (!submission || !submissionRevision) return
-    if (Object.keys(dirtyFieldsRef.current).length === 0) return
-    flushingRef.current = true
-    setSaveState({ status: 'saving' })
-    const dirtySnapshot = { ...dirtyFieldsRef.current }
-    try {
-      const response = await client.save(submission.id, {
-        base_revision_id: submissionRevision.id,
-        patch: dirtySnapshot,
-      })
-      if (response.status === 409) {
-        await handleConflict()
-        return
-      }
-      if (response.status < 200 || response.status >= 300 || !response.result) {
-        throw new Error(`Failed to save (status ${response.status}).`)
-      }
-      const nextRevision = response.result.revision
-      setSubmissionRevision(nextRevision)
-      // Drop fields that just persisted from the dirty set (only those that
-      // didn't change again while the request was in flight).
-      const remaining: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(dirtyFieldsRef.current)) {
-        if (!shallowEqual(value, dirtySnapshot[key])) remaining[key] = value
-      }
-      dirtyFieldsRef.current = remaining
-      baseSnapshotRef.current = { ...baseSnapshotRef.current, ...dirtySnapshot }
-      const stamp = new Date().toISOString()
-      if (Object.keys(remaining).length > 0) {
-        setSaveState({ status: 'dirty' })
-      } else {
-        setSaveState({ status: 'saved', savedAt: stamp })
-      }
-    } catch (error) {
-      setSaveState({ status: 'error', message: extractErrorMessage(error) })
-    } finally {
-      flushingRef.current = false
-    }
-  }, [client, submission, submissionRevision])
-
   const handleConflict = useCallback(async () => {
     if (!submission) return
     try {
@@ -370,14 +329,55 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
       // After merge, treat dirty fields as still dirty so the next flush retries with the new base.
       dirtyFieldsRef.current = { ...merged.merged }
       const message = merged.conflictingKeys.length > 0
-        ? 'We refreshed the form to merge a change made elsewhere.'
-        : 'Refreshed to the latest version.'
+        ? t('forms.runner.save_indicator.conflict')
+        : t('forms.runner.save_indicator.refreshed')
       setSaveState({ status: 'conflict', message })
       setDirtyKey((prev) => prev + 1)
     } catch (error) {
       setSaveState({ status: 'error', message: extractErrorMessage(error) })
     }
-  }, [submission, loadSubmissionDetail])
+  }, [loadSubmissionDetail, submission, t])
+
+  // ---------- Autosave flush ----------
+  const flushAutosave = useCallback(async () => {
+    if (flushingRef.current) return
+    if (!submission || !submissionRevision) return
+    if (Object.keys(dirtyFieldsRef.current).length === 0) return
+    flushingRef.current = true
+    setSaveState({ status: 'saving' })
+    const dirtySnapshot = { ...dirtyFieldsRef.current }
+    try {
+      const response = await client.save(submission.id, {
+        base_revision_id: submissionRevision.id,
+        patch: dirtySnapshot,
+      })
+      if (response.status === 409) {
+        await handleConflict()
+        return
+      }
+      if (response.status < 200 || response.status >= 300 || !response.result) {
+        throw new Error(t('forms.runner.save.error'))
+      }
+      const nextRevision = response.result.revision
+      setSubmissionRevision(nextRevision)
+      const remaining: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(dirtyFieldsRef.current)) {
+        if (!shallowEqual(value, dirtySnapshot[key])) remaining[key] = value
+      }
+      dirtyFieldsRef.current = remaining
+      baseSnapshotRef.current = { ...baseSnapshotRef.current, ...dirtySnapshot }
+      const stamp = new Date().toISOString()
+      if (Object.keys(remaining).length > 0) {
+        setSaveState({ status: 'dirty' })
+      } else {
+        setSaveState({ status: 'saved', savedAt: stamp })
+      }
+    } catch (error) {
+      setSaveState({ status: 'error', message: extractErrorMessage(error) })
+    } finally {
+      flushingRef.current = false
+    }
+  }, [client, handleConflict, submission, submissionRevision, t])
 
   useAutosave({
     dirtyKey,
@@ -452,7 +452,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
         return
       }
       if (response.status < 200 || response.status >= 300 || !response.result) {
-        throw new Error(`Failed to submit (status ${response.status}).`)
+        throw new Error(t('forms.runner.submit.error'))
       }
       setSubmission(response.result.submission)
       setStage('completed')
@@ -460,7 +460,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
       setSaveState({ status: 'error', message: extractErrorMessage(error) })
       setStage('review')
     }
-  }, [client, submission, submissionRevision, flushAutosave, locale, handleConflict])
+  }, [client, flushAutosave, handleConflict, locale, submission, submissionRevision, t])
 
   // Keep a ref to the latest submission revision so `submit` can read the
   // post-flush id without re-binding the callback.

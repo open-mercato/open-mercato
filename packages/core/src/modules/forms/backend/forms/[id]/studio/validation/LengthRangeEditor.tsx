@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type LengthRangeEditorProps = {
@@ -20,6 +21,8 @@ function parseIntOrNull(value: string): number | null {
 
 export function LengthRangeEditor({ min, max, onChange }: LengthRangeEditorProps) {
   const t = useT()
+  const minId = React.useId()
+  const maxId = React.useId()
   return (
     <div className="space-y-2">
       <span className="text-xs font-medium text-muted-foreground">
@@ -27,10 +30,11 @@ export function LengthRangeEditor({ min, max, onChange }: LengthRangeEditorProps
       </span>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <label className="block text-xs text-muted-foreground">
+          <Label htmlFor={minId} className="block text-xs text-muted-foreground">
             {t('forms.studio.validation.length.min')}
-          </label>
+          </Label>
           <Input
+            id={minId}
             type="number"
             inputMode="numeric"
             min={0}
@@ -42,10 +46,11 @@ export function LengthRangeEditor({ min, max, onChange }: LengthRangeEditorProps
           />
         </div>
         <div className="space-y-1">
-          <label className="block text-xs text-muted-foreground">
+          <Label htmlFor={maxId} className="block text-xs text-muted-foreground">
             {t('forms.studio.validation.length.max')}
-          </label>
+          </Label>
           <Input
+            id={maxId}
             type="number"
             inputMode="numeric"
             min={0}

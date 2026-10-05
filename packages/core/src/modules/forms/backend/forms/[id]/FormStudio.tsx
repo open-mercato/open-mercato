@@ -15,7 +15,6 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { gridKeyboardCoordinates } from './studio/canvas/keyboard-coordinates'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -32,12 +31,14 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { FormPalettePanel } from './studio/palette/FormPalettePanel'
 import { FormAppearancePanel } from './studio/palette/FormAppearancePanel'
 import { PALETTE_DRAGGABLE_PREFIX } from './studio/palette/PaletteCard'
@@ -321,6 +322,7 @@ function autosaveDebounce<TArgs extends unknown[]>(fn: (...args: TArgs) => void,
 
 export function FormStudio({ formId }: { formId: string }) {
   const t = useT()
+  const { runMutation } = useGuardedMutation({ contextId: 'forms.form.studio' })
   const router = useRouter()
 
   const [form, setForm] = React.useState<FormDetail | null>(null)
@@ -371,7 +373,7 @@ export function FormStudio({ formId }: { formId: string }) {
     setLoadError(null)
     const formCall = await apiCall<FormDetail>(`/api/forms/${encodeURIComponent(formId)}`)
     if (!formCall.ok || !formCall.result) {
-      setLoadError('forms.errors.form_not_found')
+      setLoadError(formCall.status === 404 ? 'forms.errors.form_not_found' : 'forms.errors.internal')
       setIsLoading(false)
       return
     }
@@ -384,10 +386,14 @@ export function FormStudio({ formId }: { formId: string }) {
 
     if (!draft) {
       // No draft yet — fork one automatically so the studio always has a draft.
-      const forkCall = await apiCall<{ versionId: string }>(
-        `/api/forms/${encodeURIComponent(formId)}/versions/fork`,
-        { method: 'POST', body: JSON.stringify({}) },
-      )
+      const forkCall = await runMutation({
+        operation: () => apiCall<{ versionId: string }>(
+          `/api/forms/${encodeURIComponent(formId)}/versions/fork`,
+          { method: 'POST', body: JSON.stringify({}) },
+        ),
+        context: { formId },
+        mutationPayload: { formId },
+      })
       if (forkCall.ok && forkCall.result?.versionId) {
         const refresh = await apiCall<FormDetail>(`/api/forms/${encodeURIComponent(formId)}`)
         if (refresh.ok && refresh.result) {
@@ -416,7 +422,7 @@ export function FormStudio({ formId }: { formId: string }) {
       undoController.clear()
     }
     setIsLoading(false)
-  }, [formId, undoController])
+  }, [formId, runMutation, undoController])
 
   React.useEffect(() => {
     void reload()
@@ -440,13 +446,17 @@ export function FormStudio({ formId }: { formId: string }) {
   const persistDraftRaw = React.useCallback(async (next: FormSchema) => {
     if (!draftVersionId) return
     setAutosaveState('saving')
-    const call = await apiCall(
-      `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(draftVersionId)}`,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({ schema: next }),
-      },
-    )
+    const call = await runMutation({
+      operation: () => apiCall(
+        `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(draftVersionId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ schema: next }),
+        },
+      ),
+      context: { formId, versionId: draftVersionId },
+      mutationPayload: { formId, versionId: draftVersionId },
+    })
     if (!call.ok) {
       setAutosaveState('error')
       const errPayload = call.result as { error?: string } | undefined
@@ -460,7 +470,7 @@ export function FormStudio({ formId }: { formId: string }) {
       `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(draftVersionId)}`,
     )
     if (refreshed.ok && refreshed.result) setVersion(refreshed.result)
-  }, [draftVersionId, formId])
+  }, [draftVersionId, formId, runMutation, t])
 
   const autosaveGuard = React.useMemo(
     () =>
@@ -471,7 +481,7 @@ export function FormStudio({ formId }: { formId: string }) {
           flash(t('forms.studio.autosave.invalidSchema'), 'error')
         },
       }),
-    [persistDraftRaw],
+    [persistDraftRaw, t],
   )
 
   const persistDraft = React.useMemo(
@@ -756,7 +766,7 @@ export function FormStudio({ formId }: { formId: string }) {
         logger.warn('field-type swap failed', { err: error })
       }
     },
-    [updateSchemaStructural],
+    [t, updateSchemaStructural],
   )
 
   const handleDensityChange = React.useCallback(
@@ -808,7 +818,7 @@ export function FormStudio({ formId }: { formId: string }) {
     persistDraft(previous.schema)
     setUndoNonce((current) => current + 1)
     flash(t('forms.studio.undo.toast.undone'), 'success')
-  }, [persistDraft, undoController])
+  }, [persistDraft, t, undoController])
 
   const handleRedo = React.useCallback(() => {
     const next = undoController.redo({
@@ -822,7 +832,7 @@ export function FormStudio({ formId }: { formId: string }) {
     persistDraft(next.schema)
     setUndoNonce((current) => current + 1)
     flash(t('forms.studio.undo.toast.redone'), 'success')
-  }, [persistDraft, undoController])
+  }, [persistDraft, t, undoController])
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1178,7 +1188,7 @@ export function FormStudio({ formId }: { formId: string }) {
         logger.warn('reorder failed', { err: error })
       }
     }
-  }, [persistDraft, resolveDropPosition, undoController])
+  }, [persistDraft, resolveDropPosition, t, undoController])
 
   const handleDragCancel = React.useCallback(() => {
     setActiveDragId(null)
@@ -1294,16 +1304,20 @@ export function FormStudio({ formId }: { formId: string }) {
   const persistFormPatch = React.useMemo(
     () =>
       autosaveDebounce(async (payload: { name?: string; description?: string | null }) => {
-        const call = await apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
+        const call = await runMutation({
+          operation: () => apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          }),
+          context: { formId },
+          mutationPayload: { formId, ...payload },
         })
         if (!call.ok) {
           const errPayload = call.result as { error?: string } | undefined
           flash(t(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
         }
       }, 1000),
-    [formId],
+    [formId, runMutation, t],
   )
 
   const handleNameChange = React.useCallback((nextName: string) => {
@@ -1330,9 +1344,13 @@ export function FormStudio({ formId }: { formId: string }) {
       setActiveLocale((current) =>
         payload.supportedLocales.includes(current) ? current : payload.defaultLocale,
       )
-      const call = await apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
+      const call = await runMutation({
+        operation: () => apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        }),
+        context: { formId },
+        mutationPayload: { formId, ...payload },
       })
       if (!call.ok) {
         const errPayload = call.result as { error?: string } | undefined
@@ -1340,7 +1358,7 @@ export function FormStudio({ formId }: { formId: string }) {
         await reload()
       }
     },
-    [formId, reload],
+    [formId, reload, runMutation, t],
   )
 
   const handleAddLocale = React.useCallback(
@@ -1463,28 +1481,27 @@ export function FormStudio({ formId }: { formId: string }) {
   }, [schema])
 
   if (isLoading) {
+    return <LoadingMessage label={t('forms.studio.title')} />
+  }
+  if (loadError === 'forms.errors.form_not_found') {
     return (
-      <Page>
-        <PageBody>
-          <LoadingMessage label={t('forms.studio.title')} />
-        </PageBody>
-      </Page>
+      <RecordNotFoundState
+        label={t(loadError)}
+        backHref="/backend/forms"
+        backLabel={t('forms.list.title')}
+      />
     )
   }
   if (loadError || !form) {
     return (
-      <Page>
-        <PageBody>
-          <ErrorMessage
-            label={t(loadError ?? 'forms.errors.internal')}
-            action={(
-              <Button asChild variant="outline">
-                <Link href="/backend/forms">{t('forms.list.title')}</Link>
-              </Button>
-            )}
-          />
-        </PageBody>
-      </Page>
+      <ErrorMessage
+        label={t(loadError ?? 'forms.errors.internal')}
+        action={(
+          <Button asChild variant="outline">
+            <Link href="/backend/forms">{t('forms.list.title')}</Link>
+          </Button>
+        )}
+      />
     )
   }
 
@@ -1525,8 +1542,7 @@ export function FormStudio({ formId }: { formId: string }) {
   }
 
   return (
-    <Page>
-      <PageBody>
+    <>
         <div
           role="status"
           aria-live="polite"
@@ -1540,7 +1556,7 @@ export function FormStudio({ formId }: { formId: string }) {
             <h1 className="text-xl font-semibold text-foreground">{form.name}</h1>
             <p className="text-sm text-muted-foreground">
               <span className="font-mono">{form.key}</span>
-              <span className="mx-2">·</span>
+              <span className="mx-2">—</span>
               <span>{t('forms.studio.schemaHashLabel')}: <span className="font-mono">{(version?.schemaHash ?? '').slice(0, 12) || '—'}</span></span>
             </p>
           </div>
@@ -1550,7 +1566,7 @@ export function FormStudio({ formId }: { formId: string }) {
                 <Globe className="size-4 text-muted-foreground" aria-hidden="true" />
                 <Select value={activeLocale} onValueChange={setActiveLocale}>
                   <SelectTrigger
-                    className="h-8 w-[88px]"
+                    className="h-8 w-24"
                     aria-label={t('forms.studio.locale_switcher.label')}
                   >
                     <SelectValue />
@@ -1717,7 +1733,7 @@ export function FormStudio({ formId }: { formId: string }) {
                     <summary className="cursor-pointer text-xs font-medium uppercase text-muted-foreground">
                       {t('forms.studio.compiledJson')}
                     </summary>
-                    <pre className="mt-2 max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-xs">
+                    <pre className="mt-2 max-h-72 overflow-auto rounded-md border border-border bg-muted/30 p-2 text-xs">
                       {selectedField
                         ? stableJsonStringify(selectedField)
                         : selectedSectionNode
@@ -1843,8 +1859,7 @@ export function FormStudio({ formId }: { formId: string }) {
           />
         )}
         {ConfirmDialogElement}
-      </PageBody>
-    </Page>
+    </>
   )
 }
 
@@ -1875,10 +1890,7 @@ function SectionPropertiesPanel(props: SectionPropertiesPanelProps) {
   }
   const isEnding = section.kind === 'ending'
   const isPage = section.kind === 'page'
-  const sourceOptions = React.useMemo(
-    () => buildFieldSourceOptions(schema, activeLocale, t),
-    [schema, activeLocale, t],
-  )
+  const sourceOptions = buildFieldSourceOptions(schema, activeLocale, t)
   return (
     <Tabs value={tab} onValueChange={(next) => setTab(next as 'style' | 'appearance' | 'logic')}>
       <TabsList className="w-full justify-stretch">
@@ -3149,17 +3161,22 @@ type PublishDialogProps = {
 function PublishDialog({ formId, versionId, onClose, onPublished, t }: PublishDialogProps) {
   const [changelog, setChangelog] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  const { runMutation } = useGuardedMutation({ contextId: 'forms.form.publish' })
 
   const submit = React.useCallback(async () => {
     if (busy) return
     setBusy(true)
-    const call = await apiCall<{ versionId: string }>(
-      `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(versionId)}/publish`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ changelog: changelog.trim() || null }),
-      },
-    )
+    const call = await runMutation({
+      operation: () => apiCall<{ versionId: string }>(
+        `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(versionId)}/publish`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ changelog: changelog.trim() || null }),
+        },
+      ),
+      context: { formId, versionId },
+      mutationPayload: { formId, versionId },
+    })
     setBusy(false)
     if (!call.ok) {
       const errPayload = call.result as { error?: string } | undefined
@@ -3167,7 +3184,7 @@ function PublishDialog({ formId, versionId, onClose, onPublished, t }: PublishDi
       return
     }
     onPublished()
-  }, [busy, changelog, formId, versionId, onPublished])
+  }, [busy, changelog, formId, onPublished, runMutation, t, versionId])
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
@@ -3182,11 +3199,11 @@ function PublishDialog({ formId, versionId, onClose, onPublished, t }: PublishDi
         <DialogHeader>
           <DialogTitle>{t('forms.version.publish.title')}</DialogTitle>
         </DialogHeader>
-        <Alert variant="warning">{t('forms.version.publish.reassurance')}</Alert>
+        <Alert status="warning" style="light">{t('forms.version.publish.reassurance')}</Alert>
         <div>
-          <label htmlFor="forms-publish-changelog" className="mb-1 block text-sm font-medium">
+          <Label htmlFor="forms-publish-changelog" className="mb-1 block text-sm font-medium">
             {t('forms.version.publish.changelog')}
-          </label>
+          </Label>
           <Textarea
             id="forms-publish-changelog"
             rows={4}

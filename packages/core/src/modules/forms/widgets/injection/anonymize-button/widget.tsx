@@ -52,14 +52,14 @@ export function AnonymizeButtonWidget({ context }: AnonymizeButtonProps) {
   const isAnonymized = context?.isAnonymized === true
   const [open, setOpen] = React.useState(false)
   const [confirmText, setConfirmText] = React.useState('')
-  const [submitting, setSubmitting] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(false)
   const { runMutation } = useGuardedMutation({ contextId: 'forms.submission.anonymize' })
 
-  const canSubmit = confirmText === CONFIRM_TOKEN && !submitting && !!submissionId
+  const canSubmit = confirmText === CONFIRM_TOKEN && !isLoading && !!submissionId
 
   const handleSubmit = React.useCallback(async () => {
     if (!submissionId || confirmText !== CONFIRM_TOKEN) return
-    setSubmitting(true)
+    setIsLoading(true)
     try {
       await runMutation({
         operation: () =>
@@ -84,7 +84,7 @@ export function AnonymizeButtonWidget({ context }: AnonymizeButtonProps) {
     } catch {
       flash(t('forms.compliance.anonymize.failed', { fallback: 'Failed to anonymize submission.' }), 'error')
     } finally {
-      setSubmitting(false)
+      setIsLoading(false)
     }
   }, [confirmText, runMutation, submissionId, t])
 
@@ -112,7 +112,7 @@ export function AnonymizeButtonWidget({ context }: AnonymizeButtonProps) {
         onClick={() => setOpen(true)}
         data-forms-anonymize-trigger=""
       >
-        <Trash2 className="mr-1 h-4 w-4 text-status-error-text" aria-hidden="true" />
+        <Trash2 className="mr-1 h-4 w-4 text-destructive" aria-hidden="true" />
         {t('forms.compliance.anonymize.action', { fallback: 'Anonymize' })}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

@@ -88,7 +88,7 @@ export function CompletionScreen({
       ) : null}
 
       {pdfError ? (
-        <Alert variant="destructive" className="text-left">
+        <Alert status="error" style="light" className="text-left">
           <AlertDescription>{pdfError}</AlertDescription>
         </Alert>
       ) : null}

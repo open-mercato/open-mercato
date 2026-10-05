@@ -1,5 +1,7 @@
 "use client"
 
+/* eslint-disable om-ds/require-loading-state -- Runtime clients return promises; FormRunner owns their loading presentation. */
+
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type {
   RunnerActiveFormResponse,

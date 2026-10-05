@@ -215,7 +215,7 @@ export function EmbeddedForm({ source, onReturnHome, className }: EmbeddedFormPr
 
   if (state.phase === 'error') {
     return (
-      <Alert variant="destructive">
+      <Alert status="error" style="light">
         <AlertTitle>{t('forms.public.error.title', { fallback: 'Something went wrong' })}</AlertTitle>
         <AlertDescription>{state.message}</AlertDescription>
       </Alert>

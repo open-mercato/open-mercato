@@ -60,7 +60,7 @@ export function FormRunner({
   const [answers, setAnswers] = React.useState<Record<string, unknown>>({})
   const [pageIndex, setPageIndex] = React.useState(0)
   const [endingKey, setEndingKey] = React.useState<string | null>(null)
-  const [submitting, setSubmitting] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState(false)
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [submitted, setSubmitted] = React.useState(false)
 
@@ -77,7 +77,7 @@ export function FormRunner({
     setAnswers((current) => ({ ...current, [fieldKey]: value }))
   }, [])
 
-  const handleNext = React.useCallback(async () => {
+  async function handleNext() {
     if (!currentPage) return
     const currentPageKey = currentPage.sectionKeys.find((key) => sections.find((s) => s.key === key && (s.kind === 'page' || s.kind === undefined))) ?? currentPage.sectionKeys[0]
     if (!currentPageKey) return
@@ -103,10 +103,10 @@ export function FormRunner({
       return
     }
     setPageIndex((current) => Math.min(pages.length - 1, current + 1))
-  }, [currentPage, isLastPage, pages, sections, state])
+  }
 
   const submitToServer = async (claimedEndingKey: string | null) => {
-    setSubmitting(true)
+    setIsLoading(true)
     setSubmitError(null)
     try {
       const endpoint = submitEndpoint ?? `/api/forms/${encodeURIComponent(formId)}/run/submissions`
@@ -135,7 +135,7 @@ export function FormRunner({
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : t('forms.runner.submit.error'))
     } finally {
-      setSubmitting(false)
+      setIsLoading(false)
     }
   }
 
@@ -182,7 +182,7 @@ export function FormRunner({
 
   return (
     <div className="space-y-4">
-      {submitError ? <Alert variant="destructive">{submitError}</Alert> : null}
+      {submitError ? <Alert status="error" style="light">{submitError}</Alert> : null}
       {visibleSections.map((section) => {
         const title = state.resolveRecall(section.title as Record<string, string>, locale)
         return (
@@ -220,7 +220,7 @@ export function FormRunner({
         >
           {t('forms.runner.actions.back')}
         </Button>
-        <Button type="button" onClick={handleNext} disabled={submitting}>
+        <Button type="button" onClick={handleNext} disabled={isLoading}>
           {isLastPage ? t('forms.runner.actions.submit') : t('forms.runner.actions.next')}
         </Button>
       </div>
@@ -428,7 +428,7 @@ function FieldRunnerRow({ fieldKey, node, value, onChange, state, locale, requir
             return (
               <Select value={typeof value === 'string' ? value : undefined} onValueChange={(next) => onChange(next)}>
                 <SelectTrigger id={`runner-${fieldKey}`}>
-                  <SelectValue placeholder="Select…" />
+                  <SelectValue placeholder={t('forms.runner.field.selectPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {options.map((option) => (
@@ -634,7 +634,7 @@ function FormatRunnerInput({
         onBlur={handleBlur}
       />
       {error ? (
-        <Alert variant="destructive" className="px-3 py-2 text-xs">
+        <Alert status="error" style="light" className="px-3 py-2 text-xs">
           {error}
         </Alert>
       ) : null}
@@ -692,20 +692,20 @@ function NpsRunnerInput({ node, value, onChange, locale }: NpsRunnerInputProps) 
           const selected = currentValue === entry
           const ringClass = selected ? ' ring-2 ring-primary' : ''
           return (
-            <button
+            <Button
               key={entry}
               type="button"
+              variant="outline"
               onClick={() => onChange(entry)}
               aria-pressed={selected}
               className={
-                'h-11 w-11 rounded-md border text-sm font-medium transition-colors '
-                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
+                'h-11 w-11 px-0 text-sm font-medium tabular-nums '
                 + npsRunnerBandClass(entry)
                 + ringClass
               }
             >
               {entry}
-            </button>
+            </Button>
           )
         })}
       </div>
@@ -751,19 +751,19 @@ function OpinionScaleRunnerInput({ node, value, onChange }: OpinionScaleRunnerIn
             : currentValue === entry
           const iconClass = filled ? 'fill-current text-primary' : 'text-muted-foreground'
           return (
-            <button
+            <Button
               key={entry}
               type="button"
+              variant="outline"
               onClick={() => onChange(entry)}
               aria-pressed={filled}
               className={
-                'inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-background transition-colors '
-                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
+                'h-11 w-11 px-0 '
                 + (filled ? 'border-primary' : 'hover:border-primary')
               }
             >
-              <IconComponent aria-hidden="true" className={`size-7 ${iconClass}`} />
-            </button>
+              <IconComponent aria-hidden="true" className={`size-6 ${iconClass}`} />
+            </Button>
           )
         })}
       </div>

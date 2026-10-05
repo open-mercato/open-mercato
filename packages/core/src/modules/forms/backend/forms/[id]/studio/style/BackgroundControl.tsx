@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import type { OmBackground, OmBackgroundKind, OmColor } from '../../../../../schema/style-extensions'
 import { ColorControl } from './ColorControl'
+import { Label } from '@open-mercato/ui/primitives/label'
 
 export type BackgroundControlProps = {
   value?: OmBackground
@@ -42,6 +43,9 @@ function clampAngle(raw: string): number | null {
 
 export function BackgroundControl({ value, onChange, label }: BackgroundControlProps) {
   const t = useT()
+  const controlId = React.useId()
+  const kindId = `${controlId}-kind`
+  const angleId = `${controlId}-angle`
   const kind: OmBackgroundKind = value?.kind ?? 'none'
 
   const handleKindChange = React.useCallback(
@@ -66,14 +70,14 @@ export function BackgroundControl({ value, onChange, label }: BackgroundControlP
   return (
     <div className="space-y-2">
       <div className="space-y-1">
-        <label
-          htmlFor="forms-studio-bg-kind"
+        <Label
+          htmlFor={kindId}
           className="block text-sm font-medium text-foreground"
         >
           {label}
-        </label>
+        </Label>
         <Select value={kind} onValueChange={(next) => handleKindChange(next as OmBackgroundKind)}>
-          <SelectTrigger id="forms-studio-bg-kind">
+          <SelectTrigger id={kindId}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -105,14 +109,14 @@ export function BackgroundControl({ value, onChange, label }: BackgroundControlP
             onChange={(next) => onChange({ ...value, to: next ?? DEFAULT_TO })}
           />
           <div className="space-y-1">
-            <label
-              htmlFor="forms-studio-bg-angle"
+            <Label
+              htmlFor={angleId}
               className="block text-sm font-medium text-foreground"
             >
               {t('forms.studio.style.background.angle', 'Angle (deg)')}
-            </label>
+            </Label>
             <Input
-              id="forms-studio-bg-angle"
+              id={angleId}
               type="number"
               min={0}
               max={360}
