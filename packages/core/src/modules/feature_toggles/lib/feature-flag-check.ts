@@ -134,10 +134,12 @@ export class FeatureTogglesService {
   }
 
   public async invalidateIsEnabledCacheByIdentifierTag(identifier: string) {
+    if (this.cacheDisabled) return
     await this.cache.deleteByTags([getIdentifierTag(identifier)])
   }
 
   public async invalidateIsEnabledCacheByKey(identifier: string, tenantId: string) {
+    if (this.cacheDisabled) return
     await runWithCacheTenant(tenantId, () => this.cache.delete(getIsEnabledCacheKey(identifier, tenantId)))
   }
 
