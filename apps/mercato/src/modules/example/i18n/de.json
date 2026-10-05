@@ -208,6 +208,7 @@
   "example.priority.column": "Beispielpriorität",
   "example.priority.critical": "Kritisch",
   "example.priority.detail.description": "Priorität für diesen Kundeneintrag festlegen.",
+  "example.priority.detail.error.createSave": "Der Datensatz wurde erstellt, aber seine Priorität konnte nicht gespeichert werden. Öffnen Sie den Datensatz, um es erneut zu versuchen.",
   "example.priority.detail.error.load": "Priorität konnte nicht geladen werden.",
   "example.priority.detail.error.save": "Priorität konnte nicht gespeichert werden.",
   "example.priority.detail.label": "Kundenpriorität",

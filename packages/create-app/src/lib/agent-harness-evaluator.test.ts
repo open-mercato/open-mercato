@@ -1032,7 +1032,11 @@ if (!prompt.includes('Read every required routed guide and skill before this evi
   || !prompt.includes('query="detail:customers."')
   || !args.some((entry) => entry.includes(${JSON.stringify(`${materializedRoot}/**`)}))) process.exit(10)
 for (const entry of ${JSON.stringify(frameworkEvidence)}) {
-  if (!fs.readFileSync(entry, 'utf8').includes(entry.endsWith('manifest.json') ? 'materializedSource' : entry.endsWith('search.txt') ? 'detail:customers.' : 'detail:customers.')) process.exit(11)
+  const content = fs.readFileSync(entry, 'utf8')
+  const expectedContent = entry.endsWith('manifest.json') ? 'materializedSource' : 'detail:customers.'
+  const hasDeclaredTabHost = entry === ${JSON.stringify(fallbackSource)}
+    && content.includes('extensionPoints.hosts.personTabs.spotId')
+  if (!content.includes(expectedContent) && !hasDeclaredTabHost) process.exit(11)
 }
 const selectedContext = ${JSON.stringify([...guidance, ...frameworkEvidence])}
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({

@@ -142,6 +142,7 @@ jest.mock('../../../../../components/detail/DealDetailHeader', () => ({
 }))
 
 jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
+  DEAL_DETAIL_TAB_IDS: ['activities', 'people', 'companies', 'notes', 'files', 'changelog'],
   resolveLegacyTab: (tab?: string | null, knownTabIds?: Iterable<string>) => {
     if (tab === 'activities' || tab === 'people' || tab === 'companies' || tab === 'notes' || tab === 'files' || tab === 'changelog') {
       return tab

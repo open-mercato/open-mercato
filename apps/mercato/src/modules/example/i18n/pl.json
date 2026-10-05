@@ -208,6 +208,7 @@
   "example.priority.column": "Priorytet przykładowy",
   "example.priority.critical": "Krytyczny",
   "example.priority.detail.description": "Ustaw priorytet dla tego rekordu klienta.",
+  "example.priority.detail.error.createSave": "Rekord został utworzony, ale nie udało się zapisać jego priorytetu. Otwórz rekord, aby spróbować ponownie.",
   "example.priority.detail.error.load": "Nie udało się załadować priorytetu.",
   "example.priority.detail.error.save": "Nie udało się zapisać priorytetu.",
   "example.priority.detail.label": "Priorytet klienta",
