@@ -11,3 +11,9 @@
 ## 2026-10-05T11:02:21Z — Step 1.5 scope decision: no ancestor inheritance for assortment scope
 - customer-groups spec §6.4 and visibility spec §3.1 define the union over "each currently-matching group's own scope" and say nothing about walking parent groups (the §6.1 ancestor walk is stated for the scalar terms only). `resolveAssortmentScope` therefore reads each matching group's OWN terms row only (`loadGroupOwnAssortmentScope`); a parent's scope is not inherited. A matching group with no terms row, a null scope, or a scope whose lists are all empty contributes `null` (unrestricted), which makes the union unrestricted per `unionScopes`.
 - Not in this step: catalog existence check for category/tag ids (US-A1 inline error) — belongs with the pickers (Step 7.10) or a later validation pass.
+
+## 2026-10-05T11:05:17Z — checkpoint 1 (steps 1.1–1.6)
+- Phase 1 prerequisites green: typecheck shared+core, 53 shared + 1051 core tests.
+- Decision: Tasks-table Commit cells are back-filled by the following commit (a commit cannot embed its own SHA).
+- Decision: unrelated wms snapshot drift from `yarn db:generate` is discarded each time; catalog/customer_groups snapshots hand-limited to the intended entries.
+- Note (minor, for final review): `hashEffectiveScope` uses node:crypto and is exported from the catalog-visibility barrel; client imports of that barrel would pull it in.

@@ -26,7 +26,7 @@
 | 1 | 1.3 | Catalog price-row index migration (pricing-engine Phase 2b) | inline | done | 28e2ca0f38 |
 | 1 | 1.4 | customer_groups multi-id resolution (customerIds input) | dispatch:capable | done | 8904e86e46 |
 | 1 | 1.5 | customer_groups CustomerGroupTerms.assortment_scope column + stub replacement | dispatch:standard | done | fe885074f9 |
-| 1 | 1.6 | Generate + review customer_groups assortment_scope migration | inline | done | pending |
+| 1 | 1.6 | Generate + review customer_groups assortment_scope migration | inline | done | 068dda8806 |
 | 2 | 2.1 | Scaffold ecommerce module (index, acl, setup, di, events, i18n, modules.ts) | inline | todo | — |
 | 2 | 2.2 | ecommerce entities + validators | dispatch:standard | todo | — |
 | 2 | 2.3 | Generate + review ecommerce migration | inline | todo | — |
