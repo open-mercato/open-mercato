@@ -313,6 +313,46 @@ describe('PUT /api/customer-groups/[id]/terms', () => {
     const res = await PUT(jsonRequest({ paymentTermsDays: 5 }), routeCtx())
     expect(res).toBe(blockedResponse)
   })
+  it('stores and returns an assortment scope on create', async () => {
+    const CATEGORY_ID = '77777777-7777-4777-8777-777777777777'
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    setupContainer(em)
+
+    const res = await PUT(jsonRequest({ assortmentScope: { categoryIds: [CATEGORY_ID] } }), routeCtx())
+
+    expect(res.status).toBe(200)
+    expect(em.create).toHaveBeenCalledWith(
+      CustomerGroupTerms,
+      expect.objectContaining({ assortmentScope: { categoryIds: [CATEGORY_ID] } }),
+    )
+    const body = await res.json()
+    expect(body.terms.assortmentScope).toEqual({ categoryIds: [CATEGORY_ID] })
+  })
+
+  it('clears the assortment scope on update and keeps it when omitted', async () => {
+    const TAG_ID = '88888888-8888-4888-8888-888888888888'
+    const lockHeader = { [OPTIMISTIC_LOCK_HEADER_NAME]: existingTerms.updatedAt!.toISOString() }
+    setupContainer(createFakeEm({ group: existingGroup, terms: { ...existingTerms, assortmentScope: { tagIds: [TAG_ID] } } }))
+
+    const keptRes = await PUT(jsonRequest({ paymentTermsDays: 45 }, lockHeader), routeCtx())
+    expect((await keptRes.json()).terms.assortmentScope).toEqual({ tagIds: [TAG_ID] })
+
+    setupContainer(createFakeEm({ group: existingGroup, terms: { ...existingTerms, assortmentScope: { tagIds: [TAG_ID] } } }))
+    const clearedRes = await PUT(jsonRequest({ assortmentScope: null }, lockHeader), routeCtx())
+    expect(clearedRes.status).toBe(200)
+    expect((await clearedRes.json()).terms.assortmentScope).toBeNull()
+  })
+
+  it('answers 400 for an assortment scope carrying allOf', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    setupContainer(em)
+
+    const res = await PUT(jsonRequest({ assortmentScope: { allOf: [{ categoryIds: [] }] } }), routeCtx())
+
+    expect(res.status).toBe(400)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('answers 400 for a non-uuid priceKindId without querying the price kind', async () => {
     const em = createFakeEm({ group: existingGroup, terms: null })
     setupContainer(em)

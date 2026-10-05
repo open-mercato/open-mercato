@@ -7,3 +7,7 @@
 - External skill URLs: none
 - Decisions: owner override — reuse PR #12 and its branch instead of feat/release-3-storefront-read-side; Phase 0 already done (8040682f1a). Owner added Omnibus to this PR (D11); authoritative spec = 2026-06-30-omnibus-price-tracking.md (it supersedes SPEC-033), MVP Phases 1–3 only.
 - Repo guard: all pushes to remote `fork`; all gh commands with --repo adeptofvoltron/open-mercato; upstream read-only.
+
+## 2026-10-05T11:02:21Z — Step 1.5 scope decision: no ancestor inheritance for assortment scope
+- customer-groups spec §6.4 and visibility spec §3.1 define the union over "each currently-matching group's own scope" and say nothing about walking parent groups (the §6.1 ancestor walk is stated for the scalar terms only). `resolveAssortmentScope` therefore reads each matching group's OWN terms row only (`loadGroupOwnAssortmentScope`); a parent's scope is not inherited. A matching group with no terms row, a null scope, or a scope whose lists are all empty contributes `null` (unrestricted), which makes the union unrestricted per `unionScopes`.
+- Not in this step: catalog existence check for category/tag ids (US-A1 inline error) — belongs with the pickers (Step 7.10) or a later validation pass.

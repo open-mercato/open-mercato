@@ -102,14 +102,22 @@ export interface CustomerGroupsService {
   resolveAssortmentScope(input: ResolveAssortmentScopeInput): Promise<ResolvedAssortmentScope>
 }
 
-// Phase 1's `CustomerGroup` entity has no `assortment_scope`-shaped column yet — the spec's
-// full field list places it on `CustomerGroupTerms`, but that was deliberately withheld from
-// this PR's Step 2.1 entity (Phase 5 scope, spec §14 non-goals). Every matching group
-// therefore contributes an unrestricted (`null`) own-scope for now. Once a real column
-// exists, replace this stub's body with a read of it — `resolveAssortmentScope`'s
-// `unionScopes` composition below needs no changes to start returning real restrictions.
-function groupOwnAssortmentScope(_groupId: string): AssortmentScope | null {
-  return null
+const AUTHORED_ASSORTMENT_SCOPE_KEYS = [
+  'categoryIds',
+  'tagIds',
+  'excludeProductIds',
+  'excludeCategoryIds',
+  'excludeTagIds',
+] as const
+
+export function normalizeAuthoredAssortmentScope(scope: AssortmentScope | null | undefined): AssortmentScope | null {
+  if (!scope) return null
+  const normalized: AssortmentScope = {}
+  for (const key of AUTHORED_ASSORTMENT_SCOPE_KEYS) {
+    const ids = scope[key]
+    if (Array.isArray(ids) && ids.length > 0) normalized[key] = ids
+  }
+  return Object.keys(normalized).length > 0 ? normalized : null
 }
 
 async function loadGroupCached(
@@ -368,8 +376,22 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
 
   async resolveAssortmentScope(input: ResolveAssortmentScopeInput): Promise<ResolvedAssortmentScope> {
     const { groupIds } = await this.resolveGroups(input)
-    const scope = unionScopes(groupIds.map((groupId) => groupOwnAssortmentScope(groupId)))
+    const termsCache = new Map<string, CustomerGroupTerms | null>()
+    const groupOwnScopes: Array<AssortmentScope | null> = []
+    for (const groupId of groupIds) {
+      groupOwnScopes.push(await this.loadGroupOwnAssortmentScope(groupId, input.tenantId, termsCache))
+    }
+    const scope = unionScopes(groupOwnScopes)
     return { scope, sourceGroupIds: groupIds, sourceCustomerOverrideId: null }
+  }
+
+  private async loadGroupOwnAssortmentScope(
+    groupId: string,
+    tenantId: string,
+    termsCache: Map<string, CustomerGroupTerms | null>,
+  ): Promise<AssortmentScope | null> {
+    const terms = await this.loadTerms(groupId, tenantId, termsCache)
+    return normalizeAuthoredAssortmentScope(terms?.assortmentScope)
   }
 
   private async loadTerms(
