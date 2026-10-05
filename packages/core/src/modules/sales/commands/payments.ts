@@ -110,7 +110,7 @@ const paymentCrudEvents: CrudEventsConfig = {
 
 const ORDER_RESOURCE = 'sales.order'
 
-async function invalidateOrderCache(container: any, order: SalesOrder | null | undefined, tenantId: string | null) {
+async function invalidateOrderCache(container: Parameters<typeof invalidateCrudCache>[0], order: SalesOrder | null | undefined, tenantId: string | null) {
   if (!order) return
   await invalidateCrudCache(
     container,
@@ -343,14 +343,20 @@ function collectAffectedOrderIds(...sources: OrderIdSource[]): string[] {
       if (typeof value === 'string' && value.length > 0) ids.add(value.toLowerCase())
     }
   }
-  return Array.from(ids).sort()
+  return Array.from(ids).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 const snapshotOrderIds = (snapshot: PaymentSnapshot | null | undefined): string[] =>
   snapshot ? collectAffectedOrderIds(snapshot.orderId, snapshot.allocations.map((allocation) => allocation.orderId)) : []
 
 async function loadAllocationOrderIds(em: EntityManager, payment: SalesPayment | string, scope: PaymentScope): Promise<string[]> {
-  const allocations = await findWithDecryption(em, SalesPaymentAllocation, { payment }, {}, scope)
+  const allocations = await findWithDecryption(
+    em,
+    SalesPaymentAllocation,
+    { payment, organizationId: scope.organizationId, tenantId: scope.tenantId },
+    {},
+    scope,
+  )
   return collectAffectedOrderIds(allocations.map((allocation) => resolveRefId(allocation.order)))
 }
 
@@ -406,7 +412,7 @@ async function recomputeLockedOrders(
   return totals
 }
 
-async function invalidateOrderCaches(container: any, orders: Iterable<SalesOrder>, tenantId: string | null) {
+async function invalidateOrderCaches(container: Parameters<typeof invalidateCrudCache>[0], orders: Iterable<SalesOrder>, tenantId: string | null) {
   for (const order of orders) {
     await invalidateOrderCache(container, order, tenantId)
   }
@@ -419,7 +425,13 @@ async function restorePaymentWithOrderProjections(
 ): Promise<{ lockedOrders: Map<string, SalesOrder>; totals: Map<string, OrderPaymentTotals> }> {
   const scope: PaymentScope = { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId }
   return em.transactional(async (tx) => {
-    const live = await findOneWithDecryption(tx, SalesPayment, { id: snapshot.id }, {}, scope)
+    const live = await findOneWithDecryption(
+      tx,
+      SalesPayment,
+      { id: snapshot.id, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      {},
+      scope,
+    )
     const knownOrderIds = [snapshotOrderIds(snapshot), ...(options.orderIds ?? [])]
     const lockedOrders = live
       ? await lockPaymentOrders(tx, live, [resolveRefId(live.order), ...knownOrderIds], scope)

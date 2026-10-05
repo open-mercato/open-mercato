@@ -81,8 +81,14 @@ function order(id: string, tenantId = TENANT): OrderRow {
   return { id, tenantId, organizationId: ORG, grandTotalGrossAmount: '100', paymentMethodId: null, updatedAt: new Date() }
 }
 
-function allocation(orderId: string | null, index: number): AllocationRow {
-  return { id: `alloc-${index}`, order: orderId, payment: { id: PAYMENT_ID }, amount: '10', organizationId: ORG, tenantId: TENANT }
+function allocation(orderId: string | null, index: number, tenantId = TENANT): AllocationRow {
+  return { id: `alloc-${index}`, order: orderId, payment: { id: PAYMENT_ID }, amount: '10', organizationId: ORG, tenantId }
+}
+
+function matchesScope(row: { tenantId?: unknown; organizationId?: unknown }, filter: Record<string, unknown>): boolean {
+  if (filter.tenantId !== undefined && filter.tenantId !== row.tenantId) return false
+  if (filter.organizationId !== undefined && filter.organizationId !== row.organizationId) return false
+  return true
 }
 
 function buildWorld(allocationReads: AllocationRow[][] = [], payment: Record<string, unknown> | null = null): World {
@@ -98,13 +104,10 @@ function buildEm(world: World) {
     findOne: jest.fn(async (entity: unknown, filter: Record<string, unknown>, opts?: Record<string, unknown>) => {
       const kind = opts?.lockMode ? 'lock' : 'findOne'
       world.calls.push({ kind, entity, filter, opts })
-      if (entity === SalesPayment) return world.payment
+      if (entity === SalesPayment) return world.payment && matchesScope(world.payment, filter) ? world.payment : null
       if (entity === SalesOrder) {
         const row = world.orders.get(String(filter.id).toLowerCase())
-        if (!row) return null
-        if (filter.tenantId !== undefined && filter.tenantId !== row.tenantId) return null
-        if (filter.organizationId !== undefined && filter.organizationId !== row.organizationId) return null
-        return row
+        return row && matchesScope(row, filter) ? row : null
       }
       return null
     }),
@@ -114,7 +117,7 @@ function buildEm(world: World) {
         const reads = world.allocationReads
         const read = reads[Math.min(allocationReadIndex, reads.length - 1)] ?? []
         allocationReadIndex += 1
-        return read
+        return read.filter((row) => matchesScope(row, filter))
       }
       return []
     }),
@@ -192,11 +195,11 @@ function snapshot(orderId: string | null, allocationOrderIds: Array<string | nul
   }
 }
 
-function livePayment(primaryOrderId: string | null) {
+function livePayment(primaryOrderId: string | null, tenantId = TENANT) {
   return {
     id: PAYMENT_ID,
     organizationId: ORG,
-    tenantId: TENANT,
+    tenantId,
     amount: '100',
     currencyCode: 'USD',
     order: primaryOrderId ? { id: primaryOrderId, organizationId: ORG, tenantId: TENANT } : null,
@@ -370,6 +373,21 @@ describe('sales.payments.update — before/after order union', () => {
     expectLocksScopedAndOrdered(world)
     expect(invalidatedOrderIds()).toEqual([ORDER_A])
   })
+
+  it('reads allocations scoped to the payment tenant and organization, so foreign allocation rows never lock an order', async () => {
+    const world = buildWorld([[allocation(ORDER_A, 1), allocation(ORDER_C, 2, FOREIGN_TENANT)]], livePayment(ORDER_A))
+    const em = buildEm(world)
+    await commandRegistry.get('sales.payments.update')!.execute(
+      { id: PAYMENT_ID, tenantId: TENANT, organizationId: ORG, paymentReference: 'ref' },
+      buildCtx(em) as any,
+    )
+    expect(expectLocksScopedAndOrdered(world)).toEqual([ORDER_A])
+    expect(recomputedOrderIds(world)).toEqual([ORDER_A])
+    expect(invalidatedOrderIds()).toEqual([ORDER_A])
+    const allocationReads = world.calls.filter((call) => call.kind === 'find' && call.entity === SalesPaymentAllocation && call.filter && 'payment' in call.filter)
+    expect(allocationReads.length).toBeGreaterThan(0)
+    for (const call of allocationReads) expect(call.filter).toMatchObject({ organizationId: ORG, tenantId: TENANT })
+  })
 })
 
 describe('sales.payments.delete — every allocation order', () => {
@@ -465,5 +483,20 @@ describe('payment undo/redo — affected order union', () => {
     })
     expectLocksScopedAndOrdered(world)
     expect(invalidatedOrderIds()).toEqual([ORDER_A])
+  })
+
+  it('undo looks up the live payment within the snapshot scope, so a foreign payment never adds orders to the lock set', async () => {
+    const world = buildWorld([[allocation(ORDER_C, 1, FOREIGN_TENANT)]], livePayment(ORDER_D, FOREIGN_TENANT))
+    const em = buildEm(world)
+    const before = snapshot(ORDER_A, [ORDER_A])
+    const after = snapshot(ORDER_B, [ORDER_B])
+    await commandRegistry.get('sales.payments.update')!.undo!({
+      logEntry: { commandPayload: { undo: { before, after } } } as any,
+      ctx: buildCtx(em) as any,
+    })
+    expect(expectLocksScopedAndOrdered(world)).toEqual([ORDER_A, ORDER_B])
+    expect(invalidatedOrderIds().sort()).toEqual([ORDER_A, ORDER_B])
+    const liveLookup = world.calls.find((call) => call.kind === 'findOne' && call.entity === SalesPayment)
+    expect(liveLookup?.filter).toMatchObject({ id: PAYMENT_ID, organizationId: ORG, tenantId: TENANT })
   })
 })

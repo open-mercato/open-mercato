@@ -3,7 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
- * TC-SALES-042: split-payment order projections.
+ * TC-SALES-043: split-payment order projections.
  *
  * `SalesPayment` + `SalesPaymentAllocation` are the ledger; an order's
  * `paidTotalAmount` / `outstandingAmount` are derived projections. A payment can
@@ -47,7 +47,7 @@ async function createOrder(request: APIRequestContext, token: string, label: str
     data: {
       currencyCode: 'USD',
       lines: [
-        { currencyCode: 'USD', quantity: 1, name: `TC-SALES-042 ${label}`, unitPriceNet: ORDER_TOTAL, unitPriceGross: ORDER_TOTAL },
+        { currencyCode: 'USD', quantity: 1, name: `TC-SALES-043 ${label}`, unitPriceNet: ORDER_TOTAL, unitPriceGross: ORDER_TOTAL },
       ],
     },
   })
@@ -142,7 +142,7 @@ async function deletePayment(request: APIRequestContext, token: string, paymentI
   return readOperation(response)
 }
 
-test.describe('TC-SALES-042: split-payment order projections', () => {
+test.describe('TC-SALES-043: split-payment order projections', () => {
   test('create, reallocate, add/remove secondary, undo and delete keep every affected order in sync', async ({ request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
