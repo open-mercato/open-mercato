@@ -20,6 +20,7 @@
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { Form, FormSubmission, FormVersion } from '../data/entities'
 import type { AnonymizeService } from '../services/anonymize-service'
@@ -101,22 +102,25 @@ export default async function handle(
   let scanned = 0
   let purged = 0
   let revisionsAnonymized = 0
-  let offset = 0
+  let cursor: string | null = null
 
   // Batched scan of candidate submissions (not yet anonymized, scoped).
   for (;;) {
+    const where: FilterQuery<FormSubmission> = {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      formVersionId: { $in: Array.from(formIdByVersionId.keys()) },
+      anonymizedAt: null,
+      deletedAt: null,
+    }
+    if (cursor) where.id = { $gt: cursor }
     const submissions = await em.find(
       FormSubmission,
-      {
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        formVersionId: { $in: Array.from(formIdByVersionId.keys()) },
-        anonymizedAt: null,
-        deletedAt: null,
-      },
-      { orderBy: { firstSavedAt: 'asc' }, limit: batchSize, offset },
+      where,
+      { orderBy: { id: 'asc' }, limit: batchSize },
     )
     if (submissions.length === 0) break
+    cursor = submissions[submissions.length - 1]?.id ?? cursor
 
     for (const submission of submissions) {
       scanned += 1
@@ -142,7 +146,6 @@ export default async function handle(
     }
 
     if (submissions.length < batchSize) break
-    offset += batchSize
   }
 
   if (purged > 0) {

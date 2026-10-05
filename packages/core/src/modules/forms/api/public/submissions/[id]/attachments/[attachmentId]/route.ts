@@ -15,7 +15,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { AttachmentService } from '../../../../../../services/attachment-service'
 import { resolveRuntimePrincipal } from '../../../../../../lib/runtime-principal'
-import { mapAttachmentError } from '../../../../../attachment-helpers'
+import {
+  mapAttachmentError,
+  SANDBOXED_DOWNLOAD_HEADERS,
+} from '../../../../../attachment-helpers'
+import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../../../rate-limit'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -28,6 +32,12 @@ export async function GET(
   const params = await Promise.resolve(context.params)
   const submissionId = String(params.id)
   const attachmentId = String(params.attachmentId)
+
+  const limited = await enforcePublicRateLimit(
+    req,
+    buildPublicRateLimitKey('submission-attachment', submissionId, attachmentId),
+  )
+  if (limited) return limited
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -49,6 +59,7 @@ export async function GET(
       headers: {
         'content-type': result.contentType || 'application/octet-stream',
         'content-disposition': `attachment; filename="${safeName}"`,
+        ...SANDBOXED_DOWNLOAD_HEADERS,
       },
     })
   } catch (error) {
@@ -64,6 +75,8 @@ const getMethodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 401, description: 'Missing or invalid access token / session' },
     { status: 404, description: 'Attachment not found' },
+    { status: 429, description: 'Rate limit exceeded' },
+    { status: 503, description: 'Rate limiting unavailable' },
   ],
 }
 

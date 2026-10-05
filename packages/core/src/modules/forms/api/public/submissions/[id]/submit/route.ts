@@ -27,7 +27,7 @@ import {
   readJsonBody,
   serializeSubmission,
 } from '../../../../runtime-helpers'
-import { enforcePublicRateLimit, getClientIp } from '../../../rate-limit'
+import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../../rate-limit'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -40,7 +40,10 @@ export async function POST(
   const params = await Promise.resolve(context.params)
   const submissionId = String(params.id)
 
-  const limited = await enforcePublicRateLimit(`forms:public:submit:${submissionId}:${getClientIp(req)}`)
+  const limited = await enforcePublicRateLimit(
+    req,
+    buildPublicRateLimitKey('submission-submit', submissionId),
+  )
   if (limited) return limited
 
   let raw: unknown
@@ -146,6 +149,7 @@ const postMethodDoc: OpenApiMethodDoc = {
     { status: 410, description: 'Distribution response cap reached or unavailable', schema: errorSchema },
     { status: 422, description: 'Validation failed or submission in terminal state', schema: errorSchema },
     { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
+    { status: 503, description: 'Rate limiting unavailable', schema: errorSchema },
   ],
 }
 

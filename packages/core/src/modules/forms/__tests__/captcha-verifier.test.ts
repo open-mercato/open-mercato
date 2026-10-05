@@ -14,10 +14,16 @@ function jsonResponse(body: unknown, init?: { ok?: boolean; status?: number }): 
 }
 
 describe('NoopCaptchaVerifier', () => {
-  it('always reports success', async () => {
+  it('fails closed when no provider is configured', async () => {
     const verifier = new NoopCaptchaVerifier()
-    await expect(verifier.verify({ token: '' })).resolves.toEqual({ success: true })
-    await expect(verifier.verify({ token: 'anything' })).resolves.toEqual({ success: true })
+    await expect(verifier.verify({ token: '' })).resolves.toEqual({
+      success: false,
+      reason: 'provider_unavailable',
+    })
+    await expect(verifier.verify({ token: 'anything' })).resolves.toEqual({
+      success: false,
+      reason: 'provider_unavailable',
+    })
   })
 })
 

@@ -12,9 +12,9 @@
  *    Configured by env (`FORMS_CAPTCHA_PROVIDER` + `FORMS_CAPTCHA_SECRET`).
  *    Fail-closed: any network / parse error resolves to `{ success: false }`.
  *
- *  - `NoopCaptchaVerifier` — always reports success. Used when no provider is
- *    configured; the start route still enforces token *presence* for backward
- *    compatibility, but performs no real verification.
+ *  - `NoopCaptchaVerifier` — fail-closed sentinel used when no provider is
+ *    configured. CAPTCHA-enabled distributions must never silently accept a
+ *    token that was not verified.
  *
  * Operators inject a custom verifier by overriding `formsCaptchaVerifier`.
  *
@@ -46,12 +46,12 @@ const PROVIDER_ENDPOINTS: Record<CaptchaProvider, string> = {
 const DEFAULT_TIMEOUT_MS = 5_000
 
 /**
- * Always-success verifier. SAFE-BY-DECLARATION ONLY — performs no inspection.
- * Used when no provider is configured.
+ * Missing-provider verifier. The historical class name is retained because it
+ * is an exported surface, but it deliberately fails closed.
  */
 export class NoopCaptchaVerifier implements CaptchaVerifier {
   async verify(): Promise<CaptchaVerifyResult> {
-    return { success: true }
+    return { success: false, reason: 'provider_unavailable' }
   }
 }
 
@@ -137,7 +137,7 @@ function parseProvider(value: string | undefined): CaptchaProvider | null {
  * Selects a verifier from the environment:
  *  - `FORMS_CAPTCHA_PROVIDER` (`turnstile` | `recaptcha`) + `FORMS_CAPTCHA_SECRET`
  *    both set ⇒ `ProviderCaptchaVerifier` (real verification, fail-closed).
- *  - otherwise ⇒ `NoopCaptchaVerifier`.
+ *  - otherwise ⇒ fail-closed `NoopCaptchaVerifier` sentinel.
  */
 export function resolveCaptchaVerifier(env: NodeJS.ProcessEnv): CaptchaVerifier {
   const provider = parseProvider(env.FORMS_CAPTCHA_PROVIDER)
@@ -149,9 +149,7 @@ export function resolveCaptchaVerifier(env: NodeJS.ProcessEnv): CaptchaVerifier 
 }
 
 /**
- * True when a real provider is configured. The start route uses this to decide
- * whether to require + verify a token (provider) or merely require its presence
- * (noop / backward-compat).
+ * True when a real provider is configured.
  */
 export function isCaptchaProviderConfigured(env: NodeJS.ProcessEnv): boolean {
   return parseProvider(env.FORMS_CAPTCHA_PROVIDER) !== null && Boolean(env.FORMS_CAPTCHA_SECRET)
