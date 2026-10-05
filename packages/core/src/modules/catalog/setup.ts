@@ -23,6 +23,7 @@ export const setup: ModuleSetupConfig = {
       'catalog.variants.manage',
       'catalog.pricing.manage',
       'catalog.price_history.view',
+      'catalog.settings.view',
     ],
   },
 }

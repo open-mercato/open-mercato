@@ -3,6 +3,7 @@ import { createCacheService, type CacheStrategy } from '@open-mercato/cache'
 import {
   buildOmnibusCacheTags,
   invalidateOmnibusCache,
+  invalidateOmnibusTenantCache,
   readOmnibusCache,
   resolveOmnibusCache,
   writeOmnibusCache,
@@ -14,6 +15,7 @@ const ORG = '33333333-3333-4333-8333-333333333333'
 const PRODUCT = '44444444-4444-4444-8444-444444444444'
 const VARIANT = '55555555-5555-4555-8555-555555555555'
 const OTHER_PRODUCT = '44444444-4444-4444-8444-000000000000'
+const OTHER_ORG = '33333333-3333-4333-8333-000000000000'
 
 const PRICE: PriceHistoryPriceInput = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -60,6 +62,7 @@ describe('omnibus cache helpers', () => {
     expect(
       buildOmnibusCacheTags({ tenantId: TENANT, organizationId: ORG }, { productId: PRODUCT, variantId: VARIANT, offerId: null }),
     ).toEqual([
+      `catalog:omnibus:${TENANT}`,
       `catalog:omnibus:${TENANT}:${ORG}`,
       `catalog:omnibus:${TENANT}:${ORG}:product:${PRODUCT}`,
       `catalog:omnibus:${TENANT}:${ORG}:variant:${VARIANT}`,
@@ -73,6 +76,23 @@ describe('omnibus cache helpers', () => {
     await invalidateOmnibusCache(cache, [{ tenantId: TENANT, organizationId: ORG, productId: PRODUCT }])
     expect(await readOmnibusCache(cache, TENANT, 'a')).toBeNull()
     expect(await readOmnibusCache(cache, TENANT, 'b')).toEqual({ value: 'b' })
+  })
+
+  it('invalidates every entry of the tenant across organizations and products', async () => {
+    const cache = createCacheService({ strategy: 'memory' })
+    await seed(cache, 'a', PRODUCT)
+    await seed(cache, 'b', OTHER_PRODUCT)
+    await writeOmnibusCache(
+      cache,
+      TENANT,
+      'other-org',
+      { value: 'other-org' },
+      buildOmnibusCacheTags({ tenantId: TENANT, organizationId: OTHER_ORG }, { productId: PRODUCT }),
+    )
+    await invalidateOmnibusTenantCache(cache, TENANT)
+    expect(await readOmnibusCache(cache, TENANT, 'a')).toBeNull()
+    expect(await readOmnibusCache(cache, TENANT, 'b')).toBeNull()
+    expect(await readOmnibusCache(cache, TENANT, 'other-org')).toBeNull()
   })
 
   it('soft-resolves the cache from a container', () => {

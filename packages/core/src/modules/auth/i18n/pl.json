@@ -77,6 +77,7 @@
   "auth.acl.features.catalog.products.manage": "Zarządzaj produktami w katalogu",
   "auth.acl.features.catalog.products.view": "Wyświetl produkty w katalogu",
   "auth.acl.features.catalog.settings.manage": "Zarządzaj ustawieniami katalogu",
+  "auth.acl.features.catalog.settings.view": "Wyświetlaj ustawienia katalogu",
   "auth.acl.features.catalog.variants.manage": "Zarządzaj wariantami w katalogu",
   "auth.acl.features.channel_apns.configure": "Konfiguruj dane dostępowe APNs",
   "auth.acl.features.channel_apns.view": "Wyświetl konfigurację kanału APNs",

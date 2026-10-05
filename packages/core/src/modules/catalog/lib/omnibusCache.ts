@@ -31,6 +31,10 @@ export function resolveOmnibusCache(container: ContainerLike | null | undefined)
   }
 }
 
+export function omnibusTenantWideTag(tenantId: string): string {
+  return `${OMNIBUS_CACHE_PREFIX}:${tenantId}`
+}
+
 export function omnibusTenantTag(scope: OmnibusCacheScope): string {
   return `${OMNIBUS_CACHE_PREFIX}:${scope.tenantId}:${scope.organizationId}`
 }
@@ -45,7 +49,7 @@ export function omnibusTargetTags(scope: OmnibusCacheScope, targets: OmnibusCach
 }
 
 export function buildOmnibusCacheTags(scope: OmnibusCacheScope, targets: OmnibusCacheTargets): string[] {
-  return [omnibusTenantTag(scope), ...omnibusTargetTags(scope, targets)]
+  return [omnibusTenantWideTag(scope.tenantId), omnibusTenantTag(scope), ...omnibusTargetTags(scope, targets)]
 }
 
 export function buildOmnibusCacheKey(kind: string, parts: Array<string | number | null | undefined>): string {
@@ -94,5 +98,14 @@ export async function invalidateOmnibusCache(
     } catch (err) {
       logger.warn('[internal] catalog omnibus cache invalidation failed', { tenantId, err })
     }
+  }
+}
+
+export async function invalidateOmnibusTenantCache(cache: CacheStrategy | null | undefined, tenantId: string): Promise<void> {
+  if (!cache) return
+  try {
+    await runWithCacheTenant(tenantId, () => cache.deleteByTags([omnibusTenantWideTag(tenantId)]))
+  } catch (err) {
+    logger.warn('[internal] catalog omnibus tenant cache invalidation failed', { tenantId, err })
   }
 }

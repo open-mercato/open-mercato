@@ -53,3 +53,7 @@
 - Omnibus history foundation green. Full core suite: only the pre-existing locale-dependent warranty_claims quantity test fails (passes under en_US).
 - Regression caught: ecommerce ACL feature titles lacked auth i18n keys (from 2.1) → 3.3-fix. Checkpoints now run full core + shared suites.
 - Known limitation (pre-existing, not in scope): undo of a product delete does not restore prices, so it records no history.
+
+## 2026-10-05T16:19:10Z — step 3.6 scope decisions
+- PATCH /api/catalog/config/omnibus is a shallow top-level merge (a provided `channels` map replaces the stored one; `defaultPresentedPriceKindId: null` clears it). Strict schema: unknown keys, Phase-4 derogation fields and `backfillCoverage` are rejected with 400 field errors (`backfillCoverage` is server-managed so the 422 gate cannot be bypassed — Step 3.7's `omnibus:backfill` must write it via ModuleConfigService directly).
+- Config PATCH invalidates via a new tenant-wide cache tag `catalog:omnibus:<tenantId>` (added to every omnibus cache entry), since the config is tenant-scoped and spans organizations.

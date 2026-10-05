@@ -13,6 +13,12 @@ import {
   getCatalogPriceAmountValidationMessage,
   validateCatalogPriceAmountInput,
 } from '../lib/priceValidation'
+import { ISO_COUNTRIES } from '@open-mercato/shared/lib/location/countries'
+import {
+  omnibusLookbackDaysSchema,
+  omnibusMinimizationAxisSchema,
+  omnibusNoChannelModeSchema,
+} from '../lib/omnibusTypes'
 
 const uuid = () => z.string().uuid()
 
@@ -613,6 +619,43 @@ export const omnibusPreviewQuerySchema = z
     path: ['productId'],
   })
 
+const ISO_COUNTRY_CODES = new Set(ISO_COUNTRIES.map((country) => country.code))
+
+const omnibusConfigCountryCodeSchema = z
+  .string()
+  .regex(/^[A-Z]{2}$/, 'omnibus_country_code_alpha2_required')
+  .refine((value) => value !== 'EU', 'omnibus_country_code_eu_not_allowed')
+  .refine((value) => value === 'EU' || ISO_COUNTRY_CODES.has(value), 'omnibus_country_code_unknown')
+
+const unsupportedOmnibusField = (code: string) => z.undefined({ error: code }).optional()
+
+const omnibusChannelConfigPatchSchema = z
+  .object({
+    presentedPriceKindId: uuid(),
+    countryCode: omnibusConfigCountryCodeSchema.optional(),
+    lookbackDays: omnibusLookbackDaysSchema.optional(),
+    minimizationAxis: omnibusMinimizationAxisSchema.optional(),
+    progressiveReductionRule: unsupportedOmnibusField('omnibus_derogation_not_supported'),
+    progressiveMaxGapDays: unsupportedOmnibusField('omnibus_derogation_not_supported'),
+    perishableGoodsRule: unsupportedOmnibusField('omnibus_derogation_not_supported'),
+    newArrivalRule: unsupportedOmnibusField('omnibus_derogation_not_supported'),
+    newArrivalsLookbackDays: unsupportedOmnibusField('omnibus_derogation_not_supported'),
+  })
+  .strict()
+
+export const omnibusConfigPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    enabledCountryCodes: z.array(omnibusConfigCountryCodeSchema).optional(),
+    noChannelMode: omnibusNoChannelModeSchema.optional(),
+    lookbackDays: omnibusLookbackDaysSchema.optional(),
+    minimizationAxis: omnibusMinimizationAxisSchema.optional(),
+    defaultPresentedPriceKindId: uuid().nullable().optional(),
+    channels: z.record(z.string().trim().min(1), omnibusChannelConfigPatchSchema).optional(),
+    backfillCoverage: unsupportedOmnibusField('omnibus_backfill_coverage_read_only'),
+  })
+  .strict()
+
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
@@ -633,3 +676,4 @@ export type ProductUnitConversionUpdateInput = z.infer<typeof productUnitConvers
 export type ProductUnitConversionDeleteInput = z.infer<typeof productUnitConversionDeleteSchema>
 export type PriceHistoryQuery = z.infer<typeof priceHistoryQuerySchema>
 export type OmnibusPreviewQuery = z.infer<typeof omnibusPreviewQuerySchema>
+export type OmnibusConfigPatch = z.infer<typeof omnibusConfigPatchSchema>
