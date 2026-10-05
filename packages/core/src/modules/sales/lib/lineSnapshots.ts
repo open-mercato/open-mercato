@@ -80,7 +80,12 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesPersisted
  * the return flows kept the discount defect after the order flows were fixed.
  */
 export function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesPersistedLineSnapshot {
-  return mapPersistedLine(line)
+  return {
+    ...mapPersistedLine(line),
+    // Who owns the amounts, not where they came from — never conflate it with the
+    // origin flags above. Order-only: quote lines have no such column.
+    amountsMode: line.amountsMode ?? 'computed',
+  }
 }
 
 export function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesPersistedLineSnapshot {

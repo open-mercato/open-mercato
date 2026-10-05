@@ -1,6 +1,8 @@
 # Sales `external` amounts — an opt-in mode for documents priced elsewhere
 
-Status: **proposed — decision requested**. No implementation lands until § Decision Requested is answered.
+Status: **proposed — decision requested.** [#6092](https://github.com/open-mercato/open-mercato/pull/6092)
+implements it on the answers § Decision Requested recommends; those answers become decisions only when a
+maintainer records them in § Decision Record, which stays empty until then.
 Scope: `packages/core/src/modules/sales/{lib/calculations.ts,lib/types.ts,lib/lineSnapshots.ts,commands/documents.ts,commands/returns.ts,data/entities.ts,data/validators.ts,components/documents/*}`
 Related: [#5644](https://github.com/open-mercato/open-mercato/issues/5644), [#5707](https://github.com/open-mercato/open-mercato/pull/5707),
 [#5853](https://github.com/open-mercato/open-mercato/issues/5853), [#3757](https://github.com/open-mercato/open-mercato/issues/3757),
@@ -234,6 +236,13 @@ derived `discountAmount`**, which the `numeric(18,4)` column holds without a sch
 constrains a *caller input*, and under `external` the caller does not supply `discountAmount` — it is
 derived from the net it did supply. The `min: 0` bound therefore stays exactly as it is. This is a
 deliberate improvement on the obvious fix of relaxing the bound, which would also loosen the computed path.
+
+**The header's `discountTotalAmount` stays non-negative, and that is not an inconsistency.** Under
+`external` the header is the caller's figure, not a rollup of the lines (§ 4), so it is under no obligation
+to equal the sum of the derived line discounts — any more than the header net must equal the sum of line
+nets. A signed line discount is core's *derivation* of the gap to `unitPrice × quantity`; the header
+discount is the source's *statement*. A source that adds an amount at document level states it as
+`surchargeTotalAmount`, which is what that field is for, rather than as a negative discount.
 
 **`discountAmount` stays derived** rather than becoming a fourth supplied field, so an items table that
 renders both a percent and an amount keeps agreeing with itself, and the document rollup keeps summing a
@@ -492,7 +501,15 @@ computed a credit would be worse than leaving it. § Decision Requested question
 - an "amounts from source" badge on the document header when `totals_mode = 'external'`, its label routed
   through `t('sales.documents.amountsExternal')` per the i18n rule;
 - amount fields rendered read-only on an external document, since a write would be rejected anyway
-  (§ 6) and a form that submits into a guaranteed 4xx is a defect;
+  (§ 6) and a form that submits into a guaranteed 4xx is a defect. **This applies to every section that
+  offers an amount write, not just the items table** — the adjustments section offers add, edit and delete,
+  and § 6 refuses all three with a 409, so it takes the same read-only treatment. Rows stay readable in
+  both; only the actions that cannot succeed are withdrawn;
+- **a note beside the shipping and payment method selectors** saying the method is recorded but adds no
+  charge. This is the one place an external document silently does *less* than the operator asked for
+  rather than refusing: the provider calculator stands down (§ 4), so picking a paid method saves the
+  method and moves no total. Everything else in § 6 fails loudly; this needs saying in the UI because it
+  succeeds quietly;
 - switching back to `computed` is an explicit, confirmed action (§ Proposed Solution 8), never a side
   effect of an edit.
 
@@ -645,6 +662,14 @@ line has *amounts*, they are separate columns (§ 1), and a field accepted under
 under another is the adjacent shape to the bug this whole document is about — see the note below on
 `orderLineCreateSchema`.
 
+**A line that omits `amountsMode` inherits, and is never a 4xx for omitting it.** On a document write that
+is the request's `totalsMode`; on `sales.orders.lines.upsert` against an existing order it is that order's
+*persisted* `totals_mode`. The two rejected alternatives both cost more than they buy: defaulting such a
+line to `computed` builds exactly the mixed document § 1 forbids, and rejecting it makes every line write
+on an external order restate a mode the caller already declared once, on the document. Only an *explicitly
+supplied* line mode that disagrees is rejected. (Left open by the spec's second review round as "worth one
+sentence when the code is written"; this is that sentence, and it has its own test.)
+
 `totalsMode` is the caller-facing switch and **cascades**: setting it writes the document column and every
 line's column, which is what makes § 1's invariant hold by construction rather than by validation, and
 what makes § 8's switch-back a single field on a single request rather than one per line. A line-level
@@ -656,8 +681,10 @@ Request schema additions — two in `data/validators.ts`:
 
 ```ts
 // linePricingSchema (:332-351), spread into orderLineCreateSchema and its update partial
-amountsMode: z.enum(['computed', 'external']).optional(),   // new; omitted ⇒ inherit the document
-                                                            // on a document write, 'computed' otherwise
+amountsMode: z.enum(['computed', 'external']).optional(),   // new; omitted ⇒ inherit the document's mode:
+                                                            // the request's totalsMode on a document
+                                                            // write, the order's persisted totals_mode
+                                                            // on a line write
 
 // orderCreateSchema (:687), alongside the existing ...orderTotalsSchema.shape (:731)
 totalsMode: z.enum(['computed', 'external']).optional(),    // new; omitted ⇒ 'computed'
@@ -905,7 +932,8 @@ suppression is structural rather than a second gate someone has to remember to a
 ## Acceptance Criteria
 
 1. **Compatibility, stated as a criterion rather than a hope.** For every existing test and every caller
-   that never sends `amountsMode`, output is byte-identical before and after: the same stored line
+   that sends neither `totalsMode` on a document nor `amountsMode` on a line — both fields being new —
+   output is byte-identical before and after: the same stored line
    amounts, the same header totals, the same response payloads. A migration that only adds defaulted
    columns and a code path gated on a value no existing row holds must be observably inert.
 2. **Round trip.** Writing one line of an external order via `sales.orders.lines.upsert` leaves **every
@@ -1060,6 +1088,23 @@ works for a cart, which is not yet an order and can sit un-orderable. An order t
 has no equivalent state, and a header total that is transiently absent on a legally filed document is worse
 than either alternative above. Hence reject-or-preserve, not invalidate.
 
+### What #6092 assumes, pending an answer
+
+[#6092](https://github.com/open-mercato/open-mercato/pull/6092) implements the recommended answer to each
+question so the choice can be judged in code rather than in prose. None of these is a decision: each names
+the one place it is isolated to, so a different answer is a bounded change rather than a redesign.
+
+1. **Persisted columns — yes.** Quotes stay excluded, per § 1. *Isolated to:* the two `@Property`
+   declarations in `data/entities.ts` and one migration.
+2. **Returns record without rewriting the header — yes.** The answer most likely to be overruled; § Risks
+   already rates the operator surprise **high**. *Isolated to:* `applyOrderTotalsUnlessExternal` in
+   `commands/returns.ts`, one function guarding all three call sites, plus its test. Refusing instead is a
+   change to that function and to criterion 10.
+3. **Registries keep running, amounts re-applied afterwards — yes.** *Isolated to:* the two re-application
+   blocks in `calculateLine` / `calculateDocument`. Suppressing instead means skipping the registry loops
+   for external rows and rewriting criterion 3a, which asserts the opposite property.
+
+
 ## Decision Record
 
 *Empty pending maintainer sign-off. Record decisions here in the style of
@@ -1069,10 +1114,45 @@ implementation, and what it leaves open.*
 
 ## Implementation Plan
 
-Deliberately absent. As with the discount contract, no implementation plan exists until § Decision
-Requested is answered — the three decisions change the shape of the change, not just its details.
+[#6092](https://github.com/open-mercato/open-mercato/pull/6092) implements this as one change rather than
+phases: the mode is inert until a caller opts in, so there is no intermediate state worth shipping
+separately and no migration ordering to stage.
+
+| area | what it contains |
+|---|---|
+| data | two defaulted `text` columns, one migration, the ORM snapshot; `[OptionalProps]` on both entities so existing `em.create(...)` callers keep compiling |
+| engine | the external branch in `buildBaseLineResult`, the supplied header in `buildBaseDocumentResult`, both re-application stages, `totalsMode` on the totals-hook params, and the provider calculator standing down |
+| shared rules | new `lib/externalAmounts.ts` — completeness, the § 1 invariant, and the refusals in one place rather than spread across commands |
+| commands | a rule per § 6 site, including the two a grep for `applyOrderTotals` does not surface; both mode columns added to `OrderGraphSnapshot` / `OrderLineSnapshot` |
+| contracts | `totalsMode` / `amountsMode`, the nested `orderTotals` group, two additive response fields |
+| UI | the badge, items **and** adjustments read-only, the method note, the confirmed switch-back |
+| tests | 45 unit and command cases plus one integration spec — see § Testing Strategy, which this implementation follows rather than amends |
+
+Two things § Testing Strategy asks for are worth confirming were done as written rather than approximated:
+the registry cases use a **registered** calculator returning a deliberately wrong header, not a mock; and
+the #5707 warning's suppression is asserted **against the logger**, because § Out of Scope makes it
+positional rather than gated.
 
 ## Changelog
+
+### 2026-09-14 (implementation)
+
+- **Implementation opened as [#6092](https://github.com/open-mercato/open-mercato/pull/6092).** Status
+  stays *proposed — decision requested* and § Decision Record stays empty: an implementation PR cannot
+  ratify a maintainer decision. The answers #6092 assumes are listed under § Decision Requested, each with
+  the one place it is isolated to, and § Implementation Plan replaces its "deliberately absent" note with
+  what the PR contains.
+- **§ API Contracts now says what an omitted line `amountsMode` does** — it inherits the document's mode,
+  rather than defaulting to `computed` (which would build the mixed document § 1 forbids) or being a 4xx
+  (which would make every line write restate a mode the caller already declared). This was the open
+  question the second review round flagged as "worth one sentence when the code is written". Criterion 1
+  now names both fields, which was the other.
+- **§ 7 gained two UI rules the implementation found by building it.** The read-only rule applies to every
+  section that offers an amount write, not only the items table: the adjustments section offered add, edit
+  and delete while § 6 refused all three with a 409. And the shipping/payment method selectors need a note,
+  because that is the one case where an external document succeeds *quietly* doing less than asked — the
+  provider calculator stands down, so a paid method saves and no total moves. Everything else in § 6 fails
+  loudly and needs no UI help.
 
 ### 2026-09-14
 
