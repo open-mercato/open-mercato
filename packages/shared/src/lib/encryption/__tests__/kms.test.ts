@@ -1,5 +1,19 @@
+import crypto from 'node:crypto'
 import { buildDerivedKeyFallbackBannerLines, createKmsService, HashicorpVaultKmsService } from '../kms'
 
+jest.mock('../../logger', () => {
+  const warn = jest.fn()
+  const logger: Record<string, unknown> = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn,
+    error: jest.fn(),
+  }
+  logger.child = () => logger
+  return { createLogger: () => logger, __warn: warn }
+})
+
+const loggerModule = jest.requireMock('../../logger') as { __warn: jest.Mock }
 const originalEnv = { ...process.env }
 
 describe('kms timeout handling', () => {
@@ -73,8 +87,9 @@ describe('kms timeout handling', () => {
     expect(dek).toBeNull()
   })
 
-  it('prints no secret-derived identifier for the explicit fallback key, regardless of NODE_ENV', () => {
+  it('never prints the explicit fallback secret or a deterministic verifier in the banner', () => {
     const secret = 'super-secret-tenant-encryption-key'
+    const fingerprint = crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
     for (const nodeEnv of ['development', 'staging', 'preview', 'PRODUCTION', 'production', undefined]) {
       if (nodeEnv === undefined) delete process.env.NODE_ENV
       else process.env.NODE_ENV = nodeEnv
@@ -87,9 +102,38 @@ describe('kms timeout handling', () => {
       const rendered = lines.join('\n')
 
       expect(rendered).not.toContain(secret)
+      expect(rendered).not.toContain(fingerprint)
+      expect(rendered).not.toMatch(/fingerprint|sha-?256/i)
       expect(rendered).toContain('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
-      expect(rendered.toLowerCase()).not.toContain('fingerprint')
     }
+  })
+
+  it('logs fallback activation without the secret or a deterministic verifier', () => {
+    const secret = 'structured-log-fallback-secret'
+    const fingerprint = crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
+    process.env.NODE_ENV = 'production'
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = secret
+    delete process.env.TENANT_DATA_ENCRYPTION_KEY
+    delete process.env.VAULT_ADDR
+    delete process.env.VAULT_TOKEN
+    loggerModule.__warn.mockClear()
+    const stderrWrite = jest.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+    createKmsService()
+
+    const bannerOutput = stderrWrite.mock.calls.map(([chunk]) => String(chunk)).join('')
+    const structuredOutput = JSON.stringify(loggerModule.__warn.mock.calls)
+    for (const output of [bannerOutput, structuredOutput]) {
+      expect(output).not.toContain(secret)
+      expect(output).not.toContain(fingerprint)
+      expect(output).not.toMatch(/secretFingerprint|sha-?256/i)
+    }
+    expect(bannerOutput).toContain('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+    expect(loggerModule.__warn).toHaveBeenCalledWith(
+      'Using derived tenant encryption keys (Vault unavailable / no DEK)',
+      { fallbackSource: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' },
+    )
   })
 
   it('does not echo the dev default secret verbatim in the banner either', () => {

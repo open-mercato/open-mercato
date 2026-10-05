@@ -413,7 +413,9 @@ function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
     border,
   ]
   process.stderr.write(bannerLines.join('\n') + '\n')
-  logger.warn('Using derived tenant encryption keys (Vault unavailable / no DEK)')
+  logger.warn('Using derived tenant encryption keys (Vault unavailable / no DEK)', {
+    fallbackSource: opts.envName,
+  })
 }
 
 /**
