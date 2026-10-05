@@ -51,7 +51,7 @@
 | 3 | 3.6 | Omnibus: GET/PATCH /api/catalog/config/omnibus | dispatch:standard | done | 84be2e9457 |
 | 3 | 3.7 | Omnibus: ACL features, setup grants, backfill CLI | dispatch:standard | done | 66a1002ff2 |
 | 3 | 3.8 | Omnibus: admin UI (settings panel + price editor reference row) + i18n | dispatch:standard | done | c52b9ed595 |
-| 3 | 3.8-fix | Explicit comparators in Omnibus config/settings channel sorts (checkpoint 6 regression) | inline | done | pending |
+| 3 | 3.8-fix | Explicit comparators in Omnibus config/settings channel sorts (checkpoint 6 regression) | inline | done | c73c7b42b6 |
 | 3 | 3.9 | Omnibus: integration tests | dispatch:capable | todo | — |
 | 4 | 4.1 | Catalog: extract product filters to lib with descendant expansion | dispatch:standard | todo | — |
 | 4 | 4.2 | query_index doc-enrichment hook + overlap FilterOp | dispatch:capable | todo | — |

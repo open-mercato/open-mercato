@@ -57,3 +57,8 @@
 ## 2026-10-05T16:19:10Z — step 3.6 scope decisions
 - PATCH /api/catalog/config/omnibus is a shallow top-level merge (a provided `channels` map replaces the stored one; `defaultPresentedPriceKindId: null` clears it). Strict schema: unknown keys, Phase-4 derogation fields and `backfillCoverage` are rejected with 400 field errors (`backfillCoverage` is server-managed so the 422 gate cannot be bypassed — Step 3.7's `omnibus:backfill` must write it via ModuleConfigService directly).
 - Config PATCH invalidates via a new tenant-wide cache tag `catalog:omnibus:<tenantId>` (added to every omnibus cache entry), since the config is tenant-scoped and spans organizations.
+
+## 2026-10-05T17:20:07Z — checkpoint 6 (steps 3.4–3.8-fix)
+- Omnibus resolution/config/backfill/UI green after one regression fix (bare sorts → 3.8-fix). UI smoke screenshot captured in the ephemeral env (port changes per start; read it from the start log).
+- Playwright note: the repo's `@playwright/test` resolves a chromium revision not installed here; screenshots use `executablePath` of the installed headless shell (1243).
+- Known gap (from 3.8): config page is gated by `catalog.settings.manage`, so view-only users cannot open the Omnibus panel yet (panel itself supports read-only).

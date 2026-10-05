@@ -1,16 +1,16 @@
 # Handoff — 2026-10-05-release-3-storefront-read-side
 
-**Last updated:** 2026-10-05T15:46:29Z
+**Last updated:** 2026-10-05T17:20:07Z
 **Branch:** spec/storefront-release-phase0-reconciliation
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/12 (draft)
-**Current phase/step:** Phase 3 Step 3.4
-**Last commit:** 26e58e3c80 — fix(ecommerce): translate ecommerce ACL feature titles
+**Current phase/step:** Phase 3 Step 3.9
+**Last commit:** c73c7b42b6 — fix(catalog): use explicit comparators for omnibus channel sorts
 
 ## What just happened
-- Omnibus Phase 1 (history entity + immutability trigger, capture on all price write paths, history route) landed; checkpoint 5 green (full core/shared suites).
+- Omnibus resolution service, preview/enrichment, config API, backfill CLI and admin UI landed; checkpoint 6 green with a UI smoke screenshot.
 
 ## Next concrete action
-- Step 3.4 — catalogOmnibusService resolution + DI.
+- Step 3.9 — Omnibus integration tests (ephemeral env is up; URL in .ai/qa/ephemeral-env.json / start log).
 
 ## Blockers / open questions
 - None blocking. Resolution P95 budget still unmeasured (final gate).
