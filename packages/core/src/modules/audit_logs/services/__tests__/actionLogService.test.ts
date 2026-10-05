@@ -785,3 +785,19 @@ describe('ActionLogService transactional return isolation', () => {
     expect(detached).not.toBe(managed)
   })
 })
+
+describe('ActionLogService markRedone', () => {
+  it('finalizes the redo source on a forked EntityManager instead of the shared request EM', async () => {
+    const log = { id: 'log-1', executionState: 'undone', undoToken: 'token' }
+    const fork = { findOne: jest.fn().mockResolvedValue(log), flush: jest.fn().mockResolvedValue(undefined) }
+    const em = { fork: jest.fn(() => fork), findOne: jest.fn(), flush: jest.fn() }
+    const service = new ActionLogService(em as unknown as ConstructorParameters<typeof ActionLogService>[0])
+
+    await expect(service.markRedone('log-1')).resolves.toBe(log)
+
+    expect(log).toMatchObject({ executionState: 'redone', undoToken: null })
+    expect(fork.flush).toHaveBeenCalledTimes(1)
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+})

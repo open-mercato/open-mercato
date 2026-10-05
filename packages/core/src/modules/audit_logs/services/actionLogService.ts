@@ -772,12 +772,13 @@ export class ActionLogService {
   }
 
   async markRedone(id: string) {
-    const log = await this.em.findOne(ActionLog, { id, deletedAt: null })
+    const operationEm = this.em.fork()
+    const log = await operationEm.findOne(ActionLog, { id, deletedAt: null })
     if (!log) return null
 
     log.executionState = 'redone'
     log.undoToken = null
-    await this.em.flush()
+    await operationEm.flush()
     return log
   }
 
