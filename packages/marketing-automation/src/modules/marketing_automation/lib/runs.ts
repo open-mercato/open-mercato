@@ -400,3 +400,45 @@ export async function recordSend(
   em.persist(record)
     await em.flush()
 }
+
+/**
+ * Puts a dead run back in the queue, because a person asked.
+ *
+ * A run that exhausted its attempts keeps everything needed to carry on — the step it stopped at, its log, its
+ * trigger context — and `failRun` deliberately does not delete it, so "a customer stuck mid-journey" stays
+ * visible. Until now nothing could unstick them: the row was a gravestone.
+ *
+ * The attempt budget is RESET rather than continued. The point of requiring a person is that they have looked at
+ * `lastError` and dealt with the cause; handing the retry one attempt before it dies again would make the button
+ * a formality. `lastError` is kept, because it is the only record of what went wrong and the operator may want
+ * it after the retry as much as before.
+ *
+ * Conditional on `status = 'dead'`, so two operators pressing it at once produce one revival rather than two —
+ * the same shape every other concurrent write in this module uses. The returned boolean says whether THIS call
+ * was the one that changed it.
+ *
+ * `status` becomes `waiting` with `resumeAt` now, which is what the resume scan looks for. Nothing else revives
+ * a run, deliberately: a timer retrying a dispatch nobody has read is the thing `lib/dead-letter.ts` argues
+ * against, and it applies here too.
+ */
+export async function retryDeadRun(
+  em: EntityManager,
+  scope: RunScope,
+  runId: string,
+  now: Date,
+): Promise<boolean> {
+  const changed = await em.nativeUpdate(
+    MarketingCampaignRun,
+    { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'dead' },
+    {
+      status: 'waiting',
+      attempts: 0,
+      resumeAt: now,
+      nextRetryAt: now,
+      // Cleared so the scan can claim it: a dead run has no claim, and leaving a stale one would strand it again.
+      claimToken: null,
+      claimedAt: null,
+    },
+  )
+  return changed > 0
+}

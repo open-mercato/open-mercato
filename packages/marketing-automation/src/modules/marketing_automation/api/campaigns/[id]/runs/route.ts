@@ -10,6 +10,8 @@ import { MarketingCampaign, MarketingCampaignRun } from '../../../../data/entiti
 import type { StepOutcome } from '../../../../lib/engine/types.js'
 import { findTrigger } from '../../../../lib/trigger-catalog.js'
 import { readPathUuid } from '../../../shared.js'
+import { retryDeadRun } from '../../../../lib/runs.js'
+import { z } from 'zod'
 
 /**
  * Who is mid-journey in this campaign, and what happened to them.
@@ -17,8 +19,22 @@ import { readPathUuid } from '../../../shared.js'
  * Gated by `marketing_automation.runs.view` rather than `campaigns.view`: seeing the campaign and
  * seeing which named customers it has messaged are different disclosures.
  */
+const retryBodySchema = z.object({ runId: z.string().uuid() })
+
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.runs.view'] },
+  /**
+   * Reviving a dead run is gated behind `campaigns.publish`, not `runs.view` and not a new feature.
+   *
+   * The retry resumes a journey, which SENDS to a real customer — so it belongs behind the permission this
+   * module reserves for exactly that, the one it refuses to give an AI tool. `runs.view` is a disclosure
+   * grant and would be far too weak; `campaigns.manage` is authoring, which sends nothing.
+   *
+   * A new `runs.manage` feature was the alternative and was rejected: `acl.ts` is a contract surface, a new
+   * feature reaches existing tenants only after `mercato auth sync-role-acls`, and the operational cost buys
+   * a distinction nobody asked for.
+   */
+  POST: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.publish'] },
 }
 
 export const metadata = routeMetadata
@@ -169,4 +185,65 @@ export const openApi = {
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'A page of runs' }, 404: { description: 'Not found' } },
   },
+}
+
+/**
+ * Puts one dead run back in the queue.
+ *
+ * `{ runId }` in the body rather than a nested route, because a retry is an action ON this collection and the
+ * module has no other per-run endpoint to sit beside.
+ */
+export async function POST(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  /**
+   * A scope that cannot be resolved is a 400, never a 401 — `apiFetch` reads 401 as an expired session and
+   * loops for ever on a refresh that keeps succeeding.
+   */
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) return organizationScopeRequiredResponse()
+
+  const campaignId = readCampaignId(req)
+  if (!campaignId) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+
+  const parsed = retryBodySchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid request body', code: 'marketing_automation.validation.invalidPayload' },
+      { status: 400 },
+    )
+  }
+
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
+  const scope = { tenantId: auth.tenantId, organizationId }
+
+  /**
+   * The run is checked to belong to THIS campaign before anything is written.
+   *
+   * The id arrives in a body, so without this a caller holding `campaigns.publish` could revive a run of any
+   * campaign in their organization by naming it here — the route's path would say one thing and the write do
+   * another.
+   */
+  const run = await em.findOne(MarketingCampaignRun, {
+    id: parsed.data.runId,
+    campaignId,
+    ...scope,
+  })
+  if (!run) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const revived = await retryDeadRun(em, scope, parsed.data.runId, new Date())
+  /**
+   * A run that was not dead is a 409, not a silent success.
+   *
+   * Two operators pressing the button together, or one pressing it on a stale list, must not be told something
+   * happened that did not — the conditional update is what makes only one of them the winner.
+   */
+  if (!revived) {
+    return NextResponse.json(
+      { error: 'This run is not dead, so there is nothing to retry', code: 'marketing_automation.runs.notDead' },
+      { status: 409 },
+    )
+  }
+  return NextResponse.json({ retried: true })
 }
