@@ -22,7 +22,7 @@ export type StoreBindingCascade = {
   channelBindings: EcommerceStoreChannelBinding[]
 }
 
-const domainBindingEvents: CrudEventsConfig<EcommerceStoreDomainBinding> = {
+export const domainBindingEvents: CrudEventsConfig<EcommerceStoreDomainBinding> = {
   module: ECOMMERCE_EVENTS_MODULE,
   entity: STORE_DOMAIN_BINDING_EVENT_ENTITY,
   persistent: true,
@@ -36,7 +36,7 @@ const channelBindingEvents: CrudEventsConfig<EcommerceStoreChannelBinding> = {
   buildPayload: (emitCtx) => buildStoreChannelBindingEventPayload(emitCtx.entity),
 }
 
-const domainBindingIndexer: CrudIndexerConfig<EcommerceStoreDomainBinding> = {
+export const domainBindingIndexer: CrudIndexerConfig<EcommerceStoreDomainBinding> = {
   entityType: E.ecommerce.ecommerce_store_domain_binding,
 }
 

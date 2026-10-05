@@ -233,6 +233,29 @@ export function ecommerceResolutionCache(container: CacheContainer | null | unde
   }
 }
 
+export type EcommerceCacheInvalidation = { tenantId: string | null; tags: string[] }
+
+/**
+ * Event-driven invalidation (§8): evicts `tags` from the tenant-agnostic resolution cache and, when
+ * the tenant is known, from that tenant's storefront and buyer-context caches. Tags are tenant
+ * scoped by the cache layer, so each scope is cleared inside its own tenant.
+ */
+export async function invalidateEcommerceCacheTags(
+  container: CacheContainer | null | undefined,
+  invalidation: EcommerceCacheInvalidation,
+): Promise<number> {
+  const tags = Array.from(new Set(invalidation.tags.filter((tag) => tag.length > 0)))
+  if (tags.length === 0) return 0
+  const cache = resolveCacheService(container)
+  if (!cache) return 0
+  const tenantIds = invalidation.tenantId ? [null, invalidation.tenantId] : [null]
+  let deleted = 0
+  for (const tenantId of tenantIds) {
+    deleted += await createTenantScopedAccess({ cache, tenantId, baseTags: [] }).deleteByTags(tags)
+  }
+  return deleted
+}
+
 export function buyerContextCache(
   container: CacheContainer | null | undefined,
   scope: BuyerContextCacheScope,
