@@ -229,7 +229,12 @@ test.describe('CRM deal owner assignment — browser UI', () => {
   test('create card header does not collide with its actions at phone width', async ({ page, context }) => {
     await page.setViewportSize({ width: 393, height: 852 });
     await login(page, 'admin');
-    await context.addCookies([{ name: 'locale', value: 'pl', url: 'http://localhost:3000' }]);
+    // Must match the config's own baseURL derivation: the ephemeral CI runner serves on
+    // 127.0.0.1:<port>, and a cookie pinned to localhost:3000 never applies there — the test
+    // would silently run in English and stop guarding the locale the issue reported.
+    await context.addCookies([
+      { name: 'locale', value: 'pl', url: process.env.BASE_URL || 'http://localhost:3000' },
+    ]);
     await page.goto('/backend/customers/deals/create');
 
     const ownerField = page.locator(OWNER_FIELD);
