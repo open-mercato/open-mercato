@@ -32,7 +32,7 @@
 | 2 | 2.3 | Generate + review ecommerce migration | inline | done | efe8cbec4d |
 | 2 | 2.4 | Admin CRUD routes: stores, domain bindings, channel bindings | dispatch:standard | done | 1324706161 |
 | 2 | 2.4-fix | Store create branding gate + cascade soft-delete of bindings on store delete | dispatch:standard | done | a0de6848be |
-| 2 | 2.5 | lib/cacheKeys.ts typed storefront cache + structural guard test | dispatch:capable | todo | — |
+| 2 | 2.5 | lib/cacheKeys.ts typed storefront cache + structural guard test | dispatch:capable | done | pending |
 | 2 | 2.6 | lib/storeContext.ts host/slug resolution, locale, failure modes | dispatch:capable | todo | — |
 | 2 | 2.7 | lib/buyerContext.ts buyer identity, groups, terms, taxMode, digest | dispatch:capable | todo | — |
 | 2 | 2.8 | Public GET /api/ecommerce/storefront/context | dispatch:standard | todo | — |
