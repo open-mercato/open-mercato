@@ -28,8 +28,8 @@ test.describe('catalog', { tags: ['catalog'], session: 'admin' }, () => {
     await expect(web).toHaveURL(/\/backend\/catalog\/products\/[0-9a-f-]{36}$/i, { timeout: 60_000 });
     const productId = idFromUrl(await web.url());
     api.track(PRODUCTS, productId);
-    // A replayed step lands here before the product page has loaded; the title is the load's proof.
-    await expect(screen.getByText(title).first()).toBeVisible({ timeout: 30_000 });
+    // A replayed step lands here before the product page has loaded; the title is in an input, so wait for the loading state to end.
+    await expect(screen.getByText(/Loading product/)).toBeHidden({ timeout: 30_000 });
     await agent.assert(`the product page for "${title}" is showing`);
 
     const products = await api.list<{ id: string; sku: string | null; title: string }>(`${PRODUCTS}?search=${encodeURIComponent(title)}&pageSize=20`);
