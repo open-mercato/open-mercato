@@ -81,6 +81,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — user-device rename/deactivate mutates a per-owner device row (devices.user_device), not a shared collaborative-edit surface; the OSS floor covers the same-user two-tab race. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/notifications/api/types/route.ts':
     'OSS-only — per-tenant notification-type override (notifications.settings) is single-admin tenant config edited from the Notification Delivery settings table, not a collaborative merge-dialog target; the OSS floor 409s the concurrent admin two-tab race (the PATCH replaces the whole channels array). Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/customer_groups/api/customer-groups/[id]/terms/route.ts':
+    'OSS-only — commercial terms is a strict 1:1 sub-resource of a group (customer_groups:customer_group_terms) with no list/pagination use case, so it is a hand-written PUT route (no makeCrudRoute decorator) rather than a CRUD-factory route; the synchronous OSS updated_at floor guards the concurrent edit race. Enterprise record_locks migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.
