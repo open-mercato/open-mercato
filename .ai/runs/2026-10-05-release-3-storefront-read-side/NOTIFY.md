@@ -39,3 +39,9 @@
 - Store/buyer resolution, /context and subscribers green after one regression fix (bare sort → 2.9-fix).
 - Spec sync list (apply to SPEC-029 at run end): rate-limit keyPrefix `ecommerce_storefront_context` (spec §12 says ecommerce_context); route file at `api/storefront/context/route.ts` (spec §10 lists api/get/...); branding fonts stored as allowlist ids; `/context` takes `?path=` for path-prefix matching; price-row deletes rely on 60 s TTL; `sales.channel.*` not subscribed (no cached field depends on it).
 - Decision: integration tests run in the ephemeral environment (own containers + DB) — this is not a local `yarn db:migrate`.
+
+## 2026-10-05T13:27:32Z — checkpoint 4 (steps 2.10–2.11) + safety stop
+- SPEC-029 Phase 1 gate green: 12/12 ecommerce integration tests in the ephemeral env, 429 core unit tests.
+- Env decisions: integration fixture activates DomainMappings via direct DB update (no API reaches `active` without DNS/TLS, same as existing dbFixtures tests); custom host sent as a real `Host` header because the ephemeral app runs NODE_ENV=production (X-Force-Host only honored in test mode); ephemeral app needs a non-placeholder JWT_SECRET (passed as a throwaway env var).
+- Open for final gate: resolution P95 latency budget not measured yet.
+- SAFETY STOP: 20 consecutive Steps landed (1.1–2.11 incl. fix rows). Halting dispatch for owner review before Phase 3 (Omnibus). Resume with `om-auto-continue-pr-loop 12` from Step 3.1.

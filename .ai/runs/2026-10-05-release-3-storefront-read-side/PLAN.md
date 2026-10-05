@@ -40,7 +40,7 @@
 | 2 | 2.9-fix | Explicit comparator in priceScopeKey group-id sort (checkpoint 3 regression) | inline | done | ad6984039f |
 | 2 | 2.10 | ecommerce search.ts | dispatch:cheap | done | 56a708e730 |
 | 2 | 2.10-fix | Lazy-load portal auth so ecommerce DI never imports next/server | inline | done | b74e2ca04f |
-| 2 | 2.11 | Integration tests: resolution + buyer context + cache isolation (SPEC-029 Phase 1 gate) | dispatch:capable | done | pending |
+| 2 | 2.11 | Integration tests: resolution + buyer context + cache isolation (SPEC-029 Phase 1 gate) | dispatch:capable | done | c0ef621f3d |
 | 3 | 3.1 | Omnibus: CatalogPriceHistoryEntry entity + migration | dispatch:capable | todo | — |
 | 3 | 3.2 | Omnibus: history capture wired into price commands and undo | dispatch:capable | todo | — |
 | 3 | 3.3 | Omnibus: GET /api/catalog/prices/history | dispatch:standard | todo | — |
