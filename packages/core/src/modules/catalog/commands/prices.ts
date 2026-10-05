@@ -32,6 +32,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { capturePriceHistoryEntry, priceHistoryInputFromRecord } from '../lib/omnibus'
 
 const priceCrudEvents: CrudEventsConfig = {
   module: 'catalog',
@@ -417,6 +418,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       },
       events: priceCrudEvents,
     })
+    await capturePriceHistoryEntry(em, priceHistoryInputFromRecord(record), 'create')
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -452,6 +454,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    await capturePriceHistoryEntry(em, after, 'undo', { metadata: { undoneCommand: 'catalog.prices.create' } })
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -470,7 +473,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     seedFromSnapshot: priceSeedFromSnapshot,
     buildResult: (entity) => ({ priceId: entity.id }),
     events: priceCrudEvents,
-    afterRestore: async ({ ctx, entity, snapshot }) => {
+    afterRestore: async ({ em, ctx, entity, snapshot }) => {
       if (snapshot.custom && Object.keys(snapshot.custom).length) {
         await setCustomFieldsIfAny({
           dataEngine: ctx.container.resolve('dataEngine'),
@@ -481,6 +484,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
           values: snapshot.custom,
         })
       }
+      await capturePriceHistoryEntry(em, snapshot, 'create', { metadata: { redoneCommand: 'catalog.prices.create' } })
     },
   }),
 }
@@ -718,6 +722,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       },
       events: priceCrudEvents,
     })
+    await capturePriceHistoryEntry(em, priceHistoryInputFromRecord(record), 'update')
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -792,6 +797,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(em, record, before)
     await em.flush()
+    await capturePriceHistoryEntry(em, before, 'undo', { metadata: { undoneCommand: 'catalog.prices.update' } })
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
       after?.custom ?? undefined
@@ -836,8 +842,10 @@ const deletePriceCommand: CommandHandler<
     const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadPriceSnapshot(baseEm, id)
 
+    const deletedPrice = snapshot ?? priceHistoryInputFromRecord(record)
     em.remove(record)
     await em.flush()
+    await capturePriceHistoryEntry(em, deletedPrice, 'delete')
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
@@ -924,6 +932,7 @@ const deletePriceCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(em, record, before)
     await em.flush()
+    await capturePriceHistoryEntry(em, before, 'undo', { metadata: { undoneCommand: 'catalog.prices.delete' } })
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
