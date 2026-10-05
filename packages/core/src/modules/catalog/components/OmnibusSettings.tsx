@@ -170,7 +170,7 @@ function listStaleBackfillScopes(stored: StoredOmnibusConfig | null, form: Omnib
       return entry.lookbackDays < effective
     })
     .map(([scopeId]) => scopeId)
-    .sort()
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 export function OmnibusSettings() {

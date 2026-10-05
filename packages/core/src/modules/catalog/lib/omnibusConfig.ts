@@ -52,7 +52,7 @@ export function listInScopeOmnibusChannels(config: OmnibusConfig): string[] {
   return Object.entries(config.channels)
     .filter(([, channel]) => Boolean(channel.countryCode && enabledCountries.has(channel.countryCode)))
     .map(([channelId]) => channelId)
-    .sort()
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 export function evaluateOmnibusConfig(config: OmnibusConfig): OmnibusConfigEvaluation {

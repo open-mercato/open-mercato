@@ -50,7 +50,8 @@
 | 3 | 3.5 | Omnibus: omnibus-preview route + products-list enrichment | dispatch:standard | done | 7e2d0dde3d |
 | 3 | 3.6 | Omnibus: GET/PATCH /api/catalog/config/omnibus | dispatch:standard | done | 84be2e9457 |
 | 3 | 3.7 | Omnibus: ACL features, setup grants, backfill CLI | dispatch:standard | done | 66a1002ff2 |
-| 3 | 3.8 | Omnibus: admin UI (settings panel + price editor reference row) + i18n | dispatch:standard | done | pending |
+| 3 | 3.8 | Omnibus: admin UI (settings panel + price editor reference row) + i18n | dispatch:standard | done | c52b9ed595 |
+| 3 | 3.8-fix | Explicit comparators in Omnibus config/settings channel sorts (checkpoint 6 regression) | inline | done | pending |
 | 3 | 3.9 | Omnibus: integration tests | dispatch:capable | todo | — |
 | 4 | 4.1 | Catalog: extract product filters to lib with descendant expansion | dispatch:standard | todo | — |
 | 4 | 4.2 | query_index doc-enrichment hook + overlap FilterOp | dispatch:capable | todo | — |
@@ -141,6 +142,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **3.6 Config** — `GET|PATCH /api/catalog/config/omnibus` (zod, mutation guards, backfill gate).
 - **3.7 ACL + setup + backfill CLI** — `catalog.price_history.view`, `catalog.settings.view`; grants; `omnibus:backfill`.
 - **3.8 Admin UI** — `OmnibusSettings`, `PriceEditorOmnibusRow`, i18n (5 locales).
+- **3.8-fix Explicit comparators in Omnibus config/settings channel sorts (checkpoint 6 regression)** — repo-wide `explicit-sort-comparators` guard.
 - **3.9 Integration tests** — spec test plan for Phases 1–3.
 
 ### Phase 4 — Storefront Public API Phase 1 (+ §13 prerequisites)
