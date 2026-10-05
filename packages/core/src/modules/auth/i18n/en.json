@@ -539,6 +539,8 @@
   "auth.profile.form.success": "Profile updated.",
   "auth.profile.subtitle": "Change password",
   "auth.profile.title": "Profile",
+  "auth.replay.errors.credentials": "Password changes cannot be replayed.",
+  "auth.replay.errors.stale": "This action cannot be replayed because the target has changed.",
   "auth.reset.backToLogin": "Back to login",
   "auth.reset.description": "Enter your email to receive reset link",
   "auth.reset.error": "Something went wrong",
