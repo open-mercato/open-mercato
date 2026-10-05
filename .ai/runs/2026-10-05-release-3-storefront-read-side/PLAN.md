@@ -53,7 +53,7 @@
 | 3 | 3.8 | Omnibus: admin UI (settings panel + price editor reference row) + i18n | dispatch:standard | done | c52b9ed595 |
 | 3 | 3.8-fix | Explicit comparators in Omnibus config/settings channel sorts (checkpoint 6 regression) | inline | done | c73c7b42b6 |
 | 3 | 3.9 | Omnibus: integration tests | dispatch:capable | done | 2ea735bc2d |
-| 4 | 4.1 | Catalog: extract product filters to lib with descendant expansion | dispatch:standard | todo | — |
+| 4 | 4.1 | Catalog: extract product filters to lib with descendant expansion | dispatch:standard | done | pending |
 | 4 | 4.2 | query_index doc-enrichment hook + overlap FilterOp | dispatch:capable | todo | — |
 | 4 | 4.3 | Catalog scope_keys contributor, GIN index, reindex triggers | dispatch:capable | todo | — |
 | 4 | 4.4 | ecommerce buildStorefrontProductScope + SQL/matchesScope equivalence test | dispatch:capable | todo | — |
