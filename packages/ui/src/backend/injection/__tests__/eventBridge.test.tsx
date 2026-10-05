@@ -111,4 +111,20 @@ describe('useEventBridge connection lifecycle', () => {
     expect(EventSourceMock.instances).toHaveLength(2)
     unmount()
   })
+
+  it('keeps the open stream when the scope signal does not change the scope cookies', () => {
+    document.cookie = 'om_selected_org=org-same; path=/'
+    document.cookie = 'om_selected_tenant=tenant-1; path=/'
+    const { unmount } = renderHook(() => useEventBridge())
+    const source = EventSourceMock.instances[0]
+    act(() => source.onopen?.(new Event('open')))
+
+    act(() => {
+      emitOrganizationScopeChanged({ organizationId: 'org-same', tenantId: 'tenant-1' })
+    })
+
+    expect(source.close).not.toHaveBeenCalled()
+    expect(EventSourceMock.instances).toHaveLength(1)
+    unmount()
+  })
 })

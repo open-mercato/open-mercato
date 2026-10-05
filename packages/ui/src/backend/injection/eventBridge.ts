@@ -13,6 +13,21 @@ const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
 const DEDUP_WINDOW_MS = 500
 const BRIDGE_RECONNECTED_EVENT_ID = 'om:bridge:reconnected'
+const SCOPE_COOKIE_NAMES = ['om_selected_org', 'om_selected_tenant'] as const
+
+function readScopeCookieSignature(): string {
+  if (typeof document === 'undefined') return ''
+  const values = new Map<string, string>()
+  for (const part of document.cookie.split(';')) {
+    const separatorIndex = part.indexOf('=')
+    if (separatorIndex < 0) continue
+    const name = part.slice(0, separatorIndex).trim()
+    if ((SCOPE_COOKIE_NAMES as readonly string[]).includes(name)) {
+      values.set(name, part.slice(separatorIndex + 1).trim())
+    }
+  }
+  return SCOPE_COOKIE_NAMES.map((name) => `${name}=${values.get(name) ?? ''}`).join(';')
+}
 
 type EventBridgeReadyWindow = { __omEventBridgeReady?: boolean }
 
@@ -42,6 +57,7 @@ export function useEventBridge(): void {
   const recentEvents = useRef<Map<string, number>>(new Map())
   const hasEverConnected = useRef(false)
   const reconnectPending = useRef(false)
+  const connectedScopeSignature = useRef<string | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -81,6 +97,7 @@ export function useEventBridge(): void {
       try {
         const source = new EventSource(SSE_ENDPOINT, { withCredentials: true })
         sourceRef.current = source
+        connectedScopeSignature.current = readScopeCookieSignature()
 
         source.onopen = () => {
           if (sourceRef.current !== source) return
@@ -178,6 +195,7 @@ export function useEventBridge(): void {
     }
 
     function handleOrganizationScopeChange() {
+      if (sourceRef.current && connectedScopeSignature.current === readScopeCookieSignature()) return
       if (hasEverConnected.current) reconnectPending.current = true
       disconnect()
       if (reconnectTimer.current) {
