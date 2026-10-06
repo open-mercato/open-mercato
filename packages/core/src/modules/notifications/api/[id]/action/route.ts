@@ -1,5 +1,5 @@
 import { executeActionSchema } from '../../../data/validators'
-import { actionResultResponseSchema, errorResponseSchema } from '../../openapi'
+import { actionConflictResponseSchema, actionResultResponseSchema, errorResponseSchema } from '../../openapi'
 import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
@@ -92,7 +92,7 @@ export const openApi = {
         description: 'The notification action was already executed (`code: notification_action_already_executed`), or a mutation guard or the action command reported a conflict',
         content: {
           'application/json': {
-            schema: errorResponseSchema,
+            schema: actionConflictResponseSchema,
           },
         },
       },

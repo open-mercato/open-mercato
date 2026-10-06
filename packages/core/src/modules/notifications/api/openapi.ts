@@ -48,6 +48,10 @@ export const errorResponseSchema = z.object({
   error: z.string(),
 })
 
+export const actionConflictResponseSchema = errorResponseSchema.extend({
+  code: z.string().optional(),
+})
+
 export const scopeErrorResponseSchema = z.object({
   error: z.string(),
   code: z.string(),
