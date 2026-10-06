@@ -359,7 +359,7 @@ describe('sales.quotes.convert_to_order — shipping and surcharge totals', () =
   const surchargeRow: FeeRow = { kind: 'surcharge', amountNet: '5.0000', amountGross: '6.1500' }
   const discountRow: FeeRow = { kind: 'discount', amountNet: '10.0000', amountGross: '10.0000' }
 
-  async function convertQuote(totalsSnapshot: unknown, rows: FeeRow[]): Promise<Record<string, unknown>> {
+  function prepareConversion(totalsSnapshot: unknown, rows: FeeRow[], actingOrganizationId?: string) {
     const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>(
       'sales.quotes.convert_to_order',
     )
@@ -426,12 +426,17 @@ describe('sales.quotes.convert_to_order — shipping and surcharge totals', () =
       container,
       auth: null,
       organizationScope: null,
-      selectedOrganizationId: quote.organizationId,
-      organizationIds: [quote.organizationId],
+      selectedOrganizationId: actingOrganizationId ?? quote.organizationId,
+      organizationIds: [actingOrganizationId ?? quote.organizationId],
       transactionalEm: em as unknown as CommandRuntimeContext['transactionalEm'],
     }
 
-    await handler!.execute({ quoteId: quote.id }, ctx)
+    return { execute: () => handler!.execute({ quoteId: quote.id }, ctx), em }
+  }
+
+  async function convertQuote(totalsSnapshot: unknown, rows: FeeRow[]): Promise<Record<string, unknown>> {
+    const { execute, em } = prepareConversion(totalsSnapshot, rows)
+    await execute()
 
     const orderCall = em.create.mock.calls.find(([entity]) => entity === SalesOrder)
     expect(orderCall).toBeTruthy()
@@ -494,5 +499,18 @@ describe('sales.quotes.convert_to_order — shipping and surcharge totals', () =
     expect(order.shippingNetAmount).toBe('0')
     expect(order.shippingGrossAmount).toBe('0')
     expect(order.surchargeTotalAmount).toBe('0')
+  })
+
+  test('refuses a quote of another organization before writing any order or fee totals', async () => {
+    const { execute, em } = prepareConversion(
+      { shippingNetAmount: 15, shippingGrossAmount: 18.45, surchargeTotalAmount: 5 },
+      [shippingRow, surchargeRow],
+      '99999999-9999-4999-8999-999999999999',
+    )
+
+    await expect(execute()).rejects.toMatchObject({ status: 403 })
+    expect(em.create.mock.calls.some(([entity]) => entity === SalesOrder)).toBe(false)
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })
