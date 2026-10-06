@@ -762,3 +762,123 @@ describe('DefaultAttachmentService — sanitised vector images', () => {
     expect(result.contentSecurityPolicy).toBe("default-src 'none'; sandbox")
   })
 })
+
+describe('DefaultAttachmentService.readScopedForOwner', () => {
+  const ownerInput = {
+    attachmentId: 'attachment-1',
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+    expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    expectedPartitionCode: 'privateAttachments',
+  }
+
+  it('reads the owner\'s attachment without a principal, scoped at the database boundary', async () => {
+    const { service, em } = createHarness()
+
+    const result = await service.readScopedForOwner(ownerInput)
+
+    expect(result.buffer.toString('utf8')).toBe('file')
+    expect(result.contentSecurityPolicy).toBe("default-src 'none'; sandbox")
+    const attachmentLookup = em.findOne.mock.calls.find(([entity]: unknown[]) => entity === Attachment)
+    expect(attachmentLookup?.[1]).toEqual({ id: 'attachment-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+  })
+
+  it.each([
+    ['a different owner entity', { expectedOwner: { entityId: 'catalog:catalog_product', recordId: 'document-1' } }],
+    ['a different owner record', { expectedOwner: { entityId: 'documents:document', recordId: 'document-2' } }],
+    ['a different tenant', { tenantId: 'tenant-2' }],
+    ['a different organization', { organizationId: 'org-2' }],
+    ['a different partition', { expectedPartitionCode: 'productsMedia' }],
+    ['an assignment the row does not carry', { expectedAssignment: { type: 'documents:document', id: 'document-2' } }],
+  ])('refuses %s', async (_label, overrides) => {
+    const { service, factory } = createHarness()
+
+    await expectStatus(service.readScopedForOwner({ ...ownerInput, ...overrides }), 404)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('refuses a foreign-scope row even if the scoped lookup filter regresses', async () => {
+    const { service, factory } = createHarness({
+      attachment: attachment({ tenantId: 'tenant-2', organizationId: 'org-2' }),
+      unscopedAttachmentLookup: true,
+    })
+
+    await expectStatus(service.readScopedForOwner(ownerInput), 404)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('refuses a partition owned by another tenant', async () => {
+    const { service, factory } = createHarness({
+      partition: partition({ tenantId: 'tenant-2', organizationId: 'org-2' }),
+    })
+
+    await expectStatus(service.readScopedForOwner(ownerInput), 404)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a blank tenant', { tenantId: ' ' }],
+    ['a blank organization', { organizationId: '' }],
+    ['a blank partition', { expectedPartitionCode: '' }],
+    ['a missing owner record', { expectedOwner: { entityId: 'documents:document', recordId: '' } }],
+  ])('refuses %s instead of widening the lookup', async (_label, overrides) => {
+    const { service, em } = createHarness()
+
+    await expectStatus(service.readScopedForOwner({ ...ownerInput, ...overrides } as typeof ownerInput), 500)
+
+    expect(em.findOne).not.toHaveBeenCalled()
+  })
+
+  it('serves a sanitised vector image inline and any other SVG as a download', async () => {
+    const logo = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8')
+    const record = {
+      sanitizer: 'dompurify',
+      sanitizerVersion: '3.4.11',
+      policyVersion: VECTOR_IMAGE_POLICY_VERSION,
+      sha256: hashVectorImage(logo),
+      sanitizedAt: '2026-10-05T10:00:00.000Z',
+    }
+    const svgRow = (metadata: Record<string, unknown>) => attachment({
+      fileName: 'logo.svg',
+      mimeType: 'image/svg+xml',
+      storageMetadata: { assignments: [{ type: 'documents:document', id: 'document-1' }], ...metadata },
+    })
+
+    const trusted = await createHarness({ attachment: svgRow({ [VECTOR_IMAGE_METADATA_KEY]: record }), readBuffer: logo })
+      .service.readScopedForOwner(ownerInput)
+    const untrusted = await createHarness({ attachment: svgRow({}), readBuffer: logo })
+      .service.readScopedForOwner(ownerInput)
+
+    expect(trusted).toMatchObject({
+      contentType: 'image/svg+xml',
+      contentDisposition: expect.stringMatching(/^inline;/),
+      contentSecurityPolicy: VECTOR_IMAGE_CONTENT_SECURITY_POLICY,
+    })
+    expect(untrusted).toMatchObject({
+      contentType: 'application/octet-stream',
+      contentDisposition: expect.stringMatching(/^attachment;/),
+    })
+  })
+
+  it('is not reachable from an attachments HTTP route', () => {
+    const { readdirSync, readFileSync, statSync } = jest.requireActual('node:fs') as typeof import('node:fs')
+    const { join } = jest.requireActual('node:path') as typeof import('node:path')
+    const apiRoot = join(__dirname, '..', '..', 'api')
+    const offenders: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const fullPath = join(dir, entry)
+        if (statSync(fullPath).isDirectory()) {
+          if (entry !== '__tests__') walk(fullPath)
+        } else if (/\.tsx?$/.test(entry) && readFileSync(fullPath, 'utf8').includes('readScopedForOwner')) {
+          offenders.push(fullPath)
+        }
+      }
+    }
+    walk(apiRoot)
+    expect(offenders).toEqual([])
+  })
+})
