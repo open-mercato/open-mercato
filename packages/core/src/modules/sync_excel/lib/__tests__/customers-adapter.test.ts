@@ -5,6 +5,7 @@ import {
   parseCursor,
   syncExcelCustomersAdapter,
 } from '../adapters/customers'
+import type { DataMapping } from '../../../data_sync/lib/adapter'
 
 const mockReadSyncExcelUploadBuffer = jest.fn()
 const mockCreateSyncExcelUploadReadStream = jest.fn()
@@ -23,13 +24,13 @@ function setLivePeople(personIds: string[]): void {
   ))
 }
 
-async function runImport(mapping: unknown = mappingRecord.mapping, batchSize = 50) {
+async function runImport(mapping: DataMapping = mappingRecord.mapping, batchSize = 50) {
   const batches = []
   for await (const batch of syncExcelCustomersAdapter.streamImport!({
     entityType: 'customers.person',
     batchSize,
     credentials: {},
-    mapping: mapping as any,
+    mapping,
     scope: {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
@@ -73,7 +74,7 @@ const mappingRecord = {
       { externalField: 'Postal Code', localField: 'address.postalCode', mappingKind: 'core' },
       { externalField: 'Favorite Color', localField: 'cf:favorite_color', mappingKind: 'custom_field' },
     ],
-  },
+  } satisfies DataMapping,
 }
 
 const mockEm = {
@@ -861,7 +862,7 @@ describe('sync_excel customers adapter', () => {
   })
 
   describe('external id pointing at a person that no longer exists', () => {
-    const identityMapping = {
+    const identityMapping: DataMapping = {
       entityType: 'customers.person',
       matchStrategy: 'externalId',
       matchField: 'person.externalId',
@@ -939,7 +940,7 @@ describe('sync_excel customers adapter', () => {
               id: 'recreated-person-id',
               primaryEmail: 'ada@example.com',
               createdAt: new Date('2024-03-01T00:00:00.000Z'),
-            } as any,
+            } as never,
           ]
         }
         return []
@@ -1059,7 +1060,7 @@ describe('sync_excel customers adapter', () => {
               id: 'existing-person-id',
               primaryEmail: 'ada@example.com',
               createdAt: new Date('2024-01-01T00:00:00.000Z'),
-            } as any,
+            } as never,
           ]
         }
         return []
