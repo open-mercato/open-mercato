@@ -319,6 +319,19 @@ export async function updateStoreStatus(
   expect(response.status(), `store status update should be 200 (${await response.text()})`).toBe(200);
 }
 
+export async function setChannelBindingRequireAuthentication(
+  request: APIRequestContext,
+  token: string,
+  bindingId: string,
+  requireAuthentication: boolean,
+): Promise<void> {
+  const response = await apiRequest(request, 'PUT', CHANNEL_BINDINGS_PATH, {
+    token,
+    data: { id: bindingId, requireAuthentication },
+  });
+  expect(response.status(), `channel binding update should be 200 (${await response.text()})`).toBe(200);
+}
+
 function hostHeaders(hostname: string): Record<string, string> {
   const headers: Record<string, string> = { Host: hostname };
   const forceHostSecret = process.env.FORCE_HOST_SECRET?.trim();

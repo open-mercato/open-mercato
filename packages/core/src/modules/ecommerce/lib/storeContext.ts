@@ -55,7 +55,10 @@ export type StorefrontResolutionErrorCode =
 
 export type StorefrontResolutionStatus = 400 | 401 | 403 | 404 | 410 | 503
 
+const STOREFRONT_RESOLUTION_ERROR_MARKER = Symbol.for('@open-mercato/ecommerce/StorefrontResolutionError')
+
 export class StorefrontResolutionError extends Error {
+  readonly [STOREFRONT_RESOLUTION_ERROR_MARKER] = true
   readonly status: StorefrontResolutionStatus
   readonly code: StorefrontResolutionErrorCode
 
@@ -67,8 +70,17 @@ export class StorefrontResolutionError extends Error {
   }
 }
 
+/**
+ * Marker-based so it holds across bundle layers: `storeContextService` is resolved from the DI
+ * container, whose registrars may have been loaded from another bundle layer than the route, so
+ * the error class it throws is not always the route's `StorefrontResolutionError`.
+ */
 export function isStorefrontResolutionError(error: unknown): error is StorefrontResolutionError {
-  return error instanceof StorefrontResolutionError
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    (error as Record<symbol, unknown>)[STOREFRONT_RESOLUTION_ERROR_MARKER] === true
+  )
 }
 
 export type ResolvedStoreChannel = StoreContextChannel & {

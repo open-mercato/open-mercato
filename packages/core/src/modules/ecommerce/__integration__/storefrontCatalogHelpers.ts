@@ -42,6 +42,9 @@ import {
  */
 
 export const STOREFRONT_PRODUCTS_PATH = '/api/ecommerce/storefront/products';
+export const STOREFRONT_CATEGORIES_PATH = '/api/ecommerce/storefront/categories';
+export const STOREFRONT_SEARCH_SUGGEST_PATH = '/api/ecommerce/storefront/search/suggest';
+export const CATEGORY_NOT_FOUND_BODY = { error: 'category_not_found' } as const;
 export const PRODUCT_NOT_FOUND_BODY = { error: 'product_not_found' } as const;
 export const LISTING_ANONYMOUS_CACHE_CONTROL = 'public, max-age=30, stale-while-revalidate=30';
 export const DETAIL_ANONYMOUS_CACHE_CONTROL = 'public, max-age=60';
@@ -49,6 +52,7 @@ export const STOREFRONT_ERROR_CACHE_CONTROL = 'no-store';
 
 const CATEGORIES_PATH = '/api/catalog/categories';
 const PRODUCTS_PATH = '/api/catalog/products';
+const VARIANTS_PATH = '/api/catalog/variants';
 const PRICES_PATH = '/api/catalog/prices';
 const AVAILABILITY_POLICIES_PATH = '/api/availability/policies';
 const PRODUCT_TRANSLATION_ENTITY = 'catalog:catalog_product';
@@ -58,6 +62,7 @@ const PRODUCT_DESCRIPTION =
 export type StorefrontFixtureTracker = {
   categoryIds: string[];
   productIds: string[];
+  variantIds: string[];
   priceIds: string[];
   priceKindIds: string[];
   policyIds: string[];
@@ -72,6 +77,7 @@ export function createStorefrontFixtureTracker(): StorefrontFixtureTracker {
   return {
     categoryIds: [],
     productIds: [],
+    variantIds: [],
     priceIds: [],
     priceKindIds: [],
     policyIds: [],
@@ -99,13 +105,18 @@ export async function createCategoryFixture(
   request: APIRequestContext,
   token: string,
   tracker: StorefrontFixtureTracker,
-  input: { name: string; parentId?: string | null },
+  input: { name: string; parentId?: string | null; slug?: string; isActive?: boolean },
 ): Promise<string> {
   const id = await postForId(
     request,
     token,
     CATEGORIES_PATH,
-    { name: input.name, ...(input.parentId ? { parentId: input.parentId } : {}) },
+    {
+      name: input.name,
+      ...(input.parentId ? { parentId: input.parentId } : {}),
+      ...(input.slug ? { slug: input.slug } : {}),
+      ...(input.isActive === false ? { isActive: false } : {}),
+    },
     'category fixture',
   );
   tracker.categoryIds.push(id);
@@ -143,6 +154,23 @@ export async function createProductFixture(
     'product fixture',
   );
   tracker.productIds.push(id);
+  return id;
+}
+
+export async function createVariantFixture(
+  request: APIRequestContext,
+  token: string,
+  tracker: StorefrontFixtureTracker,
+  input: { productId: string; name: string; sku: string; optionValues: Record<string, string> },
+): Promise<string> {
+  const id = await postForId(
+    request,
+    token,
+    VARIANTS_PATH,
+    { productId: input.productId, name: input.name, sku: input.sku, isActive: true, optionValues: input.optionValues },
+    'variant fixture',
+  );
+  tracker.variantIds.push(id);
   return id;
 }
 
@@ -294,6 +322,7 @@ export async function cleanupStorefrontCatalogFixtures(
     );
   }
   for (const id of tracker.priceIds) await deleteGeneralEntityIfExists(request, token, PRICES_PATH, id);
+  for (const id of tracker.variantIds) await deleteGeneralEntityIfExists(request, token, VARIANTS_PATH, id);
   for (const id of tracker.productIds) await deleteGeneralEntityIfExists(request, token, PRODUCTS_PATH, id);
   for (const id of [...tracker.categoryIds].reverse()) {
     await deleteGeneralEntityIfExists(request, token, CATEGORIES_PATH, id);
@@ -321,8 +350,20 @@ export type StorefrontListItemBody = {
   availability: { state: string; canFulfil: boolean };
 };
 
+export type StorefrontFacetsBody = {
+  categories: Array<{ id: string; name: string; slug: string | null; depth: number; parentId: string | null; count: number }>;
+  tags: Array<{ slug: string; label: string; count: number }>;
+  priceRange: { min: number; max: number; currencyCode: string } | null;
+  options: Array<{ code: string; label: string; values: Array<{ code: string; label: string; count: number }> }>;
+  productTypes: Array<{ type: string; label: string; count: number }>;
+  availability: Array<{ state: string; count: number }>;
+  availabilityScope: 'page';
+  total: number;
+};
+
 export type StorefrontProductListBody = {
   items: StorefrontListItemBody[];
+  facets: StorefrontFacetsBody;
   total: number;
   page: number;
   pageSize: number;
@@ -366,4 +407,92 @@ export function itemIds(list: StorefrontProductListBody | null): string[] {
 
 export function itemPrice(list: StorefrontProductListBody | null, productId: string): StorefrontPriceBody | null {
   return list?.items.find((item) => item.id === productId)?.price ?? null;
+}
+
+export type StorefrontCategoryNodeBody = {
+  id: string;
+  name: string;
+  slug: string | null;
+  depth: number;
+  parentId: string | null;
+  productCount: number;
+  hasChildren: boolean;
+  children: StorefrontCategoryNodeBody[];
+};
+
+export type StorefrontCategoryTreeBody = { tree: StorefrontCategoryNodeBody[]; effectiveLocale: string };
+
+export type StorefrontCategoryLandingBody = {
+  category: {
+    id: string;
+    name: string;
+    slug: string | null;
+    depth: number;
+    parentId: string | null;
+    ancestorIds: string[];
+    breadcrumb: Array<{ id: string; name: string; slug: string | null }>;
+    children: Array<{ id: string; name: string; slug: string | null; productCount: number }>;
+    productCount: number;
+  };
+  products: StorefrontProductListBody;
+  effectiveLocale: string;
+};
+
+export type StorefrontSearchSuggestBody = {
+  products: Array<{
+    id: string;
+    handle: string | null;
+    title: string;
+    defaultMediaUrl: string | null;
+    formattedPrice: string | null;
+  }>;
+  categories: Array<{ id: string; name: string; slug: string | null }>;
+  suggestions: string[];
+  effectiveLocale: string;
+};
+
+export async function getStorefrontCategoryTree(
+  hostname: string,
+  options: StorefrontRequestOptions = {},
+): Promise<StorefrontResponse & { categories: StorefrontCategoryTreeBody | null }> {
+  const response = await storefrontGet(hostname, STOREFRONT_CATEGORIES_PATH, options);
+  return { ...response, categories: response.status === 200 ? (response.body as StorefrontCategoryTreeBody) : null };
+}
+
+export async function getStorefrontCategoryLanding(
+  hostname: string,
+  slug: string,
+  options: StorefrontRequestOptions = {},
+): Promise<StorefrontResponse & { landing: StorefrontCategoryLandingBody | null }> {
+  const response = await storefrontGet(hostname, `${STOREFRONT_CATEGORIES_PATH}/${encodeURIComponent(slug)}`, options);
+  return { ...response, landing: response.status === 200 ? (response.body as StorefrontCategoryLandingBody) : null };
+}
+
+export async function getStorefrontSearchSuggest(
+  hostname: string,
+  options: StorefrontRequestOptions = {},
+): Promise<StorefrontResponse & { suggest: StorefrontSearchSuggestBody | null }> {
+  const response = await storefrontGet(hostname, STOREFRONT_SEARCH_SUGGEST_PATH, options);
+  return { ...response, suggest: response.status === 200 ? (response.body as StorefrontSearchSuggestBody) : null };
+}
+
+export function flattenCategoryTree(nodes: StorefrontCategoryNodeBody[]): Map<string, StorefrontCategoryNodeBody> {
+  const flat = new Map<string, StorefrontCategoryNodeBody>();
+  const visit = (list: StorefrontCategoryNodeBody[]) => {
+    for (const node of list) {
+      flat.set(node.id, node);
+      visit(node.children);
+    }
+  };
+  visit(nodes);
+  return flat;
+}
+
+export function compareIds(left: string, right: string): number {
+  if (left < right) return -1;
+  return left > right ? 1 : 0;
+}
+
+export function sortedIds(ids: Iterable<string>): string[] {
+  return Array.from(ids).sort(compareIds);
 }

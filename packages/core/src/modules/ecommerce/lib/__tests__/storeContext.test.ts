@@ -12,6 +12,7 @@ import {
   DEV_STORE_SLUG_ENV,
   STORE_RESOLUTION_TTL_MS,
   StorefrontResolutionError,
+  isStorefrontResolutionError,
   normalizeRequestHost,
   pathPrefixMatches,
   resolveStoreBySlug,
@@ -470,5 +471,25 @@ describe('resolveStoreFromRequest — locale', () => {
       effectiveLocale: 'de',
       requestedLocale: 'fr',
     })
+  })
+})
+
+describe('isStorefrontResolutionError', () => {
+  it('recognizes an error thrown by another loaded copy of the module', () => {
+    let foreignError: unknown = null
+    jest.isolateModules(() => {
+      const foreign = jest.requireActual<typeof import('../storeContext')>('../storeContext')
+      foreignError = new foreign.StorefrontResolutionError(404, 'store_not_found')
+    })
+    expect(foreignError).not.toBeInstanceOf(StorefrontResolutionError)
+    expect(isStorefrontResolutionError(foreignError)).toBe(true)
+    expect(isStorefrontResolutionError(new StorefrontResolutionError(410, 'store_archived'))).toBe(true)
+  })
+
+  it('rejects errors that only look alike', () => {
+    const lookalike = Object.assign(new Error('nope'), { name: 'StorefrontResolutionError', status: 404, code: 'store_not_found' })
+    expect(isStorefrontResolutionError(lookalike)).toBe(false)
+    expect(isStorefrontResolutionError(null)).toBe(false)
+    expect(isStorefrontResolutionError('store_not_found')).toBe(false)
   })
 })
