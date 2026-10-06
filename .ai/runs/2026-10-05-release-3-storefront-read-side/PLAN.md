@@ -62,8 +62,8 @@
 | 4 | 4.6 | ecommerce lib/storefrontProducts.ts listing | dispatch:capable | done | 565dd8ff0b |
 | 4 | 4.7 | ecommerce lib/storefrontDetail.ts detail | dispatch:capable | done | 248bf789fd |
 | 4 | 4.7-fix | Detail priceTiers per selected variant (empty tiers when variants carry prices) | dispatch:standard | done | cd3eb4c34f |
-| 4 | 4.8 | Public routes /products and /products/:idOrHandle with storefront cache | dispatch:standard | done | pending |
-| 4 | 4.9 | Integration tests: cross-context isolation, enumeration oracle, query budgets (Public API Phase 1 gate) | dispatch:capable | todo | — |
+| 4 | 4.8 | Public routes /products and /products/:idOrHandle with storefront cache | dispatch:standard | done | e0de9f98be |
+| 4 | 4.9 | Integration tests: cross-context isolation, enumeration oracle, query budgets (Public API Phase 1 gate) | dispatch:capable | done | pending |
 | 5 | 5.1 | Channel binding require_authentication + resolver short-circuit + intersectScopes | dispatch:standard | todo | — |
 | 5 | 5.2 | Generate + review require_authentication migration | inline | todo | — |
 | 5 | 5.3 | Integration tests: authentication gate; isolation suite unchanged (Visibility Phase 2 gate) | dispatch:standard | todo | — |

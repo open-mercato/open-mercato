@@ -114,6 +114,13 @@ export type CustomerGroupTermsFixtureInput = {
   creditCurrencyCode?: string | null;
   approvalRequiredAbove?: number | null;
   minOrderValue?: number | null;
+  assortmentScope?: {
+    categoryIds?: string[];
+    tagIds?: string[];
+    excludeProductIds?: string[];
+    excludeCategoryIds?: string[];
+    excludeTagIds?: string[];
+  } | null;
   metadata?: Record<string, unknown> | null;
 };
 

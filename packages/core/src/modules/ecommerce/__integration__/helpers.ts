@@ -80,12 +80,17 @@ export async function deleteSalesChannelIfExists(
 export async function createPriceKindFixture(
   request: APIRequestContext,
   token: string,
-  input: { stamp: string; suffix: string; displayMode: PriceKindDisplayMode },
+  input: { stamp: string; suffix: string; displayMode: PriceKindDisplayMode; isPromotion?: boolean },
 ): Promise<string> {
   const code = `qa_ecom_${input.suffix}_${input.stamp}`.replace(/-/g, '_');
   const response = await apiRequest(request, 'POST', PRICE_KINDS_PATH, {
     token,
-    data: { code, title: `QA ECOM ${input.suffix} ${input.stamp}`, displayMode: input.displayMode },
+    data: {
+      code,
+      title: `QA ECOM ${input.suffix} ${input.stamp}`,
+      displayMode: input.displayMode,
+      ...(input.isPromotion ? { isPromotion: true } : {}),
+    },
   });
   expect(response.status(), `price kind fixture create should be 201 (${await response.text()})`).toBe(201);
   return expectId((await readJsonSafe<{ id?: string }>(response))?.id, 'price kind fixture should return an id');
@@ -178,10 +183,24 @@ export async function deleteStoreIfExists(
   await deleteGeneralEntityIfExists(request, token, STORES_PATH, id);
 }
 
+export type ChannelAssortmentScope = {
+  categoryIds?: string[];
+  tagIds?: string[];
+  excludeProductIds?: string[];
+  excludeCategoryIds?: string[];
+  excludeTagIds?: string[];
+};
+
 export async function createChannelBindingFixture(
   request: APIRequestContext,
   token: string,
-  input: { storeId: string; salesChannelId: string; priceKindId?: string | null; isDefault?: boolean },
+  input: {
+    storeId: string;
+    salesChannelId: string;
+    priceKindId?: string | null;
+    isDefault?: boolean;
+    assortmentScope?: ChannelAssortmentScope | null;
+  },
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', CHANNEL_BINDINGS_PATH, {
     token,
@@ -190,6 +209,7 @@ export async function createChannelBindingFixture(
       salesChannelId: input.salesChannelId,
       priceKindId: input.priceKindId ?? null,
       isDefault: input.isDefault ?? true,
+      ...(input.assortmentScope !== undefined ? { assortmentScope: input.assortmentScope } : {}),
     },
   });
   expect(response.status(), `channel binding fixture create should be 201 (${await response.text()})`).toBe(201);
@@ -230,6 +250,7 @@ export type StorefrontFixture = {
 export type StorefrontFixtureInput = Omit<StoreFixtureInput, 'stamp'> & {
   stamp?: string;
   channelPriceKindId?: string | null;
+  channelAssortmentScope?: ChannelAssortmentScope | null;
   withChannelBinding?: boolean;
   domainMappingStatus?: DomainMappingStatus;
 };
@@ -264,6 +285,7 @@ export async function createStorefrontFixture(
             storeId: partial.storeId,
             salesChannelId: partial.salesChannelId,
             priceKindId: partial.channelPriceKindId,
+            assortmentScope: input.channelAssortmentScope,
           });
     partial.domainBindingId = await createDomainBindingFixture(request, token, {
       storeId: partial.storeId,
@@ -314,14 +336,17 @@ export type StorefrontRequestOptions = {
   headers?: Record<string, string>;
 };
 
+export type StorefrontResponse = { status: number; headers: Record<string, string>; body: unknown; text: string };
+
 /**
- * Issues `GET /api/ecommerce/storefront/context` for `hostname` from a request context that has
+ * Issues `GET <path>` against the storefront served at `hostname`, from a request context that has
  * never seen a login, so the only credentials on the wire are the ones passed in `options`.
  */
-export async function getStorefrontContext(
+export async function storefrontGet(
   hostname: string,
+  path: string,
   options: StorefrontRequestOptions = {},
-): Promise<{ status: number; headers: Record<string, string>; body: unknown; text: string }> {
+): Promise<StorefrontResponse> {
   const baseURL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
   const context = await playwrightRequest.newContext({ baseURL });
   try {
@@ -329,9 +354,7 @@ export async function getStorefrontContext(
     const headers: Record<string, string> = { ...hostHeaders(hostname), ...(options.headers ?? {}) };
     if (options.cookie) headers.Cookie = options.cookie;
     if (options.bearer) headers.Authorization = `Bearer ${options.bearer}`;
-    const response: APIResponse = await context.get(`${STOREFRONT_CONTEXT_PATH}${search ? `?${search}` : ''}`, {
-      headers,
-    });
+    const response: APIResponse = await context.get(`${path}${search ? `?${search}` : ''}`, { headers });
     const text = await response.text();
     let body: unknown = null;
     try {
@@ -343,6 +366,14 @@ export async function getStorefrontContext(
   } finally {
     await context.dispose();
   }
+}
+
+/** `GET /api/ecommerce/storefront/context` for `hostname`; see {@link storefrontGet}. */
+export async function getStorefrontContext(
+  hostname: string,
+  options: StorefrontRequestOptions = {},
+): Promise<StorefrontResponse> {
+  return storefrontGet(hostname, STOREFRONT_CONTEXT_PATH, options);
 }
 
 export type StorefrontContextBody = {
