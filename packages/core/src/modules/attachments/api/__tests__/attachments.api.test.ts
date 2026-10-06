@@ -213,6 +213,23 @@ describe('attachments API', () => {
     expect(payload.error).toMatch(/active content/i)
   })
 
+  it('rejects a clean .svg logo on the generic route, even with an allowVectorImage form field', async () => {
+    const { POST: upload } = await loadHandlers()
+    const file = new File(
+      [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>', 'utf8')],
+      'logo.svg',
+      { type: 'image/svg+xml' },
+    )
+    const req = new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(file, { fieldKey: '', allowVectorImage: 'true' }) as any,
+    })
+    const res = await upload(req)
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/active content/i)
+  })
+
   it('accepts allowed small pdf', async () => {
     const { POST: upload } = await loadHandlers()
     const file = new File([new Uint8Array([1,2,3])], 'doc.pdf', { type: 'application/pdf' })

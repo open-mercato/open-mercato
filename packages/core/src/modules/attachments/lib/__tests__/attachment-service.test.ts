@@ -6,6 +6,12 @@ import { DefaultAttachmentService } from '../attachment-service'
 import type { StorageDriverFactory } from '../drivers'
 import type { AttachmentQuotaService } from '../quota-service'
 import { ScopedAttachmentUploadService } from '../scoped-upload-service'
+import {
+  hashVectorImage,
+  VECTOR_IMAGE_CONTENT_SECURITY_POLICY,
+  VECTOR_IMAGE_METADATA_KEY,
+  VECTOR_IMAGE_POLICY_VERSION,
+} from '../vector-image'
 
 jest.mock('kysely', () => ({
   sql: Object.assign(
@@ -76,6 +82,8 @@ function createHarness(options: {
   attachment?: Attachment | null
   storeError?: Error
   readError?: Error
+  /** Bytes the storage driver returns on read. */
+  readBuffer?: Buffer
   /**
    * Simulates a regression that drops the scope columns from the Attachment
    * lookup, so the authorization layer can be exercised on its own.
@@ -96,7 +104,7 @@ function createHarness(options: {
     }),
     read: jest.fn(async () => {
       if (options.readError) throw options.readError
-      return { buffer: Buffer.from('file'), contentType: 'text/plain' }
+      return { buffer: options.readBuffer ?? Buffer.from('file'), contentType: 'text/plain' }
     }),
     delete: jest.fn(async () => undefined),
     toLocalPath: jest.fn(),
@@ -614,5 +622,143 @@ describe('DefaultAttachmentService', () => {
 
     expect(em.remove).not.toHaveBeenCalled()
     expect(driver.delete).not.toHaveBeenCalled()
+  })
+})
+
+describe('DefaultAttachmentService — sanitised vector images', () => {
+  const logo = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><!-- editor note --><rect width="10" height="10" fill="#123456"/></svg>'
+  const hostileLogo = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><rect width="10" height="10"/></svg>'
+
+  function vectorInput(svg: string, overrides: Record<string, unknown> = {}) {
+    return createInput({
+      fileName: 'logo.svg',
+      declaredMimeType: 'image/svg+xml',
+      buffer: Buffer.from(svg, 'utf8'),
+      ...overrides,
+    })
+  }
+
+  it('leaves the flag off unless the caller opts in', async () => {
+    const { service, scopedUpload } = createHarness()
+
+    await service.createScoped(createInput())
+    await service.createScoped(createInput({ allowVectorImage: true }))
+
+    expect(scopedUpload.upload.mock.calls[0][0]).toMatchObject({ allowVectorImage: false })
+    expect(scopedUpload.upload.mock.calls[1][0]).toMatchObject({ allowVectorImage: true })
+  })
+
+  it('still rejects an SVG as active content when the caller does not opt in', async () => {
+    const { service, driver, quota } = createDelegatingHarness()
+
+    const error = await service.createScoped(vectorInput(logo)).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ status: 400, body: { error: expect.any(String) } })
+    expect((error as CrudHttpError).body).not.toHaveProperty('code')
+
+    expect(quota.reserve).not.toHaveBeenCalled()
+    expect(driver.store).not.toHaveBeenCalled()
+  })
+
+  it('stores only the sanitised bytes and records the vector pass when the caller opts in', async () => {
+    const { service, driver } = createDelegatingHarness()
+
+    const created = await service.createScoped(vectorInput(logo, { allowVectorImage: true }))
+
+    const storedBuffer = (driver.store.mock.calls[0] as unknown as [{ buffer: Buffer }])[0].buffer
+    const stored = storedBuffer.toString('utf8')
+    expect(stored).not.toContain('editor note')
+    expect(stored).toContain('fill="#123456"')
+    expect(created).toMatchObject({ mimeType: 'image/svg+xml', fileSize: storedBuffer.length, fileName: 'logo.svg' })
+  })
+
+  it('rejects a hostile SVG with an explicit code before reserving quota', async () => {
+    const { service, driver, quota } = createDelegatingHarness()
+
+    await expect(service.createScoped(vectorInput(hostileLogo, { allowVectorImage: true }))).rejects.toMatchObject({
+      status: 400,
+      body: { code: 'vector_image_unsafe_content' },
+    })
+
+    expect(quota.reserve).not.toHaveBeenCalled()
+    expect(driver.store).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['vector_image_too_large', 413],
+    ['vector_image_malformed', 400],
+    ['vector_image_entity_declaration', 400],
+    ['vector_image_too_complex', 400],
+    ['vector_image_unsafe_content', 400],
+    ['vector_image_external_reference', 400],
+    ['vector_image_sanitizer_unavailable', 500],
+  ] as const)('maps %s to %i and exposes the code', async (code, status) => {
+    const uploadError = Object.assign(new Error(code), {
+      code,
+      status,
+      [Symbol.for('@open-mercato/ScopedAttachmentUploadError')]: true,
+    })
+    const { service } = createHarness({ uploadError })
+
+    await expect(service.createScoped(createInput({ allowVectorImage: true }))).rejects.toMatchObject({
+      status,
+      body: { code, error: expect.any(String) },
+    })
+  })
+
+  const storedLogo = Buffer.from(logo, 'utf8')
+  const vectorRecord = {
+    sanitizer: 'dompurify',
+    sanitizerVersion: '3.4.11',
+    policyVersion: VECTOR_IMAGE_POLICY_VERSION,
+    sha256: hashVectorImage(storedLogo),
+    sanitizedAt: '2026-10-05T10:00:00.000Z',
+  }
+  const readInput = {
+    attachmentId: 'attachment-1',
+    auth: scopedAuth,
+    expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+  }
+
+  function vectorAttachment(record: unknown) {
+    return attachment({
+      fileName: 'logo.svg',
+      mimeType: 'image/svg+xml',
+      storageMetadata: {
+        assignments: [{ type: 'documents:document', id: 'document-1' }],
+        ...(record ? { [VECTOR_IMAGE_METADATA_KEY]: record } : {}),
+      },
+    })
+  }
+
+  it('serves a sanitised vector image inline as image/svg+xml under the vector CSP', async () => {
+    const { service } = createHarness({ attachment: vectorAttachment(vectorRecord), readBuffer: storedLogo })
+
+    const result = await service.readScoped(readInput)
+
+    expect(result.contentType).toBe('image/svg+xml')
+    expect(result.contentDisposition).toMatch(/^inline;/)
+    expect(result.contentSecurityPolicy).toBe(VECTOR_IMAGE_CONTENT_SECURITY_POLICY)
+  })
+
+  it('still forces a download of a sanitised vector image when asked', async () => {
+    const { service } = createHarness({ attachment: vectorAttachment(vectorRecord), readBuffer: storedLogo })
+
+    const result = await service.readScoped({ ...readInput, forceDownload: true })
+
+    expect(result.contentType).toBe('application/octet-stream')
+    expect(result.contentDisposition).toMatch(/^attachment;/)
+  })
+
+  it.each([
+    ['without a vector record', null, storedLogo],
+    ['whose bytes no longer match the record', vectorRecord, Buffer.from(hostileLogo, 'utf8')],
+  ])('keeps download-only serving for an SVG row %s', async (_label, record, bytes) => {
+    const { service } = createHarness({ attachment: vectorAttachment(record), readBuffer: bytes })
+
+    const result = await service.readScoped(readInput)
+
+    expect(result.contentType).toBe('application/octet-stream')
+    expect(result.contentDisposition).toMatch(/^attachment;/)
+    expect(result.contentSecurityPolicy).toBe("default-src 'none'; sandbox")
   })
 })

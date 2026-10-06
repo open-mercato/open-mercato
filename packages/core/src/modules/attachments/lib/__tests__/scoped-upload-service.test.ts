@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { StorageDriverFactory } from '../drivers'
@@ -203,5 +204,102 @@ describe('ScopedAttachmentUploadError bundle-safe identity', () => {
     expect(isScopedAttachmentUploadError({ code: 'dangerous_executable', status: 400 })).toBe(false)
     expect(isScopedAttachmentUploadError(null)).toBe(false)
     expect(isScopedAttachmentUploadError(undefined)).toBe(false)
+  })
+})
+
+describe('ScopedAttachmentUploadService — vector images', () => {
+  const logo = '<?xml version="1.0"?>\n<!-- exported -->\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#123456"/></svg>'
+  const vectorInput = {
+    ...input,
+    fileName: 'logo.svg',
+    declaredMimeType: 'image/svg+xml',
+    buffer: Buffer.from(logo, 'utf8'),
+  }
+
+  it('rejects an SVG as active content by default', async () => {
+    const { service, order } = makeHarness()
+
+    await expect(service.upload(vectorInput)).rejects.toMatchObject({ code: 'active_content', status: 400 })
+    expect(order).toEqual([])
+  })
+
+  it('stores the sanitised document, its size and the vector record when opted in', async () => {
+    const { service, attachment, driver, quota } = makeHarness()
+
+    await service.upload({ ...vectorInput, allowVectorImage: true })
+
+    const stored = (driver.store.mock.calls[0] as unknown as [{ buffer: Buffer }])[0].buffer
+    expect(stored.toString('utf8')).not.toContain('exported')
+    expect(stored.toString('utf8')).toContain('fill="#123456"')
+    expect(quota.reserve).toHaveBeenCalledWith(expect.objectContaining({ bytes: stored.length }))
+    expect(attachment).toMatchObject({
+      fileName: 'logo.svg',
+      mimeType: 'image/svg+xml',
+      fileSize: stored.length,
+      storageMetadata: expect.objectContaining({
+        tags: input.tags,
+        vectorImage: expect.objectContaining({
+          sanitizer: 'dompurify',
+          policyVersion: 1,
+          sha256: createHash('sha256').update(stored).digest('hex'),
+        }),
+      }),
+    })
+  })
+
+  it('names an extension-less SVG with .svg', async () => {
+    const { service, attachment } = makeHarness()
+
+    await service.upload({ ...vectorInput, fileName: 'logo', allowVectorImage: true })
+
+    expect(attachment).toMatchObject({ fileName: 'logo.svg', mimeType: 'image/svg+xml' })
+  })
+
+  it('rejects a hostile SVG with its reason before any quota or storage work', async () => {
+    const { service, order } = makeHarness()
+    const hostile = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', 'utf8')
+
+    await expect(service.upload({ ...vectorInput, buffer: hostile, allowVectorImage: true })).rejects.toMatchObject({
+      code: 'vector_image_unsafe_content',
+      status: 400,
+    })
+    expect(order).toEqual([])
+  })
+
+  it('keeps rejecting other active content even when vector images are allowed', async () => {
+    const { service, order } = makeHarness()
+    const svgInHtml = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8')
+
+    await expect(service.upload({
+      ...vectorInput,
+      fileName: 'logo.html',
+      declaredMimeType: 'image/svg+xml',
+      buffer: svgInHtml,
+      allowVectorImage: true,
+    })).rejects.toMatchObject({ code: 'active_content', status: 400 })
+    await expect(service.upload({
+      ...vectorInput,
+      fileName: 'page.xhtml',
+      buffer: Buffer.from('<html xmlns="http://www.w3.org/1999/xhtml"/>', 'utf8'),
+      allowVectorImage: true,
+    })).rejects.toMatchObject({ code: 'active_content', status: 400 })
+    expect(order).toEqual([])
+  })
+
+  it('still refuses executable extensions and oversized files before the vector path', async () => {
+    const { service } = makeHarness()
+
+    await expect(service.upload({ ...vectorInput, fileName: 'logo.exe', allowVectorImage: true }))
+      .rejects.toMatchObject({ code: 'dangerous_executable' })
+    await expect(service.upload({ ...vectorInput, maxBytes: 4, allowVectorImage: true }))
+      .rejects.toMatchObject({ code: 'max_upload_size' })
+  })
+
+  it('still refuses a public partition when a private one is required', async () => {
+    const { service, em } = makeHarness()
+    ;(em.findOne as jest.Mock).mockResolvedValueOnce({ code: 'privateAttachments', storageDriver: 'local', isPublic: true })
+
+    await expect(service.upload({ ...vectorInput, allowVectorImage: true, requirePrivatePartition: true }))
+      .rejects.toMatchObject({ code: 'partition_unavailable', status: 403 })
   })
 })
