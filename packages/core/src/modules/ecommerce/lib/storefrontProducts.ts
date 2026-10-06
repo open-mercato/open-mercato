@@ -1,14 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import {
-  availabilityItemKey,
-  resolveAvailability,
-  type AvailabilityItemResult,
-  type AvailabilityModuleConfigReader,
-  type AvailabilityState,
-} from '@open-mercato/shared/lib/availability'
-import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
-import type { AssortmentScope, EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
+import type { AvailabilityItemResult, AvailabilityState } from '@open-mercato/shared/lib/availability'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -44,7 +36,31 @@ import {
   type StorefrontPriceRange,
   type StorefrontProductPricing,
 } from './storefrontPricing'
+import {
+  STOREFRONT_CATEGORY_ENTITY_TYPE,
+  STOREFRONT_PRODUCT_ENTITY_TYPE,
+  STOREFRONT_TAG_ENTITY_TYPE,
+  buildStorefrontListItem,
+  isCategoryInAssortment,
+  localeChain,
+  nonEmptyString,
+  referenceId,
+  resolveStorefrontAvailability,
+  storefrontAvailabilityKey,
+  stringList,
+  toStorefrontAvailability,
+  tryResolve,
+  type CategoryLineage,
+  type CategoryRef,
+  type StorefrontAvailability,
+  type StorefrontProductListItem,
+  type TagRef,
+  type TranslationMap,
+} from './storefrontCatalogSupport'
 import type { StoreContext } from './types'
+
+export { isCategoryInAssortment } from './storefrontCatalogSupport'
+export type { StorefrontAvailability, StorefrontProductListItem } from './storefrontCatalogSupport'
 
 const logger = createLogger('ecommerce')
 
@@ -52,10 +68,6 @@ const logger = createLogger('ecommerce')
 export const STOREFRONT_PRICE_SORT_CAP = 5000
 
 const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
-
-const PRODUCT_ENTITY_TYPE = 'catalog:catalog_product'
-const CATEGORY_ENTITY_TYPE = 'catalog:catalog_product_category'
-const TAG_ENTITY_TYPE = 'catalog:catalog_product_tag'
 
 const LIST_FIELDS = [
   'id',
@@ -80,31 +92,6 @@ const SORT_ORDER: readonly EcommerceStorefrontProductSort[] = [
   'newest',
   'featured',
 ]
-
-export type StorefrontAvailability = {
-  state: AvailabilityState
-  canFulfil: boolean
-  leadTimeDays: number | null
-  releaseAt: string | null
-}
-
-export type StorefrontProductListItem = {
-  id: string
-  handle: string | null
-  title: string
-  subtitle: string | null
-  defaultMediaUrl: string | null
-  productType: string
-  isConfigurable: boolean
-  hasVariants: boolean
-  variantCount: number
-  categories: Array<{ id: string; name: string; slug: string | null }>
-  tags: string[]
-  price: StorefrontPrice | null
-  priceRange: StorefrontPriceRange | null
-  availability: StorefrontAvailability
-  badges: string[]
-}
 
 export type StorefrontFacets = {
   categories: Array<{ id: string; name: string; slug: string | null; depth: number; parentId: string | null; count: number }>
@@ -173,29 +160,6 @@ type ProductRecord = {
 
 type Candidate = { id: string; title: string; sku: string | null }
 
-type CategoryLineage = { id: string; ancestorIds: string[]; descendantIds: string[] }
-
-type CategoryRef = { id: string; name: string; slug: string | null }
-
-type TagRef = { id: string; label: string }
-
-type TranslationMap = Map<string, Record<string, Record<string, unknown>>>
-
-type PolicyResolutionScope = {
-  tenantId: string
-  organizationId: string
-  storeId: string | null
-  productId: string
-  variantId: string | null
-}
-
-type StorefrontPolicyResolver = {
-  resolveMany(
-    em: EntityManager,
-    scopes: PolicyResolutionScope[],
-  ): Promise<Array<{ hideWhenOutOfStock: { value: boolean } } | null | undefined>>
-}
-
 type Runtime = {
   container: AwilixContainer
   ctx: StoreContext
@@ -217,31 +181,6 @@ type PagePrefetch = {
   pricing?: Map<string, StorefrontProductPricing>
 }
 
-function tryResolve<T>(container: AwilixContainer, name: string): T | null {
-  try {
-    return (container.resolve(name) as T | null | undefined) ?? null
-  } catch {
-    return null
-  }
-}
-
-function referenceId(value: unknown): string | null {
-  if (typeof value === 'string') return value.length ? value : null
-  if (value && typeof value === 'object' && 'id' in value) {
-    const id = (value as { id: unknown }).id
-    return typeof id === 'string' && id.length ? id : null
-  }
-  return null
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0) : []
-}
-
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null
-}
-
 function isPriceSort(sort: EcommerceStorefrontProductSort): boolean {
   return sort === 'price_asc' || sort === 'price_desc'
 }
@@ -256,42 +195,6 @@ function sqlSortFor(sort: EcommerceStorefrontProductSort): Sort[] {
     default:
       return [{ field: 'title', dir: SortDir.Asc }]
   }
-}
-
-function categoryBranchAdmits(branch: AssortmentScope, lineage: Set<string>, reach: Set<string>): boolean {
-  const included = stringList(branch.categoryIds)
-  if (included.length > 0 && !included.some((id) => reach.has(id))) return false
-  if (stringList(branch.excludeCategoryIds).some((id) => lineage.has(id))) return false
-  return (branch.allOf ?? []).every((nested) => categoryBranchAdmits(nested, lineage, reach))
-}
-
-/**
- * Whether a category can hold any product the effective assortment admits: one of its own subtree
- * or ancestors is granted by some branch, and neither it nor an ancestor is excluded there. Tag and
- * product conditions are product-level and do not decide a category's visibility.
- */
-export function isCategoryInAssortment(category: CategoryLineage, scope: EffectiveAssortmentScope): boolean {
-  if (scope === null) return true
-  const lineage = new Set([category.id, ...category.ancestorIds])
-  const reach = new Set([...lineage, ...category.descendantIds])
-  return scope.some((branch) => categoryBranchAdmits(branch, lineage, reach))
-}
-
-function localize(
-  base: unknown,
-  translations: Record<string, Record<string, unknown>> | undefined,
-  field: string,
-  locales: string[],
-): string | null {
-  for (const locale of locales) {
-    const value = nonEmptyString(translations?.[locale]?.[field])
-    if (value !== null) return value
-  }
-  return nonEmptyString(base)
-}
-
-function localeChain(ctx: StoreContext): string[] {
-  return Array.from(new Set([ctx.effectiveLocale, ctx.store.defaultLocale].filter((locale) => !!locale)))
 }
 
 async function loadTranslations(
@@ -568,53 +471,18 @@ async function loadTags(
 type PageAvailability = Map<string, { result: AvailabilityItemResult | null; hideWhenOutOfStock: boolean }>
 
 async function resolvePageAvailability(runtime: Runtime, productIds: string[]): Promise<PageAvailability> {
-  const { ctx, container, em } = runtime
   const results: PageAvailability = new Map()
   if (!productIds.length) return results
-  const items = productIds.map((productId) => ({ catalogProductId: productId, catalogVariantId: null, quantity: 1 }))
-  const moduleConfig = tryResolve<AvailabilityModuleConfigReader>(container, 'moduleConfigService')
-  const policyResolver = tryResolve<StorefrontPolicyResolver>(container, 'policyResolutionService')
-  const [availability, policies] = await Promise.all([
-    resolveAvailability(
-      {
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-        storeId: ctx.store.id,
-        channelId: ctx.channel?.salesChannelId ?? null,
-        items,
-      },
-      moduleConfig ? { moduleConfig, container } : { container },
-    ),
-    policyResolver
-      ? policyResolver.resolveMany(
-          em,
-          productIds.map((productId) => ({
-            tenantId: ctx.tenantId,
-            organizationId: ctx.organizationId,
-            storeId: ctx.store.id,
-            productId,
-            variantId: null,
-          })),
-        )
-      : Promise.resolve([]),
-  ])
-  productIds.forEach((productId, index) => {
-    results.set(productId, {
-      result: availability.byItem[availabilityItemKey({ catalogProductId: productId, catalogVariantId: null })] ?? null,
-      hideWhenOutOfStock: policies[index]?.hideWhenOutOfStock?.value === true,
+  const targets = productIds.map((productId) => ({ productId, variantId: null }))
+  const resolved = await resolveStorefrontAvailability(runtime.container, runtime.ctx, runtime.em, targets)
+  for (const target of targets) {
+    const entry = resolved.get(storefrontAvailabilityKey(target))
+    results.set(target.productId, {
+      result: entry?.result ?? null,
+      hideWhenOutOfStock: entry?.policy?.hideWhenOutOfStock?.value === true,
     })
-  })
-  return results
-}
-
-function toStorefrontAvailability(result: AvailabilityItemResult | null): StorefrontAvailability {
-  if (!result) return { state: 'not_tracked', canFulfil: true, leadTimeDays: null, releaseAt: null }
-  return {
-    state: result.state,
-    canFulfil: result.canFulfil,
-    leadTimeDays: result.leadTimeDays,
-    releaseAt: result.releaseAt,
   }
+  return results
 }
 
 const IN_STOCK_STATES: ReadonlySet<AvailabilityState> = new Set(['in_stock', 'low_stock', 'not_tracked'])
@@ -651,16 +519,16 @@ async function hydratePage(
         { date: runtime.date },
       ),
     loadTranslations(runtime, [
-      { entityType: PRODUCT_ENTITY_TYPE, ids: productIds },
-      { entityType: CATEGORY_ENTITY_TYPE, ids: categories.categoryIds },
-      { entityType: TAG_ENTITY_TYPE, ids: tags.tagIds },
+      { entityType: STOREFRONT_PRODUCT_ENTITY_TYPE, ids: productIds },
+      { entityType: STOREFRONT_CATEGORY_ENTITY_TYPE, ids: categories.categoryIds },
+      { entityType: STOREFRONT_TAG_ENTITY_TYPE, ids: tags.tagIds },
     ]),
     resolvePageAvailability(runtime, productIds),
   ])
   const locales = localeChain(ctx)
-  const productTranslations = translations.get(PRODUCT_ENTITY_TYPE)
-  const categoryTranslations = translations.get(CATEGORY_ENTITY_TYPE)
-  const tagTranslations = translations.get(TAG_ENTITY_TYPE)
+  const productTranslations = translations.get(STOREFRONT_PRODUCT_ENTITY_TYPE)
+  const categoryTranslations = translations.get(STOREFRONT_CATEGORY_ENTITY_TYPE)
+  const tagTranslations = translations.get(STOREFRONT_TAG_ENTITY_TYPE)
 
   const items: StorefrontProductListItem[] = []
   for (const record of records) {
@@ -668,33 +536,30 @@ async function hydratePage(
     const storefrontAvailability = toStorefrontAvailability(productAvailability?.result ?? null)
     if (productAvailability?.hideWhenOutOfStock && storefrontAvailability.state === 'out_of_stock') continue
     if (!matchesAvailabilityFilter(storefrontAvailability, query.availability)) continue
-    const overlay = productTranslations?.get(record.id)
-    const productPricing = pricing.get(record.id)
-    const variantCount = variantsByProduct.get(record.id)?.length ?? 0
-    const price = productPricing?.price ?? null
-    items.push({
-      id: record.id,
-      handle: nonEmptyString(record.handle),
-      title: localize(record.title, overlay, 'title', locales) ?? '',
-      subtitle: localize(record.subtitle, overlay, 'subtitle', locales),
-      defaultMediaUrl: nonEmptyString(record.default_media_url),
-      productType: nonEmptyString(record.product_type) ?? 'simple',
-      isConfigurable: parseBooleanFromUnknown(record.is_configurable) === true,
-      hasVariants: variantCount > 0,
-      variantCount,
-      categories: (categories.byProduct.get(record.id) ?? []).map((category) => ({
-        id: category.id,
-        name: localize(category.name, categoryTranslations?.get(category.id), 'name', locales) ?? category.name,
-        slug: category.slug,
-      })),
-      tags: (tags.byProduct.get(record.id) ?? []).map(
-        (tag) => localize(tag.label, tagTranslations?.get(tag.id), 'label', locales) ?? tag.label,
+    items.push(
+      buildStorefrontListItem(
+        {
+          id: record.id,
+          handle: record.handle,
+          title: record.title,
+          subtitle: record.subtitle,
+          defaultMediaUrl: record.default_media_url,
+          productType: record.product_type,
+          isConfigurable: record.is_configurable,
+        },
+        {
+          locales,
+          overlay: productTranslations?.get(record.id),
+          variantCount: variantsByProduct.get(record.id)?.length ?? 0,
+          categories: categories.byProduct.get(record.id) ?? [],
+          categoryTranslations,
+          tags: tags.byProduct.get(record.id) ?? [],
+          tagTranslations,
+          pricing: pricing.get(record.id),
+          availability: storefrontAvailability,
+        },
       ),
-      price,
-      priceRange: productPricing?.priceRange ?? null,
-      availability: storefrontAvailability,
-      badges: price?.isPromotion ? ['sale'] : [],
-    })
+    )
   }
   return items
 }
