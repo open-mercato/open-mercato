@@ -82,8 +82,8 @@
 | 7 | 7.6 | Admin UI: Branding tab + live preview | dispatch:standard | done | 3d7ab5aed2 |
 | 7 | 7.7 | Admin UI: Domains tab | dispatch:standard | done | 87566c2df1 |
 | 7 | 7.8 | Admin UI: Channels tab (scope pickers, require_authentication, price_sort_fallback, live count) | dispatch:capable | done | 6aaf1edf0a |
-| 7 | 7.9 | Admin UI: SEO tab | dispatch:cheap | done | pending |
-| 7 | 7.10 | customer_groups group-terms assortment pickers | dispatch:standard | todo | — |
+| 7 | 7.9 | Admin UI: SEO tab | dispatch:cheap | done | 3300e50119 |
+| 7 | 7.10 | customer_groups group-terms assortment pickers | dispatch:standard | done | pending |
 | 7 | 7.11 | setup.ts draft-store seed + Upgrade Action for existing tenants | dispatch:standard | todo | — |
 | 7 | 7.12 | Integration tests: admin UI paths (SPEC-029 Phases 2–3 gates) | dispatch:capable | todo | — |
 
