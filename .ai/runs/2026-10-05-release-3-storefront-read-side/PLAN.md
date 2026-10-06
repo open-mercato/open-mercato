@@ -71,7 +71,8 @@
 | 6 | 6.2 | ecommerce lib/storefrontFacets.ts with cross-exclusion | dispatch:capable | done | eecb364d55 |
 | 6 | 6.3 | Categories: /categories and /categories/:slug | dispatch:standard | done | 33d2da4f2d |
 | 6 | 6.4 | /search/suggest + search-module integration (tokens, pgvector) | dispatch:capable | done | 5427f13ae3 |
-| 6 | 6.5 | Rate limiting + OpenAPI for all storefront routes | dispatch:standard | done | pending |
+| 6 | 6.5 | Rate limiting + OpenAPI for all storefront routes | dispatch:standard | done | 9ccc13df35 |
+| 6 | 6.1-fix | Translation Manager loads option schema templates so option/choice label fields appear | dispatch:standard | done | pending |
 | 6 | 6.6 | Integration tests: facets, categories, search (Public API Phases 2–3 gates) | dispatch:capable | todo | — |
 | 7 | 7.1 | lib/brandingStyles.ts + validation + fuzz tests + SSR helper | dispatch:standard | todo | — |
 | 7 | 7.2 | PUT /stores/:id/branding command route + GET preview-branding | dispatch:standard | todo | — |
@@ -167,6 +168,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 
 ### Phase 6 — Storefront Public API Phases 2–3
 - **6.1 Catalog option/choice label translations** (D20).
+- **6.1-fix Translation Manager loads option schema templates** — found by checkpoint 11 UI smoke: the derived list URL `/api/catalog/option-schema-templates` 404s (route is `/api/catalog/option-schemas`), so the record never loads and the 6.1 expander fields never render.
 - **6.2 Facets** — cross-exclusion, count-facet cache by `assortmentScopeHash`, `priceRange` with items on the digest.
 - **6.3 Categories** — `/categories`, `/categories/:slug` (counts within assortment).
 - **6.4 Search** — `/search/suggest`; `@open-mercato/search` tokens + pgvector with scope predicate in the query (D19), same response shape.

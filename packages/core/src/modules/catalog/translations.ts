@@ -1,4 +1,7 @@
-import { registerTranslatableFieldExpander } from '@open-mercato/shared/lib/localization/translatable-fields'
+import {
+  registerTranslatableEntityListPath,
+  registerTranslatableFieldExpander,
+} from '@open-mercato/shared/lib/localization/translatable-fields'
 import {
   OPTION_SCHEMA_TEMPLATE_ENTITY_TYPE,
   expandOptionSchemaTranslationFields,
@@ -14,5 +17,6 @@ export const translatableFields: Record<string, string[]> = {
 }
 
 registerTranslatableFieldExpander(OPTION_SCHEMA_TEMPLATE_ENTITY_TYPE, expandOptionSchemaTranslationFields)
+registerTranslatableEntityListPath(OPTION_SCHEMA_TEMPLATE_ENTITY_TYPE, '/api/catalog/option-schemas')
 
 export default translatableFields

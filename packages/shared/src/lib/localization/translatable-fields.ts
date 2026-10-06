@@ -50,3 +50,22 @@ export function registerTranslatableFieldExpander(entityType: string, expander: 
 export function getTranslatableFieldExpander(entityType: string): TranslatableFieldExpander | undefined {
   return getExpanderGlobal()[entityType]
 }
+
+type TranslatableEntityListPathRegistry = Record<string, string>
+
+const LIST_PATH_GLOBAL_KEY = '__openMercatoTranslatableEntityListPaths__'
+
+type ListPathGlobalHost = { [LIST_PATH_GLOBAL_KEY]?: TranslatableEntityListPathRegistry }
+
+function getListPathGlobal(): TranslatableEntityListPathRegistry {
+  return (globalThis as ListPathGlobalHost)[LIST_PATH_GLOBAL_KEY] ?? {}
+}
+
+export function registerTranslatableEntityListPath(entityType: string, listPath: string): void {
+  const host = globalThis as ListPathGlobalHost
+  host[LIST_PATH_GLOBAL_KEY] = { ...getListPathGlobal(), [entityType]: listPath }
+}
+
+export function getTranslatableEntityListPath(entityType: string): string | undefined {
+  return getListPathGlobal()[entityType]
+}

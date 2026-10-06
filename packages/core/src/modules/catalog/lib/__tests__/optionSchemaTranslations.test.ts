@@ -1,4 +1,7 @@
-import { getTranslatableFieldExpander } from '@open-mercato/shared/lib/localization/translatable-fields'
+import {
+  getTranslatableEntityListPath,
+  getTranslatableFieldExpander,
+} from '@open-mercato/shared/lib/localization/translatable-fields'
 import translatableFields from '../../translations'
 import {
   OPTION_SCHEMA_TEMPLATE_ENTITY_TYPE,
@@ -61,5 +64,9 @@ describe('catalog translations declaration', () => {
   it('keeps the static template fields and registers the option expander', () => {
     expect(translatableFields[OPTION_SCHEMA_TEMPLATE_ENTITY_TYPE]).toEqual(['name', 'description'])
     expect(getTranslatableFieldExpander(OPTION_SCHEMA_TEMPLATE_ENTITY_TYPE)).toBe(expandOptionSchemaTranslationFields)
+  })
+
+  it('points the Translation Manager at the option schema list route', () => {
+    expect(getTranslatableEntityListPath(OPTION_SCHEMA_TEMPLATE_ENTITY_TYPE)).toBe('/api/catalog/option-schemas')
   })
 })
