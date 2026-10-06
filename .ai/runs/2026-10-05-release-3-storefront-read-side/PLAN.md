@@ -61,6 +61,7 @@
 | 4 | 4.5-fix | Promotions as an overlay on the priceKindId filter (owner decision D2a) | dispatch:capable | done | ae40653ccf |
 | 4 | 4.6 | ecommerce lib/storefrontProducts.ts listing | dispatch:capable | done | 565dd8ff0b |
 | 4 | 4.7 | ecommerce lib/storefrontDetail.ts detail | dispatch:capable | done | pending |
+| 4 | 4.7-fix | Detail priceTiers per selected variant (empty tiers when variants carry prices) | dispatch:standard | todo | — |
 | 4 | 4.8 | Public routes /products and /products/:idOrHandle with storefront cache | dispatch:standard | todo | — |
 | 4 | 4.9 | Integration tests: cross-context isolation, enumeration oracle, query budgets (Public API Phase 1 gate) | dispatch:capable | todo | — |
 | 5 | 5.1 | Channel binding require_authentication + resolver short-circuit + intersectScopes | dispatch:standard | todo | — |
@@ -155,6 +156,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **4.5-fix Promotions as an overlay on the priceKindId filter (owner decision D2a)** — found during 4.5: with D2's kind filter a buyer resolved to REGULAR never sees SALE (isPromotion) rows. Owner decision 2026-10-06: `matchesContext`/`buildPriceRowFilter` admit rows of the resolved kind OR any promotional kind (same currency); `scorePrice` then prefers the promotion as in admin; `originalAmount` = best price of the resolved kind; Omnibus unchanged. Update pricing-engine.md amendment + catalog AGENTS.md selection order.
 - **4.6 Listing** — filters (strict query grammar, unknown → 400), sorts with `availableSorts`/`appliedSort` and `price_sort_fallback`, ILIKE search ranked by `scoreProductSearchRelevance`, page-scoped availability (D21), translation overlays, sanitized fields.
 - **4.7 Detail** — `/products/:idOrHandle` payload (§5.2), identical 404 for all hidden cases, `quantityRules` via `policyResolutionService`, sanitized description, related products.
+- **4.7-fix Detail priceTiers per selected variant (empty tiers when variants carry prices)** — found during 4.7: product-level tier resolution over all rows lets variant prices win at every quantity, so `priceTiers` is empty for variant-priced products. Resolve tiers for the selected/default variant (its rows + product-level rows); expose per-variant tiers on `variants[].priceTiers` if cheap.
 - **4.8 Routes + cache** — public routes through `storefrontCache`, `private, no-store` for authenticated, `stale-while-revalidate` for anonymous.
 - **4.9 Integration tests** — §12 assortment/isolation, buyer pricing, enumeration oracle, query/row-count budgets.
 
