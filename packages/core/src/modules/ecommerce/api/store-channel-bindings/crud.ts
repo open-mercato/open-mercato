@@ -98,6 +98,7 @@ export function toChannelBindingListItem(row: ChannelBindingListRow): Record<str
     assortmentScope: row[F.assortment_scope] ?? null,
     priceSortFallback: row[F.price_sort_fallback] ?? 'approximate',
     isDefault: row[F.is_default] === true,
+    requireAuthentication: row[F.require_authentication] === true,
     createdAt: row[F.created_at] ?? null,
     updatedAt: row[F.updated_at] ?? null,
   }
@@ -126,6 +127,7 @@ export const channelBindingCrud = makeCrudRoute<RawChannelBindingInput, RawChann
       F.assortment_scope,
       F.price_sort_fallback,
       F.is_default,
+      F.require_authentication,
       F.created_at,
       F.updated_at,
     ],
@@ -166,6 +168,7 @@ export const channelBindingCrud = makeCrudRoute<RawChannelBindingInput, RawChann
         assortmentScope: parsed.assortmentScope ?? null,
         priceSortFallback: parsed.priceSortFallback,
         isDefault: false,
+        requireAuthentication: parsed.requireAuthentication,
       }
     },
     response: (entity) => {
@@ -210,6 +213,7 @@ export const channelBindingCrud = makeCrudRoute<RawChannelBindingInput, RawChann
       binding.priceKindId = nextPriceKindId
       if (hasOwn(parsed, 'assortmentScope')) binding.assortmentScope = parsed.assortmentScope ?? null
       if (parsed.priceSortFallback !== undefined) binding.priceSortFallback = parsed.priceSortFallback
+      if (parsed.requireAuthentication !== undefined) binding.requireAuthentication = parsed.requireAuthentication
       binding.isDefault = nextDefault
       try {
         await em.flush()

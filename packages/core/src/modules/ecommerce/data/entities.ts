@@ -125,7 +125,7 @@ export class EcommerceStoreDomainBinding {
     'create unique index "ecommerce_store_channel_bindings_store_default_unique" on "ecommerce_store_channel_bindings" ("store_id") where "is_default" and "deleted_at" is null',
 })
 export class EcommerceStoreChannelBinding {
-  [OptionalProps]?: 'priceSortFallback' | 'isDefault' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'priceSortFallback' | 'isDefault' | 'requireAuthentication' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -153,6 +153,9 @@ export class EcommerceStoreChannelBinding {
 
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
+
+  @Property({ name: 'require_authentication', type: 'boolean', default: false })
+  requireAuthentication: boolean = false
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

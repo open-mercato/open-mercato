@@ -43,6 +43,7 @@ const store: ResolvedStore = {
     priceKindId: null,
     priceSortFallback: 'approximate',
     assortmentScope: null,
+    requireAuthentication: false,
   },
   domain: null,
   effectiveLocale: 'en',

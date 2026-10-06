@@ -167,6 +167,7 @@ function resolvedStore(
   overrides: {
     channelPriceKindId?: string | null
     channelScope?: AssortmentScope | null
+    requireAuthentication?: boolean
     priceDisplayModeDefault?: EcommercePriceDisplayMode
     effectiveLocale?: string
   } = {},
@@ -195,6 +196,7 @@ function resolvedStore(
       priceKindId: overrides.channelPriceKindId === undefined ? 'kind-retail' : overrides.channelPriceKindId,
       priceSortFallback: 'approximate',
       assortmentScope: overrides.channelScope ?? null,
+      requireAuthentication: overrides.requireAuthentication ?? false,
     },
     domain: null,
     effectiveLocale: overrides.effectiveLocale ?? 'en',
@@ -489,6 +491,77 @@ describe('resolveBuyerContext', () => {
     })
     expect(JSON.stringify(payload)).not.toContain('person-')
   })
+
+  describe('channel binding requireAuthentication', () => {
+    function expectGroupsNeverConsulted(harness: ReturnType<typeof createHarness>) {
+      expect(harness.customerGroupsService.resolveGroups).not.toHaveBeenCalled()
+      expect(harness.customerGroupsService.resolveTerms).not.toHaveBeenCalled()
+      expect(harness.customerGroupsService.resolveAssortmentScope).not.toHaveBeenCalled()
+    }
+
+    it('resolves an anonymous buyer to an empty assortment without consulting customer_groups', async () => {
+      const harness = createHarness({ defaultGroup: { groupIds: ['group-default'], scope: [{ categoryIds: ['cat-open'] }] } })
+
+      const buyer = await resolveBuyerContext(harness.container, resolvedStore({ requireAuthentication: true }), null)
+
+      expect(buyer.assortmentScope).toEqual([])
+      expect(buyer.assortmentScopeHash).toMatch(/^[0-9a-f]{16}$/)
+      expect(buyer.isAuthenticated).toBe(false)
+      expect(buyer.customerGroupIds).toEqual([])
+      expect(buyer.priceKindId).toBe('kind-retail')
+      expectGroupsNeverConsulted(harness)
+    })
+
+    it('keeps the closed anonymous assortment empty even when the channel carries its own scope', async () => {
+      const harness = createHarness()
+
+      const buyer = await resolveBuyerContext(
+        harness.container,
+        resolvedStore({ requireAuthentication: true, channelScope: { categoryIds: ['cat-1'] } }),
+        null,
+      )
+
+      expect(buyer.assortmentScope).toEqual([])
+      expectGroupsNeverConsulted(harness)
+    })
+
+    it('does not emit the empty assortment event for a closed anonymous buyer', async () => {
+      const harness = createHarness()
+
+      await resolveBuyerContext(harness.container, resolvedStore({ requireAuthentication: true }), null)
+
+      expect(mockedEmit).not.toHaveBeenCalled()
+    })
+
+    it('resolves an authenticated buyer normally through customer_groups', async () => {
+      const harness = createHarness({
+        users: [user('cu-1', 'person-1', null)],
+        groupsByCustomer: { 'person-1': { groupIds: ['group-1'], scope: [{ categoryIds: ['cat-b2b'] }] } },
+      })
+      mockedAuth.mockResolvedValue(sessionFor('cu-1'))
+
+      const buyer = await resolveBuyerContext(harness.container, resolvedStore({ requireAuthentication: true }), request())
+
+      expect(buyer.isAuthenticated).toBe(true)
+      expect(buyer.customerGroupIds).toEqual(['group-1'])
+      expect(buyer.assortmentScope).toEqual([{ categoryIds: ['cat-b2b'] }])
+      expect(harness.customerGroupsService.resolveGroups).toHaveBeenCalledTimes(1)
+      expect(harness.customerGroupsService.resolveTerms).toHaveBeenCalledTimes(1)
+      expect(harness.customerGroupsService.resolveAssortmentScope).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves anonymous resolution unchanged when the flag is off', async () => {
+      const harness = createHarness({ defaultGroup: { groupIds: ['group-default'], scope: null } })
+
+      const buyer = await resolveBuyerContext(harness.container, resolvedStore({ requireAuthentication: false }), null)
+
+      expect(buyer.assortmentScope).toBeNull()
+      expect(buyer.customerGroupIds).toEqual(['group-default'])
+      expect(harness.customerGroupsService.resolveGroups).toHaveBeenCalledTimes(1)
+      expect(harness.customerGroupsService.resolveTerms).toHaveBeenCalledTimes(1)
+      expect(harness.customerGroupsService.resolveAssortmentScope).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 
 describe('composeStoreContext digest', () => {
@@ -551,6 +624,19 @@ describe('composeStoreContext digest', () => {
 
     expect(first.buyer.priceScopeKey).toBe(second.buyer.priceScopeKey)
     expect(first.digest).not.toBe(second.digest)
+  })
+
+  it('separates the closed-channel anonymous digest from the open-channel anonymous one', async () => {
+    const openStore = resolvedStore({ requireAuthentication: false })
+    const closedStore = resolvedStore({ requireAuthentication: true })
+    const openHarness = createHarness({ defaultGroup: { groupIds: ['group-default'], scope: null } })
+    const closedHarness = createHarness({ defaultGroup: { groupIds: ['group-default'], scope: null } })
+
+    const open = composeStoreContext(openStore, await resolveBuyerContext(openHarness.container, openStore, null))
+    const closed = composeStoreContext(closedStore, await resolveBuyerContext(closedHarness.container, closedStore, null))
+
+    expect(closed.buyer.assortmentScopeHash).not.toBe(open.buyer.assortmentScopeHash)
+    expect(closed.digest).not.toBe(open.digest)
   })
 
   it('projects the channel without the internal assortment scope', () => {

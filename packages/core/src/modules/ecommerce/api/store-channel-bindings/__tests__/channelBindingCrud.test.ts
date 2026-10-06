@@ -74,6 +74,7 @@ function makeBinding(overrides: Partial<EcommerceStoreChannelBinding> = {}): Eco
     assortmentScope: null,
     priceSortFallback: 'approximate',
     isDefault: false,
+    requireAuthentication: false,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     deletedAt: null,
@@ -157,7 +158,17 @@ describe('ecommerce store channel binding CRUD route', () => {
         priceKindId: null,
         assortmentScope: null,
         priceSortFallback: 'approximate',
+        requireAuthentication: false,
       })
+    })
+
+    it('persists requireAuthentication on create and defaults it to false', () => {
+      const ctx = createCtx(createFakeEm().em)
+
+      expect(opts.create!.mapToEntity({ ...validCreateInput, requireAuthentication: true }, ctx)).toMatchObject({
+        requireAuthentication: true,
+      })
+      expect(opts.create!.mapToEntity(validCreateInput, ctx)).toMatchObject({ requireAuthentication: false })
     })
 
     it('promotes a requested default binding within its store', async () => {
@@ -223,6 +234,17 @@ describe('ecommerce store channel binding CRUD route', () => {
       expect(binding.priceKindId).toBeNull()
       expect(binding.assortmentScope).toBeNull()
       expect(em.findOne).not.toHaveBeenCalled()
+    })
+
+    it('updates requireAuthentication only when it is provided', async () => {
+      const { em } = createFakeEm()
+      const binding = makeBinding()
+
+      await opts.update!.applyToEntity(binding, { id: BINDING_ID, requireAuthentication: true }, createCtx(em))
+      expect(binding.requireAuthentication).toBe(true)
+
+      await opts.update!.applyToEntity(binding, { id: BINDING_ID, priceSortFallback: 'unavailable' }, createCtx(em))
+      expect(binding.requireAuthentication).toBe(true)
     })
 
     it('maps a concurrent default promotion to a 409 field error', async () => {

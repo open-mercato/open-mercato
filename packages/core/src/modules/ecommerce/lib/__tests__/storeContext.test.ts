@@ -51,6 +51,7 @@ function storeRow(overrides: Row = {}): Row {
     channel_price_kind_id: null,
     channel_assortment_scope: null,
     channel_price_sort_fallback: 'approximate',
+    channel_require_authentication: false,
     binding_id: `domain-binding-${storeId}`,
     binding_path_prefix: null,
     binding_is_primary: true,
@@ -170,6 +171,7 @@ describe('resolveStoreFromRequest — host resolution', () => {
       priceKindId: 'price-kind-1',
       priceSortFallback: 'approximate',
       assortmentScope: null,
+      requireAuthentication: false,
     })
     expect(resolved.domain).toEqual({
       domainMappingId: MAPPING_ID,
@@ -184,6 +186,15 @@ describe('resolveStoreFromRequest — host resolution', () => {
     expect(query.sql).toContain('inner join "ecommerce_stores"')
     expect(query.sql).toContain('left join "ecommerce_store_channel_bindings"')
     expect(query.parameters).toEqual(expect.arrayContaining([MAPPING_ID, TENANT_ID, ORG_ID]))
+  })
+
+  it('carries the channel binding requireAuthentication flag through store resolution', async () => {
+    const harness = createHarness({ domainRows: [storeRow({ channel_require_authentication: true })] })
+
+    const resolved = await resolveStoreFromRequest(harness.container, request('/'))
+
+    expect(resolved.channel.requireAuthentication).toBe(true)
+    expect(harness.queries[0].sql).toContain('"c"."require_authentication" as "channel_require_authentication"')
   })
 
   it('normalizes the Host header before asking domainMappingService', async () => {

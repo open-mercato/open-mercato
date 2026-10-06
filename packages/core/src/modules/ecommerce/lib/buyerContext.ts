@@ -192,9 +192,7 @@ async function resolveCustomerOverlayId(
 
 /**
  * Effective assortment for this buyer: the customer-groups OR-list (groups plus the customer's
- * own override) AND-ed with the channel scope. This is the seam where the channel binding's
- * `require_authentication` deny-all short-circuit (Step 5.1) is applied before `customer_groups`
- * is consulted.
+ * own override) AND-ed with the channel scope.
  */
 async function resolveEffectiveAssortment(
   service: CustomerGroupsService,
@@ -247,28 +245,62 @@ async function reportEmptyAssortment(
   }
 }
 
+type BuyerGroupLayer = {
+  customerGroupIds: string[]
+  priceKindId: string | null
+  allowPurchaseOnAccount: boolean
+  approvalRequiredAbove: number | null
+  assortmentScope: EffectiveAssortmentScope
+}
+
+function isClosedToBuyer(store: ResolvedStore, identity: BuyerIdentity): boolean {
+  return store.channel.requireAuthentication && !identity.isAuthenticated
+}
+
+async function resolveBuyerGroupLayer(
+  container: BuyerContextContainer,
+  store: ResolvedStore,
+  identity: BuyerIdentity,
+): Promise<BuyerGroupLayer> {
+  if (isClosedToBuyer(store, identity)) {
+    return {
+      customerGroupIds: [],
+      priceKindId: store.channel.priceKindId ?? null,
+      allowPurchaseOnAccount: false,
+      approvalRequiredAbove: null,
+      assortmentScope: [],
+    }
+  }
+  const service = requireService<CustomerGroupsService>(container, 'customerGroupsService')
+  const groups = await service.resolveGroups({
+    customerId: identity.customerId,
+    customerIds: identity.customerIds,
+    tenantId: store.tenantId,
+  })
+  const terms = await service.resolveTerms({
+    customerId: identity.customerId,
+    customerIds: identity.customerIds,
+    tenantId: store.tenantId,
+    groupIds: groups.groupIds,
+  })
+  return {
+    customerGroupIds: groups.groupIds,
+    priceKindId: terms.priceKindId ?? store.channel.priceKindId ?? null,
+    allowPurchaseOnAccount: terms.allowPurchaseOnAccount,
+    approvalRequiredAbove: terms.approvalRequiredAbove,
+    assortmentScope: await resolveEffectiveAssortment(service, store, identity),
+  }
+}
+
 async function buildBuyerContext(
   container: BuyerContextContainer,
   store: ResolvedStore,
   identity: BuyerIdentity,
 ): Promise<BuyerContext> {
   const em = requireService<EntityManager>(container, 'em')
-  const customerGroupsService = requireService<CustomerGroupsService>(container, 'customerGroupsService')
-  const groups = await customerGroupsService.resolveGroups({
-    customerId: identity.customerId,
-    customerIds: identity.customerIds,
-    tenantId: store.tenantId,
-  })
-  const customerGroupIds = groups.groupIds
-  const terms = await customerGroupsService.resolveTerms({
-    customerId: identity.customerId,
-    customerIds: identity.customerIds,
-    tenantId: store.tenantId,
-    groupIds: customerGroupIds,
-  })
-  const priceKindId = terms.priceKindId ?? store.channel.priceKindId ?? null
+  const { customerGroupIds, priceKindId, allowPurchaseOnAccount, approvalRequiredAbove, assortmentScope } =
+    await resolveBuyerGroupLayer(container, store, identity)
   const taxMode = await resolveTaxMode(em, priceKindId, store)
-  const assortmentScope = await resolveEffectiveAssortment(customerGroupsService, store, identity)
   const assortmentScopeHash = hashEffectiveScope(assortmentScope)
   if (identity.isAuthenticated && Array.isArray(assortmentScope) && assortmentScope.length === 0) {
     await reportEmptyAssortment(container, store, assortmentScopeHash)
@@ -279,8 +311,8 @@ async function buildBuyerContext(
     customerGroupIds,
     taxMode,
     priceKindId,
-    allowPurchaseOnAccount: terms.allowPurchaseOnAccount,
-    approvalRequiredAbove: terms.approvalRequiredAbove,
+    allowPurchaseOnAccount,
+    approvalRequiredAbove,
     assortmentScope,
     assortmentScopeHash,
     priceScopeKey: computePriceScopeKey({

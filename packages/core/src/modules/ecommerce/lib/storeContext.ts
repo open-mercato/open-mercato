@@ -71,7 +71,10 @@ export function isStorefrontResolutionError(error: unknown): error is Storefront
   return error instanceof StorefrontResolutionError
 }
 
-export type ResolvedStoreChannel = StoreContextChannel & { assortmentScope: AssortmentScope | null }
+export type ResolvedStoreChannel = StoreContextChannel & {
+  assortmentScope: AssortmentScope | null
+  requireAuthentication: boolean
+}
 
 export type ResolvedStoreDomain = {
   domainMappingId: string
@@ -169,6 +172,7 @@ type StoreResolutionDatabase = {
     assortment_scope: unknown
     price_sort_fallback: string
     is_default: boolean
+    require_authentication: boolean
     deleted_at: Date | null
   }
 }
@@ -190,6 +194,7 @@ type StoreResolutionRow = {
   channel_price_kind_id: string | null
   channel_assortment_scope: unknown
   channel_price_sort_fallback: string | null
+  channel_require_authentication?: boolean | null
   binding_id?: string | null
   binding_path_prefix?: string | null
   binding_is_primary?: boolean | null
@@ -212,6 +217,7 @@ const STORE_COLUMNS = [
   'c.price_kind_id as channel_price_kind_id',
   'c.assortment_scope as channel_assortment_scope',
   'c.price_sort_fallback as channel_price_sort_fallback',
+  'c.require_authentication as channel_require_authentication',
 ] as const
 
 const FORCE_HOST_HEADER = 'x-force-host'
@@ -391,6 +397,7 @@ function toCandidate(row: StoreResolutionRow): StoreCandidate {
           priceKindId: row.channel_price_kind_id ?? null,
           priceSortFallback: parsePriceSortFallback(row.channel_price_sort_fallback),
           assortmentScope: parseAssortmentScope(row.channel_assortment_scope),
+          requireAuthentication: row.channel_require_authentication === true,
         }
       : null
   const binding: CandidateBinding | null = row.binding_id

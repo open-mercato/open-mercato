@@ -433,6 +433,7 @@ const ecommerceStoreChannelBindingBaseShape = {
   assortmentScope: ecommerceAssortmentScopeSchema.optional(),
   priceSortFallback: ecommercePriceSortFallbackSchema,
   isDefault: z.boolean(),
+  requireAuthentication: z.boolean(),
 }
 
 export const ecommerceStoreChannelBindingCreateSchema = z
@@ -440,6 +441,7 @@ export const ecommerceStoreChannelBindingCreateSchema = z
     ...ecommerceStoreChannelBindingBaseShape,
     priceSortFallback: ecommercePriceSortFallbackSchema.optional().default('approximate'),
     isDefault: z.boolean().optional().default(false),
+    requireAuthentication: z.boolean().optional().default(false),
   })
   .strict()
 

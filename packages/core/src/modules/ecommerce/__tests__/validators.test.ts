@@ -229,6 +229,15 @@ describe('ecommerce channel binding validators', () => {
     })
   })
 
+  it('defaults requireAuthentication to false and accepts only booleans', () => {
+    expect(ecommerceStoreChannelBindingCreateSchema.parse(base).requireAuthentication).toBe(false)
+    expect(ecommerceStoreChannelBindingCreateSchema.parse({ ...base, requireAuthentication: true }).requireAuthentication).toBe(true)
+    expect(ecommerceStoreChannelBindingCreateSchema.safeParse({ ...base, requireAuthentication: 'yes' }).success).toBe(false)
+    expect(ecommerceStoreChannelBindingUpdateSchema.parse({ id: storeId, requireAuthentication: false }).requireAuthentication).toBe(false)
+    expect(ecommerceStoreChannelBindingUpdateSchema.parse({ id: storeId })).not.toHaveProperty('requireAuthentication')
+    expect(ecommerceStoreChannelBindingUpdateSchema.safeParse({ id: storeId, requireAuthentication: 1 }).success).toBe(false)
+  })
+
   it('accepts only the price sort fallback enum values', () => {
     expect(ecommerceStoreChannelBindingCreateSchema.safeParse({ ...base, priceSortFallback: 'unavailable' }).success).toBe(true)
     expect(ecommerceStoreChannelBindingCreateSchema.safeParse({ ...base, priceSortFallback: 'exact' }).success).toBe(false)

@@ -33,6 +33,7 @@ export const channelBindingListItemSchema = z.object({
   assortmentScope: assortmentScopeSchema,
   priceSortFallback: z.enum(['approximate', 'unavailable']),
   isDefault: z.boolean(),
+  requireAuthentication: z.boolean().describe('When true, anonymous buyers resolve to an empty assortment on this channel binding.'),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
 })
@@ -51,7 +52,7 @@ export const openApi = createEcommerceCrudOpenApi({
         .describe('Whether the created binding is the default binding of its store. False when a concurrent request won the promotion.'),
     }),
     description:
-      'Binds a sales channel of the same organization to a store, with an optional price kind and assortment scope. Requesting isDefault clears the previous default binding of the store.',
+      'Binds a sales channel of the same organization to a store, with an optional price kind, assortment scope and require-authentication gate. Requesting isDefault clears the previous default binding of the store.',
   },
   update: {
     schema: ecommerceStoreChannelBindingUpdateSchema,
