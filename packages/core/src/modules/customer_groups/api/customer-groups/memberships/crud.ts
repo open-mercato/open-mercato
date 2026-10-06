@@ -1,0 +1,525 @@
+import { z } from 'zod'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError, badRequest, conflict, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { E } from '#generated/entities.ids.generated'
+import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
+import { emitCustomerGroupsEvent } from '../../../events'
+import {
+  buildCustomerScopeListFilter,
+  customerScopeJoin,
+  findCustomerInScope,
+  isCustomerInScope,
+} from '../../../lib/customerScope'
+import { isMembershipValidAt } from '../../../services/customerGroupsService'
+import { clearCreateConflictRecheck, registerCreateConflictRecheck } from '../../../lib/createConflictRecheck'
+import {
+  customerGroupMembershipCreateSchema,
+  customerGroupMembershipUpdateSchema,
+  type CustomerGroupMembershipCreateInput,
+  type CustomerGroupMembershipUpdateInput,
+} from '../../../data/validators'
+
+// Mirrors `../crud.ts` (the base `CustomerGroup` CRUD) exactly: a single shared
+// `makeCrudRoute` instance consumed by the sibling `route.ts`, no `[id]` dynamic
+// segment — `makeCrudRoute` reads `id` from the query string (list/delete) or
+// body (create/update).
+
+const rawBodySchema = z.object({}).passthrough()
+type RawCustomerGroupMembershipInput = z.infer<typeof rawBodySchema>
+
+export const customerGroupMembershipListQuerySchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
+    customerId: z.string().uuid().optional(),
+    groupId: z.string().uuid().optional(),
+    activeOnly: z.string().optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+
+export type CustomerGroupMembershipListQuery = z.infer<typeof customerGroupMembershipListQuerySchema>
+
+export const customerGroupMembershipRouteMetadata = {
+  GET: { requireAuth: true, requireFeatures: ['customer_groups.memberships.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customer_groups.memberships.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customer_groups.memberships.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customer_groups.memberships.manage'] },
+}
+
+// `CustomerGroupMembership.organizationId` has the identical nullable-column
+// shape as `CustomerGroup.organizationId` (see the doc comment on the entity in
+// `data/entities.ts`), and memberships are looked up by `(tenant_id, group_id,
+// customer_id)` — never by organization — so this route follows the base
+// route's `orgField: null` choice: tenant-scoped only, never filtered on
+// organization. The organization recorded is the referenced customer's own
+// organization (see `lib/customerScope.ts`), not the caller's selected one.
+function scopeFromContext(ctx: CrudCtx): { tenantId: string } {
+  const tenantId = ctx.auth?.tenantId ?? null
+  if (!tenantId) {
+    throw new CrudHttpError(400, { error: '[internal] customer group membership scope is missing a tenant id' })
+  }
+  return { tenantId }
+}
+
+// The customer's organization, resolved by the async `beforeCreate`/`beforeUpdate`
+// scope check and read back by the synchronous `mapToEntity`/`applyToEntity`, which
+// receive the same request context object. Keyed weakly so nothing outlives the request.
+const customerOrganizationByRequest = new WeakMap<CrudCtx, string | null>()
+
+function takeCustomerOrganization(ctx: CrudCtx): { found: boolean; organizationId: string | null } {
+  if (!customerOrganizationByRequest.has(ctx)) return { found: false, organizationId: null }
+  const organizationId = customerOrganizationByRequest.get(ctx) ?? null
+  customerOrganizationByRequest.delete(ctx)
+  return { found: true, organizationId }
+}
+
+const NO_MATCH_MEMBERSHIP_ID = '00000000-0000-0000-0000-000000000000'
+
+const uuidSchema = z.string().uuid()
+
+// `assigned_by_user_id` is an audit column: it records the acting user, so it is
+// taken from the session and never from the request body. API-key callers have
+// no user id (`sub` is `api_key:<id>`) and are recorded as null.
+export function actorUserIdFromContext(ctx: CrudCtx): string | null {
+  const auth = ctx.auth
+  if (!auth || auth.isApiKey) return null
+  return uuidSchema.safeParse(auth.sub).success ? auth.sub : null
+}
+
+// The hooks and `mapToEntity`/`applyToEntity` MUST validate the same normalized payload:
+// the hooks skip their checks (scope, group, uniqueness) when validation fails, trusting
+// the later parse to reject the request. Validating different payloads would let a body
+// that fails only the hook's parse skip every check and still be written.
+function normalizeCreatePayload(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): Record<string, unknown> {
+  const { organizationId: _ignoredOrganizationId, ...rest } = input
+  return { ...rest, ...scopeFromContext(ctx), assignedByUserId: actorUserIdFromContext(ctx) }
+}
+
+function normalizeUpdatePayload(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): Record<string, unknown> {
+  const {
+    assignedByUserId: _ignoredAssignedByUserId,
+    organizationId: _ignoredOrganizationId,
+    ...rest
+  } = input
+  return { ...rest, ...scopeFromContext(ctx) }
+}
+
+function parseCreateInput(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): CustomerGroupMembershipCreateInput {
+  return customerGroupMembershipCreateSchema.parse(normalizeCreatePayload(input, ctx))
+}
+
+function parseUpdateInput(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): CustomerGroupMembershipUpdateInput {
+  return customerGroupMembershipUpdateSchema.parse(normalizeUpdatePayload(input, ctx))
+}
+
+function hasOwn(input: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key)
+}
+
+function toCustomerGroupMembershipEntityData(
+  input: CustomerGroupMembershipCreateInput,
+  organizationId: string | null,
+): Record<string, unknown> {
+  return {
+    organizationId,
+    tenantId: input.tenantId,
+    groupId: input.groupId,
+    customerId: input.customerId,
+    source: input.source ?? 'manual',
+    validFrom: input.validFrom ?? null,
+    validUntil: input.validUntil ?? null,
+    assignedByUserId: input.assignedByUserId ?? null,
+    notes: input.notes ?? null,
+  }
+}
+
+// Scope fields (tenantId/organizationId) are never taken from the body — same rule
+// as `applyCustomerGroupUpdate` in `../crud.ts`. The organization only follows the
+// customer when a membership is moved onto another customer.
+function applyCustomerGroupMembershipUpdate(
+  entity: CustomerGroupMembership,
+  input: CustomerGroupMembershipUpdateInput,
+  actorUserId: string | null,
+  customerOrganization: { found: boolean; organizationId: string | null },
+): void {
+  const reassigned =
+    (hasOwn(input, 'groupId') && !!input.groupId && input.groupId !== entity.groupId)
+    || (hasOwn(input, 'customerId') && !!input.customerId && input.customerId !== entity.customerId)
+  if (hasOwn(input, 'groupId') && input.groupId) entity.groupId = input.groupId
+  if (hasOwn(input, 'customerId') && input.customerId) entity.customerId = input.customerId
+  if (hasOwn(input, 'source') && input.source) entity.source = input.source
+  if (hasOwn(input, 'validFrom')) entity.validFrom = input.validFrom ?? null
+  if (hasOwn(input, 'validUntil')) entity.validUntil = input.validUntil ?? null
+  if (reassigned) entity.assignedByUserId = actorUserId
+  if (customerOrganization.found) entity.organizationId = customerOrganization.organizationId
+  if (hasOwn(input, 'notes')) entity.notes = input.notes ?? null
+}
+
+// The DB enforces uniqueness of `(tenant_id, group_id, customer_id)` among
+// non-deleted rows via the partial unique index
+// `customer_group_memberships_active_unique` (see data/entities.ts). Without a
+// pre-check, a raw Postgres unique-violation reaching `makeCrudRoute`'s create
+// step would fall through `handleError`'s generic 500 branch — `factory.ts`'s
+// `handleError` only special-cases foreign-key violations and transient DB
+// errors, not unique violations. Pre-checking here and throwing a translated
+// `conflict()` mirrors the async `beforeCreate`/`beforeUpdate` uniqueness-guard
+// pattern used by `warranty_claims/api/registrations/route.ts`
+// (`assertRegistrationSerialUnique`), adapted from its `mapToEntity`-only shape
+// since `makeCrudRoute`'s `create.mapToEntity` is not awaited and cannot itself
+// run an async pre-check — only `hooks.beforeCreate`/`beforeUpdate` are.
+async function assertMembershipUnique(
+  em: EntityManager,
+  scope: { tenantId: string },
+  groupId: string,
+  customerId: string,
+  excludeId: string | null,
+  translate: (key: string, fallback?: string) => string,
+): Promise<void> {
+  const where: FilterQuery<CustomerGroupMembership> = {
+    tenantId: scope.tenantId,
+    groupId,
+    customerId,
+    deletedAt: null,
+  }
+  if (excludeId) where.id = { $ne: excludeId }
+  const existing = await em.count(CustomerGroupMembership, where)
+  if (existing > 0) {
+    throw conflict(
+      translate('customer_groups.errors.membershipDuplicate', 'This customer is already a member of this group.'),
+    )
+  }
+}
+
+const MEMBERSHIP_ACTIVE_UNIQUE_CONSTRAINT = 'customer_group_memberships_active_unique'
+
+// The pre-check cannot see a concurrent write committing between the check and the
+// flush; the partial unique index then rejects the loser with the same 409.
+export function toMembershipUniqueConflict(
+  err: unknown,
+  translate: (key: string, fallback?: string) => string,
+): unknown {
+  if (!isUniqueViolation(err, MEMBERSHIP_ACTIVE_UNIQUE_CONSTRAINT)) return err
+  return conflict(
+    translate('customer_groups.errors.membershipDuplicate', 'This customer is already a member of this group.'),
+  )
+}
+
+// `groupId` is a plain uuid column (no FK, see data/entities.ts), so nothing else stops
+// a membership pointing at a deleted group or at another tenant's group.
+export async function assertMembershipGroupExists(
+  em: EntityManager,
+  scope: { tenantId: string },
+  groupId: string,
+  translate: (key: string, fallback?: string) => string,
+): Promise<void> {
+  const existing = await em.count(CustomerGroup, { id: groupId, tenantId: scope.tenantId, deletedAt: null })
+  if (existing === 0) {
+    throw badRequest(
+      translate('customer_groups.errors.membershipGroupNotFound', 'The selected customer group does not exist.'),
+    )
+  }
+}
+
+type MembershipEventId = 'customer_groups.membership.added' | 'customer_groups.membership.removed'
+type MembershipEventTarget = Pick<CustomerGroupMembership, 'id' | 'tenantId' | 'organizationId' | 'groupId' | 'customerId'>
+
+// See `lib/customerScope.ts`: the customer a membership names must be visible in the
+// caller's organization scope. A new customer reference that is out of scope reads as
+// "does not exist" (400, like an unknown group); an existing membership whose customer
+// is out of scope reads as 404, so neither reveals that the customer exists elsewhere.
+export async function assertMembershipCustomerInScope(
+  em: EntityManager,
+  ctx: CrudCtx,
+  customerId: string,
+  translate: (key: string, fallback?: string) => string,
+): Promise<string | null> {
+  const { tenantId } = scopeFromContext(ctx)
+  const customer = await findCustomerInScope(em, customerId, { tenantId, organizationIds: ctx.organizationIds })
+  if (customer) return customer.organizationId
+  throw badRequest(
+    translate('customer_groups.errors.membershipCustomerNotFound', 'The selected customer does not exist.'),
+  )
+}
+
+async function assertExistingMembershipInScope(
+  em: EntityManager,
+  ctx: CrudCtx,
+  membership: CustomerGroupMembership | null,
+  translate: (key: string, fallback?: string) => string,
+): Promise<void> {
+  if (!membership) return
+  const { tenantId } = scopeFromContext(ctx)
+  const scope = { tenantId, organizationIds: ctx.organizationIds }
+  // A soft-deleted customer keeps its organization, so its leftover memberships stay
+  // manageable (removable) by callers who can see that organization.
+  if (await isCustomerInScope(em, membership.customerId, scope, { includeDeleted: true })) return
+  throw notFound(translate('customer_groups.errors.membershipNotFound', 'Customer group membership not found.'))
+}
+
+// The body-level refine only sees the fields a request sends, so a patch that moves
+// one end of the window must also be checked against the stored other end.
+export function assertMembershipValidityWindow(
+  existing: Pick<CustomerGroupMembership, 'validFrom' | 'validUntil'>,
+  input: CustomerGroupMembershipUpdateInput,
+  translate: (key: string, fallback?: string) => string,
+): void {
+  const validFrom = hasOwn(input, 'validFrom') ? input.validFrom ?? null : existing.validFrom ?? null
+  const validUntil = hasOwn(input, 'validUntil') ? input.validUntil ?? null : existing.validUntil ?? null
+  if (!validFrom || !validUntil || validFrom <= validUntil) return
+  throw badRequest(
+    translate('customer_groups.errors.membershipValidityRange', 'Valid until must be on or after valid from.'),
+  )
+}
+
+// Spec §10: `membership.added` / `.removed` MUST fire so buyer-context and price caches
+// keyed on the customer are invalidated. The declared ids are not the factory's
+// `created`/`deleted` shape, so they are emitted from the hooks instead of `events:`.
+export async function emitMembershipEvent(
+  eventId: MembershipEventId,
+  membership: MembershipEventTarget,
+): Promise<void> {
+  const organizationId = membership.organizationId ?? null
+  await emitCustomerGroupsEvent(
+    eventId,
+    {
+      id: membership.id,
+      tenantId: membership.tenantId,
+      organizationId,
+      groupId: membership.groupId,
+      customerId: membership.customerId,
+    },
+    { persistent: true, tenantId: membership.tenantId, organizationId },
+  )
+}
+
+type MembershipStateBeforeUpdate = { groupId: string; customerId: string; validAtUpdate: boolean }
+
+// The state an update started from, captured in `applyToEntity` (the one hook that sees
+// the loaded row before it is mutated) and read back in `afterUpdate`, which receives
+// the same entity instance once the write committed. Keyed weakly by that instance so
+// nothing outlives the request.
+const membershipStateBeforeUpdate = new WeakMap<CustomerGroupMembership, MembershipStateBeforeUpdate>()
+
+// Spec §10 caches are keyed on the customer, so an update that changes WHICH customer
+// is in WHICH group, or brings an expired / not-yet-started membership back into its
+// validity window, must fire the same events as a remove + add. Only the declared
+// `added` / `removed` ids exist (no `membership.updated`), so a move emits both and a
+// renewal emits `added`. Other edits (notes, source, a still-valid window) emit nothing.
+export function membershipUpdateEvents(
+  before: MembershipStateBeforeUpdate,
+  after: MembershipEventTarget & Pick<CustomerGroupMembership, 'validFrom' | 'validUntil'>,
+  at: Date,
+): Array<{ eventId: MembershipEventId; membership: MembershipEventTarget }> {
+  const moved = before.groupId !== after.groupId || before.customerId !== after.customerId
+  if (moved) {
+    return [
+      {
+        eventId: 'customer_groups.membership.removed',
+        membership: {
+          id: after.id,
+          tenantId: after.tenantId,
+          organizationId: after.organizationId,
+          groupId: before.groupId,
+          customerId: before.customerId,
+        },
+      },
+      { eventId: 'customer_groups.membership.added', membership: after },
+    ]
+  }
+  const validAfter = isMembershipValidAt(after, at)
+  if (!before.validAtUpdate && validAfter) {
+    return [{ eventId: 'customer_groups.membership.added', membership: after }]
+  }
+  if (before.validAtUpdate && !validAfter) {
+    return [{ eventId: 'customer_groups.membership.removed', membership: after }]
+  }
+  return []
+}
+
+const customerGroupMembershipListFields = [
+  'id',
+  'organization_id',
+  'tenant_id',
+  'group_id',
+  'customer_id',
+  'source',
+  'valid_from',
+  'valid_until',
+  'assigned_by_user_id',
+  'notes',
+  'created_at',
+  'updated_at',
+]
+
+export const customerGroupMembershipCrud = makeCrudRoute<
+  RawCustomerGroupMembershipInput,
+  RawCustomerGroupMembershipInput,
+  CustomerGroupMembershipListQuery
+>({
+  metadata: customerGroupMembershipRouteMetadata,
+  orm: {
+    entity: CustomerGroupMembership,
+    idField: 'id',
+    // Tenant-scoped only, matching `CustomerGroup` — see the doc comment above
+    // `scopeFromContext`.
+    orgField: null,
+    tenantField: 'tenantId',
+    softDeleteField: 'deletedAt',
+  },
+  indexer: { entityType: E.customer_groups.customer_group_membership },
+  list: {
+    schema: customerGroupMembershipListQuerySchema,
+    entityId: E.customer_groups.customer_group_membership,
+    fields: customerGroupMembershipListFields,
+    sortFieldMap: {
+      createdAt: 'created_at',
+      updatedAt: 'updated_at',
+      validFrom: 'valid_from',
+      validUntil: 'valid_until',
+    },
+    joins: [customerScopeJoin],
+    buildFilters: async (query, ctx) => {
+      const filters: Record<string, unknown> = {}
+      if (query.id) filters.id = { $eq: query.id }
+      if (query.customerId) filters.customer_id = { $eq: query.customerId }
+      if (query.groupId) filters.group_id = { $eq: query.groupId }
+      // `beforeList` already verified a named customer; any other list must be
+      // narrowed to memberships whose customer is in the caller's organizations.
+      if (!query.customerId && Array.isArray(ctx.organizationIds)) {
+        const em = (ctx.container.resolve('em') as EntityManager).fork()
+        const scopeFilter = await buildCustomerScopeListFilter(em, ctx.organizationIds)
+        if (scopeFilter) Object.assign(filters, scopeFilter)
+        else filters.id = { $eq: NO_MATCH_MEMBERSHIP_ID }
+      }
+      const activeOnly = parseBooleanToken(query.activeOnly)
+      if (activeOnly === true) {
+        const now = new Date()
+        filters.$and = [
+          { $or: [{ valid_from: null }, { valid_from: { $lte: now } }] },
+          { $or: [{ valid_until: null }, { valid_until: { $gte: now } }] },
+        ]
+      }
+      return filters
+    },
+  },
+  create: {
+    schema: rawBodySchema,
+    mapToEntity: (input, ctx) =>
+      toCustomerGroupMembershipEntityData(parseCreateInput(input, ctx), takeCustomerOrganization(ctx).organizationId),
+  },
+  update: {
+    schema: rawBodySchema,
+    getId: (input) => (typeof input.id === 'string' ? input.id : ''),
+    applyToEntity: async (entity, input, ctx) => {
+      const membership = entity as CustomerGroupMembership
+      const parsed = parseUpdateInput(input, ctx)
+      membershipStateBeforeUpdate.set(membership, {
+        groupId: membership.groupId,
+        customerId: membership.customerId,
+        validAtUpdate: isMembershipValidAt(membership, new Date()),
+      })
+      applyCustomerGroupMembershipUpdate(membership, parsed, actorUserIdFromContext(ctx), takeCustomerOrganization(ctx))
+      try {
+        await (ctx.container.resolve('em') as EntityManager).flush()
+      } catch (err) {
+        const { translate } = await resolveTranslations()
+        throw toMembershipUniqueConflict(err, translate)
+      }
+    },
+    response: () => ({ ok: true }),
+  },
+  del: { idFrom: 'query', softDelete: true, response: () => ({ ok: true }) },
+  hooks: {
+    beforeList: async (query, ctx) => {
+      if (!query.customerId) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const { tenantId } = scopeFromContext(ctx)
+      if (await isCustomerInScope(em, query.customerId, { tenantId, organizationIds: ctx.organizationIds })) return
+      const { translate } = await resolveTranslations()
+      throw notFound(translate('customer_groups.errors.customerNotFound', 'Customer not found.'))
+    },
+    beforeCreate: async (input, ctx) => {
+      const scope = scopeFromContext(ctx)
+      const result = customerGroupMembershipCreateSchema.safeParse(normalizeCreatePayload(input, ctx))
+      if (!result.success) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const { translate } = await resolveTranslations()
+      const customerOrganizationId = await assertMembershipCustomerInScope(em, ctx, result.data.customerId, translate)
+      await assertMembershipGroupExists(em, scope, result.data.groupId, translate)
+      await assertMembershipUnique(em, scope, result.data.groupId, result.data.customerId, null, translate)
+      customerOrganizationByRequest.set(ctx, customerOrganizationId)
+      registerCreateConflictRecheck(ctx.request, () =>
+        assertMembershipUnique(
+          (ctx.container.resolve('em') as EntityManager).fork(),
+          scope,
+          result.data.groupId,
+          result.data.customerId,
+          null,
+          translate,
+        ),
+      )
+    },
+    afterCreate: async (entity, ctx) => {
+      clearCreateConflictRecheck(ctx.request)
+      await emitMembershipEvent('customer_groups.membership.added', entity as CustomerGroupMembership)
+    },
+    beforeUpdate: async (input, ctx) => {
+      const scope = scopeFromContext(ctx)
+      const result = customerGroupMembershipUpdateSchema.safeParse(normalizeUpdatePayload(input, ctx))
+      if (!result.success) return
+      const parsed = result.data
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const existing = await em.findOne(CustomerGroupMembership, {
+        id: parsed.id,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      })
+      if (!existing) return
+      const { translate } = await resolveTranslations()
+      await assertExistingMembershipInScope(em, ctx, existing, translate)
+      assertMembershipValidityWindow(existing, parsed, translate)
+      if (parsed.groupId === undefined && parsed.customerId === undefined) return
+      const nextGroupId = parsed.groupId ?? existing.groupId
+      const nextCustomerId = parsed.customerId ?? existing.customerId
+      let movedCustomerOrganizationId: string | null | undefined
+      if (parsed.customerId !== undefined && parsed.customerId !== existing.customerId) {
+        movedCustomerOrganizationId = await assertMembershipCustomerInScope(em, ctx, parsed.customerId, translate)
+      }
+      if (parsed.groupId !== undefined && parsed.groupId !== existing.groupId) {
+        await assertMembershipGroupExists(em, scope, parsed.groupId, translate)
+      }
+      await assertMembershipUnique(em, scope, nextGroupId, nextCustomerId, existing.id, translate)
+      if (movedCustomerOrganizationId !== undefined) customerOrganizationByRequest.set(ctx, movedCustomerOrganizationId)
+    },
+    afterUpdate: async (entity) => {
+      const membership = entity as CustomerGroupMembership
+      const before = membershipStateBeforeUpdate.get(membership)
+      if (!before) return
+      membershipStateBeforeUpdate.delete(membership)
+      for (const event of membershipUpdateEvents(before, membership, new Date())) {
+        await emitMembershipEvent(event.eventId, event.membership)
+      }
+    },
+    beforeDelete: async (id, ctx) => {
+      const scope = scopeFromContext(ctx)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const existing = await em.findOne(CustomerGroupMembership, { id, tenantId: scope.tenantId, deletedAt: null })
+      if (!existing) return
+      const { translate } = await resolveTranslations()
+      await assertExistingMembershipInScope(em, ctx, existing, translate)
+    },
+    afterDelete: async (id, ctx) => {
+      const scope = scopeFromContext(ctx)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const removed = await em.findOne(CustomerGroupMembership, { id, tenantId: scope.tenantId })
+      if (removed) await emitMembershipEvent('customer_groups.membership.removed', removed)
+    },
+  },
+})
