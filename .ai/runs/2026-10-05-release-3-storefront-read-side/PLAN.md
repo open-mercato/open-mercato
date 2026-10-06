@@ -72,7 +72,7 @@
 | 6 | 6.3 | Categories: /categories and /categories/:slug | dispatch:standard | done | 33d2da4f2d |
 | 6 | 6.4 | /search/suggest + search-module integration (tokens, pgvector) | dispatch:capable | done | 5427f13ae3 |
 | 6 | 6.5 | Rate limiting + OpenAPI for all storefront routes | dispatch:standard | done | 9ccc13df35 |
-| 6 | 6.1-fix | Translation Manager loads option schema templates so option/choice label fields appear | dispatch:standard | done | pending |
+| 6 | 6.1-fix | Translation Manager loads option schema templates so option/choice label fields appear | dispatch:standard | done | ed83aad87e |
 | 6 | 6.6 | Integration tests: facets, categories, search (Public API Phases 2–3 gates) | dispatch:capable | todo | — |
 | 7 | 7.1 | lib/brandingStyles.ts + validation + fuzz tests + SSR helper | dispatch:standard | todo | — |
 | 7 | 7.2 | PUT /stores/:id/branding command route + GET preview-branding | dispatch:standard | todo | — |
