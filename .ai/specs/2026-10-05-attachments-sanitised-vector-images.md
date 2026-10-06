@@ -504,19 +504,26 @@ opened directly. `UPGRADE_NOTES.md` says so.
 ## Merge order with the owner-scoped reads change
 
 [`2026-10-06-attachments-owner-scoped-reads.md`](2026-10-06-attachments-owner-scoped-reads.md) is a
-separate branch. The two changes are independent, but they touch the same files. The intended order
-is **this change first**, then the owner-scoped reads branch rebased onto it. The conflicts are
-textual and resolve as follows:
+separate branch touching the same files. The intended order is **this change first**, then the
+owner-scoped reads branch rebased onto it.
 
-- `lib/attachment-service.ts` — the owner-scoped branch moves `readScoped`'s owner, partition and
-  serving checks into a private `serveOwnedAttachment` helper. The vector serving lines added here
-  (`isTrustedVectorImage`, the inline content type, `contentSecurityPolicy`) go into that helper,
-  so both read methods serve trusted vector rows the same way.
-- `lib/__tests__/attachment-service.test.ts` — keep both appended `describe` blocks, and the
-  `readBuffer` harness option added here.
-- `.ai/specs/README.md`, `UPGRADE_NOTES.md`, `apps/docs/docs/api/attachments.mdx`,
-  `packages/core/src/modules/attachments/AGENTS.md` — keep both entries; they cover different
-  sections.
+Verified with a trial merge of the owner-scoped reads branch into this one:
+
+- `lib/attachment-service.ts` merges **automatically and correctly**. The vector serving lines land in
+  the owner-scoped branch's `serveOwnedAttachment` helper, on its non-rendition path, so `readScoped`
+  and `readScopedForOwner` serve trusted vector rows the same way. The rendition path keeps requiring
+  an inline-safe raster (`canRenderInlineAttachment`), so an SVG never reaches Sharp.
+- Five files conflict, all textually:
+  - `.ai/specs/README.md`, `UPGRADE_NOTES.md`, `apps/docs/docs/api/attachments.mdx` and
+    `packages/core/src/modules/attachments/AGENTS.md`: keep both sides; they add different entries.
+  - `lib/__tests__/attachment-service.test.ts`: keep both appended `describe` blocks (and both
+    harness additions, `readBuffer` and the `imageRendition` mock). Add the closing `})` of the
+    vector block, which the two sides share in the conflict hunk, between them.
+- The merged tree passes:
+  - core typecheck;
+  - `attachment-service.test.ts` (64), `vector-image.test.ts` and the attachments route suites
+    (240);
+  - checkout's pay route suites (45).
 
 ## Testing Strategy
 
