@@ -431,8 +431,10 @@ async function fetchPageRows(
  * Batched storefront price resolution (Storefront Public API rev 4 §6.1, §6.2, §5.1, §5.2; R13).
  *
  * One `CatalogProductPrice` query per page, narrowed by `buildPriceRowFilter`, resolved in memory
- * through `catalogPricingService` so registered resolvers apply. Promotions are presented only when
- * Omnibus supplies `lowestPriorAmount` for the presented price (R7): an unavailable, disabled or
+ * through `catalogPricingService` so registered resolvers apply. Rows of promotional price kinds overlay the
+ * buyer's resolved `priceKindId` (pricing-engine amendment D2a), so a promotion wins by `scorePrice` as in admin;
+ * `originalAmount` is the best non-promotional row of the resolved kind from the same batch. Promotions are
+ * presented only when Omnibus supplies `lowestPriorAmount` for the presented price (R7): an unavailable, disabled or
  * not-applicable Omnibus result yields `isPromotion: false`, `originalAmount: null` and
  * `lowestPriorAmount: null` while `amount` stays the price the buyer actually pays.
  */

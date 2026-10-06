@@ -513,10 +513,10 @@ Per response, in batch: collect every product and variant id, load their `Catalo
 
 **`priceKindId` and `customerIds` are new, additive `PricingContext` fields (amended 2026-10-05, D2/D3).** Verified on `develop`: `PricingContext` (`catalog/lib/pricing.ts:11-25`) has neither, and `matchesContext`/`selectBestPrice` never filter by price kind — the kind only contributes to the score by its code (`custom`/`tier`/`promotion`). Without the filter, a group-terms price-kind override would change nothing about which row wins, and the `taxMode` SPEC-029 §6.1a derives from the resolved kind could label an amount from a row of the *other* `displayMode`. `pricing-engine.md` owns the type shape and is amended alongside this revision:
 
-- `priceKindId?: string | null` — when set, rows of any other price kind are excluded, in `matchesContext` and in `buildPriceRowFilter` alike (the soundness invariant is extended to cover it). Contract rows must therefore be authored against the price kind the buyer resolves to; that is stated in the admin price-rule UI.
+- `priceKindId?: string | null` — when set, rows of any other price kind are excluded, in `matchesContext` and in `buildPriceRowFilter` alike (the soundness invariant is extended to cover it). Contract rows must therefore be authored against the price kind the buyer resolves to; that is stated in the admin price-rule UI. Rows of a promotional kind (`CatalogPriceKind.isPromotion`) are the one exception and are admitted as an overlay (owner decision D2a, 2026-10-06), so `scorePrice` selects a promotion exactly as the admin path does; `originalAmount` is then the best non-promotional row of the resolved kind from the same batch, the amount is read on the buyer's `taxMode` side, and §5.1's Omnibus gate still decides whether the promotion is presented.
 - `customerIds?: string[]` — a personal row matches if its `customer_id` is any of the ids; among equally-scored rows, a row scoped to the **person** beats one scoped to the **company** (owner decision D3a). `customerId` keeps its meaning for existing callers.
 
-Because the selected row is now always of the resolved price kind, the kind's `displayMode` and the row agree by construction — the property §6.2 depends on.
+Because the selected row is now of the resolved price kind (or a promotional overlay row read on that kind's tax side), the kind's `displayMode` and the presented amount agree by construction — the property §6.2 depends on.
 
 ### 6.2 Tax display
 
@@ -857,6 +857,9 @@ No `ecommerce` storefront contract existed before this spec, so there is nothing
 ---
 
 ## 16) Changelog
+
+### 2026-10-06 — rev 4.1 (owner decision D2a)
+- **§6.1 promotions overlay the `priceKindId` filter (D2a).** With D2's kind filter a buyer resolved to a regular kind never saw promotional rows; rows of `isPromotion` kinds are now admitted alongside the resolved kind, `originalAmount` comes from the resolved kind, and the Omnibus presentation gate is unchanged.
 
 ### 2026-10-05 — rev 4 (Phase 0 reconciliation, owner decisions)
 Re-checked against `develop` @ `a108dd07f4` after Phase 0 (#6709, #6268) landed; findings in `analysis/ANALYSIS-2026-10-05-storefront-public-api.md`, decisions in `analysis/ANALYSIS-2026-10-05-storefront-release-decisions.md`.

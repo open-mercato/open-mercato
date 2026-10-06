@@ -47,6 +47,8 @@ The default pipeline emits `catalog.pricing.resolve.before|after` events. `prici
 
 ### Price selection order
 
+Candidate rows are those `matchesContext` admits. When `ctx.priceKindId` is set, that means rows of that kind **plus** rows of any promotional kind (`priceKind.isPromotion === true`, populated relation required), and `buildPriceRowFilter` mirrors this with a `priceKind.isPromotion` relation clause. Keep the two in sync: the filter MUST admit every row the matcher admits.
+
 When multiple price rows match the same context, `selectBestPrice` resolves ties in this order:
 
 1. **Score** (descending) — `custom` > `promotion` > `tier` > `regular`, plus additional points for variant, offer, channel, user, group, and customer scoping. See `scorePrice` for the full rubric.

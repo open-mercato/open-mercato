@@ -58,7 +58,7 @@
 | 4 | 4.3 | Catalog scope_keys contributor, GIN index, reindex triggers | dispatch:capable | done | be1c0b2309 |
 | 4 | 4.4 | ecommerce buildStorefrontProductScope + SQL/matchesScope equivalence test | dispatch:capable | done | b76d9a4c99 |
 | 4 | 4.5 | ecommerce storefront pricing (buildStorefrontPricingContext, batched resolution, tax mode) | dispatch:capable | done | 23f14ceba7 |
-| 4 | 4.5-fix | Promotions as an overlay on the priceKindId filter (owner decision D2a) | dispatch:capable | todo | — |
+| 4 | 4.5-fix | Promotions as an overlay on the priceKindId filter (owner decision D2a) | dispatch:capable | done | pending |
 | 4 | 4.6 | ecommerce lib/storefrontProducts.ts listing | dispatch:capable | todo | — |
 | 4 | 4.7 | ecommerce lib/storefrontDetail.ts detail | dispatch:capable | todo | — |
 | 4 | 4.8 | Public routes /products and /products/:idOrHandle with storefront cache | dispatch:standard | todo | — |

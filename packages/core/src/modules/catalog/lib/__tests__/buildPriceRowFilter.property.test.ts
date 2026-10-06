@@ -42,7 +42,8 @@ const DIMENSIONS: Dimension[] = ['customerId', 'customerGroupId', 'userId', 'use
 // Deliberately overlapping value pools per dimension: real matches happen
 // only when random draws coincide, alongside plenty of mismatches and nulls.
 const VALUE_POOL = ['a', 'b', 'c'] as const
-const PRICE_KIND_POOL = ['pk-regular', 'pk-wholesale'] as const
+const PRICE_KIND_POOL = ['pk-regular', 'pk-wholesale', 'pk-sale'] as const
+const PROMOTIONAL_PRICE_KINDS = new Set<string>(['pk-sale'])
 
 function pick<T>(rng: () => number, options: readonly T[]): T {
   return options[Math.floor(rng() * options.length)]
@@ -55,7 +56,7 @@ function maybe<T>(rng: () => number, value: T, probability = 0.5): T | undefined
 function randomPriceKind(rng: () => number): unknown {
   const shape = rng()
   const id = pick(rng, PRICE_KIND_POOL)
-  if (shape < 0.45) return { id, code: id.replace('pk-', ''), isPromotion: false }
+  if (shape < 0.45) return { id, code: id.replace('pk-', ''), isPromotion: PROMOTIONAL_PRICE_KINDS.has(id) }
   if (shape < 0.9) return id
   return null
 }
@@ -113,7 +114,11 @@ function randomContext(rng: () => number): PricingContext {
 
 // Minimal interpreter for exactly the filter shapes `buildPriceRowFilter`
 // emits ($and of {field: null} / {field: value} / {$or: [...]} /
-// {field: {$in: [...]}}) — not a general MikroORM query evaluator.
+// {field: {$in: [...]}} / {relation: {property: value}}) — not a general
+// MikroORM query evaluator. A relation clause against an unpopulated id
+// string evaluates as not admitted: the interpreter cannot see the joined
+// row, so this keeps the check conservative (the database would join and
+// may admit more, which only widens the fetch).
 function admits(filter: unknown, row: Record<string, unknown>): boolean {
   const node = filter as Record<string, unknown>
   if (Array.isArray(node.$and)) {
@@ -131,6 +136,12 @@ function admits(filter: unknown, row: Record<string, unknown>): boolean {
       const list = (expected as { $in: unknown[] }).$in
       return actual !== null && list.includes(actual)
     }
+    if (expected && typeof expected === 'object') {
+      if (!raw || typeof raw !== 'object') return false
+      return Object.entries(expected as Record<string, unknown>).every(
+        ([property, value]) => (raw as Record<string, unknown>)[property] === value,
+      )
+    }
     return actual === expected
   })
 }
@@ -139,6 +150,7 @@ describe('buildPriceRowFilter soundness (property-based)', () => {
   it(`admits every row matchesContext would accept, over ${ITERATIONS} generated (row, context) pairs`, () => {
     const rng = mulberry32(SEED)
     let acceptedByMatcher = 0
+    let acceptedPromotionOverlay = 0
 
     for (let i = 0; i < ITERATIONS; i += 1) {
       const row = randomRow(rng, `row-${i}`)
@@ -147,6 +159,8 @@ describe('buildPriceRowFilter soundness (property-based)', () => {
       const matcherAccepted = selectBestPrice([row], ctx) !== null
       if (matcherAccepted) {
         acceptedByMatcher += 1
+        const rowKind = row.priceKind && typeof row.priceKind === 'object' ? row.priceKind : null
+        if (ctx.priceKindId && rowKind?.isPromotion && rowKind.id !== ctx.priceKindId) acceptedPromotionOverlay += 1
         const filterAdmits = admits(buildPriceRowFilter(ctx), row as unknown as Record<string, unknown>)
         if (!filterAdmits) {
           throw new Error(
@@ -160,6 +174,7 @@ describe('buildPriceRowFilter soundness (property-based)', () => {
     // A generation scheme that never produces an accepted pair would make
     // the loop above vacuously true — guard against that regressing silently.
     expect(acceptedByMatcher).toBeGreaterThan(0)
+    expect(acceptedPromotionOverlay).toBeGreaterThan(0)
   })
 
   it('selectBestPrice resolves identically over the full row set and the buildPriceRowFilter-narrowed set', () => {

@@ -127,6 +127,11 @@ function matchesWhere(record: Record<string, unknown>, where: Record<string, unk
     if (condition && typeof condition === 'object' && '$in' in condition) {
       return ((condition as { $in: unknown[] }).$in).includes(actual)
     }
+    if (condition && typeof condition === 'object') {
+      const related = record[key]
+      if (!related || typeof related !== 'object') return false
+      return matchesWhere(related as Record<string, unknown>, condition as Record<string, unknown>)
+    }
     return actual === condition
   })
 }
@@ -561,6 +566,73 @@ describe('resolveStorefrontPrices — promotions and Omnibus', () => {
     const omnibus: OmnibusFake = { resolveOmnibusBlocks: jest.fn(async () => Promise.reject(new Error('boom'))) }
     const result = await resolveStorefrontPrices(makeContainer({ omnibus }), makeContext({ taxMode: 'gross' }), items)
     expect(result.get('p1')?.price).toMatchObject({ amount: 80, isPromotion: false, lowestPriorAmount: null })
+  })
+})
+
+describe('resolveStorefrontPrices — promotions overlay the resolved price kind (D2a)', () => {
+  const rows = [
+    priceRow({ id: 'p1-regular', productId: 'p1', gross: '100.00', net: '81.30' }),
+    priceRow({ id: 'p1-wholesale', productId: 'p1', kind: GROUP_KIND, gross: '60.00', net: '48.78' }),
+    priceRow({ id: 'p1-sale', productId: 'p1', kind: PROMO_KIND, gross: '80.00', net: '65.04' }),
+    priceRow({ id: 'p2-regular', productId: 'p2', gross: '50.00', net: '40.65' }),
+    priceRow({ id: 'p2-wholesale', productId: 'p2', kind: GROUP_KIND, gross: '30.00', net: '24.39' }),
+  ]
+  const items = [
+    { productId: 'p1', variantIds: [] },
+    { productId: 'p2', variantIds: [] },
+  ]
+  const regularBuyer = () => makeContext({ taxMode: 'gross' }, { channelPriceKindId: REGULAR_KIND.id })
+
+  it('fetches promotional rows of another kind through the narrowed query', async () => {
+    installFixture({ rows })
+    await resolveStorefrontPrices(makeContainer({ omnibus: null }), regularBuyer(), items, { date: NOW })
+    expect(priceRowCalls()).toHaveLength(1)
+    expect(fetchedRowCounts[0]).toBe(3)
+  })
+
+  it('presents the promotion to a regular-kind buyer with the original from the regular kind and the Omnibus reference', async () => {
+    installFixture({ rows })
+    const omnibus: OmnibusFake = {
+      resolveOmnibusBlocks: jest.fn(async (_em: unknown, requests: OmnibusResolutionRequest[]) =>
+        requests.map(() => omnibusBlock()),
+      ),
+    }
+    const result = await resolveStorefrontPrices(makeContainer({ omnibus }), regularBuyer(), items, { date: NOW })
+    expect(result.get('p1')?.price).toMatchObject({
+      amount: 80,
+      isPromotion: true,
+      originalAmount: 100,
+      lowestPriorAmount: 90,
+    })
+    expect(result.get('p2')?.price).toMatchObject({ amount: 50, isPromotion: false, originalAmount: null })
+    const [, requests] = omnibus.resolveOmnibusBlocks.mock.calls[0] as [unknown, OmnibusResolutionRequest[]]
+    expect(requests).toHaveLength(1)
+    expect(requests[0].context).toMatchObject({ productId: 'p1', priceKindId: PROMO_KIND.id })
+  })
+
+  it('keeps the promotional amount but drops promotion flags when Omnibus is not applicable', async () => {
+    installFixture({ rows })
+    const omnibus: OmnibusFake = {
+      resolveOmnibusBlocks: jest.fn(async (_em: unknown, requests: OmnibusResolutionRequest[]) =>
+        requests.map(() =>
+          omnibusBlock({ applicable: false, applicabilityReason: 'not_in_eu_market', lowestPriceGross: null, lowestPriceNet: null }),
+        ),
+      ),
+    }
+    const result = await resolveStorefrontPrices(makeContainer({ omnibus }), regularBuyer(), items, { date: NOW })
+    expect(result.get('p1')?.price).toMatchObject({
+      amount: 80,
+      isPromotion: false,
+      originalAmount: null,
+      lowestPriorAmount: null,
+    })
+  })
+
+  it('never presents a non-promotional row of another kind', async () => {
+    installFixture({ rows: rows.filter((row) => row.id !== 'p1-sale') })
+    const result = await resolveStorefrontPrices(makeContainer({ omnibus: null }), regularBuyer(), items, { date: NOW })
+    expect(result.get('p1')?.price?.amount).toBe(100)
+    expect(result.get('p2')?.price?.amount).toBe(50)
   })
 })
 

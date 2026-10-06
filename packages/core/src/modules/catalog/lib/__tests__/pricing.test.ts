@@ -347,7 +347,33 @@ describe('catalog pricing helpers', () => {
     expect(unset.$and).not.toContainEqual(expect.objectContaining({ priceKind: expect.anything() }))
 
     const scoped = buildPriceRowFilter({ quantity: 1, date: new Date(), priceKindId: 'pk-wholesale' }) as any
-    expect(scoped.$and).toContainEqual({ priceKind: 'pk-wholesale' })
+    expect(scoped.$and).toContainEqual({
+      $or: [{ priceKind: 'pk-wholesale' }, { priceKind: { isPromotion: true } }],
+    })
+  })
+
+  it('admits promotional rows of another kind as an overlay on priceKindId (D2a)', () => {
+    const regularRow = baseRow({ id: 'regular', unitPriceGross: '100.00' })
+    const saleRow = baseRow({
+      id: 'sale',
+      kind: 'promotion',
+      unitPriceGross: '80.00',
+      priceKind: { id: 'pk-sale', code: 'sale', isPromotion: true } as any,
+    })
+    const wholesaleRow = baseRow({
+      id: 'wholesale',
+      priceKind: { id: 'pk-wholesale', code: 'wholesale', isPromotion: false } as any,
+    })
+    const saleIdOnlyRow = baseRow({ id: 'sale-id-only', priceKind: 'pk-sale' as any })
+    const scopedCtx: PricingContext = { ...ctx, priceKindId: 'pk-regular' }
+
+    expect(selectBestPrice([saleRow], scopedCtx)?.id).toBe('sale')
+    expect(selectBestPrice([regularRow, saleRow], scopedCtx)?.id).toBe('sale')
+    expect(selectBestPrice([wholesaleRow], scopedCtx)).toBeNull()
+    expect(selectBestPrice([regularRow, wholesaleRow], scopedCtx)?.id).toBe('regular')
+    expect(selectBestPrice([saleIdOnlyRow], scopedCtx)).toBeNull()
+    expect(selectBestPrice([saleIdOnlyRow], { ...ctx, priceKindId: 'pk-sale' })?.id).toBe('sale-id-only')
+    expect(selectBestPrice([{ ...saleRow, currencyCode: 'EUR' }], { ...scopedCtx, currencyCode: 'USD' })).toBeNull()
   })
 
   it('matches customerIds as set membership, with legacy customerId still supported', () => {

@@ -20,7 +20,12 @@ export type PricingContext = {
   customerGroupIds?: string[]
   /** When set, only rows in this currency match. Omitted (the default): no currency filtering, unchanged legacy behavior. */
   currencyCode?: string | null
-  /** When set, only rows of this price kind (by `CatalogPriceKind` id) match. Unset or `null`: kind is not filtered, unchanged legacy behavior. */
+  /**
+   * When set, only rows of this price kind (by `CatalogPriceKind` id) match, plus rows of any promotional
+   * kind (`CatalogPriceKind.isPromotion === true`) as an overlay (pricing-engine amendment D2a). Promotion
+   * status is read from a populated `priceKind`; a row carrying only a kind id string is admitted solely when
+   * that id equals this one. Unset or `null`: kind is not filtered, unchanged legacy behavior.
+   */
   priceKindId?: string | null
   /** The buyer's customer entities, person first, then company. A row's `customerId` matches when it appears in this list. Falls back to `customerId` (above) when omitted. */
   customerIds?: string[]
@@ -60,6 +65,14 @@ function resolveContextCustomerIds(ctx: PricingContext): string[] {
   return ctx.customerIds ?? (ctx.customerId ? [ctx.customerId] : [])
 }
 
+function isPromotionalPriceKindRow(row: PriceRow): boolean {
+  return Boolean(row.priceKind && typeof row.priceKind !== 'string' && row.priceKind.isPromotion === true)
+}
+
+function matchesPriceKind(row: PriceRow, priceKindId: string): boolean {
+  return resolvePriceKindId(row) === priceKindId || isPromotionalPriceKindRow(row)
+}
+
 export function resolvePriceKindCode(row: PriceRow): string {
   if (row.priceKind) {
     if (typeof row.priceKind === 'string') return row.priceKind
@@ -87,7 +100,7 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
     if (!candidateGroupIds.includes(row.customerGroupId)) return false
   }
   if (ctx.currencyCode && row.currencyCode !== ctx.currencyCode) return false
-  if (ctx.priceKindId && resolvePriceKindId(row) !== ctx.priceKindId) return false
+  if (ctx.priceKindId && !matchesPriceKind(row, ctx.priceKindId)) return false
   if (ctx.offerId && resolvePriceOfferId(row) && resolvePriceOfferId(row) !== ctx.offerId) return false
   return true
 }
@@ -100,7 +113,8 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
  * `.ai/specs/2026-08-21-pricing-engine.md` § Row narrowing).
  *
  * Covers only the dimensions that are plain column comparisons: customer,
- * customer-group, user, user-group, channel, currency, price kind. Quantity bounds,
+ * customer-group, user, user-group, channel, currency, price kind (the resolved
+ * kind or any promotional kind, via a `priceKind.isPromotion` relation clause). Quantity bounds,
  * validity windows, and offer-derived channel resolution stay in
  * `matchesContext` — they are cheap over an already-narrowed set and are not
  * expressible as one column predicate (offer's own `channelId` lives on a
@@ -140,7 +154,7 @@ export function buildPriceRowFilter(ctx: PricingContext): FilterQuery<CatalogPro
   }
 
   if (ctx.priceKindId) {
-    clauses.push({ priceKind: ctx.priceKindId })
+    clauses.push({ $or: [{ priceKind: ctx.priceKindId }, { priceKind: { isPromotion: true } }] })
   }
 
   return { $and: clauses } as FilterQuery<CatalogProductPrice>
