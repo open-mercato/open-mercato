@@ -1,6 +1,6 @@
 # Handoff
 
-- Branch: `cez/e636bce9` (base `develop`)
-- Runner: local (`corepack yarn`; no Docker on this host). Jest needs `--maxWorkers=4` — an unbounded run OOM-killed the box.
-- State: implementation + docs committed; full workflows jest suite green (lib 163 suites / 2357 tests, rest 134 / 1377).
-- Next: finish the validation gate, then open the PR (`bug`, `priority-high`, `risk-medium`, `needs-qa`).
+- PR: https://github.com/open-mercato/open-mercato/pull/6966 (head `fshagent:fix/workflows-90-day-steps`, base `develop`)
+- State: complete. All Tasks rows done. The opening account is read-only on upstream, so labels (`bug`, `priority-high`,
+  `risk-medium`, `review`, `skip-qa`) are requested in a PR comment for a maintainer to apply.
+- Runner: local; Node 24 required (`yarn generate` refuses Node 22). Jest needs `--maxWorkers` bounded on this host.

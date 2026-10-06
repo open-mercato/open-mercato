@@ -10,7 +10,7 @@
 | 1.4 | `WAIT_FOR_CONDITION` attempt cap derived from `timeout / pollInterval` (env value becomes the floor) | done | 53514fd1f |
 | 2.1 | Docs: UPGRADE_NOTES deprecation, workflows AGENTS.md, user-guide WAIT | done | 97d7bcd1c |
 | 3.1 | Validation gate (`.ai/agentic.config.json`, local runner) | done | see step-3.1-checks.md |
-| 3.2 | Open PR | todo | |
+| 3.2 | Open PR | done | #6966 |
 
 ## Goal
 
