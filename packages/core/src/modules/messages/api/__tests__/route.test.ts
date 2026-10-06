@@ -22,6 +22,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
   canUseMessageEmailFeature: (...args: unknown[]) => canUseMessageEmailFeatureMock(...args),
+  // Channel-thread widening (#6106) off unless a test opts in.
+  canUseChannelThreadFallback: jest.fn(async () => false),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () => ({
