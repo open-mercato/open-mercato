@@ -55,6 +55,11 @@ write time.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
+- Module code that publishes its own files to anonymous visitors MUST use
+  `attachmentService.readScopedForOwner()` (owner + tenant + organization +
+  partition, no principal) and resolve the attachment id and owner from its own
+  records. Never fabricate an `AuthContext` to call `readScoped`. See
+  `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`.
 
 ## Never
 
@@ -63,7 +68,11 @@ write time.
   must fail closed.
 - **Never create a partial-null attachment** (one scope column set, the other null).
 - **Never read or expose attachment rows without `checkAttachmentAccess`** — bypassing
-  it reintroduces the cross-tenant fail-open class.
+  it reintroduces the cross-tenant fail-open class. The one sanctioned exception is
+  `readScopedForOwner`, which replaces the principal with a mandatory owner +
+  tenant + organization + partition match.
+- Never call `readScopedForOwner` from an attachments HTTP route, and never pass it
+  an attachment id or owner taken straight from request input.
 
 ## Known cross-module creation paths
 

@@ -567,6 +567,22 @@ new application version serves traffic. Until it has run, saving an encryption m
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
 
+### Pay link logos load for anonymous visitors; `attachmentService.readScopedForOwner` (no action required)
+
+The public pay payload (`GET /api/checkout/pay/{slug}`) used to set `logoPreviewUrl` to
+`/api/attachments/image/{id}`, which refuses anonymous reads of tenant-scoped files, so an uploaded
+logo never showed on a published pay page. When a logo attachment is set, `logoPreviewUrl` is now
+`/api/checkout/pay/{slug}/logo` (with `?preview=true` on a preview), a new public route gated like
+the pay page. The payload's shape is unchanged; a custom pay page that renders `logoPreviewUrl` gets
+the fix without changes. One that built the image-route URL itself from `logoAttachmentId` should
+switch to `logoPreviewUrl`.
+
+`AttachmentService` gained an optional `readScopedForOwner(input)` method and the exported
+`ReadScopedAttachmentForOwnerInput` type, for module code that publishes its own files without a
+signed-in user. A third-party `AttachmentService` implementation does not need to add it; the pay
+link logo route returns `404` when the method is absent. See
+[the spec](.ai/specs/2026-10-06-attachments-owner-scoped-reads.md).
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

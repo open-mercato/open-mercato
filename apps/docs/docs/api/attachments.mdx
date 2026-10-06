@@ -204,6 +204,22 @@ Partition endpoints let you route uploads to different buckets or visibility tie
 - Delete partition — `DELETE /attachments/partitions?id=<uuid>` (`attachments.manage`)  
   Default partitions cannot be removed; partitions in use return `409`.
 
+## Owner-scoped reads from module code
+
+The file and image routes below require a signed-in user for tenant-scoped files. A module that publishes one of its own files to anonymous visitors — the checkout pay page logo is the in-repo example — reads it on the server instead:
+
+```ts
+const result = await attachmentService.readScopedForOwner({
+  attachmentId,            // from the module's own record, never from the request
+  tenantId,
+  organizationId,
+  expectedOwner: { entityId, recordId },
+  expectedPartitionCode: 'privateAttachments',
+})
+```
+
+It returns the same result as `readScoped` (bytes, content type, inline or download disposition), but only for an attachment owned by that record, in that tenant, organization and partition. Anything else — including an id that is not a UUID — is a `404`, so the module's own ownership record is the authorization. No attachments route exposes it.
+
 ## File delivery and imaging
 
 These routes stream files and thumbnails. Access depends on partition visibility:
