@@ -7,8 +7,7 @@
 // click toasted the raw `record_modified` code instead of raising the conflict bar.
 
 import * as React from 'react'
-import { act, render, waitFor } from '@testing-library/react'
-import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { dismissRecordConflict, getRecordConflictForTest } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -22,9 +21,7 @@ type ChannelRow = {
   updatedAt: string | null
 }
 
-type RowActionsRenderer = (row: ChannelRow) => React.ReactElement<{ items: RowActionItem[] }>
-
-let capturedRowActions: RowActionsRenderer | null = null
+let capturedRowActions: ((row: ChannelRow) => React.ReactNode) | null = null
 const runMutationMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
@@ -44,8 +41,8 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: (props: { rowActions?: RowActionsRenderer }) => {
-    capturedRowActions = props.rowActions ?? null
+  DataTable: (props: { rowActions: (row: ChannelRow) => React.ReactNode }) => {
+    capturedRowActions = props.rowActions
     return <div data-testid="data-table-mock" />
   },
 }))
@@ -84,16 +81,13 @@ const privateMailbox: ChannelRow = {
 
 async function clickShareWithTeam() {
   if (!capturedRowActions) {
-    throw new Error('[internal] DataTable received no rowActions renderer')
+    throw new Error('[internal] row actions renderer was not captured')
   }
-  const shareItem = capturedRowActions(privateMailbox).props.items.find(
-    (item) => item.label === 'Share with team',
-  )
-  if (!shareItem?.onSelect) {
-    throw new Error('[internal] row actions menu has no "Share with team" item')
-  }
+  render(<>{capturedRowActions(privateMailbox)}</>)
+  fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+  const shareAction = await screen.findByRole('menuitem', { name: 'Share with team' })
   await act(async () => {
-    shareItem.onSelect!()
+    fireEvent.click(shareAction)
   })
 }
 
