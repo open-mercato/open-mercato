@@ -63,6 +63,22 @@ function servedLogo(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/**
+ * Models the database: the link lives in one tenant and organization, and a
+ * lookup finds it unless its filter names a different tenant or organization.
+ */
+function linkStoredIn(tenantId: string, organizationId: string, overrides: Record<string, unknown>) {
+  return (async (_em: unknown, _entity: unknown, where: Record<string, unknown>) => {
+    if (where.tenantId !== undefined && where.tenantId !== tenantId) return null
+    if (where.organizationId !== undefined && where.organizationId !== organizationId) return null
+    return link({ tenantId, organizationId, ...overrides })
+  }) as never
+}
+
+function previewContext(tenantId: string, orgId: string) {
+  return { auth: { tenantId, orgId, sub: 'user-1' }, container: {}, em: {} }
+}
+
 function logoRequest(query = '', headers: Record<string, string> = {}) {
   return GET(
     new Request(`https://merchant.example/api/checkout/pay/donate/logo${query}`, { headers }),
@@ -102,7 +118,34 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
       organizationId: ORGANIZATION_ID,
       expectedOwner: { entityId: 'checkout:checkout_link', recordId: LINK_ID },
       expectedPartitionCode: 'privateAttachments',
+      rendition: { width: 640, height: 240, cropType: 'contain' },
     })
+  })
+
+  it('looks the link up by slug only, for a public request', async () => {
+    await logoRequest()
+
+    expect(jest.mocked(findOneWithDecryption).mock.calls[0]![2]).toEqual({ slug: 'donate', deletedAt: null })
+  })
+
+  it.each([
+    ['an SVG', 'image/svg+xml'],
+    ['an SVG with parameters', 'image/svg+xml; charset=utf-8'],
+    ['an HTML document', 'text/html'],
+  ])('never serves %s, even when the attachments service would serve it inline', async (_label, contentType) => {
+    readScopedForOwner.mockResolvedValue(servedLogo({ contentType, mimeType: contentType.split(';')[0] }))
+
+    const response = await logoRequest()
+
+    expect(response.status).toBe(404)
+  })
+
+  it('answers a refusal with the module translation key, as the pay page APIs do', async () => {
+    jest.mocked(findOneWithDecryption).mockResolvedValue(null as never)
+
+    const response = await logoRequest()
+
+    expect(await response.json()).toEqual({ error: 'checkout.payPage.errors.logoNotFound' })
   })
 
   it('falls back to the template owner for a logo propagated from the link template', async () => {
@@ -181,6 +224,15 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
     expect(response.status).toBe(404)
   })
 
+  it('answers a logo the image pipeline refuses as not found, without the core message', async () => {
+    readScopedForOwner.mockRejectedValue(new CrudHttpError(400, { error: 'Image MIME type does not match file content' }))
+
+    const response = await logoRequest()
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'checkout.payPage.errors.logoNotFound' })
+  })
+
   it('returns the rate limiter response when the visitor is throttled', async () => {
     jest.mocked(enforceCheckoutRateLimit).mockResolvedValue(
       NextResponse.json({ error: 'Too many requests' }, { status: 429 }),
@@ -194,7 +246,7 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
 
   it('requires the preview context for a preview of an unpublished link', async () => {
     jest.mocked(findOneWithDecryption).mockResolvedValue(link({ status: 'draft' }) as never)
-    jest.mocked(requirePreviewContext).mockResolvedValue({} as never)
+    jest.mocked(requirePreviewContext).mockResolvedValue(previewContext(TENANT_ID, ORGANIZATION_ID) as never)
 
     const response = await logoRequest('?preview=true')
 
@@ -202,6 +254,43 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
     expect(enforceCheckoutRateLimit).not.toHaveBeenCalled()
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+  })
+
+  it('in a preview, looks the link up only within the caller\'s tenant and organization', async () => {
+    jest.mocked(requirePreviewContext).mockResolvedValue(previewContext(TENANT_ID, ORGANIZATION_ID) as never)
+
+    await logoRequest('?preview=true')
+
+    expect(jest.mocked(findOneWithDecryption).mock.calls[0]![2]).toEqual({
+      slug: 'donate',
+      deletedAt: null,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+    })
+  })
+
+  it('in a preview, returns 404 for a link of another tenant without reading attachments', async () => {
+    jest.mocked(requirePreviewContext).mockResolvedValue(
+      previewContext('99999999-9999-4999-8999-999999999999', ORGANIZATION_ID) as never,
+    )
+    jest.mocked(findOneWithDecryption).mockImplementation(linkStoredIn(TENANT_ID, ORGANIZATION_ID, { status: 'draft', passwordHash: 'hashed' }))
+
+    const response = await logoRequest('?preview=true')
+
+    expect(response.status).toBe(404)
+    expect(readScopedForOwner).not.toHaveBeenCalled()
+  })
+
+  it('in a preview, returns 404 for a link of another organization in the same tenant', async () => {
+    jest.mocked(requirePreviewContext).mockResolvedValue(
+      previewContext(TENANT_ID, '88888888-8888-4888-8888-888888888888') as never,
+    )
+    jest.mocked(findOneWithDecryption).mockImplementation(linkStoredIn(TENANT_ID, ORGANIZATION_ID, { status: 'draft' }))
+
+    const response = await logoRequest('?preview=true')
+
+    expect(response.status).toBe(404)
+    expect(readScopedForOwner).not.toHaveBeenCalled()
   })
 
   it('refuses a preview when the caller lacks the preview context', async () => {

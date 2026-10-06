@@ -23,7 +23,8 @@ import {
  * `/api/attachments/image/{id}`, which refuses every anonymous read of a
  * tenant-scoped attachment (401), so an uploaded logo never rendered on a
  * published pay page. The logo is now served by `/api/checkout/pay/{slug}/logo`,
- * gated like the pay page and read by owner through the attachments service.
+ * which reads the link's own logo by owner through the attachments service and
+ * serves the 640x240 rendition the image pipeline produces.
  */
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
@@ -69,7 +70,7 @@ test.describe('TC-CHKT-044: public pay link logo', () => {
       const ownLogoResponse = await fetchAnonymously(request, ownLogoUrl)
       expect(ownLogoResponse.status()).toBe(200)
       expect(ownLogoResponse.headers()['content-type']).toBe('image/png')
-      expect(Buffer.from(await ownLogoResponse.body())).toEqual(PNG)
+      expect(Buffer.from(await ownLogoResponse.body()).subarray(0, 8)).toEqual(PNG.subarray(0, 8))
 
       const legacyImageRoute = await fetchAnonymously(request, `/api/attachments/image/${encodeURIComponent(ownLogo.id)}`)
       expect(legacyImageRoute.status()).toBe(401)
