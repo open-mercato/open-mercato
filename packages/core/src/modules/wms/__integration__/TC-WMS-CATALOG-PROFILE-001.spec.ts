@@ -117,6 +117,9 @@ test.describe('TC-WMS-CATALOG-PROFILE-001: product form WMS inventory profile', 
       expect(Number(profile?.reorderPoint)).toBe(5)
       expect(Number(profile?.safetyStock)).toBe(2)
 
+      await expect(manageToggle).toHaveAttribute('aria-checked', 'true')
+      await expect(wmsInput(page, 'wms.reorderPoint')).toHaveValue('5')
+
       await page.goto(`/backend/catalog/products/${productId}`)
       await expect(page.getByText(CARD_TITLE, { exact: true }).first()).toBeVisible({ timeout: 30_000 })
       await expect(wmsField(page, 'wms.manageInventory').locator('[role="checkbox"]').first()).toHaveAttribute('aria-checked', 'true')

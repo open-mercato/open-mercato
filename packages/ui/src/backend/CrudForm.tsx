@@ -1958,7 +1958,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (!groups || groups.length === 0 || injectedFieldDefinitions.length === 0) return groups
     return placeInjectedFieldsInGroups(groups, injectedFieldDefinitions, injectedFieldPlacements, (definition) => {
       if (process.env.NODE_ENV !== 'production') {
-        logger.warn('Injected field targets a group that does not exist; appended to last group', { fieldId: definition.id, group: definition.group })
+        logger.warn('Injected field targets a group that does not exist; appended to the last plain-field group', { fieldId: definition.id, group: definition.group })
       }
     })
   }, [groups, injectedFieldDefinitions, injectedFieldPlacements])
