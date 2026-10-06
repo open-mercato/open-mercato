@@ -281,7 +281,19 @@ async function productFilterClause(
   runtime: Runtime,
   filterQuery: Omit<CatalogProductFilterQuery, 'page' | 'pageSize'>,
 ): Promise<Where | null> {
-  const { ctx, container } = runtime
+  return buildStorefrontProductFilterClause(runtime.container, runtime.ctx, filterQuery)
+}
+
+/**
+ * `catalog`'s product filters (§3.2 reuse) for the store's tenant and organization — for `search`
+ * the Phase 1 escaped, accent-insensitive `ILIKE` over title, subtitle, description, SKU and handle
+ * (§8.1). `null` when no filter applies. Compose the result with the storefront scope.
+ */
+export async function buildStorefrontProductFilterClause(
+  container: AwilixContainer,
+  ctx: StoreContext,
+  filterQuery: Omit<CatalogProductFilterQuery, 'page' | 'pageSize'>,
+): Promise<Where | null> {
   const crudCtx: CrudCtx = {
     container,
     auth: { sub: 'ecommerce:storefront', tenantId: ctx.tenantId, orgId: ctx.organizationId },

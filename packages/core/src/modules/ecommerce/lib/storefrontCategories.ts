@@ -123,7 +123,11 @@ function isDenyAll(ctx: StoreContext): boolean {
   return scope !== null && scope.length === 0
 }
 
-async function loadCategoryRows(runtime: StorefrontFacetRuntime): Promise<Map<string, CategoryRow>> {
+type CategoryLoadRuntime = Pick<StorefrontFacetRuntime, 'ctx' | 'em' | 'decryptionScope'>
+
+export type StorefrontVisibleCategory = CategoryRow
+
+async function loadCategoryRows(runtime: CategoryLoadRuntime): Promise<Map<string, CategoryRow>> {
   const { ctx } = runtime
   const rows = await findWithDecryption(
     runtime.em,
@@ -160,6 +164,11 @@ function selectVisibleCategories(rows: Map<string, CategoryRow>, ctx: StoreConte
     visible.set(row.id, row)
   }
   return visible
+}
+
+/** The tenant's categories visible to the buyer (see the module header): one categories query. */
+export async function loadStorefrontVisibleCategories(runtime: CategoryLoadRuntime): Promise<Map<string, StorefrontVisibleCategory>> {
+  return selectVisibleCategories(await loadCategoryRows(runtime), runtime.ctx)
 }
 
 async function loadAssignedCategoryIds(

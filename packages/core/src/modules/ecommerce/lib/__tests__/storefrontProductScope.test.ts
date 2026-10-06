@@ -30,9 +30,11 @@ import { HybridQueryEngine } from '@open-mercato/core/modules/query_index/lib/en
 import {
   buildAssortmentScopeFilter,
   buildStorefrontProductScope,
+  buildStorefrontSearchIndexDocFilter,
   composeStorefrontProductFilters,
   type StorefrontProductScopeContext,
 } from '../storefrontProductScope'
+import { evaluateIndexDocFilter } from './indexDocFilterEvaluator'
 
 const TENANT_ID = 'tenant-1'
 const ORGANIZATION_ID = 'org-1'
@@ -383,5 +385,73 @@ describe('buildStorefrontProductScope — compiled SQL shape', () => {
     expect(compiled.sql.match(/\("ei"\."doc" -> 'scope_keys'\) \?\| \$\d+::text\[\]/g)?.length).toBe(3)
     expect(compiled.sql).toContain(`not (("ei"."doc" -> 'scope_keys') ?| $`)
     expect(compiled.sql).not.toContain('->>')
+  })
+})
+
+describe('buildStorefrontSearchIndexDocFilter — the listing scope as a search-strategy predicate', () => {
+  function searchVisible(row: ProductRow, effective: EffectiveAssortmentScope): boolean {
+    return evaluateIndexDocFilter(
+      { id: row.id, doc: { ...row.doc, is_active: row.is_active } },
+      buildStorefrontSearchIndexDocFilter(makeContext(effective)),
+    )
+  }
+
+  it('admits exactly what the listing scope admits (seeded, 2500 scopes x 8 products)', () => {
+    const rng = mulberry32(0x5ea4c)
+    let evaluated = 0
+    let visibleCount = 0
+    for (let scopeCase = 0; scopeCase < 2500; scopeCase += 1) {
+      const effective = randomEffectiveScope(rng)
+      const { filters } = buildStorefrontProductScope(makeContext(effective))
+      for (let productIndex = 0; productIndex < 8; productIndex += 1) {
+        const product = buildProduct(randomProduct(rng, productIndex), rng() < 0.15 ? { is_active: false } : {})
+        const expected = isVisible(product.row, filters)
+        const actual = searchVisible(product.row, effective)
+        if (actual !== expected) {
+          throw new Error(
+            `[internal] divergence for scope ${JSON.stringify(effective)} and product ${JSON.stringify(product.row)}: search=${actual} listing=${expected}`,
+          )
+        }
+        evaluated += 1
+        if (actual) visibleCount += 1
+      }
+    }
+    expect(evaluated).toBe(20000)
+    expect(visibleCount).toBeGreaterThan(0)
+    expect(visibleCount).toBeLessThan(evaluated)
+  })
+
+  it('keeps only the active condition for an unrestricted buyer, so unindexed products stay findable', () => {
+    expect(buildStorefrontSearchIndexDocFilter(makeContext(null))).toEqual({
+      anyOf: [[{ op: 'eq', key: 'is_active', value: true }]],
+    })
+  })
+
+  it('compiles deny-all to an empty disjunction, which matches nothing', () => {
+    expect(buildStorefrontSearchIndexDocFilter(makeContext([]))).toEqual({ anyOf: [] })
+  })
+
+  it('mirrors the listing leaves branch by branch: exists, overlap, merged noverlap and record exclusions', () => {
+    const filter = buildStorefrontSearchIndexDocFilter(
+      makeContext([
+        { categoryIds: ['c2'], excludeTagIds: ['t9'], excludeCategoryIds: ['c4'], excludeProductIds: ['p-x'] },
+        { tagIds: ['t1'] },
+        { tagIds: ['t1'], categoryIds: ['c1'] },
+      ]),
+    )
+    expect(filter.anyOf).toEqual([
+      [
+        { op: 'eq', key: 'is_active', value: true },
+        { op: 'exists', key: 'scope_keys' },
+        { op: 'overlap', key: 'scope_keys', values: ['cat:c2'] },
+        { op: 'noverlap', key: 'scope_keys', values: ['cat:c4', 'tag:t9'] },
+        { op: 'recordIdNotIn', values: ['p-x'] },
+      ],
+      [
+        { op: 'eq', key: 'is_active', value: true },
+        { op: 'exists', key: 'scope_keys' },
+        { op: 'overlap', key: 'scope_keys', values: ['tag:t1'] },
+      ],
+    ])
   })
 })

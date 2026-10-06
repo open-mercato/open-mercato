@@ -1,5 +1,6 @@
 import type { AssortmentScope, EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import type { Where } from '@open-mercato/shared/lib/query/types'
+import type { SearchIndexDocCondition, SearchIndexDocFilter } from '@open-mercato/shared/modules/search'
 import {
   PRODUCT_SCOPE_KEYS_DOC_KEY,
   categoryScopeKey,
@@ -25,7 +26,7 @@ export type StorefrontProductScopeContext = Pick<StoreContext, 'tenantId' | 'org
   buyer: Pick<BuyerContext, 'assortmentScope'>
 }
 
-type ScopeLeaf = Where
+type ScopeLeaf = { where: Where; condition: SearchIndexDocCondition }
 
 type BranchConditions = {
   inclusions: string[][]
@@ -63,19 +64,30 @@ function branchLeaves(scope: AssortmentScope): Map<string, ScopeLeaf> {
   const conditions: BranchConditions = { inclusions: [], exclusions: new Set(), excludedProductIds: new Set() }
   collectBranchConditions(scope, conditions)
   const leaves = new Map<string, ScopeLeaf>()
-  leaves.set('indexed', { [PRODUCT_SCOPE_KEYS_DOC_KEY]: { $exists: true } })
+  const key = PRODUCT_SCOPE_KEYS_DOC_KEY
+  leaves.set('indexed', { where: { [key]: { $exists: true } }, condition: { op: 'exists', key } })
   for (const keys of conditions.inclusions) {
-    leaves.set(`overlap:${JSON.stringify(keys)}`, { [PRODUCT_SCOPE_KEYS_DOC_KEY]: { $overlap: keys } })
+    leaves.set(`overlap:${JSON.stringify(keys)}`, {
+      where: { [key]: { $overlap: keys } },
+      condition: { op: 'overlap', key, values: keys },
+    })
   }
   if (conditions.exclusions.size > 0) {
     const keys = sortedUnique(conditions.exclusions)
-    leaves.set(`noverlap:${JSON.stringify(keys)}`, { [PRODUCT_SCOPE_KEYS_DOC_KEY]: { $noverlap: keys } })
+    leaves.set(`noverlap:${JSON.stringify(keys)}`, {
+      where: { [key]: { $noverlap: keys } },
+      condition: { op: 'noverlap', key, values: keys },
+    })
   }
   if (conditions.excludedProductIds.size > 0) {
     const ids = sortedUnique(conditions.excludedProductIds)
-    leaves.set(`nin:${JSON.stringify(ids)}`, { id: { $nin: ids } })
+    leaves.set(`nin:${JSON.stringify(ids)}`, { where: { id: { $nin: ids } }, condition: { op: 'recordIdNotIn', values: ids } })
   }
   return leaves
+}
+
+function scopeBranches(scope: AssortmentScope[]): ScopeLeaf[][] {
+  return absorbBranches(scope.map(branchLeaves)).map((leaves) => Array.from(leaves.values()))
 }
 
 function isSubset(smaller: Map<string, ScopeLeaf>, larger: Map<string, ScopeLeaf>): boolean {
@@ -115,9 +127,26 @@ function absorbBranches(branches: Map<string, ScopeLeaf>[]): Map<string, ScopeLe
 export function buildAssortmentScopeFilter(scope: EffectiveAssortmentScope): Where | null {
   if (scope === null) return null
   if (scope.length === 0) return { [PRODUCT_SCOPE_KEYS_DOC_KEY]: { $overlap: [] } }
-  const branches = absorbBranches(scope.map(branchLeaves))
-  const conjunctions = branches.map((leaves) => ({ $and: Array.from(leaves.values()) }))
+  const conjunctions = scopeBranches(scope).map((leaves) => ({ $and: leaves.map((leaf) => leaf.where) }))
   return conjunctions.length === 1 ? conjunctions[0] : { $or: conjunctions }
+}
+
+const ACTIVE_PRODUCT_CONDITION: SearchIndexDocCondition = { op: 'eq', key: 'is_active', value: true }
+
+/**
+ * The storefront invariant as a search-strategy predicate over the product's index document
+ * (Storefront Public API §8.2, D19): the same DNF branches as `buildAssortmentScopeFilter`, each
+ * AND'ed with `is_active`, so the `tokens` and `pgvector` strategies evaluate scope inside the
+ * ranking query. Tenant and organization travel as `SearchOptions` scoping; deleted products have
+ * no live index row. `null` scope keeps only the active condition; `[]` yields an empty
+ * disjunction, which matches nothing.
+ */
+export function buildStorefrontSearchIndexDocFilter(ctx: StorefrontProductScopeContext): SearchIndexDocFilter {
+  const scope = ctx.buyer.assortmentScope
+  if (scope === null) return { anyOf: [[ACTIVE_PRODUCT_CONDITION]] }
+  return {
+    anyOf: scopeBranches(scope).map((leaves) => [ACTIVE_PRODUCT_CONDITION, ...leaves.map((leaf) => leaf.condition)]),
+  }
 }
 
 /**

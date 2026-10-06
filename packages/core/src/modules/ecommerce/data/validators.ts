@@ -623,3 +623,28 @@ export const ecommerceStorefrontProductParamsSchema = z.object({
 })
 
 export type EcommerceStorefrontProductParams = z.infer<typeof ecommerceStorefrontProductParamsSchema>
+
+export const ECOMMERCE_STOREFRONT_SUGGEST_MIN_QUERY_LENGTH = 2
+export const ECOMMERCE_STOREFRONT_SUGGEST_DEFAULT_LIMIT = 8
+export const ECOMMERCE_STOREFRONT_SUGGEST_MAX_LIMIT = 20
+
+export const ecommerceStorefrontSearchSuggestQuerySchema = z
+  .object({
+    q: z.string().max(200),
+    limit: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(ECOMMERCE_STOREFRONT_SUGGEST_MAX_LIMIT)
+        .optional()
+        .default(ECOMMERCE_STOREFRONT_SUGGEST_DEFAULT_LIMIT),
+    ),
+    locale: z.string().max(35).optional(),
+    path: z.string().max(2048).optional(),
+    storeSlug: z.string().max(120).optional(),
+  })
+  .strict()
+
+export type EcommerceStorefrontSearchSuggestQuery = z.infer<typeof ecommerceStorefrontSearchSuggestQuerySchema>

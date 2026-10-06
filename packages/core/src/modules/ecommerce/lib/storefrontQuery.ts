@@ -4,10 +4,12 @@ import {
   ecommerceStorefrontCategoryTreeQuerySchema,
   ecommerceStorefrontProductDetailQuerySchema,
   ecommerceStorefrontProductListQuerySchema,
+  ecommerceStorefrontSearchSuggestQuerySchema,
   type EcommerceStorefrontCategoryLandingQuery,
   type EcommerceStorefrontCategoryTreeQuery,
   type EcommerceStorefrontProductDetailQuery,
   type EcommerceStorefrontProductListQuery,
+  type EcommerceStorefrontSearchSuggestQuery,
 } from '../data/validators'
 
 export type StorefrontQueryErrorCode = 'unknown_parameter' | 'duplicate_parameter' | 'invalid_parameter'
@@ -163,6 +165,15 @@ export function parseStorefrontProductDetailQuery(input: StorefrontQueryInput): 
  */
 export function parseStorefrontCategoryTreeQuery(input: StorefrontQueryInput): EcommerceStorefrontCategoryTreeQuery {
   return parseStorefrontScalarQuery(input, ecommerceStorefrontCategoryTreeQuerySchema)
+}
+
+/**
+ * Parses the `GET /search/suggest` query (Storefront Public API §4.5): `q` (required, at most 200
+ * characters — a shorter-than-minimum `q` is answered with empty results, not rejected), `limit`
+ * (default 8, max 20), `locale` and the store-resolution parameters, strict like the other routes.
+ */
+export function parseStorefrontSearchSuggestQuery(input: StorefrontQueryInput): EcommerceStorefrontSearchSuggestQuery {
+  return parseStorefrontScalarQuery(input, ecommerceStorefrontSearchSuggestQuerySchema)
 }
 
 function parseStorefrontScalarQuery<T>(input: StorefrontQueryInput, schema: z.ZodType<T, unknown>): T {

@@ -82,6 +82,24 @@ computed keys to its `entity_indexes.doc` once per indexing batch. It is registe
 An enricher that throws writes its declared keys as `null`; consumers MUST read `null` (or a missing
 key) as "not indexed". Enriched keys are kept out of `search_text` and `search_tokens`.
 
+### Search strategies can receive an index-document filter (`SearchOptions.indexDocFilter`) (storefront public API §8.2, D19)
+
+`SearchOptions` (`@open-mercato/shared/modules/search`) gained an optional `indexDocFilter` — a
+predicate over the record's `entity_indexes` row in disjunctive normal form
+(`{ anyOf: SearchIndexDocCondition[][] }`, conditions `exists` / `eq` / `overlap` / `noverlap` over
+`doc` keys and `recordIdNotIn`). A strategy that supports it ANDs it into the query that ranks, so a
+restrictive filter cannot starve the result set the way post-filtering a top-k retrieval does.
+`SearchStrategy` gained an optional `supportsIndexDocFilter` flag, and `VectorDriver` the same flag plus
+`VectorDriverQuery.filter.indexDocFilter`. The built-in `tokens` strategy and the `pgvector` driver
+support it; `fulltext` (Meilisearch), `chromadb` and `qdrant` do not. `SearchService.search` skips any
+strategy without the flag for a filtered search, and the vector and fulltext strategies return no
+results for one, so the filter fails closed rather than being ignored.
+
+**Action for module authors:** none for callers — searches without the option behave exactly as before.
+A custom `SearchStrategy` or `VectorDriver` keeps working unchanged and is simply not used for filtered
+searches; to take part in them, apply the filter inside its ranking query (`buildIndexDocFilterExists` for Kysely
+and `compileIndexDocFilterExists` for raw SQL, both from `@open-mercato/search/strategies`) and set `supportsIndexDocFilter: true`.
+
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
 `createOpenAICompatibleProvider(preset)`
