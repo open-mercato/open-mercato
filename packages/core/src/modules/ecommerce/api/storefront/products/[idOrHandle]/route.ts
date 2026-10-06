@@ -6,6 +6,7 @@ import {
   ecommerceStorefrontProductDetailQuerySchema,
   ecommerceStorefrontProductParamsSchema,
 } from '../../../../data/validators'
+import { enforceStorefrontRateLimit } from '../../../../lib/storefrontRateLimit'
 import type { StoreContextService } from '../../../../lib/storeContextService'
 import { cachedGetStorefrontProductDetail } from '../../../../lib/storefrontProductCache'
 import { parseStorefrontProductDetailQuery } from '../../../../lib/storefrontQuery'
@@ -22,7 +23,6 @@ export const metadata = {
   path: '/ecommerce/storefront/products/[idOrHandle]',
   GET: {
     requireAuth: false,
-    rateLimit: { points: 240, duration: 60, keyPrefix: 'ecommerce_storefront_product_detail' },
   },
 }
 
@@ -39,6 +39,8 @@ export async function GET(req: Request, routeContext: ProductRouteContext = {}) 
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: query.path ?? '/' })
+    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'productDetail')
+    if (rateLimited) return rateLimited
     const params = ecommerceStorefrontProductParamsSchema.safeParse((await routeContext.params) ?? {})
     if (!params.success) return storefrontErrorResponse(404, { ...PRODUCT_NOT_FOUND })
     const detail = await cachedGetStorefrontProductDetail(container, context, params.data.idOrHandle, {
@@ -62,7 +64,7 @@ const storefrontProductTag = 'Ecommerce'
 const storefrontProductGetDoc: OpenApiMethodDoc = {
   summary: 'Get one storefront product for the current buyer',
   description:
-    'Public. Resolves the store from the Host header and the optional portal session, then returns the product by UUID or handle with buyer-resolved prices per variant. A product that does not exist, is inactive, deleted, of another tenant or outside the buyer\'s effective assortment answers the same 404 `{ "error": "product_not_found" }`. `variantId` preselects a variant; top-level `priceTiers` are the selected variant\'s tiers. Anonymous responses are `public, max-age=60`; authenticated responses are `private, no-store`. Cached server-side for 60 s per buyer context digest. Rate limited per IP.',
+    'Public. Resolves the store from the Host header and the optional portal session, then returns the product by UUID or handle with buyer-resolved prices per variant. A product that does not exist, is inactive, deleted, of another tenant or outside the buyer\'s effective assortment answers the same 404 `{ "error": "product_not_found" }`. `variantId` preselects a variant; top-level `priceTiers` are the selected variant\'s tiers. Anonymous responses are `public, max-age=60`; authenticated responses are `private, no-store`. Cached server-side for 60 s per buyer context digest. Rate limited per IP and store.',
   tags: [storefrontProductTag],
   pathParams: ecommerceStorefrontProductParamsSchema,
   query: ecommerceStorefrontProductDetailQuerySchema,

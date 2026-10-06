@@ -11,6 +11,7 @@ import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { ecommercePriceDisplayModeSchema, ecommerceStorefrontContextQuerySchema } from '../../../data/validators'
 import { isStorefrontResolutionError } from '../../../lib/storeContext'
+import { enforceStorefrontRateLimit } from '../../../lib/storefrontRateLimit'
 import type { StoreContextService } from '../../../lib/storeContextService'
 import type { StoreContext } from '../../../lib/types'
 
@@ -18,7 +19,6 @@ export const metadata = {
   path: '/ecommerce/storefront/context',
   GET: {
     requireAuth: false,
-    rateLimit: { points: 120, duration: 60, keyPrefix: 'ecommerce_storefront_context' },
   },
 }
 
@@ -133,6 +133,8 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: parsed.data.path ?? '/' })
+    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'context')
+    if (rateLimited) return rateLimited
     const em = container.resolve('em') as EntityManager
     const names = await loadBuyerNames(em, context)
     const body = projectStorefrontContext(context, names)
@@ -157,7 +159,7 @@ export default GET
 
 const storefrontContextTag = 'Ecommerce'
 
-const storefrontContextResponseSchema = z.object({
+export const storefrontContextResponseSchema = z.object({
   store: z.object({
     id: z.string().uuid(),
     code: z.string(),
@@ -187,7 +189,7 @@ const storefrontContextErrorSchema = z.object({ error: z.string() })
 const storefrontContextGetDoc: OpenApiMethodDoc = {
   summary: 'Resolve the storefront context for the current host',
   description:
-    'Public, unauthenticated. Resolves the store from the Host header (or `storeSlug` when OM_ECOMMERCE_DEV_STORE_SLUG=true) and the optional portal session, and returns a safe projection of the store and buyer context. Anonymous responses are `public, max-age=60`; authenticated responses are `private, no-store`. Rate limited per IP.',
+    'Public, unauthenticated. Resolves the store from the Host header (or `storeSlug` when OM_ECOMMERCE_DEV_STORE_SLUG=true) and the optional portal session, and returns a safe projection of the store and buyer context. Anonymous responses are `public, max-age=60`; authenticated responses are `private, no-store`. Rate limited per IP and store.',
   tags: [storefrontContextTag],
   query: ecommerceStorefrontContextQuerySchema,
   responses: [

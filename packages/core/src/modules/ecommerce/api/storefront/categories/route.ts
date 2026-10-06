@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { ecommerceStorefrontCategoryTreeQuerySchema } from '../../../data/validators'
+import { enforceStorefrontRateLimit } from '../../../lib/storefrontRateLimit'
 import type { StoreContextService } from '../../../lib/storeContextService'
 import { cachedGetStorefrontCategoryTree } from '../../../lib/storefrontCategoryCache'
 import { parseStorefrontCategoryTreeQuery } from '../../../lib/storefrontQuery'
@@ -18,7 +19,6 @@ export const metadata = {
   path: '/ecommerce/storefront/categories',
   GET: {
     requireAuth: false,
-    rateLimit: { points: 120, duration: 60, keyPrefix: 'ecommerce_storefront_categories' },
   },
 }
 
@@ -30,6 +30,8 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: query.path ?? '/' })
+    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'categories')
+    if (rateLimited) return rateLimited
     const body = await cachedGetStorefrontCategoryTree(container, context, query)
     return NextResponse.json(body, { headers: storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL) })
   } catch (error) {
@@ -47,7 +49,7 @@ const storefrontCategoriesTag = 'Ecommerce'
 const storefrontCategoriesGetDoc: OpenApiMethodDoc = {
   summary: 'List the storefront category tree for the current buyer',
   description:
-    'Public. Resolves the store from the Host header and the optional portal session, then returns the visible category tree below `parentId` (the roots when omitted), `depth` levels deep (all levels when omitted). `productCount` is descendant-inclusive and counts only products inside the buyer\'s effective assortment; categories the buyer cannot browse are absent, and empty categories are absent unless `includeEmpty=true`. A `parentId` that is unknown or not visible to the buyer yields an empty tree, identical to a nonexistent one. A nested node beyond `depth` has empty `children` and `hasChildren: true`. Anonymous responses are `public, max-age=300, stale-while-revalidate=60`; authenticated responses are `private, no-store`. Cached server-side for 300 s per assortment scope. Rate limited per IP.',
+    'Public. Resolves the store from the Host header and the optional portal session, then returns the visible category tree below `parentId` (the roots when omitted), `depth` levels deep (all levels when omitted). `productCount` is descendant-inclusive and counts only products inside the buyer\'s effective assortment; categories the buyer cannot browse are absent, and empty categories are absent unless `includeEmpty=true`. A `parentId` that is unknown or not visible to the buyer yields an empty tree, identical to a nonexistent one. A nested node beyond `depth` has empty `children` and `hasChildren: true`. Anonymous responses are `public, max-age=300, stale-while-revalidate=60`; authenticated responses are `private, no-store`. Cached server-side for 300 s per assortment scope. Rate limited per IP and store.',
   tags: [storefrontCategoriesTag],
   query: ecommerceStorefrontCategoryTreeQuerySchema,
   responses: [

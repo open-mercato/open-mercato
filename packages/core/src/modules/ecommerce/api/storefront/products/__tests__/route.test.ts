@@ -1,3 +1,4 @@
+const limiterHolder: { limiter: unknown } = { limiter: null }
 const resolveMock = jest.fn()
 const listMock = jest.fn()
 const reportErrorMock = jest.fn()
@@ -8,6 +9,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     resolve: (name: string) => {
       if (name === 'storeContextService') return { resolve: resolveMock }
       if (name === 'cache') return cacheHolder.cache
+      if (name === 'rateLimiterService') return limiterHolder.limiter
       throw new Error(`[internal] ${name} is not registered`)
     },
   }),
@@ -25,6 +27,14 @@ import { StorefrontResolutionError } from '../../../../lib/storeContext'
 import type { StorefrontProductListResponse } from '../../../../lib/storefrontProducts'
 import type { BuyerContext, StoreContext } from '../../../../lib/types'
 import { storefrontProductListResponseSchema } from '../openapiSchemas'
+import {
+  CLIENT_IP,
+  createAllowingLimiter,
+  createExhaustedLimiter,
+  declaredStatuses,
+  expectMatchesOpenApi,
+  withClientIp,
+} from '../../__tests__/openApiContract'
 import { GET, metadata, openApi } from '../route'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -127,15 +137,15 @@ describe('GET /api/ecommerce/storefront/products', () => {
     resolveMock.mockReset()
     listMock.mockReset()
     reportErrorMock.mockReset()
+    limiterHolder.limiter = null
     cacheHolder.cache = createMemoryStrategy()
   })
 
-  it('declares a public route with the declarative rate limit and an OpenAPI doc', () => {
+  it('declares a public route with in-handler rate limiting and an OpenAPI doc', () => {
     expect(metadata).toEqual({
       path: '/ecommerce/storefront/products',
       GET: {
         requireAuth: false,
-        rateLimit: { points: 120, duration: 60, keyPrefix: 'ecommerce_storefront_products' },
       },
     })
     expect(Object.keys(openApi.methods)).toEqual(['GET'])
@@ -258,5 +268,84 @@ describe('GET /api/ecommerce/storefront/products', () => {
     expect(response.status).toBe(500)
     expect(await response.json()).toEqual({ error: 'internal_error' })
     expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({ module: 'ecommerce' }))
+  })
+
+  describe('rate limiting', () => {
+    it('answers 429 with Retry-After once the limit is spent, before any catalogue work', async () => {
+      resolveMock.mockResolvedValue(makeContext(anonymousBuyer, 'digest-anon'))
+      listMock.mockResolvedValue(listResponse())
+      limiterHolder.limiter = createExhaustedLimiter()
+      const response = await GET(withClientIp(request()))
+      expect(response.status).toBe(429)
+      expect(response.headers.get('retry-after')).toBe('30')
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(await response.json()).toEqual({ error: expect.any(String) })
+      expect(listMock).not.toHaveBeenCalled()
+    })
+
+    it('counts per client ip and store with the endpoint limit', async () => {
+      resolveMock.mockResolvedValue(makeContext(anonymousBuyer, 'digest-anon'))
+      listMock.mockResolvedValue(listResponse())
+      const limiter = createAllowingLimiter()
+      limiterHolder.limiter = limiter
+      const response = await GET(withClientIp(request()))
+      expect(response.status).toBe(200)
+      expect(limiter.consume).toHaveBeenCalledTimes(1)
+      expect(limiter.consume).toHaveBeenCalledWith(
+        `${CLIENT_IP}:33333333-3333-4333-8333-333333333333`,
+        expect.objectContaining({ points: 120, duration: 60, keyPrefix: 'ecommerce_storefront_products' }),
+      )
+    })
+
+    it('serves the request and reports when the limiter throws', async () => {
+      resolveMock.mockResolvedValue(makeContext(anonymousBuyer, 'digest-anon'))
+      listMock.mockResolvedValue(listResponse())
+      limiterHolder.limiter = { trustProxyDepth: 1, consume: jest.fn(async () => { throw new Error('limiter backend down') }) }
+      const response = await GET(withClientIp(request()))
+      expect(response.status).toBe(200)
+      expect(reportErrorMock).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ code: 'ecommerce.storefront_rate_limit_failed' }),
+      )
+    })
+
+    it('serves the request without counting when no trusted client ip is available', async () => {
+      resolveMock.mockResolvedValue(makeContext(anonymousBuyer, 'digest-anon'))
+      listMock.mockResolvedValue(listResponse())
+      const limiter = createExhaustedLimiter()
+      limiterHolder.limiter = { ...limiter, trustProxyDepth: 0 }
+      const response = await GET(withClientIp(request()))
+      expect(response.status).toBe(200)
+      expect(limiter.consume).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('OpenAPI contract', () => {
+    it('documents every status the handler answers and each body matches its declared schema', async () => {
+      const observed: number[] = []
+      const check = async (response: Response) => {
+        observed.push(response.status)
+        await expectMatchesOpenApi(openApi, response)
+      }
+      resolveMock.mockResolvedValue(makeContext(anonymousBuyer, 'digest-anon'))
+      listMock.mockResolvedValue(listResponse())
+      await check(await GET(withClientIp(request())))
+      await check(await GET(withClientIp(request('?colour=red'))))
+      for (const [status, code] of [
+        [401, 'portal_session_invalid'],
+        [403, 'store_draft'],
+        [404, 'store_not_found'],
+        [410, 'store_archived'],
+        [503, 'store_misconfigured'],
+      ] as const) {
+        resolveMock.mockRejectedValueOnce(new StorefrontResolutionError(status, code))
+        await check(await GET(withClientIp(request())))
+      }
+      limiterHolder.limiter = createExhaustedLimiter()
+      await check(await GET(withClientIp(request())))
+      expect([...new Set(observed)].sort((left, right) => left - right)).toEqual(
+        [...declaredStatuses(openApi)].sort((left, right) => left - right),
+      )
+    })
   })
 })

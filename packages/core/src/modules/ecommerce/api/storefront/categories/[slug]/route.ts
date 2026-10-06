@@ -6,6 +6,7 @@ import {
   ecommerceStorefrontCategoryLandingQuerySchema,
   ecommerceStorefrontCategoryParamsSchema,
 } from '../../../../data/validators'
+import { enforceStorefrontRateLimit } from '../../../../lib/storefrontRateLimit'
 import type { StoreContextService } from '../../../../lib/storeContextService'
 import { cachedGetStorefrontCategoryLanding } from '../../../../lib/storefrontCategoryCache'
 import { parseStorefrontCategoryLandingQuery } from '../../../../lib/storefrontQuery'
@@ -22,7 +23,6 @@ export const metadata = {
   path: '/ecommerce/storefront/categories/[slug]',
   GET: {
     requireAuth: false,
-    rateLimit: { points: 240, duration: 60, keyPrefix: 'ecommerce_storefront_category_landing' },
   },
 }
 
@@ -39,6 +39,8 @@ export async function GET(req: Request, routeContext: CategoryRouteContext = {})
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: query.path ?? '/' })
+    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'categoryLanding')
+    if (rateLimited) return rateLimited
     const params = ecommerceStorefrontCategoryParamsSchema.safeParse((await routeContext.params) ?? {})
     if (!params.success) return storefrontErrorResponse(404, { ...CATEGORY_NOT_FOUND })
     const landing = await cachedGetStorefrontCategoryLanding(container, context, params.data.slug, query)
@@ -62,7 +64,7 @@ const storefrontCategoryTag = 'Ecommerce'
 const storefrontCategoryGetDoc: OpenApiMethodDoc = {
   summary: 'Get one storefront category landing for the current buyer',
   description:
-    'Public. Resolves the store from the Host header and the optional portal session, then returns the category by slug with its breadcrumb, visible non-empty children and descendant-inclusive `productCount` within the buyer\'s assortment, plus a full `GET /products` response filtered to the category (`products`, same query grammar except `categoryId` / `categorySlug`). A slug that does not exist, is inactive, deleted, of another tenant, under an inactive ancestor or outside the buyer\'s effective assortment answers the same 404 `{ "error": "category_not_found" }`. `seo` fields are null until the catalog stores category SEO data. Anonymous responses are `public, max-age=30, stale-while-revalidate=30`; authenticated responses are `private, no-store`. The category block is cached server-side for 60 s per assortment scope; the embedded listing shares the `GET /products` cache. Rate limited per IP.',
+    'Public. Resolves the store from the Host header and the optional portal session, then returns the category by slug with its breadcrumb, visible non-empty children and descendant-inclusive `productCount` within the buyer\'s assortment, plus a full `GET /products` response filtered to the category (`products`, same query grammar except `categoryId` / `categorySlug`). A slug that does not exist, is inactive, deleted, of another tenant, under an inactive ancestor or outside the buyer\'s effective assortment answers the same 404 `{ "error": "category_not_found" }`. `seo` fields are null until the catalog stores category SEO data. Anonymous responses are `public, max-age=30, stale-while-revalidate=30`; authenticated responses are `private, no-store`. The category block is cached server-side for 60 s per assortment scope; the embedded listing shares the `GET /products` cache. Rate limited per IP and store.',
   tags: [storefrontCategoryTag],
   pathParams: ecommerceStorefrontCategoryParamsSchema,
   query: ecommerceStorefrontCategoryLandingQuerySchema,

@@ -70,8 +70,8 @@
 | 6 | 6.1 | Catalog option and choice label translations | dispatch:standard | done | 44e3bc656a |
 | 6 | 6.2 | ecommerce lib/storefrontFacets.ts with cross-exclusion | dispatch:capable | done | eecb364d55 |
 | 6 | 6.3 | Categories: /categories and /categories/:slug | dispatch:standard | done | 33d2da4f2d |
-| 6 | 6.4 | /search/suggest + search-module integration (tokens, pgvector) | dispatch:capable | done | pending |
-| 6 | 6.5 | Rate limiting + OpenAPI for all storefront routes | dispatch:standard | todo | — |
+| 6 | 6.4 | /search/suggest + search-module integration (tokens, pgvector) | dispatch:capable | done | 5427f13ae3 |
+| 6 | 6.5 | Rate limiting + OpenAPI for all storefront routes | dispatch:standard | done | pending |
 | 6 | 6.6 | Integration tests: facets, categories, search (Public API Phases 2–3 gates) | dispatch:capable | todo | — |
 | 7 | 7.1 | lib/brandingStyles.ts + validation + fuzz tests + SSR helper | dispatch:standard | todo | — |
 | 7 | 7.2 | PUT /stores/:id/branding command route + GET preview-branding | dispatch:standard | todo | — |
