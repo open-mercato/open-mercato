@@ -333,9 +333,9 @@ This branch remains additive-only because the operational fix reuses existing at
 - Removed the inline base64 CSV copy from newly-created sync_excel upload attachment metadata to avoid permanent database bloat and duplicate at-rest PII.
 - Changed upload reads to prefer attachment partition storage and use legacy `inlineCsvBase64` metadata only as a fallback for pre-existing rows whose stored file is unavailable.
 
-### 2026-10-03
+### 2026-10-07
 
-- Changed external-id matching to verify that the mapped person still exists: a row whose mapping points at a deleted person now falls back to the email match and otherwise creates the person again, re-pointing the existing mapping row, instead of failing with "Person not found" on every import.
+- Changed external-id matching to verify that the mapped person still exists in the import's organization and tenant: a row whose mapping points at a deleted person (or at a person outside that scope) now falls back to the email match and otherwise creates the person again, re-pointing the existing mapping row, instead of failing with "Person not found" on every import.
 - Changed the row order so the external-id mapping and the email dedupe entry are written right after the person command and before the address step; a row whose address is rejected is still reported as failed but resolves to the same person on the next import.
-- Added integration coverage `TC-SX-009` (delete then re-import; rejected address then corrected re-import) and unit coverage for both paths.
+- Added integration coverage `TC-SX-009` (delete then re-import; a batch whose rejected-address row is retried and then corrected; manual re-creation with the same email; a stale mapping to a person in another organization) and unit coverage for both paths.
 - Known limitations: a stale external id whose email matches another live person is merged into that person, exactly as an unknown external id is, and that re-keying now also happens when the row then fails in its address step; undoing the delete after a re-import leaves two people.
