@@ -1,5 +1,20 @@
 import { z } from 'zod'
 import { CATALOG_PRODUCT_TYPES } from '@open-mercato/core/modules/catalog/data/types'
+import {
+  ecommerceBrandingFontIds,
+  isValidBorderRadius,
+  isValidBrandingColor,
+} from '../lib/brandingStyles'
+
+export {
+  ECOMMERCE_BRANDING_FONTS,
+  ecommerceBrandingFontIds,
+  findEcommerceBrandingFont,
+  isValidBorderRadius,
+  isValidBrandingColor,
+  isValidOklchColor,
+  type EcommerceBrandingFont,
+} from '../lib/brandingStyles'
 
 const uuid = () => z.string().uuid()
 
@@ -26,91 +41,6 @@ export type EcommercePriceSortFallback = z.infer<typeof ecommercePriceSortFallba
 export const ecommercePriceDisplayModeValues = ['gross', 'net'] as const
 export const ecommercePriceDisplayModeSchema = z.enum(ecommercePriceDisplayModeValues)
 export type EcommercePriceDisplayMode = z.infer<typeof ecommercePriceDisplayModeSchema>
-
-export type EcommerceBrandingFont = {
-  id: string
-  label: string
-  stack: string
-  googleFamily: string | null
-}
-
-export const ECOMMERCE_BRANDING_FONTS: readonly EcommerceBrandingFont[] = [
-  {
-    id: 'system-sans',
-    label: 'System sans-serif',
-    stack: "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-    googleFamily: null,
-  },
-  { id: 'system-serif', label: 'System serif', stack: "Georgia, 'Times New Roman', Times, serif", googleFamily: null },
-  {
-    id: 'system-mono',
-    label: 'System monospace',
-    stack: "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
-    googleFamily: null,
-  },
-  { id: 'inter', label: 'Inter', stack: "'Inter', sans-serif", googleFamily: 'Inter' },
-  { id: 'roboto', label: 'Roboto', stack: "'Roboto', sans-serif", googleFamily: 'Roboto' },
-  { id: 'open-sans', label: 'Open Sans', stack: "'Open Sans', sans-serif", googleFamily: 'Open Sans' },
-  { id: 'lato', label: 'Lato', stack: "'Lato', sans-serif", googleFamily: 'Lato' },
-  { id: 'montserrat', label: 'Montserrat', stack: "'Montserrat', sans-serif", googleFamily: 'Montserrat' },
-  { id: 'poppins', label: 'Poppins', stack: "'Poppins', sans-serif", googleFamily: 'Poppins' },
-  { id: 'dm-sans', label: 'DM Sans', stack: "'DM Sans', sans-serif", googleFamily: 'DM Sans' },
-  { id: 'merriweather', label: 'Merriweather', stack: "'Merriweather', serif", googleFamily: 'Merriweather' },
-  {
-    id: 'playfair-display',
-    label: 'Playfair Display',
-    stack: "'Playfair Display', serif",
-    googleFamily: 'Playfair Display',
-  },
-]
-
-export const ecommerceBrandingFontIds: readonly string[] = ECOMMERCE_BRANDING_FONTS.map((font) => font.id)
-
-export function findEcommerceBrandingFont(id: string): EcommerceBrandingFont | null {
-  return ECOMMERCE_BRANDING_FONTS.find((font) => font.id === id) ?? null
-}
-
-const NUMBER_PATTERN = '(\\d+(?:\\.\\d+)?|\\.\\d+)'
-const OKLCH_PATTERN = new RegExp(
-  `^oklch\\(\\s*${NUMBER_PATTERN}(%?)\\s+${NUMBER_PATTERN}(%?)\\s+${NUMBER_PATTERN}(deg)?\\s*(?:\\/\\s*${NUMBER_PATTERN}(%?)\\s*)?\\)$`,
-)
-const HEX_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
-const BORDER_RADIUS_PATTERN = /^(\d+(?:\.\d+)?|\.\d+)(rem|px)$/
-
-const OKLCH_CHROMA_MAX = 0.5
-const OKLCH_HUE_MAX = 360
-const BORDER_RADIUS_REM_MAX = 5
-const BORDER_RADIUS_PX_MAX = 80
-
-function withinBounds(raw: string, percent: boolean, numericMax: number): boolean {
-  const value = Number(raw)
-  if (!Number.isFinite(value) || value < 0) return false
-  return percent ? value <= 100 : value <= numericMax
-}
-
-export function isValidOklchColor(value: string): boolean {
-  const match = OKLCH_PATTERN.exec(value)
-  if (!match) return false
-  const [, lightness, lightnessPercent, chroma, chromaPercent, hue, , alpha, alphaPercent] = match
-  if (!withinBounds(lightness, lightnessPercent === '%', 1)) return false
-  if (!withinBounds(chroma, chromaPercent === '%', OKLCH_CHROMA_MAX)) return false
-  if (!withinBounds(hue, false, OKLCH_HUE_MAX)) return false
-  if (alpha !== undefined && !withinBounds(alpha, alphaPercent === '%', 1)) return false
-  return true
-}
-
-export function isValidBrandingColor(value: string): boolean {
-  return HEX_COLOR_PATTERN.test(value) || isValidOklchColor(value)
-}
-
-export function isValidBorderRadius(value: string): boolean {
-  if (value === '0') return true
-  const match = BORDER_RADIUS_PATTERN.exec(value)
-  if (!match) return false
-  const amount = Number(match[1])
-  if (!Number.isFinite(amount)) return false
-  return match[2] === 'rem' ? amount <= BORDER_RADIUS_REM_MAX : amount <= BORDER_RADIUS_PX_MAX
-}
 
 const brandingColorSchema = z.preprocess(
   emptyStringToUndefined,
