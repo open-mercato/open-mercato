@@ -135,10 +135,13 @@ previous one ten times expand exponentially at render time even though the file 
    null/XLink/XML/XMLNS namespaces, and namespace declarations other than the SVG and XLink ones (kept so the serialiser does
    not invent `ns1:` prefixes). None of these render.
 2. *`xml-stylesheet` processing instruction* — removed and recorded as `external_reference`.
-3. *DOMPurify* (`USE_PROFILES: { svg: true, svgFilters: true }`, `ADD_TAGS: ['use']`, `IN_PLACE`
+3. *DOMPurify* (`USE_PROFILES: { svg: true, svgFilters: true }`, `ADD_TAGS: ['use']`,
+   `ADD_DATA_URI_TAGS: ['feimage']`, `IN_PLACE`
    on the parsed XML document, fresh window per call, no shared hooks). DOMPurify's SVG profile
    omits `<use>` because it can pull in another document; it is added back because logos rely on
-   in-document reuse, and step 4 restricts every `href` on it to `#id`. `KEEP_CONTENT: false`: DOMPurify
+   in-document reuse, and step 4 restricts every `href` on it to `#id`. DOMPurify
+   permits `data:` URIs only on its own list (`<img>`, `<image>`, …), so `feImage` is added to it; step
+   4 still limits those URIs to base64 PNG/JPEG/GIF/WebP with a matching signature. `KEEP_CONTENT: false`: DOMPurify
    otherwise hoists the children of a removed element whose name it does not recognise as a
    content-forbidding one (for example the text of a prefixed `<html:script>`); since any removed
    element already rejects the upload, there is nothing worth keeping. Its allowlist removes `<script>`,
@@ -361,38 +364,93 @@ existing `readScoped` tests pass unmodified). No `UPGRADE_NOTES.md` entry is req
 
 ## Testing Strategy
 
-- `lib/__tests__/vector-image.test.ts`
-  - malicious fixtures, each asserting the sanitised output no longer contains the payload **and**
-    that `prepareVectorImageUpload` rejects with the expected code: `<script>`, `onload`,
-    `<foreignObject>`, `javascript:` href, external `xlink:href`, external `url()` in `<style>` and in
-    `style=""`, `@import`, DOCTYPE with entity expansion (billion laughs), `<use href="https://…">`,
-    `<set attributeName="href">`, `<iframe>`/`<embed>`/`<object>`, `xml-stylesheet` PI, CSS escapes,
-    non-raster `data:` image;
-  - benign fixtures that must survive intact (no non-inert removal, key structures present):
-    `<style>` block, linear/radial gradient, clip path, mask, in-document `<use>`, embedded base64
-    PNG, `viewBox`/`preserveAspectRatio`, an editor export with Inkscape/Sodipodi metadata and a
-    plain DOCTYPE;
-  - bounds: too large, too many elements, too deep, `<use>` amplification, not UTF-8, not SVG root,
-    malformed XML;
-  - idempotence: sanitising sanitised output removes nothing;
-  - trust check: matching digest trusted, tampered bytes / missing record / wrong MIME not trusted.
-- `lib/__tests__/scoped-upload-service.test.ts` — flag off still rejects SVG with `active_content`;
-  flag on stores the sanitised bytes, `image/svg+xml`, the record and the sanitised size; flag on
-  rejects a malicious SVG before any quota reservation; an `.html` file with SVG content stays
-  `active_content` with the flag on.
-- `lib/__tests__/attachment-service.test.ts` — `createScoped` forwards the flag and maps
-  `vector_image_*` to its status with `code`; `readScoped` serves a trusted vector row inline with
-  the vector CSP, a forced download as `attachment`, and an untrusted SVG row as before.
+Every bullet below is a test that exists; nothing is planned-but-unwritten.
+
+- `lib/__tests__/vector-image.test.ts` (fixtures in `vector-image.fixtures.ts`)
+  - **Hostile documents** — 30 fixtures. For each, `prepareVectorImageUpload` rejects with the
+    listed code, and (except the two entity fixtures, which are refused before parsing) the
+    sanitised output no longer contains the payload:
+    - `vector_image_unsafe_content`: `<script>`; XHTML-namespaced `<html:script>`; a script hidden
+      inside a foreign-namespace wrapper; a script hidden inside `<metadata>`; `onload` on the root;
+      `onclick` on a shape; `<foreignObject>` with HTML; `javascript:` link; `javascript:` link
+      obfuscated with a character reference; non-raster `data:image/svg+xml` on `<image>`; a
+      `data:image/png` URI on `<image>` whose bytes are not a PNG; an `<feImage>` `data:image/png`
+      URI whose bytes are not a PNG; an `<feImage>` declaring `data:image/jpeg` while carrying PNG
+      bytes; a CSS escape smuggling `url()`; `<set attributeName="href">`;
+      `<animate attributeName="xlink:href">`; `<iframe>`; `<embed>`; `<object>`.
+    - `vector_image_external_reference`: external `xlink:href` on `<image>`; external `href` on
+      `<feImage>`; external `url()` in a `<style>` element, in `style=""` and in a presentation
+      attribute (`fill`); `@import`; `image-set()` with a bare string URL;
+      `<use href="https://…">`; an `xml-stylesheet` processing instruction.
+    - `vector_image_entity_declaration`: DOCTYPE with entity expansion (billion laughs); an
+      external (`SYSTEM`) entity.
+  - **Benign documents** that are stored, with the structures named here present in the output:
+    - a combined logo — `<style>` block, linear and radial gradients, clip path, mask,
+      in-document `<use>` via both `href` and `xlink:href`, embedded base64 PNG on `<image>`,
+      `viewBox`/`preserveAspectRatio`, a `style=""` attribute and `<title>` — with no non-inert
+      removal;
+    - a mask-based logo (`<mask maskUnits="userSpaceOnUse">` applied with `mask="url(#…)"`) with
+      no removal at all;
+    - an `<feImage>` filter carrying an embedded PNG (`data:image/png;base64,…` with a real PNG
+      signature) composited with `<feComposite>` and applied with `filter="url(#…)"`, with no
+      removal at all;
+    - an editor export (comment, plain `<!DOCTYPE svg PUBLIC …>`, Inkscape/Sodipodi/RDF metadata)
+      where every removal is inert and the drawing survives.
+  - **Idempotence**: sanitising the sanitised output of all four benign documents removes nothing
+    and yields identical bytes.
+  - **Provenance**: the record carries `sanitizer`, the DOMPurify version, `policyVersion`, the
+    SHA-256 of the stored bytes and `sanitizedAt`.
+  - **Bounds and well-formedness**: over 1 MiB → `too_large`; over 10,000 elements, nesting over
+    64, exponential `<use>` expansion, and a `<use>` cycle → `too_complex`; modest `<use>` reuse is
+    accepted; not well-formed XML, an HTML document, an `<svg>` root outside the SVG namespace,
+    plain text, and non-UTF-8 bytes → `malformed`.
+  - **`inspectVectorImageCss`**: a 15-case table — fragment and raster `data:` `url()`s, plain
+    declarations and a commented `url(#…)` pass; external, protocol-relative and relative `url()`,
+    `@import` (any case), `-webkit-image-set()` and an unterminated `url(` are external; a CSS
+    escape, `expression()` and `javascript:` inside `url()` are unsafe.
+  - **`isVectorImageUploadCandidate`**: `.svg` accepted; extension-less accepted by declared or
+    sniffed type; `.html`, `.xhtml`, `.xml`, `.htm` never accepted.
+  - **`isTrustedVectorImage`**: matching digest trusted; tampered bytes, a missing record, null
+    metadata, an unknown sanitiser, an unknown policy version and a non-SVG MIME type not trusted.
+- `lib/__tests__/scoped-upload-service.test.ts` — without the flag an SVG is `active_content` with
+  no quota or storage work; with the flag the sanitised document is stored, quota is reserved for
+  the sanitised size, and the row has `image/svg+xml`, that size and the record whose digest matches
+  the stored bytes; an extension-less SVG is named `.svg`; a hostile SVG is rejected with its
+  `vector_image_*` code before any quota or storage work; an `.html` file with SVG content and an
+  `.xhtml` file stay `active_content` with the flag; an executable extension and an oversized file
+  are still refused with the flag; a public partition is still refused when a private one is
+  required.
+- `lib/__tests__/attachment-service.test.ts` (vector images) — `createScoped` forwards
+  `allowVectorImage` as `false` unless the caller passes `true`; without opting in, an SVG is a 400
+  with no `code` and no quota or storage work; opting in (through the real upload service) stores
+  the sanitised bytes and returns `image/svg+xml` with the sanitised size; a hostile SVG is a 400
+  with `code: vector_image_unsafe_content` before any quota reservation; each of the seven
+  `vector_image_*` codes maps to its status with `code` in the body; `readScoped` serves a trusted
+  vector row inline as `image/svg+xml` with the vector CSP, `forceDownload` still yields an
+  `attachment` download, and a row with no record or with a digest mismatch stays a download with
+  the default CSP.
 - `lib/__tests__/attachment-service.test.ts` (`readScopedForOwner`) — reads by owner with the
   lookup pinned to `{ id, tenantId, organizationId }`; refuses a different owner entity, owner
-  record, tenant, organization, partition and assignment (404, storage never touched); refuses a
-  foreign row even if the scoped filter regresses; refuses a foreign-tenant partition; refuses blank
-  scope/owner inputs before querying; serves a trusted vector row inline and an untrusted SVG as a
-  download; no file under `api/` references it.
-- `api/__tests__/file.route.test.ts` — trusted vector row: `image/svg+xml`, `inline`, vector CSP,
-  `nosniff`; untrusted SVG row: `application/octet-stream`, `attachment`.
-- `api/__tests__/attachments.api.test.ts` — the generic route still rejects SVG.
-- `api/__tests__/image.route.test.ts` — the image route still refuses `image/svg+xml`.
+  record, tenant, organization, partition, and an assignment the row does not carry (404, storage
+  never touched); refuses a foreign row even if the scoped filter regresses; refuses a
+  foreign-tenant partition; refuses a blank tenant, organization, partition or owner record with a
+  500 before any query; serves a trusted vector row inline and an untrusted SVG as a download; no
+  file under `api/` references it.
+- `api/__tests__/file.route.test.ts` — a trusted vector row is served as `image/svg+xml`, `inline`,
+  with the vector CSP and `nosniff`; `?download=1` forces an `attachment` download; a row with no
+  record or a digest mismatch is `application/octet-stream`, `attachment`, with the default CSP and
+  `nosniff`.
+- `api/__tests__/attachments.api.test.ts` — the generic route rejects a clean `.svg` logo as active
+  content even when the form carries `allowVectorImage=true` (alongside the existing test for a
+  scripted SVG posing as a JPEG).
+- `api/__tests__/image.route.test.ts` — a sanitised vector row is refused with 400 and Sharp is
+  never called.
+
+Regression proofs run during implementation: with the upstream wiring restored, every new upload,
+serving and `readScopedForOwner` behaviour test fails; with the DOMPurify pass disabled, every
+script/handler/embedded-document fixture fails; with the reference/CSS post-pass and entity gate
+disabled, every external-reference, CSS, `data:` and entity fixture fails; with the post-pass
+`href` check skipped for `<feImage>`, all three `<feImage>` rejection fixtures fail.
 
 ## Final Compliance Report
 
@@ -405,6 +463,9 @@ existing `readScoped` tests pass unmodified). No `UPGRADE_NOTES.md` entry is req
 
 ## Changelog
 
+- 2026-10-06 — Testing Strategy rewritten to list exactly the tests that exist; added the mask
+  and `<feImage>` raster cases, which surfaced that DOMPurify strips `data:` URIs on `<feImage>`
+  (now `ADD_DATA_URI_TAGS: ['feimage']`, still bounded by the step 4 raster check).
 - 2026-10-05 — Spec written and implemented: `allowVectorImage` on `createScoped`, DOMPurify/jsdom
   vector pipeline with reject-on-material-removal, provenance record bound by SHA-256, inline
   serving under a sandboxing CSP for trusted rows only; `readScopedForOwner` for principal-less
