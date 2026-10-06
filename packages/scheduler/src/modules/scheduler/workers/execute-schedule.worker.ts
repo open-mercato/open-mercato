@@ -172,6 +172,8 @@ async function executeSchedule(
   // against the timing this execution loaded, not whatever the entity holds later.
   execution.timing = {
     scheduleId: schedule.id,
+    tenantId: schedule.tenantId ?? null,
+    organizationId: schedule.organizationId ?? null,
     scheduleType: schedule.scheduleType,
     scheduleValue: schedule.scheduleValue,
     timezone: schedule.timezone,

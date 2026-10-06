@@ -174,6 +174,8 @@ function expectNextRunWrite(
   expect(params).toEqual([
     bullmqNextRunAt,
     scheduleId,
+    'tenant-a',
+    'org-a',
     timing.scheduleType,
     timing.scheduleValue,
     timing.timezone,

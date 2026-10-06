@@ -12,6 +12,8 @@ const logger = createLogger('scheduler').child({ component: 'next-run-sync' })
  */
 export type ScheduleTimingSnapshot = {
   scheduleId: string
+  tenantId: string | null
+  organizationId: string | null
   scheduleType: 'cron' | 'interval'
   scheduleValue: string
   timezone: string
@@ -20,6 +22,8 @@ export type ScheduleTimingSnapshot = {
 const UPDATE_NEXT_RUN_AT_SQL = `update scheduled_jobs
    set next_run_at = ?
  where id = ?
+   and tenant_id is not distinct from ?
+   and organization_id is not distinct from ?
    and deleted_at is null
    and is_enabled = true
    and schedule_type = ?
@@ -53,6 +57,9 @@ export function bullmqNextRunMatchesTiming(next: BullmqNextRun, timing: Schedule
  * Mirrors BullMQ's next fire time into `scheduled_jobs.next_run_at` after an
  * execution under the async strategy, where BullMQ — not this row — decides
  * when a schedule fires.
+ *
+ * The row is matched by id and by the tenant and organization the execution
+ * verified against its job payload, so a write can only land on that scope.
  *
  * The value is written only while it is still true: the BullMQ scheduler and
  * the row must both still carry the timing configuration this execution
@@ -99,6 +106,8 @@ export async function syncScheduleNextRunAt(
       [
         next.nextRunAt,
         timing.scheduleId,
+        timing.tenantId,
+        timing.organizationId,
         timing.scheduleType,
         timing.scheduleValue,
         timing.timezone,

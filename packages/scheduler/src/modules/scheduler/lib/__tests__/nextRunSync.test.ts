@@ -17,8 +17,13 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
 const scheduleId = '11111111-1111-4111-8111-111111111111'
 const nextRunAt = new Date('2030-01-01T06:00:00.000Z')
 
+const tenantId = '22222222-2222-4222-8222-222222222222'
+const organizationId = '33333333-3333-4333-8333-333333333333'
+
 const cronTiming: ScheduleTimingSnapshot = {
   scheduleId,
+  tenantId,
+  organizationId,
   scheduleType: 'cron',
   scheduleValue: '0 6 * * *',
   timezone: 'Europe/Warsaw',
@@ -26,6 +31,8 @@ const cronTiming: ScheduleTimingSnapshot = {
 
 const intervalTiming: ScheduleTimingSnapshot = {
   scheduleId,
+  tenantId,
+  organizationId,
   scheduleType: 'interval',
   scheduleValue: '15m',
   timezone: 'UTC',
@@ -102,13 +109,27 @@ describe('syncScheduleNextRunAt', () => {
     expect(execute).toHaveBeenCalledTimes(1)
     const [sql, params, method] = execute.mock.calls[0] as unknown as [string, unknown[], string]
     expect(sql.replace(/\s+/g, ' ')).toBe(
-      'update scheduled_jobs set next_run_at = ? where id = ? and deleted_at is null and is_enabled = true'
+      'update scheduled_jobs set next_run_at = ? where id = ?'
+      + ' and tenant_id is not distinct from ? and organization_id is not distinct from ?'
+      + ' and deleted_at is null and is_enabled = true'
       + ' and schedule_type = ? and schedule_value = ? and timezone = ? and ? > now()'
       + ' and next_run_at is distinct from ?',
     )
-    expect(params).toEqual([nextRunAt, scheduleId, 'cron', '0 6 * * *', 'Europe/Warsaw', nextRunAt, nextRunAt])
+    expect(params).toEqual([
+      nextRunAt, scheduleId, tenantId, organizationId, 'cron', '0 6 * * *', 'Europe/Warsaw', nextRunAt, nextRunAt,
+    ])
     expect(method).toBe('run')
     expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  it('binds a system-scoped schedule to null tenant and organization', async () => {
+    mockReadBullmqNextRun.mockResolvedValue({ nextRunAt, pattern: '0 6 * * *', timezone: 'Europe/Warsaw' })
+    const { execute, resolveEm } = buildEm()
+
+    await syncScheduleNextRunAt(resolveEm, { ...cronTiming, tenantId: null, organizationId: null })
+
+    const [, params] = execute.mock.calls[0] as unknown as [string, unknown[]]
+    expect(params.slice(1, 4)).toEqual([scheduleId, null, null])
   })
 
   it('does not set updated_at', async () => {
