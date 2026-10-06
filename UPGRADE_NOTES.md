@@ -24,6 +24,73 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
+
+`directory.organizations.update` (and so `PUT /api/directory/organizations` and
+`PUT /api/directory/organization-branding`) used to read an omitted `parentId` as "no parent" and an
+omitted `childIds` as "no children". Any partial update — including saving a sidebar logo — moved the
+organization to the top level and detached all of its children. Both fields are now left untouched
+when they are absent from the input, like every other field of the command.
+
+- To detach an organization from its parent send `parentId: null`; to remove its children send
+  `childIds: []`. Both worked before and still do.
+- A caller that relied on omission to clear the hierarchy must send those explicit values.
+- A request that sends `childIds` without `parentId` and lists the organization's current parent is
+  rejected with `400 Child cannot equal parent`.
+
+This does not repair trees that were already flattened. An affected `directory.organization` update
+in the audit log either lists `parentId` among its changes although only branding or name fields were
+edited, or — for a top-level organization that only lost its children — differs between the `before`
+and `after` `childParents` of its undo snapshot (the detached children get no log entry of their own).
+Re-assign the parent or the children on the organization edit page.
+
+### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
+
+Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
+is implemented in the database: a migration installs the `unaccent` and `pg_trgm` extensions, creates
+an `IMMUTABLE` `om_immutable_unaccent(text)` wrapper in `public`, and builds a GIN trigram index on
+`catalog_products`.
+
+**Action for operators: make sure the migrating role can enable both extensions.** Enabling an
+extension requires `CREATE` on the database, and some managed PostgreSQL providers additionally
+require the extension to be allowlisted. The migration skips the create when an extension is already
+installed, and otherwise fails with a message naming the extension and the statement to run, rather
+than a bare `permission denied to create extension`. To pre-empt it:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "unaccent" SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS "pg_trgm" SCHEMA public;
+```
+
+The index is built with `CREATE INDEX CONCURRENTLY`, so product writes are not blocked during the
+upgrade, but the build is not instantaneous on a large catalog. Deploy the migration **before** the
+new application code: until `om_immutable_unaccent` exists, every product search fails with
+`function om_immutable_unaccent(text) does not exist`.
+
+**Action for module authors: none**, unless you query `catalog_products` with your own
+accent-insensitive predicate — in that case build it from
+`@open-mercato/shared/lib/db/accentInsensitiveSearch` so your expression matches the index verbatim.
+A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
+index for it.
+
+### OpenAI-compatible presets call Chat Completions by default (#4638)
+
+`createOpenAICompatibleProvider(preset)`
+(`@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-adapters/openai`) used to build every
+model with `openai(modelId)`, which `@ai-sdk/openai` v4 routes to the Responses API
+(`POST {baseURL}/responses`). OpenAI-compatible backends (DeepInfra, Groq, Together, Fireworks,
+OpenRouter, LiteLLM, Ollama, LM Studio, …) only implement Chat Completions, so every call answered
+`404 Not Found`.
+
+`OpenAICompatiblePreset` gained an optional `apiMode?: 'chat' | 'responses'` (type
+`OpenAICompatibleApiMode`). A preset that omits it now calls `POST {baseURL}/chat/completions`.
+The built-in `openai` preset sets `apiMode: 'responses'`, so native OpenAI keeps the Responses API
+and its provider-executed tools such as `web_search`.
+
+**Action for app authors:** a custom preset registered with `createOpenAICompatibleProvider` now
+uses Chat Completions. If its backend implements the Responses API and you rely on it, add
+`apiMode: 'responses'` to the preset.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
@@ -64,6 +131,25 @@ precedence change landed. If you maintain a fork with its own `apps/<host>/src/i
 it the same way before upgrading: a key that duplicates a module key with a different value now
 silently wins, for better or for worse.
 
+### `CrudForm` now submits injected fields that reuse a host field id (PR #6709)
+
+A `crud-form:<entityId>:fields` injected field whose `id` matches a field the host form already
+declares replaces the host's input for that field (the injected entry wins the id lookup). Until
+now `CrudForm` still stripped every injected field id from the host payload before schema
+validation and `onSubmit`, so such an override silently dropped the edited value — the host
+received the stale initial value (or nothing). `CrudForm` now strips only **injected-only** ids
+(no host-declared counterpart); an injected field that reuses a host id is treated as the host
+field: its value reaches schema validation and the host `onSubmit` payload, and a dot-path id
+(e.g. `metadata.channel`) is collapsed into its nested shape like any declared dot-path field.
+Injected-only fields are unchanged: still stripped from the host payload and still delivered to
+widgets through `onBeforeSave`/`onSave`.
+
+**Action for module authors:** none if your injected field ids are unique (the common case). If
+a widget deliberately reuses a host field id, the host's `onSubmit` now receives that field's
+value — make sure the value matches what the host schema expects. If a widget reused a host id
+only by accident and persists the value itself in `onSave`, rename the injected field id so the
+host does not also submit it.
+
 ### `ChannelAdapter.fetchHistory` receives `scope.organizationId: null` for a channel with no organization (#6331)
 
 The `communication_channels` poll worker used to hand `adapter.fetchHistory` a scope in which a
@@ -74,16 +160,34 @@ looked in a bucket that does not exist.
 
 `FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
 (`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
-own organization — `null` when it has none. The Gmail push path (`gmail-history-sync` →
-`applyPushNotification`, which forwards its scope into `fetchHistory`) still substitutes the tenant
-id and is tracked in #6634, so adapters should keep handling both shapes for now. `TenantScope` and every other adapter input are unchanged,
-and the hub still resolves channel credentials under the key they are written with (the tenant id
-for an organization-less channel).
+own organization — `null` when it has none. The Gmail push path and the reaction adapter inputs
+follow in the same release — see the next entry (#6634). `TenantScope` and the remaining adapter
+inputs are unchanged, and the hub still resolves channel credentials under the key they are written
+with (the tenant id for an organization-less channel).
 
 **Action for adapter authors:** if your `fetchHistory` reads `input.scope.organizationId`, handle
 `null` (a tenant-wide channel). TypeScript now flags code that passes it where a `string` is
 required. If you previously worked around the substitution by resolving the channel's real
 organization yourself, that workaround keeps working and can be dropped.
+
+### `applyPushNotification`, `sendReaction` and `removeReaction` receive `scope.organizationId: null` for a channel with no organization (#6634)
+
+Follow-up to #6331. The `communication_channels` Gmail push worker (`gmail-history-sync` →
+`adapter.applyPushNotification`) and the outbound reaction worker (`reaction-processor` →
+`adapter.sendReaction` / `adapter.removeReaction`) also replaced a channel's missing organization
+with the tenant id in the scope they hand the adapter. For Gmail this reached `fetchHistory` too,
+because `applyPushNotification` forwards its scope there.
+
+`ApplyPushNotificationInput.scope`, `SendReactionInput.scope` and `RemoveReactionInput.scope` are
+now typed as `ChannelScope` (`{ tenantId: string; organizationId: string | null }`), and both
+workers pass the channel's own organization — `null` when it has none. Channel credentials are
+still resolved under the key they are written with (the tenant id for an organization-less
+channel), so existing credential rows keep working.
+
+**Action for adapter authors:** if your `applyPushNotification`, `sendReaction` or
+`removeReaction` reads `input.scope.organizationId`, handle `null` (a tenant-wide channel).
+TypeScript now flags code that passes it where a `string` is required. The in-repo Gmail and
+Discord adapters needed no change.
 
 ### `customers` now requires `progress` to be enabled (#6302)
 
