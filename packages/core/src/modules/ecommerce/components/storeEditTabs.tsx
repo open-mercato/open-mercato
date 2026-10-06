@@ -3,6 +3,7 @@ import { StoreBrandingTab } from './StoreBrandingTab'
 import { StoreChannelsTab } from './StoreChannelsTab'
 import { StoreDomainsTab } from './StoreDomainsTab'
 import { StoreGeneralTab } from './StoreGeneralTab'
+import { StoreSeoTab } from './StoreSeoTab'
 import { STORE_LIST_HREF, type StoreAdminRecord } from './storeAdmin'
 
 export const STORE_TAB_QUERY_PARAM = 'tab'
@@ -47,6 +48,12 @@ export const STORE_EDIT_TABS: readonly StoreEditTabDefinition[] = [
     labelKey: 'ecommerce.backend.store.tabs.channels',
     fallbackLabel: 'Channels',
     render: ({ store, reload }) => <StoreChannelsTab store={store} reload={reload} />,
+  },
+  {
+    id: 'seo',
+    labelKey: 'ecommerce.backend.store.tabs.seo',
+    fallbackLabel: 'SEO',
+    render: ({ store, reload }) => <StoreSeoTab store={store} reload={reload} />,
   },
 ]
 

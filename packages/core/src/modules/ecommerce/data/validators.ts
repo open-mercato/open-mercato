@@ -161,17 +161,24 @@ export const ecommerceStoreDisplaySchema = z
 
 export type EcommerceStoreDisplay = z.infer<typeof ecommerceStoreDisplaySchema>
 
-const GOOGLE_SITE_VERIFICATION_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+export const GOOGLE_SITE_VERIFICATION_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+export const ECOMMERCE_SEO_SITE_NAME_MAX = 200
+export const ECOMMERCE_SEO_META_DESCRIPTION_MAX = 500
+export const ECOMMERCE_SEO_ROBOTS_TXT_MAX = 10000
+export const ECOMMERCE_SEO_GOOGLE_VERIFICATION_MAX = 128
 
 export const ecommerceStoreSeoSchema = z
   .object({
-    siteName: optionalStringSchema(200),
-    defaultMetaDescription: optionalStringSchema(500),
+    siteName: optionalStringSchema(ECOMMERCE_SEO_SITE_NAME_MAX),
+    defaultMetaDescription: optionalStringSchema(ECOMMERCE_SEO_META_DESCRIPTION_MAX),
     googleSiteVerification: z.preprocess(
       emptyStringToUndefined,
-      z.string().regex(GOOGLE_SITE_VERIFICATION_PATTERN).optional(),
+      z
+        .string()
+        .regex(GOOGLE_SITE_VERIFICATION_PATTERN, { message: 'ecommerce.validation.googleSiteVerificationInvalid' })
+        .optional(),
     ),
-    robotsTxt: z.preprocess(emptyStringToUndefined, z.string().max(10000).optional()),
+    robotsTxt: z.preprocess(emptyStringToUndefined, z.string().max(ECOMMERCE_SEO_ROBOTS_TXT_MAX).optional()),
   })
   .strict()
 
