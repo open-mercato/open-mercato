@@ -142,6 +142,16 @@ Copy `.env.example` to `.env` and adjust as needed:
 cp .env.example .env
 ```
 
+The infra stack (`starters/docker/compose.infra.yml`) publishes Postgres, Redis,
+Meilisearch, OpenCode, Keycloak, LocalStack and Verdaccio on `127.0.0.1` only.
+They use dev-default credentials, and on Linux Docker-published ports bypass
+ufw/iptables `INPUT` rules, so binding to all interfaces would expose them on a
+VPS. To reach them from another machine, opt in explicitly:
+
+```bash
+OM_DOCKER_BIND_ADDRESS=0.0.0.0
+```
+
 ## Windows + Docker Developer Command Cookbook
 
 Windows users who develop through Docker can run any monorepo command using the `docker:*` wrapper scripts. These scripts detect the active container automatically and execute the command inside it — no WSL required.
