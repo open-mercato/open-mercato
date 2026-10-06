@@ -1390,23 +1390,15 @@ export default function EditCatalogProductPage({
           );
         }
       }
-      await updateCrud("catalog/products", payload);
-      // The update route only returns `{ ok: true }`, so re-fetch the record to pick
-      // up the server-bumped updatedAt and refresh the optimistic-lock token — without
-      // this, a second consecutive save reuses the stale pre-edit updatedAt and the
-      // lock guard falsely reports a conflict (#5985).
-      const refreshedProductRes = await apiCall<ProductResponse>(
-        `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
-      );
-      const refreshedRecord = Array.isArray(refreshedProductRes.result?.items)
-        ? refreshedProductRes.result?.items?.[0]
-        : undefined;
+      const updateResult = await updateCrud("catalog/products", payload);
+      // The update route echoes the server-bumped updatedAt, so refresh the
+      // optimistic-lock token from it — without this, a second consecutive save
+      // reuses the stale pre-edit updatedAt and the lock guard falsely reports a
+      // conflict (#5985).
       const refreshedUpdatedAt =
-        typeof refreshedRecord?.updatedAt === "string"
-          ? refreshedRecord.updatedAt
-          : typeof refreshedRecord?.updated_at === "string"
-            ? refreshedRecord.updated_at
-            : null;
+        typeof updateResult.result?.updatedAt === "string"
+          ? updateResult.result.updatedAt
+          : null;
       // Merge the just-submitted `values` back into `initialValues` too, not only
       // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
       // whenever that prop's identity changes, so leaving the other fields at
