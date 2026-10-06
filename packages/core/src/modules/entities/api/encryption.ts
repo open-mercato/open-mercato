@@ -5,7 +5,15 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertEncryptionMapSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import {
+  buildOptimisticLockConflictBody,
+  enforceCommandOptimisticLock,
+  readOptimisticLockExpected,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { normalizeIsoToken, parseOptimisticLockEnv } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -13,15 +21,26 @@ import {
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
+  EncryptionMapVersionConflictError,
   resolveCanonicalEncryptionMap,
   upsertCanonicalEncryptionMap,
 } from '@open-mercato/core/modules/entities/lib/encryption-maps'
 
 const ENCRYPTION_MAP_RESOURCE_KIND = 'entities.encryption_map'
 
+const logger = createLogger('entities').child({ component: 'encryption-map-api' })
+
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
+}
+
+function shouldEnforceVersionOnWrite(req: Request): boolean {
+  const expected = readOptimisticLockExpected(req)
+  if (!expected || normalizeIsoToken(expected) == null) return false
+  const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
+  if (config.mode === 'off') return false
+  return config.mode === 'all' || config.entities.has(ENCRYPTION_MAP_RESOURCE_KIND)
 }
 
 function toIsoOrNull(value: Date | string | null | undefined): string | null {
@@ -137,28 +156,45 @@ export async function POST(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const saved = await upsertCanonicalEncryptionMap(em, {
-      entityId: payload.entityId,
-      tenantId,
-      organizationId,
-      fields: payload.fields,
-      isActive: payload.isActive ?? true,
-    })
+    let saved: Awaited<ReturnType<typeof upsertCanonicalEncryptionMap>>
+    try {
+      saved = await upsertCanonicalEncryptionMap(em, {
+        entityId: payload.entityId,
+        tenantId,
+        organizationId,
+        fields: payload.fields,
+        isActive: payload.isActive ?? true,
+        // The version check above is advisory; this makes the write itself conditional so a
+        // concurrent save that lands between that read and this upsert is not overwritten.
+        expectedUpdatedAt: existing && shouldEnforceVersionOnWrite(req) ? existing.updatedAt : null,
+      })
+    } catch (err) {
+      if (err instanceof EncryptionMapVersionConflictError) {
+        const expectedIso = err.expectedUpdatedAt.toISOString()
+        const currentIso = err.currentUpdatedAt ? err.currentUpdatedAt.toISOString() : expectedIso
+        throw new CrudHttpError(409, buildOptimisticLockConflictBody(currentIso, expectedIso))
+      }
+      throw err
+    }
 
+    // The map row is committed and every reader resolves policy from it, so a failure to drop
+    // this process's per-request memo must not turn a successful write into an error response.
     try {
       const svc = container.resolve('tenantEncryptionService') as { invalidateMap?: (e: string, t: string | null, o: string | null) => Promise<void> }
       if (!svc || typeof svc.invalidateMap !== 'function') {
         throw new Error('[internal] Tenant encryption service cannot invalidate map caches')
       }
       await svc.invalidateMap(payload.entityId, tenantId, organizationId)
-    } catch {
-      return NextResponse.json(
-        {
-          error: 'The encryption policy update could not be finalized.',
-          code: 'encryption_map_invalidation_failed',
-        },
-        { status: 503 },
-      )
+    } catch (err) {
+      logger.warn('Encryption map saved but post-commit invalidation failed', {
+        entityId: payload.entityId,
+        err,
+      })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'entities',
+        code: 'entities.encryption_map_invalidation_failed',
+        attributes: { entityId: payload.entityId },
+      })
     }
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
@@ -196,11 +232,6 @@ const organizationSelectionInvalidResponseSchema = z.object({
   code: z.literal('organization_selection_invalid'),
 })
 
-const encryptionMapInvalidationFailedResponseSchema = z.object({
-  error: z.string(),
-  code: z.literal('encryption_map_invalidation_failed'),
-})
-
 export const openApi: OpenApiRouteDoc = {
   tag: 'Entities',
   summary: 'Manage encryption maps',
@@ -219,7 +250,6 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Saved', schema: z.object({ ok: z.boolean(), updatedAt: z.string().nullable().optional() }) },
         { status: 409, description: 'Optimistic-lock conflict (stale write)', schema: conflictResponseSchema },
         { status: 422, description: 'Selected organization is unavailable', schema: organizationSelectionInvalidResponseSchema },
-        { status: 503, description: 'Encryption policy invalidation failed', schema: encryptionMapInvalidationFailedResponseSchema },
       ],
     },
   },

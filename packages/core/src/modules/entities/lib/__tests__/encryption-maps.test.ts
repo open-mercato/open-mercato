@@ -1,4 +1,6 @@
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
+  EncryptionMapVersionConflictError,
   mergeEncryptionMapFields,
   resolveCanonicalEncryptionMap,
   upsertCanonicalEncryptionMap,
@@ -133,5 +135,101 @@ describe('upsertCanonicalEncryptionMap concurrency', () => {
     }
     expect(execute.mock.calls.every(([, params]) => params[2] === null)).toBe(true)
     expect(rawConnectionExecute).not.toHaveBeenCalled()
+  })
+})
+
+describe('upsertCanonicalEncryptionMap optimistic version', () => {
+  const expected = new Date('2026-10-04T12:00:00.123Z')
+
+  it('makes the conflict update conditional on the expected version', async () => {
+    const execute = jest.fn(async (_sql: string, _params: readonly unknown[]) => [
+      { id: 'canonical-id', updated_at: '2026-10-04T12:05:00.000Z' },
+    ])
+
+    const saved = await upsertCanonicalEncryptionMap({ execute } as never, {
+      entityId: 'customers:person',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      fields: [{ field: 'email' }],
+      isActive: true,
+      expectedUpdatedAt: expected,
+    })
+
+    expect(saved).toEqual({ id: 'canonical-id', updatedAt: new Date('2026-10-04T12:05:00.000Z') })
+    const [sql, params] = execute.mock.calls[0]
+    expect(sql).toMatch(/do update set[\s\S]*where date_trunc\('milliseconds', "encryption_maps"\."updated_at"\) = date_trunc\('milliseconds', \?::timestamptz\)[\s\S]*returning/)
+    expect(params).toEqual(['customers:person', 'tenant-1', 'org-1', '[{"field":"email"}]', true, expected.toISOString()])
+  })
+
+  it('keeps the unconditional upsert when no version is expected', async () => {
+    const execute = jest.fn(async (_sql: string, _params: readonly unknown[]) => [
+      { id: 'canonical-id', updated_at: new Date('2026-10-04T12:05:00.000Z') },
+    ])
+
+    await upsertCanonicalEncryptionMap({ execute } as never, {
+      entityId: 'customers:person',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      fields: [],
+      isActive: true,
+    })
+
+    const [sql, params] = execute.mock.calls[0]
+    expect(sql).not.toContain('date_trunc')
+    expect(params).toHaveLength(5)
+  })
+
+  it('throws a version conflict carrying the current version when the row moved', async () => {
+    const current = new Date('2026-10-04T12:01:00.000Z')
+    const execute = jest.fn(async (sql: string, _params: readonly unknown[]) => (
+      sql.includes('insert into') ? [] : [{ updated_at: current }]
+    ))
+
+    const write = upsertCanonicalEncryptionMap({ execute } as never, {
+      entityId: 'customers:person',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      fields: [{ field: 'email' }],
+      isActive: true,
+      expectedUpdatedAt: expected,
+    })
+
+    await expect(write).rejects.toBeInstanceOf(EncryptionMapVersionConflictError)
+    await expect(write).rejects.toMatchObject({ expectedUpdatedAt: expected, currentUpdatedAt: current })
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute.mock.calls[1][1]).toEqual(['customers:person', 'tenant-1', 'org-1'])
+  })
+
+  it('drops the policy memo of the writing EntityManager', async () => {
+    const previous = process.env.TENANT_DATA_ENCRYPTION
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    try {
+      let fields = [{ field: 'email' }]
+      const execute = jest.fn(async (sql: string, _params: readonly unknown[]) => (
+        sql.includes('insert into')
+          ? [{ id: 'canonical-id', updated_at: new Date('2026-10-04T12:05:00.000Z') }]
+          : [{ entity_id: 'customers:person', tenant_id: 'tenant-1', organization_id: 'org-1', fields_json: fields }]
+      ))
+      const em = { execute }
+      const service = new TenantDataEncryptionService(em as never)
+      jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+      await expect(service.getEncryptedFieldNames('customers:person', 'tenant-1', 'org-1', { em: em as never }))
+        .resolves.toEqual(['email'])
+      fields = [{ field: 'email' }, { field: 'phone' }]
+      await upsertCanonicalEncryptionMap(em as never, {
+        entityId: 'customers:person',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        fields,
+        isActive: true,
+      })
+
+      await expect(service.getEncryptedFieldNames('customers:person', 'tenant-1', 'org-1', { em: em as never }))
+        .resolves.toEqual(['email', 'phone'])
+    } finally {
+      if (previous === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+      else process.env.TENANT_DATA_ENCRYPTION = previous
+    }
   })
 })

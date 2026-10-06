@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { GET, POST, openApi } from '@open-mercato/core/modules/entities/api/encryption'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { EncryptionMapVersionConflictError } from '@open-mercato/core/modules/entities/lib/encryption-maps'
 
 // Deterministic version instants. The optimistic-lock check is a pure ISO-string
 // equality compare of two version tokens (see optimistic-lock-command.ts) — it
@@ -16,7 +17,7 @@ const mockMapRepo = {
 const mockEm = {
   getRepository: () => mockMapRepo,
 }
-const mockUpsertCanonicalEncryptionMap = jest.fn(async () => ({ id: 'saved-map', updatedAt: CURRENT_VERSION }))
+const mockUpsertCanonicalEncryptionMap = jest.fn(async (..._args: unknown[]) => ({ id: 'saved-map', updatedAt: CURRENT_VERSION }))
 
 function makeMap(overrides: Record<string, unknown> = {}) {
   return {
@@ -178,11 +179,12 @@ describe('entities/encryption API', () => {
       organizationId: 'o-1',
       fields: payload.fields,
       isActive: true,
+      expectedUpdatedAt: null,
     })
     expect(mockEncSvc.invalidateMap).toHaveBeenCalledWith('auth:user', 't-1', 'o-1')
   })
 
-  it('returns a safe failure and never reports success when invalidation fails', async () => {
+  it('still reports success and runs after-success hooks when post-commit invalidation fails', async () => {
     mockGuardService = {
       validateMutation: jest.fn(async () => ({ ok: true, shouldRunAfterSuccess: true })),
       afterMutationSuccess: jest.fn(async () => {}),
@@ -197,26 +199,16 @@ describe('entities/encryption API', () => {
       headers: { 'content-type': 'application/json' },
     }))
 
-    expect(response.status).toBe(503)
+    expect(response.status).toBe(200)
     const json = await response.json()
-    expect(json).toEqual({
-      error: 'The encryption policy update could not be finalized.',
-      code: 'encryption_map_invalidation_failed',
-    })
+    expect(json).toEqual({ ok: true, updatedAt: CURRENT_VERSION.toISOString() })
     expect(JSON.stringify(json)).not.toContain('cache-user')
-    expect(JSON.stringify(json)).not.toContain('secret')
     expect(mockUpsertCanonicalEncryptionMap).toHaveBeenCalled()
-    expect(mockGuardService.afterMutationSuccess).not.toHaveBeenCalled()
+    expect(mockGuardService.afterMutationSuccess).toHaveBeenCalled()
   })
 
-  it('documents the safe invalidation failure response in OpenAPI', () => {
-    const response = openApi.methods.POST?.responses?.find((entry) => entry.status === 503)
-
-    expect(response?.description).toBe('Encryption policy invalidation failed')
-    expect(response?.schema?.safeParse({
-      error: 'The encryption policy update could not be finalized.',
-      code: 'encryption_map_invalidation_failed',
-    }).success).toBe(true)
+  it('no longer documents an invalidation failure response in OpenAPI', () => {
+    expect(openApi.methods.POST?.responses?.find((entry) => entry.status === 503)).toBeUndefined()
   })
 
   it('creates and invalidates the map in the request-selected organization', async () => {
@@ -335,7 +327,71 @@ describe('entities/encryption API', () => {
     expect(res.status).toBe(200)
     expect(mockUpsertCanonicalEncryptionMap).toHaveBeenCalledWith(mockEm, expect.objectContaining({
       fields: payload.fields,
+      expectedUpdatedAt: current,
     }))
+  })
+
+  it('writes unconditionally when the client sends no expected version', async () => {
+    mockMapRepo.find.mockResolvedValue([makeMap({ updatedAt: CURRENT_VERSION })])
+    const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: null }] }
+    const res = await POST(new Request('http://x/api/entities/encryption', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(200)
+    expect(mockUpsertCanonicalEncryptionMap).toHaveBeenCalledWith(mockEm, expect.objectContaining({
+      expectedUpdatedAt: null,
+    }))
+  })
+
+  it('writes unconditionally when optimistic locking is disabled', async () => {
+    process.env.OM_OPTIMISTIC_LOCK = 'off'
+    mockMapRepo.find.mockResolvedValue([makeMap({ updatedAt: CURRENT_VERSION })])
+    const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: null }] }
+    const res = await POST(new Request('http://x/api/entities/encryption', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'content-type': 'application/json',
+        [OPTIMISTIC_LOCK_HEADER_NAME]: STALE_VERSION.toISOString(),
+      },
+    }))
+    expect(res.status).toBe(200)
+    expect(mockUpsertCanonicalEncryptionMap).toHaveBeenCalledWith(mockEm, expect.objectContaining({
+      expectedUpdatedAt: null,
+    }))
+  })
+
+  it('returns the structured 409 when a concurrent save wins between the version read and the write', async () => {
+    mockGuardService = {
+      validateMutation: jest.fn(async () => ({ ok: true, shouldRunAfterSuccess: true })),
+      afterMutationSuccess: jest.fn(async () => {}),
+    }
+    const concurrentVersion = new Date('2020-01-03T09:30:00.000Z')
+    mockMapRepo.find.mockResolvedValue([makeMap({ updatedAt: CURRENT_VERSION })])
+    mockUpsertCanonicalEncryptionMap.mockRejectedValueOnce(
+      new EncryptionMapVersionConflictError(CURRENT_VERSION, concurrentVersion),
+    )
+    const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: null }] }
+    const res = await POST(new Request('http://x/api/entities/encryption', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'content-type': 'application/json',
+        [OPTIMISTIC_LOCK_HEADER_NAME]: CURRENT_VERSION.toISOString(),
+      },
+    }))
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({
+      error: expect.any(String),
+      code: 'optimistic_lock_conflict',
+      currentUpdatedAt: concurrentVersion.toISOString(),
+      expectedUpdatedAt: CURRENT_VERSION.toISOString(),
+    })
+    expect(mockEncSvc.invalidateMap).not.toHaveBeenCalled()
+    expect(mockGuardService.afterMutationSuccess).not.toHaveBeenCalled()
   })
 
   it('blocks the write when the mutation guard rejects it', async () => {

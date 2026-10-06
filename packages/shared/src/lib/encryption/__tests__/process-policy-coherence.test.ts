@@ -62,7 +62,7 @@ async function runCommand(worker: ChildProcess, action: 'readExact' | 'readAggre
 }
 
 describe('encryption policy coherence across processes', () => {
-  it('re-reads exact and aggregate policy after a remote commit and partial invalidation failure', async () => {
+  it('re-reads exact and aggregate policy after a remote commit while the shared cache is unavailable', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'om-encryption-policy-'))
     const statePath = join(directory, 'policy.json')
     const cacheFailurePath = join(directory, 'cache-status.txt')
@@ -98,10 +98,7 @@ describe('encryption policy coherence across processes', () => {
         aggregate: [{ field: 'fresh_aggregate' }],
       }))
       await writeFile(cacheFailurePath, 'unavailable')
-      await expect(runCommand(invalidator, 'invalidate')).resolves.toMatchObject({
-        ok: false,
-        error: expect.stringContaining('cache'),
-      })
+      await expect(runCommand(invalidator, 'invalidate')).resolves.toMatchObject({ ok: true })
 
       await expect(runCommand(reader, 'readExact')).resolves.toMatchObject({
         ok: true,

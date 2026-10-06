@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import {
@@ -12,6 +11,11 @@ import {
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
 import { createLogger } from '../logger'
+import {
+  getEncryptionPolicyMemo,
+  invalidateEncryptionPolicyMemos,
+  type ResolvedEncryptionPolicy,
+} from './policyMemo'
 import type { EncryptionKeyScope, ModuleEncryptionMap } from '../../modules/encryption'
 
 const logger = createLogger('shared').child({ component: 'tenant-encryption' })
@@ -41,7 +45,16 @@ type SqlConnection = {
 // up by long-lived processes without a restart (#2746). The service-level cache
 // previously had no TTL and shadowed the KMS's own 15-minute expiry.
 const DEK_CACHE_TTL_MS = 15 * 60 * 1000
-const globalEncryptionMapEpochs = new Map<string, number>()
+
+function readScopeId(row: Record<string, unknown>, column: string, property: string): string | null {
+  const value = row[column] ?? row[property]
+  return value == null ? null : String(value).toLowerCase()
+}
+
+function sameScopeId(value: string | null, expected: string | null): boolean {
+  return value === (expected == null ? null : expected.toLowerCase())
+}
+
 function cacheKey(key: MapCacheKey): string {
   return [
     'encmap',
@@ -51,13 +64,10 @@ function cacheKey(key: MapCacheKey): string {
   ].join(':')
 }
 
-// Tag for the aggregate of every organization-scoped map of an entity/tenant. The prefix differs
-// from `cacheKey`'s in its first segment rather than by an extra one, so no entity id can spell a
-// tag that collides with an aggregate (`encmap:all-orgs:x:y` would be reachable both ways).
-function allOrganizationsCacheKey(entityId: string, tenantId: string | null): string {
-  return ['encmap-all-orgs', entityId.toLowerCase(), tenantId ?? 'null'].join(':')
-}
-
+/**
+ * @deprecated Nothing reads this key: encryption policy is resolved from the canonical table and
+ * `invalidateMap` no longer publishes a version token. Kept for import compatibility.
+ */
 export function encryptionMapPolicyVersionCacheKey(entityId: string): string {
   return ['encmap-policy-version', entityId.toLowerCase()].join(':')
 }
@@ -233,8 +243,9 @@ export function resolveEncryptionKeyId(
  * `AbstractSqlConnection.execute` falls back to the pool whenever it is handed no
  * transaction context, so the connection-level call takes a SECOND pooled
  * connection while the caller already holds one for its open write transaction.
- * Policy resolution is uncached and runs for every encrypt/decrypt decision, so
- * under concurrency every in-flight write waits on a connection that only another
+ * Policy resolution is not cached across units of work and runs for every
+ * encrypt/decrypt decision that misses the per-unit-of-work memo, so under
+ * concurrency every in-flight write waits on a connection that only another
  * waiting write could release — the pool deadlocks at `DB_POOL_MAX` and never
  * recovers. `SqlEntityManager.execute` forwards `getTransactionContext()`, so the
  * lookup reuses the caller's own connection, provided callers hand in the
@@ -252,7 +263,6 @@ export class TenantDataEncryptionService {
   private static globalDekCache = new Map<string, TenantDek>()
   private static globalInflightDeks = new Map<string, Promise<TenantDek | null>>()
   private readonly kms: KmsService
-  private readonly cache?: CacheStrategy
   private readonly dekCache = TenantDataEncryptionService.globalDekCache
   private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
   private readonly systemDefaultMaps: Map<string, ModuleEncryptionMap>
@@ -260,12 +270,12 @@ export class TenantDataEncryptionService {
   constructor(
     private em: EntityManager,
     opts?: {
+      /** Accepted for compatibility; encryption policy is never cached across units of work. */
       cache?: CacheStrategy
       kms?: KmsService
       defaultEncryptionMaps?: readonly ModuleEncryptionMap[]
     }
   ) {
-    this.cache = opts?.cache
     this.kms = opts?.kms ?? createKmsService()
     this.systemDefaultMaps = new Map(
       (opts?.defaultEncryptionMaps ?? [])
@@ -338,37 +348,86 @@ export class TenantDataEncryptionService {
     return dek
   }
 
-  private async fetchMap(key: MapCacheKey, em?: EntityManager): Promise<EncryptionMapRecord | null> {
+  /**
+   * Reads every row that can decide the policy for `key` in ONE statement: the exact scope, the
+   * tenant-wide scope, and the global scope — plus, at the tenant-wide scope, every
+   * organization-scoped map of the tenant for the all-organizations aggregate (#5949). Precedence
+   * and duplicate merging happen in JS so the result is identical to resolving the fallback chain
+   * one scope at a time.
+   */
+  private async loadPolicy(key: MapCacheKey, em?: EntityManager): Promise<ResolvedEncryptionPolicy> {
     // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
     const conn = getSqlExecutor(em ?? this.em)
-    if (!conn) return null
+    if (!conn) {
+      throw new Error('[internal] Encryption policy lookup requires an EntityManager that can execute SQL')
+    }
+    const includeAllOrganizations = key.organizationId == null
+    const scopeClause = includeAllOrganizations
+      ? 'tenant_id is not distinct from ?'
+      : '(tenant_id is not distinct from ? and (organization_id = ? or organization_id is null))'
     const sql = `
-      select entity_id, fields_json
+      select entity_id, tenant_id, organization_id, fields_json
       from encryption_maps
       where entity_id = ?
-        and tenant_id is not distinct from ?
-        and organization_id is not distinct from ?
         and is_active = true
         and deleted_at is null
-      order by created_at asc, id asc
+        and (${scopeClause} or (tenant_id is null and organization_id is null))
+      order by organization_id asc, created_at asc, id asc
     `
-    const rows = await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null])
+    const params = includeAllOrganizations
+      ? [key.entityId, key.tenantId]
+      : [key.entityId, key.tenantId, key.organizationId]
+    const rows = await conn.execute(sql, params)
     const records = Array.isArray(rows)
       ? rows.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
       : []
-    if (!records.length) return null
-    if (records.length > 1) {
-      logger.warn('Duplicate live encryption maps detected; merging field rules fail-safe', {
-        entityId: key.entityId,
-        tenantId: key.tenantId,
-        organizationId: key.organizationId,
-        count: records.length,
-      })
+
+    const map = this.applySystemDefault(this.pickMostSpecificMap(key, records), key.entityId)
+    const mapRules = normalizeEncryptedFieldRules(map?.fields)
+    if (!includeAllOrganizations) return { map, fields: mapRules }
+    const organizationRows = records.filter((record) => (
+      sameScopeId(readScopeId(record, 'tenant_id', 'tenantId'), key.tenantId)
+      && readScopeId(record, 'organization_id', 'organizationId') !== null
+    ))
+    const organizationRules = mergeEncryptedFieldRules(
+      organizationRows.map((record) => normalizeEncryptedFieldRules(readEncryptedFieldsJson(record))),
+    )
+    return { map, fields: mergeEncryptedFieldRules([mapRules, organizationRules]) }
+  }
+
+  private pickMostSpecificMap(key: MapCacheKey, records: Record<string, unknown>[]): EncryptionMapRecord | null {
+    const candidates: MapCacheKey[] = [
+      key,
+      { entityId: key.entityId, tenantId: key.tenantId, organizationId: null },
+      { entityId: key.entityId, tenantId: null, organizationId: null },
+    ]
+    for (const candidate of candidates) {
+      const matches = records.filter((record) => (
+        sameScopeId(readScopeId(record, 'tenant_id', 'tenantId'), candidate.tenantId)
+        && sameScopeId(readScopeId(record, 'organization_id', 'organizationId'), candidate.organizationId)
+      ))
+      if (!matches.length) {
+        debug('🔍 encmap.miss', {
+          entityId: candidate.entityId,
+          tenantId: candidate.tenantId,
+          organizationId: candidate.organizationId,
+        })
+        continue
+      }
+      if (matches.length > 1) {
+        logger.warn('Duplicate live encryption maps detected; merging field rules fail-safe', {
+          entityId: candidate.entityId,
+          tenantId: candidate.tenantId,
+          organizationId: candidate.organizationId,
+          count: matches.length,
+        })
+      }
+      return {
+        entityId: String(matches[0].entity_id ?? matches[0].entityId ?? key.entityId),
+        fields: mergeEncryptedFieldRules(matches.map((record) => normalizeEncryptedFieldRules(readEncryptedFieldsJson(record)))),
+      }
     }
-    return {
-      entityId: String(records[0].entity_id ?? records[0].entityId ?? key.entityId),
-      fields: mergeEncryptedFieldRules(records.map((record) => normalizeEncryptedFieldRules(readEncryptedFieldsJson(record)))),
-    }
+    return null
   }
 
   private applySystemDefault(record: EncryptionMapRecord | null, entityId: string): EncryptionMapRecord | null {
@@ -390,113 +449,40 @@ export class TenantDataEncryptionService {
   }
 
   /**
-   * Resolve policy from the canonical table for every decision. Results must not be retained or
-   * shared across calls: no invalidation protocol can make process-local state authoritative after
-   * an independent worker commits a map mutation.
+   * Resolve policy from the canonical table. Nothing is retained across units of work: no
+   * invalidation protocol can make process-local state authoritative after an independent worker
+   * commits a map mutation.
+   *
+   * Within one unit of work — the caller's EntityManager, or its open transaction — repeated
+   * decisions for the same scope share a single read, so loading N rows or running the before/after
+   * hooks of one flush costs one query instead of one per row and hook. That memo dies with the
+   * EntityManager/transaction, is dropped for the EntityManager that writes a map
+   * (`forgetEncryptionPolicyMemo`) and after its flush, and for every EntityManager when this
+   * process invalidates a map. Calls that do not hand in an EntityManager fall back to the
+   * long-lived service EntityManager and are never memoized.
    */
-  private async getMap(key: MapCacheKey, em?: EntityManager): Promise<EncryptionMapRecord | null> {
-    const candidates: MapCacheKey[] = [
-      key,
-      { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
-      { entityId: key.entityId, tenantId: null, organizationId: null },
-    ]
-    const visited = new Set<string>()
-    for (const candidate of candidates) {
-      const tag = cacheKey(candidate)
-      if (visited.has(tag)) continue
-      visited.add(tag)
-      while (true) {
-        const epoch = globalEncryptionMapEpochs.get(tag) ?? 0
-        const loaded = await this.fetchMap(candidate, em)
-        if ((globalEncryptionMapEpochs.get(tag) ?? 0) !== epoch) continue
-        if (loaded) return this.applySystemDefault(loaded, key.entityId)
-        debug('🔍 encmap.miss', {
-          entityId: candidate.entityId,
-          tenantId: candidate.tenantId,
-          organizationId: candidate.organizationId,
-        })
-        break
-      }
-    }
-    return this.applySystemDefault(null, key.entityId)
-  }
-
-  private async fetchAllOrganizationFieldRules(
-    entityId: string,
-    tenantId: string | null,
-    em?: EntityManager,
-  ): Promise<EncryptedFieldRule[]> {
-    const conn = getSqlExecutor(em ?? this.em)
-    if (!conn) return []
-    const sql = `
-      select fields_json
-      from encryption_maps
-      where entity_id = ?
-        and tenant_id is not distinct from ?
-        and organization_id is not null
-        and is_active = true
-        and deleted_at is null
-      order by organization_id asc, created_at asc, id asc
-    `
-    const rows = await conn.execute(sql, [entityId, tenantId])
-    if (!Array.isArray(rows) || rows.length === 0) return []
-    const groups: EncryptedFieldRule[][] = []
-    for (const row of rows) {
-      if (!row || typeof row !== 'object') continue
-      groups.push(normalizeEncryptedFieldRules(readEncryptedFieldsJson(row as Record<string, unknown>)))
-    }
-    return mergeEncryptedFieldRules(groups)
-  }
-
-  /** Canonical aggregate lookup; deliberately has no positive, negative, or shared-cache reuse. */
-  private async getAllOrganizationFieldRules(
-    entityId: string,
-    tenantId: string | null,
-    em?: EntityManager,
-  ): Promise<EncryptedFieldRule[]> {
-    const tag = allOrganizationsCacheKey(entityId, tenantId)
-    while (true) {
-      const epoch = globalEncryptionMapEpochs.get(tag) ?? 0
-      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId, em)
-      if ((globalEncryptionMapEpochs.get(tag) ?? 0) !== epoch) continue
-      return fields
-    }
+  private resolvePolicy(key: MapCacheKey, em?: EntityManager): Promise<ResolvedEncryptionPolicy> {
+    if (!em) return this.loadPolicy(key)
+    const memo = getEncryptionPolicyMemo(em)
+    const tag = cacheKey(key)
+    const pending = memo.get(tag)
+    if (pending) return pending
+    const loading = this.loadPolicy(key, em)
+    memo.set(tag, loading)
+    loading.catch(() => {
+      if (memo.get(tag) === loading) memo.delete(tag)
+    })
+    return loading
   }
 
   /**
-   * The field rules that are actually encrypted at rest for a scope.
-   *
-   * At the tenant-wide scope (`organizationId == null`) `getMap` resolves only the base map, but
-   * rows of the same entity may carry fields declared solely by an organization-scoped map. Reading
-   * or writing such a row with the base map alone stores those fields as plaintext and hands
-   * callers back undecrypted ciphertext, so every scope-aware path unions the organization maps in
-   * (#5949) — the same set `getEncryptedFieldNames` has reported since #2282.
+   * Drops the policy reads memoized by every EntityManager of this process. Map writers call it
+   * after their write commits; readers in other processes never depended on it, because policy is
+   * not cached across units of work.
    */
-  private async resolveFieldRulesForScope(
-    entityId: string,
-    tenantId: string | null,
-    organizationId: string | null,
-    map: EncryptionMapRecord | null,
-    em?: EntityManager,
-  ): Promise<EncryptedFieldRule[]> {
-    const mapRules = normalizeEncryptedFieldRules(map?.fields)
-    if (organizationId != null) return mapRules
-    return mergeEncryptedFieldRules([mapRules, await this.getAllOrganizationFieldRules(entityId, tenantId, em)])
-  }
-
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
-    const exactTag = cacheKey({ entityId, tenantId, organizationId })
-    const aggregateTag = allOrganizationsCacheKey(entityId, tenantId)
-    for (const tag of [exactTag, aggregateTag]) {
-      globalEncryptionMapEpochs.set(tag, (globalEncryptionMapEpochs.get(tag) ?? 0) + 1)
-    }
-    if (!this.cache) return
-    const policyVersionTag = encryptionMapPolicyVersionCacheKey(entityId)
-    await Promise.all([
-      this.cache.delete(exactTag),
-      this.cache.delete(aggregateTag),
-      this.cache.set(policyVersionTag, randomUUID(), { ttl: 0 }),
-    ])
+    debug('♻️ encmap.invalidate', { entityId, tenantId, organizationId })
+    invalidateEncryptionPolicyMemos()
   }
 
   // Force a flush of a tenant's cached DEK across the service-level cache and the
@@ -528,12 +514,8 @@ export class TenantDataEncryptionService {
     } else if (!this.isEnabled()) {
       return []
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, options?.em)
-    const fields = await this.resolveFieldRulesForScope(
-      entityId,
-      tenantId ?? null,
-      organizationId ?? null,
-      map,
+    const { fields } = await this.resolvePolicy(
+      { entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null },
       options?.em,
     )
     return fields.map((rule) => rule.field)
@@ -629,12 +611,8 @@ export class TenantDataEncryptionService {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, options?.em)
-    const fields = await this.resolveFieldRulesForScope(
-      entityId,
-      tenantId ?? null,
-      organizationId ?? null,
-      map,
+    const { map, fields } = await this.resolvePolicy(
+      { entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null },
       options?.em,
     )
     if (!fields.length) {
@@ -662,12 +640,8 @@ export class TenantDataEncryptionService {
       debug('⚪️ decrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, options?.em)
-    const fields = await this.resolveFieldRulesForScope(
-      entityId,
-      tenantId ?? null,
-      organizationId ?? null,
-      map,
+    const { map, fields } = await this.resolvePolicy(
+      { entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null },
       options?.em,
     )
     if (!fields.length) {

@@ -23,21 +23,21 @@ const FOREIGN_DEK: TenantDek = {
   fetchedAt: Date.parse('2026-07-10T00:00:00.000Z'),
 }
 
+async function executeDocumentLinkPolicy(): Promise<Array<Record<string, unknown>>> {
+  const map = defaultEncryptionMaps.find(
+    (entry) => entry.entityId === 'documents:document_entity_link',
+  )
+  if (!map) throw new Error('[internal] DocumentEntityLink encryption map is missing')
+  return [{ entity_id: map.entityId, tenant_id: null, organization_id: null, fields_json: map.fields }]
+}
+
 function createEncryptionService(): TenantDataEncryptionService {
   const kms: KmsService = {
     isHealthy: () => true,
     getTenantDek: async (tenantId) => tenantId === TENANT_ID ? FIXED_DEK : FOREIGN_DEK,
     createTenantDek: async (tenantId) => tenantId === TENANT_ID ? FIXED_DEK : FOREIGN_DEK,
   }
-  const service = new TenantDataEncryptionService({} as never, { kms })
-  const map = defaultEncryptionMaps.find(
-    (entry) => entry.entityId === 'documents:document_entity_link',
-  )
-  if (!map) throw new Error('[internal] DocumentEntityLink encryption map is missing')
-  ;(service as unknown as {
-    getMap: () => Promise<typeof map>
-  }).getMap = async () => map
-  return service
+  return new TenantDataEncryptionService({ execute: executeDocumentLinkPolicy } as never, { kms })
 }
 
 describe('DocumentEntityLink label encryption', () => {
@@ -125,6 +125,7 @@ describe('DocumentEntityLink label encryption', () => {
     })
     const em = {
       find,
+      execute: executeDocumentLinkPolicy,
       getMetadata: () => ({ find: () => metadata }),
     }
     const load = (tenantId: string, organizationId: string) => findWithDecryption(

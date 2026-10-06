@@ -32,9 +32,14 @@ async function cacheIsUnavailable(): Promise<boolean> {
 
 let hasBlockedExactRead = false
 
+// One statement resolves a scope: `[entity, tenant]` is the tenant-wide read that also returns
+// every organization-scoped row for the all-organizations aggregate, `[entity, tenant, org]` the
+// exact read.
 const execute = async (_sql: string, params: readonly unknown[] = []) => {
   const state = await readPolicyState()
-  if (params.length === 2) return [{ fields_json: state.aggregate }]
+  if (params.length === 2) {
+    return [{ entity_id: entityId, tenant_id: tenantId, organization_id: 'org-aggregate', fields_json: state.aggregate }]
+  }
   if (params[2] === organizationId) {
     if (!hasBlockedExactRead && (await readFile(exactReadBlockPath, 'utf8')).trim() === 'blocked') {
       hasBlockedExactRead = true
@@ -43,7 +48,7 @@ const execute = async (_sql: string, params: readonly unknown[] = []) => {
         await new Promise((resolve) => setTimeout(resolve, 5))
       }
     }
-    return [{ entity_id: entityId, fields_json: state.exact }]
+    return [{ entity_id: entityId, tenant_id: tenantId, organization_id: organizationId, fields_json: state.exact }]
   }
   return []
 }

@@ -65,7 +65,7 @@ Soft-deleted history is excluded and may contain repeated logical keys. Exactly 
 
 ## API Contracts
 
-`GET /api/entities/encryption` and `POST /api/entities/encryption` retain their methods, URL, payloads, optimistic-lock header behavior, mutation guards, and successful response fields. POST becomes atomic at creation time. GET deterministically represents a duplicate scope during rolling deployment. POST returns an additive generic `503 encryption_map_invalidation_failed` response after a committed write whose cache invalidation cannot complete; it never reports success or exposes the cache backend error.
+`GET /api/entities/encryption` and `POST /api/entities/encryption` retain their methods, URL, payloads, optimistic-lock header behavior, mutation guards, and successful response fields. POST becomes atomic at creation time. GET deterministically represents a duplicate scope during rolling deployment. Post-commit policy invalidation is best-effort: policy is read from canonical state per unit of work, so a failed invalidation is logged and reported but never fails a committed write.
 
 The `entities seed-encryption` command and exported `upsertEncryptionMapSpecs` signature remain compatible.
 
@@ -104,7 +104,7 @@ The `entities seed-encryption` command and exported `upsertEncryptionMapSpecs` s
 
 ## Migration & Backward Compatibility
 
-This is an additive database invariant: no table, column, index, route, command, identifier, type, or import path is removed or renamed. The existing lookup index remains intact. The migration repairs only an invalid state that the public model already treated as a singleton. The management route adds a documented 503 error response for the case that previously returned a false success despite failed invalidation; successful request and response contracts are unchanged.
+This is an additive database invariant: no table, column, index, route, command, identifier, type, or import path is removed or renamed. The existing lookup index remains intact. The migration repairs only an invalid state that the public model already treated as a singleton. Successful request and response contracts are unchanged.
 
 Client action: none. Existing API and CLI callers keep the same contracts.
 
@@ -126,3 +126,4 @@ Operator action: run the normal deployment migration before starting the new app
 - 2026-10-04: Added the auth and integrations writers plus the package-local search reader to the audited inventory; specified fail-closed search lookup/cache behavior.
 - 2026-10-04: Bound canonical upserts to the caller transaction, added post-commit exact/aggregate invalidation for live upgrade actions, and added rollback plus primed hit/miss regressions.
 - 2026-10-04: Spec authored after revalidating the live schema, all materialization entry points, runtime readers, and existing coverage.
+- 2026-10-06: Review follow-up: replaced cross-call caches with a per-unit-of-work policy memo (one fallback-chain query per scope per EntityManager/transaction), made the expected-version upsert conditional (race-safe 409), and made post-commit invalidation best-effort (no 503 after a committed write).
