@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
 import { Attachment, AttachmentPartition } from '../../data/entities'
-import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '../../lib/imageUrls'
+import { resolveAttachmentThumbnailUrl, slugifyAttachmentFileName } from '../../lib/imageUrls'
 import { readAttachmentMetadata } from '../../lib/metadata'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../lib/assignmentDetails'
@@ -118,7 +118,7 @@ export async function GET(req: Request) {
     const fileName = record.fileName || ''
     const isImage = typeof record.mimeType === 'string' && record.mimeType.toLowerCase().startsWith('image/')
     const thumbnailUrl = isImage
-      ? buildAttachmentImageUrl(record.id, {
+      ? resolveAttachmentThumbnailUrl(record, {
           width: 200,
           height: 200,
           slug: slugifyAttachmentFileName(fileName),
