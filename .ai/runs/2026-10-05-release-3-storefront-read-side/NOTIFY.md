@@ -118,3 +118,11 @@
 ## 2026-10-06T12:26:53Z — checkpoint 10 (Phase 5 close)
 - Visibility Phase 2 gate green: TC-ECOM-005 3/3, TC-ECOM-01 9/9 (unmodified), TC-ECOM-00 15/15, full core 19561.
 - Env: restarted the ephemeral env on a forced rebuild (previous session's env stopped). Integration runs need `DATABASE_URL` exported alongside `BASE_URL`.
+
+## 2026-10-06T12:50:00Z — step 6.1 scope decisions
+- Key format unchanged (`options.<optionCode>.label`, `options.<optionCode>.choices.<choiceCode>.label`). The two helpers moved to `catalog/lib/optionSchemaTranslations.ts` (single source of truth); `ecommerce/lib/storefrontDetail.ts` re-exports them under the same names.
+- The translations module is generic over static field lists, so per-option keys cannot be declared statically. Added a record-driven expander registry in shared (`registerTranslatableFieldExpander`) and `resolveFieldList(..., baseValues)` now appends expanded keys (with base values and labels) after the registered ones. Catalog registers its expander as a top-level side effect of `catalog/translations.ts` (that file is already imported by the generated `translations-fields.generated.ts` on server and client), so no generator change was needed. Works in the standalone Translation Manager (record from `/api/catalog/option-schemas`) and in the embedded widget when a host passes the record as `baseValues`.
+- Translation PUT validator field-key max raised 100 -> 400 (additive relaxation): a choice key can reach 150 + 150 chars of codes.
+- No new user-facing strings (expansion labels are record data such as `Color › Red`), so no locale changes; `yarn i18n:check-sync` is green.
+- Mocks of `@open-mercato/shared/lib/localization/translatable-fields` must now also provide `registerTranslatableFieldExpander` (updated the one existing mock).
+

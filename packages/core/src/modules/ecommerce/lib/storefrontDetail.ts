@@ -12,6 +12,10 @@ import {
 } from '@open-mercato/core/modules/catalog/data/entities'
 import type { CatalogProductOptionSchema } from '@open-mercato/core/modules/catalog/data/types'
 import { PRODUCT_SCOPE_KEYS_DOC_KEY, categoryScopeKey } from '@open-mercato/core/modules/catalog/lib/productScopeKeys'
+import {
+  optionChoiceLabelTranslationField,
+  optionLabelTranslationField,
+} from '@open-mercato/core/modules/catalog/lib/optionSchemaTranslations'
 import { buildStorefrontProductScope, composeStorefrontProductFilters } from './storefrontProductScope'
 import {
   resolveStorefrontPrices,
@@ -44,6 +48,8 @@ import {
   type TranslationOverlay,
 } from './storefrontCatalogSupport'
 import type { StoreContext } from './types'
+
+export { optionChoiceLabelTranslationField, optionLabelTranslationField }
 
 /** Storefront Public API §5.2: `relatedProducts` is capped at 8. */
 export const STOREFRONT_RELATED_PRODUCTS_LIMIT = 8
@@ -110,16 +116,6 @@ export type GetStorefrontProductDetailOptions = {
   /** Overrides `ctx.effectiveLocale` for the overlay chain when it is one of the store's supported locales. */
   locale?: string | null
   date?: Date
-}
-
-/** Translation field carrying an option label of an option schema template (D20). */
-export function optionLabelTranslationField(optionCode: string): string {
-  return `options.${optionCode}.label`
-}
-
-/** Translation field carrying a choice label of an option schema template (D20). */
-export function optionChoiceLabelTranslationField(optionCode: string, choiceCode: string): string {
-  return `options.${optionCode}.choices.${choiceCode}.label`
 }
 
 type DetailRuntime = {

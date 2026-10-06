@@ -2,6 +2,8 @@ import {
   registerTranslatableFields,
   getTranslatableFields,
   getTranslatableFieldsRegistry,
+  registerTranslatableFieldExpander,
+  getTranslatableFieldExpander,
 } from '../translatable-fields'
 
 // The registry is global mutable state — we snapshot before all tests
@@ -65,5 +67,20 @@ describe('translatable fields registry', () => {
     registerTranslatableFields({ 'b:second': ['f2'] })
     expect(getTranslatableFields('a:first')).toEqual(['f1'])
     expect(getTranslatableFields('b:second')).toEqual(['f2'])
+  })
+})
+
+describe('translatable field expander registry', () => {
+  it('returns undefined for an entity type without an expander', () => {
+    expect(getTranslatableFieldExpander('expander_test:none')).toBeUndefined()
+  })
+
+  it('returns the registered expander and keeps earlier registrations', () => {
+    const first = jest.fn(() => [{ key: 'a.b' }])
+    const second = jest.fn(() => [])
+    registerTranslatableFieldExpander('expander_test:first', first)
+    registerTranslatableFieldExpander('expander_test:second', second)
+    expect(getTranslatableFieldExpander('expander_test:first')).toBe(first)
+    expect(getTranslatableFieldExpander('expander_test:second')).toBe(second)
   })
 })

@@ -67,7 +67,7 @@
 | 5 | 5.1 | Channel binding require_authentication + resolver short-circuit + intersectScopes | dispatch:standard | done | 457bab312e |
 | 5 | 5.2 | Generate + review require_authentication migration | inline | done | a6761b9044 |
 | 5 | 5.3 | Integration tests: authentication gate; isolation suite unchanged (Visibility Phase 2 gate) | dispatch:standard | done | 283603f0d8 |
-| 6 | 6.1 | Catalog option and choice label translations | dispatch:standard | todo | — |
+| 6 | 6.1 | Catalog option and choice label translations | dispatch:standard | done | pending |
 | 6 | 6.2 | ecommerce lib/storefrontFacets.ts with cross-exclusion | dispatch:capable | todo | — |
 | 6 | 6.3 | Categories: /categories and /categories/:slug | dispatch:standard | todo | — |
 | 6 | 6.4 | /search/suggest + search-module integration (tokens, pgvector) | dispatch:capable | todo | — |

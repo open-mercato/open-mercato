@@ -6,6 +6,7 @@ jest.mock('@open-mercato/shared/lib/i18n/locale-registry', () => ({
 
 jest.mock('@open-mercato/shared/lib/localization/translatable-fields', () => ({
   registerTranslatableFields: jest.fn(),
+  registerTranslatableFieldExpander: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/localization/overlay-plugin', () => ({

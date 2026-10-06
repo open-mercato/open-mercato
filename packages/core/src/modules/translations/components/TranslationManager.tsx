@@ -190,8 +190,8 @@ export function TranslationManager({
   })
 
   const fieldList = React.useMemo(
-    () => resolveFieldList(entityType, propTranslatableFields, fieldDefs as Array<{ key: string; kind: string; label?: string }>),
-    [entityType, propTranslatableFields, fieldDefs],
+    () => resolveFieldList(entityType, propTranslatableFields, fieldDefs as Array<{ key: string; kind: string; label?: string }>, baseValues),
+    [entityType, propTranslatableFields, fieldDefs, baseValues],
   )
 
   const {
@@ -440,7 +440,7 @@ export function TranslationManager({
           </thead>
           <tbody>
             {fieldList.map((field) => {
-              const baseVal = getBaseValue(field.key)
+              const baseVal = field.baseValue ?? getBaseValue(field.key)
               const translatedVal = localeTranslations[field.key] ?? ''
 
               return (

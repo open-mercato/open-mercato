@@ -23,3 +23,30 @@ export function getTranslatableFields(entityType: string): string[] | undefined 
 export function getTranslatableFieldsRegistry(): TranslatableFieldsRegistry {
   return { ...getGlobal() }
 }
+
+export type TranslatableFieldExpansion = {
+  key: string
+  label?: string
+  baseValue?: string
+}
+
+export type TranslatableFieldExpander = (record: Record<string, unknown>) => TranslatableFieldExpansion[]
+
+type TranslatableFieldExpanderRegistry = Record<string, TranslatableFieldExpander>
+
+const EXPANDER_GLOBAL_KEY = '__openMercatoTranslatableFieldExpanders__'
+
+type ExpanderGlobalHost = { [EXPANDER_GLOBAL_KEY]?: TranslatableFieldExpanderRegistry }
+
+function getExpanderGlobal(): TranslatableFieldExpanderRegistry {
+  return (globalThis as ExpanderGlobalHost)[EXPANDER_GLOBAL_KEY] ?? {}
+}
+
+export function registerTranslatableFieldExpander(entityType: string, expander: TranslatableFieldExpander): void {
+  const host = globalThis as ExpanderGlobalHost
+  host[EXPANDER_GLOBAL_KEY] = { ...getExpanderGlobal(), [entityType]: expander }
+}
+
+export function getTranslatableFieldExpander(entityType: string): TranslatableFieldExpander | undefined {
+  return getExpanderGlobal()[entityType]
+}

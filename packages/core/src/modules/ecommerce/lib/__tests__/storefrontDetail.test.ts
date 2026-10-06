@@ -17,6 +17,10 @@ import {
 } from '@open-mercato/core/modules/catalog/data/entities'
 import { DefaultCatalogPricingService } from '@open-mercato/core/modules/catalog/services/catalogPricingService'
 import { batchLoadTranslationsMany } from '@open-mercato/core/modules/translations/lib/batch'
+import {
+  optionChoiceLabelTranslationField as catalogChoiceLabelField,
+  optionLabelTranslationField as catalogOptionLabelField,
+} from '@open-mercato/core/modules/catalog/lib/optionSchemaTranslations'
 import { ecommerceStoreSettingsSchema } from '../../data/validators'
 import { buildStorefrontProductScope, composeStorefrontProductFilters } from '../storefrontProductScope'
 import {
@@ -849,6 +853,13 @@ describe('getStorefrontProductDetail — overlays (§7)', () => {
       { code: 'red', label: 'Czerwony' },
       { code: 'blue', label: 'Blue' },
     ])
+  })
+
+  it('reads option and choice labels from the catalog translation field keys', () => {
+    expect(optionLabelTranslationField('color')).toBe('options.color.label')
+    expect(optionChoiceLabelTranslationField('color', 'red')).toBe('options.color.choices.red.label')
+    expect(optionLabelTranslationField).toBe(catalogOptionLabelField)
+    expect(optionChoiceLabelTranslationField).toBe(catalogChoiceLabelField)
   })
 
   it('falls back from the requested locale to the store default and then to the base field', async () => {
