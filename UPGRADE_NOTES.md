@@ -24,6 +24,19 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Business rule and rule set PUTs keep `enabled` / `priority` / `version` when they are omitted (#6940)
+
+`PUT /api/business_rules/rules` used to reset an omitted `enabled` to `true`, `priority` to `100` and
+`version` to `1`, and `PUT /api/business_rules/sets` reset an omitted `enabled` to `true`. The update
+schemas (`updateBusinessRuleSchema`, `createLocalizedUpdateBusinessRuleSchema`, `updateRuleSetSchema`)
+inherited the create-time defaults, so disabling a rule also reset its priority and renaming a
+disabled rule set re-enabled it. Omitted fields are now left untouched; the create schemas keep their
+defaults.
+
+- A caller that relied on omission to reset these fields must send the values explicitly.
+- Rules and rule sets already changed by a partial update are not repaired. Check `enabled` and
+  `priority` on the business rules pages and set them again where needed.
+
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 
 `directory.organizations.update` (and so `PUT /api/directory/organizations` and
