@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -82,6 +83,8 @@ const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, Atta
   },
 }
 
+const ATTACHMENT_ID_SCHEMA = z.string().uuid()
+
 const UPLOAD_FAILED_MESSAGE: AttachmentErrorMessage = {
   key: 'attachments.errors.uploadFailed',
   fallback: 'Attachment upload failed.',
@@ -144,6 +147,25 @@ export type ReadScopedAttachmentResult = {
   mimeType: string
 }
 
+/**
+ * Server-side read for module code that has already decided, from its own
+ * records, that a file may be published — for example a module serving its
+ * own public logo to anonymous visitors. There is no principal: the caller's
+ * ownership record is the authorization, so the lookup is pinned to the
+ * caller's tenant and organization at the database boundary and the row must
+ * belong to `expectedOwner` in `expectedPartitionCode`. Resolve the attachment
+ * id and the owner from the module's own records, never from request input.
+ */
+export type ReadScopedAttachmentForOwnerInput = {
+  attachmentId: string
+  tenantId: string
+  organizationId: string
+  expectedOwner: AttachmentOwner
+  expectedAssignment?: AttachmentAssignment
+  expectedPartitionCode: string
+  forceDownload?: boolean
+}
+
 export type ReleaseScopedAttachmentInput = {
   attachmentId: string
   tenantId: string
@@ -169,6 +191,7 @@ export interface AttachmentService {
   readUploadForm?(request: Request): Promise<FormData>
   createScoped(input: CreateScopedAttachmentInput): Promise<CreatedScopedAttachment>
   readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult>
+  readScopedForOwner?(input: ReadScopedAttachmentForOwnerInput): Promise<ReadScopedAttachmentResult>
   releaseScoped?(
     input: ReleaseScopedAttachmentInput,
     options?: { em?: EntityManager; flush?: boolean },
@@ -362,6 +385,55 @@ export class DefaultAttachmentService implements AttachmentService {
     if (input.requirePrivatePartition && partition.isPublic) {
       throw new CrudHttpError(403, { error: 'Attachment partition is not accessible for this resource' })
     }
+    return this.serveOwnedAttachment(attachment, input)
+  }
+
+  async readScopedForOwner(input: ReadScopedAttachmentForOwnerInput): Promise<ReadScopedAttachmentResult> {
+    const tenantId = typeof input.tenantId === 'string' ? input.tenantId.trim() : ''
+    const organizationId = typeof input.organizationId === 'string' ? input.organizationId.trim() : ''
+    const partitionCode = typeof input.expectedPartitionCode === 'string' ? input.expectedPartitionCode.trim() : ''
+    if (!tenantId || !organizationId || !partitionCode || !input.expectedOwner?.entityId || !input.expectedOwner?.recordId) {
+      throw new CrudHttpError(500, {
+        error: '[internal] Owner-scoped attachment reads require a tenant, organization, partition and owner',
+      })
+    }
+    if (!ATTACHMENT_ID_SCHEMA.safeParse(input.attachmentId).success) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+    const scope = { tenantId, organizationId }
+    const attachment = await findOneWithDecryption(
+      this.em,
+      Attachment,
+      { id: input.attachmentId, tenantId, organizationId },
+      undefined,
+      scope,
+    )
+    if (!attachment || attachment.tenantId !== tenantId || attachment.organizationId !== organizationId) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+    const partition = await findOneWithDecryption(
+      this.em,
+      AttachmentPartition,
+      { code: attachment.partitionCode },
+      undefined,
+      scope,
+    )
+    if (!partition) throw new CrudHttpError(500, { error: '[internal] Attachment partition is not configured' })
+    if (!partitionMatchesScope(partition, tenantId, organizationId)) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+    return this.serveOwnedAttachment(attachment, { ...input, expectedPartitionCode: partitionCode })
+  }
+
+  private async serveOwnedAttachment(
+    attachment: Attachment,
+    input: {
+      expectedOwner: AttachmentOwner
+      expectedAssignment?: AttachmentAssignment
+      expectedPartitionCode?: string
+      forceDownload?: boolean
+    },
+  ): Promise<ReadScopedAttachmentResult> {
     if (input.expectedPartitionCode && attachment.partitionCode !== input.expectedPartitionCode) {
       throw new CrudHttpError(404, { error: 'Attachment not found' })
     }
