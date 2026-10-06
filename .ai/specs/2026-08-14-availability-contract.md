@@ -309,7 +309,7 @@ Standard scoped columns. Exactly one of `variant_id` / `product_id` / neither (s
 | `store_id` | uuid, nullable | null = applies to all stores in the organization |
 | `product_id` | uuid, nullable | `catalog.CatalogProduct.id` |
 | `variant_id` | uuid, nullable | `catalog.CatalogProductVariant.id` |
-| `is_stock_managed` | boolean | `false` → always `not_tracked` |
+| `is_stock_managed` | boolean, nullable | `false` → always `not_tracked`; `null` = inherit from the next row in §5.2 |
 | `allow_backorder` | boolean | Default `false` |
 | `backorder_lead_time_days` | integer, nullable | Displayed to the buyer; required when `allow_backorder` |
 | `preorder_release_at` | timestamptz, nullable | Before this instant the state is `preorder` |
@@ -599,6 +599,11 @@ Ops/support keep abandoned holds from locking up stock.
 ---
 
 ## 18) Changelog
+
+### 2026-09-30 (review fixes on PR #6709)
+- §5.1: `is_stock_managed` is nullable and cascades like the other nullable fields; `null` defers to the next less-specific row and finally to the §5.2 module default. A store-default row created only to set a threshold no longer switches stock tracking off for every product. Migration `Migration20260930120000_availability`.
+- §5.2: when `wms` runs without the `availability` module, its open policy default derives `is_stock_managed` from the inventory profiles it already loaded (tracked only when a `ProductInventoryProfile` exists), matching the module default.
+- Providers resolve their dependencies from the calling request's container (`resolveAvailability(query, { container })`) instead of a closure over the container that registered them.
 
 ### 2026-09-22 (Phase 1 + Phase 2 implemented)
 - Implemented §13 Phase 1 (base contract in `packages/shared/src/lib/availability/`, the `availability` module's `AvailabilityPolicy` + 6-level resolution chain + admin CRUD + admin check tool) and Phase 2 (`wms`'s `AvailabilityProvider`: batched sellable-quantity aggregation, safety-stock-once-per-variant, low-stock thresholds, product rollup, 60s-TTL cache with balance-change invalidation). Phase 3 (reservations) remains unimplemented — this spec stays in `.ai/specs/`, not `.ai/specs/implemented/`.

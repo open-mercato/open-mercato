@@ -1,12 +1,14 @@
+import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
 import { AvailabilityPolicy } from '../data/entities'
 import {
@@ -18,6 +20,7 @@ import {
   type AvailabilityPolicyUpdateInput,
 } from '../data/validators'
 import { buildAvailabilityPolicyCommandWhere, ensureAvailabilityPolicyCommandScope } from './scope'
+import { findCatalogTargetIssue, type CatalogTarget, type CatalogTargetIssue } from '../lib/catalogTarget'
 
 const AVAILABILITY_POLICY_ENTITY_ID = E.availability.availability_policy
 
@@ -39,7 +42,7 @@ type AvailabilityPolicySnapshot = {
   storeId: string | null
   productId: string | null
   variantId: string | null
-  isStockManaged: boolean
+  isStockManaged: boolean | null
   allowBackorder: boolean
   backorderLeadTimeDays: number | null
   preorderReleaseAt: string | null
@@ -63,7 +66,7 @@ function toSnapshot(record: AvailabilityPolicy): AvailabilityPolicySnapshot {
     storeId: record.storeId ?? null,
     productId: record.productId ?? null,
     variantId: record.variantId ?? null,
-    isStockManaged: !!record.isStockManaged,
+    isStockManaged: record.isStockManaged ?? null,
     allowBackorder: !!record.allowBackorder,
     backorderLeadTimeDays: record.backorderLeadTimeDays ?? null,
     preorderReleaseAt: record.preorderReleaseAt ? record.preorderReleaseAt.toISOString() : null,
@@ -78,11 +81,16 @@ function toSnapshot(record: AvailabilityPolicy): AvailabilityPolicySnapshot {
   }
 }
 
+const policyIdSchema = z.string().uuid()
+
+// `prepare` runs before `execute` parses the input, so a malformed id must not reach
+// Postgres here (a uuid column cast error is a 500); `execute`'s schema rejects it.
 async function loadSnapshot(
   em: EntityManager,
   id: string,
   ctx: CommandRuntimeContext,
 ): Promise<AvailabilityPolicySnapshot | null> {
+  if (!policyIdSchema.safeParse(id).success) return null
   const record = await em.findOne(AvailabilityPolicy, buildAvailabilityPolicyCommandWhere<AvailabilityPolicy>(ctx, { id }))
   if (!record) return null
   ensureAvailabilityPolicyCommandScope(ctx, record)
@@ -106,11 +114,70 @@ function applyUndoSnapshot(record: AvailabilityPolicy, snapshot: AvailabilityPol
   record.updatedAt = new Date()
 }
 
+async function emitPolicyUndoSideEffects(
+  ctx: CommandRuntimeContext,
+  action: 'created' | 'updated' | 'deleted',
+  record: AvailabilityPolicy,
+): Promise<void> {
+  const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action,
+    entity: record,
+    identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+    events: policyCrudEvents,
+  })
+}
+
+async function throwDuplicateTargetConflict(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw conflict(translate('availability.policies.errors.duplicateTarget', 'A policy already exists for this store/product/variant combination.'))
+}
+
+const catalogTargetIssueMessages: Record<CatalogTargetIssue, { key: string; fallback: string }> = {
+  productNotFound: { key: 'availability.errors.productNotFound', fallback: 'No such product' },
+  variantNotFound: { key: 'availability.errors.variantNotFound', fallback: 'No such variant' },
+  variantProductMismatch: {
+    key: 'availability.check.errors.variantProductMismatch',
+    fallback: 'The variant does not belong to the selected product',
+  },
+}
+
+// A policy row naming a variant of another product, or a missing variant, would silently
+// decide another item's availability. A row for a product the catalog does not (yet)
+// have decides nothing, so the product itself is not looked up.
+async function assertPolicyCatalogTarget(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  target: CatalogTarget,
+): Promise<void> {
+  const issue = await findCatalogTargetIssue(em, ctx.container, target, { checkProduct: false })
+  if (!issue) return
+  const { translate } = await resolveTranslations()
+  const message = catalogTargetIssueMessages[issue]
+  throw badRequest(translate(message.key, message.fallback))
+}
+
+async function flushUndo(em: EntityManager): Promise<void> {
+  try {
+    await em.flush()
+  } catch (err) {
+    if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) await throwDuplicateTargetConflict()
+    throw err
+  }
+}
+
 const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { policyId: string }> = {
   id: 'availability.policies.create',
   async execute(input, ctx) {
     const parsed = availabilityPolicyCreateSchema.parse(input)
     ensureAvailabilityPolicyCommandScope(ctx, parsed)
+    await assertPolicyCatalogTarget((ctx.container.resolve('em') as EntityManager).fork(), ctx, {
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      productId: parsed.productId,
+      variantId: parsed.variantId,
+    })
 
     const record = new AvailabilityPolicy()
     record.organizationId = parsed.organizationId
@@ -118,7 +185,7 @@ const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { polic
     record.storeId = parsed.storeId ?? null
     record.productId = parsed.productId ?? null
     record.variantId = parsed.variantId ?? null
-    record.isStockManaged = parsed.isStockManaged ?? false
+    record.isStockManaged = parsed.isStockManaged ?? null
     record.allowBackorder = parsed.allowBackorder ?? false
     record.backorderLeadTimeDays = parsed.backorderLeadTimeDays ?? null
     record.preorderReleaseAt = parsed.preorderReleaseAt ?? null
@@ -143,10 +210,7 @@ const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { polic
         phases: [({ em }) => { em.persist(record) }],
       })
     } catch (err) {
-      if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) {
-        const { translate } = await resolveTranslations()
-        throw conflict(translate('availability.policies.errors.duplicateTarget', 'A policy already exists for this store/product/variant combination.'))
-      }
+      if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) await throwDuplicateTargetConflict()
       throw err
     }
 
@@ -179,6 +243,7 @@ const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { polic
     if (!record) return
     record.deletedAt = new Date()
     await em.flush()
+    await emitPolicyUndoSideEffects(ctx, 'deleted', record)
   },
 }
 
@@ -211,6 +276,14 @@ const updatePolicyCommand: CommandHandler<AvailabilityPolicyUpdateInput, { polic
       maxOrderQuantity: parsed.maxOrderQuantity !== undefined ? parsed.maxOrderQuantity : record.maxOrderQuantity,
     }
     availabilityPolicyMergedConstraintsSchema.parse(merged)
+    if (parsed.productId !== undefined || parsed.variantId !== undefined) {
+      await assertPolicyCatalogTarget(em, ctx, {
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+        productId: merged.productId,
+        variantId: merged.variantId,
+      })
+    }
 
     try {
       await runCrudCommandWrite({
@@ -245,10 +318,7 @@ const updatePolicyCommand: CommandHandler<AvailabilityPolicyUpdateInput, { polic
         ],
       })
     } catch (err) {
-      if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) {
-        const { translate } = await resolveTranslations()
-        throw conflict(translate('availability.policies.errors.duplicateTarget', 'A policy already exists for this store/product/variant combination.'))
-      }
+      if (isUniqueViolation(err, 'availability_policies_scope_target_unique')) await throwDuplicateTargetConflict()
       throw err
     }
 
@@ -282,7 +352,8 @@ const updatePolicyCommand: CommandHandler<AvailabilityPolicyUpdateInput, { polic
     const record = await em.findOne(AvailabilityPolicy, { id: before.id })
     if (!record) return
     applyUndoSnapshot(record, before)
-    await em.flush()
+    await flushUndo(em)
+    await emitPolicyUndoSideEffects(ctx, 'updated', record)
   },
 }
 
@@ -347,7 +418,8 @@ const deletePolicyCommand: CommandHandler<{ id: string; organizationId: string; 
     if (!record) return
     record.deletedAt = null
     record.updatedAt = new Date()
-    await em.flush()
+    await flushUndo(em)
+    await emitPolicyUndoSideEffects(ctx, 'created', record)
   },
 }
 

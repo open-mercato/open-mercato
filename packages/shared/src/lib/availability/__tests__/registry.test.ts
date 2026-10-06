@@ -88,7 +88,7 @@ describe('resolveAvailability', () => {
     availabilityProviderRegistry.register(makeProvider(AVAILABILITY_CATALOG_ONLY_PROVIDER_ID, { state: 'not_tracked' }))
     availabilityProviderRegistry.register(makeProvider('wms', { state: 'in_stock' }))
     const moduleConfig: AvailabilityModuleConfigReader = {
-      getValue: async () => 'catalog-only',
+      getValue: async <T,>() => 'catalog-only' as T,
     }
     const result = await resolveAvailability(makeQuery(), { moduleConfig })
     expect(result.byItem['product-1:variant-1'].state).toBe('not_tracked')
@@ -97,7 +97,7 @@ describe('resolveAvailability', () => {
   it('falls back to catalog-only when the selected id is not currently registered', async () => {
     availabilityProviderRegistry.register(makeProvider(AVAILABILITY_CATALOG_ONLY_PROVIDER_ID, { state: 'not_tracked' }))
     const moduleConfig: AvailabilityModuleConfigReader = {
-      getValue: async () => 'some-unregistered-provider',
+      getValue: async <T,>() => 'some-unregistered-provider' as T,
     }
     const result = await resolveAvailability(makeQuery(), { moduleConfig })
     expect(result.byItem['product-1:variant-1'].state).toBe('not_tracked')
@@ -107,6 +107,21 @@ describe('resolveAvailability', () => {
     availabilityProviderRegistry.register(makeProvider('wms', { state: 'in_stock' }))
     const result = await resolveAvailability(makeQuery())
     expect(result.byItem['product-1:variant-1'].state).toBe('in_stock')
+  })
+
+  it('forwards the calling request container to the selected provider', async () => {
+    const getAvailability = jest.fn(async () => ({ byItem: {} }))
+    availabilityProviderRegistry.register({ id: 'wms', getAvailability })
+    const container = { resolve: <T,>(): T => undefined as T }
+    await resolveAvailability(makeQuery(), { container })
+    expect(getAvailability).toHaveBeenCalledWith(makeQuery(), { container })
+  })
+
+  it('passes a null container when the caller supplies none', async () => {
+    const getAvailability = jest.fn(async () => ({ byItem: {} }))
+    availabilityProviderRegistry.register({ id: 'wms', getAvailability })
+    await resolveAvailability(makeQuery())
+    expect(getAvailability).toHaveBeenCalledWith(makeQuery(), { container: null })
   })
 
   it('throws when no provider is registered at all', async () => {

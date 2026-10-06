@@ -935,6 +935,7 @@ export default function EditCatalogProductPage({
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
+            variantCount={variants.length}
           />
         ),
       },
@@ -1384,23 +1385,15 @@ export default function EditCatalogProductPage({
           );
         }
       }
-      await updateCrud("catalog/products", payload);
-      // The update route only returns `{ ok: true }`, so re-fetch the record to pick
-      // up the server-bumped updatedAt and refresh the optimistic-lock token — without
-      // this, a second consecutive save reuses the stale pre-edit updatedAt and the
-      // lock guard falsely reports a conflict (#5985).
-      const refreshedProductRes = await apiCall<ProductResponse>(
-        `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
-      );
-      const refreshedRecord = Array.isArray(refreshedProductRes.result?.items)
-        ? refreshedProductRes.result?.items?.[0]
-        : undefined;
+      const updateResult = await updateCrud("catalog/products", payload);
+      // The update route echoes the server-bumped updatedAt, so refresh the
+      // optimistic-lock token from it — without this, a second consecutive save
+      // reuses the stale pre-edit updatedAt and the lock guard falsely reports a
+      // conflict (#5985).
       const refreshedUpdatedAt =
-        typeof refreshedRecord?.updatedAt === "string"
-          ? refreshedRecord.updatedAt
-          : typeof refreshedRecord?.updated_at === "string"
-            ? refreshedRecord.updated_at
-            : null;
+        typeof updateResult.result?.updatedAt === "string"
+          ? updateResult.result.updatedAt
+          : null;
       // Merge the just-submitted `values` back into `initialValues` too, not only
       // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
       // whenever that prop's identity changes, so leaving the other fields at
@@ -1627,6 +1620,10 @@ type ProductVariantsSectionProps = Omit<
 };
 
 type ProductDimensionsSectionProps = ProductFormGroupProps;
+
+type ProductOptionsSectionProps = ProductFormGroupProps & {
+  variantCount?: number;
+};
 
 function ProductDetailsSection({
   values,
@@ -1923,7 +1920,11 @@ function ProductMetadataSection({ values, setValue }: ProductFormGroupProps) {
   );
 }
 
-function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
+function ProductOptionsSection({
+  values,
+  setValue,
+  variantCount = 0,
+}: ProductOptionsSectionProps) {
   const t = useT();
   const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false);
   const [schemaTemplates, setSchemaTemplates] = React.useState<
@@ -2186,10 +2187,15 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         ))}
         {!values.options?.length ? (
           <p className="text-sm text-muted-foreground">
-            {t(
-              "catalog.products.create.optionsBuilder.empty",
-              "No options yet. Add your first option to generate variants.",
-            )}
+            {variantCount > 0
+              ? t(
+                  "catalog.products.edit.optionsBuilder.emptyWithVariants",
+                  "This product has variants without an option schema. Options are optional.",
+                )
+              : t(
+                  "catalog.products.create.optionsBuilder.empty",
+                  "No options yet. Add your first option to generate variants.",
+                )}
           </p>
         ) : null}
       </div>
