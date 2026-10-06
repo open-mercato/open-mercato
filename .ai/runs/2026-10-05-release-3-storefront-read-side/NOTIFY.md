@@ -108,3 +108,9 @@
 - Public API Phase 1 gate and the release ACCEPTANCE green (TC-ECOM-010..013 9/9, TC-ECOM-001..004 12/12, full unit suites).
 - Spec sync additions: detail query budget 10 with categories (related + breadcrumb); `selectedVariantId` + per-variant `priceTiers`; option label translation key format `options.<code>.label` / `options.<code>.choices.<choice>.label` (6.1 must follow); `featured` sort = newest until a featured rank exists; TTL-only invalidation cases (tags/offers/price kinds/option schemas, deleted variants/prices).
 - SAFETY STOP: 22 Steps landed since resume (3.1–4.9 incl. fix rows). Next: Step 5.1 (require_authentication). Resume with `om-auto-continue-pr-loop 12`.
+
+## 2026-10-06T11:23:00Z — om-auto-continue-pr-loop resume
+- Resumed by: @adeptofvoltron
+- Resume point: 5.1 (source: HANDOFF.md + Tasks table, agree)
+- PR head SHA: 5805b4b8bd
+- Worktree reused (created by the original run). Ephemeral env from the previous session still running (port 41351); rebuild + restart before Phase 5 integration tests.
