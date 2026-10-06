@@ -9,6 +9,7 @@ import { Attachment, AttachmentPartition } from '../data/entities'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
 import type { StorageDriverFactory } from './drivers'
 import { buildAttachmentFileUrl } from './imageUrls'
+import { renderImageRendition, type ImageRenditionSize } from './imageRendition'
 import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
@@ -164,6 +165,13 @@ export type ReadScopedAttachmentForOwnerInput = {
   expectedAssignment?: AttachmentAssignment
   expectedPartitionCode: string
   forceDownload?: boolean
+  /**
+   * Serve a resized rendition instead of the stored bytes, through the same
+   * raster pipeline as `GET /api/attachments/image/{id}` (magic-byte and
+   * dimension checks, Sharp, thumbnail cache). Only inline-safe raster images
+   * have renditions; anything else is a 404.
+   */
+  rendition?: ImageRenditionSize
 }
 
 export type ReleaseScopedAttachmentInput = {
@@ -432,6 +440,7 @@ export class DefaultAttachmentService implements AttachmentService {
       expectedAssignment?: AttachmentAssignment
       expectedPartitionCode?: string
       forceDownload?: boolean
+      rendition?: ImageRenditionSize
     },
   ): Promise<ReadScopedAttachmentResult> {
     if (input.expectedPartitionCode && attachment.partitionCode !== input.expectedPartitionCode) {
@@ -450,16 +459,39 @@ export class DefaultAttachmentService implements AttachmentService {
       }
     }
 
+    if (input.rendition && (input.forceDownload || !canRenderInlineAttachment(attachment.mimeType))) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+
     const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, {
       tenantId: attachment.tenantId ?? '',
       organizationId: attachment.organizationId ?? '',
     })
-    let result: Awaited<ReturnType<typeof driver.read>>
-    try {
-      result = await driver.read(attachment.partitionCode, attachment.storagePath)
-    } catch {
-      throw new CrudHttpError(404, { error: 'File not available' })
+    const readStoredBytes = async () => {
+      try {
+        return await driver.read(attachment.partitionCode, attachment.storagePath)
+      } catch {
+        throw new CrudHttpError(404, { error: 'File not available' })
+      }
     }
+
+    if (input.rendition) {
+      const rendered = await renderImageRendition({
+        attachment,
+        readSource: async () => (await readStoredBytes()).buffer,
+        size: input.rendition,
+      })
+      if (!rendered.ok) throw new CrudHttpError(rendered.status, { error: rendered.error })
+      return {
+        buffer: rendered.buffer,
+        contentType: attachment.mimeType,
+        contentDisposition: buildAttachmentContentDisposition(attachment.fileName, 'inline'),
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+      }
+    }
+
+    const result = await readStoredBytes()
 
     const mimeType = attachment.mimeType || 'application/octet-stream'
     const renderInline = !input.forceDownload && canRenderInlineAttachment(mimeType)

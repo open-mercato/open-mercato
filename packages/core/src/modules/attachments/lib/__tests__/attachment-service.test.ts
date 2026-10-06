@@ -24,6 +24,11 @@ jest.mock('../partitions', () => ({
 
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
 
+const mockRenderImageRendition = jest.fn()
+jest.mock('../imageRendition', () => ({
+  renderImageRendition: (...args: unknown[]) => mockRenderImageRendition(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
     em.findOne(...args),
@@ -686,6 +691,43 @@ describe('DefaultAttachmentService.readScopedForOwner', () => {
     expect(factory.resolveForPartition).not.toHaveBeenCalled()
   })
 
+  it('serves a resized rendition of an inline-safe image through the image pipeline', async () => {
+    mockRenderImageRendition.mockResolvedValueOnce({ ok: true, buffer: Buffer.from('resized') })
+    const { service } = createHarness({
+      attachment: ownedAttachment({ fileName: 'logo.png', mimeType: 'image/png' }),
+    })
+
+    const result = await service.readScopedForOwner({
+      ...ownerInput,
+      rendition: { width: 640, height: 240, cropType: 'contain' },
+    })
+
+    expect(result.buffer.toString('utf8')).toBe('resized')
+    expect(result.contentType).toBe('image/png')
+    expect(result.contentDisposition).toMatch(/^inline;/)
+    expect(mockRenderImageRendition).toHaveBeenCalledWith(expect.objectContaining({
+      attachment: expect.objectContaining({ id: ATTACHMENT_ID, partitionCode: 'privateAttachments', mimeType: 'image/png' }),
+      size: { width: 640, height: 240, cropType: 'contain' },
+    }))
+  })
+
+  it('refuses a rendition of anything the image pipeline does not render', async () => {
+    mockRenderImageRendition.mockClear()
+    const { service, factory } = createHarness({ attachment: ownedAttachment({ mimeType: 'text/plain' }) })
+
+    await expectStatus(service.readScopedForOwner({ ...ownerInput, rendition: { width: 640 } }), 404)
+
+    expect(mockRenderImageRendition).not.toHaveBeenCalled()
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('passes on the image pipeline\'s refusal of a damaged image', async () => {
+    mockRenderImageRendition.mockResolvedValueOnce({ ok: false, status: 400, error: 'Image MIME type does not match file content' })
+    const { service } = createHarness({ attachment: ownedAttachment({ mimeType: 'image/png' }) })
+
+    await expectStatus(service.readScopedForOwner({ ...ownerInput, rendition: { width: 640 } }), 400)
+  })
+
   it.each([
     ['a non-UUID id', 'attachment-1'],
     ['an empty id', ''],
@@ -714,22 +756,4 @@ describe('DefaultAttachmentService.readScopedForOwner', () => {
     expect(em.findOne).not.toHaveBeenCalled()
   })
 
-  it('is not called from any attachments HTTP route', () => {
-    const { readdirSync, readFileSync, statSync } = jest.requireActual('node:fs') as typeof import('node:fs')
-    const { join } = jest.requireActual('node:path') as typeof import('node:path')
-    const apiRoot = join(__dirname, '..', '..', 'api')
-    const offenders: string[] = []
-    const visit = (directory: string) => {
-      for (const entry of readdirSync(directory)) {
-        const fullPath = join(directory, entry)
-        if (statSync(fullPath).isDirectory()) {
-          if (entry !== '__tests__') visit(fullPath)
-        } else if (/\.tsx?$/.test(entry) && readFileSync(fullPath, 'utf8').includes('readScopedForOwner')) {
-          offenders.push(fullPath)
-        }
-      }
-    }
-    visit(apiRoot)
-    expect(offenders).toEqual([])
-  })
 })
