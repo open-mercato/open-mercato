@@ -183,6 +183,27 @@ describe('useNotificationActions guarded mutations', () => {
     expect(setUnreadCount).not.toHaveBeenCalled()
   })
 
+  it('decrements the unread count when the server reports an unread notification\'s action already ran', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      result: { error: 'Notification action already executed', code: 'notification_action_already_executed' },
+    })
+    const setNotifications = jest.fn()
+    const setUnreadCount = jest.fn()
+    const { result } = renderHook(() =>
+      useNotificationActions([makeNotification('n1', 'unread')], setNotifications, setUnreadCount),
+    )
+    await act(async () => {
+      await result.current.executeAction('n1', 'approve')
+    })
+
+    expect(setUnreadCount).toHaveBeenCalledTimes(1)
+    const decrement = setUnreadCount.mock.calls[0][0] as (prev: number) => number
+    expect(decrement(3)).toBe(2)
+    expect(decrement(0)).toBe(0)
+  })
+
   it('leaves the local notification alone when the action command itself answers 409', async () => {
     apiCallMock.mockResolvedValue({ ok: false, status: 409, result: { error: 'Order was changed by someone else' } })
     const setNotifications = jest.fn()

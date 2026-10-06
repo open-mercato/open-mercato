@@ -44,7 +44,7 @@ export type NotificationRestoredPayload = {
   notificationId: string
   userId: string
   tenantId: string
-  status: 'read' | 'unread'
+  status: 'read' | 'unread' | 'actioned'
 }
 
 export type NotificationExpiredPayload = {

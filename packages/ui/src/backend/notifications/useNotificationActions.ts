@@ -94,13 +94,17 @@ export function useNotificationActions(
       result.status === 409 &&
       result.result?.code === NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE
     ) {
+      const notification = notifications.find((n) => n.id === id)
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, status: 'actioned' } : n)),
       )
+      if (notification?.status === 'unread') {
+        setUnreadCount((prev) => Math.max(0, prev - 1))
+      }
     }
 
     return { href: result.result?.href }
-  }, [runMutation, retryLastMutation, setNotifications, setUnreadCount])
+  }, [notifications, runMutation, retryLastMutation, setNotifications, setUnreadCount])
 
   const dismiss = React.useCallback(
     async (id: string) => {
