@@ -195,7 +195,7 @@ function RuleRow({ rule, groups, byGroup, options, onChange, onRemove }: {
   return (
     <div className="flex flex-wrap items-start gap-2 rounded-md border p-3">
       <Select value={field.path} onValueChange={pickField}>
-        <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="min-w-0 flex-1 basis-56"><SelectValue /></SelectTrigger>
         <SelectContent>
           {groups.map((name) => (
             <SelectGroup key={name}>
@@ -212,7 +212,7 @@ function RuleRow({ rule, groups, byGroup, options, onChange, onRemove }: {
         value={String(rule.operator)}
         onValueChange={(next) => onChange({ ...rule, operator: next as SimpleCondition['operator'] })}
       >
-        <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="min-w-0 flex-1 basis-40"><SelectValue /></SelectTrigger>
         <SelectContent>
           {field.operators.map((operator) => (
             <SelectItem key={operator} value={operator}>
@@ -222,10 +222,10 @@ function RuleRow({ rule, groups, byGroup, options, onChange, onRemove }: {
         </SelectContent>
       </Select>
 
-      <div className="flex min-w-48 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 basis-48 flex-col gap-1">
         {choices.length > 0 ? (
           <Select value={String(rule.value ?? '')} onValueChange={(next) => onChange({ ...rule, value: next })}>
-            <SelectTrigger className="w-56">
+            <SelectTrigger className="w-full">
               <SelectValue placeholder={t('marketing_automation.audience.pick', 'Choose…')} />
             </SelectTrigger>
             <SelectContent>
@@ -236,7 +236,7 @@ function RuleRow({ rule, groups, byGroup, options, onChange, onRemove }: {
           </Select>
         ) : (
           <Input
-            className="w-56"
+            className="w-full"
             type={field.kind === 'text' ? 'text' : 'number'}
             min={field.min}
             max={field.max}
