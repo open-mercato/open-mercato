@@ -367,24 +367,23 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
 
     const parentId = parsed.parentId ?? null
-    if (parentId) {
-      await ensureParentExists(em, tenantId, parentId)
-    }
-
     const childIds = normalizeChildIds(parsed.childIds ?? [], parentId ? [parentId] : [])
     if (parentId && childIds.includes(parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
-    await ensureChildrenValid(em, tenantId, childIds)
-    const childParentsBefore = await loadChildParentSnapshots(em, tenantId, childIds)
 
     const tenantRef = em.getReference(Tenant, tenantId)
     const baseSlug = parsed.slug ? parsed.slug : slugify(parsed.name)
-    const slug = baseSlug ? await resolveUniqueSlug(em, tenantId, baseSlug) : null
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     let organization!: Organization
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        if (parentId) {
+          await ensureParentExists(em, tenantId, parentId)
+        }
+        await ensureChildrenValid(em, tenantId, childIds)
+        const childParentsBefore = await loadChildParentSnapshots(em, tenantId, childIds)
+        const slug = baseSlug ? await resolveUniqueSlug(em, tenantId, baseSlug) : null
         organization = await de.createOrmEntity({
           entity: Organization,
           data: {
@@ -459,7 +458,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       actionLabel: translate('directory.audit.organizations.create', 'Create organization'),
       resourceKind: 'directory.organization',
       resourceId: String(result.id),
-      tenantId: ctx.auth?.tenantId ?? resolveTenantIdFromEntity(result),
+      tenantId,
       snapshotAfter: afterSnapshots.view,
       payload: {
         undo: {
@@ -476,6 +475,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!after) return
     const tenantId = after.tenantId
     if (!tenantId) return
+    await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await withAtomicFlush(em, [
@@ -498,7 +498,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         }
         await de.deleteOrmEntity({
           entity: Organization,
-          where: { id: after.id, deletedAt: null } as FilterQuery<Organization>,
+          where: buildOrganizationMutationFilter(after.id, tenantId),
           soft: false,
         })
         await rebuildHierarchyForTenant(em, tenantId)
@@ -510,13 +510,14 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for organization create' })
     const tenantId = after.tenantId
     if (!tenantId) throw new CrudHttpError(400, { error: '[internal] redo snapshot missing tenant for organization create' })
+    await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization!: Organization
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
-        const existing = await em.findOne(Organization, { id: after.id })
+        const existing = await em.findOne(Organization, buildOrganizationUndoTargetFilter(after.id, tenantId))
         if (existing) {
           existing.deletedAt = null
           existing.name = after.name
@@ -601,56 +602,64 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { organization: existing, tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
+    const { tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
 
     const parentProvided = parsed.parentId !== undefined
     const childrenProvided = parsed.childIds !== undefined
-    const parentId = parentProvided ? parsed.parentId ?? null : existing.parentId ?? null
-    if (parentProvided && parentId) {
-      if (parentId === parsed.id) throw new CrudHttpError(400, { error: 'Organization cannot be its own parent' })
-      if (Array.isArray(existing.descendantIds) && existing.descendantIds.includes(parentId)) {
-        throw new CrudHttpError(400, { error: 'Cannot assign descendant as parent' })
-      }
-      await ensureParentExists(em, tenantId, parentId)
-    }
-
-    const normalizedChildIds = normalizeChildIds(parsed.childIds ?? [], [parsed.id, parentProvided ? parentId ?? '' : ''])
-    if (normalizedChildIds.some((id) => id === parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
-    if (Array.isArray(existing.ancestorIds) && normalizedChildIds.some((id) => existing.ancestorIds.includes(id))) {
-      throw new CrudHttpError(400, { error: 'Cannot assign ancestor as child' })
-    }
-
-    if (normalizedChildIds.length) {
-      await ensureChildrenValid(em, tenantId, normalizedChildIds)
-      const childFilter = {
-        tenant: tenantId,
-        deletedAt: null,
-        id: { $in: normalizedChildIds },
-      } as unknown as FilterQuery<Organization>
-      const children = await em.find(Organization, childFilter)
-      for (const child of children) {
-        if (Array.isArray(child.descendantIds) && child.descendantIds.includes(parsed.id)) {
-          throw new CrudHttpError(400, { error: 'Cannot assign descendant cycle' })
-        }
-      }
-    }
-
-    const combinedChildIds = new Set<string>([
-      ...normalizedChildIds.map(String),
-      ...(Array.isArray(existing.childIds) ? existing.childIds.map(String) : []),
-    ])
-    const childParentsBefore = await loadChildParentSnapshots(em, tenantId, combinedChildIds)
-
-    let resolvedSlug: string | null | undefined
-    if (parsed.slug !== undefined) {
-      resolvedSlug = parsed.slug ? await resolveUniqueSlug(em, tenantId, parsed.slug, parsed.id) : parsed.slug
-    }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     let resolvedOrganization!: Organization
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        const existing = await em.findOne(
+          Organization,
+          buildOrganizationMutationFilter(parsed.id, tenantId),
+          { refresh: true },
+        )
+        if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
+
+        const parentId = parentProvided ? parsed.parentId ?? null : existing.parentId ?? null
+        if (parentProvided && parentId) {
+          if (parentId === parsed.id) throw new CrudHttpError(400, { error: 'Organization cannot be its own parent' })
+          if (Array.isArray(existing.descendantIds) && existing.descendantIds.includes(parentId)) {
+            throw new CrudHttpError(400, { error: 'Cannot assign descendant as parent' })
+          }
+          await ensureParentExists(em, tenantId, parentId)
+        }
+
+        const normalizedChildIds = normalizeChildIds(parsed.childIds ?? [], [parsed.id, parentProvided ? parentId ?? '' : ''])
+        if (normalizedChildIds.some((id) => id === parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
+        if (Array.isArray(existing.ancestorIds) && normalizedChildIds.some((id) => existing.ancestorIds.includes(id))) {
+          throw new CrudHttpError(400, { error: 'Cannot assign ancestor as child' })
+        }
+
+        if (normalizedChildIds.length) {
+          await ensureChildrenValid(em, tenantId, normalizedChildIds)
+          const childFilter = {
+            tenant: tenantId,
+            deletedAt: null,
+            id: { $in: normalizedChildIds },
+          } as unknown as FilterQuery<Organization>
+          const children = await em.find(Organization, childFilter)
+          for (const child of children) {
+            if (Array.isArray(child.descendantIds) && child.descendantIds.includes(parsed.id)) {
+              throw new CrudHttpError(400, { error: 'Cannot assign descendant cycle' })
+            }
+          }
+        }
+
+        const combinedChildIds = new Set<string>([
+          ...normalizedChildIds.map(String),
+          ...(Array.isArray(existing.childIds) ? existing.childIds.map(String) : []),
+        ])
+        const childParentsBefore = await loadChildParentSnapshots(em, tenantId, combinedChildIds)
+
+        let resolvedSlug: string | null | undefined
+        if (parsed.slug !== undefined) {
+          resolvedSlug = parsed.slug ? await resolveUniqueSlug(em, tenantId, parsed.slug, parsed.id) : parsed.slug
+        }
+
         const organization = await de.updateOrmEntity({
           entity: Organization,
           where: buildOrganizationMutationFilter(parsed.id, tenantId),

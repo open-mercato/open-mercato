@@ -42,7 +42,10 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CommandBus, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
+import {
+  lockOrganizationHierarchyForTenant,
+  rebuildHierarchyForTenant,
+} from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
 const ACTOR_TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -50,11 +53,13 @@ const FOREIGN_TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const TARGET_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PARENT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const CHILD_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const NEW_ORG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
 type TestOrganization = Organization & {
   tenant: { id: string }
 }
 
+type OrganizationCreateHandler = CommandHandler<Record<string, unknown>, Organization>
 type OrganizationUpdateHandler = CommandHandler<Record<string, unknown>, Organization>
 type OrganizationDeleteInput = { body: { id: string }; query: Record<string, string> }
 type OrganizationDeleteHandler = CommandHandler<OrganizationDeleteInput, Organization>
@@ -96,6 +101,7 @@ function matchesFilter(organization: TestOrganization, filter: Record<string, un
   }
   if (typeof filter.tenant === 'string' && tenantIdOf(organization) !== filter.tenant) return false
   if (typeof filter.parentId === 'string' && organization.parentId !== filter.parentId) return false
+  if (typeof filter.slug === 'string' && organization.slug !== filter.slug) return false
   if (filter.deletedAt === null && organization.deletedAt !== null) return false
   return true
 }
@@ -113,6 +119,7 @@ function makeHarness(organizations: TestOrganization[]) {
     persist: jest.fn(() => ({ flush: jest.fn(async () => {}) })),
     flush: jest.fn(async () => {}),
     fork: jest.fn(),
+    getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
   }
   em.fork.mockReturnValue(em)
 
@@ -134,7 +141,18 @@ function makeHarness(organizations: TestOrganization[]) {
     organization.deletedAt = new Date('2026-10-04T00:00:00.000Z')
     return organization
   })
+  const createOrmEntity = jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    const tenantRef = data.tenant as { id: string }
+    const organization = makeOrganization(
+      typeof data.id === 'string' ? data.id : NEW_ORG_ID,
+      tenantRef.id,
+      { ...data, tenant: tenantRef } as Partial<TestOrganization>,
+    )
+    records.push(organization)
+    return organization
+  })
   const dataEngine = {
+    createOrmEntity,
     updateOrmEntity,
     deleteOrmEntity,
     setCustomFields: jest.fn(async () => {}),
@@ -162,7 +180,7 @@ function makeHarness(organizations: TestOrganization[]) {
     markUndone: jest.fn(async () => null),
   }
 
-  return { actionLogService, dataEngine, deleteOrmEntity, em, logs, records, updateOrmEntity }
+  return { actionLogService, createOrmEntity, dataEngine, deleteOrmEntity, em, logs, records, updateOrmEntity }
 }
 
 function makeContext(
@@ -297,7 +315,12 @@ function expectFailedUndoReleasedClaim(
   expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
 }
 
+function firstCallOrder(mock: jest.Mock): number {
+  return mock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+}
+
 describe('directory organization command tenant ownership', () => {
+  const createHandler = commandRegistry.get('directory.organizations.create') as OrganizationCreateHandler
   const updateHandler = commandRegistry.get('directory.organizations.update') as OrganizationUpdateHandler
   const deleteHandler = commandRegistry.get('directory.organizations.delete') as OrganizationDeleteHandler
 
@@ -616,5 +639,163 @@ describe('directory organization command tenant ownership', () => {
     expect(foreignCollision.name).toBe('Foreign collision')
     expect(foreignCollision.parentId).toBeNull()
     expectFailedUndoReleasedClaim(harness, logEntry)
+  })
+
+  it('persists a superadmin foreign-tenant create log only in the target tenant', async () => {
+    const harness = makeHarness([])
+    const ctx = makeContext(harness, { isSuperAdmin: true })
+
+    const { logEntry } = await new CommandBus().execute('directory.organizations.create', {
+      input: { name: 'Created in tenant B', tenantId: FOREIGN_TENANT_ID },
+      ctx,
+    })
+
+    expect(logEntry).toMatchObject({
+      commandId: 'directory.organizations.create',
+      resourceId: NEW_ORG_ID,
+      tenantId: FOREIGN_TENANT_ID,
+    })
+    expect(harness.logs).toHaveLength(1)
+    expect(harness.logs.some((entry) => entry.tenantId === ACTOR_TENANT_ID)).toBe(false)
+  })
+
+  it('rejects a tenant-A undo of a superadmin create in tenant B without deleting it', async () => {
+    const harness = makeHarness([])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Created in tenant B', tenantId: FOREIGN_TENANT_ID },
+      ctx: makeContext(harness, { isSuperAdmin: true }),
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable action log')
+    logEntry.tenantId = ACTOR_TENANT_ID
+    harness.em.find.mockClear()
+    harness.em.findOne.mockClear()
+    jest.mocked(lockOrganizationHierarchyForTenant).mockClear()
+
+    await expect(
+      bus.undo(String(logEntry.undoToken), makeContext(harness)),
+    ).rejects.toMatchObject({ status: 404 })
+
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(harness.em.find).not.toHaveBeenCalled()
+    expect(lockOrganizationHierarchyForTenant).not.toHaveBeenCalled()
+    expect(harness.records.find((record) => record.id === NEW_ORG_ID)?.deletedAt).toBeNull()
+    expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
+    expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
+  })
+
+  it('rejects a tenant-A redo of a superadmin create in tenant B before any read or write', async () => {
+    const harness = makeHarness([])
+    const { logEntry } = await new CommandBus().execute('directory.organizations.create', {
+      input: { name: 'Created in tenant B', tenantId: FOREIGN_TENANT_ID },
+      ctx: makeContext(harness, { isSuperAdmin: true }),
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable action log')
+    harness.em.findOne.mockClear()
+    harness.createOrmEntity.mockClear()
+    jest.mocked(lockOrganizationHierarchyForTenant).mockClear()
+
+    await expect(
+      createHandler.redo?.({ input: {}, ctx: makeContext(harness), logEntry }),
+    ).rejects.toMatchObject({ status: 404 })
+
+    expect(harness.em.findOne).not.toHaveBeenCalled()
+    expect(harness.createOrmEntity).not.toHaveBeenCalled()
+    expect(lockOrganizationHierarchyForTenant).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['superadmin', { isSuperAdmin: true }],
+    ['same-tenant admin', { tenantId: FOREIGN_TENANT_ID }],
+  ] as const)('tenant-qualifies the create undo and redo target for a %s', async (_label, actorOptions) => {
+    const harness = makeHarness([])
+    const bus = new CommandBus()
+    const ctx = makeContext(harness, actorOptions)
+    const { logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Created in tenant B', tenantId: FOREIGN_TENANT_ID },
+      ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable action log')
+
+    await bus.undo(String(logEntry.undoToken), ctx)
+
+    expect(harness.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: NEW_ORG_ID, deletedAt: null, tenant: FOREIGN_TENANT_ID },
+      soft: false,
+    }))
+    expect(harness.actionLogService.markUndone).toHaveBeenCalledWith(
+      logEntry.id,
+      expect.objectContaining({ tenantId: FOREIGN_TENANT_ID }),
+    )
+
+    harness.em.findOne.mockClear()
+    await createHandler.redo?.({ input: {}, ctx, logEntry })
+
+    expect(harness.em.findOne).toHaveBeenCalledWith(Organization, {
+      id: NEW_ORG_ID,
+      tenant: FOREIGN_TENANT_ID,
+    })
+  })
+
+  it('validates the create parent and resolves the slug only under the hierarchy lock', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([parent])
+    const ctx = makeContext(harness)
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      harness.records.push(makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { slug: 'acme' }))
+      return []
+    })
+
+    const created = await createHandler.execute({ name: 'Acme', parentId: PARENT_ID }, ctx)
+
+    const lockOrder = firstCallOrder(jest.mocked(lockOrganizationHierarchyForTenant))
+    expect(lockOrder).toBeLessThan(firstCallOrder(harness.em.findOne))
+    expect(lockOrder).toBeLessThan(firstCallOrder(harness.em.find))
+    expect(created.slug).toBe('acme-1')
+    expect(created.parentId).toBe(PARENT_ID)
+  })
+
+  it('re-reads the update target and validates the hierarchy only under the lock', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target, parent, child])
+    const ctx = makeContext(harness)
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      target.descendantIds = [PARENT_ID]
+      return []
+    })
+
+    await expect(
+      updateHandler.execute({ id: TARGET_ID, parentId: PARENT_ID, childIds: [CHILD_ID] }, ctx),
+    ).rejects.toMatchObject({ status: 400, body: { error: 'Cannot assign descendant as parent' } })
+
+    const lockOrder = firstCallOrder(jest.mocked(lockOrganizationHierarchyForTenant))
+    const findOneOrders = harness.em.findOne.mock.invocationCallOrder
+    expect(findOneOrders.filter((order) => order < lockOrder)).toHaveLength(1)
+    expect(harness.em.findOne).toHaveBeenNthCalledWith(
+      2,
+      Organization,
+      { id: TARGET_ID, deletedAt: null, tenant: ACTOR_TENANT_ID },
+      { refresh: true },
+    )
+    expect(harness.em.find).not.toHaveBeenCalled()
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(target.parentId).toBeNull()
+  })
+
+  it('takes the update hierarchy lock before child validation, snapshots and slug resolution', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target, child])
+    const ctx = makeContext(harness)
+
+    await updateHandler.execute({ id: TARGET_ID, slug: 'renamed', childIds: [CHILD_ID] }, ctx)
+
+    const lockOrder = firstCallOrder(jest.mocked(lockOrganizationHierarchyForTenant))
+    expect(harness.em.findOne.mock.invocationCallOrder.filter((order) => order < lockOrder)).toHaveLength(1)
+    expect(firstCallOrder(harness.em.find)).toBeGreaterThan(lockOrder)
+    expect(target.slug).toBe('renamed')
+    expect(child.parentId).toBe(TARGET_ID)
   })
 })
