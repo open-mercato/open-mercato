@@ -55,6 +55,24 @@ write time.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
+- A module that must store a vector image (a logo, a brand mark) MUST pass
+  `allowVectorImage: true` to `attachmentService.createScoped()` rather than
+  relaxing `lib/security.ts`. That flag routes SVG through `lib/vector-image.ts`
+  (DOMPurify SVG profile on a fresh `jsdom` window plus the reference/CSS
+  policy), stores only the sanitised bytes, and records
+  `storageMetadata.vectorImage` with the sanitiser, its version, the policy
+  version and the SHA-256 of the stored bytes. Files that would lose renderable
+  or active content are rejected with a `vector_image_*` code, never stored
+  silently altered. See
+  `.ai/specs/2026-10-05-attachments-sanitised-vector-images.md`.
+- Serve SVG inline **only** when `isTrustedVectorImage(attachment, bytes)` holds
+  (record present, known policy version, digest matches the bytes just read),
+  with `VECTOR_IMAGE_CONTENT_SECURITY_POLICY` and `X-Content-Type-Options:
+  nosniff`. Every other SVG-typed row stays download-only.
+- Module code that publishes its own files to anonymous visitors MUST use
+  `attachmentService.readScopedForOwner()` (owner + tenant + organization +
+  partition, no principal) and resolve the attachment id and owner from its own
+  records. Never fabricate an `AuthContext` to call `readScoped`.
 
 ## Never
 
@@ -63,7 +81,15 @@ write time.
   must fail closed.
 - **Never create a partial-null attachment** (one scope column set, the other null).
 - **Never read or expose attachment rows without `checkAttachmentAccess`** — bypassing
-  it reintroduces the cross-tenant fail-open class.
+  it reintroduces the cross-tenant fail-open class. The one sanctioned exception is
+  `readScopedForOwner`, which replaces the principal with a mandatory owner +
+  tenant + organization + partition match.
+- Never call `readScopedForOwner` from an attachments HTTP route, and never pass it
+  an attachment id or owner taken straight from request input.
+- Never accept SVG on the generic `POST /api/attachments` route, and never hand
+  vector input to Sharp (`api/image/...` keeps refusing `image/svg+xml`).
+- Never write `storageMetadata.vectorImage` from anywhere but the scoped upload
+  service's vector path.
 
 ## Known cross-module creation paths
 
@@ -90,5 +116,6 @@ both-or-neither invariant (audited for #2109):
 
 ```bash
 yarn workspace @open-mercato/core test -- access
+yarn workspace @open-mercato/core test -- src/modules/attachments
 yarn workspace @open-mercato/core build
 ```
