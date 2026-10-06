@@ -57,7 +57,8 @@
 | 4 | 4.2 | query_index doc-enrichment hook + overlap FilterOp | dispatch:capable | done | f908ee78a2 |
 | 4 | 4.3 | Catalog scope_keys contributor, GIN index, reindex triggers | dispatch:capable | done | be1c0b2309 |
 | 4 | 4.4 | ecommerce buildStorefrontProductScope + SQL/matchesScope equivalence test | dispatch:capable | done | b76d9a4c99 |
-| 4 | 4.5 | ecommerce storefront pricing (buildStorefrontPricingContext, batched resolution, tax mode) | dispatch:capable | done | pending |
+| 4 | 4.5 | ecommerce storefront pricing (buildStorefrontPricingContext, batched resolution, tax mode) | dispatch:capable | done | 23f14ceba7 |
+| 4 | 4.5-fix | Promotions as an overlay on the priceKindId filter (owner decision D2a) | dispatch:capable | todo | — |
 | 4 | 4.6 | ecommerce lib/storefrontProducts.ts listing | dispatch:capable | todo | — |
 | 4 | 4.7 | ecommerce lib/storefrontDetail.ts detail | dispatch:capable | todo | — |
 | 4 | 4.8 | Public routes /products and /products/:idOrHandle with storefront cache | dispatch:standard | todo | — |
@@ -151,6 +152,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **4.3 Catalog scope_keys** — contributor (`cat:` incl. ancestors, `tag:`), GIN expression index migration on `entity_indexes`, reindex triggers (product create/update, category re-parent subtree, deletions), backfill job; fail-closed until backfilled.
 - **4.4 buildStorefrontProductScope** — invariant (§3.3) over scope_keys, DNF + `allOf`; property-based equivalence vs `matchesScope`.
 - **4.5 Storefront pricing** — `buildStorefrontPricingContext(ctx)`, batched row fetch (`findWithDecryption` + `buildPriceRowFilter`), `selectBestPrice`, amount per `taxMode`, `priceTiers`, Omnibus `lowestPriorAmount`.
+- **4.5-fix Promotions as an overlay on the priceKindId filter (owner decision D2a)** — found during 4.5: with D2's kind filter a buyer resolved to REGULAR never sees SALE (isPromotion) rows. Owner decision 2026-10-06: `matchesContext`/`buildPriceRowFilter` admit rows of the resolved kind OR any promotional kind (same currency); `scorePrice` then prefers the promotion as in admin; `originalAmount` = best price of the resolved kind; Omnibus unchanged. Update pricing-engine.md amendment + catalog AGENTS.md selection order.
 - **4.6 Listing** — filters (strict query grammar, unknown → 400), sorts with `availableSorts`/`appliedSort` and `price_sort_fallback`, ILIKE search ranked by `scoreProductSearchRelevance`, page-scoped availability (D21), translation overlays, sanitized fields.
 - **4.7 Detail** — `/products/:idOrHandle` payload (§5.2), identical 404 for all hidden cases, `quantityRules` via `policyResolutionService`, sanitized description, related products.
 - **4.8 Routes + cache** — public routes through `storefrontCache`, `private, no-store` for authenticated, `stale-while-revalidate` for anonymous.

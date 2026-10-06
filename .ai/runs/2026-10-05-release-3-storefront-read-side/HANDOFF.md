@@ -1,16 +1,16 @@
 # Handoff — 2026-10-05-release-3-storefront-read-side
 
-**Last updated:** 2026-10-05T17:48:10Z
+**Last updated:** 2026-10-06T09:35:38Z
 **Branch:** spec/storefront-release-phase0-reconciliation
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/12 (draft)
-**Current phase/step:** Phase 4 Step 4.1
-**Last commit:** 2ea735bc2d — test(catalog): omnibus integration coverage
+**Current phase/step:** Phase 4 Step 4.5-fix
+**Last commit:** 23f14ceba7 — feat(ecommerce): storefront pricing
 
 ## What just happened
-- Phase 3 (Omnibus MVP) closed: 8/8 integration tests green (checkpoint 7).
+- Product filters extracted, scope_keys substrate (enricher hook, overlap/noverlap, GIN, reindex triggers), storefront scope builder and pricing landed; checkpoint 8 green. Owner decided promotions overlay the price-kind filter (D2a).
 
 ## Next concrete action
-- Step 4.1 — catalog product filters extraction to lib with descendant expansion.
+- Step 4.5-fix — promotions as an overlay on the priceKindId filter, then 4.6 listing.
 
 ## Blockers / open questions
 - None blocking. Resolution P95 budget still unmeasured (final gate).
