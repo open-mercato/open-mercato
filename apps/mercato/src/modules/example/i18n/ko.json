@@ -208,6 +208,7 @@
   "example.priority.column": "예제 우선순위",
   "example.priority.critical": "긴급",
   "example.priority.detail.description": "이 고객 레코드의 우선순위를 설정합니다.",
+  "example.priority.detail.error.createSave": "레코드는 생성되었지만 우선순위를 저장하지 못했습니다. 레코드를 열어 다시 시도하세요.",
   "example.priority.detail.error.load": "우선순위를 불러오지 못했습니다.",
   "example.priority.detail.error.save": "우선순위를 저장하지 못했습니다.",
   "example.priority.detail.label": "고객 우선순위",

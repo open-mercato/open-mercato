@@ -122,6 +122,8 @@ describe('example injection-table', () => {
     expect(contributionIds.length).toBeGreaterThan(0)
     expect(contributionIds).toContain('example.injection.crud-validation@crud-form:example.todo')
     expect(contributionIds).toContain('example.injection.customer-priority-field@crud-form:customers.person:fields')
+    expect(contributionIds).toContain('example.injection.customer-priority-field@crud-form:customers.company:fields')
+    expect(contributionIds).toContain('example.injection.customer-priority-field@crud-form:customers.deal:fields')
     expect(contributionIds).toContain('example.injection.customer-priority-column@data-table:customers.people.list:columns')
     expect(contributionIds).toContain('example.injection.sales-todos@sales.document.detail.order:tabs')
     expect(contributionIds).toContain('example.injection.catalog-seo-report@data-table:catalog.products:header')

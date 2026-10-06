@@ -208,6 +208,7 @@
   "example.priority.column": "Example priority",
   "example.priority.critical": "Critical",
   "example.priority.detail.description": "Set priority for this customer record.",
+  "example.priority.detail.error.createSave": "El registro se creó, pero no se pudo guardar su prioridad. Abre el registro para volver a intentarlo.",
   "example.priority.detail.error.load": "Failed to load priority.",
   "example.priority.detail.error.save": "Failed to save priority.",
   "example.priority.detail.label": "Customer priority",

@@ -246,6 +246,14 @@ export type InjectionWidgetModule<TContext = unknown, TData = unknown> = {
   eventHandlers?: WidgetInjectionEventHandlers<TContext, TData>
 }
 
+export type InjectionEventParticipant<TContext = unknown, TData = unknown> = {
+  widgetId: string
+  moduleId: string
+  key: string
+  module: Pick<InjectionWidgetModule<TContext, TData>, 'metadata' | 'eventHandlers'>
+  placement?: InjectionWidgetPlacement & { priority?: number }
+}
+
 export type InjectionColumnDefinition = {
   id: string
   /**

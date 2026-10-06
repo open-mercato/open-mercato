@@ -53,6 +53,14 @@ export const injectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.customer-priority-field',
     priority: 40,
   },
+  'crud-form:customers.company:fields': {
+    widgetId: 'example.injection.customer-priority-field',
+    priority: 40,
+  },
+  'crud-form:customers.deal:fields': {
+    widgetId: 'example.injection.customer-priority-field',
+    priority: 40,
+  },
   'crud-form:customers.customer_entity:fields': {
     widgetId: 'example.injection.customer-priority-field',
     priority: 40,

@@ -1,3 +1,4 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -523,7 +524,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     : null
   if (cache && cacheKey) {
     const cached = await runWithCacheTenant(cacheTenantId, () => cache.get(cacheKey))
-    if (cached) return NextResponse.json(cached)
+    if (cached) return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
   }
 
   const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
@@ -1210,7 +1211,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     }
   }
 
-  return NextResponse.json(payload)
+  return NextResponse.json(await enrichCustomerDetailResponse(payload, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
 }
 
 const companyDetailQuerySchema = z.object({
