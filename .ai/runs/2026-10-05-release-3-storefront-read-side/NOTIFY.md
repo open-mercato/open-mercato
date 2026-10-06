@@ -277,3 +277,7 @@
 - Fix (inline): add `enrichers: { entityId: E.ecommerce.ecommerce_store_domain_binding }`; new `__tests__/enricher-wiring.test.ts` asserts every ecommerce enricher targeting an ecommerce entity is opted into a CRUD route (fails without the fix).
 - Low-severity UI findings for the review pass: include-categories suggestion list stays open after a pick; Channels table overflows horizontally (Products shown column clipped); price-kind suggestion list open on load in group terms.
 - Step 7.9 rescue earlier this window (cheap executor: separate docs-flip commit, no push, null-clearing 400) — one rescue; 7.10 landed cleanly, so no consecutive-rescue stop.
+
+## 2026-10-06T18:03:17Z — checkpoint 14 (steps 7.6–7.10 + 7.7-fix) + safety stop
+- Green after one fix: Domains tab smoke failed (enricher not opted into the route) → 7.7-fix with a structural guard; re-run passed. Branding, Channels, SEO, group terms passed first time. Full core 19973 / ui 2505, typecheck, i18n, lint.
+- SAFETY STOP: 21 Steps landed since this resume (5.1–7.10 incl. 6.1-fix, 7.7-fix; one rescue at 7.9). Next: Step 7.11. Resume with `om-auto-continue-pr-loop 12`.
