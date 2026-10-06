@@ -454,6 +454,7 @@ export async function sanitizeVectorImage(buffer: Buffer): Promise<VectorImageSa
     purify.sanitize(root, {
       USE_PROFILES: { svg: true, svgFilters: true },
       ADD_TAGS: ['use'],
+      ADD_DATA_URI_TAGS: ['feimage'],
       KEEP_CONTENT: false,
       IN_PLACE: true,
     })
