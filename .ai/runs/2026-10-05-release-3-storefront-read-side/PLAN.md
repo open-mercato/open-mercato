@@ -83,7 +83,8 @@
 | 7 | 7.7 | Admin UI: Domains tab | dispatch:standard | done | 87566c2df1 |
 | 7 | 7.8 | Admin UI: Channels tab (scope pickers, require_authentication, price_sort_fallback, live count) | dispatch:capable | done | 6aaf1edf0a |
 | 7 | 7.9 | Admin UI: SEO tab | dispatch:cheap | done | 3300e50119 |
-| 7 | 7.10 | customer_groups group-terms assortment pickers | dispatch:standard | done | pending |
+| 7 | 7.10 | customer_groups group-terms assortment pickers | dispatch:standard | done | 3133c689f6 |
+| 7 | 7.7-fix | Wire the domain-mapping response enricher into the store-domain-bindings CRUD route | inline | done | pending |
 | 7 | 7.11 | setup.ts draft-store seed + Upgrade Action for existing tenants | dispatch:standard | todo | — |
 | 7 | 7.12 | Integration tests: admin UI paths (SPEC-029 Phases 2–3 gates) | dispatch:capable | todo | — |
 
@@ -181,6 +182,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **7.3 Assortment-count endpoint** — saved scope + `?draftScope=`.
 - **7.4–7.9 Admin UI** — store list/create; General (incl. store-default `AvailabilityPolicy`, D12); Branding + sandboxed live preview; Domains (status read-only, `active` requirement, dangling diagnostic); Channels (include/exclude pickers, `require_authentication`, `price_sort_fallback`, live count); SEO.
 - **7.10 Group-terms assortment pickers** (D13).
+- **7.7-fix Wire the domain-mapping enricher** — found by checkpoint 14 UI smoke: `store-domain-bindings/crud.ts` lacked `enrichers: { entityId }`, so `_domainMapping` never reached the Domains tab (every row "Unknown"/"details unavailable"). Opt-in added + structural guard test over all module enrichers.
 - **7.11 Seed** — `setup.ts` draft store on tenant creation (idempotent) + Upgrade Action for existing tenants (D17).
 - **7.12 Integration tests** — §16 UI paths incl. optimistic-lock conflict.
 

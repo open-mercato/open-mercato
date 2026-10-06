@@ -271,3 +271,9 @@
 - Semantics: all pickers cleared saves `assortmentScope: null` (never empty arrays); cleared pickers are omitted from a non-empty scope. Helpers live in `customer_groups/components/customerGroupAssortmentScope.ts` (a small duplicate of the ecommerce builder, deliberately not imported across modules). No live count (it is per channel binding).
 - i18n: `customer_groups.groups.form.terms.assortment.*` added to all five locales (en, de, es, ko, pl); `yarn i18n:check-sync` passes.
 - Not done (out of scope for a UI step): inline "missing catalog id" validation error from US-A1; pickers use `allowCustomValues=false`, so a stale id can only come from a record whose catalog entity was deleted later.
+
+## 2026-10-06T17:50:26Z — checkpoint 14 blocker → 7.7-fix
+- UI smoke (7.6–7.10): Branding, Channels, SEO, group terms PASS; Domains FAIL — every binding showed "Domain details are unavailable" / Unknown status even for a `dns_failed` mapping. Cause: `api/store-domain-bindings/crud.ts` never opted into response enrichers, so the 7.7 `ecommerce.store-domain-binding-mapping` enricher never ran (unit tests called the enricher directly).
+- Fix (inline): add `enrichers: { entityId: E.ecommerce.ecommerce_store_domain_binding }`; new `__tests__/enricher-wiring.test.ts` asserts every ecommerce enricher targeting an ecommerce entity is opted into a CRUD route (fails without the fix).
+- Low-severity UI findings for the review pass: include-categories suggestion list stays open after a pick; Channels table overflows horizontally (Products shown column clipped); price-kind suggestion list open on load in group terms.
+- Step 7.9 rescue earlier this window (cheap executor: separate docs-flip commit, no push, null-clearing 400) — one rescue; 7.10 landed cleanly, so no consecutive-rescue stop.

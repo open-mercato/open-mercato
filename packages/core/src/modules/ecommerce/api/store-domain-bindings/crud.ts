@@ -147,6 +147,7 @@ export const domainBindingCrud = makeCrudRoute<RawDomainBindingInput, RawDomainB
     softDeleteField: 'deletedAt',
   },
   indexer: { entityType: E.ecommerce.ecommerce_store_domain_binding },
+  enrichers: { entityId: E.ecommerce.ecommerce_store_domain_binding },
   list: {
     schema: domainBindingListQuerySchema,
     entityId: E.ecommerce.ecommerce_store_domain_binding,
