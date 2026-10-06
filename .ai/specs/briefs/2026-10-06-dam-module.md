@@ -32,6 +32,8 @@ Sales reps need one organized place for amorphous marketing and offer materials 
 
 ## Resolved unknowns
 
+> **Superseded during spec writing (2026-10-06, product-owner decision):** DAM bytes are stored as **owned blobs**, an isolated new store in `attachments` (`attachment_owned_blobs`), not as attachments on a `dam` partition, so no existing attachments behavior changes. Owned blobs get their own per-tenant quota (`OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB`, pending confirmation) instead of the existing attachments quota. See spec A2/A18.
+
 | Question | Answer (from the conversation) |
 |----------|--------------------------------|
 | Module name / terminology | `dam`; the term "DAM" everywhere (not "Micro DAM" — that only described the starting scale) |

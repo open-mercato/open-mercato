@@ -8,7 +8,7 @@
 
 ## 📝 TLDR
 
-Sales teams need one organized place for marketing and offer materials. Today Open Mercato only has the flat `attachments` library: no folders, no asset title or description, and no access control below module level. **Proposed:** a new `dam` module (nav group **Media**) adds a folder tree, assets with descriptive and technical metadata, folder-level RBAC with inheritance, a trash, bulk operations and in-module search. It stores bytes through the public `attachmentService` contract on an owner-guarded partition. The module is the first step of an Asset Data Management module class: every asset gets a stable id that other modules can reference later.
+Sales teams need one organized place for marketing and offer materials. Today Open Mercato only has the flat `attachments` library: no folders, no asset title or description, and no access control below module level. **Proposed:** a new `dam` module (nav group **Media**) adds a folder tree, assets with descriptive and technical metadata, folder-level RBAC with inheritance, a trash, bulk operations and in-module search. It stores bytes through a new, isolated **owned-blob** capability of `attachmentService`. This is an additive surface that no existing attachments route, tool or consumer reads, so their behavior does not change. The module is the first step of an Asset Data Management module class: every asset gets a stable id that other modules can reference later.
 
 ## 📝 Overview
 
@@ -36,7 +36,8 @@ Out of scope (see brief Non-goals):
 A new `dam` core module layered **over** `attachments`:
 
 - **DAM owns** folders, assets (name, title, description, tags, technical and business metadata), folder grants, effective permissions, trash state and document links.
-- **`attachments` keeps ownership** of bytes, storage drivers, quota, file security, thumbnails and PDF rasterization. DAM uses them only through `attachmentService` (DI). It never reads `Attachment` entities and never constructs `StorageDriverFactory`, per `attachments/AGENTS.md`.
+- **`attachments` keeps ownership** of storage drivers, file security, thumbnail rendering and PDF rasterization. DAM uses them only through `attachmentService` (DI). It never reads attachments entities and never constructs `StorageDriverFactory`, per `attachments/AGENTS.md`.
+- **DAM bytes are owned blobs, not attachments.** `attachments` gains a separate store with its own table, `attachment_owned_blobs`, and its own `*OwnedBlob` service methods. No existing reader queries that table, so the `attachments` table, `checkAttachmentAccess`, the generic `file`/`image`/`library`/`transfer` routes, the AI attachment tools, message forwarding, CRUD events and the query index all keep their current behavior unchanged.
 - Business metadata uses platform **custom fields** (`ce.ts`), with one tenant-wide field set on the asset entity.
 - Folder ACL is DAM's own, applied to folders with downward inheritance and break-inheritance. Principals follow the shape `documents` uses (user | role).
 
@@ -47,6 +48,10 @@ A new `dam` core module layered **over** `attachments`:
 | Extend `attachments` with folders/ACL | Many modules consume `attachments` (catalog, messages, sync_excel, documents…). Adding folders and record ACL to its tables would widen a stable contract surface and couple every consumer to DAM semantics. |
 | Extend `documents` (`packages/documents`) | Different domain: real-time collaborative authoring (TipTap/Yjs, sidecar, content versions), not storage of finished files. DAM *links* documents instead (Phase 5). |
 | Tags as virtual folders (build nothing) | No hierarchy, no title/description, no folder-level access control. Does not meet the need. |
+| Store DAM files as regular attachments on an owner-guarded partition | Every existing reader of the `attachments` table would need a new guard: generic routes (`requireAuth: false` on `file`/`image`), library, AI tools, message forwarding, CRUD events and indexing. That changes the behavior and assumptions of the base module, which the product owner ruled out. |
+| DAM encrypts bytes and masks metadata before `createScoped` | Existence and size still leak through the library and AI tools; thumbnails become impossible; risk of hand-rolled crypto. |
+| API interceptors on attachments routes | `file`/`image` are custom routes without `before` interceptors; DB-level readers (AI tools, messages) are not covered. |
+| DAM-owned storage drivers | Violates `attachments/AGENTS.md` ("never construct `StorageDriverFactory`") and duplicates drivers and security. |
 | Separate workspace package `@open-mercato/dam` | Adds packaging and publishing surface with no benefit: DAM needs no new runtime dependency (`sharp` and `pdfjs-dist` already ship with core). It can be extracted later without contract changes. |
 
 ## Resolved assumptions (autonomous defaults)
@@ -56,8 +61,8 @@ The brief's Resolved-unknowns table pre-answers most design questions; those ans
 | # | Question | Chosen answer | Rationale |
 |---|---|---|---|
 | A1 | Where does the module live? | Core module `packages/core/src/modules/dam` | Least new surface; no new dependency; follows `attachments`/`catalog` placement. |
-| A2 | How are DAM bytes protected from the generic attachment endpoints? | Additive **owner-guarded partition** seam in `attachments`:<br>• nullable `attachment_partitions.owner_module`<br>• the guard sits **inside `checkAttachmentAccess`**, so every reader that uses it fails closed<br>• audited direct readers get explicit filters<br>• partition admin API and generic upload refuse owned partitions<br>• `createScoped` into an owned partition suppresses the generic CRUD events and indexing<br>See [Attachments seams](#attachments-seams-additive). ⚠ NEEDS HUMAN CONFIRMATION | Verified:<br>• `api/file/[id]` and `api/image/[id]` declare `requireAuth: false`<br>• `api/library` requires only `attachments.view`<br>• AI tools `attachments.list_record_attachments` / `read_attachment` (`ai-assistant/.../attachments-pack.ts`) read `Attachment` directly<br>• `createScoped` emits `attachments.attachment.created` and indexes the row (`scoped-upload-service.ts` `emitCrudSideEffects`)<br>Without the guard, restricted DAM files leak through all of these. It changes behavior inside another module, so it needs maintainer sign-off. |
-| A3 | How does DAM get thumbnails and technical metadata through public surfaces? | Two additive optional methods on `AttachmentService`: `readScopedPreview` and `inspectScoped` | DAM must not import `attachments/lib/*`. Optional methods follow the existing `releaseScoped?` / `readUploadForm?` precedent. |
+| A2 | How are DAM bytes kept away from the generic attachment surfaces without changing their behavior? | **Decided by the product owner (2026-10-06): path B, owned blobs.** `attachments` adds a separate owned-blob store (`attachment_owned_blobs` table + `createOwnedBlob` / `readOwnedBlob` / `previewOwnedBlob` / `inspectOwnedBlob` / `releaseOwnedBlob`). No existing code path reads it. See [Attachments seam](#attachments-seam-owned-blobs-additive). | The owner-guarded-partition alternative would have changed existing readers, and the product owner ruled that out. Verified readers that never see owned blobs: `api/file/[id]` and `api/image/[id]` (`requireAuth: false`), `api/library`, AI tools in `attachments-pack.ts`, message forwarding, and `emitCrudSideEffects` in `scoped-upload-service.ts`. |
+| A3 | How does DAM get thumbnails and technical metadata through public surfaces? | Part of the owned-blob API: `previewOwnedBlob` and `inspectOwnedBlob` | DAM must not import `attachments/lib/*`. The new methods are optional on `AttachmentService`, following the existing `releaseScoped?` / `readUploadForm?` precedent. |
 | A4 | How is the effective-permission table shaped so role membership changes don't require recomputation? | Effective grants are expanded **per folder × principal (user or role)**, never per user. Active role ids are resolved live per request through `authPrincipalService.resolveActiveUserRoleIds`. | Verified: `auth` emits no role-membership event; `auth.users.update` re-syncs roles and fires only a generic `auth.user.updated` with `{ id, organizationId, tenantId }`. Keeping roles unexpanded makes role changes effective immediately, needs **no new `auth` event** and fails closed. |
 | A5 | What does a user see when they have access to a folder but not to its parent? | The folder appears under a virtual **"Shared with me"** root group. Inaccessible ancestor names are never revealed. | Fail-closed; no folder-name leak. |
 | A6 | Who may move a folder? | **`manager` on the moved folder + `editor` on the target**. Assets: `editor` on source and target (as briefed). ⚠ NEEDS HUMAN CONFIRMATION | Moving an inheriting folder changes who can see its whole subtree, which is effectively a grant change. The brief said "`editor` on both" without distinguishing folders, so this is a deliberate tightening. |
@@ -66,11 +71,12 @@ The brief's Resolved-unknowns table pre-answers most design questions; those ans
 | A9 | How does DAM (core) check document access in Phase 5 without importing `@open-mercato/documents`? | Additive DI service `documentsAccessService` registered by `documents` (`canViewMany`, `getDisplayTitles`), resolved by DAM via `container.hasRegistration`; absent → feature disabled | `documents` depends on core, so core cannot import it. A generic access service in `documents` names no DAM concepts. |
 | A10 | Trash semantics for folders | Trashing a folder trashes its whole live subtree as **one trash batch**. Only the batch root is listed in trash; restore and purge act on the whole batch. | Mirrors desktop trash; restore stays consistent. |
 | A11 | How is the trash retention configured? | Env `OM_DAM_TRASH_RETENTION_DAYS` (default `30`; `0` disables auto-purge) | Least surface; mirrored into `.env.example` and the create-app template. |
-| A12 | OCR / full-text content extraction for DAM files | Off: the `dam` partition is created with `requiresOcr: false` | Not in scope; avoids queue load. |
+| A12 | OCR / full-text content extraction for DAM files | Off: owned blobs never trigger OCR or text extraction | Not in scope; avoids queue load. |
 | A13 | Split into several specs? | One spec with five independently shippable phases | The brief fixed the delivery scope as P1–P5. Each phase leaves the module working. |
 | A14 | Folder depth / subtree size limits | Max depth 20; a synchronous permission rebuild is bounded to 10 000 folders per subtree (larger moves are rejected with a 422 and a hint to split) | Keeps the in-transaction rebuild bounded; generous for a sales library. |
 | A15 | How do Phase 1 folders become Phase 2 folders without a broken reference or a silent visibility change? | Grant tables ship in **P1**. P1 records the root creator's `manager` grant but does not enforce it. Enforcement starts in P2. On P2 deploy, P1 folders become visible only to grantees and admins (fail-closed). Admins re-share them with CLI `yarn mercato dam grant --folder <id\|all-roots> --role <id> --level viewer`, and the change is stated in UPGRADE_NOTES. | No dangling reference; no automatic over-grant; one explicit admin action. |
 | A16 | Do ACL features change meaning between phases? | No. `dam.manage` is a write **ceiling** in every phase. P1 has no folder restriction, and from P2 the folder level is also required. Root-folder creation is a separate feature, `dam.root_folders.create`, from P1. | ACL feature ids are a frozen contract surface. |
+| A18 | How are owned blobs counted against storage limits? | **Separate per-tenant quota for owned blobs**: env `OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB` (default `512`). The existing attachments quota and its accounting stay untouched. The per-file limit reuses the existing `OM_ATTACHMENT_MAX_UPLOAD_MB` value (read-only). ⚠ NEEDS HUMAN CONFIRMATION | The product owner chose path B but did not answer the quota question. Folding owned blobs into the existing quota sum would change the behavior of the existing quota service. A separate limit leaves it untouched. It deviates from the brief ("use existing limits only"), so it needs confirmation. |
 | A17 | Requests that do not come from a user (API keys, system) | They get no folder grants. Only the RBAC `dam.admin` bypass applies, when that principal's features include it. Otherwise DAM routes return 404 (fail-closed). | No defined principal set exists for them. |
 
 ## 📝 Architecture
@@ -84,14 +90,14 @@ flowchart LR
     ui["DAM backend page (new)"]:::newC --> api["dam API routes (new)"]:::newC
     api --> cmd["dam commands + access service (new)"]:::newC
     cmd --> att["attachmentService (existing)"]:::existingC
-    att --> seam["owner-guard + preview/inspect (additive seam)"]:::seamC
+    att --> seam["owned-blob store: own table, preview/inspect, own quota (additive)"]:::seamC
     cmd --> principal["authPrincipalService (existing)"]:::existingC
     sub["dam subscribers: auth.user.deleted / auth.role.deleted (new)"]:::newC --> cmd
     sched["schedulerService (existing, optional)"]:::existingC --> wq["dam workers: purge, reconcile, bulk (new)"]:::newC
     cmd -. "P5, optional" .-> docs["documentsAccessService (additive in documents)"]:::seamC
 ```
 
-Takeaway: DAM touches two peers only through DI services. The yellow nodes are the only changes outside the new module.
+Takeaway: DAM touches two peers only through DI services. The yellow nodes are the only changes outside the new module, and both are new surfaces: no existing code path changes behavior.
 
 ### Module layout
 
@@ -115,38 +121,50 @@ packages/core/src/modules/dam/
   __integration__/…
 ```
 
-### Attachments seams (additive)
+### Attachments seam: owned blobs (additive)
 
-All changes are additive per `BACKWARD_COMPATIBILITY.md`. Existing rows get `owner_module = null`, so behavior stays unchanged for every current consumer.
+Everything is a **new surface**. Nothing existing changes:
+- the `attachments` table
+- `attachment_partitions`
+- `checkAttachmentAccess`
+- every existing route, AI tool and consumer
+- CRUD events and the query index
+- the existing quota service
 
-1. **Owner-guarded partitions** (P1)
-   - **Column.** Nullable `attachment_partitions.owner_module text`.
-   - **Provisioning.** New optional method `attachmentService.ensureOwnedPartition({ code, title, ownerModule, isPublic: false, requiresOcr })`. It is idempotent and creates or validates a global partition row. It refuses when the code exists with a different `owner_module`.
-   - **Single choke point.** `checkAttachmentAccess(auth, attachment, partition, options)` gains an `options.ownerModule?: string` parameter. When `partition.ownerModule` is set and does not equal `options.ownerModule`, the result is `{ ok: false, status: 404 }`. This holds for superadmins too: owner modules serve these files through their own ACL. Every caller that does not pass `ownerModule`, which means every existing caller, is fail-closed automatically. Only the `attachmentService` scoped methods pass it, and only when `expectedPartitionCode` matches the owned partition.
-   - **Direct readers.** These query `Attachment` without `checkAttachmentAccess`. Each gets an explicit `partition_code NOT IN (owned partitions)` filter or is routed through the check, with a test per row:
+**Why this is safe.** Owned blobs live in their own table, so the only code that can see them is the new owned-blob methods, called by their owner module.
 
-     | Reader | Treatment |
-     |---|---|
-     | `attachments/api/library/route.ts` (list + `[id]`) | exclude owned partitions |
-     | `attachments/api/route.ts` (list/upload by `entityId`) | exclude; refuse upload into an owned partition (422) |
-     | `attachments/api/transfer/route.ts` | refuse owned attachments (404) |
-     | `attachments/cli.ts` | skip owned partitions except for explicit `--partition` admin ops |
-     | `ai-assistant/.../ai-tools/attachments-pack.ts` (`list_record_attachments`, `read_attachment`) | exclude owned partitions |
-     | `messages/{commands,lib}/attachments.ts`, `messages/commands/shared.ts` | refuse copying/forwarding owned attachments |
-     | `warranty_claims/api/portal/attachments/route.ts` | exclude |
-     | `sync-akeneo/.../catalog-importer.ts` | exclude |
+1. **Table `attachment_owned_blobs`** (in `attachments`, P1)
 
-     The implementation step re-runs `grep -rn "Attachment" --include=*.ts` and extends this table if new readers have appeared since.
-   - **Partition admin API.** `api/partitions` PUT/DELETE reject owned partitions (409 `attachments.errors.partitionOwned`). The settings UI shows them read-only.
-   - **Side effects.** `createScoped` (`scoped-upload-service.ts`) into an owned partition skips `emitCrudSideEffects` (no `attachments.attachment.created` event, no query-index row). The owner module emits its own events, and webhooks, workflows and subscribers never see DAM files. OCR stays off (A12).
-   - **Release durability.** `releaseScoped` also clears the thumbnail cache for the attachment (today only `api/route.ts` DELETE calls `clearAttachmentThumbnailCache`). If the post-commit provider cleanup fails, `releaseScoped` enqueues `{ storageDriver, partitionCode, storagePath }` on the existing `attachments-quota-recovery` queue (or a sibling `attachments-provider-cleanup` queue). The retry therefore does not depend on the already-deleted row.
-2. **`readScopedPreview?(input)`** (P1)
-   - Input: `ReadScopedAttachmentInput` plus `{ width, height, fit: 'cover' | 'contain' }`.
-   - Returns a WebP buffer, or `null` when no preview exists for the type.
-   - Images use the existing `sharp` pipeline, `imageSafety` limits and `thumbnailCache`. PDFs rasterize page 1 using the existing pdfjs/canvas path in `lib/pdfProcessing.ts`, then resize. The result is cached under the same cache-key scheme.
-3. **`inspectScoped?(input)`** (P1)
-   - Returns `{ mimeType, fileSize, width?, height?, pageCount?, exif?: Record<string, string | number> }`.
-   - EXIF is limited to an allowlist: camera make/model, `DateTimeOriginal`, orientation, lens, ISO, exposure, focal length. **GPS tags are dropped** (privacy).
+   | Column | Notes |
+   |---|---|
+   | `id` | uuid |
+   | `tenant_id`, `organization_id` | both NOT NULL |
+   | `owner_module` | text, e.g. `dam` |
+   | `owner_ref` | text, the owner's record id |
+   | `storage_driver`, `storage_path` | where the bytes are |
+   | `file_name`, `mime_type`, `file_size` | |
+   | `checksum_sha256` | |
+   | `created_at` | |
+   | `cleanup_pending_at` | null unless a provider cleanup failed |
+
+   Index `(tenant_id, owner_module)`. Rows are never exposed by any generic route.
+2. **Storage location.**
+   - Owned blobs use the default storage driver resolved by the existing `StorageDriverFactory` (internal to `attachments`), under a dedicated namespace `__owned__/{ownerModule}/{tenantId}/{organizationId}/…`. The namespace cannot collide with partition codes: sanitized partition codes cannot start with `_`.
+   - The implementation adds an internal factory method `resolveDefault()` if one is missing. That is internal code, not a contract.
+   - Because owned blobs need no partition row, the partition settings UI and API are unaffected.
+3. **Service methods.** These are new optional methods on `AttachmentService`, exported types from `@open-mercato/core/modules/attachments`. Every method takes `{ ownerModule, tenantId, organizationId }`, and every lookup filters on all three. A wrong owner or scope returns `null` / not-found.
+
+   | Method | Behavior |
+   |---|---|
+   | `createOwnedBlob({ ownerModule, ownerRef, tenantId, organizationId, fileName, declaredMimeType, buffer, persistLink?(tx, blobId) })` | Same security validation as `createScoped` (`lib/security.ts`): dangerous types and magic bytes. Per-file limit from `OM_ATTACHMENT_MAX_UPLOAD_MB`. Owned-blob quota check (A18). Store → insert row → `persistLink` in one transaction, with storage compensation on failure. **No CRUD events, no indexing, no OCR.** |
+   | `readOwnedBlob({ …scope, blobId, forceDownload? })` | `{ buffer \| stream, contentType, contentDisposition, fileName }`. Inline only for types `lib/security.ts` already allows inline. |
+   | `previewOwnedBlob({ …scope, blobId, width, height, fit })` | WebP buffer or `null`. Images: existing `sharp` pipeline and `imageSafety` limits. PDF: page 1 via the existing pdfjs/canvas path. Cached in a separate namespace `owned/{blobId}/…` of the thumbnail cache directory. |
+   | `inspectOwnedBlob({ …scope, blobId })` | `{ mimeType, fileSize, width?, height?, pageCount?, exif? }`. EXIF allowlist (make/model, `DateTimeOriginal`, orientation, lens, ISO, exposure, focal length); **GPS dropped**. |
+   | `releaseOwnedBlob({ …scope, blobId }, { em?, flush? })` | Deletes the row inside the caller's transaction and returns a provider cleanup to run after commit. On cleanup failure it calls `reportError` and sets `cleanup_pending_at` (or keeps a tombstone row), so an idempotent worker `attachments:owned-blob-cleanup` retries with the stored driver and path. It also clears the blob's preview cache. |
+   | `getOwnedBlobUsage({ tenantId, ownerModule? })` | `{ usedBytes, limitBytes }` for UI display. |
+
+4. **Owned-blob quota** (A18). A per-tenant sum over `attachment_owned_blobs`, checked under `pg_advisory_xact_lock(hashtext('owned-blob-quota:' || tenant_id))` inside `createOwnedBlob`. Uploads are synchronous request-scoped writes, so no reservation table is needed. The existing quota service is not touched.
+
 4. **`documentsAccessService`** (P5, in `packages/documents`)
    - `canViewMany({ auth, documentIds }) → Set<string>`, built on `resolveUserAccess` + `hasTier(…, 'viewer')`.
    - `getDisplayTitles({ auth, documentIds }) → Record<id, string>`, decrypted via `findOneWithDecryption` and sanitized with `displayLabels.ts`. Only viewable ids are returned.
@@ -204,14 +222,14 @@ All tables carry `tenant_id` and `organization_id` (both `uuid NOT NULL`), `crea
 | Table | Key columns | Notes |
 |---|---|---|
 | `dam_folders` | `id`, `parent_id uuid null`, `name text`, `name_key text`, `tree_path text`, `depth int`, `ancestor_ids jsonb`, `inherits_permissions bool default true`, `created_by_user_id`, `updated_by_user_id`, `trashed_at`, `trashed_by_user_id`, `trash_batch_id uuid null`, `trashed_from_parent_id uuid null`, `deleted_at` | Hierarchy fields maintained by `lib/folderHierarchy.ts`. Index `(organization_id, parent_id)`, GIN on `ancestor_ids`. |
-| `dam_assets` | `id`, `folder_id uuid`, `attachment_id uuid`, `name`, `name_key`, `extension text`, `title text null`, `description text null`, `mime_type`, `file_size bigint`, `technical_metadata jsonb`, `has_preview bool`, `created_by_user_id`, `updated_by_user_id`, `trashed_at`, `trashed_by_user_id`, `trash_batch_id`, `trashed_from_folder_id`, `deleted_at`, `purged_at` | `attachment_id` is an FK id into `attachments` (no ORM relation), nulled on purge. Index `(organization_id, folder_id)`, trigram-friendly index on `name_key`. |
+| `dam_assets` | `id`, `folder_id uuid`, `blob_id uuid`, `name`, `name_key`, `extension text`, `title text null`, `description text null`, `mime_type`, `file_size bigint`, `technical_metadata jsonb`, `has_preview bool`, `created_by_user_id`, `updated_by_user_id`, `trashed_at`, `trashed_by_user_id`, `trash_batch_id`, `trashed_from_folder_id`, `deleted_at`, `purged_at` | `blob_id` is an FK id into `attachment_owned_blobs` (no ORM relation), nulled on purge. Index `(organization_id, folder_id)`, trigram-friendly index on `name_key`. |
 | `dam_entries` | `id`, `parent_key uuid` (folder id, or the org's root sentinel `00000000-0000-0000-0000-000000000000`), `name_key`, `entry_type` (`folder`/`asset`/`document_link`), `entry_id`, `live bool` | **Namespace guard**: partial unique `(organization_id, parent_key, name_key) WHERE live`. Written in the same transaction as the entry; `live = false` on trash. |
 | `dam_tags` | `id`, `label`, `label_key` | Unique `(organization_id, label_key)`. |
 | `dam_asset_tags` | `asset_id`, `tag_id` | Junction table; PK `(asset_id, tag_id)`. |
 | `dam_folder_grants` | `id`, `folder_id`, `principal_type` (`user`/`role`), `principal_id`, `level` (`viewer`/`editor`/`manager`), `created_by_user_id`, `deleted_at` | Partial unique `(folder_id, principal_type, principal_id) WHERE deleted_at IS NULL`. Optimistic lock on the grant set via `grantsVersion` = max(`updated_at`) of the folder's grant rows (grant edits never bump the folder's own `updated_at`, avoiding false 409s on rename). Table ships in P1 (A15). |
 | `dam_folder_effective_grants` | PK `(folder_id, principal_type, principal_id)`, `level`, `source_folder_id`, scope cols | Derived; no `updated_at`/`deleted_at`. Index `(organization_id, principal_type, principal_id, level)`. Ships in P2. |
 | `dam_document_links` (P5) | `id`, `folder_id`, `document_id uuid`, `name`, `name_key`, `created_by_user_id`, trash cols, `deleted_at` | `document_id` is an FK id into `documents` (no ORM relation). |
-| `attachment_partitions.owner_module` | `text null` | Additive column in `attachments` (seam 1). |
+| `attachment_owned_blobs` | see [seam](#attachments-seam-owned-blobs-additive) | New table in `attachments`; no existing reader. |
 
 **Naming** (`lib/naming.ts`, shared by API and UI):
 - `name_key = lower(NFC(name))`.
@@ -236,8 +254,7 @@ flowchart LR
     entity_6["dam_folder_grants"]:::newEntity
     entity_7["dam_folder_effective_grants"]:::newEntity
     entity_8["dam_document_links"]:::newEntity
-    entity_9["attachments"]:::existingEntity
-    entity_10["attachment_partitions (+owner_module)"]:::existingEntity
+    entity_9["attachment_owned_blobs (new, in attachments)"]:::newEntity
     entity_11["documents"]:::existingEntity
     entity_12["users / roles (auth)"]:::existingEntity
 
@@ -251,8 +268,7 @@ flowchart LR
     entity_3 -->|"1-1 entry_id"| entity_8
     entity_2 -->|"n-n"| entity_5
     entity_4 -->|"1-n"| entity_5
-    entity_2 -->|"n-1 FK id attachment_id"| entity_9
-    entity_9 -->|"n-1 partition_code"| entity_10
+    entity_2 -->|"1-1 FK id blob_id"| entity_9
     entity_8 -->|"n-1 FK id document_id"| entity_11
     entity_6 -->|"n-1 FK id principal_id"| entity_12
 ```
@@ -269,11 +285,11 @@ All routes live under `/api/dam/*` and export `openApi`. Validation uses zod in 
 | `POST /folders/move` `{ id, targetParentId \| null, updatedAt }` | P1 | manager on folder + editor on target (A6) | Re-parent; cycle and depth checks; subtree rebuild. |
 | `GET /folders/{id}/stats` | P1 | viewer | `{ direct: { assetCount, totalBytes }, recursive: { assetCount, totalBytes, folderCount } }`. Recursive counts cover visible items only. |
 | `GET /assets?folderId=&recursive=&search=&type=&tags=&sort=&page=&pageSize=` | P1 (search P4) | viewer | List with `previewUrl`, `customValues` and `updatedAt`. |
-| `POST /assets` (multipart: `folderId`, `file`, `name?`, `title?`, `description?`) | P1 | editor | Upload. Reads via `attachmentService.readUploadForm`, then allowlist sniffing, name validation, `createScoped` with `persistLink` writing `dam_assets` + `dam_entries` in the attachment transaction, then `inspectScoped`. Name conflict → **409** `{ code: 'dam.name_conflict', suggestion: 'name (1).pdf' }`. |
+| `POST /assets` (multipart: `folderId`, `file`, `name?`, `title?`, `description?`) | P1 | editor | Upload. Reads via `attachmentService.readUploadForm`, then allowlist sniffing and name validation. `createOwnedBlob({ ownerModule: 'dam' })` with `persistLink` writes `dam_assets` + `dam_entries` in the same transaction, then `inspectOwnedBlob` runs. Name conflict → **409** `{ code: 'dam.name_conflict', suggestion: 'name (1).pdf' }`. |
 | `PUT /assets` `{ id, name?, title?, description?, tags?, cf_*, updatedAt }` | P1 | editor | Metadata edit. |
-| `POST /assets/{id}/file` (multipart) | P1 | editor | Replace the bytes; the type must keep the same extension. A single transaction creates the new attachment (`persistLink` re-points `attachment_id`) and removes the old row via `releaseScoped(…, { em, flush: false })`. Only the old provider bytes are deleted after commit, with the durable retry from seam 1. |
-| `GET /assets/{id}/download` | P1 | viewer | Streams via `readScoped({ expectedPartitionCode: 'damAssets', forceDownload: true })`. |
-| `GET /assets/{id}/preview?w=&h=&fit=` | P1 | viewer | `readScopedPreview`; 404 when no preview exists → the UI shows the type icon. `Cache-Control: private`. |
+| `POST /assets/{id}/file` (multipart) | P1 | editor | Replace the bytes; the type must keep the same extension. A single transaction creates the new blob (`persistLink` re-points `blob_id`) and removes the old row via `releaseOwnedBlob(…, { em, flush: false })`. Only the old provider bytes are deleted after commit, with the durable retry. |
+| `GET /assets/{id}/download` | P1 | viewer | Streams via `readOwnedBlob({ ownerModule: 'dam', forceDownload: true })`. |
+| `GET /assets/{id}/preview?w=&h=&fit=` | P1 | viewer | `previewOwnedBlob`; 404 when no preview exists → the UI shows the type icon. `Cache-Control: private`. |
 | `POST /assets/move` `{ ids[], targetFolderId }` | P1 | editor on each source + target | Batch ≤ 100 inline; more → P4 bulk job. |
 | `GET /tags?search=` | P1 | dam.view | Tag autocomplete. |
 | `GET /names/check?parentId=&name=` | P1 | viewer on parent | `{ valid, error?, available, suggestion? }` for live UI validation. |
@@ -304,7 +320,7 @@ Allowed types and their sniff signatures:
 
 - The declared MIME type and the extension must agree with the sniffed type. Any mismatch → 422 `dam.errors.unsupportedType`.
 - SVG and everything else are rejected.
-- Size and quota limits are enforced by `attachmentService` (`OM_ATTACHMENT_MAX_UPLOAD_MB`, `OM_ATTACHMENT_TENANT_QUOTA_MB`), giving 413 / 507-style errors mapped to i18n messages.
+- `createOwnedBlob` enforces the size and quota limits (`OM_ATTACHMENT_MAX_UPLOAD_MB` per file, `OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB` per tenant, A18). It returns 413 / 507-style errors, mapped to i18n messages.
 
 **Events** (`events.ts`, `createModuleEvents`)
 - `dam.folder.created|updated|moved|trashed|restored|purged`
@@ -323,7 +339,7 @@ Payloads carry `{ id, organizationId, tenantId }` plus `folderId` / `parentId` w
 | `dam.root_folders.create` | Create root folders |
 | `dam.admin` | Bypass folder grants, global trash, reconcile and grant CLIs |
 
-`setup.ts`: `defaultRoleFeatures: { superadmin: ['dam.*'], admin: ['dam.*'], employee: ['dam.view', 'dam.manage'] }`. `dam.admin` and `dam.root_folders.create` are admin-only; `dam.admin` checks use wildcard-aware `rbacService` matching. It also calls `ensureOwnedPartition({ code: 'damAssets', ownerModule: 'dam', isPublic: false, requiresOcr: false })` and the guarded scheduler registrations.
+`setup.ts`: `defaultRoleFeatures: { superadmin: ['dam.*'], admin: ['dam.*'], employee: ['dam.view', 'dam.manage'] }`. `dam.admin` and `dam.root_folders.create` are admin-only; `dam.admin` checks use wildcard-aware `rbacService` matching. It also performs the guarded scheduler registrations. No partition is created.
 
 **Search config** (`search.ts`): DAM entities are registered with `enabled: false` — the global index has no record-level ACL filtering (same decision as `documents/search.ts`). Search is the ACL-filtered list route `GET /assets?search=`: ILIKE (`escapeLikePattern`) over `name`, `title` and tag labels, plus a `type` filter. Descriptions are encrypted, so description matching is out of scope for P4. Recorded as a known limitation.
 
@@ -367,9 +383,9 @@ Prototype: `.ai/specs/assets/dam-module/` (illustrative mockups attached to the 
 
 | Scenario | Behavior |
 |---|---|
-| Two users upload `Offer.pdf` and `offer.pdf` into the same folder concurrently | The `dam_entries` unique index rejects the second → 409 with suggestion; its attachment transaction rolls back (`persistLink` runs inside it), so no orphan bytes remain. |
-| Upload succeeds at storage but the DB transaction fails | `createScoped` owns this atomicity. Quota reservations are recovered by the existing `attachments-quota-recovery` worker. |
-| Purge: DB commit succeeds, provider byte delete fails | `releaseScoped` commits the DB removal first, then runs the provider cleanup. On failure it logs, calls `reportError`, and enqueues `{ storageDriver, partitionCode, storagePath }` for an idempotent retry (seam 1). The retry does not need the deleted row. The asset is already invisible. |
+| Two users upload `Offer.pdf` and `offer.pdf` into the same folder concurrently | The `dam_entries` unique index rejects the second → 409 with suggestion; the blob transaction rolls back (`persistLink` runs inside it) and `createOwnedBlob` compensates the stored bytes. |
+| Upload succeeds at storage but the DB transaction fails | `createOwnedBlob` deletes the stored bytes (compensation). If that also fails, it reports the error and the cleanup worker removes the orphan path. |
+| Purge: DB commit succeeds, provider byte delete fails | `releaseOwnedBlob` keeps a tombstone (`cleanup_pending_at`) with driver and path. `attachments:owned-blob-cleanup` retries idempotently. The asset is already invisible, and the quota sum excludes tombstones. |
 | Folder moved while another user browses it | The next request reflects the new effective permissions. A stale `updatedAt` on concurrent edits → 409 conflict bar via `surfaceRecordConflict`. |
 | Move into own descendant | 422 `dam.errors.moveCycle`. |
 | Restore when the origin folder is trashed / purged or the name is taken | 409 `dam.restore_conflict`; the UI asks for a target and/or a new name. |
@@ -378,8 +394,10 @@ Prototype: `.ai/specs/assets/dam-module/` (illustrative mockups attached to the 
 | `documents` not installed (P5) | Link routes 404; UI hides the "Link document" action; existing links render as "unavailable". |
 | Linked document deleted or access revoked | The link shows as "Document unavailable" (no title leaked); `editor` can remove it. |
 | Role deleted while referenced by grants | `auth.roles.delete` already refuses roles with assignments. After deletion, the subscriber removes its grants; until then, the dangling grant matches nobody. |
-| Corrupt or malicious image or PDF | `imageSafety` dimension and magic-byte limits apply in `readScopedPreview`; failure → `null` preview (icon), never a 500 for the list. |
-| Generic attachments endpoints, AI tools, message forwarding or the partition admin API used against a DAM attachment or partition | 404 / 409 (seam 1). Covered by one integration test per reader. |
+| Corrupt or malicious image or PDF | `imageSafety` dimension and magic-byte limits apply in `previewOwnedBlob`; failure → `null` preview (icon), never a 500 for the list. |
+| Generic attachments endpoints or AI tools probed with a DAM blob id | Not found. The generic routes query `attachments`, and owned blobs are not in it. One integration test asserts `/api/attachments/file/{blobId}` and `/image/{blobId}` → 404 with **no** code change there. |
+| Owner module calls an owned-blob method with another module's or tenant's blob id | `null` / not-found: every lookup filters `owner_module`, `tenant_id`, `organization_id`. |
+| Owned-blob quota exceeded | 507-style error with an i18n message; the UI shows usage via `getOwnedBlobUsage`. |
 | Upload races with a trash or move of the target folder | The upload holds `FOR SHARE` on the folder and re-checks that it is live. The trash/move waits, or the upload fails with 404 if it ran second. |
 | Grant change on an ancestor races with one on a descendant | Serialized by the per-organization advisory lock. No stale overwrite. |
 
@@ -387,25 +405,27 @@ Prototype: `.ai/specs/assets/dam-module/` (illustrative mockups attached to the 
 
 | Risk | Severity | Area | Mitigation | Residual |
 |---|---|---|---|---|
-| Behavior change in generic attachment routes (owner guard) | High | attachments, every consumer | Only rows in partitions with `owner_module` set are affected; there are none before DAM. Unit tests plus integration tests for every generic route. Needs maintainer approval (A2 ⚠). | Third-party code that reads DAM attachments through generic routes would get 404. That is intended. |
+| New owned-blob surface in `attachments` duplicates parts of the scoped upload path | Medium | attachments | Reuse `lib/security.ts`, `imageSafety`, the driver factory and the thumbnail renderer through shared internal functions. Owned-blob methods are thin wrappers, and unit tests share fixtures with `createScoped`. | Two entry points to maintain. |
+| Two independent storage limits per tenant | Low | ops | Documented; `getOwnedBlobUsage` shown in the DAM UI (A18 ⚠). | Operators must configure two values. |
 | Effective-permission bugs leak restricted folders | High | dam | One `visibleFolderScope` predicate for all reads; property-style unit tests over random trees (inheritance and breaks vs. a brute-force reference resolver); nightly reconcile; 404-not-403. | Logic bugs in the reference itself. |
 | In-transaction subtree rebuild slows big moves | Medium | dam | 10 000-folder cap, indexed `ancestor_ids`, single bulk insert. | Very large trees need a future async path. |
 | New DB tables and migrations | Medium | db | Additive only. Migrations plus `.snapshot-open-mercato.json` ship in the PR; `yarn db:migrate` is never run by agents. | — |
-| New event IDs, ACL features, API routes, DI method signatures become contract surface | Medium | BC | Named carefully once. New `AttachmentService` methods are optional (`?`) so other implementations don't break. | Frozen after release. |
+| New event IDs, ACL features, API routes, DI method signatures become contract surface | Medium | BC | Named carefully once. New owned-blob `AttachmentService` methods are optional (`?`) so other implementations don't break. | Frozen after release. |
 | EXIF privacy | Low | dam | Allowlist; GPS dropped. | — |
 | Description not searchable (encrypted) | Low | dam | Documented limitation. | Users may expect it. |
 
 **Migration & Backward Compatibility.**
-- Every change is additive: new module and tables; a nullable `attachment_partitions.owner_module`; optional methods on `AttachmentService`; a new DI service in `documents`.
+- Every change is additive: new module and tables, a new `attachment_owned_blobs` table, optional owned-blob methods on `AttachmentService`, a new env `OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB`, a new worker, and a new DI service in `documents`.
+- **No existing behavior changes.** No existing route, tool, event, index, quota or partition is touched.
 - There are no renames or removals, so no deprecation bridge is needed.
-- Rollback: disable the module. The owner-guarded partition keeps its files hidden from generic routes and still counts against quota. Before uninstalling, run CLI `yarn mercato dam purge-all --org <id> --confirm`, which releases all DAM bytes via `releaseScoped`. This is documented in UPGRADE_NOTES.
+- Rollback: disable the module. Owned blobs stay invisible (no generic reader) but occupy storage. Before uninstalling, run CLI `yarn mercato dam purge-all --org <id> --confirm`, which releases all DAM bytes via `releaseOwnedBlob`. This is documented in UPGRADE_NOTES.
 - **P2 visibility change** (A15): P1 folders become visible only to grantees and admins when P2 ships. This is documented in UPGRADE_NOTES with the `dam grant` CLI.
 
 ## 📋 Phasing
 
 | Phase | Outcome (independently shippable) |
 |---|---|
-| **P1 — Library core** | Attachments seams 1–3 (seam 2–3 may ship as their own PR ahead of DAM); module scaffold; folders (create, rename, move); upload/replace/download/preview; allowlist; naming and namespace; title, description, tags, custom fields, technical metadata; list and grid; stats; flat RBAC (`dam.view` / `dam.manage` / `dam.root_folders.create` / `dam.admin`); grant table recorded, not enforced (A15). Delete is not available yet (folders and assets can only be moved). |
+| **P1 — Library core** | Attachments owned-blob seam (may ship as its own PR ahead of DAM); module scaffold; folders (create, rename, move); upload/replace/download/preview; allowlist; naming and namespace; title, description, tags, custom fields, technical metadata; list and grid; stats; flat RBAC (`dam.view` / `dam.manage` / `dam.root_folders.create` / `dam.admin`); grant table recorded, not enforced (A15). Delete is not available yet (folders and assets can only be moved). |
 | **P2 — Folder permissions** | Grants, inheritance and break; effective-grants table and rebuild; `visibleFolderScope` on every read; "Shared with me"; auth cleanup subscribers; reconcile worker + CLI + schedule. |
 | **P3 — Trash** | Trash batches, trash page, restore with conflicts, manual purge, scheduled auto-purge with byte release, `OM_DAM_TRASH_RETENTION_DAYS`. |
 | **P4 — Bulk & search** | Multi-file upload polish, bulk move/tag/untag/trash via `ProgressJob` + worker, ACL-filtered search and filters. |
@@ -416,20 +436,19 @@ Prototype: `.ai/specs/assets/dam-module/` (illustrative mockups attached to the 
 Each step leaves the app building and working. Run `yarn generate` after adding auto-discovered files. Every phase ships its integration tests (`__integration__`, self-contained fixtures via API, cleanup in teardown).
 
 ### Phase 1 — Library core
-1. **Attachments seam: owner-guarded partitions.**
-   - Migration adds `owner_module`; `ensureOwnedPartition` goes on the service.
-   - Guard inside `checkAttachmentAccess` (`ownerModule` option).
-   - Every row of the direct-reader table gets its filter or refusal.
-   - `api/partitions` PUT/DELETE refuse owned partitions; settings UI shows them read-only.
-   - `createScoped` suppresses CRUD side effects for owned partitions.
-   - `releaseScoped` clears the thumbnail cache and enqueues a durable provider-cleanup retry.
-   - Tests: unit per guard; integration: an owned attachment → 404/409 on every generic route and AI tool, no `attachments.attachment.created` event, cleanup retry after a simulated provider failure.
-2. **Attachments seam: `readScopedPreview` + `inspectScoped`.**
-   - Reuse `sharp`, `thumbnailCache`, `imageSafety` and the `pdfProcessing` page-1 rasterization.
+1. **Attachments seam: owned-blob store.**
+   - `attachment_owned_blobs` entity + migration + snapshot.
+   - `createOwnedBlob` / `readOwnedBlob` / `releaseOwnedBlob` / `getOwnedBlobUsage` with owner-and-scope filtering.
+   - Security validation shared with `createScoped`; owned-blob quota (A18); `attachments:owned-blob-cleanup` worker.
+   - `OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB` in `.env.example` and the create-app template.
+   - Unit tests: wrong owner or tenant → not found, quota boundary, compensation on DB failure, cleanup retry.
+   - Integration: generic `/api/attachments/file|image/{blobId}` → 404 with no change to those routes; the existing attachments test suite passes unchanged.
+2. **Attachments seam: `previewOwnedBlob` + `inspectOwnedBlob`.**
+   - Reuse `sharp`, `imageSafety`, the thumbnail renderer (own cache namespace) and the `pdfProcessing` page-1 rasterization.
    - EXIF allowlist without GPS.
    - Unit tests for image, PDF and unsupported (`null`) cases.
 3. **DAM scaffold.**
-   - `index.ts`, `acl.ts`, `setup.ts` (features, `ensureOwnedPartition('damAssets')`), `di.ts`, `events.ts`, `ce.ts`, `search.ts` (`enabled: false`), i18n skeleton.
+   - `index.ts`, `acl.ts`, `setup.ts` (features, guarded schedules), `di.ts`, `events.ts`, `ce.ts`, `search.ts` (`enabled: false`), i18n skeleton.
    - Entities `dam_folders`, `dam_assets`, `dam_entries`, `dam_tags`, `dam_asset_tags`, `dam_folder_grants` + migration + snapshot.
 4. **`lib/naming.ts` + `lib/fileTypes.ts`.** Exhaustive unit tests (forbidden characters, reserved names, NFC/case collisions, OOXML sniffing, TXT heuristics, mismatches).
 5. **Folder commands + API.**
@@ -437,7 +456,7 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
    - `GET /folders` tree, `/names/check`.
    - Integration: create nested folders, rename conflict 409, move cycle 422.
 6. **Asset upload/replace/download/preview + metadata.**
-   - Commands and routes; `persistLink` atomicity; tags; custom fields; `inspectScoped` on upload.
+   - Commands and routes; `persistLink` atomicity; tags; custom fields; `inspectOwnedBlob` on upload.
    - Integration: upload each allowed type, reject SVG and a spoofed extension, conflict suggestion, replace keeps id, download bytes match, preview for JPG/PDF and 404 for TXT.
 7. **Stats + list API** (`/folders/{id}/stats`, `/assets` with folder, recursive and sort). Integration: counts and sizes direct vs recursive.
 8. **Backend UI.**
@@ -454,9 +473,9 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
 
 ### Phase 3 — Trash
 1. Trash columns are used: `lib/trash.ts` batch trash/restore, with `dam_entries.live` toggling. Commands + `DELETE` routes + events.
-2. Trash list, restore (conflicts), manual purge via `releaseScoped` (commit, then cleanup); purge-cleanup retry.
+2. Trash list, restore (conflicts), manual purge via `releaseOwnedBlob` (commit, then cleanup); cleanup retry via the owned-blob tombstone.
 3. `workers/trash-purge.ts` + scheduler registration + CLI `dam purge-trash`; `OM_DAM_TRASH_RETENTION_DAYS` in `.env.example` and the create-app template (`yarn template:sync:fix`).
-4. Trash page UI + conflict dialog. Integration: trash a folder with content, restore it to its origin, restore with a conflict, restore elsewhere without target `editor` → 404, purge → bytes gone (download 404, quota released, thumbnail cache cleared).
+4. Trash page UI + conflict dialog. Integration: trash a folder with content, restore it to its origin, restore with a conflict, restore elsewhere without target `editor` → 404, purge → bytes gone (download 404, owned-blob usage decreases, preview cache cleared).
 5. CLI `dam purge-all --org <id> --confirm` for uninstall (rollback path).
 
 ### Phase 4 — Bulk & search
@@ -473,7 +492,7 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
 
 | Path | Phase |
 |---|---|
-| `/api/attachments/{file,image,library,transfer}` owner-guard 404 | P1 |
+| `/api/attachments/{file,image}/{blobId}` → 404 with no change to those routes; existing attachments integration suite unchanged | P1 |
 | `/api/dam/folders` (+ `/move`, `/stats`), `/api/dam/names/check` | P1 |
 | `/api/dam/assets` (+ `/{id}/file`, `/download`, `/preview`, `/move`), `/api/dam/tags` | P1 |
 | UI: browse, upload, edit metadata, list/grid, stats | P1 |
@@ -488,11 +507,11 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
 
 | Rule (source) | Status |
 |---|---|
-| No direct ORM relations between modules (`AGENTS.md` → Architecture) | ✅ FK ids only (`attachment_id`, `document_id`, `principal_id`) |
+| No direct ORM relations between modules (`AGENTS.md` → Architecture) | ✅ FK ids only (`blob_id`, `document_id`, `principal_id`) |
 | Tenant/org scoping on every query | ✅ All tables carry both; `DamAccessService` scopes every read |
-| `attachmentService` boundary (`attachments/AGENTS.md`) | ✅ DAM never reads `Attachment` or constructs drivers; seams are additive |
-| Scope invariant (`assertAttachmentScopeInvariant`) | ✅ `createScoped` always gets both scope ids |
-| BC: additive only (`BACKWARD_COMPATIBILITY.md`) | ✅ New column nullable, new service methods optional, new events, features, routes and DI keys. ⚠ Behavior change for owned partitions in generic readers needs maintainer approval (A2) |
+| `attachmentService` boundary (`attachments/AGENTS.md`) | ✅ DAM never reads attachments entities or constructs drivers; it uses only the new owned-blob methods |
+| Scope invariant (both-or-neither) | ✅ Owned blobs require both `tenant_id` and `organization_id` (NOT NULL) |
+| BC: additive only (`BACKWARD_COMPATIBILITY.md`) | ✅ New table, optional service methods, new env, events, features, routes and DI keys; **no existing behavior changes** (A2, product-owner decision) |
 | Optimistic locking default ON | ✅ `updatedAt` on folders and assets; `grantsVersion` for grants |
 | zod validators, i18n, DS tokens, dialog shortcuts, `pageSize ≤ 100` | ✅ Specified |
 | Wildcard-aware RBAC for `dam.admin` | ✅ Via `rbacService` |
@@ -501,9 +520,10 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
 | Error reporting (`reportError` in catches) | ✅ Purge and cleanup failures |
 | Module id convention "plural, snake_case" (`AGENTS.md` → Conventions) | ⚠ `dam` is an acronym chosen by the product owner (brief: "use the term DAM"), treated like the `auth` special case; reviewers may request `dam` be listed as an explicit exception |
 | Integration tests per affected API/UI path (`.ai/qa/AGENTS.md`) | ✅ Coverage table above |
-| `.env.example` + create-app template sync for `OM_DAM_TRASH_RETENTION_DAYS` | ✅ P3 step 3 |
+| `.env.example` + create-app template sync for `OM_DAM_TRASH_RETENTION_DAYS`, `OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB` | ✅ P3 step 3, P1 step 1 |
 
 ## Changelog
 
 - 2026-10-06 — Initial draft from brief `briefs/2026-10-06-dam-module.md` (autonomous, `om-auto-write-spec`).
 - 2026-10-06 — Fresh-context review fixes: owner guard moved into `checkAttachmentAccess` + direct-reader audit, partition-API and side-effect suppression, durable provider cleanup, per-org advisory lock, transactional file replace, restore target checks, P1→P2 grant transition (A15), stable ACL semantics (A16), non-user principals (A17), byte-length names, singular event id.
+- 2026-10-06 — Product-owner decision on A2: replace the owner-guarded-partition seam with an isolated owned-blob store in `attachments` (path B). No existing attachments behavior changes; separate owned-blob quota (A18 ⚠).
