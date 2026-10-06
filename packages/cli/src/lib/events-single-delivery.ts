@@ -2,8 +2,11 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { AutoSpawnWorkersMode } from './auto-spawn-workers'
 
 // Keep these env names in sync with the runtime source of truth,
-// `@open-mercato/events/single-delivery`. The CLI cannot import the events
-// package (no dependency edge), so the reconcile logic is mirrored here for the
+// `@open-mercato/events/single-delivery`. This guard runs ahead of app
+// bootstrap (before the Postgres driver and the rest of the module graph
+// load), so it deliberately avoids importing `@open-mercato/events` here even
+// though the package is now a declared dependency (bin.ts's post-bootstrap
+// exit-flush uses it) — the reconcile logic is mirrored instead for this
 // server-bootstrap guard only; the bus and worker own the runtime behavior.
 //
 // This guard is the ONLY place that reconciles the flag against worker
