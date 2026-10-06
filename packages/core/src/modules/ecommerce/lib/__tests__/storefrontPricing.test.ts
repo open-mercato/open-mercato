@@ -680,6 +680,59 @@ describe('resolveStorefrontPrices — price tiers', () => {
   })
 })
 
+describe('resolveStorefrontPrices — per-variant price tiers', () => {
+  const rows = [
+    priceRow({ id: 'base-1', productId: 'p1', gross: '60.00', net: '48.78' }),
+    priceRow({ id: 'base-10', productId: 'p1', gross: '55.00', net: '44.72', minQuantity: 10 }),
+    priceRow({ id: 'v1-1', productId: 'p1', variantId: 'v1', gross: '50.00', net: '40.65' }),
+    priceRow({ id: 'v1-5', productId: 'p1', variantId: 'v1', gross: '45.00', net: '36.59', minQuantity: 5 }),
+    priceRow({ id: 'p2-1', productId: 'p2', gross: '30.00', net: '24.39' }),
+    priceRow({ id: 'p2-10', productId: 'p2', gross: '25.00', net: '20.33', minQuantity: 10 }),
+  ]
+
+  function amounts(tiers: Array<{ minQuantity: number; maxQuantity: number | null; amount: number }> | undefined) {
+    return (tiers ?? []).map(({ minQuantity, maxQuantity, amount }) => ({ minQuantity, maxQuantity, amount }))
+  }
+
+  it('resolves tiers per variant from its own rows plus product-level rows in the same batch', async () => {
+    installFixture({ rows })
+    const result = await resolveStorefrontPrices(
+      makeContainer({ omnibus: null }),
+      makeContext({ taxMode: 'gross' }),
+      [{ productId: 'p1', variantIds: ['v1', 'v2'] }],
+      { detail: true },
+    )
+    const pricing = result.get('p1')
+    expect(amounts(pricing?.variantPriceTiers.get('v1'))).toEqual([
+      { minQuantity: 1, maxQuantity: 4, amount: 50 },
+      { minQuantity: 5, maxQuantity: null, amount: 45 },
+    ])
+    expect(amounts(pricing?.variantPriceTiers.get('v2'))).toEqual([
+      { minQuantity: 1, maxQuantity: 9, amount: 60 },
+      { minQuantity: 10, maxQuantity: null, amount: 55 },
+    ])
+    expect(priceRowCalls()).toHaveLength(1)
+  })
+
+  it('limits tier resolution to the requested products and skips it outside detail mode', async () => {
+    installFixture({ rows })
+    const items = [
+      { productId: 'p1', variantIds: ['v1'] },
+      { productId: 'p2', variantIds: [] },
+    ]
+    const scoped = await resolveStorefrontPrices(makeContainer({ omnibus: null }), makeContext({ taxMode: 'gross' }), items, {
+      detail: true,
+      tierProductIds: ['p1'],
+    })
+    expect(amounts(scoped.get('p1')?.variantPriceTiers.get('v1'))).toHaveLength(2)
+    expect(scoped.get('p2')?.priceTiers).toEqual([])
+
+    const list = await resolveStorefrontPrices(makeContainer({ omnibus: null }), makeContext({ taxMode: 'gross' }), items)
+    expect(list.get('p1')?.variantPriceTiers.get('v1')).toEqual([])
+    expect(list.get('p2')?.priceTiers).toEqual([])
+  })
+})
+
 describe('resolveStorefrontPrices — variants and price range', () => {
   it('resolves per-variant prices with product-level fallback and a min/max range', async () => {
     installFixture({

@@ -60,8 +60,8 @@
 | 4 | 4.5 | ecommerce storefront pricing (buildStorefrontPricingContext, batched resolution, tax mode) | dispatch:capable | done | 23f14ceba7 |
 | 4 | 4.5-fix | Promotions as an overlay on the priceKindId filter (owner decision D2a) | dispatch:capable | done | ae40653ccf |
 | 4 | 4.6 | ecommerce lib/storefrontProducts.ts listing | dispatch:capable | done | 565dd8ff0b |
-| 4 | 4.7 | ecommerce lib/storefrontDetail.ts detail | dispatch:capable | done | pending |
-| 4 | 4.7-fix | Detail priceTiers per selected variant (empty tiers when variants carry prices) | dispatch:standard | todo | — |
+| 4 | 4.7 | ecommerce lib/storefrontDetail.ts detail | dispatch:capable | done | 248bf789fd |
+| 4 | 4.7-fix | Detail priceTiers per selected variant (empty tiers when variants carry prices) | dispatch:standard | done | pending |
 | 4 | 4.8 | Public routes /products and /products/:idOrHandle with storefront cache | dispatch:standard | todo | — |
 | 4 | 4.9 | Integration tests: cross-context isolation, enumeration oracle, query budgets (Public API Phase 1 gate) | dispatch:capable | todo | — |
 | 5 | 5.1 | Channel binding require_authentication + resolver short-circuit + intersectScopes | dispatch:standard | todo | — |

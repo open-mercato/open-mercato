@@ -70,6 +70,7 @@ export type StorefrontProductVariant = {
   optionValues: Record<string, string>
   isDefault: boolean
   price: StorefrontPrice | null
+  priceTiers: StorefrontPriceTier[]
   availability: StorefrontAvailability
   dimensions: StorefrontDimensions | null
   weightValue: number | null
@@ -98,6 +99,7 @@ export type StorefrontProductDetail = Omit<StorefrontProductListItem, 'categorie
   /** The requested `variantId` when it is one of `variants`, else the default variant, else null. */
   selectedVariantId: string | null
   quantityRules: StorefrontQuantityRules
+  /** Quantity tiers of `selectedVariantId` when one is selected, else of the product. */
   priceTiers: StorefrontPriceTier[]
   relatedProducts: StorefrontProductListItem[]
   seo: StorefrontProductSeo
@@ -489,7 +491,7 @@ export async function getStorefrontProductDetail(
         { productId: product.id, variantIds },
         ...related.map((entry) => ({ productId: entry.product.id, variantIds: entry.variants.map((variant) => variant.id) })),
       ],
-      { detail: true, date: options.date },
+      { detail: true, tierProductIds: [product.id], date: options.date },
     ),
     loadStorefrontTranslations(em, ctx, [
       { entityType: STOREFRONT_PRODUCT_ENTITY_TYPE, ids: [product.id, ...related.map((entry) => entry.product.id)] },
@@ -547,6 +549,7 @@ export async function getStorefrontProductDetail(
       optionValues: stringRecord(variant.optionValues),
       isDefault: variant.isDefault === true,
       price: productPricing?.variantPrices.get(variant.id) ?? null,
+      priceTiers: productPricing?.variantPriceTiers.get(variant.id) ?? [],
       availability: toStorefrontAvailability(variantAvailability?.result ?? null),
       dimensions: toDimensions(variant.dimensions),
       weightValue: toNumber(variant.weightValue),
@@ -555,6 +558,7 @@ export async function getStorefrontProductDetail(
   })
   const requestedVariant = options.variantId ? variants.find((variant) => variant.id === options.variantId) : undefined
   const defaultVariant = variants.find((variant) => variant.isDefault)
+  const selectedVariant = requestedVariant ?? defaultVariant
 
   return {
     ...listItem,
@@ -584,13 +588,13 @@ export async function getStorefrontProductDetail(
       locales,
     ),
     variants,
-    selectedVariantId: requestedVariant?.id ?? defaultVariant?.id ?? null,
+    selectedVariantId: selectedVariant?.id ?? null,
     quantityRules: {
       minOrderQuantity: policy?.minOrderQuantity?.value ?? toNumber(product.minOrderQty),
       maxOrderQuantity: policy?.maxOrderQuantity?.value ?? toNumber(product.maxOrderQty),
       quantityIncrement: policy?.quantityIncrement?.value ?? toNumber(product.orderQtyIncrement),
     },
-    priceTiers: productPricing?.priceTiers ?? [],
+    priceTiers: selectedVariant ? selectedVariant.priceTiers : productPricing?.priceTiers ?? [],
     relatedProducts: relatedListItems(related, {
       locales,
       productTranslations,

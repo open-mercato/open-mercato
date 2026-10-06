@@ -770,6 +770,76 @@ describe('getStorefrontProductDetail — payload (§5.2)', () => {
   })
 })
 
+describe('getStorefrontProductDetail — per-variant price tiers', () => {
+  function addVariantTierRows() {
+    world.prices.push(
+      priceRow({ id: 'price-v0-10', productId: MAIN_ID, variantId: variantId(MAIN_ID, 0), gross: '110.00', minQuantity: 10 }),
+      priceRow({ id: 'price-v1-10', productId: MAIN_ID, variantId: variantId(MAIN_ID, 1), gross: '105.00', minQuantity: 10 }),
+    )
+  }
+
+  function tierSummary(tiers: Array<{ minQuantity: number; maxQuantity: number | null; amount: number }> | undefined) {
+    return (tiers ?? []).map(({ minQuantity, maxQuantity, amount }) => ({ minQuantity, maxQuantity, amount }))
+  }
+
+  it('returns the tiers of the default variant when variants carry their own prices', async () => {
+    addVariantTierRows()
+    const result = await detail(MAIN_ID)
+    expect(result?.selectedVariantId).toBe(variantId(MAIN_ID, 1))
+    expect(tierSummary(result?.priceTiers)).toEqual([
+      { minQuantity: 1, maxQuantity: 9, amount: 119 },
+      { minQuantity: 10, maxQuantity: null, amount: 105 },
+    ])
+  })
+
+  it('switches the top-level tiers with the requested variant and exposes tiers per variant', async () => {
+    addVariantTierRows()
+    const result = await detail(MAIN_ID, { variantId: variantId(MAIN_ID, 0) })
+    expect(result?.selectedVariantId).toBe(variantId(MAIN_ID, 0))
+    expect(tierSummary(result?.priceTiers)).toEqual([
+      { minQuantity: 1, maxQuantity: 9, amount: 120 },
+      { minQuantity: 10, maxQuantity: null, amount: 110 },
+    ])
+    const byId = new Map(result?.variants.map((variant) => [variant.id, tierSummary(variant.priceTiers)]))
+    expect(byId.get(variantId(MAIN_ID, 0))).toEqual(tierSummary(result?.priceTiers))
+    expect(byId.get(variantId(MAIN_ID, 1))).toEqual([
+      { minQuantity: 1, maxQuantity: 9, amount: 119 },
+      { minQuantity: 10, maxQuantity: null, amount: 105 },
+    ])
+  })
+
+  it('falls back to product-level tier rows for a variant without its own prices', async () => {
+    const result = await detail('plain', { variantId: variantId(PLAIN_ID, 0) })
+    expect(result?.selectedVariantId).toBe(variantId(PLAIN_ID, 0))
+    expect(tierSummary(result?.priceTiers)).toEqual([
+      { minQuantity: 1, maxQuantity: 9, amount: 50 },
+      { minQuantity: 10, maxQuantity: null, amount: 45 },
+    ])
+  })
+
+  it('keeps the product tiers for a product without variants', async () => {
+    setWorld(0)
+    const result = await detail('plain')
+    expect(result?.variants).toEqual([])
+    expect(result?.selectedVariantId).toBeNull()
+    expect(tierSummary(result?.priceTiers)).toEqual([
+      { minQuantity: 1, maxQuantity: 9, amount: 50 },
+      { minQuantity: 10, maxQuantity: null, amount: 45 },
+    ])
+  })
+
+  it('resolves variant tiers without extra queries', async () => {
+    resetCounters()
+    await detail(MAIN_ID)
+    const baseline = totalQueries()
+    addVariantTierRows()
+    resetCounters()
+    await detail(MAIN_ID, { variantId: variantId(MAIN_ID, 0) })
+    expect(totalQueries()).toBe(baseline)
+    expect(totalQueries()).toBeLessThanOrEqual(10)
+  })
+})
+
 describe('getStorefrontProductDetail — overlays (§7)', () => {
   it('overlays the option schema name, option labels and choice labels with base fallback', async () => {
     const result = await detail(MAIN_ID)

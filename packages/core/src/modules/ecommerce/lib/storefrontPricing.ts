@@ -76,10 +76,13 @@ export type StorefrontProductPricing = {
   priceRange: StorefrontPriceRange | null
   variantPrices: Map<string, StorefrontPrice | null>
   priceTiers: StorefrontPriceTier[]
+  variantPriceTiers: Map<string, StorefrontPriceTier[]>
 }
 
 export type ResolveStorefrontPricesOptions = {
   detail?: boolean
+  /** Detail mode only: products whose quantity tiers are resolved; every item when omitted. */
+  tierProductIds?: string[]
   date?: Date
 }
 
@@ -436,7 +439,8 @@ async function fetchPageRows(
  * `originalAmount` is the best non-promotional row of the resolved kind from the same batch. Promotions are
  * presented only when Omnibus supplies `lowestPriorAmount` for the presented price (R7): an unavailable, disabled or
  * not-applicable Omnibus result yields `isPromotion: false`, `originalAmount: null` and
- * `lowestPriorAmount: null` while `amount` stays the price the buyer actually pays.
+ * `lowestPriorAmount: null` while `amount` stays the price the buyer actually pays. In detail mode quantity tiers
+ * are resolved from the same batch per product and per variant (a variant's own rows plus product-level rows).
  */
 export async function resolveStorefrontPrices(
   container: StorefrontPricingContainer,
@@ -476,7 +480,7 @@ export async function resolveStorefrontPrices(
   }
 
   const targets: ResolvedTarget[] = []
-  const tierPlans: Array<{ productId: string; quantities: number[]; start: number }> = []
+  const tierPlans = new Map<string, { quantities: number[]; start: number }>()
   const entries: Array<{ rows: PriceRow[]; context: PricingContext }> = []
   for (const item of items) {
     const productRows = rowsByProduct.get(item.productId) ?? []
@@ -498,15 +502,21 @@ export async function resolveStorefrontPrices(
     }
   }
   if (detail) {
-    for (const item of items) {
-      const productRows = rowsByProduct.get(item.productId) ?? []
-      const quantities = collectTierQuantities(productRows)
-      tierPlans.push({ productId: item.productId, quantities, start: entries.length })
-      for (const quantity of quantities) entries.push({ rows: productRows, context: { ...pricingContext, quantity } })
+    const tierProductIds = options.tierProductIds ? new Set(options.tierProductIds) : null
+    for (const target of targets) {
+      if (tierProductIds && !tierProductIds.has(target.productId)) continue
+      const quantities = collectTierQuantities(target.rows)
+      tierPlans.set(target.key, { quantities, start: entries.length })
+      for (const quantity of quantities) entries.push({ rows: target.rows, context: { ...pricingContext, quantity } })
     }
   }
 
   const resolved = await resolveMany(pricingService, entries)
+  const tiersFor = async (key: string): Promise<StorefrontPriceTier[]> => {
+    const plan = tierPlans.get(key)
+    if (!plan) return []
+    return buildPriceTiers(runtime, plan.quantities, resolved.slice(plan.start, plan.start + plan.quantities.length))
+  }
   targets.forEach((target, index) => {
     target.selected = resolved[index] ?? null
   })
@@ -542,19 +552,19 @@ export async function resolveStorefrontPrices(
 
   for (const item of items) {
     const variantPrices = new Map<string, StorefrontPrice | null>()
+    const variantPriceTiers = new Map<string, StorefrontPriceTier[]>()
     for (const variantId of item.variantIds) {
-      variantPrices.set(variantId, prices.get(variantTargetKey(item.productId, variantId)) ?? null)
+      const key = variantTargetKey(item.productId, variantId)
+      variantPrices.set(variantId, prices.get(key) ?? null)
+      variantPriceTiers.set(variantId, await tiersFor(key))
     }
-    const plan = tierPlans.find((entry) => entry.productId === item.productId)
-    const priceTiers = plan
-      ? await buildPriceTiers(runtime, plan.quantities, resolved.slice(plan.start, plan.start + plan.quantities.length))
-      : []
     results.set(item.productId, {
       productId: item.productId,
       price: prices.get(item.productId) ?? null,
       priceRange: item.variantIds.length ? buildPriceRange(runtime, Array.from(variantPrices.values())) : null,
       variantPrices,
-      priceTiers,
+      priceTiers: await tiersFor(item.productId),
+      variantPriceTiers,
     })
   }
   return results
