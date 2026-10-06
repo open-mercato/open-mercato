@@ -18,8 +18,10 @@ import type { AttachmentService } from '@open-mercato/core/modules/attachments'
  * `attachmentService.createScoped({ allowVectorImage: true })` does — so the
  * upload runs in this process against the app's database and storage root,
  * the same way TC-CRM-028 drives server code. The serving half is plain HTTP
- * against the running app, which is what proves the Next.js header config no
- * longer overrides the route's CSP.
+ * against the running app. `next.config.ts` gives every response under the
+ * file path one sandboxing CSP (`FILE_PATH_CSP`), which Next.js keeps over the
+ * route's own header, so downloads and errors carry it too; the inline SVG is
+ * the response that needs its style and data: allowances.
  */
 
 const TEST_APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
@@ -27,7 +29,7 @@ const IS_STANDALONE_APP = Boolean(TEST_APP_ROOT)
 const APP_ROOT = TEST_APP_ROOT ? path.resolve(TEST_APP_ROOT) : path.resolve(process.cwd(), 'apps/mercato')
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const VECTOR_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
-const STRICT_CSP = "default-src 'none'; sandbox"
+const FILE_PATH_CSP = VECTOR_CSP
 
 const LOGO = `<?xml version="1.0" encoding="UTF-8"?>
 <!-- exported by a vector editor -->
@@ -121,7 +123,7 @@ test.describe('TC-ATT-015: sanitised vector images over HTTP', () => {
       expect(forced.status()).toBe(200)
       expect(forced.headers()['content-type']).toBe('application/octet-stream')
       expect(forced.headers()['content-disposition']).toMatch(/^attachment;/)
-      expect(forced.headers()['content-security-policy']).toBe(STRICT_CSP)
+      expect(forced.headers()['content-security-policy']).toBe(FILE_PATH_CSP)
 
       await withClient((client) => client.query(
         "update attachments set storage_metadata = storage_metadata - 'vectorImage' where id = $1",
@@ -131,14 +133,18 @@ test.describe('TC-ATT-015: sanitised vector images over HTTP', () => {
       expect(unrecorded.status()).toBe(200)
       expect(unrecorded.headers()['content-type']).toBe('application/octet-stream')
       expect(unrecorded.headers()['content-disposition']).toMatch(/^attachment;/)
-      expect(unrecorded.headers()['content-security-policy']).toBe(STRICT_CSP)
+      expect(unrecorded.headers()['content-security-policy']).toBe(FILE_PATH_CSP)
       expect(unrecorded.headers()['x-content-type-options']).toBe('nosniff')
 
       const missing = await request.fetch(`${BASE_URL}/api/attachments/file/00000000-0000-4000-8000-000000000000`, {
         headers: authorization,
       })
       expect(missing.status()).toBe(404)
-      expect(missing.headers()['content-security-policy']).toBe(STRICT_CSP)
+      expect(missing.headers()['content-security-policy']).toBe(FILE_PATH_CSP)
+
+      const dispatcherNotFound = await request.fetch(`${fileUrl}/unknown-sub-path`, { headers: authorization })
+      expect(dispatcherNotFound.status()).toBe(404)
+      expect(dispatcherNotFound.headers()['content-security-policy']).toBe(FILE_PATH_CSP)
     } finally {
       await deleteAttachmentIfExists(request, adminToken, attachmentId)
     }

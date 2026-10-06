@@ -82,14 +82,21 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
         ],
       },
       {
-        // The attachment file route owns its Content-Security-Policy: a
-        // sandbox for every file, plus inline styles and data: images for a
-        // sanitised vector image. Next.js lets a config header win over a
-        // route handler's header of the same name, so the file route is
-        // excluded here rather than given a fixed CSP.
         source: '/:path((?!api/attachments/file/).*)',
         headers: [
           { key: 'Content-Security-Policy', value: contentSecurityPolicy },
+        ],
+      },
+      {
+        // Every response under the attachment file path — the route's own and
+        // the API dispatcher's (unknown sub-paths, errors) — gets a sandboxing
+        // CSP from here, and Next.js keeps it over the route's header. It also
+        // allows inline styles and data: images, which only a sanitised SVG
+        // served inline uses; every other file is a raster image or an
+        // octet-stream download, which no CSP directive affects.
+        source: '/api/attachments/file/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox" },
         ],
       },
       {

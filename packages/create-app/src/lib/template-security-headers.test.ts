@@ -45,9 +45,14 @@ test('standalone template keeps integration and attachment security policies', a
     assert.match(appCsp ?? '', /script-src[^;]*https:\/\/js\.stripe\.com/, pathname)
   }
 
-  const routeOwnsCsp = 'Next.js keeps a config header over a route handler header of the same name, so the attachment file route must get no CSP from config'
-  assert.equal(configCspFor(headers, '/api/attachments/file/abc'), undefined, routeOwnsCsp)
-  assert.equal(configCspFor(headers, '/api/attachments/file/abc/def'), undefined, routeOwnsCsp)
+  const vectorCsp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
+  for (const pathname of ['/api/attachments/file/abc', '/api/attachments/file/abc/def', '/api/attachments/file/']) {
+    assert.equal(
+      configCspFor(headers, pathname),
+      vectorCsp,
+      `${pathname}: every response under the file path, including the dispatcher's, gets one sandboxing CSP from config`,
+    )
+  }
 
   for (const pathname of ['/', '/api/attachments/file/abc']) {
     const sameOriginRule = headers.find((rule) =>
