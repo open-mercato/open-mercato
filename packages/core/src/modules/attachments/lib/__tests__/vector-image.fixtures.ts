@@ -60,6 +60,17 @@ export const FILTERED_RASTER_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" vie
   <rect width="64" height="64" fill="#e76f51" filter="url(#texture)"/>
 </svg>`
 
+export const CDATA_STYLED_LOGO = `<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" viewBox="0 0 100 40">
+<style type="text/css"><![CDATA[
+	.st0{fill:#E30613;}
+	.st1{fill:#1D1D1B;}
+	g > .st1{stroke:none;}
+]]></style>
+<rect class="st0" width="40" height="40"/>
+<g><rect class="st1" x="50" width="50" height="40"/></g>
+</svg>`
+
 export type MaliciousFixture = {
   name: string
   svg: string
@@ -157,6 +168,72 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     svg: wrap(`<filter id="f"><feImage href="data:image/jpeg;base64,${TINY_PNG_BASE64}"/></filter><rect width="10" height="10" filter="url(#f)"/>`),
     payload: /data:image\/jpeg/,
     code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'comment opener hidden in a CSS string before an external url()',
+    svg: wrap('<style>a{content:"/*"} rect{fill:url(https://evil.example/p.svg#p)} /*"*/</style><rect width="10" height="10"/>'),
+    payload: /evil\.example/,
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'comment opener hidden in a CSS string before an external @font-face',
+    svg: wrap('<style>x{content:"/*"} @font-face{font-family:f;src:url(https://evil.example/f.woff)} text{font-family:f} /*"*/</style><text>Brand</text>'),
+    payload: /evil\.example/,
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'comment opener hidden in a style attribute string',
+    svg: wrap(`<rect width="10" height="10" style='font-family:"/*"; fill:url(https://evil.example/p.svg#p); /*"*/'/>`),
+    payload: /evil\.example/,
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'comment opener hidden in a single-quoted CSS string',
+    svg: wrap(`<style>a{content:'/*'} rect{fill:url(https://evil.example/p.svg#p)} /*'*/</style><rect width="10" height="10"/>`),
+    payload: /evil\.example/,
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'CSS string left unterminated at a newline',
+    svg: wrap('<style>a{content:"/*\n} rect{fill:url(https://evil.example/p.svg#p)} /*"*/</style><rect width="10" height="10"/>'),
+    payload: /evil\.example/,
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'CSS string left unterminated at the end of the stylesheet',
+    svg: wrap('<style>rect{fill:#000} a{content:"url(https://evil.example/p.svg#p)</style><rect width="10" height="10"/>'),
+    payload: /evil\.example/,
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'escaped quote keeping a CSS string open',
+    svg: wrap('<style>a{content:"\\"/*"} rect{fill:url(https://evil.example/p.svg#p)} /*"*/</style><rect width="10" height="10"/>'),
+    payload: /evil\.example/,
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'comment inside an unquoted url()',
+    svg: wrap('<style>rect{fill:url(/*x*/https://evil.example/p.svg#p)}</style><rect width="10" height="10"/>'),
+    payload: /evil\.example/,
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'external url() hidden after a quoted url() containing a comment opener',
+    svg: wrap('<style>rect{fill:url("#a/*")} circle{fill:url(https://evil.example/p.svg#p)} /*")*/</style><rect id="a" width="10" height="10"/><circle r="2"/>'),
+    payload: /evil\.example/,
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'DOCTYPE whose public id contains > ahead of an internal subset',
+    svg: '<?xml version="1.0"?><!DOCTYPE svg PUBLIC "-//x>y//EN" "z" [ <!ATTLIST svg onload CDATA #FIXED "alert(1)"> ]><svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>',
+    payload: /ATTLIST|alert/,
+    code: 'vector_image_entity_declaration',
+  },
+  {
+    name: 'DOCTYPE whose single-quoted system id contains > ahead of an internal subset',
+    svg: `<?xml version="1.0"?><!DOCTYPE svg SYSTEM 'a>b' [ <!ATTLIST svg onload CDATA #FIXED "alert(1)"> ]><svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>`,
+    payload: /ATTLIST|alert/,
+    code: 'vector_image_entity_declaration',
   },
   {
     name: 'external url() in a style element',

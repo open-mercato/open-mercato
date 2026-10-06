@@ -6,6 +6,8 @@ import {
   isVectorImageUploadCandidate,
   prepareVectorImageUpload,
   sanitizeVectorImage,
+  VECTOR_IMAGE_MAX_ATTRIBUTES,
+  VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT,
   VECTOR_IMAGE_MAX_BYTES,
   VECTOR_IMAGE_MAX_DEPTH,
   VECTOR_IMAGE_MAX_ELEMENTS,
@@ -14,6 +16,7 @@ import {
 } from '../vector-image'
 import {
   BENIGN_LOGO,
+  CDATA_STYLED_LOGO,
   EDITOR_EXPORT_LOGO,
   FILTERED_RASTER_LOGO,
   MALICIOUS_FIXTURES,
@@ -95,6 +98,24 @@ describe('sanitizeVectorImage — benign logos', () => {
     expect(output).toContain('filter="url(#texture)"')
   })
 
+  it('keeps a CDATA-wrapped style block from a design-tool export', async () => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(CDATA_STYLED_LOGO))
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.removals.filter((removal) => removal.kind !== 'inert')).toEqual([])
+    const output = prepared.buffer.toString('utf8')
+    expect(output).toContain('.st0{fill:#E30613;}')
+    expect(output).toContain('.st1{fill:#1D1D1B;}')
+    expect(output).toMatch(/g &gt; \.st1\{stroke:none;\}|g > \.st1\{stroke:none;\}/)
+    expect(output).toContain('class="st0"')
+  })
+
+  it('still inspects CSS that arrives inside CDATA', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><style><![CDATA[ rect{fill:url(https://evil.example/p.svg#p)} ]]></style><rect width="1" height="1"/></svg>'
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared).toMatchObject({ ok: false, code: 'vector_image_external_reference' })
+  })
+
   it('drops only inert editor data from an editor export and keeps the drawing', async () => {
     const prepared = await prepareVectorImageUpload(svgBuffer(EDITOR_EXPORT_LOGO))
     expect(prepared.ok).toBe(true)
@@ -142,9 +163,31 @@ describe('sanitizeVectorImage — bounds and well-formedness', () => {
     expect(result).toMatchObject({ ok: false, code: 'vector_image_too_large' })
   })
 
+  it('rejects a document whose serialised form outgrows the byte bound', async () => {
+    const escapesOnOutput = '>'.repeat(300_000)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><desc>${escapesOnOutput}</desc></svg>`
+    expect(Buffer.byteLength(svg)).toBeLessThan(VECTOR_IMAGE_MAX_BYTES)
+    const result = await sanitizeVectorImage(svgBuffer(svg))
+    expect(result).toMatchObject({ ok: false, code: 'vector_image_too_large' })
+  })
+
   it('rejects documents with too many elements', async () => {
     const rects = '<rect width="1" height="1"/>'.repeat(VECTOR_IMAGE_MAX_ELEMENTS + 1)
     const result = await sanitizeVectorImage(svgBuffer(`<svg xmlns="http://www.w3.org/2000/svg">${rects}</svg>`))
+    expect(result).toMatchObject({ ok: false, code: 'vector_image_too_complex' })
+  })
+
+  it('rejects an element carrying more attributes than the per-element bound', async () => {
+    const attributes = Array.from({ length: VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT + 1 }, (_, index) => `a${index}="1"`).join(' ')
+    const result = await sanitizeVectorImage(svgBuffer(`<svg xmlns="http://www.w3.org/2000/svg"><rect ${attributes}/></svg>`))
+    expect(result).toMatchObject({ ok: false, code: 'vector_image_too_complex' })
+  })
+
+  it('rejects documents carrying more attributes than the document bound', async () => {
+    const perElement = 10
+    const elements = Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / perElement) + 1
+    const rect = `<rect ${Array.from({ length: perElement }, (_, index) => `a${index}="1"`).join(' ')}/>`
+    const result = await sanitizeVectorImage(svgBuffer(`<svg xmlns="http://www.w3.org/2000/svg">${rect.repeat(elements)}</svg>`))
     expect(result).toMatchObject({ ok: false, code: 'vector_image_too_complex' })
   })
 
@@ -187,6 +230,41 @@ describe('sanitizeVectorImage — bounds and well-formedness', () => {
   })
 })
 
+describe('sanitizeVectorImage — bounded cost', () => {
+  /**
+   * Every pass is linear in the document and the bounds cap the document.
+   * Measured warm worst cases at these bounds were 0.3-0.53 s; the quadratic
+   * traversal this guards against took 15-27 s on 10,000 elements and over
+   * 200 s on one element with 80,000 attributes. About ten times the measured
+   * worst case, so a slow CI runner cannot flake it while a return of
+   * super-linear behaviour still fails it by an order of magnitude.
+   */
+  const CEILING_MS = 5_000
+  const open = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+  const elements = VECTOR_IMAGE_MAX_ELEMENTS - 10
+  const attributesPerElement = Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / elements)
+  const unknownAttributes = (count: number) => Array.from({ length: count }, (_, index) => `a${index}="1"`).join(' ')
+  const worstCases: Array<[string, string]> = [
+    ['flat elements at the element and attribute bounds', `${open}${`<rect ${unknownAttributes(attributesPerElement)}/>`.repeat(elements)}</svg>`],
+    ['paths with url() paint at the attribute bound', `${open}<defs><linearGradient id="g"/></defs>${'<path d="M0 0h1v1z" fill="url(#g)" stroke="url(#g)" class="c" transform="translate(1 1)"/>'.repeat(elements)}</svg>`],
+    ['elements at the per-element attribute bound', `${open}${`<rect ${unknownAttributes(VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT)}/>`.repeat(Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT))}</svg>`],
+    ['in-document <use> at the element bound', `${open}<defs><g id="a"><rect/></g></defs>${'<use href="#a"/>'.repeat(elements)}</svg>`],
+    ['nesting at the depth bound', `${open}${'<g>'.repeat(VECTOR_IMAGE_MAX_DEPTH - 2)}${'<rect/>'.repeat(elements - VECTOR_IMAGE_MAX_DEPTH)}${'</g>'.repeat(VECTOR_IMAGE_MAX_DEPTH - 2)}</svg>`],
+  ]
+
+  beforeAll(async () => {
+    await sanitizeVectorImage(svgBuffer('<svg xmlns="http://www.w3.org/2000/svg"/>'))
+  })
+
+  it.each(worstCases)('sanitises %s within the ceiling', async (_label, svg) => {
+    const started = performance.now()
+    const result = await sanitizeVectorImage(svgBuffer(svg))
+    const elapsed = performance.now() - started
+    expect(result.ok).toBe(true)
+    expect(elapsed).toBeLessThan(CEILING_MS)
+  })
+})
+
 describe('inspectVectorImageCss', () => {
   it.each([
     ['fill:url(#gradient)', null],
@@ -199,7 +277,7 @@ describe('inspectVectorImageCss', () => {
     ['@import "https://example.com/x.css";', 'external_reference'],
     ['@IMPORT url(x.css);', 'external_reference'],
     ['mask-image:-webkit-image-set("https://example.com/m.png" 1x)', 'external_reference'],
-    ['fill:url(https://example.com/p.svg', 'external_reference'],
+    ['fill:url(https://example.com/p.svg', 'active_content'],
     ['fill:u\\72l(https://example.com/p.svg)', 'active_content'],
     ['width:expression(alert(1))', 'active_content'],
     ['fill:url(javascript:alert(1))', 'active_content'],

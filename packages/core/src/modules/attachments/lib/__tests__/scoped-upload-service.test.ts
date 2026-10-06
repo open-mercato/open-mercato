@@ -295,6 +295,15 @@ describe('ScopedAttachmentUploadService — vector images', () => {
       .rejects.toMatchObject({ code: 'max_upload_size' })
   })
 
+  it('re-checks the caller size limit against the sanitised bytes', async () => {
+    const { service, order } = makeHarness()
+    const grows = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg"><desc>${'>'.repeat(1_000)}</desc></svg>`, 'utf8')
+
+    await expect(service.upload({ ...vectorInput, buffer: grows, maxBytes: 2_000, allowVectorImage: true }))
+      .rejects.toMatchObject({ code: 'max_upload_size', status: 413 })
+    expect(order).toEqual([])
+  })
+
   it('still refuses a public partition when a private one is required', async () => {
     const { service, em } = makeHarness()
     ;(em.findOne as jest.Mock).mockResolvedValueOnce({ code: 'privateAttachments', storageDriver: 'local', isPublic: true })
