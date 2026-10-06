@@ -15,7 +15,9 @@ import {
 import {
   BENIGN_LOGO,
   EDITOR_EXPORT_LOGO,
+  FILTERED_RASTER_LOGO,
   MALICIOUS_FIXTURES,
+  MASKED_LOGO,
   nestedUseBomb,
   TINY_PNG_BASE64,
 } from './vector-image.fixtures'
@@ -70,6 +72,29 @@ describe('sanitizeVectorImage — benign logos', () => {
     expect(output.match(/<use /g)?.length).toBe(2)
   })
 
+  it('keeps a mask-based logo intact', async () => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(MASKED_LOGO))
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.removals).toEqual([])
+    const output = prepared.buffer.toString('utf8')
+    expect(output).toContain('<mask id="reveal" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120">')
+    expect(output).toContain('<rect width="120" height="120" fill="white"/>')
+    expect(output).toContain('<circle cx="60" cy="60" r="24" fill="black"/>')
+    expect(output).toContain('<g mask="url(#reveal)">')
+  })
+
+  it('keeps an feImage filter carrying an embedded PNG', async () => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(FILTERED_RASTER_LOGO))
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.removals).toEqual([])
+    const output = prepared.buffer.toString('utf8')
+    expect(output).toContain(`<feImage href="data:image/png;base64,${TINY_PNG_BASE64}" result="grain" preserveAspectRatio="none"/>`)
+    expect(output).toContain('<feComposite in="SourceGraphic" in2="grain" operator="in"/>')
+    expect(output).toContain('filter="url(#texture)"')
+  })
+
   it('drops only inert editor data from an editor export and keeps the drawing', async () => {
     const prepared = await prepareVectorImageUpload(svgBuffer(EDITOR_EXPORT_LOGO))
     expect(prepared.ok).toBe(true)
@@ -83,7 +108,7 @@ describe('sanitizeVectorImage — benign logos', () => {
   })
 
   it('is idempotent: sanitising sanitised output removes nothing', async () => {
-    for (const svg of [BENIGN_LOGO, EDITOR_EXPORT_LOGO]) {
+    for (const svg of [BENIGN_LOGO, EDITOR_EXPORT_LOGO, MASKED_LOGO, FILTERED_RASTER_LOGO]) {
       const once = await sanitizeVectorImage(svgBuffer(svg))
       expect(once.ok).toBe(true)
       if (!once.ok) continue

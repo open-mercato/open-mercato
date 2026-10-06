@@ -38,6 +38,28 @@ export const EDITOR_EXPORT_LOGO = `<?xml version="1.0" encoding="UTF-8" standalo
   </g>
 </svg>`
 
+export const MASKED_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <mask id="reveal" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120">
+      <rect width="120" height="120" fill="white"/>
+      <circle cx="60" cy="60" r="24" fill="black"/>
+    </mask>
+  </defs>
+  <g mask="url(#reveal)">
+    <rect width="120" height="120" rx="16" fill="#264653"/>
+  </g>
+</svg>`
+
+export const FILTERED_RASTER_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <filter id="texture" x="0" y="0" width="1" height="1">
+      <feImage href="data:image/png;base64,${TINY_PNG_BASE64}" result="grain" preserveAspectRatio="none"/>
+      <feComposite in="SourceGraphic" in2="grain" operator="in"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" fill="#e76f51" filter="url(#texture)"/>
+</svg>`
+
 export type MaliciousFixture = {
   name: string
   svg: string
@@ -116,6 +138,24 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     name: 'raster data: URI whose bytes are not that raster',
     svg: wrap('<image width="10" height="10" href="data:image/png;base64,PHN2Zz48L3N2Zz4="/>'),
     payload: /data:image\/png/,
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'feImage with an external href',
+    svg: wrap('<filter id="f"><feImage href="https://tracker.example.com/grain.png"/></filter><rect width="10" height="10" filter="url(#f)"/>'),
+    payload: /tracker\.example\.com/,
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'feImage with a PNG data: URI whose bytes are not a PNG',
+    svg: wrap('<filter id="f"><feImage href="data:image/png;base64,PHN2Zz48L3N2Zz4="/></filter><rect width="10" height="10" filter="url(#f)"/>'),
+    payload: /data:image\/png/,
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'feImage declaring JPEG while carrying PNG bytes',
+    svg: wrap(`<filter id="f"><feImage href="data:image/jpeg;base64,${TINY_PNG_BASE64}"/></filter><rect width="10" height="10" filter="url(#f)"/>`),
+    payload: /data:image\/jpeg/,
     code: 'vector_image_unsafe_content',
   },
   {
