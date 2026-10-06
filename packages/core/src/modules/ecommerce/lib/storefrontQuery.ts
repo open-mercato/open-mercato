@@ -1,7 +1,11 @@
 import type { z } from 'zod'
 import {
+  ecommerceStorefrontCategoryLandingQuerySchema,
+  ecommerceStorefrontCategoryTreeQuerySchema,
   ecommerceStorefrontProductDetailQuerySchema,
   ecommerceStorefrontProductListQuerySchema,
+  type EcommerceStorefrontCategoryLandingQuery,
+  type EcommerceStorefrontCategoryTreeQuery,
   type EcommerceStorefrontProductDetailQuery,
   type EcommerceStorefrontProductListQuery,
 } from '../data/validators'
@@ -79,6 +83,19 @@ function zodIssues(error: z.ZodError): { code: StorefrontQueryErrorCode; issues:
  * one query string once. Throws `StorefrontQueryError` (status 400) on any rejection.
  */
 export function parseStorefrontProductListQuery(input: StorefrontQueryInput): EcommerceStorefrontProductListQuery {
+  return parseStorefrontListGrammar(input, ecommerceStorefrontProductListQuerySchema)
+}
+
+/**
+ * Parses the `GET /categories/:slug` query (Storefront Public API §4.4): the `GET /products` grammar
+ * for the embedded listing, minus `categoryId` / `categorySlug` — the path slug is the category, so
+ * either parameter is an unknown one and a `400`.
+ */
+export function parseStorefrontCategoryLandingQuery(input: StorefrontQueryInput): EcommerceStorefrontCategoryLandingQuery {
+  return parseStorefrontListGrammar(input, ecommerceStorefrontCategoryLandingQuerySchema)
+}
+
+function parseStorefrontListGrammar<T>(input: StorefrontQueryInput, schema: z.ZodType<T, unknown>): T {
   const scalars: Record<string, string> = {}
   const options: Record<string, string[]> = {}
   const duplicates = new Set<string>()
@@ -120,7 +137,7 @@ export function parseStorefrontProductListQuery(input: StorefrontQueryInput): Ec
     )
   }
   if (malformed.length) throw new StorefrontQueryError('invalid_parameter', malformed)
-  const parsed = ecommerceStorefrontProductListQuerySchema.safeParse({
+  const parsed = schema.safeParse({
     ...scalars,
     ...(Object.keys(options).length ? { options } : {}),
   })
@@ -137,6 +154,18 @@ export function parseStorefrontProductListQuery(input: StorefrontQueryInput): Ec
  * and malformed parameters throw `StorefrontQueryError` (status 400).
  */
 export function parseStorefrontProductDetailQuery(input: StorefrontQueryInput): EcommerceStorefrontProductDetailQuery {
+  return parseStorefrontScalarQuery(input, ecommerceStorefrontProductDetailQuerySchema)
+}
+
+/**
+ * Parses the `GET /categories` query (Storefront Public API §4.3): `parentId`, `depth`,
+ * `includeEmpty`, `locale` and the store-resolution parameters, strict like the other routes.
+ */
+export function parseStorefrontCategoryTreeQuery(input: StorefrontQueryInput): EcommerceStorefrontCategoryTreeQuery {
+  return parseStorefrontScalarQuery(input, ecommerceStorefrontCategoryTreeQuerySchema)
+}
+
+function parseStorefrontScalarQuery<T>(input: StorefrontQueryInput, schema: z.ZodType<T, unknown>): T {
   const scalars: Record<string, string> = {}
   const duplicates = new Set<string>()
   for (const [key, value] of toEntries(input)) {
@@ -152,7 +181,7 @@ export function parseStorefrontProductDetailQuery(input: StorefrontQueryInput): 
       Array.from(duplicates).map((parameter) => ({ parameter, message: 'parameter given more than once' })),
     )
   }
-  const parsed = ecommerceStorefrontProductDetailQuerySchema.safeParse(scalars)
+  const parsed = schema.safeParse(scalars)
   if (!parsed.success) {
     const { code, issues } = zodIssues(parsed.error)
     throw new StorefrontQueryError(code, issues)

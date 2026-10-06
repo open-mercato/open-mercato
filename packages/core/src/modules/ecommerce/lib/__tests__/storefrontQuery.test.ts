@@ -1,5 +1,7 @@
 import {
   isStorefrontQueryError,
+  parseStorefrontCategoryLandingQuery,
+  parseStorefrontCategoryTreeQuery,
   parseStorefrontProductDetailQuery,
   parseStorefrontProductListQuery,
   StorefrontQueryError,
@@ -133,5 +135,84 @@ describe('parseStorefrontProductDetailQuery', () => {
     expect(malformed.code).toBe('invalid_parameter')
     expect(malformed.issues.map((issue) => issue.parameter)).toEqual(['variantId'])
     expect(malformed.status).toBe(400)
+  })
+})
+
+describe('parseStorefrontCategoryTreeQuery', () => {
+  const PARENT_ID = '0b8f3f0e-1d2a-4c5b-8e6f-000000000001'
+
+  function treeRejection(query: string): StorefrontQueryError {
+    try {
+      parseStorefrontCategoryTreeQuery(new URLSearchParams(query))
+    } catch (error) {
+      if (isStorefrontQueryError(error)) return error
+      throw error
+    }
+    throw new Error('[internal] expected the query to be rejected')
+  }
+
+  it('defaults includeEmpty to false and leaves parentId and depth unset', () => {
+    expect(parseStorefrontCategoryTreeQuery(new URLSearchParams(''))).toEqual({ includeEmpty: false })
+  })
+
+  it('parses parentId, depth, includeEmpty, locale and the store-resolution parameters', () => {
+    expect(
+      parseStorefrontCategoryTreeQuery(
+        new URLSearchParams(`parentId=${PARENT_ID}&depth=3&includeEmpty=true&locale=de&path=/b2b&storeSlug=main`),
+      ),
+    ).toEqual({ parentId: PARENT_ID, depth: 3, includeEmpty: true, locale: 'de', path: '/b2b', storeSlug: 'main' })
+    expect(parseStorefrontCategoryTreeQuery(new URLSearchParams('includeEmpty=false&depth='))).toEqual({ includeEmpty: false })
+  })
+
+  it('rejects unknown, repeated and malformed parameters', () => {
+    expect(treeRejection('categoryId=x').code).toBe('unknown_parameter')
+    expect(treeRejection('depth=1&depth=2').code).toBe('duplicate_parameter')
+    const malformed = treeRejection('parentId=nope&depth=0&includeEmpty=maybe')
+    expect(malformed.code).toBe('invalid_parameter')
+    expect(malformed.issues.map((issue) => issue.parameter).sort()).toEqual(['depth', 'includeEmpty', 'parentId'])
+    expect(treeRejection('depth=21').issues.map((issue) => issue.parameter)).toEqual(['depth'])
+  })
+})
+
+describe('parseStorefrontCategoryLandingQuery', () => {
+  function landingRejection(query: string): StorefrontQueryError {
+    try {
+      parseStorefrontCategoryLandingQuery(new URLSearchParams(query))
+    } catch (error) {
+      if (isStorefrontQueryError(error)) return error
+      throw error
+    }
+    throw new Error('[internal] expected the query to be rejected')
+  }
+
+  it('accepts the listing grammar for the embedded response', () => {
+    expect(parseStorefrontCategoryLandingQuery(new URLSearchParams(''))).toEqual({ page: 1, pageSize: 24, availability: 'all' })
+    expect(
+      parseStorefrontCategoryLandingQuery(
+        new URLSearchParams('page=2&pageSize=12&sort=newest&tagSlugs=sale&options[color]=red,blue&priceMin=10&locale=de'),
+      ),
+    ).toEqual({
+      page: 2,
+      pageSize: 12,
+      sort: 'newest',
+      tagSlugs: ['sale'],
+      options: { color: ['red', 'blue'] },
+      priceMin: 10,
+      availability: 'all',
+      locale: 'de',
+    })
+  })
+
+  it('rejects categoryId and categorySlug because the path slug is the category', () => {
+    const byId = landingRejection('categoryId=0b8f3f0e-1d2a-4c5b-8e6f-000000000001')
+    expect(byId.code).toBe('unknown_parameter')
+    expect(byId.issues).toEqual([{ parameter: 'categoryId', message: 'unknown parameter' }])
+    expect(landingRejection('categorySlug=shoes').issues).toEqual([{ parameter: 'categorySlug', message: 'unknown parameter' }])
+  })
+
+  it('keeps the listing rejections for duplicates, bad option notation and inverted price ranges', () => {
+    expect(landingRejection('page=1&page=2').code).toBe('duplicate_parameter')
+    expect(landingRejection('options=color').code).toBe('invalid_parameter')
+    expect(landingRejection('priceMin=20&priceMax=10').issues.map((issue) => issue.parameter)).toEqual(['priceMax'])
   })
 })

@@ -218,7 +218,7 @@ export async function writeCachedStorefrontCountFacets(
   })
 }
 
-async function queryUniverse(runtime: StorefrontFacetRuntime, filters: Where): Promise<UniverseRecord[]> {
+export async function queryStorefrontProductUniverse(runtime: StorefrontFacetRuntime, filters: Where): Promise<UniverseRecord[]> {
   const run = (pageSize: number) =>
     runtime.queryEngine.query<UniverseRecord>(E.catalog.catalog_product, {
       tenantId: runtime.scope.tenantId,
@@ -361,7 +361,7 @@ export async function loadStorefrontFacetSource(
   runtime: StorefrontFacetRuntime,
   filters: Where,
 ): Promise<StorefrontFacetSource> {
-  const records = await queryUniverse(runtime, filters)
+  const records = await queryStorefrontProductUniverse(runtime, filters)
   const products = new Map<string, StorefrontFacetProduct>()
   for (const record of records) {
     if (typeof record.id !== 'string' || products.has(record.id)) continue
