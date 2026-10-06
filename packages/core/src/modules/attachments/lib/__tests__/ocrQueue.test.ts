@@ -217,4 +217,34 @@ describe('requestOcrProcessing wait queue cap', () => {
 
     releaseFirst()
   })
+
+  it('bounds a same-turn burst exactly: jobs scheduled but not yet admitted count toward the wait-queue cap', async () => {
+    process.env.OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE = '2'
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    void withOcrConcurrencySlot(async () => {
+      await firstGate
+    })
+    await Promise.resolve()
+
+    const forkedEm = {
+      findOne: jest.fn(async () => ({ id: 'a', content: null })),
+      persist: jest.fn(() => forkedEm),
+      flush: jest.fn(async () => undefined),
+    }
+    const requestEm = { fork: jest.fn(() => forkedEm) } as unknown as EntityManager
+    const driver = {
+      toLocalPath: jest.fn(async () => ({ filePath: '/tmp/x.pdf', cleanup: jest.fn(async () => undefined) })),
+    } as unknown as StorageDriver
+
+    const outcomes = await Promise.all(
+      [1, 2, 3, 4].map(() => requestOcrProcessing(requestEm, makeAttachment(), driver, 'docs/x.pdf')),
+    )
+
+    expect(outcomes).toEqual(['queued', 'queued', 'inline_fallback', 'inline_fallback'])
+    expect(setImmediateSpy).toHaveBeenCalledTimes(2)
+    releaseFirst()
+  })
 })

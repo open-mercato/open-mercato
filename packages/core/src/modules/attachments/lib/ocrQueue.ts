@@ -22,11 +22,15 @@ export type OcrProcessingDispatch = 'queued' | 'inline_fallback'
 
 let activeOcrJobs = 0
 const ocrWaitQueue: Array<() => void> = []
+// Jobs scheduled with setImmediate that have not yet entered a slot or the wait queue.
+// Counted toward the wait-queue cap so a burst in one event-loop turn cannot pass the check together.
+let pendingOcrJobs = 0
 
 /** Test-only: reset in-process OCR concurrency bookkeeping. */
 export function resetOcrConcurrencyStateForTests(): void {
   activeOcrJobs = 0
   ocrWaitQueue.length = 0
+  pendingOcrJobs = 0
 }
 
 /** Test-only: inspect in-process OCR concurrency counters. */
@@ -172,17 +176,20 @@ export async function requestOcrProcessing(
   const workerEm = em.fork()
 
   const maxWaitQueue = resolveOcrMaxWaitQueue()
-  if (ocrWaitQueue.length >= maxWaitQueue) {
+  if (ocrWaitQueue.length + pendingOcrJobs >= maxWaitQueue) {
     logger.warn('OCR wait queue full; falling back to inline text extraction', {
       attachmentId: attachment.id,
       waiting: ocrWaitQueue.length,
+      pending: pendingOcrJobs,
       maxWaitQueue,
     })
     await persistInlineTextExtractionFallback(workerEm, payload, driver)
     return 'inline_fallback'
   }
 
+  pendingOcrJobs += 1
   setImmediate(() => {
+    pendingOcrJobs -= 1
     withOcrConcurrencySlot(() => processAttachmentOcr(workerEm, payload, driver)).catch((error) => {
       logger.error('Background processing error', { err: error })
     })
