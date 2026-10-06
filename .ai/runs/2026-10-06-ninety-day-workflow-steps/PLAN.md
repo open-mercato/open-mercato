@@ -4,12 +4,12 @@
 
 | Step | Title | Status | Commit |
 |------|-------|--------|--------|
-| 1.1 | `exitStep`: persist `null` instead of an int32-overflowing `execution_time_ms`; `@deprecated` the column | done | 2fe5c640c |
-| 1.2 | WAIT: never hand `setTimeout` a delay past 2^31 − 1 ms (explicit error instead of a 1 ms resolve) | done | 2fe5c640c |
-| 1.3 | Sync WAIT > 60 s that ends its transition is queued like an async WAIT | done | 2fe5c640c |
-| 1.4 | `WAIT_FOR_CONDITION` attempt cap derived from `timeout / pollInterval` (env value becomes the floor) | done | 2fe5c640c |
-| 2.1 | Docs: UPGRADE_NOTES deprecation, workflows AGENTS.md, user-guide WAIT | done | 3816b6a89 |
-| 3.1 | Validation gate (`.ai/agentic.config.json`, local runner) | in-progress | |
+| 1.1 | `exitStep`: persist `null` instead of an int32-overflowing `execution_time_ms`; `@deprecated` the column | done | 53514fd1f |
+| 1.2 | WAIT: never hand `setTimeout` a delay past 2^31 − 1 ms (explicit error instead of a 1 ms resolve) | done | 53514fd1f |
+| 1.3 | Sync WAIT > 60 s that ends its transition is queued like an async WAIT | done | 53514fd1f |
+| 1.4 | `WAIT_FOR_CONDITION` attempt cap derived from `timeout / pollInterval` (env value becomes the floor) | done | 53514fd1f |
+| 2.1 | Docs: UPGRADE_NOTES deprecation, workflows AGENTS.md, user-guide WAIT | done | 97d7bcd1c |
+| 3.1 | Validation gate (`.ai/agentic.config.json`, local runner) | done | see step-3.1-checks.md |
 | 3.2 | Open PR | todo | |
 
 ## Goal
