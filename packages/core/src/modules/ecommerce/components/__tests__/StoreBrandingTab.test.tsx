@@ -98,7 +98,7 @@ describe('StoreBrandingTab', () => {
     raiseCrudErrorMock.mockReset().mockRejectedValue(new Error('[internal] rejected'))
     flashMock.mockReset()
     forms.length = 0
-    access = { isResolved: true, canManage: true, canManageBranding: true, canViewAvailability: true, canManageAvailability: true }
+    access = { isResolved: true, canManage: true, canManageBranding: true, canManageDomains: false, canViewAvailability: true, canManageAvailability: true }
   })
 
   afterEach(() => {
@@ -171,7 +171,7 @@ describe('StoreBrandingTab', () => {
   })
 
   it('is view-only without the branding permission, even for store managers', () => {
-    access = { isResolved: true, canManage: true, canManageBranding: false, canViewAvailability: true, canManageAvailability: true }
+    access = { isResolved: true, canManage: true, canManageBranding: false, canManageDomains: false, canViewAvailability: true, canManageAvailability: true }
     renderTab()
     const form = lastForm()
     expect(form.hideFooterActions).toBe(true)
@@ -180,7 +180,7 @@ describe('StoreBrandingTab', () => {
   })
 
   it('is editable with the branding permission alone', () => {
-    access = { isResolved: true, canManage: false, canManageBranding: true, canViewAvailability: false, canManageAvailability: false }
+    access = { isResolved: true, canManage: false, canManageBranding: true, canManageDomains: false, canViewAvailability: false, canManageAvailability: false }
     renderTab()
     const form = lastForm()
     expect(form.hideFooterActions).toBe(false)

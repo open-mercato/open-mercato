@@ -14,6 +14,19 @@ export const POST = withCreateConflictRecheck(domainBindingCrud.POST)
 export const PUT = domainBindingCrud.PUT
 export const DELETE = domainBindingCrud.DELETE
 
+const domainBindingMappingSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('found'),
+    hostname: z.string(),
+    status: z.string().describe('pending, verified, active, dns_failed or tls_failed. Only active serves.'),
+    lastDnsCheckAt: z.string().nullable(),
+    dnsFailureReason: z.string().nullable(),
+    tlsFailureReason: z.string().nullable(),
+  }),
+  z.object({ state: z.literal('removed') }),
+  z.object({ state: z.literal('unavailable') }),
+])
+
 export const domainBindingListItemSchema = z.object({
   id: z.string().uuid(),
   organizationId: z.string().uuid().nullable(),
@@ -24,6 +37,11 @@ export const domainBindingListItemSchema = z.object({
   isPrimary: z.boolean(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
+  _domainMapping: domainBindingMappingSchema
+    .optional()
+    .describe(
+      'Added by the ecommerce.store-domain-binding-mapping response enricher: the bound customer_accounts domain mapping as read through domainMappingService. state is removed when the mapping no longer exists and unavailable when it could not be read.',
+    ),
 })
 
 export const openApi = createEcommerceCrudOpenApi({

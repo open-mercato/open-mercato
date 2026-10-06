@@ -3,6 +3,7 @@ import type { EnricherContext, ResponseEnricher } from '@open-mercato/shared/lib
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
 import { E } from '#generated/entities.ids.generated'
+import { loadOrganizationDomainMappings, type DomainMappingSummary } from '../lib/domainMappingSummaries'
 import { EcommerceStoreChannelBinding, EcommerceStoreDomainBinding } from './entities'
 
 type StoreRecord = Record<string, unknown> & { id: string }
@@ -26,28 +27,10 @@ type StoreListEnrichment = {
   _ecommerce: StoreListBindingSummary
 }
 
-type DomainMappingReader = {
-  findByOrganization(
-    organizationId: string,
-    scope?: { tenantId?: string },
-  ): Promise<Array<{ id: string; hostname: string; organizationId: string; tenantId: string }>>
-}
-
-type ContainerLike = { resolve(name: string): unknown }
-
 const EMPTY_SUMMARY: StoreListBindingSummary = { primaryDomain: null, defaultChannel: null }
 
 function hasRecordId(record: Record<string, unknown>): record is StoreRecord {
   return typeof record.id === 'string' && record.id.length > 0
-}
-
-function resolveDomainMappingReader(container: unknown): DomainMappingReader | null {
-  try {
-    const service = (container as ContainerLike).resolve('domainMappingService') as DomainMappingReader | null | undefined
-    return service && typeof service.findByOrganization === 'function' ? service : null
-  } catch {
-    return null
-  }
 }
 
 async function loadPrimaryDomains(
@@ -64,15 +47,13 @@ async function loadPrimaryDomains(
     deletedAt: null,
   } as FilterQuery<EcommerceStoreDomainBinding>)
   if (!bindings.length) return result
-  const reader = resolveDomainMappingReader(context.container)
-  if (!reader) return result
-  const mappings = await reader.findByOrganization(context.organizationId, { tenantId: context.tenantId })
+  const mappings = await loadOrganizationDomainMappings(context.container, {
+    organizationId: context.organizationId,
+    tenantId: context.tenantId,
+  })
+  if (!mappings) return result
   const hostnameById = new Map<string, string>()
-  for (const mapping of mappings) {
-    if (mapping.tenantId === context.tenantId && mapping.organizationId === context.organizationId) {
-      hostnameById.set(mapping.id, mapping.hostname)
-    }
-  }
+  for (const mapping of mappings) hostnameById.set(mapping.id, mapping.hostname)
   for (const binding of bindings) {
     const hostname = hostnameById.get(binding.domainMappingId)
     if (hostname) result.set(binding.storeId, { hostname, pathPrefix: binding.pathPrefix ?? null })
@@ -156,4 +137,65 @@ export const storeBindingSummaryEnricher: ResponseEnricher<StoreRecord, StoreLis
   },
 }
 
-export const enrichers: ResponseEnricher[] = [storeBindingSummaryEnricher]
+export type DomainBindingMappingState =
+  | ({ state: 'found' } & Omit<DomainMappingSummary, 'id'>)
+  | { state: 'removed' }
+  | { state: 'unavailable' }
+
+type DomainBindingRecord = Record<string, unknown> & { id: string; domainMappingId?: unknown }
+
+type DomainBindingMappingEnrichment = {
+  _domainMapping: DomainBindingMappingState
+}
+
+const UNAVAILABLE_DOMAIN_MAPPING: DomainBindingMappingState = { state: 'unavailable' }
+
+async function enrichDomainBindings(
+  records: DomainBindingRecord[],
+  context: EnricherContext,
+): Promise<Array<DomainBindingRecord & DomainBindingMappingEnrichment>> {
+  const mappings = await loadOrganizationDomainMappings(context.container, {
+    organizationId: context.organizationId,
+    tenantId: context.tenantId,
+  })
+  const mappingById = new Map<string, DomainMappingSummary>()
+  for (const mapping of mappings ?? []) mappingById.set(mapping.id, mapping)
+  return records.map((record) => {
+    if (!mappings) return { ...record, _domainMapping: UNAVAILABLE_DOMAIN_MAPPING }
+    const mapping = typeof record.domainMappingId === 'string' ? mappingById.get(record.domainMappingId) : undefined
+    if (!mapping) return { ...record, _domainMapping: { state: 'removed' } }
+    return {
+      ...record,
+      _domainMapping: {
+        state: 'found',
+        hostname: mapping.hostname,
+        status: mapping.status,
+        lastDnsCheckAt: mapping.lastDnsCheckAt,
+        dnsFailureReason: mapping.dnsFailureReason,
+        tlsFailureReason: mapping.tlsFailureReason,
+      },
+    }
+  })
+}
+
+export const storeDomainBindingMappingEnricher: ResponseEnricher<DomainBindingRecord, DomainBindingMappingEnrichment> = {
+  id: 'ecommerce.store-domain-binding-mapping',
+  targetEntity: E.ecommerce.ecommerce_store_domain_binding,
+  features: ['ecommerce.stores.view'],
+  priority: 10,
+  timeout: 2000,
+  critical: false,
+  cacheableOnListHit: false,
+  fallback: { _domainMapping: UNAVAILABLE_DOMAIN_MAPPING },
+
+  async enrichOne(record, context) {
+    const enriched = await this.enrichMany!([record], context)
+    return enriched[0]
+  },
+
+  async enrichMany(records, context) {
+    return enrichDomainBindings(records, context)
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [storeBindingSummaryEnricher, storeDomainBindingMappingEnricher]

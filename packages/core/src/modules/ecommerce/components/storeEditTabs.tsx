@@ -1,5 +1,6 @@
 import type * as React from 'react'
 import { StoreBrandingTab } from './StoreBrandingTab'
+import { StoreDomainsTab } from './StoreDomainsTab'
 import { StoreGeneralTab } from './StoreGeneralTab'
 import { STORE_LIST_HREF, type StoreAdminRecord } from './storeAdmin'
 
@@ -33,6 +34,12 @@ export const STORE_EDIT_TABS: readonly StoreEditTabDefinition[] = [
     labelKey: 'ecommerce.backend.store.tabs.branding',
     fallbackLabel: 'Branding',
     render: ({ store, reload }) => <StoreBrandingTab store={store} reload={reload} />,
+  },
+  {
+    id: 'domains',
+    labelKey: 'ecommerce.backend.store.tabs.domains',
+    fallbackLabel: 'Domains',
+    render: ({ store, reload }) => <StoreDomainsTab store={store} reload={reload} />,
   },
 ]
 

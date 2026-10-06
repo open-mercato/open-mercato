@@ -35,6 +35,7 @@ export const STORE_LIST_HREF = '/backend/config/ecommerce'
 export const STORE_MANAGE_FEATURE = 'ecommerce.stores.manage'
 export const STORE_VIEW_FEATURE = 'ecommerce.stores.view'
 export const BRANDING_MANAGE_FEATURE = 'ecommerce.branding.manage'
+export const DOMAINS_MANAGE_FEATURE = 'ecommerce.domains.manage'
 export const AVAILABILITY_POLICIES_API_PATH = 'availability/policies'
 export const AVAILABILITY_POLICIES_API_URL = `/api/${AVAILABILITY_POLICIES_API_PATH}`
 export const AVAILABILITY_VIEW_FEATURE = 'availability.policies.view'

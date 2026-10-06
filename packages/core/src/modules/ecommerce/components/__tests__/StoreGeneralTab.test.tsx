@@ -108,7 +108,7 @@ describe('StoreGeneralTab', () => {
     createCrudMock.mockReset().mockResolvedValue({ ok: true })
     flashMock.mockReset()
     forms.length = 0
-    access = { isResolved: true, canManage: true, canManageBranding: false, canViewAvailability: true, canManageAvailability: true }
+    access = { isResolved: true, canManage: true, canManageBranding: false, canManageDomains: false, canViewAvailability: true, canManageAvailability: true }
     mockPolicies([storeDefaultPolicy])
   })
 
@@ -163,7 +163,7 @@ describe('StoreGeneralTab', () => {
     })
 
     it('is read-only with an explanation and no save controls without ecommerce.stores.manage', async () => {
-      access = { isResolved: true, canManage: false, canManageBranding: false, canViewAvailability: true, canManageAvailability: true }
+      access = { isResolved: true, canManage: false, canManageBranding: false, canManageDomains: false, canViewAvailability: true, canManageAvailability: true }
       renderTab()
       await screen.findByTestId('availability-form')
       const form = formWithField('name')
@@ -259,7 +259,7 @@ describe('StoreGeneralTab', () => {
     })
 
     it('is read-only with its own explanation, and no save, without the availability manage feature', async () => {
-      access = { isResolved: true, canManage: true, canManageBranding: false, canViewAvailability: true, canManageAvailability: false }
+      access = { isResolved: true, canManage: true, canManageBranding: false, canManageDomains: false, canViewAvailability: true, canManageAvailability: false }
       renderTab()
       await screen.findByTestId('availability-form')
       const form = formWithField('hideWhenOutOfStock')
@@ -270,7 +270,7 @@ describe('StoreGeneralTab', () => {
     })
 
     it('is read-only with a store-permission explanation without ecommerce.stores.manage', async () => {
-      access = { isResolved: true, canManage: false, canManageBranding: false, canViewAvailability: true, canManageAvailability: true }
+      access = { isResolved: true, canManage: false, canManageBranding: false, canManageDomains: false, canViewAvailability: true, canManageAvailability: true }
       renderTab()
       await screen.findByTestId('availability-form')
       expect(formWithField('hideWhenOutOfStock').hideFooterActions).toBe(true)
@@ -278,7 +278,7 @@ describe('StoreGeneralTab', () => {
     })
 
     it('does not request or show the policy when the user cannot view availability policies', async () => {
-      access = { isResolved: true, canManage: true, canManageBranding: false, canViewAvailability: false, canManageAvailability: false }
+      access = { isResolved: true, canManage: true, canManageBranding: false, canManageDomains: false, canViewAvailability: false, canManageAvailability: false }
       renderTab()
       await screen.findByTestId('store-form')
       expect(apiCallMock).not.toHaveBeenCalled()

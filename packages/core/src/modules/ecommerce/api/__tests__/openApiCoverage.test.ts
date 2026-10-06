@@ -31,6 +31,7 @@ describe('ecommerce API OpenAPI coverage', () => {
         'stores/[id]/branding/route.ts',
         'stores/[id]/preview-branding/route.ts',
         'store-domain-bindings/route.ts',
+        'domain-mappings/route.ts',
         'store-channel-bindings/route.ts',
         'store-channel-bindings/[id]/assortment-count/route.ts',
       ]),

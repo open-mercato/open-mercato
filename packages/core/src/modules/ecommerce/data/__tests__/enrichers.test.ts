@@ -1,6 +1,6 @@
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { EcommerceStoreChannelBinding, EcommerceStoreDomainBinding } from '../entities'
-import { enrichers, storeBindingSummaryEnricher } from '../enrichers'
+import { enrichers, storeBindingSummaryEnricher, storeDomainBindingMappingEnricher } from '../enrichers'
 
 const findWithDecryptionMock = jest.fn()
 
@@ -128,5 +128,67 @@ describe('ecommerce.store-binding-summary enricher', () => {
     const { context, em } = createContext()
     expect(await storeBindingSummaryEnricher.enrichMany!([], context)).toEqual([])
     expect(em.find).not.toHaveBeenCalled()
+  })
+})
+
+describe('ecommerce.store-domain-binding-mapping enricher', () => {
+  const mappingRecords = [
+    {
+      id: MAPPING_ID,
+      hostname: 'shop.example.com',
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      status: 'tls_failed',
+      lastDnsCheckAt: new Date('2026-10-04T08:00:00.000Z'),
+      dnsFailureReason: null,
+      tlsFailureReason: 'Certificate request rejected',
+    },
+    { id: 'foreign-mapping', hostname: 'other.example.com', organizationId: 'other-org', tenantId: TENANT_ID, status: 'active' },
+  ]
+
+  it('is registered for the domain binding entity behind the stores.view feature', () => {
+    expect(enrichers).toContain(storeDomainBindingMappingEnricher)
+    expect(storeDomainBindingMappingEnricher.features).toEqual(['ecommerce.stores.view'])
+    expect(storeDomainBindingMappingEnricher.cacheableOnListHit).toBe(false)
+    expect(storeDomainBindingMappingEnricher.fallback).toEqual({ _domainMapping: { state: 'unavailable' } })
+  })
+
+  it('adds the mapping status for every binding with one service read and marks a missing or foreign mapping removed', async () => {
+    const findByOrganization = jest.fn(async () => mappingRecords)
+    const { context } = createContext({ domainService: { findByOrganization } })
+    const records = [
+      { id: 'binding-1', domainMappingId: MAPPING_ID },
+      { id: 'binding-2', domainMappingId: 'dangling-mapping' },
+      { id: 'binding-3', domainMappingId: 'foreign-mapping' },
+    ]
+    const enriched = await storeDomainBindingMappingEnricher.enrichMany!(records, context)
+
+    expect(findByOrganization).toHaveBeenCalledTimes(1)
+    expect(findByOrganization).toHaveBeenCalledWith(ORG_ID, { tenantId: TENANT_ID })
+    expect(enriched[0]._domainMapping).toEqual({
+      state: 'found',
+      hostname: 'shop.example.com',
+      status: 'tls_failed',
+      lastDnsCheckAt: '2026-10-04T08:00:00.000Z',
+      dnsFailureReason: null,
+      tlsFailureReason: 'Certificate request rejected',
+    })
+    expect(enriched[1]._domainMapping).toEqual({ state: 'removed' })
+    expect(enriched[2]._domainMapping).toEqual({ state: 'removed' })
+  })
+
+  it('reports unavailable rather than removed when the domain mapping service cannot be resolved', async () => {
+    const { context } = createContext({ domainService: null })
+    const enriched = await storeDomainBindingMappingEnricher.enrichMany!(
+      [{ id: 'binding-1', domainMappingId: MAPPING_ID }],
+      context,
+    )
+    expect(enriched[0]._domainMapping).toEqual({ state: 'unavailable' })
+  })
+
+  it('enriches a single record through enrichOne', async () => {
+    const { context } = createContext({ domainService: { findByOrganization: async () => mappingRecords } })
+    const enriched = await storeDomainBindingMappingEnricher.enrichOne!({ id: 'binding-1', domainMappingId: MAPPING_ID }, context)
+    expect(enriched._domainMapping).toMatchObject({ state: 'found', status: 'tls_failed' })
   })
 })
