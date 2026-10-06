@@ -4,7 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entities'
 import { emitSsoEvent } from '../events'
-import { EmailNotVerifiedError } from '../lib/errors'
+import { EmailNotVerifiedError, SsoRolesRevokedError } from '../lib/errors'
 import type { SsoIdentityPayload } from '../lib/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { conflict } from '@open-mercato/shared/lib/crud/errors'
@@ -210,7 +210,10 @@ export class AccountLinkingService {
       ? await synchronize(em)
       : await em.transactional(synchronize)
     if (!hasAnySsoRole) {
-      throw new Error('No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.')
+      throw new SsoRolesRevokedError(
+        String(user.id),
+        'No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.',
+      )
     }
   }
 
