@@ -62,7 +62,7 @@ import './activity-registry-bootstrap'
 import { bindActivityExecutor } from './activity-types'
 import { getActivityType } from './activity-registry'
 import { logWorkflowEvent } from './event-logger'
-import { calculateWaitDelayMs, parseDuration } from './duration'
+import { MAX_INLINE_WAIT_MS, assertInProcessWaitDelay, calculateWaitDelayMs, parseDuration } from './duration'
 
 export { calculateWaitDelayMs } from './duration'
 import { resolveActivityTimeoutMs } from './activityTimeoutFields'
@@ -681,6 +681,31 @@ export async function executeActivity(
   }
 }
 
+export interface ExecuteActivitiesOptions {
+  /**
+   * Hand a synchronous activity with a long `enqueueDelayMs` (a WAIT over
+   * `MAX_INLINE_WAIT_MS`) to the activity queue instead of sleeping in-process.
+   * Only the transition's LAST activity qualifies, so nothing authored after the
+   * wait can run before it elapses. Only callers that park on an `async` result
+   * (the transition handler) may opt in — a caller that does not would let the
+   * run move on without waiting at all.
+   */
+  queueLongInlineWaits?: boolean
+}
+
+function isLongInlineWait(activity: ActivityDefinition, context: ActivityContext): boolean {
+  const entry = getActivityType(activity.activityType)
+  if (!entry?.enqueueDelayMs || entry.async.capable === false) return false
+  try {
+    const delayMs = entry.enqueueDelayMs(
+      interpolateActivityConfig(activity.config, context, activity.activityType, activity.activityName)
+    )
+    return delayMs !== null && delayMs > MAX_INLINE_WAIT_MS
+  } catch {
+    return false
+  }
+}
+
 /**
  * Execute multiple activities in sequence
  * Supports both synchronous and asynchronous (queued) execution
@@ -695,7 +720,8 @@ export async function executeActivities(
   em: EntityManager,
   container: AwilixContainer,
   activities: ActivityDefinition[],
-  context: ActivityContext
+  context: ActivityContext,
+  options: ExecuteActivitiesOptions = {}
 ): Promise<ActivityExecutionResult[]> {
   const results: ActivityExecutionResult[] = []
 
@@ -707,9 +733,15 @@ export async function executeActivities(
 
   for (let i = 0; i < activities.length; i++) {
     const activity = activities[i]
+    const isLastActivity = i === activities.length - 1
+    const queueAsLongWait =
+      !activity.async &&
+      options.queueLongInlineWaits === true &&
+      isLastActivity &&
+      isLongInlineWait(activity, context)
 
     // Check if activity should run async
-    if (activity.async && !forceSynchronous) {
+    if ((activity.async || queueAsLongWait) && !forceSynchronous) {
       // Enqueue for background execution
       const jobId = await enqueueActivity(em, activity, context)
 
@@ -1356,7 +1388,7 @@ export async function executeFunction(
  *   this handler returns immediately when called from the worker
  */
 export async function executeWait(config: any): Promise<any> {
-  const durationMs = calculateWaitDelayMs(config)
+  const durationMs = assertInProcessWaitDelay(calculateWaitDelayMs(config))
 
   // In sync mode, actually sleep for the duration
   // In async mode (called from worker), the delay already happened via queue scheduling

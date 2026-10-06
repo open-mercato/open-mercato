@@ -222,6 +222,21 @@ async function emitStepMilestone(em: EntityManager, stepInstance: StepInstance):
   }
 }
 
+/**
+ * `step_instances.execution_time_ms` is a Postgres `integer`, so a step that
+ * lasted 2^31 ms (~24.86 days) or longer cannot be stored there — the flush
+ * that completes the step would throw after its task already committed,
+ * stranding the run. Such a duration persists as `null` (every reader already
+ * falls back to `exitedAt - enteredAt`); the exact value still travels on the
+ * `STEP_EXITED` event, whose payload is jsonb.
+ */
+export const MAX_PERSISTED_EXECUTION_TIME_MS = 2_147_483_647
+
+export function toPersistableExecutionTimeMs(executionTimeMs: number | null): number | null {
+  if (executionTimeMs === null || !Number.isFinite(executionTimeMs)) return null
+  return Math.abs(executionTimeMs) > MAX_PERSISTED_EXECUTION_TIME_MS ? null : executionTimeMs
+}
+
 export async function exitStep(
   em: EntityManager,
   stepInstance: StepInstance,
@@ -239,7 +254,7 @@ export async function exitStep(
   stepInstance.status = 'COMPLETED'
   stepInstance.outputData = outputData || null
   stepInstance.exitedAt = now
-  stepInstance.executionTimeMs = executionTimeMs
+  stepInstance.executionTimeMs = toPersistableExecutionTimeMs(executionTimeMs)
   stepInstance.updatedAt = now
 
   await em.flush()

@@ -246,6 +246,42 @@ describe('Step Handler (Unit Tests)', () => {
       expect(mockStepInstance.outputData).toBeNull()
       expect(mockStepInstance.exitedAt).toBeDefined()
     })
+
+    test('completes a 90-day step without writing a duration the integer column cannot hold', async () => {
+      const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000
+      const mockStepInstance = {
+        id: 'step-instance-90d',
+        workflowInstanceId: testInstanceId,
+        stepId: 'approval',
+        status: 'ACTIVE',
+        enteredAt: new Date(Date.now() - ninetyDaysMs),
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as StepInstance
+      const events: Array<{ eventType: string; eventData: Record<string, unknown> }> = []
+      mockEm.create.mockImplementation(((_entity: unknown, payload: Record<string, unknown>) => {
+        events.push(payload as { eventType: string; eventData: Record<string, unknown> })
+        return payload
+      }) as never)
+
+      await stepHandler.exitStep(mockEm, mockStepInstance, { approved: true })
+
+      expect(mockStepInstance.status).toBe('COMPLETED')
+      expect(mockStepInstance.executionTimeMs).toBeNull()
+      const exited = events.find((event) => event.eventType === 'STEP_EXITED')
+      expect(exited?.eventData.executionTimeMs).toBeGreaterThanOrEqual(ninetyDaysMs)
+    })
+
+    test('keeps a duration that still fits the integer column', () => {
+      expect(stepHandler.toPersistableExecutionTimeMs(stepHandler.MAX_PERSISTED_EXECUTION_TIME_MS)).toBe(
+        stepHandler.MAX_PERSISTED_EXECUTION_TIME_MS,
+      )
+      expect(stepHandler.toPersistableExecutionTimeMs(stepHandler.MAX_PERSISTED_EXECUTION_TIME_MS + 1)).toBeNull()
+      expect(stepHandler.toPersistableExecutionTimeMs(null)).toBeNull()
+    })
   })
 
   // ============================================================================
