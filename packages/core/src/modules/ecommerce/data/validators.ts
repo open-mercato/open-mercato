@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CATALOG_PRODUCT_TYPES } from '@open-mercato/core/modules/catalog/data/types'
 
 const uuid = () => z.string().uuid()
 
@@ -466,3 +467,90 @@ export const ecommerceStorefrontContextQuerySchema = z
   .strict()
 
 export type EcommerceStorefrontContextQuery = z.infer<typeof ecommerceStorefrontContextQuerySchema>
+
+export const ecommerceStorefrontProductSortValues = [
+  'relevance',
+  'price_asc',
+  'price_desc',
+  'title_asc',
+  'title_desc',
+  'newest',
+  'featured',
+] as const
+export const ecommerceStorefrontProductSortSchema = z.enum(ecommerceStorefrontProductSortValues)
+export type EcommerceStorefrontProductSort = z.infer<typeof ecommerceStorefrontProductSortSchema>
+
+export const ecommerceStorefrontAvailabilityFilterValues = ['in_stock', 'available', 'all'] as const
+export const ecommerceStorefrontAvailabilityFilterSchema = z.enum(ecommerceStorefrontAvailabilityFilterValues)
+export type EcommerceStorefrontAvailabilityFilter = z.infer<typeof ecommerceStorefrontAvailabilityFilterSchema>
+
+export const ECOMMERCE_STOREFRONT_MAX_PAGE_SIZE = 100
+export const ECOMMERCE_STOREFRONT_DEFAULT_PAGE_SIZE = 24
+
+const storefrontOptionCodeRegex = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+
+const commaSeparatedList = (maxItems: number, itemSchema: z.ZodString) =>
+  z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return value
+      const items = value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+      return items.length ? Array.from(new Set(items)) : undefined
+    },
+    z.array(itemSchema).min(1).max(maxItems).optional(),
+  )
+
+const optionalNonNegativeAmount = z.preprocess(
+  emptyStringToUndefined,
+  z.coerce.number().finite().min(0).max(1_000_000_000).optional(),
+)
+
+export const ecommerceStorefrontProductListQuerySchema = z
+  .object({
+    page: z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).max(10_000).optional().default(1)),
+    pageSize: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(ECOMMERCE_STOREFRONT_MAX_PAGE_SIZE)
+        .optional()
+        .default(ECOMMERCE_STOREFRONT_DEFAULT_PAGE_SIZE),
+    ),
+    search: z.preprocess(emptyStringToUndefined, z.string().max(200).optional()),
+    categoryId: z.preprocess(emptyStringToUndefined, uuid().optional()),
+    categorySlug: z.preprocess(emptyStringToUndefined, z.string().max(255).optional()),
+    tagSlugs: commaSeparatedList(20, z.string().max(255)),
+    priceMin: optionalNonNegativeAmount,
+    priceMax: optionalNonNegativeAmount,
+    options: z
+      .record(
+        z.string().regex(storefrontOptionCodeRegex),
+        z.array(z.string().min(1).max(255)).min(1).max(50),
+      )
+      .refine((value) => Object.keys(value).length <= 20)
+      .optional(),
+    productType: z.preprocess(emptyStringToUndefined, z.enum(CATALOG_PRODUCT_TYPES).optional()),
+    availability: z.preprocess(
+      emptyStringToUndefined,
+      ecommerceStorefrontAvailabilityFilterSchema.optional().default('all'),
+    ),
+    sort: z.preprocess(emptyStringToUndefined, ecommerceStorefrontProductSortSchema.optional()),
+    locale: z.string().max(35).optional(),
+    path: z.string().max(2048).optional(),
+    storeSlug: z.string().max(120).optional(),
+  })
+  .strict()
+  .refine((value) => !(value.categoryId && value.categorySlug), {
+    path: ['categorySlug'],
+    message: 'categoryId and categorySlug are mutually exclusive',
+  })
+  .refine((value) => value.priceMin === undefined || value.priceMax === undefined || value.priceMin <= value.priceMax, {
+    path: ['priceMax'],
+    message: 'priceMax must not be lower than priceMin',
+  })
+
+export type EcommerceStorefrontProductListQuery = z.infer<typeof ecommerceStorefrontProductListQuerySchema>
