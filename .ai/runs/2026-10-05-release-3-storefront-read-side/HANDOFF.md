@@ -11,13 +11,13 @@
 - Paused at the executor-dispatch safety stop (22 Steps since resume).
 
 ## Next concrete action
-- Owner review, then \`om-auto-continue-pr-loop 12\` → Step 5.1 (channel binding require_authentication + resolver short-circuit).
+- Owner review, then `om-auto-continue-pr-loop 12` → Step 5.1 (channel binding require_authentication + resolver short-circuit).
 
 ## Blockers / open questions
 - None blocking. Resolution P95 budget still unmeasured (final gate).
 
 ## Environment caveats
-- Dev runtime runnable: yes — ephemeral env (port changes per start; read .ai/qa/ephemeral-env.json). Start: \`JWT_SECRET=\$(openssl rand -hex 32) yarn test:integration:ephemeral:start\` after build:packages → generate → build:packages. Stop: kill the next-server listener and remove the testcontainers postgres (never \`pkill -f next-server\` from a shell whose own command line contains that string).
+- Dev runtime runnable: yes — ephemeral env (port changes per start; read .ai/qa/ephemeral-env.json). Start: `JWT_SECRET=\$(openssl rand -hex 32) yarn test:integration:ephemeral:start` after build:packages → generate → build:packages. Stop: kill the next-server listener and remove the testcontainers postgres (never `pkill -f next-server` from a shell whose own command line contains that string).
 - Packages must be rebuilt (`yarn build:packages` → `yarn generate` → `yarn build:packages`, turbo --force) before the ephemeral app sees new module code.
 - Browser / UI checks: start in Phase 7.
 - Database/migration state: local DB untouched; 3 new migrations committed (catalog indexes, customer_groups assortment_scope, ecommerce tables); applied only inside the ephemeral DB.
