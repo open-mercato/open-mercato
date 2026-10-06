@@ -69,10 +69,20 @@ write time.
   (record present, known policy version, digest matches the bytes just read),
   with `VECTOR_IMAGE_CONTENT_SECURITY_POLICY` and `X-Content-Type-Options:
   nosniff`. Every other SVG-typed row stays download-only.
-- Module code that publishes its own files to anonymous visitors MUST use
-  `attachmentService.readScopedForOwner()` (owner + tenant + organization +
-  partition, no principal) and resolve the attachment id and owner from its own
-  records. Never fabricate an `AuthContext` to call `readScoped`.
+- `GET /api/attachments/file/{id}` owns its `Content-Security-Policy` and MUST set
+  one on every response, JSON errors included. The app's `next.config.ts` (and
+  the create-app template) exclude that path from the app CSP rule, because a
+  config header overrides a route handler header of the same name; keep both
+  configs in sync (`yarn template:sync`).
+- Build attachment preview URLs with `resolveAttachmentThumbnailUrl`
+  (`lib/imageUrls.ts`): a sanitised vector row previews through the file route,
+  everything else through the image route. Client code reads the vector record
+  only through `lib/vector-image-record.ts`, never `lib/vector-image.ts` (which
+  loads `jsdom` and `dompurify`).
+- Keep every pass in `lib/vector-image.ts` linear: walk the DOM over
+  `firstChild`/`nextSibling`, never copy jsdom's live `children`/`childNodes`
+  collections per node, and keep the element, depth and attribute bounds that
+  the `bounded cost` test enforces.
 
 ## Never
 
@@ -81,11 +91,7 @@ write time.
   must fail closed.
 - **Never create a partial-null attachment** (one scope column set, the other null).
 - **Never read or expose attachment rows without `checkAttachmentAccess`** — bypassing
-  it reintroduces the cross-tenant fail-open class. The one sanctioned exception is
-  `readScopedForOwner`, which replaces the principal with a mandatory owner +
-  tenant + organization + partition match.
-- Never call `readScopedForOwner` from an attachments HTTP route, and never pass it
-  an attachment id or owner taken straight from request input.
+  it reintroduces the cross-tenant fail-open class.
 - Never accept SVG on the generic `POST /api/attachments` route, and never hand
   vector input to Sharp (`api/image/...` keeps refusing `image/svg+xml`).
 - Never write `storageMetadata.vectorImage` from anywhere but the scoped upload

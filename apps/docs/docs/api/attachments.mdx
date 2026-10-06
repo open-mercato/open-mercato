@@ -221,19 +221,19 @@ await attachmentService.createScoped({
 })
 ```
 
-With `allowVectorImage: true`, an `.svg` file (or an extension-less file declared or sniffed as `image/svg+xml`) is sanitised on the server with DOMPurify's SVG profile and only the sanitised document is stored. What a logo needs survives: `<style>` blocks, gradients, clip paths, masks, `<use>` pointing at `#id` in the same document, `viewBox`/`preserveAspectRatio`, and embedded PNG/JPEG/GIF/WebP as base64 `data:` URIs. Comments, editor metadata and the DOCTYPE are dropped. Anything that would change what the file does or how it renders is **rejected rather than stripped**, with a machine-readable `code` in the error body:
+With `allowVectorImage: true`, an `.svg` file (or an extension-less file declared or sniffed as `image/svg+xml`) is sanitised on the server with DOMPurify's SVG profile and only the sanitised document is stored. What a logo needs survives: `<style>` blocks (including the CDATA-wrapped ones design tools export), gradients, clip paths, masks, filters, `<use>` pointing at `#id` in the same document, `viewBox`/`preserveAspectRatio`, and embedded PNG/JPEG/GIF/WebP as base64 `data:` URIs on `<image>` or `<feImage>`. Comments, editor metadata and a plain DOCTYPE are dropped. Anything that would change what the file does or how it renders is **rejected rather than stripped**, with a machine-readable `code` in the error body:
 
 | `code` | Status | Cause |
 | --- | --- | --- |
-| `vector_image_too_large` | 413 | over 1 MiB |
+| `vector_image_too_large` | 413 | over 1 MiB, before or after sanitising |
 | `vector_image_malformed` | 400 | not UTF-8, not well-formed XML, or the root is not `<svg>` |
-| `vector_image_entity_declaration` | 400 | `<!ENTITY>` or a DOCTYPE internal subset |
-| `vector_image_too_complex` | 400 | over 10,000 elements, nesting deeper than 64, or `<use>` expanding to over 10,000 instances |
-| `vector_image_unsafe_content` | 400 | scripts, event handlers, `foreignObject`, embedded documents, `javascript:`/non-raster `data:` URLs, `<set>`/`<animate>`, CSS escapes or expressions |
+| `vector_image_entity_declaration` | 400 | a DTD declaration (`<!ENTITY>`, `<!ATTLIST>`, `<!ELEMENT>`, `<!NOTATION>`) or a DOCTYPE internal subset |
+| `vector_image_too_complex` | 400 | over 5,000 elements, nesting deeper than 64, over 64 attributes on one element or 25,000 in total, or `<use>` expanding to over 10,000 instances |
+| `vector_image_unsafe_content` | 400 | scripts, event handlers, `foreignObject`, embedded documents, `javascript:`/non-raster `data:` URLs, `<set>`/`<animate>`, or CSS with escapes, expressions, or unterminated strings, comments or `url(` |
 | `vector_image_external_reference` | 400 | links, `url()`, `@import` or stylesheets pointing outside the document |
 | `vector_image_sanitizer_unavailable` | 500 | the sanitiser could not be loaded |
 
-Without the flag, `createScoped` rejects SVG exactly like the REST route. To read a published file without a signed-in user (for example a public logo), module code calls `attachmentService.readScopedForOwner({ attachmentId, tenantId, organizationId, expectedOwner, expectedPartitionCode })`, which only returns an attachment owned by that record, in that tenant, organization and partition.
+A sanitised document that is still larger than the call's upload limit is rejected with the usual `413` upload-size error. Without the flag, `createScoped` rejects SVG exactly like the REST route. List endpoints return the file URL as a stored vector image's `thumbnailUrl`, because the image route below only resizes raster formats.
 
 ## File delivery and imaging
 
@@ -243,6 +243,6 @@ These routes stream files and thumbnails. Access depends on partition visibility
 - Private partitions: require auth; scope must match attachment `organizationId`/`tenantId` or be a superadmin.
 
 - Download original file — `GET /attachments/file/{id}`  
-  Add `?download=1` to force a download response. Respects partition cache headers. Raster images render inline; an SVG renders inline as `image/svg+xml` only when it was stored through the sanitised vector path and its bytes still match the recorded digest, under `Content-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox`. Every other file is served as `application/octet-stream` with `attachment` disposition, and every response carries `X-Content-Type-Options: nosniff`.
+  Add `?download=1` to force a download response. Respects partition cache headers. Raster images render inline; an SVG renders inline as `image/svg+xml` only when it was stored through the sanitised vector path and its bytes still match the recorded digest, under `Content-Security-Policy: default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox`. Every other file is served as `application/octet-stream` with `attachment` disposition under `Content-Security-Policy: default-src 'none'; sandbox`, and every response carries `X-Content-Type-Options: nosniff`. The route sets its own CSP, so the app's `next.config.ts` must not set one for `/api/attachments/file/*`: Next.js keeps a config header over a route's header of the same name.
 - Serve/rescale image — `GET /attachments/image/{id}/{slug?}?width=<n>&height=<n>&cropType=cover|contain`  
   Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place. Raster formats only — SVG returns `400`; use the file route for vector images.

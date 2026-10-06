@@ -567,6 +567,37 @@ new application version serves traffic. Until it has run, saving an encryption m
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
 
+### Attachments accept opt-in sanitised SVG logos; the file route owns its CSP (no action required for most apps)
+
+`attachmentService.createScoped()` gained an optional `allowVectorImage` flag. Without it — every
+existing caller — SVG is still rejected as active content, and the generic `POST /api/attachments`
+route never accepts SVG. With it, the SVG is sanitised server-side and only the sanitised document is
+stored, or the upload is rejected with a `vector_image_*` code (also returned as `code` in the error
+body). See [the spec](.ai/specs/2026-10-05-attachments-sanitised-vector-images.md).
+
+What widened, all additively:
+
+- `CreateScopedAttachmentInput.allowVectorImage?: boolean` and the same option on the scoped upload
+  service (`attachmentScopedUploadService`).
+- `ReadScopedAttachmentResult.contentSecurityPolicy?: string` — the CSP a route serving the returned
+  bytes should send. A third-party `AttachmentService` implementation does not need to set it.
+- New helpers: `resolveAttachmentThumbnailUrl` in `attachments/lib/imageUrls`, and the
+  `attachments/lib/vector-image` and `attachments/lib/vector-image-record` modules.
+- `@open-mercato/core` now depends on `dompurify` and `jsdom`. Both load lazily, only when a vector
+  image is uploaded, and `jsdom` is a Next.js server-external package. Nothing new is fetched for
+  an existing lockfile: both versions were already resolved.
+
+**Action for apps that copied the attachment header rule.** `GET /api/attachments/file/{id}` now sets
+its own `Content-Security-Policy` on every response, including JSON errors, and the scaffolded
+`next.config.ts` no longer sets one for that path: the app-wide CSP rule uses the source
+`/:path((?!api/attachments/file/).*)`, and the `/api/attachments/file/:path*` rule is gone. Next.js
+keeps a config header over a route handler's header of the same name. So an app whose
+`next.config.ts` still sets `Content-Security-Policy` for `/api/attachments/file/*` keeps every
+existing file working, but a sanitised SVG will be served under the stricter config CSP: its inline
+`<style>` and embedded rasters will not render when the file is opened directly. To fix it, mirror
+the scaffolded `headers()`. Nothing else changes: every other file still gets
+`default-src 'none'; sandbox`.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
