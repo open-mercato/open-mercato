@@ -2172,7 +2172,7 @@ export async function run(argv = process.argv) {
               )
               const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
-                env: runtimeEnv,
+                env: nextDevCommand.env,
                 cwd: appDir,
               })
               processes.push(nextProcess)
@@ -2254,7 +2254,7 @@ export async function run(argv = process.argv) {
               const runtimeEnv = buildServerProcessEnvironment(process.env)
               // buildServerProcessEnvironment forces NODE_ENV=production, so the
               // logging facade's dev defaults (pretty output, debug level) never
-              // apply to the spawned Next.js/worker/scheduler processes on their
+              // apply to the spawned worker/scheduler processes on their
               // own — default them here for the dev command, respecting explicit
               // user overrides.
               if (runtimeEnv.OM_LOG_PRETTY === undefined) runtimeEnv.OM_LOG_PRETTY = '1'
