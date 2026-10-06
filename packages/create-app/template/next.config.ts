@@ -110,22 +110,20 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
       {
         source: '/:path*',
         headers: [
-          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
         ],
       },
       {
-        // Attachment file downloads set their own restrictive CSP (sandbox)
-        // in the route handler — override the global app CSP so it is not
-        // replaced at the Next.js config layer.
-        source: '/api/attachments/file/:path*',
+        // The attachment file route owns its Content-Security-Policy: a
+        // sandbox for every file, plus inline styles and data: images for a
+        // sanitised vector image. Next.js lets a config header win over a
+        // route handler's header of the same name, so the file route is
+        // excluded here rather than given a fixed CSP.
+        source: '/:path((?!api/attachments/file/).*)',
         headers: [
-          { key: 'Content-Security-Policy', value: "default-src 'none'; sandbox" },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
         ],
       },
       {

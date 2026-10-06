@@ -229,8 +229,18 @@ describe('attachments file route', () => {
       })
     })
 
+    it('sets the strict CSP on its own JSON error responses', async () => {
+      mockEm.findOne.mockImplementation(async () => null)
+
+      const response = await request()
+
+      expect(response.status).toBe(404)
+      expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox")
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    })
+
     it('serves a recorded vector image inline as image/svg+xml under a sandboxing CSP', async () => {
-      const security = await import('@open-mercato/core/modules/attachments/lib/security') as any
+      const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
       security.canRenderInlineAttachment.mockReturnValue(false)
       serveAttachment({ storageMetadata: { vectorImage: vectorRecord } })
 
@@ -246,7 +256,7 @@ describe('attachments file route', () => {
     })
 
     it('forces a download of a recorded vector image on ?download=1', async () => {
-      const security = await import('@open-mercato/core/modules/attachments/lib/security') as any
+      const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
       serveAttachment({ storageMetadata: { vectorImage: vectorRecord } })
 
       const response = await request('http://localhost/api/attachments/file/att-1?download=1')
@@ -259,7 +269,7 @@ describe('attachments file route', () => {
       ['without a vector record', { storageMetadata: { tags: [] } }],
       ['whose stored bytes do not match the record', { storageMetadata: { vectorImage: { ...vectorRecord, sha256: '0'.repeat(64) } } }],
     ])('keeps an SVG row %s download-only', async (_label, overrides) => {
-      const security = await import('@open-mercato/core/modules/attachments/lib/security') as any
+      const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
       security.canRenderInlineAttachment.mockReturnValue(false)
       serveAttachment(overrides)
 

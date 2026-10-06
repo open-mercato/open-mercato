@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { buildCustomRoute } from 'next/dist/lib/build-custom-route'
 
 import mainAppConfig from '../../../../apps/mercato/next.config'
 import templateConfig from '../../template/next.config'
@@ -20,22 +21,39 @@ test('standalone template mirrors the main app response security headers', async
   )
 })
 
+function ruleMatches(rule: Awaited<ReturnType<typeof resolveHeaders>>[number], pathname: string): boolean {
+  return new RegExp(buildCustomRoute('header', rule, '', false).regex).test(pathname)
+}
+
+function configCspFor(headers: Awaited<ReturnType<typeof resolveHeaders>>, pathname: string): string | undefined {
+  let csp: string | undefined
+  for (const rule of headers) {
+    if (!ruleMatches(rule, pathname)) continue
+    const header = rule.headers.find((entry) => entry.key === 'Content-Security-Policy')
+    if (header) csp = header.value
+  }
+  return csp
+}
+
 test('standalone template keeps integration and attachment security policies', async () => {
   const headers = await resolveHeaders(templateConfig)
-  const globalRule = headers.find((rule) => rule.source === '/:path*')
-  const attachmentRule = headers.find(
-    (rule) => rule.source === '/api/attachments/file/:path*',
-  )
 
-  const globalCsp = globalRule?.headers.find(
-    (header) => header.key === 'Content-Security-Policy',
-  )?.value
-  assert.match(globalCsp ?? '', /frame-src[^;]*https:\/\/js\.stripe\.com/)
-  assert.match(globalCsp ?? '', /frame-src[^;]*https:\/\/hooks\.stripe\.com/)
-  assert.match(globalCsp ?? '', /script-src[^;]*https:\/\/js\.stripe\.com/)
+  for (const pathname of ['/', '/backend/checkout', '/api/attachments/image/abc']) {
+    const appCsp = configCspFor(headers, pathname)
+    assert.match(appCsp ?? '', /frame-src[^;]*https:\/\/js\.stripe\.com/, pathname)
+    assert.match(appCsp ?? '', /frame-src[^;]*https:\/\/hooks\.stripe\.com/, pathname)
+    assert.match(appCsp ?? '', /script-src[^;]*https:\/\/js\.stripe\.com/, pathname)
+  }
 
-  assert.deepEqual(
-    attachmentRule?.headers.find((header) => header.key === 'Content-Security-Policy'),
-    { key: 'Content-Security-Policy', value: "default-src 'none'; sandbox" },
-  )
+  const routeOwnsCsp = 'Next.js keeps a config header over a route handler header of the same name, so the attachment file route must get no CSP from config'
+  assert.equal(configCspFor(headers, '/api/attachments/file/abc'), undefined, routeOwnsCsp)
+  assert.equal(configCspFor(headers, '/api/attachments/file/abc/def'), undefined, routeOwnsCsp)
+
+  for (const pathname of ['/', '/api/attachments/file/abc']) {
+    const sameOriginRule = headers.find((rule) =>
+      ruleMatches(rule, pathname)
+      && rule.headers.some((entry) => entry.key === 'X-Content-Type-Options' && entry.value === 'nosniff'),
+    )
+    assert.ok(sameOriginRule, `${pathname} keeps X-Content-Type-Options: nosniff from config`)
+  }
 })
