@@ -17,8 +17,14 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import { RotateCcw, XCircle } from 'lucide-react'
+import { Bookmark, Lock, Play, RotateCcw, XCircle } from 'lucide-react'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
+import { resolveResumePoint } from '../../../../lib/resume-point'
+import { applicableStartControls, type StartControlMap } from '../../../../lib/start-controls'
+import { useDataSyncRunAccess } from '../../../../components/useDataSyncRunAccess'
+import { ActionsDropdown } from '@open-mercato/ui/backend/forms/ActionsDropdown'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   buildRetryFailureMessage,
   resolveRunParameterText,
@@ -37,6 +43,10 @@ type SyncRunDetail = {
   entityType: string
   direction: 'import' | 'export'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused'
+  // The API has returned both since the run-scoped-cursor work; this type
+  // simply never declared them, which is why no surface could render them.
+  cursor: string | null
+  initialCursor: string | null
   createdCount: number
   updatedCount: number
   skippedCount: number
@@ -111,6 +121,22 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [logsPage, setLogsPage] = React.useState(1)
   const logsPageRef = React.useRef(1)
   const [parameterLabels, setParameterLabels] = React.useState<Record<string, string>>({})
+  // Fails OPEN: `null` means "not resolved", and `applicableStartControls`
+  // already defaults an unknown entity type to "every control applies". Hiding
+  // a valid action because an unrelated request failed would be worse than
+  // showing one the endpoint will accept anyway.
+  const [startControls, setStartControls] = React.useState<StartControlMap | null>(null)
+  // The resume-point line is a statement about the run, not an affordance, so a
+  // `data_sync.view` holder still sees it — they just get no buttons.
+  const { canRunSync } = useDataSyncRunAccess()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  /**
+   * `flash` takes a string and has no action slot, so the one refusal whose
+   * remedy is a navigation gets a persistent banner instead of a toast that
+   * scrolls away with nowhere to go.
+   */
+  const [staleParameters, setStaleParameters] = React.useState(false)
+  const resumePointDescriptionId = React.useId()
   // Declarations cannot change between two refreshes of the same run, so the
   // options list is fetched once per integration rather than on every progress
   // event that re-reads the run.
@@ -119,15 +145,17 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   // The run row stores machine keys. Resolve the adapter's declared labels so a
   // past run reads as "Start id" rather than "startId"; keys the adapter no
   // longer declares keep their raw form, which keeps historical runs readable.
-  const loadParameterLabels = React.useCallback(async (integrationId: string) => {
+  const loadIntegrationOptions = React.useCallback(async (integrationId: string) => {
     if (parameterLabelsIntegrationRef.current === integrationId) return
     parameterLabelsIntegrationRef.current = integrationId
-    const call = await apiCall<{ items?: Array<{ integrationId: string; runParameters?: RunParameterDeclaration[] }> }>(
+    const call = await apiCall<{ items?: Array<{ integrationId: string; runParameters?: RunParameterDeclaration[]; startControls?: StartControlMap }> }>(
       '/api/data_sync/options',
       undefined,
       { fallback: { items: [] } },
     )
-    const declared = (call.result?.items ?? []).find((item) => item.integrationId === integrationId)?.runParameters ?? []
+    const item = (call.result?.items ?? []).find((entry) => entry.integrationId === integrationId)
+    setStartControls(item?.startControls ?? {})
+    const declared = item?.runParameters ?? []
     const labels: Record<string, string> = {}
     for (const param of declared) {
       const resolved = resolveRunParameterText(t, param.labelKey, param.label)
@@ -159,10 +187,11 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     }
     setRun(call.result)
     setIsLoading(false)
-    if (call.result.parameters && Object.keys(call.result.parameters).length > 0) {
-      void loadParameterLabels(call.result.integrationId)
-    }
-  }, [loadParameterLabels, runId, t])
+    // Fetched unconditionally now: the from-the-beginning action is gated on the
+    // adapter's start-control declaration, so a run with no parameters needs the
+    // options response too.
+    void loadIntegrationOptions(call.result.integrationId)
+  }, [loadIntegrationOptions, runId, t])
 
   const loadLogs = React.useCallback(async (page?: number) => {
     if (!runId) return
@@ -283,9 +312,57 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
-      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
+      const failure = call.result as RetryFailureBody | null
+      setStaleParameters(failure?.code === 'parametersStale')
+      flash(buildRetryFailureMessage(failure, t), 'error')
     }
   }, [runId, router, runMutation, t])
+
+  const handleRetryFromBeginning = React.useCallback(async () => {
+    if (!runId || !run) return
+    const resumePoint = resolveResumePoint(run)
+    const recordEstimate = run.progressJob?.totalCount ?? null
+    // Prose, not a layout: ConfirmDialogOptions.text is a string and neither it
+    // nor ConfirmDialogProps exposes a node slot. The information survives.
+    const text = [
+      recordEstimate
+        ? t('data_sync.runs.detail.retryFromBeginning.confirmWithEstimate', 'This ignores the saved cursor and reads the entire source again — about {count} records — instead of continuing.', { count: recordEstimate })
+        : t('data_sync.runs.detail.retryFromBeginning.confirm', 'This ignores the saved cursor and reads the entire source again, instead of continuing.'),
+      resumePoint.kind === 'resumes'
+        ? t('data_sync.runs.detail.retryFromBeginning.confirmResumePoint', 'A resumable retry would start at batch {batch}; this one starts at the beginning.', { batch: resumePoint.batchesCompleted })
+        : t('data_sync.runs.detail.retryFromBeginning.confirmNoResumePoint', 'This run committed no batch, so only a from-the-beginning retry has a start position you can rely on.'),
+      t('data_sync.runs.detail.retryFromBeginning.confirmMatched', 'Existing records are matched and updated, not duplicated.'),
+    ].join(' ')
+
+    const confirmed = await confirm({
+      title: t('data_sync.runs.detail.retryFromBeginning.title', 'Retry from the beginning?'),
+      text,
+      confirmText: t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
+      // Not destructive: a full replay updates matched records rather than
+      // deleting anything, and the red budget belongs to Cancel run.
+      variant: 'default',
+    })
+    if (!confirmed) return
+
+    const call = await runMutation({
+      // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
+      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(runId)}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromBeginning: true }),
+      }, { fallback: null }),
+      mutationPayload: { runId, fromBeginning: true },
+      context: { operation: 'create', actionId: 'retry-sync-run-from-beginning', runId },
+    })
+    if (call.ok && call.result) {
+      flash(t('data_sync.runs.detail.retrySuccess'), 'success')
+      router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
+    } else {
+      const failure = call.result as RetryFailureBody | null
+      setStaleParameters(failure?.code === 'parametersStale')
+      flash(buildRetryFailureMessage(failure, t), 'error')
+    }
+  }, [confirm, run, runId, router, runMutation, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (isNotFound) {
@@ -303,6 +380,19 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }
   if (error || !run) return <Page><PageBody><ErrorMessage label={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>
 
+  const resumePoint = resolveResumePoint(run)
+  // `null` (unresolved, including a failed fetch) and an entity type the
+  // adapter does not restrict both mean the control applies.
+  const canReplayFromStart = applicableStartControls(startControls, run.entityType).fullSync
+  const overflowActions = canRunSync && resumePoint.kind !== 'none' && canReplayFromStart
+    ? [{
+      id: 'retry-from-beginning',
+      label: run.status === 'cancelled'
+        ? t('data_sync.runs.detail.retryFromBeginning.actionCancelled', 'Start from the beginning')
+        : t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
+      onSelect: () => { void handleRetryFromBeginning() },
+    }]
+    : []
   const totalProcessed = run.createdCount + run.updatedCount + run.skippedCount + run.failedCount
   const progressPercent = run.progressJob?.progressPercent ?? (run.status === 'completed' ? 100 : 0)
   const progressStatus = run.progressJob?.status ?? run.status
@@ -314,6 +404,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
 
   return (
     <Page>
+      {ConfirmDialogElement}
       <PageBody className="space-y-6">
         <FormHeader
           mode="detail"
@@ -331,22 +422,101 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
             </div>
           )}
           actionsContent={(
-            <>
-              {(run.status === 'running' || run.status === 'pending') ? (
-                <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
-                  <XCircle className="mr-2 h-4 w-4" />
-                  {t('data_sync.runs.detail.cancel')}
-                </Button>
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {canRunSync && (run.status === 'running' || run.status === 'pending') ? (
+                  <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
+                    <XCircle className="mr-2 h-4 w-4" />
+                    {t('data_sync.runs.detail.cancel')}
+                  </Button>
+                ) : null}
+                {canRunSync && run.status === 'completed' ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { router.push(`/backend/data-sync?from=${encodeURIComponent(run.id)}`) }}
+                  >
+                    <Play className="mr-2 h-4 w-4" />
+                    {t('data_sync.runs.detail.runAgain', 'Run again')}
+                  </Button>
+                ) : null}
+                {canRunSync && resumePoint.kind !== 'none' ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-describedby={resumePointDescriptionId}
+                    onClick={() => void handleRetry()}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    {/* A cancelled run was stopped on purpose — nothing went
+                        wrong, and "Retry" misdescribes that. */}
+                    {run.status === 'cancelled'
+                      ? t('data_sync.runs.detail.resume', 'Resume')
+                      : t('data_sync.runs.detail.retry')}
+                  </Button>
+                ) : null}
+                {/* The detail page's overflow is `FormHeader mode="detail"`'s
+                    menuActions surface, so it uses ActionsDropdown — which sizes
+                    to its content (#3580) where RowActions' fixed w-44 paints
+                    "Retry from the beginning" outside the menu. It also renders
+                    nothing for an empty list, so an empty overflow stays absent. */}
+                <ActionsDropdown items={overflowActions} triggerMode="icon" />
+              </div>
+              {resumePoint.kind === 'resumes' ? (
+                <p id={resumePointDescriptionId} className="flex flex-wrap items-center justify-end gap-1 text-xs text-muted-foreground">
+                  <Bookmark className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>{t('data_sync.runs.detail.resumePoint.resumes', 'Resumes from batch {batch} —', { batch: resumePoint.batchesCompleted })}</span>
+                  {/* Verbatim and never truncated: an adapter cursor is the only
+                      value an operator can paste into a support ticket. */}
+                  <span className="font-mono break-all">{resumePoint.cursor}</span>
+                </p>
               ) : null}
-              {run.status === 'failed' ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  {t('data_sync.runs.detail.retry')}
-                </Button>
+              {canRunSync && run.status === 'completed' ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('data_sync.runs.detail.runAgain.hint', "Opens the start form with this run's settings")}
+                </p>
               ) : null}
-            </>
+              {/* Gated like the Run-again hint above: it explains an action a
+                  `data_sync.view`-only operator never sees. */}
+              {canRunSync && resumePoint.kind !== 'none' && !canReplayFromStart ? (
+                <p className="flex max-w-prose items-start justify-end gap-1 text-right text-xs text-muted-foreground">
+                  <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    {t('data_sync.runs.detail.retryFromBeginning.unsupported', 'This feed cannot be replayed from the start — {integration} does not support a full sync of {entityType}.', {
+                      integration: run.integrationId,
+                      entityType: run.entityType,
+                    })}
+                  </span>
+                </p>
+              ) : null}
+              {resumePoint.kind === 'noCommittedBatch' ? (
+                <p id={resumePointDescriptionId} className="flex max-w-prose items-start justify-end gap-1 text-right text-xs text-muted-foreground">
+                  <Bookmark className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>{t('data_sync.runs.detail.resumePoint.noCommittedBatch', "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began.")}</span>
+                </p>
+              ) : null}
+            </div>
           )}
         />
+
+        {staleParameters ? (
+          <Alert status="error">
+            <AlertDescription className="space-y-2">
+              <p>{buildRetryFailureMessage({ code: 'parametersStale' }, t)}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => { router.push(`/backend/data-sync?from=${encodeURIComponent(run.id)}`) }}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {t('data_sync.runs.detail.startNewRunFromHere', 'Start a new run with these settings…')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         <Card>
           <CardHeader>
@@ -389,6 +559,20 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
               </span>
               <span>{t('data_sync.runs.detail.progress.batches', { count: run.batchesCompleted })}</span>
             </div>
+            <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                <dt className="font-medium text-muted-foreground">{t('data_sync.runs.detail.cursor.startedFrom', 'Started from')}</dt>
+                <dd className={run.initialCursor ? 'font-mono break-all text-right' : 'text-muted-foreground'}>
+                  {run.initialCursor ?? t('data_sync.runs.detail.cursor.beginningOfSource', 'beginning of source')}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                <dt className="font-medium text-muted-foreground">{t('data_sync.runs.detail.cursor.committedThrough', 'Committed through')}</dt>
+                <dd className={run.cursor ? 'font-mono break-all text-right' : 'text-muted-foreground'}>
+                  {run.cursor ?? t('data_sync.runs.detail.cursor.nothingCommitted', 'nothing committed')}
+                </dd>
+              </div>
+            </dl>
           </CardContent>
         </Card>
 
