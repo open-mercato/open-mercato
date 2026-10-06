@@ -554,3 +554,20 @@ export const ecommerceStorefrontProductListQuerySchema = z
   })
 
 export type EcommerceStorefrontProductListQuery = z.infer<typeof ecommerceStorefrontProductListQuerySchema>
+
+export const ecommerceStorefrontProductDetailQuerySchema = z
+  .object({
+    variantId: z.preprocess(emptyStringToUndefined, uuid().optional()),
+    locale: z.string().max(35).optional(),
+    path: z.string().max(2048).optional(),
+    storeSlug: z.string().max(120).optional(),
+  })
+  .strict()
+
+export type EcommerceStorefrontProductDetailQuery = z.infer<typeof ecommerceStorefrontProductDetailQuerySchema>
+
+export const ecommerceStorefrontProductParamsSchema = z.object({
+  idOrHandle: z.string().trim().min(1).max(255),
+})
+
+export type EcommerceStorefrontProductParams = z.infer<typeof ecommerceStorefrontProductParamsSchema>

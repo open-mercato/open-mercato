@@ -132,6 +132,28 @@ export function ecommerceCustomerGroupTag(customerGroupId: string): string {
   return `customer-group:${customerGroupId}`
 }
 
+export function catalogProductTag(productId: string): string {
+  return `catalog-product:${productId}`
+}
+
+/** Every storefront listing of a tenant: evicted by any product, variant, category or price change. */
+export function catalogProductsTag(tenantId: string): string {
+  return `catalog-products:${tenantId}`
+}
+
+export function catalogCategoryTag(categoryId: string): string {
+  return `catalog-category:${categoryId}`
+}
+
+export function catalogPriceTag(productId: string): string {
+  return `catalog-price:${productId}`
+}
+
+/** Every storefront product entry of a tenant: evicted by an availability policy not tied to one product. */
+export function storefrontAvailabilityTag(tenantId: string): string {
+  return `availability:${tenantId}`
+}
+
 export function buyerContextTags(buyer: Pick<BuyerContext, 'customerIds' | 'customerGroupIds'>): string[] {
   return [
     ...buyer.customerIds.map(ecommerceCustomerTag),

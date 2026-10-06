@@ -8,6 +8,10 @@ import membershipHandler, { metadata as membershipMetadata } from '../customer-g
 import groupHandler, { metadata as groupMetadata } from '../customer-group-cache-invalidation'
 import termsHandler, { metadata as termsMetadata } from '../customer-group-terms-cache-invalidation'
 import priceHandler, { metadata as priceMetadata } from '../catalog-price-cache-invalidation'
+import productHandler, { metadata as productMetadata } from '../catalog-product-cache-invalidation'
+import variantHandler, { metadata as variantMetadata } from '../catalog-variant-cache-invalidation'
+import categoryHandler, { metadata as categoryMetadata } from '../catalog-category-cache-invalidation'
+import policyHandler, { metadata as policyMetadata } from '../availability-policy-cache-invalidation'
 
 type DeleteCall = { tenant: string | null; tags: string[] }
 
@@ -27,12 +31,13 @@ function createRecordingCache() {
   return { cache, calls }
 }
 
-type PriceRow = { customer_id: string | null } | undefined
+type LookupRow = Record<string, string | null> | undefined
 
-function createPriceEm(row: PriceRow) {
+function createLookupEm(row: LookupRow) {
   const wheres: Array<[string, string, string]> = []
   const builder = {
     selectFrom: jest.fn(() => builder),
+    leftJoin: jest.fn(() => builder),
     select: jest.fn(() => builder),
     where: jest.fn((column: string, operator: string, value: string) => {
       wheres.push([column, operator, value])
@@ -42,6 +47,12 @@ function createPriceEm(row: PriceRow) {
   }
   return { em: { getKysely: () => builder }, wheres, builder }
 }
+
+function createPriceEm(row: { customerId: string | null; productId?: string | null; variantProductId?: string | null } | undefined) {
+  return createLookupEm(row ? { productId: null, variantProductId: null, ...row } : undefined)
+}
+
+const PRODUCTS_TAG = `catalog-products:${TENANT_ID}`
 
 function createCtx(
   services: Record<string, unknown>,
@@ -68,6 +79,10 @@ describe('ecommerce cache invalidation subscribers', () => {
     expect(groupMetadata).toMatchObject({ event: 'customer_groups.group.*', persistent: false })
     expect(termsMetadata).toMatchObject({ event: 'customer_groups.terms.updated', persistent: false })
     expect(priceMetadata).toMatchObject({ event: 'catalog.price.*', persistent: false })
+    expect(productMetadata).toMatchObject({ event: 'catalog.product.*', persistent: false })
+    expect(variantMetadata).toMatchObject({ event: 'catalog.variant.*', persistent: false })
+    expect(categoryMetadata).toMatchObject({ event: 'catalog.category.*', persistent: false })
+    expect(policyMetadata).toMatchObject({ event: 'availability.policy.*', persistent: false })
   })
 
   it('evicts the store tag in the resolution scope and inside the emitting tenant', async () => {
@@ -180,40 +195,106 @@ describe('ecommerce cache invalidation subscribers', () => {
     expect(calls[1]).toEqual({ tenant: TENANT_ID, tags: ['customer-group:group-1'] })
   })
 
-  it('evicts the owning customer of a customer-specific price row, scoped by tenant and organization', async () => {
+  it('evicts the owning customer, the product price tag and the tenant listings for a price row', async () => {
     const { cache, calls } = createRecordingCache()
-    const { em, wheres } = createPriceEm({ customer_id: 'company-1' })
+    const { em, wheres } = createPriceEm({ customerId: 'company-1', productId: 'product-1' })
     await priceHandler({ id: 'price-1', tenantId: TENANT_ID }, createCtx({ cache, em }, { eventName: 'catalog.price.updated' }))
     expect(wheres).toEqual([
-      ['id', '=', 'price-1'],
-      ['tenant_id', '=', TENANT_ID],
-      ['organization_id', '=', ORG_ID],
+      ['price.id', '=', 'price-1'],
+      ['price.tenant_id', '=', TENANT_ID],
+      ['price.organization_id', '=', ORG_ID],
     ])
+    const tags = ['catalog-price:product-1', 'customer:company-1', PRODUCTS_TAG].sort()
     expect(calls).toEqual([
-      { tenant: null, tags: ['customer:company-1'] },
-      { tenant: TENANT_ID, tags: ['customer:company-1'] },
+      { tenant: null, tags },
+      { tenant: TENANT_ID, tags },
     ])
   })
 
-  it('does nothing for price rows without a customer, missing rows and deletes', async () => {
+  it('resolves the product of a variant-level price row through its variant', async () => {
     const { cache, calls } = createRecordingCache()
-    const generic = createPriceEm({ customer_id: null })
-    await priceHandler({ id: 'price-1' }, createCtx({ cache, em: generic.em }, { eventName: 'catalog.price.created' }))
+    const { em } = createPriceEm({ customerId: null, variantProductId: 'product-2' })
+    await priceHandler({ id: 'price-1' }, createCtx({ cache, em }, { eventName: 'catalog.price.created' }))
+    expect(calls[1]).toEqual({ tenant: TENANT_ID, tags: ['catalog-price:product-2', PRODUCTS_TAG].sort() })
+  })
+
+  it('evicts only the tenant listings for missing rows and deletes', async () => {
+    const { cache, calls } = createRecordingCache()
     const missing = createPriceEm(undefined)
     await priceHandler({ id: 'price-2' }, createCtx({ cache, em: missing.em }, { eventName: 'catalog.price.updated' }))
-    const deleted = createPriceEm({ customer_id: 'company-1' })
+    const deleted = createPriceEm({ customerId: 'company-1', productId: 'product-1' })
     await priceHandler({ id: 'price-3' }, createCtx({ cache, em: deleted.em }, { eventName: 'catalog.price.deleted' }))
     expect(deleted.builder.selectFrom).not.toHaveBeenCalled()
-    expect(calls).toEqual([])
+    expect(calls.filter((call) => call.tenant === TENANT_ID)).toEqual([
+      { tenant: TENANT_ID, tags: [PRODUCTS_TAG] },
+      { tenant: TENANT_ID, tags: [PRODUCTS_TAG] },
+    ])
   })
 
-  it('degrades to a no-op when the price lookup fails', async () => {
+  it('falls back to the tenant listings when the price lookup fails', async () => {
     const { cache, calls } = createRecordingCache()
     const failing = createPriceEm(undefined)
     failing.builder.executeTakeFirst.mockRejectedValueOnce(new Error('db down'))
     await expect(
       priceHandler({ id: 'price-1' }, createCtx({ cache, em: failing.em }, { eventName: 'catalog.price.updated' })),
     ).resolves.toBeUndefined()
+    expect(calls[1]).toEqual({ tenant: TENANT_ID, tags: [PRODUCTS_TAG] })
+  })
+
+  it('evicts the product and the tenant listings for product writes and ignores other product events', async () => {
+    const { cache, calls } = createRecordingCache()
+    for (const action of ['created', 'updated', 'deleted']) {
+      await productHandler({ id: 'product-1' }, createCtx({ cache }, { eventName: `catalog.product.${action}` }))
+    }
+    await productHandler({ id: 'product-1' }, createCtx({ cache }, { eventName: 'catalog.product.stock_low' }))
+    const tenantCalls = calls.filter((call) => call.tenant === TENANT_ID)
+    expect(tenantCalls).toHaveLength(3)
+    expect(tenantCalls[0]).toEqual({ tenant: TENANT_ID, tags: ['catalog-product:product-1', PRODUCTS_TAG].sort() })
+  })
+
+  it('evicts the variant\'s product read back by id, or only the listings for a delete', async () => {
+    const { cache, calls } = createRecordingCache()
+    const { em, wheres } = createLookupEm({ product_id: 'product-9' })
+    await variantHandler({ id: 'variant-1' }, createCtx({ cache, em }, { eventName: 'catalog.variant.updated' }))
+    expect(wheres).toEqual([
+      ['id', '=', 'variant-1'],
+      ['tenant_id', '=', TENANT_ID],
+      ['organization_id', '=', ORG_ID],
+    ])
+    const deleted = createLookupEm({ product_id: 'product-9' })
+    await variantHandler({ id: 'variant-1' }, createCtx({ cache, em: deleted.em }, { eventName: 'catalog.variant.deleted' }))
+    expect(deleted.builder.selectFrom).not.toHaveBeenCalled()
+    expect(calls.filter((call) => call.tenant === TENANT_ID)).toEqual([
+      { tenant: TENANT_ID, tags: ['catalog-product:product-9', PRODUCTS_TAG].sort() },
+      { tenant: TENANT_ID, tags: [PRODUCTS_TAG] },
+    ])
+  })
+
+  it('evicts the category and the tenant listings for category events', async () => {
+    const { cache, calls } = createRecordingCache()
+    await categoryHandler({ id: 'category-1' }, createCtx({ cache }, { eventName: 'catalog.category.updated' }))
+    expect(calls).toEqual([
+      { tenant: null, tags: ['catalog-category:category-1', PRODUCTS_TAG].sort() },
+      { tenant: TENANT_ID, tags: ['catalog-category:category-1', PRODUCTS_TAG].sort() },
+    ])
+  })
+
+  it('evicts a product-bound policy\'s product, and every product entry for a broader policy', async () => {
+    const { cache, calls } = createRecordingCache()
+    const bound = createLookupEm({ product_id: 'product-3' })
+    await policyHandler({ id: 'policy-1' }, createCtx({ cache, em: bound.em }, { eventName: 'availability.policy.deleted' }))
+    const storeWide = createLookupEm({ product_id: null })
+    await policyHandler({ id: 'policy-2' }, createCtx({ cache, em: storeWide.em }, { eventName: 'availability.policy.updated' }))
+    expect(calls.filter((call) => call.tenant === TENANT_ID)).toEqual([
+      { tenant: TENANT_ID, tags: ['catalog-product:product-3', PRODUCTS_TAG].sort() },
+      { tenant: TENANT_ID, tags: [`availability:${TENANT_ID}`] },
+    ])
+  })
+
+  it('skips storefront catalog invalidation when no tenant is known', async () => {
+    const { cache, calls } = createRecordingCache()
+    await productHandler({ id: 'product-1' }, createCtx({ cache }, { eventName: 'catalog.product.updated', tenantId: null }))
+    await categoryHandler({ id: 'category-1' }, createCtx({ cache }, { eventName: 'catalog.category.updated', tenantId: null }))
     expect(calls).toEqual([])
   })
 
@@ -221,7 +302,7 @@ describe('ecommerce cache invalidation subscribers', () => {
     await expect(
       storeHandler({ id: 'store-1' }, createCtx({}, { eventName: 'ecommerce.store.deleted' })),
     ).resolves.toBeUndefined()
-    const { em, builder } = createPriceEm({ customer_id: 'company-1' })
+    const { em, builder } = createPriceEm({ customerId: 'company-1' })
     await expect(
       priceHandler({ id: 'price-1' }, createCtx({ em }, { eventName: 'catalog.price.updated' })),
     ).resolves.toBeUndefined()

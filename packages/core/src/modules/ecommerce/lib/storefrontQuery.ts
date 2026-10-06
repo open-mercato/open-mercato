@@ -1,6 +1,8 @@
 import type { z } from 'zod'
 import {
+  ecommerceStorefrontProductDetailQuerySchema,
   ecommerceStorefrontProductListQuerySchema,
+  type EcommerceStorefrontProductDetailQuery,
   type EcommerceStorefrontProductListQuery,
 } from '../data/validators'
 
@@ -122,6 +124,35 @@ export function parseStorefrontProductListQuery(input: StorefrontQueryInput): Ec
     ...scalars,
     ...(Object.keys(options).length ? { options } : {}),
   })
+  if (!parsed.success) {
+    const { code, issues } = zodIssues(parsed.error)
+    throw new StorefrontQueryError(code, issues)
+  }
+  return parsed.data
+}
+
+/**
+ * Parses the `GET /products/:idOrHandle` query (Storefront Public API §4.2): `variantId`, `locale`
+ * and the store-resolution parameters, with the same strictness as the listing — unknown, repeated
+ * and malformed parameters throw `StorefrontQueryError` (status 400).
+ */
+export function parseStorefrontProductDetailQuery(input: StorefrontQueryInput): EcommerceStorefrontProductDetailQuery {
+  const scalars: Record<string, string> = {}
+  const duplicates = new Set<string>()
+  for (const [key, value] of toEntries(input)) {
+    if (Object.prototype.hasOwnProperty.call(scalars, key)) {
+      duplicates.add(key)
+      continue
+    }
+    scalars[key] = value
+  }
+  if (duplicates.size) {
+    throw new StorefrontQueryError(
+      'duplicate_parameter',
+      Array.from(duplicates).map((parameter) => ({ parameter, message: 'parameter given more than once' })),
+    )
+  }
+  const parsed = ecommerceStorefrontProductDetailQuerySchema.safeParse(scalars)
   if (!parsed.success) {
     const { code, issues } = zodIssues(parsed.error)
     throw new StorefrontQueryError(code, issues)

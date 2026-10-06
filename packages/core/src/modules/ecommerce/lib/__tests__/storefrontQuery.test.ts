@@ -1,4 +1,9 @@
-import { isStorefrontQueryError, parseStorefrontProductListQuery, StorefrontQueryError } from '../storefrontQuery'
+import {
+  isStorefrontQueryError,
+  parseStorefrontProductDetailQuery,
+  parseStorefrontProductListQuery,
+  StorefrontQueryError,
+} from '../storefrontQuery'
 
 function parse(query: string) {
   return parseStorefrontProductListQuery(new URLSearchParams(query))
@@ -94,5 +99,39 @@ describe('parseStorefrontProductListQuery', () => {
       sort: 'newest',
       options: { size: ['m'] },
     })
+  })
+})
+
+describe('parseStorefrontProductDetailQuery', () => {
+  const VARIANT_ID = '77777777-7777-4777-8777-777777777777'
+
+  function detailRejection(query: string): StorefrontQueryError {
+    try {
+      parseStorefrontProductDetailQuery(new URLSearchParams(query))
+    } catch (error) {
+      if (isStorefrontQueryError(error)) return error
+      throw error
+    }
+    throw new Error('[internal] expected the query to be rejected')
+  }
+
+  it('parses variantId, locale and the store-resolution parameters', () => {
+    expect(
+      parseStorefrontProductDetailQuery(new URLSearchParams(`variantId=${VARIANT_ID}&locale=de&path=/b2b&storeSlug=main`)),
+    ).toEqual({ variantId: VARIANT_ID, locale: 'de', path: '/b2b', storeSlug: 'main' })
+    expect(parseStorefrontProductDetailQuery(new URLSearchParams('variantId='))).toEqual({})
+  })
+
+  it('rejects unknown, repeated and malformed parameters', () => {
+    const unknown = detailRejection('variant=1')
+    expect(unknown.code).toBe('unknown_parameter')
+    expect(unknown.issues).toEqual([{ parameter: 'variant', message: 'unknown parameter' }])
+    const duplicate = detailRejection('locale=de&locale=en')
+    expect(duplicate.code).toBe('duplicate_parameter')
+    expect(duplicate.issues.map((issue) => issue.parameter)).toEqual(['locale'])
+    const malformed = detailRejection('variantId=not-a-uuid')
+    expect(malformed.code).toBe('invalid_parameter')
+    expect(malformed.issues.map((issue) => issue.parameter)).toEqual(['variantId'])
+    expect(malformed.status).toBe(400)
   })
 })
