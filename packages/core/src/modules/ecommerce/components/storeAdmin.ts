@@ -17,6 +17,7 @@ export type StoreAdminRecord = {
   supportedLocales: string[]
   defaultCurrencyCode: string
   isPrimary: boolean
+  settings?: Record<string, unknown> | null
   createdAt: string | null
   updatedAt: string | null
   _ecommerce?: StoreListBindingSummary
@@ -33,6 +34,7 @@ export const STORES_API_URL = `/api/${STORES_API_PATH}`
 export const STORE_LIST_HREF = '/backend/config/ecommerce'
 export const STORE_MANAGE_FEATURE = 'ecommerce.stores.manage'
 export const STORE_VIEW_FEATURE = 'ecommerce.stores.view'
+export const BRANDING_MANAGE_FEATURE = 'ecommerce.branding.manage'
 export const AVAILABILITY_POLICIES_API_PATH = 'availability/policies'
 export const AVAILABILITY_POLICIES_API_URL = `/api/${AVAILABILITY_POLICIES_API_PATH}`
 export const AVAILABILITY_VIEW_FEATURE = 'availability.policies.view'

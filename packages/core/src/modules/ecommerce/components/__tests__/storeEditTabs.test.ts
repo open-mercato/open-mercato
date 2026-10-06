@@ -28,8 +28,9 @@ describe('store edit tab contract', () => {
   })
 
   it('registers a tab only once its own step ships it', () => {
-    expect(STORE_EDIT_TABS.map((registered) => registered.id)).toEqual(['general'])
-    expect(resolveActiveStoreTab('branding', STORE_EDIT_TABS)).toBe('general')
+    expect(STORE_EDIT_TABS.map((registered) => registered.id)).toEqual(['general', 'branding'])
+    expect(resolveActiveStoreTab('branding', STORE_EDIT_TABS)).toBe('branding')
+    expect(resolveActiveStoreTab('domains', STORE_EDIT_TABS)).toBe('general')
     expect(resolveActiveStoreTab('general', [])).toBeNull()
   })
 

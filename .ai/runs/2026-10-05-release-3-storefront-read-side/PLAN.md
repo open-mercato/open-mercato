@@ -79,7 +79,7 @@
 | 7 | 7.3 | GET store-channel-bindings/:id/assortment-count | dispatch:standard | done | 1032cf215c |
 | 7 | 7.4 | Admin UI: store list + create | dispatch:standard | done | fe7e677241 |
 | 7 | 7.5 | Admin UI: General tab (incl. store availability defaults) | dispatch:standard | done | bd03b75d25 |
-| 7 | 7.6 | Admin UI: Branding tab + live preview | dispatch:standard | todo | — |
+| 7 | 7.6 | Admin UI: Branding tab + live preview | dispatch:standard | done | pending |
 | 7 | 7.7 | Admin UI: Domains tab | dispatch:standard | todo | — |
 | 7 | 7.8 | Admin UI: Channels tab (scope pickers, require_authentication, price_sort_fallback, live count) | dispatch:capable | todo | — |
 | 7 | 7.9 | Admin UI: SEO tab | dispatch:cheap | todo | — |
