@@ -26,40 +26,45 @@ export type StoreCreateFormValues = {
 
 const REQUIRED_MESSAGE = 'ui.forms.errors.required'
 
-export const storeCreateFormSchema = z
-  .object({
-    name: z.string().trim().min(1, REQUIRED_MESSAGE).max(200),
-    code: z
-      .string()
-      .trim()
-      .min(1, REQUIRED_MESSAGE)
-      .max(80)
-      .regex(ECOMMERCE_STORE_CODE_PATTERN, 'ecommerce.validation.codeInvalid'),
-    slug: z
-      .string()
-      .trim()
-      .min(1, REQUIRED_MESSAGE)
-      .max(120)
-      .regex(ECOMMERCE_STORE_SLUG_PATTERN, 'ecommerce.validation.slugInvalid'),
-    defaultLocale: z.string().trim().regex(ECOMMERCE_LOCALE_PATTERN, 'ecommerce.validation.localeInvalid'),
-    supportedLocales: z
-      .array(z.string().trim().regex(ECOMMERCE_LOCALE_PATTERN, 'ecommerce.validation.localeInvalid'))
-      .min(1, REQUIRED_MESSAGE)
-      .refine((locales) => new Set(locales).size === locales.length, 'ecommerce.validation.localesDuplicate'),
-    defaultCurrencyCode: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .regex(/^[A-Z]{3}$/, 'ecommerce.validation.currencyCodeInvalid'),
+export const storeIdentityFormShape = {
+  name: z.string().trim().min(1, REQUIRED_MESSAGE).max(200),
+  code: z
+    .string()
+    .trim()
+    .min(1, REQUIRED_MESSAGE)
+    .max(80)
+    .regex(ECOMMERCE_STORE_CODE_PATTERN, 'ecommerce.validation.codeInvalid'),
+  slug: z
+    .string()
+    .trim()
+    .min(1, REQUIRED_MESSAGE)
+    .max(120)
+    .regex(ECOMMERCE_STORE_SLUG_PATTERN, 'ecommerce.validation.slugInvalid'),
+  defaultLocale: z.string().trim().regex(ECOMMERCE_LOCALE_PATTERN, 'ecommerce.validation.localeInvalid'),
+  supportedLocales: z
+    .array(z.string().trim().regex(ECOMMERCE_LOCALE_PATTERN, 'ecommerce.validation.localeInvalid'))
+    .min(1, REQUIRED_MESSAGE)
+    .refine((locales) => new Set(locales).size === locales.length, 'ecommerce.validation.localesDuplicate'),
+  defaultCurrencyCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/, 'ecommerce.validation.currencyCodeInvalid'),
+}
+
+export function refineDefaultLocaleSupported(
+  value: { defaultLocale: string; supportedLocales: string[] },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.supportedLocales.includes(value.defaultLocale)) return
+  ctx.addIssue({
+    code: 'custom',
+    path: ['defaultLocale'],
+    message: 'ecommerce.validation.defaultLocaleNotSupported',
   })
-  .superRefine((value, ctx) => {
-    if (value.supportedLocales.includes(value.defaultLocale)) return
-    ctx.addIssue({
-      code: 'custom',
-      path: ['defaultLocale'],
-      message: 'ecommerce.validation.defaultLocaleNotSupported',
-    })
-  })
+}
+
+export const storeCreateFormSchema = z.object(storeIdentityFormShape).superRefine(refineDefaultLocaleSupported)
 
 export function buildStoreCreatePayload(values: StoreCreateFormValues): StoreCreateFormValues {
   return {

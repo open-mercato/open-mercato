@@ -1,4 +1,5 @@
 import type * as React from 'react'
+import { StoreGeneralTab } from './StoreGeneralTab'
 import { STORE_LIST_HREF, type StoreAdminRecord } from './storeAdmin'
 
 export const STORE_TAB_QUERY_PARAM = 'tab'
@@ -19,7 +20,14 @@ export type StoreEditTabDefinition = {
   render: (context: StoreEditTabContext) => React.ReactNode
 }
 
-export const STORE_EDIT_TABS: readonly StoreEditTabDefinition[] = []
+export const STORE_EDIT_TABS: readonly StoreEditTabDefinition[] = [
+  {
+    id: 'general',
+    labelKey: 'ecommerce.backend.store.tabs.general',
+    fallbackLabel: 'General',
+    render: ({ store, reload }) => <StoreGeneralTab store={store} reload={reload} />,
+  },
+]
 
 export function isStoreEditTabId(value: unknown): value is StoreEditTabId {
   return typeof value === 'string' && (STORE_EDIT_TAB_IDS as readonly string[]).includes(value)

@@ -2,11 +2,13 @@
 
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import { STORE_MANAGE_FEATURE } from './storeAdmin'
+import { AVAILABILITY_MANAGE_FEATURE, AVAILABILITY_VIEW_FEATURE, STORE_MANAGE_FEATURE } from './storeAdmin'
 
 export type StoreAccess = {
   isResolved: boolean
   canManage: boolean
+  canViewAvailability: boolean
+  canManageAvailability: boolean
 }
 
 export function useStoreAccess(): StoreAccess {
@@ -15,5 +17,7 @@ export function useStoreAccess(): StoreAccess {
   return {
     isResolved: Array.isArray(granted),
     canManage: hasFeature(granted, STORE_MANAGE_FEATURE),
+    canViewAvailability: hasFeature(granted, AVAILABILITY_VIEW_FEATURE),
+    canManageAvailability: hasFeature(granted, AVAILABILITY_MANAGE_FEATURE),
   }
 }

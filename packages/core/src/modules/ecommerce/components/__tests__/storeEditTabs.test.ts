@@ -1,3 +1,6 @@
+/**
+ * @jest-environment jsdom
+ */
 import {
   STORE_EDIT_TABS,
   STORE_EDIT_TAB_IDS,
@@ -24,9 +27,10 @@ describe('store edit tab contract', () => {
     expect(buildStoreEditHref('abc', 'channels')).toBe('/backend/config/ecommerce/abc?tab=channels')
   })
 
-  it('ships no tabs until their own steps register them', () => {
-    expect(STORE_EDIT_TABS).toEqual([])
-    expect(resolveActiveStoreTab('general', STORE_EDIT_TABS)).toBeNull()
+  it('registers a tab only once its own step ships it', () => {
+    expect(STORE_EDIT_TABS.map((registered) => registered.id)).toEqual(['general'])
+    expect(resolveActiveStoreTab('branding', STORE_EDIT_TABS)).toBe('general')
+    expect(resolveActiveStoreTab('general', [])).toBeNull()
   })
 
   it('resolves the requested tab and falls back to the first registered one', () => {

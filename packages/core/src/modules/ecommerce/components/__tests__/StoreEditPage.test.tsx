@@ -58,7 +58,7 @@ function tab(id: StoreEditTabDefinition['id'], label: string): StoreEditTabDefin
   return { id, labelKey: `test.${id}`, fallbackLabel: label, render: ({ store: record }) => <p>{`${label} for ${record.code}`}</p> }
 }
 
-function renderPage(tabs?: readonly StoreEditTabDefinition[], storeId: string | null = 'store-1') {
+function renderPage(tabs: readonly StoreEditTabDefinition[] = [], storeId: string | null = 'store-1') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>

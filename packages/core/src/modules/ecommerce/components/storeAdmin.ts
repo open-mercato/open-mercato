@@ -7,6 +7,8 @@ export type StoreStatus = (typeof STORE_STATUSES)[number]
 
 export type StoreAdminRecord = {
   id: string
+  organizationId?: string | null
+  tenantId?: string | null
   code: string
   name: string
   slug: string
@@ -31,6 +33,10 @@ export const STORES_API_URL = `/api/${STORES_API_PATH}`
 export const STORE_LIST_HREF = '/backend/config/ecommerce'
 export const STORE_MANAGE_FEATURE = 'ecommerce.stores.manage'
 export const STORE_VIEW_FEATURE = 'ecommerce.stores.view'
+export const AVAILABILITY_POLICIES_API_PATH = 'availability/policies'
+export const AVAILABILITY_POLICIES_API_URL = `/api/${AVAILABILITY_POLICIES_API_PATH}`
+export const AVAILABILITY_VIEW_FEATURE = 'availability.policies.view'
+export const AVAILABILITY_MANAGE_FEATURE = 'availability.policies.manage'
 
 export const STORE_STATUS_VARIANTS: Record<StoreStatus, StatusBadgeVariant> = {
   draft: 'neutral',
