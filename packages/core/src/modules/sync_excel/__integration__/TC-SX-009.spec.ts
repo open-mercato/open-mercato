@@ -99,6 +99,20 @@ async function countAddresses(db: Client, personId: string): Promise<number> {
   return Number(result.rows[0]?.count ?? 0)
 }
 
+async function readDbNow(db: Client): Promise<Date> {
+  const result = await db.query<{ now: Date }>('select now() as now')
+  return result.rows[0].now
+}
+
+async function deleteMappingRows(db: Client, externalIds: string[], scope: Scope): Promise<void> {
+  await db.query(
+    `delete from sync_external_id_mappings
+     where integration_id = $1 and internal_entity_type = $2 and external_id = any($3::text[])
+       and organization_id = $4 and tenant_id = $5`,
+    [INTEGRATION_ID, ENTITY_TYPE, externalIds, scope.orgId, scope.tenantId],
+  )
+}
+
 async function listPeopleCreatedSince(db: Client, since: Date, scope: Scope): Promise<string[]> {
   const result = await db.query<{ id: string }>(
     `select id from customer_entities
@@ -295,6 +309,7 @@ test.describe('TC-SX-009: sync_excel re-import after a delete or a failed row', 
       for (const personId of personIds) {
         await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       }
+      await deleteMappingRows(db, [externalId], scope).catch(() => undefined)
       await restoreStoredMapping(request, token, previousMapping).catch(() => undefined)
       await cancelRuns(request, token, runIds)
       await db.end().catch(() => undefined)
@@ -329,7 +344,7 @@ test.describe('TC-SX-009: sync_excel re-import after a delete or a failed row', 
     const previousMapping = (await listStoredMappings(request, token))[0] ?? null
     const personIds = new Set<string>()
     const runIds: string[] = []
-    const startedAt = new Date(Date.now() - 1_000)
+    const startedAt = await readDbNow(db)
     const countPeopleNamed = async (displayName: string) => (await listPeopleNamed(request, token, db, displayName, startedAt, scope)).length
 
     try {
@@ -382,6 +397,7 @@ test.describe('TC-SX-009: sync_excel re-import after a delete or a failed row', 
       for (const personId of personIds) {
         await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       }
+      await deleteMappingRows(db, [rejectedExternalId, validExternalId], scope).catch(() => undefined)
       await restoreStoredMapping(request, token, previousMapping).catch(() => undefined)
       await cancelRuns(request, token, runIds)
       await db.end().catch(() => undefined)
@@ -408,7 +424,7 @@ test.describe('TC-SX-009: sync_excel re-import after a delete or a failed row', 
     const previousMapping = (await listStoredMappings(request, token))[0] ?? null
     const personIds = new Set<string>()
     const runIds: string[] = []
-    const startedAt = new Date(Date.now() - 1_000)
+    const startedAt = await readDbNow(db)
 
     try {
       await cancelActiveRuns(db, scope)
@@ -453,6 +469,7 @@ test.describe('TC-SX-009: sync_excel re-import after a delete or a failed row', 
       for (const personId of personIds) {
         await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       }
+      await deleteMappingRows(db, [externalId], scope).catch(() => undefined)
       await restoreStoredMapping(request, token, previousMapping).catch(() => undefined)
       await cancelRuns(request, token, runIds)
       await db.end().catch(() => undefined)
@@ -482,7 +499,7 @@ test.describe('TC-SX-009: sync_excel re-import after a delete or a failed row', 
     const runIds: string[] = []
     let foreignOrgId: string | null = null
     let foreignPersonId: string | null = null
-    const startedAt = new Date(Date.now() - 1_000)
+    const startedAt = await readDbNow(db)
 
     try {
       await cancelActiveRuns(db, scope)
@@ -535,10 +552,7 @@ test.describe('TC-SX-009: sync_excel re-import after a delete or a failed row', 
           selectedOrgId: foreignOrgId,
         }).catch(() => undefined)
       }
-      await db.query(
-        'delete from sync_external_id_mappings where integration_id = $1 and external_id = $2 and organization_id = $3 and tenant_id = $4',
-        [INTEGRATION_ID, externalId, scope.orgId, scope.tenantId],
-      ).catch(() => undefined)
+      await deleteMappingRows(db, [externalId], scope).catch(() => undefined)
       await deleteOrganizationInDb(foreignOrgId).catch(() => undefined)
       await restoreStoredMapping(request, token, previousMapping).catch(() => undefined)
       await cancelRuns(request, token, runIds)
