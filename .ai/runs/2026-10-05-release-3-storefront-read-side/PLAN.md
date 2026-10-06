@@ -76,8 +76,8 @@
 | 6 | 6.6 | Integration tests: facets, categories, search (Public API Phases 2–3 gates) | dispatch:capable | done | 8250cfd419 |
 | 7 | 7.1 | lib/brandingStyles.ts + validation + fuzz tests + SSR helper | dispatch:standard | done | 0046e52eb9 |
 | 7 | 7.2 | PUT /stores/:id/branding command route + GET preview-branding | dispatch:standard | done | 68cdbcca20 |
-| 7 | 7.3 | GET store-channel-bindings/:id/assortment-count | dispatch:standard | done | pending |
-| 7 | 7.4 | Admin UI: store list + create | dispatch:standard | todo | — |
+| 7 | 7.3 | GET store-channel-bindings/:id/assortment-count | dispatch:standard | done | 1032cf215c |
+| 7 | 7.4 | Admin UI: store list + create | dispatch:standard | done | pending |
 | 7 | 7.5 | Admin UI: General tab (incl. store availability defaults) | dispatch:standard | todo | — |
 | 7 | 7.6 | Admin UI: Branding tab + live preview | dispatch:standard | todo | — |
 | 7 | 7.7 | Admin UI: Domains tab | dispatch:standard | todo | — |

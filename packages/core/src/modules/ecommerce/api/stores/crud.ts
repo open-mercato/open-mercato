@@ -271,6 +271,7 @@ export const storeCrud = makeCrudRoute<RawStoreInput, RawStoreInput, StoreListQu
     softDeleteField: 'deletedAt',
   },
   indexer: { entityType: E.ecommerce.ecommerce_store },
+  enrichers: { entityId: E.ecommerce.ecommerce_store },
   list: {
     schema: storeListQuerySchema,
     entityId: E.ecommerce.ecommerce_store,

@@ -26,6 +26,13 @@ export const storeListItemSchema = z.object({
   settings: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
+  _ecommerce: z
+    .object({
+      primaryDomain: z.object({ hostname: z.string(), pathPrefix: z.string().nullable() }).nullable(),
+      defaultChannel: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
+    })
+    .optional()
+    .describe('Response enricher: the hostname of the primary domain binding and the name of the default sales channel binding.'),
 })
 
 export const openApi = createEcommerceCrudOpenApi({
