@@ -182,6 +182,7 @@ describe('StoreDomainsTab', () => {
       canManage: true,
       canManageBranding: false,
       canManageDomains: true,
+      canManageChannels: false,
       canViewAvailability: true,
       canManageAvailability: true,
     }
