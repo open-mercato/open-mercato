@@ -236,7 +236,7 @@ export interface SendReactionInput {
   conversationId: string
   emoji: string
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
 }
 
 export interface RemoveReactionInput {
@@ -244,7 +244,7 @@ export interface RemoveReactionInput {
   conversationId: string
   emoji: string
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
 }
 
 // ── Edit / delete ─────────────────────────────────────────────
@@ -356,7 +356,7 @@ export interface UnregisterPushInput {
  */
 export interface ApplyPushNotificationInput {
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
   channelState: Record<string, unknown>
   /** Provider-shaped notification payload. */
   notification: Record<string, unknown>
