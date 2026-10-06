@@ -52,6 +52,7 @@ const SYSTEM_ACTOR_PREFIX = 'system:'
 const SYSTEM_ACTOR_CONTEXT_KEY = 'systemActor'
 const SYSTEM_ACTOR_REFERENCE_MAX_LENGTH = 255
 const REPLAY_QUERY_BATCH_SIZE = 100
+export const REPLAY_ENCRYPTED_SCAN_MAX_PAGES = 10
 
 type ApiKeyReplayEntryKind = 'canonical' | 'legacy' | 'invalid'
 
@@ -468,9 +469,14 @@ export class ActionLogService {
     await this.decryptEntries(results)
 
     const byId = new Map(results.map((entry: any) => [entry.id, entry]))
-    return ids
+    const entries = ids
       .map((id: any) => byId.get(id))
       .filter((entry: any): entry is ActionLog => Boolean(entry))
+    const apiKeyActor = parsed.actorSubject ? canonicalizeActorSubject(parsed.actorSubject) : null
+    if (apiKeyActor?.kind !== 'api_key') return entries
+    return entries.filter((entry: ActionLog) => (
+      this.classifyApiKeyReplayEntry(entry, apiKeyActor.subject) !== 'invalid'
+    ))
   }
 
   private buildListQuery(parsed: ActionLogListQuery): any {
@@ -487,11 +493,17 @@ export class ActionLogService {
       if (!actor) return query.where(sql<boolean>`false`)
       query = query.where('action_logs.actor_user_id', '=', actor.storageId)
       if (actor.kind === 'api_key') {
-        query = query.where(
-          sql<string>`action_logs.context_json ->> 'actorSubject'`,
-          '=',
-          actor.subject,
-        )
+        query = query.where(sql<boolean>`(
+          action_logs.context_json is null
+          or jsonb_typeof(action_logs.context_json) = 'string'
+          or (
+            jsonb_typeof(action_logs.context_json) = 'object'
+            and (
+              not jsonb_exists(action_logs.context_json, ${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY})
+              or action_logs.context_json ->> ${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY} = ${actor.subject}
+            )
+          )
+        )`)
       }
     }
 
@@ -620,7 +632,14 @@ export class ActionLogService {
     if (this.tenantEncryptionService?.isEnabled()) {
       let legacyEntry: ActionLog | null = null
       let cursor: { id: string; orderedAt: Date } | null = null
-      while (true) {
+      for (let pageIndex = 0; ; pageIndex += 1) {
+        if (pageIndex >= REPLAY_ENCRYPTED_SCAN_MAX_PAGES) {
+          logger.warn('Stopped encrypted API-key replay scan at the page limit', {
+            maxRows: REPLAY_ENCRYPTED_SCAN_MAX_PAGES * REPLAY_QUERY_BATCH_SIZE,
+            hasLegacyFallback: legacyEntry !== null,
+          })
+          return legacyEntry
+        }
         const pageWhere: Record<string, unknown> = cursor
           ? {
               $and: [

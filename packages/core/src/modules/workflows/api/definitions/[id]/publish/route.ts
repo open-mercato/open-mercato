@@ -29,6 +29,7 @@ import {
   normalizeGrantedFeatures,
   syncWorkflowDefinitionPrincipal,
 } from '../../../../lib/definition-grant'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows').child({ component: 'definition-publish-api' })
 
@@ -216,6 +217,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Workflow definition published successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('error publishing workflow definition', {
       error: error instanceof Error ? error.message : String(error),
     })

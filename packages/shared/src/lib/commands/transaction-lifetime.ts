@@ -1,5 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '../logger'
+import { getTelemetryRuntime } from '../telemetry/runtime'
+
+const logger = createLogger('shared').child({ component: 'transaction-lifetime' })
 
 export type TransactionOutcome = 'committed' | 'rolled_back'
 
@@ -65,7 +69,20 @@ export async function completeTransactionLifetime(
     throw new Error('[internal] Transaction lifetime mismatch for EntityManager')
   }
   currentLifetimes.delete(key)
+  const failures: unknown[] = []
   for (const callback of lifetime.completionCallbacks) {
-    await callback(outcome)
+    try {
+      await callback(outcome)
+    } catch (err) {
+      failures.push(err)
+    }
+  }
+  for (const err of failures) {
+    logger.error('Transaction completion callback failed', { outcome, failures: failures.length, err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'shared',
+      code: 'shared.transaction_completion_callback_failed',
+      attributes: { outcome },
+    })
   }
 }

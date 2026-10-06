@@ -32,6 +32,7 @@ import {
 } from '../../../../lib/step-through'
 import { workflowsTag, workflowErrorSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -156,6 +157,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error advancing step-through run', { err: error })
     return NextResponse.json({ error: 'Failed to advance step-through run' }, { status: 500 })
   }

@@ -35,6 +35,7 @@ import { resolveWorkflowCommandCatalogue } from '../../lib/workflow-command-enab
 import { resolveWorkflowCommandPolicyForContainer } from '../../lib/workflow-command-settings'
 import { workflowsTag, workflowErrorSchema, workflowSafeCommandListResponseSchema } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -81,6 +82,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ items })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error listing workflow-safe commands', { err: error })
     return NextResponse.json(
       { error: 'Failed to list workflow-safe commands' },

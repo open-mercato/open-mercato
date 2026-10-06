@@ -16,6 +16,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { countReferencingWorkflows, findBusinessRuleUsage } from '../../lib/business-rule-usage'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows').child({ component: 'rule-usage-api' })
 
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
       references,
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Failed to resolve business rule usage', { err: error })
     return NextResponse.json({ error: 'Failed to resolve business rule usage' }, { status: 500 })
   }

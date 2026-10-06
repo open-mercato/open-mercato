@@ -21,6 +21,7 @@ import { workflowDefinitionMutationResponseSchema, workflowErrorSchema } from '.
 import { getCodeWorkflow } from '../../../../lib/code-registry'
 import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -168,6 +169,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Workflow definition customized successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error customizing workflow definition', { err: error })
     return NextResponse.json({ error: 'Failed to customize workflow definition' }, { status: 500 })
   }

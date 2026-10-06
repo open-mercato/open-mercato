@@ -29,6 +29,7 @@ import { computeContextDiff, resolveRerunEligibility } from '../../../../lib/rer
 import * as workflowExecutor from '../../../../lib/workflow-executor'
 import { workflowInstanceResponseSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -177,6 +178,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Step rerun started.',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error rerunning workflow step', { err: error })
     if (error instanceof workflowExecutor.WorkflowExecutionError) {
       return NextResponse.json({ error: error.message }, { status: 400 })

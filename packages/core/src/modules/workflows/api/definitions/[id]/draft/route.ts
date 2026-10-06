@@ -36,6 +36,7 @@ import {
   workflowDefinitionDraftDeleteResponseSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -179,6 +180,7 @@ export async function GET(
 
     return NextResponse.json({ data: serializeWorkflowDefinitionDraft(draft) })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error getting workflow definition draft', { err: error })
     return NextResponse.json({ error: 'Failed to get workflow definition draft' }, { status: 500 })
   }
@@ -281,6 +283,7 @@ export async function PUT(
       message: 'Workflow definition draft saved',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error saving workflow definition draft', { err: error })
     return NextResponse.json({ error: 'Failed to save workflow definition draft' }, { status: 500 })
   }
@@ -335,6 +338,7 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Workflow definition draft discarded' })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error discarding workflow definition draft', { err: error })
     return NextResponse.json({ error: 'Failed to discard workflow definition draft' }, { status: 500 })
   }

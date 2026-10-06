@@ -5,6 +5,7 @@ import {
   onTransactionLifetimeComplete,
   type TransactionOutcome,
 } from '../transaction-lifetime'
+import { registerTelemetryRuntime, type TelemetryRuntime } from '../../telemetry/runtime'
 
 function buildEntityManager(): EntityManager {
   return {
@@ -62,6 +63,56 @@ describe('transaction lifetime', () => {
       { label: 'second', outcome: 'committed' },
       { label: 'first', outcome: 'committed' },
     ])
+    expect(getTransactionLifetime(em)).toBeNull()
+  })
+
+  it('runs every completion callback after commit and reports failures without rejecting the committed flush', async () => {
+    const em = buildEntityManager()
+    const reportError = jest.fn()
+    const unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+    const calls: string[] = []
+    const failure = new Error('post-commit callback failed')
+
+    try {
+      await expect(withAtomicFlush(em, [async () => {
+        onTransactionLifetimeComplete(em, () => {
+          calls.push('first')
+          throw failure
+        })
+        onTransactionLifetimeComplete(em, async (outcome) => {
+          calls.push(`second:${outcome}`)
+        })
+      }], { transaction: true })).resolves.toBeUndefined()
+    } finally {
+      unregister()
+    }
+
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(calls).toEqual(['first', 'second:committed'])
+    expect(reportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+      code: 'shared.transaction_completion_callback_failed',
+      attributes: { outcome: 'committed' },
+    }))
+    expect(getTransactionLifetime(em)).toBeNull()
+  })
+
+  it('never lets a rollback completion callback mask the original error', async () => {
+    const em = buildEntityManager()
+    const original = new Error('phase failed')
+    const outcomes: TransactionOutcome[] = []
+
+    await expect(withAtomicFlush(em, [async () => {
+      onTransactionLifetimeComplete(em, async () => {
+        throw new Error('rollback callback failed')
+      })
+      onTransactionLifetimeComplete(em, (outcome) => {
+        outcomes.push(outcome)
+      })
+      throw original
+    }], { transaction: true })).rejects.toBe(original)
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(outcomes).toEqual(['rolled_back'])
     expect(getTransactionLifetime(em)).toBeNull()
   })
 })

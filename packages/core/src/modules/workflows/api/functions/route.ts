@@ -14,6 +14,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import { listWorkflowFunctions } from '../../lib/workflow-function-registry'
 import { workflowsTag, workflowErrorSchema, workflowFunctionListResponseSchema } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ items })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error listing workflow functions', { err: error })
     return NextResponse.json(
       { error: 'Failed to list workflow functions' },

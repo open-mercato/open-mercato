@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { IsolationLevel } from '@mikro-orm/core'
 import { createLogger } from '../logger'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import {
   beginTransactionLifetime,
   completeTransactionLifetime,
@@ -185,7 +186,15 @@ export async function withAtomicFlush(
     } catch {
       // rollback failure should not mask the original error; intentionally swallowed
     }
-    await completeTransactionLifetime(em, transactionLifetime, 'rolled_back')
+    try {
+      await completeTransactionLifetime(em, transactionLifetime, 'rolled_back')
+    } catch (completionErr) {
+      logger.error('withAtomicFlush: rollback completion failed', { label: options.label ?? null, err: completionErr })
+      getTelemetryRuntime()?.reportError(completionErr, {
+        module: 'shared',
+        code: 'shared.transaction_rollback_completion_failed',
+      })
+    }
     throw err
   }
   await completeTransactionLifetime(em, transactionLifetime, 'committed')

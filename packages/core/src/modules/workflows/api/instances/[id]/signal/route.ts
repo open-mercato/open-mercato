@@ -13,6 +13,7 @@ import {
   workflowErrorSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Signal sent successfully',
     })
   } catch (error: any) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Signal request failed', { component: 'signal', err: error })
 
     // Handle Zod validation errors

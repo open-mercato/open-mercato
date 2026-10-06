@@ -463,6 +463,7 @@ export async function PUT(
       message: 'Workflow definition updated successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error updating workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to update workflow definition' },
@@ -583,6 +584,7 @@ export async function DELETE(
       message: 'Workflow definition deleted successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error deleting workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to delete workflow definition' },

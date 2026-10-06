@@ -14,6 +14,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import { getWorkflowEndpointCatalog } from '../../lib/endpoint-catalog'
 import { workflowsTag, workflowErrorSchema, workflowEndpointListResponseSchema } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ items: catalog.items })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error listing workflow endpoint catalog', { err: error })
     return NextResponse.json(
       { error: 'Failed to list workflow endpoint catalog' },

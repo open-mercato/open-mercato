@@ -20,6 +20,7 @@ import { workflowDefinitionResetResponseSchema, workflowErrorSchema } from '../.
 import { getCodeWorkflow } from '../../../../lib/code-registry'
 import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -203,6 +204,7 @@ export async function POST(
       message: 'Workflow definition reset to code version',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error resetting workflow definition to code', { err: error })
     return NextResponse.json(
       { error: 'Failed to reset workflow definition to code' },

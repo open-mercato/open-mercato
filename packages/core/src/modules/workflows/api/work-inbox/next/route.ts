@@ -43,6 +43,7 @@ import {
   workInboxClaimNextResponseSchema,
   workflowErrorSchema,
 } from '../../openapi'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -139,6 +140,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ data: null, message: 'No claimable work available' })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error claiming the next work item', { err: error })
     return NextResponse.json(
       {

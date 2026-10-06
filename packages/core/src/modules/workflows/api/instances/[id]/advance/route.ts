@@ -28,6 +28,7 @@ import {
   workflowErrorSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -265,6 +266,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { status: 200 }
     )
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error advancing workflow', { err: error })
 
     if (error instanceof Error) {

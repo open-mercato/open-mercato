@@ -591,4 +591,60 @@ describe('CommandBus atomic replay', () => {
     expect(state).toEqual({ domain: 'after', source: 'done', logs: 1 })
     expect(em.rollback).toHaveBeenCalledTimes(1)
   })
+
+  it('rethrows a failed in-transaction feature lookup instead of running interceptors with no features', async () => {
+    const state: ReplayState = { domain: 'after', source: 'done', logs: 1 }
+    const em = buildTransactionalEm(state)
+    const beforeUndo = jest.fn(async () => ({ ok: true }))
+    registerCommandInterceptors([{
+      moduleId: 'auth',
+      interceptors: [{
+        id: 'auth.test.feature-failure-interceptor',
+        targetCommand: 'auth.test.feature-failure',
+        features: ['auth.test.replay'],
+        beforeUndo,
+      }],
+    }])
+    const service = {
+      findByUndoToken: jest.fn(async () => ({
+        id: 'feature-failure-log',
+        commandId: 'auth.test.feature-failure',
+        commandPayload: {},
+      })),
+      claimForUndo: jest.fn(async () => true),
+      releaseUndoClaim: jest.fn(async () => true),
+      markUndone: jest.fn(async () => undefined),
+    }
+    const undo = jest.fn(async () => {
+      state.domain = 'before'
+    })
+    registerCommand({
+      id: 'auth.test.feature-failure',
+      atomicReplay: true,
+      execute: jest.fn(),
+      undo,
+    })
+    const getGrantedFeaturesWithEntityManager = jest.fn(async () => {
+      throw new Error('feature lookup aborted the transaction')
+    })
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      actionLogService: asValue(service),
+      rbacService: asValue({ getGrantedFeaturesWithEntityManager }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn(async () => undefined) }),
+    })
+
+    await expect(new CommandBus().undo('feature-failure-token', {
+      container,
+      auth: { sub: 'actor', tenantId: 'tenant', orgId: null },
+      replayTransactionGuard: jest.fn(async () => undefined),
+    })).rejects.toThrow('feature lookup aborted the transaction')
+
+    expect(getGrantedFeaturesWithEntityManager).toHaveBeenCalledTimes(1)
+    expect(beforeUndo).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+    expect(state).toEqual({ domain: 'after', source: 'done', logs: 1 })
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+  })
 })

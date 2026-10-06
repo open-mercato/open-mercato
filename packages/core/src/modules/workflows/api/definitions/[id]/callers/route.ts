@@ -18,6 +18,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import { WorkflowDefinition } from '../../../../data/entities'
 import type { WorkflowIoContract } from '../../../../data/validators'
 import { findSubWorkflowCallers } from '../../../../lib/caller-graph'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows').child({ component: 'definition-callers-api' })
 
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ callers })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('error resolving workflow definition callers', {
       error: error instanceof Error ? error.message : String(error),
     })

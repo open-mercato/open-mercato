@@ -40,6 +40,7 @@ import {
   workflowContextSchemaResponseSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -129,6 +130,7 @@ export async function GET(
 
     return respondWithLedger(definitionData, stepId)
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error computing workflow context schema', { err: error })
     return NextResponse.json(
       { error: 'Failed to compute workflow context schema' },

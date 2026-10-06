@@ -720,37 +720,44 @@ export class CommandBus {
 
   private async resolveUserFeaturesForInterceptors(ctx: CommandRuntimeContext): Promise<string[]> {
     if (!ctx.auth) return []
+    type RbacLike = {
+      getGrantedFeatures: (
+        userId: string,
+        opts: { tenantId: string | null; organizationId: string | null },
+      ) => Promise<string[]>
+      getGrantedFeaturesWithEntityManager?: (
+        em: EntityManager,
+        userId: string,
+        opts: { tenantId: string | null; organizationId: string | null },
+      ) => Promise<string[]>
+    }
+    let rbac: RbacLike | undefined
     try {
-      type RbacLike = {
-        getGrantedFeatures: (
-          userId: string,
-          opts: { tenantId: string | null; organizationId: string | null },
-        ) => Promise<string[]>
-        getGrantedFeaturesWithEntityManager?: (
-          em: EntityManager,
-          userId: string,
-          opts: { tenantId: string | null; organizationId: string | null },
-        ) => Promise<string[]>
-      }
-      const rbac = ctx.container.resolve('rbacService') as RbacLike | undefined
-      const scope = {
-        tenantId: ctx.auth.tenantId,
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
-      }
-      if (ctx.transactionalEm) {
-        if (!rbac?.getGrantedFeaturesWithEntityManager) return []
-        return await rbac.getGrantedFeaturesWithEntityManager(
-          ctx.transactionalEm,
-          ctx.auth.sub,
-          scope,
-        )
-      }
+      rbac = ctx.container.resolve('rbacService') as RbacLike | undefined
+    } catch {
+      // Intentional: rbacService is not registered in all runtime contexts (CLI, tests, bootstrap).
+      return []
+    }
+    const scope = {
+      tenantId: ctx.auth.tenantId,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
+    }
+    if (ctx.transactionalEm) {
+      if (!rbac?.getGrantedFeaturesWithEntityManager) return []
+      return await rbac.getGrantedFeaturesWithEntityManager(
+        ctx.transactionalEm,
+        ctx.auth.sub,
+        scope,
+      )
+    }
+    try {
       if (rbac?.getGrantedFeatures) {
         return await rbac.getGrantedFeatures(ctx.auth.sub, scope)
       }
     } catch {
-      // Intentional: rbacService is not registered in all runtime contexts (CLI, tests, bootstrap).
-      // Falling through to return [] is safe — interceptors without feature gating still run.
+      // Outside a transaction a failed lookup cannot poison anything; interceptors without
+      // feature gating still run. Inside one the error is rethrown above, because the failed
+      // query has already aborted the transaction.
     }
     return []
   }

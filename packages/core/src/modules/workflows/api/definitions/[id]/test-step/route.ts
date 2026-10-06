@@ -58,6 +58,7 @@ import {
   workflowTestStepResponseSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -238,6 +239,7 @@ export async function POST(
       interpolatedConfig,
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error running workflow test step', { err: error })
     return NextResponse.json(
       { error: 'Failed to run workflow test step' },

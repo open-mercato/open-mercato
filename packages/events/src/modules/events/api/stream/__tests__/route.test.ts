@@ -142,6 +142,7 @@ describe('SSE event stream — abort listener hygiene', () => {
     })
     delete process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS
     delete process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
   })
 
   afterEach(() => {
@@ -938,6 +939,48 @@ describe('SSE event stream — abort listener hygiene', () => {
     expect(mockResolveRequestContext).toHaveBeenCalledTimes(1)
     expect(removeSpy).toHaveBeenCalledWith('abort', attachedListener)
     expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it.each([
+    ['the low end', 0, 8_500],
+    ['the high end', 1, 11_500],
+  ])('jitters the configured maximum age by 15%% at %s of the random range', async (_case, randomValue, expectedDelayMs) => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(randomValue)
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '999999'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = '10000'
+    const closeSpy = jest.spyOn(ReadableStreamDefaultController.prototype, 'close')
+    const { req } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    jest.advanceTimersByTime(expectedDelayMs - 1)
+    expect(closeSpy).not.toHaveBeenCalled()
+    jest.advanceTimersByTime(1)
+
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(0)
+    await reader.cancel()
+  })
+
+  it.each([
+    ['the minimum age', '1000', 0, 1_000],
+    ['the Node timer maximum', '2147483647', 1, 2_147_483_647],
+  ])('keeps the jittered maximum age within %s', async (_case, configuredValue, randomValue, expectedDelayMs) => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(randomValue)
+    process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS = '999999'
+    process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS = configuredValue
+    const timeoutSpy = jest.spyOn(globalThis, 'setTimeout')
+    const { req } = makeTrackedRequest()
+
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    await reader.read()
+
+    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), expectedDelayMs)
+    await reader.cancel()
   })
 
   it.each(['0', 'not-a-number', 'Infinity'])('falls back to a finite maximum age for invalid value %s', async (invalidValue) => {

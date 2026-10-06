@@ -35,6 +35,7 @@ import {
   syncWorkflowDefinitionPrincipal,
 } from '../../lib/definition-grant'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -344,6 +345,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     )
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     if (isWorkflowIdUniqueConstraintError(error)) {
       return NextResponse.json(
         { error: 'Workflow definition with this ID already exists' },

@@ -14,6 +14,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import { loadWorkflowTemplates } from '../../lib/workflow-templates'
 import { workflowsTag, workflowErrorSchema, workflowTemplateListResponseSchema } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ items })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error listing workflow templates', { err: error })
     return NextResponse.json(
       { error: 'Failed to list workflow templates' },

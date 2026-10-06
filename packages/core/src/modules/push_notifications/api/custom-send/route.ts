@@ -20,6 +20,7 @@ import {
   CUSTOM_SEND_NO_DEVICES_WARNING,
 } from '../../data/validators'
 import type { PushNotificationService } from '../../lib/send-custom-push'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('push_notifications')
 
@@ -132,6 +133,7 @@ export async function POST(req: Request) {
     // that key off the status code aren't told something was created when nothing was.
     return NextResponse.json(responseBody, { status: result.enqueued === 0 ? 200 : 201 })
   } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     if (err instanceof z.ZodError) {
       return NextResponse.json(
         { error: translate('push_notifications.errors.invalid_payload', 'Invalid request'), details: err.flatten() },

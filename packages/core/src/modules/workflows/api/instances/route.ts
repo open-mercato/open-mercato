@@ -32,6 +32,7 @@ import { findWorkflowDefinition } from '../../lib/find-definition'
 import { isComponentKind } from '../../lib/component-guard'
 import { buildStartedAtRange } from '../../lib/instance-date-filter'
 import { isWorkflowRunOutcome } from '../../lib/run-outcome'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -364,6 +365,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     )
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error starting workflow', { err: error })
 
     // Handle specific errors

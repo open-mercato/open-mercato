@@ -15,6 +15,7 @@ import { WorkflowInstance } from '../../../../data/entities'
 import * as workflowExecutor from '../../../../lib/workflow-executor'
 import { workflowInstanceResponseSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -111,6 +112,7 @@ export async function POST(
       message: 'Workflow cancelled successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error cancelling workflow instance', { err: error })
     return NextResponse.json(
       { error: 'Failed to cancel workflow instance' },

@@ -17,6 +17,7 @@ import * as workflowExecutor from '../../../../lib/workflow-executor'
 import { isRetryableRunOutcome } from '../../../../lib/run-outcome'
 import { workflowInstanceResponseSchema, workflowExecutionResultSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -150,6 +151,7 @@ export async function POST(
       message: 'Workflow retry initiated successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error retrying workflow instance', { err: error })
 
     // Handle specific errors

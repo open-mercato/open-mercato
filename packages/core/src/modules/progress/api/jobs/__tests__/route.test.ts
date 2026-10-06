@@ -228,6 +228,32 @@ describe('progress jobs route', () => {
     )
   })
 
+  it('stores the home organization when "All organizations" is selected', async () => {
+    mockResolveForRequest.mockResolvedValue({
+      tenantId: 'tenant-1',
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/progress/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jobType: 'export', name: 'Export job' }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockCreateJob).toHaveBeenCalledWith(
+      expect.objectContaining({ jobType: 'export' }),
+      {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        organizationIds: null,
+        userId: 'user-1',
+      },
+    )
+  })
+
   it('returns an empty list for an explicit finite deny-all scope', async () => {
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',

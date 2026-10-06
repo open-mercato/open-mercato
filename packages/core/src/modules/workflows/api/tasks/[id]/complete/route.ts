@@ -21,6 +21,7 @@ import {
   workflowErrorSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -144,6 +145,7 @@ export async function POST(
       message: 'Task completed successfully. Workflow resumed.',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error completing user task', { err: error })
 
     // Handle specific error codes from task-handler

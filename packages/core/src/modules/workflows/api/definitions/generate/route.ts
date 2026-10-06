@@ -70,6 +70,7 @@ import { evaluateWorkflowDefinition } from '../../../lib/definition-evaluation'
 import { listWorkflowFunctions } from '../../../lib/workflow-function-registry'
 import { listWorkflowSafeCommands } from '../../../lib/workflow-safe-commands'
 import { workflowsTag, workflowErrorSchema } from '../../openapi'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -305,6 +306,7 @@ export async function POST(request: NextRequest) {
       warningCount: evaluation.warningCount,
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error generating workflow definition draft', { err: error })
     return NextResponse.json({ error: 'Failed to generate workflow draft' }, { status: 500 })
   }

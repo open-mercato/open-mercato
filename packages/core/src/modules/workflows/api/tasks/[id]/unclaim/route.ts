@@ -28,6 +28,7 @@ import {
   userTaskClaimResponseSchema,
   workflowErrorSchema,
 } from '../../../openapi'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -89,6 +90,7 @@ export async function POST(
       message: 'Task released successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error releasing user task', { err: error })
 
     const code = (error as { code?: unknown } | null)?.code

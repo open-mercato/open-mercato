@@ -428,6 +428,89 @@ these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enable
 telemetry now starts inside the container. Check that value before upgrading. See
 [`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
 
+### The SSE event stream rejects API keys and closes connections after a bounded lifetime
+
+`GET /api/events/stream` (the DOM Event Bridge) now accepts staff cookie and Bearer authentication
+only. A request carrying `x-api-key`, `Authorization: ApiKey …`, or one that resolves to an API-key
+principal is answered `401` before the stream opens.
+
+Every open stream also re-resolves the caller's auth and organization scope from the original
+request credentials on an interval, and closes fail-closed when the scope is rejected, validation
+fails, or the user, tenant, selected organization, or roles change. Independently of that, each
+stream is closed after a maximum age so the browser reconnects through fresh authorization. The
+age is jittered by ±15% per connection so clients do not reconnect in synchronized waves.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | How often an open stream re-checks auth and organization scope |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` (5 min) | Base maximum lifetime of one stream before the server closes it (±15% jitter) |
+
+Both take positive integer milliseconds. Values below `1000`, non-numeric values, and `Infinity`
+fall back to the default; values above Node's timer maximum (`2147483647`) are capped there.
+
+**Action for integrators:** a server-side consumer that subscribed to the stream with an API key
+must switch to webhooks (or another server-to-server channel). Any non-browser client must expect
+the server to close the stream periodically and reconnect; the shipped browser bridge already does.
+
+**Action for operators:** expect one reconnect per open browser tab roughly every 4¼–5¾ minutes
+with the default max age, and one canonical auth lookup per stream every revalidation interval.
+Tune both variables if connection-level monitoring or database load requires it.
+
+### An explicitly empty organization scope now denies access everywhere
+
+When a principal's organization scope resolves to an explicitly empty set (`filterIds: []` or
+`allowedIds: []` — e.g. a user whose organization visibility list was cleared, or whose only
+organizations were deleted), every module now treats it as deny-all instead of widening it back to
+the home organization. CRUD list routes return an empty page, and routes that need a single
+organization (`resolveSingleOrganizationIdOrDeny`) answer `403`.
+
+**Action for operators:** a user who suddenly sees empty lists or `403` responses after the upgrade
+has no organization visibility; grant the intended organizations in the user's access settings.
+
+**Action for module authors:** resolve an organization through `resolveSingleOrganizationIdOrDeny`
+(or `isExplicitlyEmptyOrganizationScope` when the route must answer its own not-found), and let a
+thrown `CrudHttpError` propagate — or map it with `isCrudHttpError` — instead of turning it into a
+`500` in a generic `catch`.
+
+### Progress APIs follow the selected organization
+
+`/api/progress/*` now resolves scope through the same organization switcher as other modules. With
+a specific organization selected, the progress bar and job lists show only that organization's
+jobs; with **All organizations** selected, an unrestricted user sees every job in the tenant, and a
+new job is stored against the caller's home organization. A user with finite access and no single
+organization selected cannot create a tenant-wide job (`403`).
+
+**Action:** none. Users who expected to see jobs from other organizations in the top bar should
+switch to **All organizations**.
+
+### API interceptors match the dispatcher's canonical route identity
+
+Interceptor `targetRoute` matching now uses the route the `/api/[...slug]` dispatcher actually
+matched (authored static segments plus matched params) instead of re-parsing the caller-controlled
+URL, so case or percent-encoding aliases (`/api/EXAMPLE/todos`, `/api/%65xample/todos`) can no
+longer bypass an interceptor.
+
+- A path with a malformed percent escape fails route matching and is answered `404` before the
+  handler runs.
+- A request that carries a forged, unknown, or evicted `x-open-mercato-route-identity` header is
+  answered `400` by interceptor-aware routes instead of falling back to URL-based matching.
+
+**Action for integrators:** fix clients that send malformed percent-encoded paths, and never set
+`x-open-mercato-route-identity` yourself — it is internal. Proxies that strip or rewrite unknown
+headers are unaffected because the dispatcher sets it per request.
+
+### Run the encryption-map uniqueness migration before serving writes
+
+`Migration20261004120000_encryption_map_scope_uniqueness` (module `entities`) soft-deletes
+duplicate live encryption maps per `(entity_id, tenant_id, organization_id)` and creates the unique
+index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now uses
+`INSERT … ON CONFLICT` on that index, which PostgreSQL rejects when the index does not exist.
+
+**Action for operators:** run `yarn db:migrate` (or your deployment's migration step) **before** the
+new application version serves traffic. Until it has run, saving an encryption map in the admin UI
+or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
+migrating must migrate first.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

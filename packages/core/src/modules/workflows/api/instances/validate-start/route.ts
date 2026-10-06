@@ -23,6 +23,7 @@ import {
   workflowErrorSchema,
 } from '../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
       validatedRules: result.validatedRules.length > 0 ? result.validatedRules : undefined,
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error validating workflow start', { err: error })
     return NextResponse.json(
       { error: 'Failed to validate workflow start' },
