@@ -325,6 +325,7 @@
   "checkout.payPage.errors.embeddedUnavailable": "El formulario de pago no esta disponible ahora mismo. Intentalo otra vez o usa la pagina alojada del proveedor.",
   "checkout.payPage.errors.loadMessage": "No pudimos cargar esta pagina de pago. Intentalo de nuevo.",
   "checkout.payPage.errors.loadTitle": "No se pudo cargar el enlace de pago",
+  "checkout.payPage.errors.logoNotFound": "Logotipo no encontrado.",
   "checkout.payPage.errors.password": "No se pudo verificar la contrasena. Intentalo de nuevo.",
   "checkout.payPage.errors.sessionStart": "No se pudo iniciar la sesión de pago. Inténtalo de nuevo.",
   "checkout.payPage.errors.submit": "No se pudo iniciar el pago. Intentalo de nuevo.",

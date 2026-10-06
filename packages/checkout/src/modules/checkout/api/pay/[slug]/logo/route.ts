@@ -18,8 +18,17 @@ export const metadata = {
 
 type OwnerScopedReader = Required<Pick<AttachmentService, 'readScopedForOwner'>>
 
+const LOGO_RENDITION = { width: 640, height: 240, cropType: 'contain' } as const
+
+const RASTER_LOGO_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp'])
+
 function notFound() {
-  return NextResponse.json({ error: 'Logo not found' }, { status: 404 })
+  return NextResponse.json({ error: 'checkout.payPage.errors.logoNotFound' }, { status: 404 })
+}
+
+function isRasterLogo(logo: ReadScopedAttachmentResult): boolean {
+  const contentType = logo.contentType.split(';')[0]!.trim().toLowerCase()
+  return logo.contentDisposition.startsWith('inline') && RASTER_LOGO_TYPES.has(contentType)
 }
 
 function resolveOwnerScopedReader(container: { resolve: (name: string) => unknown }): OwnerScopedReader | null {
@@ -47,9 +56,11 @@ async function readLogo(
         organizationId: link.organizationId,
         expectedOwner,
         expectedPartitionCode: CHECKOUT_LOGO_ATTACHMENT_PARTITION,
+        rendition: LOGO_RENDITION,
       })
     } catch (error) {
       if (isCrudHttpError(error) && error.status === 404) continue
+      if (isCrudHttpError(error) && error.status < 500) return null
       throw error
     }
   }
@@ -58,19 +69,31 @@ async function readLogo(
 
 /**
  * Serves a pay link's logo to the pay page's visitors, who are usually not
- * signed in. The link is resolved and gated exactly as the pay page itself
- * (published or previewed, unlocked when password-protected); the logo is
- * read through the attachments service's owner-scoped read, pinned to the
- * link's tenant, organization and partition and to the link — or, for a logo
- * inherited from its template, the template — as owner. Only files the
- * attachments service serves inline (raster images) are returned.
+ * signed in.
+ *
+ * A public request is rate limited and served only for a published link, and
+ * for a password-protected link only with a valid access cookie. A preview
+ * (`?preview=true`) requires the checkout preview context and looks the link
+ * up only within the caller's own tenant and organization.
+ *
+ * The logo is the link's own `logoAttachmentId`, read through the attachments
+ * service's owner-scoped read, pinned to the link's tenant, organization and
+ * partition and to the link — or, for a logo inherited from its template, the
+ * template — as owner. It comes back as the 640×240 `contain` rendition from
+ * the attachments image pipeline, and only raster images are served: an SVG
+ * or anything else is a 404.
+ *
+ * Caching: `public, max-age=300` for a published link (a logo on a public
+ * page; five minutes bounds how long a replaced logo or an unpublished link
+ * stays in shared caches), `private, max-age=300` for a password-protected
+ * link (only the unlocked visitor's browser may keep it), and
+ * `private, no-store` for a preview.
  */
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   try {
     const resolvedParams = await params
     const previewRequested = new URL(req.url).searchParams.get('preview') === 'true'
     const container = await createRequestContainer()
-    if (previewRequested) await requirePreviewContext(req)
     if (!previewRequested) {
       const rateLimitResponse = await enforceCheckoutRateLimit({
         req,
@@ -82,11 +105,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       })
       if (rateLimitResponse) return rateLimitResponse
     }
+    const previewScope = previewRequested ? (await requirePreviewContext(req)).auth : null
     const em = container.resolve('em')
-    const link = await findOneWithDecryption(em, CheckoutLink, {
-      slug: resolvedParams.slug,
-      deletedAt: null,
-    })
+    const link = await findOneWithDecryption(em, CheckoutLink, previewScope
+      ? { slug: resolvedParams.slug, deletedAt: null, tenantId: previewScope.tenantId, organizationId: previewScope.orgId }
+      : { slug: resolvedParams.slug, deletedAt: null })
     if (!link || (!previewRequested && !isCheckoutLinkPublic(link.status))) return notFound()
     const passwordVerified = previewRequested || !link.passwordHash || verifyCheckoutAccessToken(readCheckoutAccessCookie(req), link.slug, {
       linkId: link.id,
@@ -97,7 +120,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const reader = resolveOwnerScopedReader(container)
     if (!reader) return notFound()
     const logo = await readLogo(reader, link, attachmentId)
-    if (!logo || !logo.contentDisposition.startsWith('inline')) return notFound()
+    if (!logo || !isRasterLogo(logo)) return notFound()
     const cacheControl = previewRequested
       ? 'private, no-store'
       : link.passwordHash
