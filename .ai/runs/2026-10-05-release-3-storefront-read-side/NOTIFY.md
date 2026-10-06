@@ -114,3 +114,7 @@
 - Resume point: 5.1 (source: HANDOFF.md + Tasks table, agree)
 - PR head SHA: 5805b4b8bd
 - Worktree reused (created by the original run). Ephemeral env from the previous session still running (port 41351); rebuild + restart before Phase 5 integration tests.
+
+## 2026-10-06T12:26:53Z — checkpoint 10 (Phase 5 close)
+- Visibility Phase 2 gate green: TC-ECOM-005 3/3, TC-ECOM-01 9/9 (unmodified), TC-ECOM-00 15/15, full core 19561.
+- Env: restarted the ephemeral env on a forced rebuild (previous session's env stopped). Integration runs need `DATABASE_URL` exported alongside `BASE_URL`.
