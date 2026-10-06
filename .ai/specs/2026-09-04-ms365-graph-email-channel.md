@@ -704,6 +704,16 @@ None block implementation; defaults apply unless the maintainer objects in revie
 - Integration specs 002/003 run in a per-test organization/user sandbox and never touch the
   shared organization's credentials.
 
+### 2026-10-06 — Second CI run: profile "Connect channel" menu (PR #5898)
+
+- CI on the 2026-10-05 rebase: the create-app harness job and `TC-CHANNEL-MS365-003` pass with
+  the 09-19 fixes; the only red spec was `TC-CHANNEL-MS365-005`.
+- Cause: #5735 moved the `profile:communication-channels:connect` spot into the page's
+  "Connect channel" disclosure, whose panel stays mounted but hidden until the trigger is
+  clicked. The provider widget is unchanged; the spec now opens the menu before asserting the
+  Microsoft 365 button.
+- Rebased onto `develop` again (spec index row next to the new OAuth2 grant lifecycle spec).
+
 ### 2026-09-19 — First upstream CI run: harness catalog coverage, OAuth state key, 0.8.0 (PR #5898)
 
 - Rebased onto `develop` after the 0.8.0 release bump; package and integration manifest are now
