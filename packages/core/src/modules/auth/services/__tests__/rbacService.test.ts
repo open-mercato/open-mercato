@@ -159,12 +159,13 @@ describe('RbacService', () => {
       )).resolves.toEqual([])
     })
 
-    it('reads organization hierarchy rows through the supplied EntityManager in canonical order', async () => {
+    it('reads only the requested organization hierarchy row through the supplied EntityManager', async () => {
       const transactionalEm = createMockEm()
       const role = { id: 'role-a', tenantId: 'tenant-1' }
       transactionalEm.findOne.mockImplementation(async (entity: unknown) => {
         if (entity === UserAcl) return null
         if (entity === User) return baseUser
+        if (entity === Organization) return { id: 'org-1', ancestorIds: ['org-parent'] }
         return null
       })
       transactionalEm.find.mockImplementation(async (entity: unknown) => {
@@ -175,10 +176,6 @@ describe('RbacService', () => {
           isSuperAdmin: false,
           featuresJson: ['auth.users.edit'],
           organizationsJson: ['org-parent'],
-        }]
-        if (entity === Organization) return [{
-          id: 'org-1',
-          ancestorIds: ['org-parent'],
         }]
         return []
       })
@@ -193,12 +190,46 @@ describe('RbacService', () => {
         organizations: ['org-parent', 'org-1'],
       })
 
-      expect(transactionalEm.find).toHaveBeenCalledWith(
+      expect(transactionalEm.findOne).toHaveBeenCalledWith(
         Organization,
-        { tenant: 'tenant-1', deletedAt: null },
-        { orderBy: { id: 'ASC' } },
+        { id: 'org-1', tenant: 'tenant-1', deletedAt: null },
+        { fields: ['id', 'ancestorIds'] },
+      )
+      expect(transactionalEm.find).not.toHaveBeenCalledWith(
+        Organization,
+        expect.anything(),
+        expect.anything(),
       )
       expect(em.fork).not.toHaveBeenCalled()
+    })
+
+    it('treats an organization outside the tenant as an empty organization scope', async () => {
+      const transactionalEm = createMockEm()
+      const role = { id: 'role-a', tenantId: 'tenant-1' }
+      transactionalEm.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === UserAcl) return null
+        if (entity === User) return baseUser
+        return null
+      })
+      transactionalEm.find.mockImplementation(async (entity: unknown) => {
+        if (entity === UserRole) return [{ role }]
+        if (entity === RoleAcl) return [{
+          role,
+          tenantId: 'tenant-1',
+          isSuperAdmin: false,
+          featuresJson: ['auth.users.edit'],
+          organizationsJson: ['org-unknown'],
+        }]
+        return []
+      })
+
+      const acl = await service.loadAclWithEntityManager(
+        transactionalEm as never,
+        baseUser.id!,
+        { tenantId: 'tenant-1', organizationId: 'org-unknown' },
+      )
+
+      expect(acl.features).toEqual([])
     })
   })
 

@@ -15,7 +15,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import { LockMode } from '@mikro-orm/core'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
-import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { lockRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { lockReplayAuthorizationState } from '@open-mercato/core/modules/auth/lib/commandReplay'
@@ -42,65 +42,94 @@ async function inTransaction(em: object, phase: () => Promise<void>): Promise<vo
   await withAtomicFlush(em as never, [phase], { transaction: true })
 }
 
+type LockQueryOptions = { lockMode?: LockMode }
+type LockWhere = { id?: string | { $in?: string[] }; $and?: unknown; $or?: unknown }
+
+function lockedIds(where: LockWhere): string {
+  if (typeof where?.id === 'string') return where.id
+  return (where?.id?.$in ?? []).join(',')
+}
+
+function entityLabel(entity: unknown): string {
+  if (entity === ApiKey) return 'key'
+  if (entity === Role) return 'role'
+  if (entity === User) return 'user'
+  if (entity === Tenant) return 'tenant'
+  if (entity === Organization) return 'organization'
+  if (entity === UserRole) return 'user-role'
+  if (entity === UserAcl) return 'user-acl'
+  if (entity === RoleAcl) return 'role-acl'
+  return 'unknown'
+}
+
+function isReferenceScan(entity: unknown, where: LockWhere, options?: LockQueryOptions): boolean {
+  return entity === ApiKey && Array.isArray(where?.$and) && !options?.lockMode
+}
+
 describe('authorization state lock ordering', () => {
-  it('locks referencing API-key parents before role parents in canonical id order', async () => {
+  it('locks referencing API-key parents before role parents with one ordered query per kind', async () => {
     const lockOrder: string[] = []
     const em = withTransactionMethods({
-      find: jest.fn(async (entity: unknown) => entity === ApiKey
-        ? [{ id: 'key-b' }, { id: 'key-a' }]
-        : []),
-      findOne: jest.fn(async (entity: unknown, where: { id?: string }, options?: { lockMode?: LockMode }) => {
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
         if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
-          lockOrder.push(`${entity === ApiKey ? 'key' : 'role'}:${where.id}`)
+          lockOrder.push(`${entityLabel(entity)}:${lockedIds(where)}`)
+          const ids = typeof where.id === 'object' ? where.id.$in ?? [] : []
+          return ids.map((id) => ({ id }))
         }
-        return entity === ApiKey ? { id: where.id } : { id: where.id }
+        if (isReferenceScan(entity, where, options)) return [{ id: 'key-b' }, { id: 'key-a' }]
+        return []
       }),
+      findOne: jest.fn(async () => null),
     })
 
     await lockRoleWriterAuthorizationState(em as never, ['role-b', 'role-a', 'role-b'])
 
     expect(lockOrder).toEqual([
-      'key:key-a',
-      'key:key-b',
-      'role:role-a',
-      'role:role-b',
+      'key:key-a,key-b',
+      'role:role-a,role-b',
+      'role-acl:',
     ])
+    expect(em.findOne).not.toHaveBeenCalled()
     expect(em.find).toHaveBeenCalledWith(
       ApiKey,
       {
         deletedAt: null,
-        $or: [
-          { rolesJson: { $contains: ['role-a'] } },
-          { rolesJson: { $contains: ['role-b'] } },
+        $and: [
+          {
+            $or: [
+              { rolesJson: { $contains: ['role-a'] } },
+              { rolesJson: { $contains: ['role-b'] } },
+            ],
+          },
+          { $or: [{ expiresAt: null }, { expiresAt: { $gt: expect.any(Date) } }] },
         ],
       },
       { orderBy: { id: 'ASC' } },
     )
-    expect(em.findOne).toHaveBeenCalledWith(
+    expect(em.find).toHaveBeenCalledWith(
       Role,
-      { id: 'role-a' },
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      { id: { $in: ['role-a', 'role-b'] } },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
     )
   })
 
   it('locks an API-key actor before every role referenced by rolesJson', async () => {
     const lockOrder: string[] = []
     const em = withTransactionMethods({
-      find: jest.fn(async (entity: unknown, where: { id?: { $in?: string[] } }) => {
-        if (entity === ApiKey && where?.id?.$in) {
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+          lockOrder.push(`${entityLabel(entity)}:${lockedIds(where)}`)
+        }
+        if (entity === ApiKey && typeof where?.id === 'object') {
           return [{ id: 'key-actor', rolesJson: ['role-b', 'role-a'] }]
         }
         return []
       }),
-      findOne: jest.fn(async (entity: unknown, where: { id?: string }, options?: { lockMode?: LockMode }) => {
+      findOne: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
         if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
-          lockOrder.push(`${entity === ApiKey ? 'key' : 'role'}:${where.id}`)
+          lockOrder.push(`${entityLabel(entity)}:${lockedIds(where)}`)
         }
-        if (entity === ApiKey) {
-          return { id: where.id, rolesJson: ['role-b', 'role-a'] }
-        }
-        if (entity === Role) return { id: where.id }
-        return null
+        return { id: where.id }
       }),
     })
 
@@ -112,9 +141,10 @@ describe('authorization state lock ordering', () => {
 
     expect(lockOrder).toEqual([
       'key:key-actor',
-      'role:role-a',
-      'role:role-b',
-      'role:tenant-1',
+      'role:role-a,role-b',
+      'tenant:tenant-1',
+      'organization:',
+      'role-acl:',
     ])
     expect(em.findOne).toHaveBeenCalledWith(
       Tenant,
@@ -154,13 +184,49 @@ describe('authorization state lock ordering', () => {
     ))).rejects.toMatchObject({ status: 409 })
   })
 
-  it('rejects an API-key role-reference insertion discovered after the role lock', async () => {
+  it('adds an API key referencing a locked role that committed during lock acquisition to the lock set', async () => {
     let referenceRead = 0
+    const lockCalls: Array<{ label: string; lockMode?: LockMode }> = []
     const em = withTransactionMethods({
-      find: jest.fn(async (entity: unknown, where: { $or?: unknown }) => {
-        if (entity === ApiKey && where.$or) {
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (options?.lockMode) {
+          lockCalls.push({ label: `${entityLabel(entity)}:${lockedIds(where)}`, lockMode: options.lockMode })
+          const ids = typeof where.id === 'object' ? where.id.$in ?? [] : []
+          return ids.map((id) => ({ id, rolesJson: ['role-a'] }))
+        }
+        if (isReferenceScan(entity, where, options)) {
           referenceRead += 1
           return referenceRead === 1 ? [] : [{ id: 'inserted-key', rolesJson: ['role-a'] }]
+        }
+        return []
+      }),
+      findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
+    })
+
+    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: null },
+      { targetRoleId: 'role-a' },
+    ))).resolves.toBeUndefined()
+
+    expect(lockCalls.filter((call) => call.label !== 'role-acl:')).toEqual([
+      { label: 'role:role-a', lockMode: LockMode.PESSIMISTIC_WRITE },
+      { label: 'key:inserted-key', lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE },
+    ])
+  })
+
+  it('rejects a late referencing API key that another transaction already holds instead of waiting out of order', async () => {
+    let referenceRead = 0
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (entity === ApiKey && options?.lockMode === LockMode.PESSIMISTIC_PARTIAL_WRITE) return []
+        if (options?.lockMode) {
+          const ids = typeof where.id === 'object' ? where.id.$in ?? [] : []
+          return ids.map((id) => ({ id }))
+        }
+        if (isReferenceScan(entity, where, options)) {
+          referenceRead += 1
+          return referenceRead === 1 ? [] : [{ id: 'contended-key', rolesJson: ['role-a'] }]
         }
         return []
       }),
@@ -177,8 +243,8 @@ describe('authorization state lock ordering', () => {
   it('allows a removed API-key role reference to reach the post-lock authorization check', async () => {
     let referenceRead = 0
     const em = withTransactionMethods({
-      find: jest.fn(async (entity: unknown, where: { $or?: unknown }) => {
-        if (entity === ApiKey && where.$or) {
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (isReferenceScan(entity, where, options)) {
           referenceRead += 1
           return referenceRead === 1 ? [{ id: 'removed-key', rolesJson: ['role-a'] }] : []
         }
@@ -212,11 +278,11 @@ describe('authorization state lock ordering', () => {
   it('releases a replay lease after commit when reusing the same EntityManager', async () => {
     const lockedUsers: string[] = []
     const em = withTransactionMethods({
-      find: jest.fn(async () => []),
-      findOne: jest.fn(async (_entity: unknown, where: { id?: string }, options?: { lockMode?: LockMode }) => {
-        if (options?.lockMode === LockMode.PESSIMISTIC_WRITE && where.id) lockedUsers.push(where.id)
-        return { id: where.id }
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (entity === User && options?.lockMode === LockMode.PESSIMISTIC_WRITE) lockedUsers.push(lockedIds(where))
+        return []
       }),
+      findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
     })
 
     await inTransaction(em, () => lockReplayAuthorizationState(
@@ -235,18 +301,18 @@ describe('authorization state lock ordering', () => {
       { targetUserId: 'user-c' },
     ))
 
-    expect(lockedUsers).toEqual(['user-a', 'user-b', 'user-a', 'user-b', 'user-a', 'user-c'])
+    expect(lockedUsers).toEqual(['user-a,user-b', 'user-a,user-b', 'user-a,user-c'])
     expect(em.commit).toHaveBeenCalledTimes(3)
   })
 
   it('releases a replay lease after rollback when reusing the same EntityManager', async () => {
     const lockedUsers: string[] = []
     const em = withTransactionMethods({
-      find: jest.fn(async () => []),
-      findOne: jest.fn(async (_entity: unknown, where: { id?: string }, options?: { lockMode?: LockMode }) => {
-        if (options?.lockMode === LockMode.PESSIMISTIC_WRITE && where.id) lockedUsers.push(where.id)
-        return { id: where.id }
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (entity === User && options?.lockMode === LockMode.PESSIMISTIC_WRITE) lockedUsers.push(lockedIds(where))
+        return []
       }),
+      findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
     })
 
     await expect(inTransaction(em, async () => {
@@ -268,7 +334,7 @@ describe('authorization state lock ordering', () => {
       { targetUserId: 'user-c' },
     ))
 
-    expect(lockedUsers).toEqual(['user-a', 'user-b', 'user-a', 'user-b', 'user-a', 'user-c'])
+    expect(lockedUsers).toEqual(['user-a,user-b', 'user-a,user-b', 'user-a,user-c'])
     expect(em.rollback).toHaveBeenCalledTimes(1)
     expect(em.commit).toHaveBeenCalledTimes(2)
   })

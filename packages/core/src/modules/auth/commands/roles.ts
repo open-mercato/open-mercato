@@ -591,8 +591,6 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const role = await findOneWithDecryption(em, Role, buildScopedRoleFilter(id, scope), {}, { tenantId: scope.actorTenantId, organizationId: null })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
     assertRoleTenantInScope(resolveActorTenantScope(ctx), role.tenantId)
-    const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
-    if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const redoLogEntry = (ctx as RoleReplayRuntimeContext)[ROLE_REDO_LOG]
@@ -607,6 +605,8 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         })
       }
       await lockRoleWriterAuthorizationState(em, [id])
+      const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
+      if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
       await em.nativeDelete(RoleAcl, { role: id })
       deleted = await de.deleteOrmEntity({
         entity: Role,

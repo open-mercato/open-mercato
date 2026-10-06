@@ -1,10 +1,10 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
@@ -27,12 +27,13 @@ async function resolveRoleOrganizationScopeWithEntityManager(
 ): Promise<ReadonlySet<string> | null> {
   if (!organizationId) return null
   if (!tenantId) return new Set()
-  const organizations = await em.find(
+  const organization = await findOneWithDecryption(
+    em,
     Organization,
-    { tenant: tenantId as never, deletedAt: null },
-    { orderBy: { id: 'ASC' } },
+    { id: organizationId, tenant: tenantId, deletedAt: null } as FilterQuery<Organization>,
+    { fields: ['id', 'ancestorIds'] },
+    { tenantId, organizationId },
   )
-  const organization = organizations.find((candidate) => String(candidate.id) === organizationId)
   if (!organization) return new Set()
   const ancestors = Array.isArray(organization.ancestorIds)
     ? organization.ancestorIds.filter((value): value is string => typeof value === 'string' && value.length > 0)

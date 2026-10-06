@@ -15,7 +15,9 @@ describe('withOnetimeApiKey — expiry guard', () => {
     }),
     persist: persistSpy,
     remove: removeSpy,
-    find: jest.fn(async () => []),
+    find: jest.fn(async (_entity: unknown, _where: unknown, options?: { lockMode?: unknown }) => (
+      options?.lockMode && createdRecord ? [createdRecord] : []
+    )),
     findOne: jest.fn(async () => createdRecord),
     flush: flushSpy,
     begin: jest.fn(async () => undefined),

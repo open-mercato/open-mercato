@@ -5,6 +5,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
     where: unknown,
     options?: unknown,
   ) => em.findOne(entity, where, options),
+  findWithDecryption: async (
+    em: { find: (...args: unknown[]) => unknown },
+    entity: unknown,
+    where: unknown,
+    options?: unknown,
+  ) => em.find(entity, where, options),
 }))
 
 const mockInvalidateByKeyId = jest.fn()
@@ -20,6 +26,7 @@ describe('deleteApiKey transaction boundary', () => {
     const record = { id: 'key-1', deletedAt: null as Date | null }
     const em = {
       findOne: jest.fn(async () => record),
+      find: jest.fn(async () => [record]),
       persist: jest.fn(() => em),
       flush: jest.fn(async () => undefined),
       begin: jest.fn(async () => undefined),

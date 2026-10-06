@@ -1,9 +1,9 @@
 import { LockMode } from '@mikro-orm/core'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager, EntityName, FilterQuery, FindOptions } from '@mikro-orm/postgresql'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { lockOrganizationHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   getTransactionLifetime,
@@ -71,9 +71,9 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
     && canonicalLeft.every((value, index) => value === canonicalRight[index])
 }
 
-function hasUnexpectedIds(expected: readonly string[], observed: readonly string[]): boolean {
+function unexpectedIds(expected: readonly string[], observed: readonly string[]): string[] {
   const expectedIds = new Set(expected)
-  return observed.some((id) => !expectedIds.has(id))
+  return observed.filter((id) => !expectedIds.has(id))
 }
 
 function authorizationStateDrift(): CrudHttpError {
@@ -82,22 +82,28 @@ function authorizationStateDrift(): CrudHttpError {
   })
 }
 
+async function lockRowsInIdOrder<T extends object>(
+  em: EntityManager,
+  entity: EntityName<T>,
+  ids: readonly string[],
+  lockMode: LockMode = LockMode.PESSIMISTIC_WRITE,
+): Promise<T[]> {
+  const sortedIds = uniqueSortedIds(ids)
+  if (!sortedIds.length) return []
+  return findWithDecryption(
+    em,
+    entity,
+    { id: { $in: sortedIds } as unknown } as FilterQuery<T>,
+    { lockMode, orderBy: { id: 'ASC' }, refresh: true } as FindOptions<T>,
+    { tenantId: null, organizationId: null },
+  )
+}
+
 export async function lockAuthorizationApiKeyRows(
   em: EntityManager,
   apiKeyIds: readonly string[],
 ): Promise<ApiKey[]> {
-  const locked: ApiKey[] = []
-  for (const id of uniqueSortedIds(apiKeyIds)) {
-    const apiKey = await findOneWithDecryption(
-      em,
-      ApiKey,
-      { id } as FilterQuery<ApiKey>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
-    if (apiKey) locked.push(apiKey)
-  }
-  return locked
+  return lockRowsInIdOrder(em, ApiKey, apiKeyIds)
 }
 
 export async function findApiKeyIdsReferencingRoles(
@@ -110,7 +116,10 @@ export async function findApiKeyIdsReferencingRoles(
     ApiKey,
     {
       deletedAt: null,
-      $or: ids.map((roleId) => ({ rolesJson: { $contains: [roleId] } })),
+      $and: [
+        { $or: ids.map((roleId) => ({ rolesJson: { $contains: [roleId] } })) },
+        { $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] },
+      ],
     } as FilterQuery<ApiKey>,
     { orderBy: { id: 'ASC' } },
   )
@@ -129,29 +138,26 @@ export async function lockAuthorizationRoleRows(
   em: EntityManager,
   roleIds: readonly string[],
 ): Promise<void> {
-  for (const id of uniqueSortedIds(roleIds)) {
-    await findOneWithDecryption(
-      em,
-      Role,
-      { id } as FilterQuery<Role>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
-  }
+  await lockRowsInIdOrder(em, Role, roleIds)
 }
 
 export async function lockAuthorizationUserRows(
   em: EntityManager,
   userIds: readonly string[],
 ): Promise<void> {
-  for (const id of uniqueSortedIds(userIds)) {
-    await findOneWithDecryption(
-      em,
-      User,
-      { id } as FilterQuery<User>,
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-      { tenantId: null, organizationId: null },
-    )
+  await lockRowsInIdOrder(em, User, userIds)
+}
+
+async function lockLateReferencingApiKeyRows(
+  em: EntityManager,
+  apiKeyIds: readonly string[],
+): Promise<void> {
+  const requested = uniqueSortedIds(apiKeyIds)
+  if (!requested.length) return
+  const locked = await lockRowsInIdOrder(em, ApiKey, requested, LockMode.PESSIMISTIC_PARTIAL_WRITE)
+  const lockedIds = new Set(locked.map((apiKey) => String(apiKey.id)))
+  if (requested.some((id) => !lockedIds.has(id))) {
+    throw authorizationStateDrift()
   }
 }
 
@@ -257,9 +263,10 @@ export async function lockAuthorizationState(
   await lockAuthorizationRoleRows(em, roleIds)
 
   const stableReferencingApiKeyIds = await findApiKeyIdsReferencingRoles(em, roleIds)
-  if (hasUnexpectedIds(referencingApiKeyIds, stableReferencingApiKeyIds)) {
-    throw authorizationStateDrift()
-  }
+  await lockLateReferencingApiKeyRows(
+    em,
+    unexpectedIds([...apiKeyIds, ...referencingApiKeyIds], stableReferencingApiKeyIds),
+  )
 
   for (const tenantId of tenantIds) {
     await lockOrganizationHierarchyForTenant(em, tenantId)

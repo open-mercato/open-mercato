@@ -313,6 +313,86 @@ describe('SSO app role mappings', () => {
     expect(em.persisted.filter(isPersistedRoleGrant)).toEqual([])
   })
 
+  it('commits SSO role revocation before denying a linked user whose IdP groups map to zero roles', async () => {
+    const { findOneWithDecryption } = jest.requireMock('@open-mercato/shared/lib/encryption/find') as {
+      findOneWithDecryption: jest.Mock
+    }
+    findOneWithDecryption
+      .mockResolvedValueOnce({ id: 'identity-1', userId: 'user-1', lastLoginAt: null, deletedAt: null })
+      .mockResolvedValueOnce({ id: 'user-1', tenantId: 'tenant-1' })
+    const staleGrant = { id: 'grant-employee', roleId: 'role-employee', userId: 'user-1', ssoConfigId: 'cfg-1' }
+    const staleMembership = { id: 'user-role-employee', role: { id: 'role-employee' }, deletedAt: null }
+    const removed: unknown[] = []
+    const transactionOutcomes: string[] = []
+    const em = {
+      find: jest.fn(async (entity: unknown) => {
+        if (entity === Role) return [{ id: 'role-employee', name: 'employee' }]
+        if (entity === SsoRoleGrant) return [staleGrant]
+        if (entity === UserRole) return [staleMembership]
+        return []
+      }),
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === UserRole) return removed.includes(staleMembership) ? null : staleMembership
+        if (entity === SsoRoleGrant) return removed.includes(staleGrant) ? null : staleGrant
+        return null
+      }),
+      flush: jest.fn().mockResolvedValue(undefined),
+      persist: jest.fn(() => ({ flush: jest.fn().mockResolvedValue(undefined) })),
+      remove: jest.fn((entity: unknown) => {
+        removed.push(entity)
+      }),
+      transactional: jest.fn(async (callback: (txEm: EntityManager) => Promise<unknown>) => {
+        try {
+          const result = await callback(em as unknown as EntityManager)
+          transactionOutcomes.push('committed')
+          return result
+        } catch (err) {
+          transactionOutcomes.push('rolled-back')
+          throw err
+        }
+      }),
+    }
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['unmapped']), 'tenant-1')).rejects.toThrow(
+      'No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.',
+    )
+
+    expect(transactionOutcomes).toEqual(['committed'])
+    expect(removed).toEqual(expect.arrayContaining([staleGrant, staleMembership]))
+    expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('lets the caller-owned JIT transaction roll back when a new user maps to zero roles', async () => {
+    const em = buildRoleSyncEntityManager([{ id: 'role-employee', name: 'employee' }])
+    let transactionDepth = 0
+    const transactionOutcomes: string[] = []
+    Object.assign(em, {
+      isInTransaction: () => transactionDepth > 0,
+      transactional: jest.fn(async (callback: (txEm: EntityManager) => Promise<unknown>) => {
+        transactionDepth += 1
+        try {
+          const result = await callback(em as unknown as EntityManager)
+          transactionOutcomes.push('committed')
+          return result
+        } catch (err) {
+          transactionOutcomes.push('rolled-back')
+          throw err
+        } finally {
+          transactionDepth -= 1
+        }
+      }),
+    })
+    const service = new AccountLinkingService(em as unknown as EntityManager)
+
+    await expect(service.resolveUser(roleConfig, payload(['unmapped']), 'tenant-1')).rejects.toThrow(
+      'No roles could be resolved from IdP groups',
+    )
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(transactionOutcomes).toEqual(['rolled-back'])
+  })
+
   it('rejects a post-lock soft-deleted membership cleanup footprint expansion before writes', async () => {
     const em = buildRoleSyncEntityManager(
       [

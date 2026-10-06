@@ -19,7 +19,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import '@open-mercato/core/modules/auth/commands/roles'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role as RoleEntity, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import type { Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -274,6 +274,33 @@ describe('auth.roles.delete tenant scoping', () => {
 
     expect(em.count).toHaveBeenCalledWith(UserRole, { role: existingRole, deletedAt: null })
     expect(deleteOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('counts assigned holders inside the transaction after locking the role', async () => {
+    const existingRole = { id: roleId, name: 'Manager', tenantId: tenantA, deletedAt: null } as unknown as Role
+    const dataEngine = { deleteOrmEntity: jest.fn(), markOrmEntityChange: jest.fn() }
+    const em = {
+      findOne: jest.fn(async () => existingRole),
+      find: jest.fn(async () => []),
+      count: jest.fn(async () => 1),
+      nativeDelete: jest.fn(async () => 0),
+      begin: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
+    }
+    const ctx = makeCtx(dataEngine, em, { isSuperAdmin: false })
+
+    await expect(getHandler().execute({ body: { id: roleId }, query: {} }, ctx))
+      .rejects.toMatchObject<Partial<CrudHttpError>>({ status: 400 })
+
+    const roleLockCall = em.find.mock.invocationCallOrder.find((_order, index) => {
+      const [entity, , options] = em.find.mock.calls[index] as unknown as [unknown, unknown, { lockMode?: unknown } | undefined]
+      return entity === RoleEntity && options?.lockMode !== undefined
+    })
+    expect(roleLockCall).toBeDefined()
+    expect(em.begin.mock.invocationCallOrder[0]).toBeLessThan(em.count.mock.invocationCallOrder[0])
+    expect(roleLockCall!).toBeLessThan(em.count.mock.invocationCallOrder[0])
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.nativeDelete).not.toHaveBeenCalled()
   })
 })
 

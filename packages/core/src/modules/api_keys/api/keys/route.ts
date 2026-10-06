@@ -13,12 +13,7 @@ import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { assertActorCanGrantRoles } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CreateApiKeyCommandInput } from '../../commands/keys'
-
-type ApiKeyCrudCtx = CrudCtx & {
-  __apiKeyOrganizationId?: string | null
-}
 
 const listQuerySchema = z.object({
   page: z.string().optional(),
@@ -262,48 +257,6 @@ const crud = makeCrudRoute<
       }
 
       throw json(payload)
-    },
-    beforeDelete: async (id, ctx) => {
-      const auth = ctx.auth
-      const { translate } = await resolveTranslations()
-      if (!auth?.tenantId) throw json({ error: translate('api_keys.errors.tenantRequired', 'Tenant context required') }, { status: 400 })
-      const em = (ctx.container.resolve('em') as EntityManager)
-      const scopedCtx = ctx as ApiKeyCrudCtx
-      const isSuperAdmin = await resolveIsSuperAdmin(scopedCtx)
-      const allowedIds = ctx.organizationScope?.allowedIds ?? null
-      const recordFilter: FilterQuery<ApiKey> = {
-        id,
-        tenantId: auth.tenantId,
-        deletedAt: null,
-      }
-      if (!isSuperAdmin && Array.isArray(allowedIds)) {
-        recordFilter.organizationId = { $in: allowedIds }
-      }
-      const record = await findOneWithDecryption(
-        em,
-        ApiKey,
-        recordFilter,
-        undefined,
-        { tenantId: auth.tenantId, organizationId: null },
-      )
-      if (
-        !record ||
-        record.tenantId !== auth.tenantId ||
-        !isOrganizationAccessAllowed({
-          isSuperAdmin,
-          allowedOrganizationIds: allowedIds,
-          targetOrganizationId: record.organizationId ?? null,
-        })
-      ) {
-        throw json({ error: translate('api_keys.errors.notFound', 'Not found') }, { status: 404 })
-      }
-      scopedCtx.__apiKeyOrganizationId = record.organizationId ?? null
-    },
-    afterDelete: async (id, ctx) => {
-      try {
-        const rbac = (ctx.container.resolve('rbacService') as RbacService)
-        await rbac.invalidateUserCache(`api_key:${id}`)
-      } catch {}
     },
   },
 })

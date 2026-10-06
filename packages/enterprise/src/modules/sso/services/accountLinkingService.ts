@@ -195,21 +195,23 @@ export class AccountLinkingService {
     const hasMappings = config.appRoleMappings && Object.keys(config.appRoleMappings).length > 0
     if (!hasMappings) return
 
-    const synchronize = async (transactionalEm: EntityManager) => {
+    const synchronize = async (transactionalEm: EntityManager): Promise<boolean> => {
       const managedUser = typeof transactionalEm.getReference === 'function'
         ? transactionalEm.getReference(User, String(user.id))
         : user
       await this.syncMappedRoles(transactionalEm, managedUser, config, tenantId, idpGroups)
-      const hasAnySsoRole = await transactionalEm.findOne(SsoRoleGrant, {
+      const remainingGrant = await transactionalEm.findOne(SsoRoleGrant, {
         userId: user.id,
         ssoConfigId: config.id,
       })
-      if (!hasAnySsoRole) {
-        throw new Error('No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.')
-      }
+      return remainingGrant !== null
     }
-    if (typeof em.isInTransaction === 'function' && em.isInTransaction()) return synchronize(em)
-    await em.transactional(synchronize)
+    const hasAnySsoRole = typeof em.isInTransaction === 'function' && em.isInTransaction()
+      ? await synchronize(em)
+      : await em.transactional(synchronize)
+    if (!hasAnySsoRole) {
+      throw new Error('No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.')
+    }
   }
 
   /**

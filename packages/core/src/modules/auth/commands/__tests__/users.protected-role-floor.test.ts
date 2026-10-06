@@ -356,12 +356,12 @@ describe('auth.users protected role floor checks', () => {
 
     await expect(handler.execute({ id: userId }, ctx)).rejects.toThrow(CrudHttpError)
 
-    const roleDiscoveryCall = findMock.mock.calls.find(call => call[0] === Role)
+    const roleDiscoveryCall = findMock.mock.calls.find(call => call[0] === Role && !call[2]?.lockMode)
     expect(roleDiscoveryCall[2]).toEqual({ orderBy: { id: 'ASC' } })
-    expect(findOneMock).toHaveBeenCalledWith(
+    expect(findMock).toHaveBeenCalledWith(
       Role,
-      { id: mockAdminRole.id },
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      { id: { $in: [mockAdminRole.id] } },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
     )
     const userRoleCall = findMock.mock.calls.find(call => call[0] === UserRole)
     expect(userRoleCall[1]).toEqual(
@@ -449,7 +449,7 @@ describe('auth.users protected role floor checks', () => {
 
     const handler = commandRegistry.get('auth.users.delete') as CommandHandler
     await expect(handler.execute({ id: userId }, ctx)).resolves.toBe(mockUser1)
-    expect(findMock.mock.calls.find(call => call[0] === Role)).toBeUndefined()
+    expect(findMock.mock.calls.find(call => call[0] === Role && !call[2]?.lockMode)).toBeUndefined()
   })
 
   it('evaluates every protected role, not just the first', async () => {

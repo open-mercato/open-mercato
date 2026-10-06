@@ -77,6 +77,9 @@ describe('executeCallApi', () => {
             { id: 'role-author-uuid', name: 'author-role', tenantId: query.tenantId || 'tenant-456' },
           ])
         }
+        if (entityName === 'ApiKey' && Array.isArray(query?.id?.$in)) {
+          return Promise.resolve(createdApiKeys.filter((record) => query.id.$in.includes(record.id)))
+        }
         return Promise.resolve([])
       }),
     })

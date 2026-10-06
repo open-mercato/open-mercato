@@ -310,33 +310,37 @@ describe('auth command replay authorization', () => {
       { targetUserId: userId, targetRoleId: roleId },
     )], { transaction: true })
 
-    const parentLockEntities = harness.em.findOne.mock.calls
-      .filter(([, , options]) => options?.lockMode)
-      .map(([entity]) => entity)
-    expect(parentLockEntities).toEqual([
-      User,
-      User,
-      Role,
-      Tenant,
+    expect(harness.lockEvents).toEqual([
+      'User',
+      'Role',
+      'Tenant',
+      'Organization',
+      'UserRole',
+      'UserAcl',
+      'RoleAcl',
     ])
     expect(harness.em.find.mock.calls.map(([entity]) => entity)).toEqual([
       UserRole,
       ApiKey,
+      User,
       UserRole,
+      Role,
       ApiKey,
       Organization,
       UserRole,
       UserAcl,
       RoleAcl,
     ])
-    expect(harness.em.findOne.mock.calls[0]?.[2]).toMatchObject({
-      lockMode: expect.anything(),
-      refresh: true,
-    })
-    expect(harness.em.find.mock.calls[4]?.[2]).toMatchObject({
-      lockMode: expect.anything(),
-      refresh: true,
-    })
+    expect(harness.em.find).toHaveBeenCalledWith(
+      User,
+      { id: { $in: [actorId, userId].sort((left, right) => left.localeCompare(right)) } },
+      expect.objectContaining({ lockMode: expect.anything(), orderBy: { id: 'ASC' }, refresh: true }),
+    )
+    expect(harness.em.find).toHaveBeenCalledWith(
+      Role,
+      { id: { $in: [roleId] } },
+      expect.objectContaining({ lockMode: expect.anything(), orderBy: { id: 'ASC' }, refresh: true }),
+    )
   })
 
   it.each(['create', 'update'] as const)(
@@ -379,12 +383,13 @@ describe('auth command replay authorization', () => {
 
       await new CommandBus().undo(`${commandKind}-protected-role-token`, harness.ctx)
 
-      const lockedRoleIds = harness.em.findOne.mock.calls
+      const roleLockCalls = harness.em.find.mock.calls
         .filter(([entity, , queryOptions]) => entity === Role && queryOptions?.lockMode)
-        .map(([, where]) => where.id)
-      expect(lockedRoleIds).toEqual([roleId, unrelatedProtectedRoleId])
+      expect(roleLockCalls.map(([, where]) => where)).toEqual([
+        { id: { $in: [roleId, unrelatedProtectedRoleId] } },
+      ])
       expect(harness.lockEvents.indexOf('Role')).toBeLessThan(harness.lockEvents.indexOf('UserRole'))
-      expect(harness.em.find.mock.calls).not.toContainEqual([
+      expect(harness.em.findOne.mock.calls).not.toContainEqual([
         Role,
         expect.anything(),
         expect.objectContaining({ lockMode: expect.anything() }),
@@ -425,10 +430,11 @@ describe('auth command replay authorization', () => {
         redoLogEntry: sourceLog,
       })
 
-      const lockedRoleIds = harness.em.findOne.mock.calls
+      const roleLockCalls = harness.em.find.mock.calls
         .filter(([entity, , queryOptions]) => entity === Role && queryOptions?.lockMode)
-        .map(([, where]) => where.id)
-      expect(lockedRoleIds).toEqual([roleId, unrelatedProtectedRoleId])
+      expect(roleLockCalls.map(([, where]) => where)).toEqual([
+        { id: { $in: [roleId, unrelatedProtectedRoleId] } },
+      ])
       expect(harness.lockEvents.indexOf('Role')).toBeLessThan(harness.lockEvents.indexOf('UserRole'))
     },
   )
@@ -499,9 +505,9 @@ describe('auth command replay authorization', () => {
     expect(harness.em.begin).toHaveBeenCalledTimes(1)
     expect(harness.em.rollback).toHaveBeenCalledTimes(1)
     expect(harness.em.commit).not.toHaveBeenCalled()
-    expect(harness.em.findOne).toHaveBeenCalledWith(
+    expect(harness.em.find).toHaveBeenCalledWith(
       User,
-      expect.objectContaining({ id: userId }),
+      { id: { $in: expect.arrayContaining([userId]) } },
       expect.objectContaining({ lockMode: expect.anything(), refresh: true }),
     )
     expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
