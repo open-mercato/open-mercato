@@ -224,3 +224,7 @@
 - Permissions (US-B2/US-A4): store card needs `ecommerce.stores.manage`. Availability controls are enabled only with `ecommerce.stores.manage` AND `availability.policies.manage`; otherwise disabled fields, no Save, and an explanation naming the missing permission (distinct text for stores vs availability). Without `availability.policies.view` the policy is not requested and the section only explains. `useStoreAccess` gained `canViewAvailability`/`canManageAvailability` (additive, wildcard-aware `hasFeature`).
 - Cancel/Escape: each form has a Cancel button and an Escape handler on its wrapper that discards edits (remounts the form from the saved values); Cmd/Ctrl+Enter is CrudForm's field-level submit. Escape is ignored when a popover already handled it.
 - Tests: component tests for both sections with a captured CrudForm (locale rule, payload shapes for create/update/store PUT, store-default row selection incl. paging, manage gating for both sections, no-view). `StoreEditPage.test` shell cases now pass `tabs=[]` explicitly and `storeEditTabs.test` expects the registered `general` tab. Integration coverage is 7.12.
+
+## 2026-10-06T16:40:11Z — checkpoint 13 (steps 7.1–7.5)
+- Green: full core 19867, typecheck, i18n, lint; UI smoke 5/5 with screenshots (list, create, General, availability defaults, archive).
+- Low-severity UI findings carried to the review pass: duplicate Cancel per General-tab card; stale undo banner after Archive.
