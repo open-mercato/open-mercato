@@ -11,6 +11,8 @@ import {
   VECTOR_IMAGE_MAX_BYTES,
   VECTOR_IMAGE_MAX_DEPTH,
   VECTOR_IMAGE_MAX_ELEMENTS,
+  VECTOR_IMAGE_MAX_MARKUP,
+  VECTOR_IMAGE_MAX_NODES,
   VECTOR_IMAGE_METADATA_KEY,
   VECTOR_IMAGE_POLICY_VERSION,
 } from '../vector-image'
@@ -34,14 +36,11 @@ async function sanitisedText(svg: string): Promise<string> {
 }
 
 describe('sanitizeVectorImage — malicious documents', () => {
-  it.each(MALICIOUS_FIXTURES.filter((fixture) => fixture.code !== 'vector_image_entity_declaration'))(
-    'strips the payload of: $name',
-    async ({ svg, payload }) => {
-      const output = await sanitisedText(svg)
-      expect(output).not.toMatch(payload)
-      expect(output).toMatch(/^<svg[\s>]/)
-    },
-  )
+  it.each(MALICIOUS_FIXTURES)('refuses $name at the sanitiser with $code and returns no document', async ({ svg, code }) => {
+    const result = await sanitizeVectorImage(svgBuffer(svg))
+    expect(result).toMatchObject({ ok: false, code })
+    expect(result).not.toHaveProperty('buffer')
+  })
 
   it.each(MALICIOUS_FIXTURES)('rejects the upload of: $name with $code', async ({ svg, code }) => {
     const prepared = await prepareVectorImageUpload(svgBuffer(svg))
@@ -114,6 +113,31 @@ describe('sanitizeVectorImage — benign logos', () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"><style><![CDATA[ rect{fill:url(https://evil.example/p.svg#p)} ]]></style><rect width="1" height="1"/></svg>'
     const prepared = await prepareVectorImageUpload(svgBuffer(svg))
     expect(prepared).toMatchObject({ ok: false, code: 'vector_image_external_reference' })
+  })
+
+  it('keeps a <style> that mentions a DOCTYPE inside a CSS comment in CDATA', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><style><![CDATA[ .a{fill:#000} /* <!DOCTYPE svg [ */ ]]></style><rect class="a"/></svg>'
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
+  })
+
+  it('keeps CDATA text outside <style> as text', async () => {
+    const output = await sanitisedText('<svg xmlns="http://www.w3.org/2000/svg"><text><![CDATA[Brand & Co]]></text></svg>')
+    expect(output).toContain('<text>Brand &amp; Co</text>')
+  })
+
+  it('accepts href and xlink:href that agree, and follows href', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><path id="leaf" d="M0 0h1"/></defs><use href="#leaf" xlink:href="#leaf"/></svg>'
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
+  })
+
+  it('reports only inert removals for a stored document', async () => {
+    for (const svg of [BENIGN_LOGO, EDITOR_EXPORT_LOGO, CDATA_STYLED_LOGO]) {
+      const result = await sanitizeVectorImage(svgBuffer(svg))
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.removals.every((removal) => removal.kind === 'inert')).toBe(true)
+    }
   })
 
   it('drops only inert editor data from an editor export and keeps the drawing', async () => {
@@ -191,6 +215,17 @@ describe('sanitizeVectorImage — bounds and well-formedness', () => {
     expect(result).toMatchObject({ ok: false, code: 'vector_image_too_complex' })
   })
 
+  it('rejects documents with more nodes of any type than the node bound', async () => {
+    const pairs = Math.ceil(VECTOR_IMAGE_MAX_NODES / 2) + 1
+    const result = await sanitizeVectorImage(svgBuffer(`<svg xmlns="http://www.w3.org/2000/svg"><text>${'a<!---->'.repeat(pairs)}</text></svg>`))
+    expect(result).toMatchObject({ ok: false, code: 'vector_image_too_complex' })
+  })
+
+  it('rejects documents with more markup than the markup bound before parsing them', async () => {
+    const result = await sanitizeVectorImage(svgBuffer(`<svg xmlns="http://www.w3.org/2000/svg">${'<?a?>'.repeat(VECTOR_IMAGE_MAX_MARKUP)}</svg>`))
+    expect(result).toMatchObject({ ok: false, code: 'vector_image_too_complex' })
+  })
+
   it('rejects documents nested too deeply', async () => {
     const depth = VECTOR_IMAGE_MAX_DEPTH + 1
     const svg = `<svg xmlns="http://www.w3.org/2000/svg">${'<g>'.repeat(depth)}${'</g>'.repeat(depth)}</svg>`
@@ -232,35 +267,49 @@ describe('sanitizeVectorImage — bounds and well-formedness', () => {
 
 describe('sanitizeVectorImage — bounded cost', () => {
   /**
-   * Every pass is linear in the document and the bounds cap the document.
-   * Measured warm worst cases at these bounds were 0.3-0.53 s; the quadratic
-   * traversal this guards against took 15-27 s on 10,000 elements and over
-   * 200 s on one element with 80,000 attributes. About ten times the measured
-   * worst case, so a slow CI runner cannot flake it while a return of
-   * super-linear behaviour still fails it by an order of magnitude.
+   * Every pass is linear in the document, the first non-inert finding stops
+   * the work, and the bounds cap the document — by bytes, markup before
+   * parsing, nodes of every type, elements, depth and attributes. Warm worst
+   * cases measured at these bounds were 0.03-0.33 s. The pre-fix quadratic
+   * shapes took 2.5-27 s at sizes the bounds now refuse. The ceiling is about
+   * fifteen times the measured worst case, so a slow CI runner cannot flake
+   * it, while a return of super-linear behaviour fails it.
    */
   const CEILING_MS = 5_000
-  const open = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+  const open = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="urn:example:editor" viewBox="0 0 10 10">'
+  const wrap = (body: string) => `${open}${body}</svg>`
   const elements = VECTOR_IMAGE_MAX_ELEMENTS - 10
+  const pairs = Math.min(VECTOR_IMAGE_MAX_MARKUP, Math.floor(VECTOR_IMAGE_MAX_NODES / 2)) - 12
+  const flat = Math.min(VECTOR_IMAGE_MAX_MARKUP, VECTOR_IMAGE_MAX_NODES) - 12
   const attributesPerElement = Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / elements)
-  const unknownAttributes = (count: number) => Array.from({ length: count }, (_, index) => `a${index}="1"`).join(' ')
-  const worstCases: Array<[string, string]> = [
-    ['flat elements at the element and attribute bounds', `${open}${`<rect ${unknownAttributes(attributesPerElement)}/>`.repeat(elements)}</svg>`],
-    ['paths with url() paint at the attribute bound', `${open}<defs><linearGradient id="g"/></defs>${'<path d="M0 0h1v1z" fill="url(#g)" stroke="url(#g)" class="c" transform="translate(1 1)"/>'.repeat(elements)}</svg>`],
-    ['elements at the per-element attribute bound', `${open}${`<rect ${unknownAttributes(VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT)}/>`.repeat(Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT))}</svg>`],
-    ['in-document <use> at the element bound', `${open}<defs><g id="a"><rect/></g></defs>${'<use href="#a"/>'.repeat(elements)}</svg>`],
-    ['nesting at the depth bound', `${open}${'<g>'.repeat(VECTOR_IMAGE_MAX_DEPTH - 2)}${'<rect/>'.repeat(elements - VECTOR_IMAGE_MAX_DEPTH)}${'</g>'.repeat(VECTOR_IMAGE_MAX_DEPTH - 2)}</svg>`],
+  const unknownAttributes = (count: number, prefix = 'a') => Array.from({ length: count }, (_, index) => `${prefix}${index}="1"`).join(' ')
+  const worstCases: Array<[string, string, boolean]> = [
+    ['flat elements at the element and attribute bounds', wrap(`<rect ${unknownAttributes(attributesPerElement)}/>`.repeat(elements)), true],
+    ['paths with url() paint at the attribute bound', wrap(`<defs><linearGradient id="g"/></defs>${'<path d="M0 0h1v1z" fill="url(#g)" stroke="url(#g)" class="c" transform="translate(1 1)"/>'.repeat(elements)}`), true],
+    ['elements at the per-element attribute bound', wrap(`<rect ${unknownAttributes(VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT)}/>`.repeat(Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT))), true],
+    ['editor-namespaced attributes at the attribute bound', wrap(`<rect ${unknownAttributes(attributesPerElement, 'x:a')}/>`.repeat(elements)), true],
+    ['in-document <use> at the element bound', wrap(`<defs><g id="a"><rect/></g></defs>${'<use href="#a"/>'.repeat(elements)}`), true],
+    ['nesting at the depth bound', wrap(`${'<g>'.repeat(VECTOR_IMAGE_MAX_DEPTH - 2)}${'<rect/>'.repeat(elements - VECTOR_IMAGE_MAX_DEPTH)}${'</g>'.repeat(VECTOR_IMAGE_MAX_DEPTH - 2)}`), true],
+    ['text interleaved with comments at the node bound', wrap(`<text>${'a<!---->'.repeat(pairs)}</text>`), true],
+    ['text interleaved with processing instructions at the node bound', wrap(`<text>${'a<?a?>'.repeat(pairs)}</text>`), true],
+    ['text interleaved with CDATA sections at the node bound', wrap(`<text>${'a<![CDATA[b]]>'.repeat(pairs)}</text>`), true],
+    ['flat comments at the node bound', wrap('<!---->'.repeat(flat)), true],
+    ['flat processing instructions at the node bound', wrap('<?a?>'.repeat(flat)), true],
+    ['prolog comments at the node bound', `${'<!---->'.repeat(flat)}${wrap('<rect/>')}`, true],
+    ['text interleaved with disallowed elements at the element bound', wrap('a<blink/>'.repeat(Math.min(pairs, elements))), false],
+    ['text interleaved with foreign editor elements at the element bound', wrap('a<x:a/>'.repeat(Math.min(pairs, elements))), true],
+    ['whitespace-formatted elements at the node bound', wrap('\n<rect/>'.repeat(Math.floor(VECTOR_IMAGE_MAX_NODES / 2) - 12)), true],
   ]
 
   beforeAll(async () => {
     await sanitizeVectorImage(svgBuffer('<svg xmlns="http://www.w3.org/2000/svg"/>'))
   })
 
-  it.each(worstCases)('sanitises %s within the ceiling', async (_label, svg) => {
+  it.each(worstCases)('handles %s within the ceiling', async (_label, svg, accepted) => {
     const started = performance.now()
     const result = await sanitizeVectorImage(svgBuffer(svg))
     const elapsed = performance.now() - started
-    expect(result.ok).toBe(true)
+    expect(result.ok).toBe(accepted)
     expect(elapsed).toBeLessThan(CEILING_MS)
   })
 })
