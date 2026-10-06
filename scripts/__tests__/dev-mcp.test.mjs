@@ -13,6 +13,7 @@ import {
   looksLikeUninitializedDatabase,
   nextMcpKeyRetryDelayMs,
   nextMcpRestartDelayMs,
+  resolveDevMcpHost,
   resolveMcpKeyFilePath,
   resolveMcpPort,
   shouldStartMcp,
@@ -125,4 +126,16 @@ test('looksLikeMissingKeyOwner detects the owner-not-found throw', () => {
   // "Run mercato init" is an owner-resolution failure, not a bare DB-not-ready signal.
   assert.equal(looksLikeUninitializedDatabase(['Run "mercato init" first']), false)
   assert.equal(looksLikeMissingKeyOwner(['connect ECONNREFUSED 127.0.0.1:5432']), false)
+})
+
+test('resolveDevMcpHost binds 0.0.0.0 only on native Linux, where host-gateway is the bridge IP', () => {
+  assert.equal(resolveDevMcpHost({ platform: 'linux', env: {} }), '0.0.0.0')
+  assert.equal(resolveDevMcpHost({ platform: 'darwin', env: {} }), null)
+  assert.equal(resolveDevMcpHost({ platform: 'win32', env: {} }), null)
+})
+
+test('resolveDevMcpHost honours an explicit MCP_HTTP_HOST on every platform', () => {
+  assert.equal(resolveDevMcpHost({ platform: 'darwin', env: { MCP_HTTP_HOST: '127.0.0.1' } }), '127.0.0.1')
+  assert.equal(resolveDevMcpHost({ platform: 'linux', env: { MCP_HTTP_HOST: '10.0.0.5' } }), '10.0.0.5')
+  assert.equal(resolveDevMcpHost({ platform: 'linux', env: { MCP_HTTP_HOST: '   ' } }), '0.0.0.0')
 })

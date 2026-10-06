@@ -51,9 +51,10 @@ change, as a reference for anything else you run:
   not a new exposure, just an explicit opt-in matching the new default-loopback contract.
 - `yarn dev`'s full-stack flow (`scripts/dev.mjs`) spawns this server on the **host** so the
   Dockerized OpenCode sidecar can reach it via `host.docker.internal`. On Docker Desktop that hop
-  resolves to host loopback, but on native Linux `host-gateway` is the bridge IP (e.g.
-  `172.17.0.1`) — a loopback-only bind refuses that connection. `dev.mjs` now passes `--host
-  0.0.0.0` when spawning it, for the same reason the compose service does.
+  resolves to host loopback, so `yarn dev` keeps the loopback default there. On **native Linux**
+  `host-gateway` is the bridge IP (e.g. `172.17.0.1`), which a loopback-only bind refuses, so
+  `yarn dev` binds `0.0.0.0` on Linux only. Set `MCP_HTTP_HOST` to override either way — for
+  example `MCP_HTTP_HOST=127.0.0.1 yarn dev` restores loopback on Linux.
 
 No database schema, event id, or CLI command signature changes — only the two new options
 (`--host` / `MCP_DEV_HOST`) and the changed default.

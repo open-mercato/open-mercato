@@ -318,9 +318,7 @@ services:
       # The mcp container is reached over the internal compose network by the app and
       # opencode services (mcp:3001), which is not loopback from this container's own
       # point of view. mcp:serve-http defaults to binding 127.0.0.1 (issue #2659); this
-      # opts into 0.0.0.0 explicitly, matching the deliberate default-loopback-unless-
-      # configured contract, since this network is internal and not published (dev
-      # compose publishes MCP_PORT to the host, which also requires a non-loopback bind).
+      # opts into 0.0.0.0 explicitly. The network is internal and the port is not published.
       MCP_HTTP_HOST: "0.0.0.0"
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
       MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
