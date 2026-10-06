@@ -214,6 +214,11 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Updated numbering formats and counters', schema: settingsResponseSchema },
         { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
+        {
+          status: 403,
+          description: 'Changing a counter requires sales.documents.number.edit',
+          schema: settingsErrorSchema,
+        },
         { status: 400, description: 'Invalid payload', schema: settingsErrorSchema },
       ],
     },
