@@ -144,6 +144,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "require_authentication": {
+          "name": "require_authentication",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
         "sales_channel_id": {
           "name": "sales_channel_id",
           "type": "uuid",
