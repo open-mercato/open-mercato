@@ -1,22 +1,23 @@
 # Handoff — 2026-10-05-release-3-storefront-read-side
 
-**Last updated:** 2026-10-06T09:35:38Z
+**Last updated:** 2026-10-06T11:20:52Z
 **Branch:** spec/storefront-release-phase0-reconciliation
 **PR:** https://github.com/adeptofvoltron/open-mercato/pull/12 (draft)
-**Current phase/step:** Phase 4 Step 4.5-fix
-**Last commit:** 23f14ceba7 — feat(ecommerce): storefront pricing
+**Current phase/step:** Phase 5 Step 5.1 (not started — safety stop for owner review)
+**Last commit:** 230e652b1e — test(ecommerce): storefront public API integration coverage
 
 ## What just happened
-- Product filters extracted, scope_keys substrate (enricher hook, overlap/noverlap, GIN, reindex triggers), storefront scope builder and pricing landed; checkpoint 8 green. Owner decided promotions overlay the price-kind filter (D2a).
+- Phases 3–4 done: Omnibus MVP and Storefront Public API Phase 1 (scope_keys substrate, scope builder, pricing with promotion overlay D2a, listing, detail, public routes + cache). Release ACCEPTANCE green (checkpoint 9).
+- Paused at the executor-dispatch safety stop (22 Steps since resume).
 
 ## Next concrete action
-- Step 4.5-fix — promotions as an overlay on the priceKindId filter, then 4.6 listing.
+- Owner review, then \`om-auto-continue-pr-loop 12\` → Step 5.1 (channel binding require_authentication + resolver short-circuit).
 
 ## Blockers / open questions
 - None blocking. Resolution P95 budget still unmeasured (final gate).
 
 ## Environment caveats
-- Dev runtime runnable: yes, via the ephemeral env (`JWT_SECRET=$(openssl rand -hex 32) yarn test:integration:ephemeral:start`); it may still be running at http://127.0.0.1:5001 — stop it before a fresh start.
+- Dev runtime runnable: yes — ephemeral env (port changes per start; read .ai/qa/ephemeral-env.json). Start: \`JWT_SECRET=\$(openssl rand -hex 32) yarn test:integration:ephemeral:start\` after build:packages → generate → build:packages. Stop: kill the next-server listener and remove the testcontainers postgres (never \`pkill -f next-server\` from a shell whose own command line contains that string).
 - Packages must be rebuilt (`yarn build:packages` → `yarn generate` → `yarn build:packages`, turbo --force) before the ephemeral app sees new module code.
 - Browser / UI checks: start in Phase 7.
 - Database/migration state: local DB untouched; 3 new migrations committed (catalog indexes, customer_groups assortment_scope, ecommerce tables); applied only inside the ephemeral DB.
