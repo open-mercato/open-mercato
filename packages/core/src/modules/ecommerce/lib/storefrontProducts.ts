@@ -3,10 +3,8 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { AvailabilityItemResult, AvailabilityState } from '@open-mercato/shared/lib/availability'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { createLogger } from '@open-mercato/shared/lib/logger'
 import { sanitizeSearchTerm } from '@open-mercato/shared/lib/query/sanitizeSearchTerm'
 import { SortDir, type QueryEngine, type Sort, type Where } from '@open-mercato/shared/lib/query/types'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { E } from '#generated/entities.ids.generated'
 import {
   CatalogProductCategory,
@@ -22,26 +20,37 @@ import {
   scoreProductSearchRelevance,
   type CatalogProductFilterQuery,
 } from '@open-mercato/core/modules/catalog/lib/productFilters'
-import { batchLoadTranslations } from '@open-mercato/core/modules/translations/lib/batch'
 import type {
   EcommercePriceDisplayMode,
   EcommercePriceSortFallback,
   EcommerceStorefrontProductListQuery,
   EcommerceStorefrontProductSort,
 } from '../data/validators'
-import { buildStorefrontProductScope, composeStorefrontProductFilters, type StorefrontProductScope } from './storefrontProductScope'
 import {
-  resolveStorefrontPrices,
-  type StorefrontPrice,
-  type StorefrontPriceRange,
-  type StorefrontProductPricing,
-} from './storefrontPricing'
+  countStorefrontFacets,
+  labelStorefrontCountFacets,
+  loadStorefrontFacetSource,
+  loadStorefrontProductTypeLabeler,
+  readCachedStorefrontCountFacets,
+  storefrontAvailabilityFacet,
+  storefrontFacetTranslationRequests,
+  storefrontFacetVariantIndex,
+  storefrontPriceRangeFacet,
+  writeCachedStorefrontCountFacets,
+  type StorefrontCountFacets,
+  type StorefrontFacetSelection,
+  type StorefrontFacetSource,
+  type StorefrontFacets,
+} from './storefrontFacets'
+import { buildStorefrontProductScope, composeStorefrontProductFilters, type StorefrontProductScope } from './storefrontProductScope'
+import { resolveStorefrontPrices, type StorefrontProductPricing } from './storefrontPricing'
 import {
   STOREFRONT_CATEGORY_ENTITY_TYPE,
   STOREFRONT_PRODUCT_ENTITY_TYPE,
   STOREFRONT_TAG_ENTITY_TYPE,
   buildStorefrontListItem,
   isCategoryInAssortment,
+  loadStorefrontTranslations,
   localeChain,
   nonEmptyString,
   referenceId,
@@ -61,8 +70,7 @@ import type { StoreContext } from './types'
 
 export { isCategoryInAssortment } from './storefrontCatalogSupport'
 export type { StorefrontAvailability, StorefrontProductListItem } from './storefrontCatalogSupport'
-
-const logger = createLogger('ecommerce')
+export type { StorefrontFacets } from './storefrontFacets'
 
 /** Storefront Public API §6.3: the pre-sort id set that is priced and sorted in memory. */
 export const STOREFRONT_PRICE_SORT_CAP = 5000
@@ -92,17 +100,6 @@ const SORT_ORDER: readonly EcommerceStorefrontProductSort[] = [
   'newest',
   'featured',
 ]
-
-export type StorefrontFacets = {
-  categories: Array<{ id: string; name: string; slug: string | null; depth: number; parentId: string | null; count: number }>
-  tags: Array<{ slug: string; label: string; count: number }>
-  priceRange: { min: number; max: number; currencyCode: string } | null
-  options: Array<{ code: string; label: string; values: Array<{ code: string; label: string; count: number }> }>
-  productTypes: Array<{ type: string; label: string; count: number }>
-  availability: Array<{ state: AvailabilityState; count: number }>
-  availabilityScope: 'page'
-  total: number
-}
 
 export type StorefrontAppliedFilters = {
   search?: string
@@ -172,9 +169,24 @@ type Runtime = {
 
 type ResolvedFilters = {
   extra: Where | null
+  universe: Where | null
+  selection: StorefrontFacetSelection
   applied: StorefrontAppliedFilters
   searchTerm: string | null
 }
+
+type HydratedPage = {
+  items: StorefrontProductListItem[]
+  availabilityStates: AvailabilityState[]
+  translations: Map<string, TranslationMap>
+}
+
+type CountFacetState = {
+  cached: StorefrontCountFacets | null
+  source: StorefrontFacetSource | null
+}
+
+const EMPTY_COUNT_FACETS: StorefrontCountFacets = { categories: [], tags: [], options: [], productTypes: [] }
 
 type PagePrefetch = {
   variants?: Map<string, string[]>
@@ -195,42 +207,6 @@ function sqlSortFor(sort: EcommerceStorefrontProductSort): Sort[] {
     default:
       return [{ field: 'title', dir: SortDir.Asc }]
   }
-}
-
-async function loadTranslations(
-  runtime: Runtime,
-  requests: Array<{ entityType: string; ids: string[] }>,
-): Promise<Map<string, TranslationMap>> {
-  const results = new Map<string, TranslationMap>()
-  const pending = requests.filter((request) => request.ids.length > 0)
-  if (!pending.length) return results
-  const { ctx } = runtime
-  try {
-    const db = runtime.em.getKysely()
-    const maps = await Promise.all(
-      pending.map((request) =>
-        batchLoadTranslations(db, request.entityType, request.ids, {
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-        }),
-      ),
-    )
-    pending.forEach((request, index) => results.set(request.entityType, maps[index]))
-  } catch (err) {
-    logger.error('[internal] ecommerce storefront translation overlay failed', {
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      storeId: ctx.store.id,
-      err,
-    })
-    getTelemetryRuntime()?.reportError(err, {
-      module: 'ecommerce',
-      code: 'ecommerce.storefront_translations_failed',
-      attributes: { entityTypes: pending.length },
-    })
-    results.clear()
-  }
-  return results
 }
 
 async function resolveCategoryFilter(
@@ -301,11 +277,39 @@ async function resolveOptionProductIds(runtime: Runtime, options: Record<string,
   return Array.from(new Set(variants.map((variant) => referenceId(variant.product)).filter((id): id is string => !!id)))
 }
 
+async function productFilterClause(
+  runtime: Runtime,
+  filterQuery: Omit<CatalogProductFilterQuery, 'page' | 'pageSize'>,
+): Promise<Where | null> {
+  const { ctx, container } = runtime
+  const crudCtx: CrudCtx = {
+    container,
+    auth: { sub: 'ecommerce:storefront', tenantId: ctx.tenantId, orgId: ctx.organizationId },
+    organizationScope: null,
+    selectedOrganizationId: ctx.organizationId,
+    organizationIds: [ctx.organizationId],
+  }
+  const productFilters = await buildProductFilters({ page: 1, pageSize: 1, ...filterQuery }, crudCtx, {
+    includeCategoryDescendants: true,
+  })
+  return Object.keys(productFilters).length ? productFilters : null
+}
+
+function andClauses(clauses: Array<Where | null>): Where | null {
+  const present = clauses.filter((clause): clause is Where => clause !== null)
+  if (present.length === 0) return null
+  return present.length === 1 ? present[0] : { $and: present }
+}
+
+/**
+ * Resolves the listing's filters. `extra` is every product filter AND'ed (composed with the scope
+ * by the caller); `universe` is the search clause alone — the facet universe (§5.4), since search
+ * is the one filter no facet dimension excludes; `selection` is what the facets cross-exclude.
+ */
 async function resolveListFilters(
   runtime: Runtime,
   query: EcommerceStorefrontProductListQuery,
 ): Promise<ResolvedFilters> {
-  const { ctx, container } = runtime
   const applied: StorefrontAppliedFilters = {}
   const searchTerm = sanitizeSearchTerm(query.search)
   const [category, resolvedTags, optionProductIds] = await Promise.all([
@@ -319,31 +323,33 @@ async function resolveListFilters(
   if (query.productType) applied.productType = query.productType
   if (query.options) applied.options = query.options
 
-  const clauses: Where[] = []
-  if (searchTerm || category || resolvedTags.length || query.productType) {
-    const filterQuery: CatalogProductFilterQuery = {
-      page: 1,
-      pageSize: 1,
-      search: searchTerm || undefined,
-      categoryIds: category?.id,
-      tagIds: resolvedTags.length ? resolvedTags.map((tag) => tag.id).join(',') : undefined,
-      productType: query.productType,
-    }
-    const crudCtx: CrudCtx = {
-      container,
-      auth: { sub: 'ecommerce:storefront', tenantId: ctx.tenantId, orgId: ctx.organizationId },
-      organizationScope: null,
-      selectedOrganizationId: ctx.organizationId,
-      organizationIds: [ctx.organizationId],
-    }
-    const productFilters = await buildProductFilters(filterQuery, crudCtx, { includeCategoryDescendants: true })
-    if (Object.keys(productFilters).length) clauses.push(productFilters)
+  const [searchClause, facetClause] = await Promise.all([
+    searchTerm ? productFilterClause(runtime, { search: searchTerm }) : Promise.resolve(null),
+    category || resolvedTags.length || query.productType
+      ? productFilterClause(runtime, {
+          categoryIds: category?.id,
+          tagIds: resolvedTags.length ? resolvedTags.map((tag) => tag.id).join(',') : undefined,
+          productType: query.productType,
+        })
+      : Promise.resolve(null),
+  ])
+  const optionClause: Where | null = optionProductIds
+    ? optionProductIds.length
+      ? { id: { $in: optionProductIds } }
+      : { id: { $eq: NO_MATCH_ID } }
+    : null
+  return {
+    extra: andClauses([searchClause, facetClause, optionClause]),
+    universe: searchClause,
+    selection: {
+      categoryId: category?.id ?? null,
+      tagIds: resolvedTags.map((tag) => tag.id),
+      productType: query.productType ?? null,
+      options: query.options ?? {},
+    },
+    applied,
+    searchTerm: searchTerm || null,
   }
-  if (optionProductIds) {
-    clauses.push(optionProductIds.length ? { id: { $in: optionProductIds } } : { id: { $eq: NO_MATCH_ID } })
-  }
-  const extra: Where | null = clauses.length === 0 ? null : clauses.length === 1 ? clauses[0] : { $and: clauses }
-  return { extra, applied, searchTerm: searchTerm || null }
 }
 
 async function queryCandidates(
@@ -496,14 +502,25 @@ function matchesAvailabilityFilter(
   return true
 }
 
+/**
+ * The page's items. `extraTranslations` (the count facets' overlays) ride on the page's single
+ * translation query; `availabilityStates` are the page's states after `hideWhenOutOfStock` and
+ * before the `availability=` filter — what the page-scoped availability facet counts (§5.3).
+ */
 async function hydratePage(
   runtime: Runtime,
   records: ProductRecord[],
   query: EcommerceStorefrontProductListQuery,
   prefetch: PagePrefetch,
-): Promise<StorefrontProductListItem[]> {
-  if (!records.length) return []
+  extraTranslations: Array<{ entityType: string; ids: string[] }>,
+): Promise<HydratedPage> {
   const { ctx, container } = runtime
+  if (!records.length) {
+    const translations = extraTranslations.length
+      ? await loadStorefrontTranslations(runtime.em, ctx, extraTranslations)
+      : new Map<string, TranslationMap>()
+    return { items: [], availabilityStates: [], translations }
+  }
   const productIds = records.map((record) => record.id)
   const [variantsByProduct, categories, tags] = await Promise.all([
     prefetch.variants ?? loadVariantIds(runtime, productIds),
@@ -518,10 +535,11 @@ async function hydratePage(
         productIds.map((productId) => ({ productId, variantIds: variantsByProduct.get(productId) ?? [] })),
         { date: runtime.date },
       ),
-    loadTranslations(runtime, [
+    loadStorefrontTranslations(runtime.em, ctx, [
       { entityType: STOREFRONT_PRODUCT_ENTITY_TYPE, ids: productIds },
       { entityType: STOREFRONT_CATEGORY_ENTITY_TYPE, ids: categories.categoryIds },
       { entityType: STOREFRONT_TAG_ENTITY_TYPE, ids: tags.tagIds },
+      ...extraTranslations,
     ]),
     resolvePageAvailability(runtime, productIds),
   ])
@@ -531,10 +549,12 @@ async function hydratePage(
   const tagTranslations = translations.get(STOREFRONT_TAG_ENTITY_TYPE)
 
   const items: StorefrontProductListItem[] = []
+  const availabilityStates: AvailabilityState[] = []
   for (const record of records) {
     const productAvailability = availability.get(record.id)
     const storefrontAvailability = toStorefrontAvailability(productAvailability?.result ?? null)
     if (productAvailability?.hideWhenOutOfStock && storefrontAvailability.state === 'out_of_stock') continue
+    availabilityStates.push(storefrontAvailability.state)
     if (!matchesAvailabilityFilter(storefrontAvailability, query.availability)) continue
     items.push(
       buildStorefrontListItem(
@@ -561,7 +581,7 @@ async function hydratePage(
       ),
     )
   }
-  return items
+  return { items, availabilityStates, translations }
 }
 
 function pricingAmount(pricing: StorefrontProductPricing | undefined): number | null {
@@ -642,19 +662,6 @@ function matchesPriceFilter(amount: number | null, query: EcommerceStorefrontPro
   return true
 }
 
-function emptyFacets(total: number): StorefrontFacets {
-  return {
-    categories: [],
-    tags: [],
-    priceRange: null,
-    options: [],
-    productTypes: [],
-    availability: [],
-    availabilityScope: 'page',
-    total,
-  }
-}
-
 function availableSortsFor(searchTerm: string | null, priceSortsOffered: boolean): EcommerceStorefrontProductSort[] {
   return SORT_ORDER.filter((sort) => {
     if (sort === 'relevance') return !!searchTerm
@@ -663,19 +670,37 @@ function availableSortsFor(searchTerm: string | null, priceSortsOffered: boolean
   })
 }
 
+async function resolveCountFacetState(
+  runtime: Runtime,
+  query: EcommerceStorefrontProductListQuery,
+  universe: Where | null,
+): Promise<CountFacetState> {
+  const cached = await readCachedStorefrontCountFacets(runtime.container, runtime.ctx, query)
+  if (cached) return { cached, source: null }
+  const source = await loadStorefrontFacetSource(runtime, composeStorefrontProductFilters(runtime.scope, universe))
+  return { cached: null, source }
+}
+
 /**
- * `GET /products` listing (Storefront Public API rev 4 §4.1, §5.1, §6.3, §7, §8.1, §10).
+ * `GET /products` listing (Storefront Public API rev 4 §4.1, §5.1, §5.3, §6.3, §7, §8.1, §10).
  *
- * Every product query composes `buildStorefrontProductScope` (§3.3). Title, newest and featured
- * order in SQL — `featured` orders by `created_at desc` until merchandising supplies a featured rank.
- * Price sorts, buyer-price filters and relevance rank the filtered id set in memory while it is at
- * most `STOREFRONT_PRICE_SORT_CAP` products; past it the channel's `priceSortFallback` decides:
- * `'approximate'` orders and filters by the channel default price kind's list rows and flags
- * `sortApproximate`, `'unavailable'` withdraws the price sorts from `availableSorts`, applies the
- * default sort instead (`sortUnavailable`) and leaves the price filter unapplied. `availability=` and
- * `hideWhenOutOfStock` are page-scoped (D21): the page is chosen first, then filtered, so `total`
- * counts the pre-availability set and a page may be short. Facets are not computed yet (Phase 2) —
- * `facets` carries the empty shape.
+ * Every product query composes `buildStorefrontProductScope` (§3.3). The filtered set is read as
+ * ordered candidates (title, newest and featured order in SQL — `featured` orders by `created_at
+ * desc` until merchandising supplies a featured rank). While it is at most
+ * `STOREFRONT_PRICE_SORT_CAP` products it is priced for the buyer in one batch: that pricing feeds
+ * the price sorts, the price filter, relevance ranking and `facets.priceRange` (the filtered set
+ * without the price filter, §5.4) and is reused for the page. Past the cap the channel's
+ * `priceSortFallback` decides: `'approximate'` orders, filters and ranges by the channel default
+ * price kind's list rows and flags `sortApproximate`, `'unavailable'` withdraws the price sorts from
+ * `availableSorts`, applies the default sort instead (`sortUnavailable`), leaves the price filter
+ * unapplied and returns `priceRange: null`. `availability=` and `hideWhenOutOfStock` are
+ * page-scoped (D21): the page is chosen first, then filtered, so `total` counts the
+ * pre-availability set and a page may be short; `facets.availability` counts the page.
+ *
+ * The count facets come from `storefrontFacets` — cached per assortment scope (§9.1); on a miss
+ * their universe load also supplies the variant index the pricing reads, and their labels ride on
+ * the page's translation query. The whole response, `priceRange` included, is cached by the caller
+ * on the full digest.
  */
 export async function listStorefrontProducts(
   container: AwilixContainer,
@@ -700,7 +725,7 @@ export async function listStorefrontProducts(
   const fallback: EcommercePriceSortFallback = ctx.channel?.priceSortFallback ?? 'approximate'
   const { page, pageSize } = query
 
-  const { extra, applied, searchTerm } = await resolveListFilters(runtime, query)
+  const { extra, universe, selection, applied, searchTerm } = await resolveListFilters(runtime, query)
   const filters = composeStorefrontProductFilters(scope, extra)
   if (query.availability === 'in_stock' || query.availability === 'available') {
     applied.availability = { value: query.availability, scope: 'page' }
@@ -710,82 +735,80 @@ export async function listStorefrontProducts(
   const requestedSort = query.sort ?? defaultSort
   const priceSortRequested = isPriceSort(requestedSort)
   const priceFilterRequested = query.priceMin !== undefined || query.priceMax !== undefined
-  const relevanceRequested = requestedSort === 'relevance' && !!searchTerm
   const baseSort: EcommerceStorefrontProductSort =
     priceSortRequested || requestedSort === 'relevance' ? 'title_asc' : requestedSort
 
-  let capExceeded = false
+  const [countFacetState, first] = await Promise.all([
+    resolveCountFacetState(runtime, query, universe),
+    queryCandidates(runtime, filters, sqlSortFor(baseSort), cap),
+  ])
+  const facetVariants = countFacetState.source ? storefrontFacetVariantIndex(countFacetState.source) : null
+  const capExceeded = first.total > cap
+  const priceOnOffer = !capExceeded || fallback === 'approximate'
+
   let sortApproximate = false
   let sortUnavailable = false
   let appliedSort: EcommerceStorefrontProductSort = requestedSort === 'relevance' && !searchTerm ? defaultSort : requestedSort
   let total = 0
   let records: ProductRecord[] = []
   let prefetch: PagePrefetch = {}
-  let inMemory = false
+  let candidates: Candidate[] | null = null
+  let amounts: Map<string, number | null> | null = null
 
-  if (priceSortRequested || priceFilterRequested || relevanceRequested) {
-    const first = await queryCandidates(runtime, filters, sqlSortFor(baseSort), cap)
-    capExceeded = first.total > cap
-    const priceOnOffer = !capExceeded || fallback === 'approximate'
-    const priceNeeded = priceOnOffer && (priceSortRequested || priceFilterRequested)
-    let candidates: Candidate[] | null = null
-    let amounts = new Map<string, number | null>()
-    if (!capExceeded) {
-      candidates = first.items
-      if (priceNeeded) {
-        const variants = await loadVariantIds(runtime, candidates.map((candidate) => candidate.id))
-        const pricing = await resolveStorefrontPrices(
-          container,
-          ctx,
-          candidates.map((candidate) => ({ productId: candidate.id, variantIds: variants.get(candidate.id) ?? [] })),
-          { date: runtime.date },
-        )
-        prefetch = { variants, pricing }
-        amounts = new Map(candidates.map((candidate) => [candidate.id, pricingAmount(pricing.get(candidate.id))]))
-      }
-    } else if (priceNeeded) {
-      const [all, approximate] = await Promise.all([
-        queryCandidates(runtime, filters, sqlSortFor(baseSort), first.total),
-        loadApproximateAmounts(runtime),
-      ])
-      candidates = all.items
-      amounts = new Map(candidates.map((candidate) => [candidate.id, approximate.get(candidate.id) ?? null]))
-    }
+  if (!capExceeded) {
+    candidates = first.items
+    const candidateIds = candidates.map((candidate) => candidate.id)
+    const variants = facetVariants
+      ? new Map(candidateIds.map((id) => [id, facetVariants.get(id) ?? []]))
+      : await loadVariantIds(runtime, candidateIds)
+    const pricing = await resolveStorefrontPrices(
+      container,
+      ctx,
+      candidateIds.map((id) => ({ productId: id, variantIds: variants.get(id) ?? [] })),
+      { date: runtime.date },
+    )
+    prefetch = { variants, pricing }
+    amounts = new Map(candidateIds.map((id) => [id, pricingAmount(pricing.get(id))]))
+  } else if (priceOnOffer) {
+    const [all, approximate] = await Promise.all([
+      queryCandidates(runtime, filters, sqlSortFor(baseSort), first.total),
+      loadApproximateAmounts(runtime),
+    ])
+    amounts = new Map(all.items.map((candidate) => [candidate.id, approximate.get(candidate.id) ?? null]))
+    if (priceSortRequested || priceFilterRequested) candidates = all.items
+  }
+  const priceRange = amounts ? storefrontPriceRangeFacet(amounts.values(), ctx.currencyCode) : null
 
-    if (priceFilterRequested && priceNeeded) {
-      applied.price = { min: query.priceMin ?? null, max: query.priceMax ?? null, approximate: capExceeded }
-    }
-    if (priceSortRequested && !priceOnOffer) {
-      sortUnavailable = true
-      appliedSort = defaultSort
-    }
-
-    if (candidates) {
-      inMemory = true
-      let ordered = priceFilterRequested && priceNeeded
-        ? candidates.filter((candidate) => matchesPriceFilter(amounts.get(candidate.id) ?? null, query))
-        : candidates
-      if (appliedSort === 'relevance' && searchTerm) {
-        ordered = rankByRelevance(ordered, searchTerm)
-      } else if (isPriceSort(appliedSort)) {
-        const direction = appliedSort === 'price_asc' ? 1 : -1
-        ordered = ordered
-          .map((candidate, index) => ({ candidate, index }))
-          .sort(
-            (left, right) =>
-              compareAmounts(amounts.get(left.candidate.id) ?? null, amounts.get(right.candidate.id) ?? null, direction) ||
-              left.index - right.index,
-          )
-          .map((entry) => entry.candidate)
-        sortApproximate = capExceeded
-      }
-      total = ordered.length
-      const pageIds = ordered.slice((page - 1) * pageSize, page * pageSize).map((candidate) => candidate.id)
-      records = await queryProductsByIds(runtime, pageIds)
-    }
+  if (priceFilterRequested && priceOnOffer) {
+    applied.price = { min: query.priceMin ?? null, max: query.priceMax ?? null, approximate: capExceeded }
+  }
+  if (priceSortRequested && !priceOnOffer) {
+    sortUnavailable = true
+    appliedSort = defaultSort
   }
 
-  if (!inMemory) {
+  if (candidates) {
+    let ordered = priceFilterRequested && priceOnOffer
+      ? candidates.filter((candidate) => matchesPriceFilter(amounts?.get(candidate.id) ?? null, query))
+      : candidates
+    if (appliedSort === 'relevance' && searchTerm) {
+      ordered = rankByRelevance(ordered, searchTerm)
+    } else if (isPriceSort(appliedSort)) {
+      const direction = appliedSort === 'price_asc' ? 1 : -1
+      ordered = ordered
+        .map((candidate, index) => ({ candidate, index }))
+        .sort(
+          (left, right) =>
+            compareAmounts(amounts?.get(left.candidate.id) ?? null, amounts?.get(right.candidate.id) ?? null, direction) ||
+            left.index - right.index,
+        )
+        .map((entry) => entry.candidate)
+      sortApproximate = capExceeded
+    }
+    total = ordered.length
+    const pageIds = ordered.slice((page - 1) * pageSize, page * pageSize).map((candidate) => candidate.id)
+    records = await queryProductsByIds(runtime, pageIds)
+  } else {
     const sqlOrder: EcommerceStorefrontProductSort = appliedSort === 'relevance' ? 'title_asc' : appliedSort
     const result = await runtime.queryEngine.query<ProductRecord>(E.catalog.catalog_product, {
       tenantId: scope.tenantId,
@@ -797,7 +820,6 @@ export async function listStorefrontProducts(
       page: { page, pageSize },
     })
     total = result.total
-    capExceeded = capExceeded || total > cap
     records = result.items.filter((item) => typeof item.id === 'string')
     if (appliedSort === 'relevance' && searchTerm) {
       records = rankByRelevance(
@@ -806,18 +828,47 @@ export async function listStorefrontProducts(
       ).map((entry) => entry.record)
       sortApproximate = true
     }
+    if (facetVariants) prefetch = { variants: new Map(records.map((record) => [record.id, facetVariants.get(record.id) ?? []])) }
   }
 
   const availableSorts = availableSortsFor(searchTerm, !(capExceeded && fallback === 'unavailable'))
-  const items = await hydratePage(runtime, records, query, prefetch)
+  const { source, cached } = countFacetState
+  const rawCounts = source ? countStorefrontFacets(source, selection) : null
+  const hydrated = await hydratePage(
+    runtime,
+    records,
+    query,
+    prefetch,
+    source && rawCounts ? storefrontFacetTranslationRequests(source, rawCounts) : [],
+  )
+  let countFacets: StorefrontCountFacets = cached ?? EMPTY_COUNT_FACETS
+  if (source && rawCounts) {
+    countFacets = labelStorefrontCountFacets(source, rawCounts, {
+      locales: localeChain(ctx),
+      translations: hydrated.translations,
+      assortmentScope: ctx.buyer.assortmentScope,
+      productTypeLabel: await loadStorefrontProductTypeLabeler(ctx.effectiveLocale),
+    })
+    await writeCachedStorefrontCountFacets(container, ctx, query, countFacets, selection)
+  }
+  const facets: StorefrontFacets = {
+    categories: countFacets.categories,
+    tags: countFacets.tags,
+    priceRange,
+    options: countFacets.options,
+    productTypes: countFacets.productTypes,
+    availability: storefrontAvailabilityFacet(hydrated.availabilityStates),
+    availabilityScope: 'page',
+    total,
+  }
 
   return {
-    items,
+    items: hydrated.items,
     total,
     page,
     pageSize,
     totalPages: Math.ceil(total / pageSize),
-    facets: emptyFacets(total),
+    facets,
     effectiveLocale: ctx.effectiveLocale,
     requestedLocale: ctx.requestedLocale,
     currencyCode: ctx.currencyCode,

@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import { createMemoryStrategy, type CacheStrategy } from '@open-mercato/cache'
 import {
   availabilityItemKey,
   availabilityProviderRegistry,
@@ -10,6 +11,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeFilters, type NormalizedFilter } from '@open-mercato/shared/lib/query/join-utils'
 import type { QueryOptions, Where } from '@open-mercato/shared/lib/query/types'
 import {
+  CatalogOptionSchemaTemplate,
   CatalogProduct,
   CatalogProductCategory,
   CatalogProductCategoryAssignment,
@@ -20,7 +22,7 @@ import {
 } from '@open-mercato/core/modules/catalog/data/entities'
 import type { OmnibusBlock } from '@open-mercato/core/modules/catalog/lib/omnibusTypes'
 import { DefaultCatalogPricingService } from '@open-mercato/core/modules/catalog/services/catalogPricingService'
-import { batchLoadTranslations } from '@open-mercato/core/modules/translations/lib/batch'
+import { batchLoadTranslationsMany } from '@open-mercato/core/modules/translations/lib/batch'
 import { ecommerceStoreSettingsSchema, type EcommercePriceSortFallback } from '../../data/validators'
 import { parseStorefrontProductListQuery } from '../storefrontQuery'
 import { isCategoryInAssortment, listStorefrontProducts } from '../storefrontProducts'
@@ -33,6 +35,14 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('@open-mercato/core/modules/translations/lib/batch', () => ({
   batchLoadTranslations: jest.fn(),
+  batchLoadTranslationsMany: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  loadDictionary: jest.fn(async () => ({
+    'catalog.products.types.simple': 'Prosty',
+    'catalog.products.types.configurable': 'Konfigurowalny',
+  })),
 }))
 
 jest.mock('@open-mercato/core/modules/catalog/lib/omnibusPresentedEntry', () => ({
@@ -47,7 +57,7 @@ jest.mock('@open-mercato/core/modules/catalog/lib/omnibusPresentedEntry', () => 
 }))
 
 const mockedFind = findWithDecryption as jest.Mock
-const mockedTranslations = batchLoadTranslations as jest.Mock
+const mockedTranslations = batchLoadTranslationsMany as jest.Mock
 
 const TENANT_ID = 'tenant-1'
 const ORGANIZATION_ID = 'org-1'
@@ -57,6 +67,7 @@ const CAT_DRESS = '0b8f3f0e-1d2a-4c5b-8e6f-000000000002'
 const CAT_SHOES = '0b8f3f0e-1d2a-4c5b-8e6f-000000000003'
 const TAG_SALE = '0b8f3f0e-1d2a-4c5b-8e6f-000000000011'
 const TAG_NEW = '0b8f3f0e-1d2a-4c5b-8e6f-000000000012'
+const TEMPLATE_SHOE = '0b8f3f0e-1d2a-4c5b-8e6f-000000000021'
 
 type PriceKindFixture = { id: string; code: string; isPromotion: boolean; displayMode: string }
 
@@ -67,6 +78,8 @@ type CategoryFixture = {
   id: string
   name: string
   slug: string
+  depth: number
+  parentId: string | null
   ancestorIds: string[]
   descendantIds: string[]
   isActive: boolean
@@ -76,7 +89,19 @@ type CategoryFixture = {
 }
 
 function category(id: string, slug: string, name: string, ancestorIds: string[], descendantIds: string[]): CategoryFixture {
-  return { id, name, slug, ancestorIds, descendantIds, isActive: true, deletedAt: null, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
+  return {
+    id,
+    name,
+    slug,
+    depth: ancestorIds.length,
+    parentId: ancestorIds[ancestorIds.length - 1] ?? null,
+    ancestorIds,
+    descendantIds,
+    isActive: true,
+    deletedAt: null,
+    tenantId: TENANT_ID,
+    organizationId: ORGANIZATION_ID,
+  }
 }
 
 const CATEGORIES: CategoryFixture[] = [
@@ -101,6 +126,7 @@ type ProductFixture = {
   isActive?: boolean
   isConfigurable?: boolean
   productType?: string
+  templateId?: string
 }
 
 const PRODUCTS: ProductFixture[] = [
@@ -117,6 +143,7 @@ const PRODUCTS: ProductFixture[] = [
     tagIds: [],
     isConfigurable: true,
     productType: 'configurable',
+    templateId: TEMPLATE_SHOE,
   },
   { id: 'p-echo', title: 'Echo Hidden', subtitle: null, sku: 'E-1', createdAt: '2026-05-01', categoryIds: [CAT_DRESS], tagIds: [], isActive: false },
 ]
@@ -125,6 +152,38 @@ const VARIANTS = [
   { id: 'v-d1', product: { id: 'p-delta' }, optionValues: { color: 'red', size: 'm' } },
   { id: 'v-d2', product: { id: 'p-delta' }, optionValues: { color: 'blue', size: 'l' } },
 ].map((variant) => ({ ...variant, isActive: true, deletedAt: null, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }))
+
+const TEMPLATES = [
+  {
+    id: TEMPLATE_SHOE,
+    tenantId: TENANT_ID,
+    organizationId: ORGANIZATION_ID,
+    deletedAt: null,
+    isActive: true,
+    schema: {
+      options: [
+        {
+          code: 'color',
+          label: 'Color',
+          inputType: 'select',
+          choices: [
+            { code: 'red', label: 'Red' },
+            { code: 'blue', label: 'Blue' },
+          ],
+        },
+        {
+          code: 'size',
+          label: 'Size',
+          inputType: 'select',
+          choices: [
+            { code: 'm', label: 'M' },
+            { code: 'l', label: 'L' },
+          ],
+        },
+      ],
+    },
+  },
+]
 
 type IndexRow = Record<string, unknown> & { id: string }
 
@@ -150,6 +209,7 @@ function indexRow(product: ProductFixture): IndexRow {
     product_type: product.productType ?? 'simple',
     is_configurable: product.isConfigurable ?? false,
     default_media_url: `/media/${product.id}.jpg`,
+    option_schema_id: product.templateId ?? null,
     created_at: new Date(`${product.createdAt}T00:00:00Z`),
     scope_keys: Array.from(scopeKeys),
   }
@@ -219,6 +279,9 @@ const TRANSLATIONS: Record<string, Record<string, Record<string, Record<string, 
   'catalog:catalog_product_tag': {
     [TAG_SALE]: { en: { label: 'Sale EN' } },
   },
+  'catalog:catalog_option_schema_template': {
+    [TEMPLATE_SHOE]: { pl: { 'options.color.label': 'Kolor', 'options.color.choices.red.label': 'Czerwony' } },
+  },
 }
 
 type World = {
@@ -230,13 +293,14 @@ type World = {
 
 let world: World
 
-const counters = { queryEngine: 0, find: 0, translations: 0, availability: 0, policies: 0 }
+const counters = { queryEngine: 0, find: 0, assignments: 0, translations: 0, availability: 0, policies: 0 }
 const queryEngineCalls: QueryOptions[] = []
 const returnedIds: string[] = []
 
 function resetCounters() {
   counters.queryEngine = 0
   counters.find = 0
+  counters.assignments = 0
   counters.translations = 0
   counters.availability = 0
   counters.policies = 0
@@ -245,7 +309,14 @@ function resetCounters() {
 }
 
 function totalQueries(): number {
-  return counters.queryEngine + counters.find + counters.translations + counters.availability + counters.policies
+  return (
+    counters.queryEngine +
+    counters.find +
+    counters.assignments +
+    counters.translations +
+    counters.availability +
+    counters.policies
+  )
 }
 
 function referenceValue(value: unknown): unknown {
@@ -393,6 +464,9 @@ function installFind() {
       )
       return assignments.filter((entry) => matchesWhere(entry as unknown as Record<string, unknown>, where))
     }
+    if (entity === CatalogOptionSchemaTemplate) {
+      return TEMPLATES.filter((entry) => matchesWhere(entry as unknown as Record<string, unknown>, where))
+    }
     if (entity === CatalogProductPrice) {
       return world.prices.filter((row) => matchesWhere(row as unknown as Record<string, unknown>, where))
     }
@@ -407,13 +481,46 @@ function installFind() {
 }
 
 function installTranslations() {
-  mockedTranslations.mockImplementation(async (_db: unknown, entityType: string, ids: string[]) => {
-    counters.translations += 1
-    const source = TRANSLATIONS[entityType] ?? {}
-    const map = new Map<string, Record<string, Record<string, unknown>>>()
-    for (const id of ids) if (source[id]) map.set(id, source[id])
-    return map
-  })
+  mockedTranslations.mockImplementation(
+    async (_db: unknown, requests: Array<{ entityType: string; entityIds: string[] }>) => {
+      counters.translations += 1
+      const result = new Map<string, Map<string, Record<string, Record<string, unknown>>>>()
+      for (const request of requests) {
+        const source = TRANSLATIONS[request.entityType] ?? {}
+        const map = result.get(request.entityType) ?? new Map<string, Record<string, Record<string, unknown>>>()
+        for (const id of request.entityIds) if (source[id]) map.set(id, source[id])
+        result.set(request.entityType, map)
+      }
+      return result
+    },
+  )
+}
+
+type AssignmentRowFixture = { product_id: string; kind: string; ref_id: string; slug: string | null; label: string | null }
+
+function assignmentRows(): AssignmentRowFixture[] {
+  return PRODUCTS.flatMap((product) => [
+    ...product.categoryIds.map((categoryId) => ({
+      product_id: product.id,
+      kind: 'category',
+      ref_id: categoryId,
+      slug: null,
+      label: null,
+    })),
+    ...product.tagIds.map((tagId) => {
+      const tag = TAGS.find((entry) => entry.id === tagId)
+      return { product_id: product.id, kind: 'tag', ref_id: tagId, slug: tag?.slug ?? null, label: tag?.label ?? null }
+    }),
+  ])
+}
+
+const kyselyBuilder: Record<string, unknown> = {}
+for (const method of ['selectFrom', 'innerJoin', 'select', 'where', 'unionAll']) {
+  kyselyBuilder[method] = () => kyselyBuilder
+}
+kyselyBuilder.execute = async () => {
+  counters.assignments += 1
+  return assignmentRows()
 }
 
 availabilityProviderRegistry.register({
@@ -476,16 +583,17 @@ const em = {
     return em
   },
   getKysely() {
-    return {}
+    return kyselyBuilder
   },
 }
 
-function makeContainer(): AwilixContainer {
+function makeContainer(cache?: CacheStrategy): AwilixContainer {
   const services: Record<string, unknown> = {
     em,
     queryEngine,
     policyResolutionService,
     catalogPricingService: new DefaultCatalogPricingService(null),
+    ...(cache ? { cache } : {}),
   }
   return {
     resolve: (name: string) => {
@@ -553,10 +661,15 @@ function makeContext(
 
 async function list(
   queryString: string,
-  options: { buyer?: Partial<BuyerContext>; fallback?: EcommercePriceSortFallback; cap?: number } = {},
+  options: {
+    buyer?: Partial<BuyerContext>
+    fallback?: EcommercePriceSortFallback
+    cap?: number
+    cache?: CacheStrategy
+  } = {},
 ) {
   return listStorefrontProducts(
-    makeContainer(),
+    makeContainer(options.cache),
     makeContext(options.buyer, { priceSortFallback: options.fallback }),
     parseStorefrontProductListQuery(new URLSearchParams(queryString)),
     { priceSortCap: options.cap, date: NOW },
@@ -598,12 +711,39 @@ describe('listStorefrontProducts — listing payload', () => {
       sortUnavailable: false,
     })
     expect(response.facets).toEqual({
-      categories: [],
-      tags: [],
-      priceRange: null,
-      options: [],
-      productTypes: [],
-      availability: [],
+      categories: [
+        { id: CAT_ROOT, name: 'Clothing', slug: 'clothing', depth: 0, parentId: null, count: 2 },
+        { id: CAT_SHOES, name: 'Shoes', slug: 'shoes', depth: 0, parentId: null, count: 2 },
+        { id: CAT_DRESS, name: 'Sukienki', slug: 'dresses', depth: 1, parentId: CAT_ROOT, count: 2 },
+      ],
+      tags: [
+        { slug: 'new', label: 'New', count: 1 },
+        { slug: 'sale', label: 'Sale EN', count: 1 },
+      ],
+      priceRange: { min: 20, max: 80, currencyCode: 'EUR' },
+      options: [
+        {
+          code: 'color',
+          label: 'Kolor',
+          values: [
+            { code: 'red', label: 'Czerwony', count: 1 },
+            { code: 'blue', label: 'Blue', count: 1 },
+          ],
+        },
+        {
+          code: 'size',
+          label: 'Size',
+          values: [
+            { code: 'm', label: 'M', count: 1 },
+            { code: 'l', label: 'L', count: 1 },
+          ],
+        },
+      ],
+      productTypes: [
+        { type: 'simple', label: 'Prosty', count: 3 },
+        { type: 'configurable', label: 'Konfigurowalny', count: 1 },
+      ],
+      availability: [{ state: 'in_stock', count: 4 }],
       availabilityScope: 'page',
       total: 4,
     })
@@ -639,7 +779,7 @@ describe('listStorefrontProducts — listing payload', () => {
     expect(byId.get('p-alpha')).toMatchObject({ title: 'Alfa Sukienka', subtitle: 'Summer dress' })
     expect(byId.get('p-bravo')).toMatchObject({ title: 'Bravo Dress', subtitle: null })
     expect(byId.get('p-charlie')?.title).toBe('Charlie Shoe')
-    expect(mockedTranslations).toHaveBeenCalledTimes(3)
+    expect(mockedTranslations).toHaveBeenCalledTimes(1)
   })
 
   it('degrades to base fields when the translation overlay fails', async () => {
@@ -871,10 +1011,14 @@ describe('listStorefrontProducts — page-scoped availability (D21)', () => {
   it('may return an empty page without re-querying to fill it', async () => {
     world.availability['p-delta'] = { state: 'out_of_stock', canFulfil: false }
     world.availability['p-charlie'] = { state: 'out_of_stock', canFulfil: false }
+    const unfiltered = await list('pageSize=2')
+    const unfilteredQueryEngineCalls = counters.queryEngine
+    resetCounters()
     const response = await list('availability=available&pageSize=2')
+    expect(unfiltered.items).toHaveLength(2)
     expect(response.items).toEqual([])
     expect(response.total).toBe(4)
-    expect(counters.queryEngine).toBe(1)
+    expect(counters.queryEngine).toBe(unfilteredQueryEngineCalls)
   })
 
   it('hides out-of-stock items whose resolved policy says hideWhenOutOfStock, page-scoped', async () => {
@@ -896,7 +1040,8 @@ describe('listStorefrontProducts — query budget (§10)', () => {
   it('stays within 13 queries for a plain page', async () => {
     await list('')
     expect(totalQueries()).toBeLessThanOrEqual(13)
-    expect(counters.queryEngine).toBe(1)
+    expect(counters.queryEngine).toBe(3)
+    expect(counters.translations).toBe(1)
   })
 
   it('stays within 13 queries for a price-sorted page', async () => {
@@ -910,5 +1055,160 @@ describe('listStorefrontProducts — query budget (§10)', () => {
     resetCounters()
     await list('pageSize=4')
     expect(totalQueries()).toBe(single)
+  })
+})
+
+function facetCounts<T extends { count: number }>(entries: T[], key: (entry: T) => string): Record<string, number> {
+  return Object.fromEntries(entries.map((entry) => [key(entry), entry.count]))
+}
+
+function optionCounts(response: { facets: { options: Array<{ code: string; values: Array<{ code: string; count: number }> }> } }) {
+  return Object.fromEntries(
+    response.facets.options.map((option) => [option.code, facetCounts(option.values, (value) => value.code)]),
+  )
+}
+
+describe('listStorefrontProducts — facets (§5.3, §5.4)', () => {
+  it('keeps the other values of a selected option dimension (cross-exclusion)', async () => {
+    const response = await list('options[color]=red')
+    expect(ids(response)).toEqual(['p-delta'])
+    expect(optionCounts(response)).toEqual({ color: { red: 1, blue: 1 }, size: { m: 1 } })
+    expect(facetCounts(response.facets.productTypes, (entry) => entry.type)).toEqual({ configurable: 1 })
+    expect(facetCounts(response.facets.categories, (entry) => entry.id)).toEqual({ [CAT_SHOES]: 1 })
+  })
+
+  it('counts every dimension against all active filters except its own', async () => {
+    const byCategory = await list('categorySlug=dresses')
+    expect(ids(byCategory).sort()).toEqual(['p-alpha', 'p-bravo'])
+    expect(facetCounts(byCategory.facets.categories, (entry) => entry.id)).toEqual({
+      [CAT_ROOT]: 2,
+      [CAT_SHOES]: 2,
+      [CAT_DRESS]: 2,
+    })
+    expect(facetCounts(byCategory.facets.tags, (entry) => entry.slug)).toEqual({ sale: 1 })
+    expect(facetCounts(byCategory.facets.productTypes, (entry) => entry.type)).toEqual({ simple: 2 })
+    expect(byCategory.facets.options).toEqual([])
+
+    const byTag = await list('tagSlugs=new')
+    expect(ids(byTag)).toEqual(['p-charlie'])
+    expect(facetCounts(byTag.facets.tags, (entry) => entry.slug)).toEqual({ new: 1, sale: 1 })
+    expect(facetCounts(byTag.facets.categories, (entry) => entry.id)).toEqual({ [CAT_SHOES]: 1 })
+
+    const byType = await list('productType=configurable')
+    expect(facetCounts(byType.facets.productTypes, (entry) => entry.type)).toEqual({ simple: 3, configurable: 1 })
+    expect(facetCounts(byType.facets.tags, (entry) => entry.slug)).toEqual({})
+  })
+
+  it('combines option codes on the same variant and excludes only the dimension being counted', async () => {
+    const response = await list('options[color]=red&options[size]=l')
+    expect(response.items).toEqual([])
+    expect(optionCounts(response)).toEqual({ color: { blue: 1 }, size: { m: 1 } })
+  })
+
+  it('counts within the search universe', async () => {
+    searchTerm = 'dress'
+    const response = await list('search=dress')
+    expect(ids(response).sort()).toEqual(['p-alpha', 'p-bravo'])
+    expect(facetCounts(response.facets.categories, (entry) => entry.id)).toEqual({ [CAT_ROOT]: 2, [CAT_DRESS]: 2 })
+    expect(response.facets.priceRange).toEqual({ min: 30, max: 50, currencyCode: 'EUR' })
+  })
+
+  it('omits categories outside the buyer assortment and never counts products outside it', async () => {
+    const response = await list('', { buyer: { assortmentScope: [{ categoryIds: [CAT_ROOT] }] } })
+    expect(facetCounts(response.facets.categories, (entry) => entry.id)).toEqual({ [CAT_ROOT]: 2, [CAT_DRESS]: 2 })
+    expect(facetCounts(response.facets.tags, (entry) => entry.slug)).toEqual({ sale: 1 })
+    expect(response.facets.options).toEqual([])
+    const denied = await list('', { buyer: { assortmentScope: [] } })
+    expect(denied.facets).toMatchObject({ categories: [], tags: [], options: [], productTypes: [], priceRange: null, total: 0 })
+  })
+
+  it('ranges prices over the filtered set without the price filter, in the buyer prices', async () => {
+    const filtered = await list('priceMax=35')
+    expect(ids(filtered).sort()).toEqual(['p-bravo', 'p-delta'])
+    expect(filtered.facets.priceRange).toEqual({ min: 20, max: 80, currencyCode: 'EUR' })
+    expect(facetCounts(filtered.facets.categories, (entry) => entry.id)).toMatchObject({ [CAT_ROOT]: 2, [CAT_SHOES]: 2 })
+
+    world.prices.push(VIP_ALPHA_PRICE)
+    const vip = await list('', { buyer: { customerGroupIds: ['group-vip'] } })
+    expect(vip.facets.priceRange).toEqual({ min: 15, max: 80, currencyCode: 'EUR' })
+  })
+
+  it('ranges past the cap by list prices under approximate and returns null under unavailable', async () => {
+    world.prices.push(VIP_ALPHA_PRICE)
+    const approximate = await list('', { cap: 2, buyer: { customerGroupIds: ['group-vip'] } })
+    expect(approximate.facets.priceRange).toEqual({ min: 20, max: 80, currencyCode: 'EUR' })
+    const unavailable = await list('', { cap: 2, fallback: 'unavailable' })
+    expect(unavailable.facets.priceRange).toBeNull()
+    expect(unavailable.facets.categories).not.toEqual([])
+  })
+
+  it('counts availability over the returned page before the availability filter', async () => {
+    world.availability['p-charlie'] = { state: 'backorder', canFulfil: true }
+    const response = await list('availability=in_stock&pageSize=2')
+    expect(ids(response)).toEqual(['p-delta'])
+    expect(response.facets.availabilityScope).toBe('page')
+    expect(response.facets.availability).toEqual([
+      { state: 'in_stock', count: 1 },
+      { state: 'backorder', count: 1 },
+    ])
+    expect(response.facets.availability.reduce((sum, entry) => sum + entry.count, 0)).toBe(2)
+  })
+
+  it('loads the facet universe once whatever filters are active', async () => {
+    await list('')
+    const plain = { ...counters }
+    resetCounters()
+    await list('options[color]=red&productType=configurable&sort=title_asc')
+    expect(counters.assignments).toBe(1)
+    expect(plain.assignments).toBe(1)
+    expect(counters.queryEngine).toBe(plain.queryEngine)
+  })
+})
+
+describe('listStorefrontProducts — facet cache split (§9.1)', () => {
+  it('caches count facets by assortment scope and shares them across buyers with different prices', async () => {
+    world.prices.push(VIP_ALPHA_PRICE)
+    const cache = createMemoryStrategy()
+    const setSpy = jest.spyOn(cache, 'set')
+    const anonymous = await list('', { cache })
+    const countFacetKeys = setSpy.mock.calls.map(([key]) => String(key)).filter((key) => key.includes('products-count-facets'))
+    expect(countFacetKeys).toHaveLength(1)
+    expect(countFacetKeys[0].startsWith('ecommerce:storefront:assortment:store-1:pl:none:')).toBe(true)
+    expect(countFacetKeys[0]).not.toContain('digest')
+
+    resetCounters()
+    const vip = await list('', { cache, buyer: { customerGroupIds: ['group-vip'], priceScopeKey: 'vip' } })
+    expect(counters.assignments).toBe(0)
+    expect(counters.queryEngine).toBe(2)
+    expect(vip.facets.categories).toEqual(anonymous.facets.categories)
+    expect(vip.facets.options).toEqual(anonymous.facets.options)
+    expect(anonymous.facets.priceRange).toEqual({ min: 20, max: 80, currencyCode: 'EUR' })
+    expect(vip.facets.priceRange).toEqual({ min: 15, max: 80, currencyCode: 'EUR' })
+  })
+
+  it('does not share count facets across assortment scopes or facet filters', async () => {
+    const cache = createMemoryStrategy()
+    await list('', { cache })
+    resetCounters()
+    await list('', { cache, buyer: { assortmentScope: [{ categoryIds: [CAT_ROOT] }], assortmentScopeHash: 'clothing' } })
+    expect(counters.assignments).toBe(1)
+    resetCounters()
+    await list('tagSlugs=sale', { cache })
+    expect(counters.assignments).toBe(1)
+    resetCounters()
+    await list('sort=price_desc&priceMax=60&page=1', { cache })
+    expect(counters.assignments).toBe(0)
+  })
+
+  it('stays within 13 queries with facets for a plain and a price-sorted page, fewer on a count-facet hit', async () => {
+    const cache = createMemoryStrategy()
+    await list('', { cache })
+    expect(totalQueries()).toBeLessThanOrEqual(13)
+    resetCounters()
+    await list('sort=price_asc', { cache: createMemoryStrategy() })
+    expect(totalQueries()).toBeLessThanOrEqual(13)
+    resetCounters()
+    await list('', { cache })
+    expect(totalQueries()).toBeLessThanOrEqual(9)
   })
 })

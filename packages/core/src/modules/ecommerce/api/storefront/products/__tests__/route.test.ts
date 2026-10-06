@@ -24,6 +24,7 @@ import { ecommerceStoreSettingsSchema } from '../../../../data/validators'
 import { StorefrontResolutionError } from '../../../../lib/storeContext'
 import type { StorefrontProductListResponse } from '../../../../lib/storefrontProducts'
 import type { BuyerContext, StoreContext } from '../../../../lib/types'
+import { storefrontProductListResponseSchema } from '../openapiSchemas'
 import { GET, metadata, openApi } from '../route'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -201,6 +202,28 @@ describe('GET /api/ecommerce/storefront/products', () => {
       expect.objectContaining({ digest: 'digest-anon' }),
       expect.objectContaining({ pageSize: 12, options: { color: ['red', 'blue'] } }),
     )
+  })
+
+  it('returns the listing facets unchanged and matching the documented schema', async () => {
+    resolveMock.mockResolvedValue(makeContext(anonymousBuyer, 'digest-anon'))
+    const facets: StorefrontProductListResponse['facets'] = {
+      categories: [
+        { id: '66666666-6666-4666-8666-666666666666', name: 'Shoes', slug: 'shoes', depth: 0, parentId: null, count: 2 },
+      ],
+      tags: [{ slug: 'sale', label: 'Sale', count: 1 }],
+      priceRange: { min: 20, max: 80, currencyCode: 'EUR' },
+      options: [{ code: 'color', label: 'Color', values: [{ code: 'red', label: 'Red', count: 1 }] }],
+      productTypes: [{ type: 'simple', label: 'Simple', count: 2 }],
+      availability: [{ state: 'in_stock', count: 2 }],
+      availabilityScope: 'page',
+      total: 2,
+    }
+    listMock.mockResolvedValue(listResponse({ total: 2, totalPages: 1, facets }))
+    const response = await GET(request('?options[color]=red'))
+    const body = await response.json()
+    expect(response.status).toBe(200)
+    expect(body.facets).toEqual(facets)
+    expect(storefrontProductListResponseSchema.safeParse(body).success).toBe(true)
   })
 
   it('rejects grammar errors with 400 and the offending fields before resolving the store', async () => {

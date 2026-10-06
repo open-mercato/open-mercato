@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { EcommerceStorefrontProductListQuery } from '../data/validators'
 import {
@@ -8,6 +7,7 @@ import {
   catalogProductsTag,
   storefrontAvailabilityTag,
   storefrontCache,
+  storefrontCacheValueHash,
 } from './cacheKeys'
 import {
   getStorefrontProductDetail,
@@ -39,19 +39,6 @@ const DETAIL_CACHE_SEGMENT = 'products-detail'
 const NULL_SEGMENT = '-'
 const RESOLUTION_ONLY_PARAMETERS: ReadonlySet<string> = new Set(['path', 'storeSlug'])
 
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue)
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter((entry) => entry[1] !== undefined)
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        .map(([key, entry]) => [key, canonicalValue(entry)]),
-    )
-  }
-  return value
-}
-
 /**
  * The listing's normalized query: every parsed parameter except the store-resolution ones (the
  * resolved store is already part of the key), with object keys sorted, hashed to a fixed length.
@@ -60,8 +47,7 @@ export function storefrontProductListCacheParts(query: EcommerceStorefrontProduc
   const relevant = Object.fromEntries(
     Object.entries(query).filter(([key]) => !RESOLUTION_ONLY_PARAMETERS.has(key)),
   )
-  const normalized = JSON.stringify(canonicalValue(relevant))
-  return [LIST_CACHE_SEGMENT, createHash('sha256').update(normalized).digest('hex')]
+  return [LIST_CACHE_SEGMENT, storefrontCacheValueHash(relevant)]
 }
 
 export function storefrontProductDetailCacheParts(

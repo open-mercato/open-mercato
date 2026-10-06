@@ -103,7 +103,9 @@ export const storefrontProductListResponseSchema = z.object({
   page: z.number().int(),
   pageSize: z.number().int(),
   totalPages: z.number().int(),
-  facets: storefrontFacetsSchema.describe('Empty shape until facets ship (Storefront Public API Phase 2)'),
+  facets: storefrontFacetsSchema.describe(
+    'Cross-excluded facet counts over the buyer assortment; priceRange is buyer-priced, availability counts the returned page',
+  ),
   effectiveLocale: z.string(),
   requestedLocale: z.string().nullable(),
   currencyCode: z.string(),

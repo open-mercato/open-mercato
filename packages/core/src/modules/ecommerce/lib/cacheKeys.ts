@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -102,6 +103,24 @@ export function buildStorefrontCacheKey(
   const scope = options?.scope ?? 'digest'
   const prefix = [SCOPE_SEGMENTS[scope], ...scopeSegments(ctx, scope).map(encodeSegment)].join(':')
   return `${STOREFRONT_KEY_NAMESPACE}:${prefix}:${encodeParts(parts)}`
+}
+
+function canonicalCacheValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalCacheValue)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter((entry) => entry[1] !== undefined)
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([key, entry]) => [key, canonicalCacheValue(entry)]),
+    )
+  }
+  return value
+}
+
+/** A fixed-length key part for a structured value: object keys sorted, `undefined` entries dropped, sha256-hashed. */
+export function storefrontCacheValueHash(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(canonicalCacheValue(value))).digest('hex')
 }
 
 export function buildEcommerceResolutionCacheKey(parts: string[]): string {
