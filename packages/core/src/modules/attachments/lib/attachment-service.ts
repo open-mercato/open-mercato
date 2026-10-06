@@ -20,6 +20,12 @@ import {
   hasDangerousExecutableExtension,
 } from './security'
 import {
+  DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
+  isTrustedVectorImage,
+  VECTOR_IMAGE_CONTENT_SECURITY_POLICY,
+  VECTOR_IMAGE_MIME_TYPE,
+} from './vector-image'
+import {
   isMultipartRequestWithinUploadLimit,
   resolveAttachmentMaxBytes,
   resolveAttachmentMultipartMaxBytes,
@@ -80,6 +86,34 @@ const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, Atta
     key: 'attachments.errors.persistenceFailed',
     fallback: 'Failed to persist attachment.',
   },
+  vector_image_too_large: {
+    key: 'attachments.errors.vectorImageTooLarge',
+    fallback: 'The SVG file is too large to be checked safely.',
+  },
+  vector_image_malformed: {
+    key: 'attachments.errors.vectorImageMalformed',
+    fallback: 'The file is not a well-formed SVG image.',
+  },
+  vector_image_entity_declaration: {
+    key: 'attachments.errors.vectorImageEntityDeclaration',
+    fallback: 'SVG files with entity declarations are not allowed.',
+  },
+  vector_image_too_complex: {
+    key: 'attachments.errors.vectorImageTooComplex',
+    fallback: 'The SVG image is too complex to be checked safely.',
+  },
+  vector_image_unsafe_content: {
+    key: 'attachments.errors.vectorImageUnsafeContent',
+    fallback: 'The SVG image contains scripts or other active content. Export a plain SVG and try again.',
+  },
+  vector_image_external_reference: {
+    key: 'attachments.errors.vectorImageExternalReference',
+    fallback: 'The SVG image references external files or fonts. Embed them or export a self-contained SVG and try again.',
+  },
+  vector_image_sanitizer_unavailable: {
+    key: 'attachments.errors.vectorImageSanitizerUnavailable',
+    fallback: 'SVG images cannot be checked right now.',
+  },
 }
 
 const UPLOAD_FAILED_MESSAGE: AttachmentErrorMessage = {
@@ -110,6 +144,13 @@ export type CreateScopedAttachmentInput = AttachmentOwner & {
   declaredMimeType?: string | null
   buffer: Buffer
   assignments?: AttachmentAssignment[]
+  /**
+   * Accept an SVG (for example a company logo) by sanitising it on the server
+   * instead of rejecting it as active content. Only the sanitised document is
+   * stored; a file that cannot be sanitised without losing content is rejected
+   * with a `vector_image_*` code. Default false.
+   */
+  allowVectorImage?: boolean
   /**
    * Persists a module-owned link inside the same transaction as the Attachment
    * row. The callback receives only the generated id, never an Attachment
@@ -142,6 +183,12 @@ export type ReadScopedAttachmentResult = {
   contentDisposition: string
   fileName: string
   mimeType: string
+  /**
+   * The Content-Security-Policy the response serving these bytes should carry.
+   * Sanitised vector images need inline styles and embedded data: images;
+   * everything else keeps the fully locked-down default.
+   */
+  contentSecurityPolicy?: string
 }
 
 export type ReleaseScopedAttachmentInput = {
@@ -305,12 +352,15 @@ export class DefaultAttachmentService implements AttachmentService {
         assignments: input.assignments,
         partitionCode: input.partitionCode,
         requirePrivatePartition: true,
+        allowVectorImage: input.allowVectorImage === true,
         persistLink: input.persistLink,
       })
     } catch (error) {
       if (isScopedAttachmentUploadError(error)) {
         const message = SCOPED_UPLOAD_ERROR_MESSAGES[error.code] ?? UPLOAD_FAILED_MESSAGE
-        throw new CrudHttpError(error.status, { error: await translateAttachmentError(message) })
+        const body: Record<string, string> = { error: await translateAttachmentError(message) }
+        if (error.code.startsWith('vector_image_')) body.code = error.code
+        throw new CrudHttpError(error.status, body)
       }
       throw error
     }
@@ -362,6 +412,18 @@ export class DefaultAttachmentService implements AttachmentService {
     if (input.requirePrivatePartition && partition.isPublic) {
       throw new CrudHttpError(403, { error: 'Attachment partition is not accessible for this resource' })
     }
+    return this.serveOwnedAttachment(attachment, input)
+  }
+
+  private async serveOwnedAttachment(
+    attachment: Attachment,
+    input: {
+      expectedOwner: AttachmentOwner
+      expectedAssignment?: AttachmentAssignment
+      expectedPartitionCode?: string
+      forceDownload?: boolean
+    },
+  ): Promise<ReadScopedAttachmentResult> {
     if (input.expectedPartitionCode && attachment.partitionCode !== input.expectedPartitionCode) {
       throw new CrudHttpError(404, { error: 'Attachment not found' })
     }
@@ -390,16 +452,21 @@ export class DefaultAttachmentService implements AttachmentService {
     }
 
     const mimeType = attachment.mimeType || 'application/octet-stream'
-    const renderInline = !input.forceDownload && canRenderInlineAttachment(mimeType)
+    const vectorImage = isTrustedVectorImage(attachment, result.buffer)
+    const renderInline = !input.forceDownload && (vectorImage || canRenderInlineAttachment(mimeType))
+    const inlineContentType = vectorImage ? VECTOR_IMAGE_MIME_TYPE : result.contentType ?? mimeType
     return {
       buffer: result.buffer,
-      contentType: renderInline ? result.contentType ?? mimeType : 'application/octet-stream',
+      contentType: renderInline ? inlineContentType : 'application/octet-stream',
       contentDisposition: buildAttachmentContentDisposition(
         attachment.fileName,
         renderInline ? 'inline' : 'attachment',
       ),
       fileName: attachment.fileName,
       mimeType,
+      contentSecurityPolicy: vectorImage
+        ? VECTOR_IMAGE_CONTENT_SECURITY_POLICY
+        : DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
     }
   }
 

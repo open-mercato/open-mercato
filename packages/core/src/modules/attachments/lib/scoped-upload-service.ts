@@ -26,6 +26,14 @@ import {
 } from './security'
 import { resolveAttachmentMaxBytes } from './upload-limits'
 import type { AttachmentQuotaService } from './quota-service'
+import {
+  isVectorImageUploadCandidate,
+  prepareVectorImageUpload,
+  VECTOR_IMAGE_METADATA_KEY,
+  VECTOR_IMAGE_MIME_TYPE,
+  type VectorImageRecord,
+  type VectorImageRejectionCode,
+} from './vector-image'
 
 const logger = createLogger('attachments')
 
@@ -40,6 +48,17 @@ export type ScopedAttachmentUploadErrorCode =
   | 'quota_recovery_unsupported'
   | 'storage_failed'
   | 'persistence_failed'
+  | VectorImageRejectionCode
+
+const VECTOR_IMAGE_REJECTION_STATUS: Record<VectorImageRejectionCode, number> = {
+  vector_image_too_large: 413,
+  vector_image_malformed: 400,
+  vector_image_entity_declaration: 400,
+  vector_image_too_complex: 400,
+  vector_image_unsafe_content: 400,
+  vector_image_external_reference: 400,
+  vector_image_sanitizer_unavailable: 500,
+}
 
 // Use Symbol.for so the marker survives module duplication across bundle
 // boundaries. The production build emits this module into several server
@@ -92,6 +111,13 @@ export type ScopedAttachmentUploadInput = {
    */
   requirePrivatePartition?: boolean
   /**
+   * Accept an SVG by sanitising it (DOMPurify SVG profile on a server DOM plus
+   * the reference/CSS policy in `vector-image.ts`) instead of rejecting it as
+   * active content. Only the sanitised bytes are stored, and the row records
+   * the pass so serving can trust it. Default false.
+   */
+  allowVectorImage?: boolean
+  /**
    * Persists a module-owned link row inside the same transaction as the
    * Attachment, so a link failure cannot leave a committed orphan attachment.
    * The callback receives only the generated id, never the entity or the
@@ -115,16 +141,28 @@ export class ScopedAttachmentUploadService {
   }) {}
 
   async upload(input: ScopedAttachmentUploadInput): Promise<Attachment> {
-    const safeName = sanitizeUploadedFileName(input.fileName)
+    let safeName = sanitizeUploadedFileName(input.fileName)
     if (hasDangerousExecutableExtension(safeName)) {
       throw new ScopedAttachmentUploadError('dangerous_executable', 400)
     }
     if (input.buffer.length > (input.maxBytes ?? resolveAttachmentMaxBytes())) {
       throw new ScopedAttachmentUploadError('max_upload_size', 413)
     }
-    const mimeType = detectAttachmentMimeType(input.buffer, safeName, input.declaredMimeType ?? '')
-    if (isActiveContentAttachment(input.buffer, safeName, mimeType)) {
-      throw new ScopedAttachmentUploadError('active_content', 400)
+    let buffer = input.buffer
+    let mimeType = detectAttachmentMimeType(buffer, safeName, input.declaredMimeType ?? '')
+    let vectorImage: VectorImageRecord | null = null
+    if (isActiveContentAttachment(buffer, safeName, mimeType)) {
+      if (!input.allowVectorImage || !isVectorImageUploadCandidate(buffer, safeName, input.declaredMimeType)) {
+        throw new ScopedAttachmentUploadError('active_content', 400)
+      }
+      const prepared = await prepareVectorImageUpload(buffer)
+      if (!prepared.ok) {
+        throw new ScopedAttachmentUploadError(prepared.code, VECTOR_IMAGE_REJECTION_STATUS[prepared.code])
+      }
+      buffer = prepared.buffer
+      mimeType = VECTOR_IMAGE_MIME_TYPE
+      vectorImage = prepared.record
+      if (!safeName.toLowerCase().endsWith('.svg')) safeName = `${safeName}.svg`
     }
 
     const { em, storageDriverFactory, attachmentQuotaService, attachmentQuotaRecoveryScheduler } = this.deps
@@ -161,7 +199,7 @@ export class ScopedAttachmentUploadService {
       reservation = await attachmentQuotaService.reserve({
         tenantId: input.tenantId,
         organizationId: input.organizationId,
-        bytes: input.buffer.length,
+        bytes: buffer.length,
         source: 'attachment',
         storageDriver: driver.key,
         storagePath: preparedStoragePath,
@@ -192,7 +230,7 @@ export class ScopedAttachmentUploadService {
         orgId: input.organizationId,
         tenantId: input.tenantId,
         fileName: safeName,
-        buffer: input.buffer,
+        buffer,
         storagePath: preparedStoragePath,
       })
       storedPath = stored.storagePath
@@ -204,10 +242,11 @@ export class ScopedAttachmentUploadService {
     }
 
     let extractedContent: string | null = null
-    const wantsLlmOcr = partition.requiresOcr && shouldUseLlmOcr(mimeType, safeName)
+    const runsOcr = partition.requiresOcr && !vectorImage
+    const wantsLlmOcr = runsOcr && shouldUseLlmOcr(mimeType, safeName)
     const ocrService = wantsLlmOcr ? new OcrService() : null
     const useLlmOcr = Boolean(wantsLlmOcr && ocrService?.available)
-    if (partition.requiresOcr && !useLlmOcr) {
+    if (runsOcr && !useLlmOcr) {
       try {
         const { filePath, cleanup } = await driver.toLocalPath(partition.code, storedPath)
         try {
@@ -226,6 +265,7 @@ export class ScopedAttachmentUploadService {
       assignments,
       tags: input.tags ?? [],
     })
+    if (vectorImage) metadata[VECTOR_IMAGE_METADATA_KEY] = vectorImage
     const attachmentId = randomUUID()
     let attachment!: Attachment
 
@@ -239,7 +279,7 @@ export class ScopedAttachmentUploadService {
           tenantId: input.tenantId,
           fileName: safeName,
           mimeType,
-          fileSize: input.buffer.length,
+          fileSize: buffer.length,
           partitionCode: partition.code,
           storageDriver: partition.storageDriver || 'local',
           storagePath: storedPath,

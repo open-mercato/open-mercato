@@ -14,6 +14,12 @@ import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
 } from "@open-mercato/core/modules/attachments/lib/security";
+import {
+  DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
+  isTrustedVectorImage,
+  VECTOR_IMAGE_CONTENT_SECURITY_POLICY,
+  VECTOR_IMAGE_MIME_TYPE,
+} from "@open-mercato/core/modules/attachments/lib/vector-image";
 import { StorageDriverFactory } from '../../../lib/drivers';
 import { resolveAttachmentRequestScope } from '@open-mercato/core/modules/attachments/lib/requestScope';
 
@@ -89,15 +95,20 @@ export async function GET(
 
   const url = new URL(req.url);
   const forceDownload = url.searchParams.get("download") === "1";
-  const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
+  const vectorImage = isTrustedVectorImage(attachment, buffer);
+  const renderInline =
+    !forceDownload && (vectorImage || canRenderInlineAttachment(attachment.mimeType));
+  const inlineContentType = vectorImage
+    ? VECTOR_IMAGE_MIME_TYPE
+    : attachment.mimeType || "application/octet-stream";
   const headers: Record<string, string> = {
     "Cache-Control": partition.isPublic
       ? "public, max-age=86400"
       : "private, max-age=60",
-    "Content-Security-Policy": "default-src 'none'; sandbox",
-    "Content-Type": renderInline
-      ? attachment.mimeType || "application/octet-stream"
-      : "application/octet-stream",
+    "Content-Security-Policy": vectorImage
+      ? VECTOR_IMAGE_CONTENT_SECURITY_POLICY
+      : DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
+    "Content-Type": renderInline ? inlineContentType : "application/octet-stream",
     "Content-Disposition": buildAttachmentContentDisposition(
       attachment.fileName,
       renderInline ? "inline" : "attachment",
