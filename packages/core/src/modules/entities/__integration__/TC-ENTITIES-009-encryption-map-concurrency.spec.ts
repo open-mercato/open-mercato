@@ -204,6 +204,9 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
   })
 
   test('an outer upgrade transaction rollback removes its encryption-map write', async () => {
+    // Bootstrapping the full app in-process (module registry, DI, ORM) costs most of the
+    // default budget on a cold worker before the rollback scenario itself runs.
+    test.slow()
     const tenantId = randomUUID()
     const organizationId = randomUUID()
     const entityId = `entities:rollback_${randomUUID().replaceAll('-', '').slice(0, 12)}`
