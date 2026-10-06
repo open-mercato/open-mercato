@@ -184,7 +184,7 @@ describe('authorization state lock ordering', () => {
     ))).rejects.toMatchObject({ status: 409 })
   })
 
-  it('adds an API key referencing a locked role that committed during lock acquisition to the lock set', async () => {
+  it('adds an API key referencing a locked role that committed during writer lock acquisition to the lock set', async () => {
     let referenceRead = 0
     const lockCalls: Array<{ label: string; lockMode?: LockMode }> = []
     const em = withTransactionMethods({
@@ -203,16 +203,39 @@ describe('authorization state lock ordering', () => {
       findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
     })
 
-    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+    await expect(inTransaction(em, () => lockRoleWriterAuthorizationState(
       em as never,
-      { auth: null },
-      { targetRoleId: 'role-a' },
+      ['role-a'],
     ))).resolves.toBeUndefined()
 
     expect(lockCalls.filter((call) => call.label !== 'role-acl:')).toEqual([
       { label: 'role:role-a', lockMode: LockMode.PESSIMISTIC_WRITE },
       { label: 'key:inserted-key', lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE },
     ])
+  })
+
+  it('rejects a replay when an API key referencing a locked role committed during lock acquisition', async () => {
+    let referenceRead = 0
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (options?.lockMode) {
+          const ids = typeof where.id === 'object' ? where.id.$in ?? [] : []
+          return ids.map((id) => ({ id, rolesJson: ['role-a'] }))
+        }
+        if (isReferenceScan(entity, where, options)) {
+          referenceRead += 1
+          return referenceRead === 1 ? [] : [{ id: 'inserted-key', rolesJson: ['role-a'] }]
+        }
+        return []
+      }),
+      findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
+    })
+
+    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: null },
+      { targetRoleId: 'role-a' },
+    ))).rejects.toMatchObject({ status: 409 })
   })
 
   it('rejects a late referencing API key that another transaction already holds instead of waiting out of order', async () => {
@@ -233,10 +256,9 @@ describe('authorization state lock ordering', () => {
       findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => ({ id: where.id })),
     })
 
-    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+    await expect(inTransaction(em, () => lockRoleWriterAuthorizationState(
       em as never,
-      { auth: null },
-      { targetRoleId: 'role-a' },
+      ['role-a'],
     ))).rejects.toMatchObject({ status: 409 })
   })
 

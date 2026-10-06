@@ -514,7 +514,12 @@ describe('Action Executor', () => {
           }),
           persist: jest.fn(function persist(this: any) { return this }),
           flush: jest.fn(async () => undefined),
-          find: jest.fn(async () => []),
+          find: jest.fn(async (Entity: any, query: any) => {
+            if (Entity?.name === 'ApiKey' && Array.isArray(query?.id?.$in)) {
+              return createdApiKeys.filter((record) => query.id.$in.includes(record.id))
+            }
+            return []
+          }),
         })
 
         return {

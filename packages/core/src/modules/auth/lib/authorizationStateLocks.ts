@@ -263,10 +263,11 @@ export async function lockAuthorizationState(
   await lockAuthorizationRoleRows(em, roleIds)
 
   const stableReferencingApiKeyIds = await findApiKeyIdsReferencingRoles(em, roleIds)
-  await lockLateReferencingApiKeyRows(
-    em,
-    unexpectedIds([...apiKeyIds, ...referencingApiKeyIds], stableReferencingApiKeyIds),
-  )
+  const lateReferencingApiKeyIds = unexpectedIds([...apiKeyIds, ...referencingApiKeyIds], stableReferencingApiKeyIds)
+  if (options.sealReplayFootprint && lateReferencingApiKeyIds.length) {
+    throw authorizationStateDrift()
+  }
+  await lockLateReferencingApiKeyRows(em, lateReferencingApiKeyIds)
 
   for (const tenantId of tenantIds) {
     await lockOrganizationHierarchyForTenant(em, tenantId)
