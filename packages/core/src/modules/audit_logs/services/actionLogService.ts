@@ -200,6 +200,7 @@ export class ActionLogService {
         entry,
         tenantId,
         organizationId,
+        { em: this.em },
       )
 
       const merged = {
