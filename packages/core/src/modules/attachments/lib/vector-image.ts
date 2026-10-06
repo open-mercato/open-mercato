@@ -1,19 +1,32 @@
 import { createHash } from 'node:crypto'
 import { detectAttachmentMimeType, getAttachmentExtension } from './security'
+import {
+  readVectorImageRecord,
+  type VectorImageRecord,
+  VECTOR_IMAGE_MIME_TYPE,
+  VECTOR_IMAGE_POLICY_VERSION,
+  VECTOR_IMAGE_SANITIZER,
+} from './vector-image-record'
 
-export const VECTOR_IMAGE_MIME_TYPE = 'image/svg+xml'
+export {
+  hasVectorImageRecord,
+  readVectorImageRecord,
+  VECTOR_IMAGE_METADATA_KEY,
+  VECTOR_IMAGE_MIME_TYPE,
+  VECTOR_IMAGE_POLICY_VERSION,
+  VECTOR_IMAGE_SANITIZER,
+  type VectorImageRecord,
+} from './vector-image-record'
+
 export const VECTOR_IMAGE_MAX_BYTES = 1024 * 1024
-export const VECTOR_IMAGE_MAX_ELEMENTS = 10_000
+export const VECTOR_IMAGE_MAX_ELEMENTS = 5_000
+export const VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT = 64
+export const VECTOR_IMAGE_MAX_ATTRIBUTES = 25_000
 export const VECTOR_IMAGE_MAX_DEPTH = 64
 export const VECTOR_IMAGE_MAX_USE_INSTANCES = 10_000
-export const VECTOR_IMAGE_SANITIZER = 'dompurify'
-export const VECTOR_IMAGE_POLICY_VERSION = 1
-export const VECTOR_IMAGE_METADATA_KEY = 'vectorImage'
 export const VECTOR_IMAGE_CONTENT_SECURITY_POLICY =
   "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
 export const DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox"
-
-const TRUSTED_POLICY_VERSIONS = new Set([VECTOR_IMAGE_POLICY_VERSION])
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml'
@@ -27,14 +40,30 @@ const KEPT_ATTRIBUTE_NAMESPACES = new Set([XLINK_NAMESPACE, XML_NAMESPACE])
 const KEPT_NAMESPACE_DECLARATIONS = new Set([SVG_NAMESPACE, XLINK_NAMESPACE])
 const ANIMATION_ELEMENTS = new Set(['animate', 'animatecolor', 'animatemotion', 'animatetransform', 'set'])
 const RASTER_DATA_URI_ELEMENTS = new Set(['image', 'feimage'])
+const CSS_PARSED_ATTRIBUTES = new Set([
+  'style',
+  'fill',
+  'stroke',
+  'clip-path',
+  'mask',
+  'filter',
+  'marker',
+  'marker-start',
+  'marker-mid',
+  'marker-end',
+  'cursor',
+])
+const CSS_STRING_URL_FUNCTIONS = new Set(['image', 'image-set', 'cross-fade', 'element', 'src', 'attr'])
+const CSS_ACTIVE_FUNCTIONS = new Set(['expression'])
+const CSS_ACTIVE_IDENTIFIERS = new Set(['behavior', '-moz-binding', 'javascript', 'vbscript'])
 const RASTER_DATA_URI_PATTERN = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=\s]+)$/i
 const ACTIVE_SCHEME_PATTERN = /^(?:javascript|vbscript|data):/i
-const UNSAFE_CSS_PATTERN = /\\|expression\s*\(|javascript:|vbscript:|-moz-binding|behavior\s*:/
-const STRING_URL_CSS_FUNCTION_PATTERN = /(?:^|[^a-z0-9_-])(?:-[a-z]+-)?(?:image-set|image|cross-fade|element|src|attr)\s*\(/
-const CSS_URL_PATTERN = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)/gi
-const CSS_URL_OPENING_PATTERN = /url\(/gi
+const DTD_DECLARATION_PATTERN = /<!(?:ENTITY|ATTLIST|ELEMENT|NOTATION)/i
+const DOCTYPE_PATTERN = /<!DOCTYPE/gi
+const VENDOR_PREFIX_PATTERN = /^-[a-z0-9]+-/
 
 const NODE_ELEMENT = 1
+const NODE_CDATA_SECTION = 4
 const NODE_PROCESSING_INSTRUCTION = 7
 const NODE_COMMENT = 8
 const NODE_DOCUMENT_TYPE = 10
@@ -59,25 +88,21 @@ export type VectorImageSanitizeResult =
   | { ok: true; buffer: Buffer; removals: VectorImageRemoval[]; sanitizerVersion: string }
   | { ok: false; code: VectorImageRejectionCode; removals: VectorImageRemoval[] }
 
-export type VectorImageRecord = {
-  sanitizer: string
-  sanitizerVersion: string
-  policyVersion: number
-  sha256: string
-  sanitizedAt: string
-}
-
 export type PreparedVectorImage =
   | { ok: true; buffer: Buffer; record: VectorImageRecord; removals: VectorImageRemoval[] }
   | { ok: false; code: VectorImageRejectionCode; removals: VectorImageRemoval[] }
 
 type DomNode = {
-  isConnected: boolean
   nodeType: number
   nodeName: string
   parentNode: DomNode | null
-  childNodes: ArrayLike<DomNode>
+  firstChild: DomNode | null
+  lastChild: DomNode | null
+  previousSibling: DomNode | null
+  nextSibling: DomNode | null
   textContent: string | null
+  removeChild(child: DomNode): unknown
+  appendChild(child: DomNode): unknown
 }
 
 type DomAttribute = {
@@ -87,20 +112,23 @@ type DomAttribute = {
   value: string
 }
 
+type DomAttributeList = {
+  length: number
+  item(index: number): DomAttribute | null
+}
+
 type DomElement = DomNode & {
   localName: string
   namespaceURI: string | null
-  attributes: ArrayLike<DomAttribute>
-  children: ArrayLike<DomElement>
+  attributes: DomAttributeList
   getAttribute(name: string): string | null
   removeAttributeNode(attribute: DomAttribute): unknown
-  remove(): void
 }
 
 type DomDocument = DomNode & {
   documentElement: DomElement | null
-  getElementsByTagName(name: string): ArrayLike<DomElement>
-  getElementsByTagNameNS(namespace: string, name: string): ArrayLike<DomElement>
+  createTextNode(text: string): DomNode
+  getElementsByTagName(name: string): { length: number }
 }
 
 type DomWindow = {
@@ -162,67 +190,112 @@ function decodeUtf8(buffer: Buffer): string | null {
   }
 }
 
-function hasEntityDeclaration(text: string): boolean {
-  if (/<!ENTITY/i.test(text)) return true
-  return /<!DOCTYPE[^>[]*\[/i.test(text)
+/**
+ * Refuses any DTD declaration and any DOCTYPE carrying an internal subset.
+ * Quoted public/system identifiers are skipped as strings, so a `>` or `[`
+ * inside them can neither end the DOCTYPE early nor hide the subset.
+ */
+export function hasDtdDeclarations(text: string): boolean {
+  if (DTD_DECLARATION_PATTERN.test(text)) return true
+  DOCTYPE_PATTERN.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = DOCTYPE_PATTERN.exec(text))) {
+    let quote: string | null = null
+    let index = match.index + match[0].length
+    for (; index < text.length; index += 1) {
+      const character = text[index]
+      if (quote) {
+        if (character === quote) quote = null
+        continue
+      }
+      if (character === '"' || character === "'") {
+        quote = character
+        continue
+      }
+      if (character === '[') return true
+      if (character === '>') break
+    }
+    DOCTYPE_PATTERN.lastIndex = Math.max(index, match.index + 1)
+  }
+  return false
 }
 
 function isElement(node: DomNode): node is DomElement {
   return node.nodeType === NODE_ELEMENT
 }
 
-function childElements(element: DomElement): DomElement[] {
-  return Array.from(element.children)
+/**
+ * Pre-order walk over `firstChild`/`nextSibling` links. jsdom's live
+ * `children`/`childNodes` collections are proxies whose indexed access is
+ * linear, so copying them per node makes a flat 10,000-element document
+ * quadratic. The visitor may remove the node it is given; returning false
+ * skips that node's subtree.
+ */
+function walk(root: DomNode, visit: (node: DomNode, depth: number) => boolean): void {
+  const nodes: DomNode[] = [root]
+  const depths: number[] = [0]
+  while (nodes.length) {
+    const node = nodes.pop()!
+    const depth = depths.pop()!
+    if (!visit(node, depth)) continue
+    for (let child = node.lastChild; child; child = child.previousSibling) {
+      nodes.push(child)
+      depths.push(depth + 1)
+    }
+  }
 }
 
-function measureTree(root: DomElement): { elements: number; depth: number } {
+function attributesOf(element: DomElement): DomAttribute[] {
+  const list = element.attributes
+  const attributes: DomAttribute[] = []
+  for (let index = 0; index < list.length; index += 1) {
+    const attribute = list.item(index)
+    if (attribute) attributes.push(attribute)
+  }
+  return attributes
+}
+
+/**
+ * Bounds the work the later passes can be made to do. Element count and depth
+ * bound every traversal; attributes are bounded per element as well as in
+ * total because jsdom removes and re-sets an attribute in time linear in the
+ * element's attribute count, and DOMPurify touches every attribute, so a
+ * single element with tens of thousands of attributes is quadratic.
+ */
+function exceedsComplexityBounds(root: DomElement): boolean {
   let elements = 0
-  let depth = 0
-  const stack: Array<{ element: DomElement; level: number }> = [{ element: root, level: 1 }]
-  while (stack.length) {
-    const { element, level } = stack.pop()!
+  let attributes = 0
+  let exceeded = false
+  walk(root, (node, level) => {
+    if (exceeded || !isElement(node)) return false
     elements += 1
-    if (level > depth) depth = level
-    if (elements > VECTOR_IMAGE_MAX_ELEMENTS || depth > VECTOR_IMAGE_MAX_DEPTH) break
-    for (const child of childElements(element)) stack.push({ element: child, level: level + 1 })
-  }
-  return { elements, depth }
-}
-
-function collectNodes(root: DomNode): DomNode[] {
-  const nodes: DomNode[] = []
-  const stack: DomNode[] = [root]
-  while (stack.length) {
-    const node = stack.pop()!
-    nodes.push(node)
-    const children = Array.from(node.childNodes)
-    for (let index = children.length - 1; index >= 0; index -= 1) stack.push(children[index]!)
-  }
-  return nodes
-}
-
-function collectElements(root: DomElement): DomElement[] {
-  return collectNodes(root).filter(isElement)
+    const own = node.attributes.length
+    attributes += own
+    exceeded = elements > VECTOR_IMAGE_MAX_ELEMENTS
+      || level + 1 > VECTOR_IMAGE_MAX_DEPTH
+      || own > VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT
+      || attributes > VECTOR_IMAGE_MAX_ATTRIBUTES
+    return !exceeded
+  })
+  return exceeded
 }
 
 function removeNode(node: DomNode): void {
-  const parent = node.parentNode as (DomNode & { removeChild(child: DomNode): unknown }) | null
-  parent?.removeChild(node)
+  node.parentNode?.removeChild(node)
 }
 
 function normaliseUrlValue(value: string): string {
-  return Array.from(value)
-    .filter((character) => {
-      const code = character.charCodeAt(0)
-      return code > 0x20 && code !== 0x7f
-    })
-    .join('')
+  let normalised = ''
+  for (const character of value) {
+    const code = character.charCodeAt(0)
+    if (code > 0x20 && code !== 0x7f) normalised += character
+  }
+  return normalised
 }
 
 function hasRasterSignature(mimeType: string, base64: string): boolean {
   const bytes = Buffer.from(base64.replace(/\s+/g, ''), 'base64')
-  const normalised = mimeType.toLowerCase()
-  return detectAttachmentMimeType(bytes, null, null) === normalised
+  return detectAttachmentMimeType(bytes, null, null) === mimeType.toLowerCase()
 }
 
 function isAllowedRasterDataUri(value: string): boolean {
@@ -239,23 +312,116 @@ function classifyReference(value: string, allowRasterData: boolean): VectorImage
   return 'external_reference'
 }
 
+function isCssWhitespace(character: string | undefined): boolean {
+  return character === ' ' || character === '\t' || character === '\n' || character === '\r' || character === '\f'
+}
+
+function isCssNameCharacter(code: number): boolean {
+  return (code >= 0x61 && code <= 0x7a)
+    || (code >= 0x41 && code <= 0x5a)
+    || (code >= 0x30 && code <= 0x39)
+    || code === 0x2d
+    || code === 0x5f
+    || code >= 0x80
+}
+
+function readCssName(css: string, start: number): number {
+  let end = start
+  while (end < css.length && isCssNameCharacter(css.charCodeAt(end))) end += 1
+  return end
+}
+
+/**
+ * Classifies a stylesheet or a CSS-parsed attribute value by tokenising it the
+ * way CSS Syntax Level 3 does: comments, quoted strings and `url(` tokens are
+ * recognised as tokens, so a comment opener inside a string cannot hide what
+ * follows it and a comment inside an unquoted `url(` stays part of the URL.
+ *
+ * Deliberately stricter than a browser: any escape (`\`), any string ended by
+ * a newline or by the end of the stylesheet, any unterminated comment or
+ * `url(` token and any malformed unquoted URL are refused as active content,
+ * because each is a way to make two parsers disagree and logos need none.
+ */
 export function inspectVectorImageCss(css: string): VectorImageRemovalKind | null {
-  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  const lower = stripped.toLowerCase()
-  if (UNSAFE_CSS_PATTERN.test(lower)) return 'active_content'
-  if (lower.includes('@import')) return 'external_reference'
-  if (STRING_URL_CSS_FUNCTION_PATTERN.test(lower)) return 'external_reference'
-  const openings = stripped.match(CSS_URL_OPENING_PATTERN)?.length ?? 0
-  let parsed = 0
   let verdict: VectorImageRemovalKind | null = null
-  for (const match of stripped.matchAll(CSS_URL_PATTERN)) {
-    parsed += 1
-    const target = match[1] ?? match[2] ?? match[3] ?? ''
-    const kind = classifyReference(target, true)
-    if (kind === 'active_content') return kind
-    if (kind) verdict = kind
+  let urlStringExpected = false
+  let index = 0
+  while (index < css.length) {
+    const character = css[index]!
+    if (character === '/' && css[index + 1] === '*') {
+      const end = css.indexOf('*/', index + 2)
+      if (end < 0) return 'active_content'
+      index = end + 2
+      continue
+    }
+    if (character === '\\') return 'active_content'
+    if (character === '"' || character === "'") {
+      let end = index + 1
+      while (end < css.length && css[end] !== character) {
+        const inner = css[end]
+        if (inner === '\\' || inner === '\n' || inner === '\r' || inner === '\f') return 'active_content'
+        end += 1
+      }
+      if (end >= css.length) return 'active_content'
+      if (urlStringExpected) {
+        const kind = classifyReference(css.slice(index + 1, end), true)
+        if (kind === 'active_content') return kind
+        verdict = verdict ?? kind
+        urlStringExpected = false
+      }
+      index = end + 1
+      continue
+    }
+    if (isCssWhitespace(character)) {
+      index += 1
+      continue
+    }
+    urlStringExpected = false
+    if (character === '@') {
+      const end = readCssName(css, index + 1)
+      if (css.slice(index + 1, end).toLowerCase() === 'import') verdict = verdict ?? 'external_reference'
+      index = Math.max(end, index + 1)
+      continue
+    }
+    if (isCssNameCharacter(css.charCodeAt(index))) {
+      const end = readCssName(css, index)
+      const name = css.slice(index, end).toLowerCase()
+      if (css[end] !== '(') {
+        if (CSS_ACTIVE_IDENTIFIERS.has(name)) return 'active_content'
+        index = end
+        continue
+      }
+      const functionName = name.replace(VENDOR_PREFIX_PATTERN, '')
+      if (functionName === 'url') {
+        let start = end + 1
+        while (isCssWhitespace(css[start])) start += 1
+        if (css[start] === '"' || css[start] === "'") {
+          urlStringExpected = true
+          index = start
+          continue
+        }
+        let close = start
+        while (close < css.length && css[close] !== ')') {
+          const inner = css[close]!
+          if (inner === '"' || inner === "'" || inner === '(' || inner === '\\') return 'active_content'
+          close += 1
+        }
+        if (close >= css.length) return 'active_content'
+        const target = css.slice(start, close).trim()
+        if (/\s/.test(target)) return 'active_content'
+        const kind = classifyReference(target, true)
+        if (kind === 'active_content') return kind
+        verdict = verdict ?? kind
+        index = close + 1
+        continue
+      }
+      if (CSS_ACTIVE_FUNCTIONS.has(functionName)) return 'active_content'
+      if (CSS_STRING_URL_FUNCTIONS.has(functionName)) verdict = verdict ?? 'external_reference'
+      index = end + 1
+      continue
+    }
+    index += 1
   }
-  if (parsed !== openings) return 'external_reference'
   return verdict
 }
 
@@ -268,18 +434,42 @@ function describeAttribute(attribute: DomAttribute, owner?: DomNode | null): str
 }
 
 function containsRenderingElement(element: DomElement): boolean {
-  return collectElements(element).some(
-    (candidate) => candidate !== element && RENDERING_ELEMENT_NAMESPACES.has(candidate.namespaceURI ?? ''),
-  )
+  let found = false
+  walk(element, (node) => {
+    if (found || !isElement(node)) return false
+    if (node !== element && RENDERING_ELEMENT_NAMESPACES.has(node.namespaceURI ?? '')) found = true
+    return !found
+  })
+  return found
 }
 
-function removeInertNodes(root: DomDocument, removals: VectorImageRemoval[]): void {
-  for (const node of collectNodes(root)) {
-    if (node === root || !node.isConnected) continue
+function isStyleElement(element: DomElement): boolean {
+  return element.namespaceURI === SVG_NAMESPACE && element.localName === 'style'
+}
+
+/**
+ * Design tools wrap stylesheets in CDATA, which DOMPurify drops as a node.
+ * The CDATA text becomes an ordinary text node so the stylesheet survives
+ * sanitisation and is still inspected by the CSS policy afterwards.
+ */
+function flattenStyleCdata(document: DomDocument, style: DomElement): void {
+  let hasCdata = false
+  for (let child = style.firstChild; child; child = child.nextSibling) {
+    if (child.nodeType === NODE_CDATA_SECTION) hasCdata = true
+  }
+  if (!hasCdata) return
+  const text = style.textContent ?? ''
+  while (style.firstChild) style.removeChild(style.firstChild)
+  style.appendChild(document.createTextNode(text))
+}
+
+function prepareForPurify(document: DomDocument, removals: VectorImageRemoval[]): void {
+  walk(document, (node) => {
+    if (node === document) return true
     if (node.nodeType === NODE_COMMENT || node.nodeType === NODE_DOCUMENT_TYPE) {
       removals.push({ kind: 'inert', target: node.nodeType === NODE_COMMENT ? 'comment' : 'doctype' })
       removeNode(node)
-      continue
+      return false
     }
     if (node.nodeType === NODE_PROCESSING_INSTRUCTION) {
       const isStylesheet = node.nodeName.toLowerCase() === 'xml-stylesheet'
@@ -288,9 +478,9 @@ function removeInertNodes(root: DomDocument, removals: VectorImageRemoval[]): vo
         target: `processing-instruction:${node.nodeName}`,
       })
       removeNode(node)
-      continue
+      return false
     }
-    if (!isElement(node) || !node.isConnected) continue
+    if (!isElement(node)) return false
     const namespace = node.namespaceURI ?? ''
     const isForeign = !RENDERING_ELEMENT_NAMESPACES.has(namespace)
     const isMetadata = namespace === SVG_NAMESPACE && node.localName === 'metadata'
@@ -300,9 +490,9 @@ function removeInertNodes(root: DomDocument, removals: VectorImageRemoval[]): vo
         target: describeElement(node),
       })
       removeNode(node)
-      continue
+      return false
     }
-    for (const attribute of Array.from(node.attributes)) {
+    for (const attribute of attributesOf(node)) {
       const attributeNamespace = attribute.namespaceURI
       if (attributeNamespace === null || KEPT_ATTRIBUTE_NAMESPACES.has(attributeNamespace)) continue
       if (attributeNamespace === XMLNS_NAMESPACE) {
@@ -312,7 +502,12 @@ function removeInertNodes(root: DomDocument, removals: VectorImageRemoval[]): vo
       }
       node.removeAttributeNode(attribute)
     }
-  }
+    if (isStyleElement(node)) {
+      flattenStyleCdata(document, node)
+      return false
+    }
+    return true
+  })
 }
 
 function isHrefAttribute(attribute: DomAttribute): boolean {
@@ -335,42 +530,48 @@ function classifyPurifyRemoval(entry: PurifyRemovedEntry): VectorImageRemoval {
   return { kind: 'active_content', target: entry.element ? describeElement(entry.element) : 'element' }
 }
 
+function inspectAttribute(tag: string, attribute: DomAttribute): VectorImageRemovalKind | null {
+  if (isHrefAttribute(attribute)) return classifyReference(attribute.value, RASTER_DATA_URI_ELEMENTS.has(tag))
+  if (attribute.namespaceURI !== null) return null
+  const name = attribute.localName.toLowerCase()
+  if (CSS_PARSED_ATTRIBUTES.has(name) || /url\s*\(/i.test(attribute.value)) {
+    return inspectVectorImageCss(attribute.value)
+  }
+  return null
+}
+
 function applyReferencePolicy(root: DomElement, removals: VectorImageRemoval[]): void {
-  for (const element of collectElements(root)) {
-    if (!element.isConnected) continue
-    const tag = element.localName.toLowerCase()
+  walk(root, (node) => {
+    if (!isElement(node)) return false
+    const tag = node.localName.toLowerCase()
     if (ANIMATION_ELEMENTS.has(tag)) {
-      const target = (element.getAttribute('attributeName') ?? '').trim().toLowerCase()
+      const target = (node.getAttribute('attributeName') ?? '').trim().toLowerCase()
       if (target === 'href' || target.endsWith(':href')) {
-        removals.push({ kind: 'active_content', target: describeElement(element) })
-        element.remove()
-        continue
+        removals.push({ kind: 'active_content', target: describeElement(node) })
+        removeNode(node)
+        return false
       }
     }
     if (tag === 'style') {
-      const verdict = inspectVectorImageCss(element.textContent ?? '')
+      const verdict = inspectVectorImageCss(node.textContent ?? '')
       if (verdict) {
-        removals.push({ kind: verdict, target: describeElement(element) })
-        element.remove()
-        continue
+        removals.push({ kind: verdict, target: describeElement(node) })
+        removeNode(node)
+        return false
       }
     }
-    for (const attribute of Array.from(element.attributes)) {
-      let verdict: VectorImageRemovalKind | null = null
-      if (isHrefAttribute(attribute)) {
-        verdict = classifyReference(attribute.value, RASTER_DATA_URI_ELEMENTS.has(tag))
-      } else if (attribute.localName.toLowerCase() === 'style' || /url\s*\(/i.test(attribute.value)) {
-        verdict = inspectVectorImageCss(attribute.value)
-      }
+    for (const attribute of attributesOf(node)) {
+      const verdict = inspectAttribute(tag, attribute)
       if (!verdict) continue
-      removals.push({ kind: verdict, target: describeAttribute(attribute, element) })
-      element.removeAttributeNode(attribute)
+      removals.push({ kind: verdict, target: describeAttribute(attribute, node) })
+      node.removeAttributeNode(attribute)
     }
-  }
+    return true
+  })
 }
 
 function referencedId(element: DomElement): string | null {
-  for (const attribute of Array.from(element.attributes)) {
+  for (const attribute of attributesOf(element)) {
     if (!isHrefAttribute(attribute)) continue
     const value = attribute.value.trim()
     if (value.startsWith('#')) return value.slice(1)
@@ -378,13 +579,48 @@ function referencedId(element: DomElement): string | null {
   return null
 }
 
-function exceedsUseExpansion(root: DomElement): boolean {
-  const elements = collectElements(root)
-  const byId = new Map<string, DomElement>()
-  for (const element of elements) {
-    const id = element.getAttribute('id')
-    if (id && !byId.has(id)) byId.set(id, element)
+function firstIndexAtLeast(values: number[], minimum: number): number {
+  let low = 0
+  let high = values.length
+  while (low < high) {
+    const middle = (low + high) >> 1
+    if (values[middle]! < minimum) low = middle + 1
+    else high = middle
   }
+  return low
+}
+
+/**
+ * Counts how many element instances in-document `<use>` references expand to
+ * at render time. One pre-order pass records each element's pre-order range,
+ * so the `<use>` elements inside a referenced subtree are a contiguous slice
+ * of the pre-order list, and each referenced subtree is expanded once
+ * (memoised). A reference cycle counts as unbounded.
+ */
+function exceedsUseExpansion(root: DomElement): boolean {
+  const byId = new Map<string, DomElement>()
+  const rangeStart = new Map<DomElement, number>()
+  const rangeEnd = new Map<DomElement, number>()
+  const usePositions: number[] = []
+  const useElements: DomElement[] = []
+  const open: Array<{ element: DomElement; depth: number }> = []
+  let position = 0
+  walk(root, (node, depth) => {
+    if (!isElement(node)) return false
+    while (open.length && open[open.length - 1]!.depth >= depth) rangeEnd.set(open.pop()!.element, position)
+    rangeStart.set(node, position)
+    open.push({ element: node, depth })
+    const id = node.getAttribute('id')
+    if (id && !byId.has(id)) byId.set(id, node)
+    if (node.localName === 'use') {
+      usePositions.push(position)
+      useElements.push(node)
+    }
+    position += 1
+    return true
+  })
+  while (open.length) rangeEnd.set(open.pop()!.element, position)
+
   const memo = new Map<DomElement, number>()
   const visiting = new Set<DomElement>()
   const expand = (element: DomElement): number => {
@@ -392,10 +628,11 @@ function exceedsUseExpansion(root: DomElement): boolean {
     if (cached !== undefined) return cached
     if (visiting.has(element)) return Number.POSITIVE_INFINITY
     visiting.add(element)
+    const first = firstIndexAtLeast(usePositions, rangeStart.get(element)!)
+    const end = rangeEnd.get(element)!
     let total = 0
-    for (const candidate of collectElements(element)) {
-      if (candidate.localName !== 'use') continue
-      const targetId = referencedId(candidate)
+    for (let index = first; index < useElements.length && usePositions[index]! < end; index += 1) {
+      const targetId = referencedId(useElements[index]!)
       const target = targetId ? byId.get(targetId) : undefined
       total += 1 + (target ? expand(target) : 0)
       if (total > VECTOR_IMAGE_MAX_USE_INSTANCES) break
@@ -422,7 +659,7 @@ export async function sanitizeVectorImage(buffer: Buffer): Promise<VectorImageSa
   if (buffer.length > VECTOR_IMAGE_MAX_BYTES) return { ok: false, code: 'vector_image_too_large', removals }
   const text = decodeUtf8(buffer)
   if (text === null) return { ok: false, code: 'vector_image_malformed', removals }
-  if (hasEntityDeclaration(text)) return { ok: false, code: 'vector_image_entity_declaration', removals }
+  if (hasDtdDeclarations(text)) return { ok: false, code: 'vector_image_entity_declaration', removals }
 
   let runtime: SanitizerRuntime
   try {
@@ -443,12 +680,9 @@ export async function sanitizeVectorImage(buffer: Buffer): Promise<VectorImageSa
     if (!root || parseError(document) || root.namespaceURI !== SVG_NAMESPACE || root.localName !== 'svg') {
       return { ok: false, code: 'vector_image_malformed', removals }
     }
-    const { elements, depth } = measureTree(root)
-    if (elements > VECTOR_IMAGE_MAX_ELEMENTS || depth > VECTOR_IMAGE_MAX_DEPTH) {
-      return { ok: false, code: 'vector_image_too_complex', removals }
-    }
+    if (exceedsComplexityBounds(root)) return { ok: false, code: 'vector_image_too_complex', removals }
 
-    removeInertNodes(document, removals)
+    prepareForPurify(document, removals)
 
     const purify = runtime.createPurify(window)
     purify.sanitize(root, {
@@ -464,8 +698,9 @@ export async function sanitizeVectorImage(buffer: Buffer): Promise<VectorImageSa
 
     if (exceedsUseExpansion(root)) return { ok: false, code: 'vector_image_too_complex', removals }
 
-    const serialised = new window.XMLSerializer().serializeToString(root)
-    return { ok: true, buffer: Buffer.from(serialised, 'utf8'), removals, sanitizerVersion: purify.version }
+    const serialised = Buffer.from(new window.XMLSerializer().serializeToString(root), 'utf8')
+    if (serialised.length > VECTOR_IMAGE_MAX_BYTES) return { ok: false, code: 'vector_image_too_large', removals }
+    return { ok: true, buffer: serialised, removals, sanitizerVersion: purify.version }
   } finally {
     window.close()
   }
@@ -501,23 +736,6 @@ export async function prepareVectorImageUpload(buffer: Buffer, now: Date = new D
       sha256: hashVectorImage(result.buffer),
       sanitizedAt: now.toISOString(),
     },
-  }
-}
-
-function readVectorImageRecord(storageMetadata: unknown): VectorImageRecord | null {
-  if (!storageMetadata || typeof storageMetadata !== 'object' || Array.isArray(storageMetadata)) return null
-  const record = (storageMetadata as Record<string, unknown>)[VECTOR_IMAGE_METADATA_KEY]
-  if (!record || typeof record !== 'object' || Array.isArray(record)) return null
-  const candidate = record as Record<string, unknown>
-  if (candidate.sanitizer !== VECTOR_IMAGE_SANITIZER) return null
-  if (typeof candidate.policyVersion !== 'number' || !TRUSTED_POLICY_VERSIONS.has(candidate.policyVersion)) return null
-  if (typeof candidate.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(candidate.sha256)) return null
-  return {
-    sanitizer: candidate.sanitizer,
-    sanitizerVersion: typeof candidate.sanitizerVersion === 'string' ? candidate.sanitizerVersion : '',
-    policyVersion: candidate.policyVersion,
-    sha256: candidate.sha256,
-    sanitizedAt: typeof candidate.sanitizedAt === 'string' ? candidate.sanitizedAt : '',
   }
 }
 

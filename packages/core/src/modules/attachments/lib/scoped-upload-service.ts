@@ -145,7 +145,8 @@ export class ScopedAttachmentUploadService {
     if (hasDangerousExecutableExtension(safeName)) {
       throw new ScopedAttachmentUploadError('dangerous_executable', 400)
     }
-    if (input.buffer.length > (input.maxBytes ?? resolveAttachmentMaxBytes())) {
+    const maxBytes = input.maxBytes ?? resolveAttachmentMaxBytes()
+    if (input.buffer.length > maxBytes) {
       throw new ScopedAttachmentUploadError('max_upload_size', 413)
     }
     let buffer = input.buffer
@@ -158,6 +159,9 @@ export class ScopedAttachmentUploadService {
       const prepared = await prepareVectorImageUpload(buffer)
       if (!prepared.ok) {
         throw new ScopedAttachmentUploadError(prepared.code, VECTOR_IMAGE_REJECTION_STATUS[prepared.code])
+      }
+      if (prepared.buffer.length > maxBytes) {
+        throw new ScopedAttachmentUploadError('max_upload_size', 413)
       }
       buffer = prepared.buffer
       mimeType = VECTOR_IMAGE_MIME_TYPE
