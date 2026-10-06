@@ -1426,7 +1426,6 @@ export class BasicQueryEngine implements QueryEngine {
             payload: Record<string, unknown>,
             tenantId: string | null,
             organizationId: string | null,
-            options?: { em?: EntityManager },
           ) => Promise<Record<string, unknown>>)
         | null
 
@@ -1438,7 +1437,6 @@ export class BasicQueryEngine implements QueryEngine {
           item,
           (item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null) as string | null,
           (item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null) as string | null,
-          { em: this.em },
         )
         return { ...item, ...decrypted }
       } catch (err) {
