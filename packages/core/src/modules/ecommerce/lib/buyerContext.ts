@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   hashEffectiveScope,
   intersectScopes,
+  type AssortmentScope,
   type EffectiveAssortmentScope,
 } from '@open-mercato/shared/lib/catalog-visibility'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -196,15 +197,31 @@ async function resolveCustomerOverlayId(
  */
 async function resolveEffectiveAssortment(
   service: CustomerGroupsService,
-  store: ResolvedStore,
+  tenantId: string,
+  channelAssortmentScope: AssortmentScope | null,
   identity: BuyerIdentity,
 ): Promise<EffectiveAssortmentScope> {
   const buyerScope = await service.resolveAssortmentScope({
     customerId: identity.customerId,
     customerIds: identity.customerIds,
-    tenantId: store.tenantId,
+    tenantId,
   })
-  return intersectScopes(store.channel.assortmentScope, buyerScope.scope)
+  return intersectScopes(channelAssortmentScope, buyerScope.scope)
+}
+
+/**
+ * The effective assortment an anonymous buyer gets on a channel, resolved exactly as
+ * `resolveBuyerContext` resolves it: a channel that requires authentication is deny-all (`[]`),
+ * otherwise the channel scope intersected with the default customer group's scope. Lets the admin
+ * assortment count reuse the storefront's resolution instead of re-deriving it.
+ */
+export async function resolveAnonymousAssortmentScope(
+  container: BuyerContextContainer,
+  input: { tenantId: string; channelAssortmentScope: AssortmentScope | null; requireAuthentication: boolean },
+): Promise<EffectiveAssortmentScope> {
+  if (input.requireAuthentication) return []
+  const service = requireService<CustomerGroupsService>(container, 'customerGroupsService')
+  return resolveEffectiveAssortment(service, input.tenantId, input.channelAssortmentScope, ANONYMOUS_IDENTITY)
 }
 
 async function reportEmptyAssortment(
@@ -288,7 +305,12 @@ async function resolveBuyerGroupLayer(
     priceKindId: terms.priceKindId ?? store.channel.priceKindId ?? null,
     allowPurchaseOnAccount: terms.allowPurchaseOnAccount,
     approvalRequiredAbove: terms.approvalRequiredAbove,
-    assortmentScope: await resolveEffectiveAssortment(service, store, identity),
+    assortmentScope: await resolveEffectiveAssortment(
+      service,
+      store.tenantId,
+      store.channel.assortmentScope,
+      identity,
+    ),
   }
 }
 
