@@ -1131,20 +1131,22 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     }}
                   />
                 )}
-                <Button
-                  type="button"
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-xs text-muted-foreground"
-                  onClick={() => setAdvancedAudience((on) => !on)}
-                >
-                  {advancedAudience
-                    ? t('marketing_automation.audience.guided', 'Back to the guided editor')
-                    : t('marketing_automation.audience.advanced', 'Advanced editor')}
-                </Button>
-                <Button variant="outline" disabled={estimating} onClick={() => void runEstimate()}>
-                  {estimating ? <Spinner /> : t('marketing_automation.action.estimateAudience', 'Estimate audience')}
-                </Button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-xs text-muted-foreground"
+                    onClick={() => setAdvancedAudience((on) => !on)}
+                  >
+                    {advancedAudience
+                      ? t('marketing_automation.audience.guided', 'Back to the guided editor')
+                      : t('marketing_automation.audience.advanced', 'Advanced editor')}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={estimating} onClick={() => void runEstimate()}>
+                    {estimating ? <Spinner /> : t('marketing_automation.action.estimateAudience', 'Estimate audience')}
+                  </Button>
+                </div>
                 {estimate ? (
                   <div className="text-xs text-muted-foreground">
                     {estimate.qualifier === 'exact'
