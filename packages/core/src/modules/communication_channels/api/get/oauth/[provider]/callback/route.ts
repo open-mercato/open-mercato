@@ -142,12 +142,6 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const container = await createRequestContainer()
 
   // Single-use consume: reject a captured valid cookie replayed within the TTL.
-  // Resolve cache after the container exists; missing DI is fail-closed for
-  // replay protection (treat as unavailable → still attempt crypto-only path
-  // would leave the hole open, so require cache).
-  // bootstrap.ts always registers 'cache' (even as undefined when both
-  // createCacheService attempts fail), so resolve() returns undefined rather
-  // than throwing. Guard on the shape instead of catching.
   const resolved = (() => { try { return container.resolve('cache') } catch { return null } })()
   if (
     !resolved ||

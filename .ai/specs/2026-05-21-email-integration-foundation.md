@@ -1412,7 +1412,7 @@ The previous draft is superseded. This spec is the canonical email integration d
 
 ---
 
-## Amendment — Single-Use OAuth State (PR #3836, 2026-09-20)
+## Amendment — Single-Use OAuth State (PR #6267, 2026-09-20)
 
 Adds a fourth security control to the state-cookie design described in § Hub Deltas → Delta 7 / § OSS Independence (§ OAuth State Cookie):
 

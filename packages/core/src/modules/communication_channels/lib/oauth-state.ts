@@ -261,7 +261,7 @@ export async function consumeOAuthStateOnce(
   const ttl = Math.max(payload.expiresAt - now, 1_000)
   await store.set(key, 1, {
     ttl,
-    tags: [COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG, `${COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG}:${payload.tenantId}`],
+    tags: [`${COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG}:${payload.tenantId}`],
   })
 }
 
@@ -298,18 +298,19 @@ export function createOAuthState(params: {
 let memoryCacheStartupWarningEmitted = false
 
 /**
- * Emit a one-time startup warning when the cache strategy is process-local.
- * OAuth state single-use markers rely on a shared store across replicas.
+ * Emit a one-time startup warning unless the cache strategy is redis. Every other
+ * strategy (memory, sqlite, jsonfile) keeps replay markers per process or per node,
+ * so the single-use guarantee only holds across replicas on redis.
  */
 export function emitOAuthStateMemoryCacheStartupWarningIfNeeded(
   env: NodeJS.ProcessEnv = process.env,
 ): void {
   if (memoryCacheStartupWarningEmitted) return
   const strategy = (env.CACHE_STRATEGY ?? 'memory').trim().toLowerCase()
-  if (strategy !== 'memory') return
+  if (strategy === 'redis') return
   memoryCacheStartupWarningEmitted = true
   oauthStateLogger.warn(
-    'OAuth state single-use protection uses process-local cache (CACHE_STRATEGY=memory). Multi-replica deployments MUST set CACHE_STRATEGY=redis so replay markers are shared across replicas.',
+    `OAuth state single-use protection needs a store shared across replicas. CACHE_STRATEGY=${strategy} is per-process or per-node; multi-replica deployments MUST set CACHE_STRATEGY=redis.`,
     { context: 'startup', startup: true, cacheStrategy: strategy },
   )
 }
