@@ -3,7 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageRecipient } from '../../../data/entities'
 import { buildForwardPreview } from '../../../lib/forwarding'
-import { hasOrganizationAccess, resolveMessageContext } from '../../../lib/routeHelpers'
+import { hasChannelThreadReadAccess, hasOrganizationAccess, resolveMessageContext } from '../../../lib/routeHelpers'
 import {
   errorResponseSchema,
   forwardPreviewResponseSchema,
@@ -45,7 +45,13 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const isSender = message.senderUserId === scope.userId
   const isRecipient = Boolean(recipient)
-  if (!isSender && !isRecipient) {
+  // Mirrors `messages.messages.forward` (#6355): an operator working a channel
+  // thread may forward its public messages, and the preview must show the same
+  // conversation the forward will carry.
+  const viaChannelThread = !isSender && !isRecipient
+    && message.visibility === 'public'
+    && await hasChannelThreadReadAccess(ctx, scope, message)
+  if (!isSender && !isRecipient && !viaChannelThread) {
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
@@ -54,7 +60,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       userId: scope.userId,
-    }, message)
+    }, message, { includePublicThreadMessages: viaChannelThread })
     return Response.json(preview)
   } catch (error) {
     if (error instanceof Error && error.message === 'Forward body exceeds maximum length') {
