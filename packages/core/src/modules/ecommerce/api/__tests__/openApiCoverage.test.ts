@@ -28,6 +28,8 @@ describe('ecommerce API OpenAPI coverage', () => {
         'storefront/categories/[slug]/route.ts',
         'storefront/search/suggest/route.ts',
         'stores/route.ts',
+        'stores/[id]/branding/route.ts',
+        'stores/[id]/preview-branding/route.ts',
         'store-domain-bindings/route.ts',
         'store-channel-bindings/route.ts',
       ]),

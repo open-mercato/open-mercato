@@ -73,6 +73,10 @@ export function announceStoresUpdated(container: CrudCtx['container'], stores: E
   return announceUpdatedRows(container, STORE_EVENT_ENTITY, 'ecommerce.store.updated', stores, buildStoreEventPayload)
 }
 
+export function announceStoreBrandingUpdated(container: CrudCtx['container'], store: EcommerceStore): Promise<void> {
+  return announceUpdatedRows(container, STORE_EVENT_ENTITY, 'ecommerce.store.branding_updated', [store], buildStoreEventPayload)
+}
+
 export function announceStoreDomainBindingsUpdated(
   container: CrudCtx['container'],
   bindings: EcommerceStoreDomainBinding[],

@@ -188,3 +188,10 @@
 - Public API Phases 2–3 gate green on a rebuilt env: TC-ECOM 32/32, full core 19734, typecheck.
 - 6.6 found a production defect (store-resolution errors → 500 via instanceof across bundle layers) and fixed it in the same Step; verified after rebuild.
 - Coverage limits: pgvector search and the 429 path are unit-level only in this env (no embedding provider; limiter off under OM_INTEGRATION_TEST).
+
+## 2026-10-06T10:00:00Z — step 7.2 scope decisions
+- `PUT /stores/:id/branding` body is the branding object itself (strict schema, no `settings` wrapper) and has replace semantics for `settings.branding`: omitted or empty keys are cleared. It is merged into `settings` server-side, so contact, display and seo are never touched. The Branding tab (7.6) must therefore send the full branding value set.
+- Field errors are `400 { error, fieldErrors: { <brandingKey>: message } }` (unknown keys rejected per key), not the generic `{ error: 'Invalid input', details }` zod body.
+- Success returns `{ id, updatedAt, branding }`; the client should feed `updatedAt` into the next `x-om-ext-optimistic-lock-expected-updated-at`. The write is a registered, undoable command `ecommerce.stores.branding.update` (the module had no commands before; `commands/stores.ts` is new).
+- `GET preview-branding` is gated by `ecommerce.branding.manage` (SPEC-029 lists no feature for it), requires the store to exist in the selected organization, returns `{ css, styleBlock, declarations }` as JSON with `Cache-Control: no-store`, and rejects unknown query keys with 400.
+- No subscriber change: `ecommerce:store-cache-invalidation` (`ecommerce.store.*`) already maps `branding_updated` to the `ecommerce-store:{id}` tag.

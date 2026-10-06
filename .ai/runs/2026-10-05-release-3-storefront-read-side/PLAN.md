@@ -74,8 +74,8 @@
 | 6 | 6.5 | Rate limiting + OpenAPI for all storefront routes | dispatch:standard | done | 9ccc13df35 |
 | 6 | 6.1-fix | Translation Manager loads option schema templates so option/choice label fields appear | dispatch:standard | done | ed83aad87e |
 | 6 | 6.6 | Integration tests: facets, categories, search (Public API Phases 2–3 gates) | dispatch:capable | done | 8250cfd419 |
-| 7 | 7.1 | lib/brandingStyles.ts + validation + fuzz tests + SSR helper | dispatch:standard | done | pending |
-| 7 | 7.2 | PUT /stores/:id/branding command route + GET preview-branding | dispatch:standard | todo | — |
+| 7 | 7.1 | lib/brandingStyles.ts + validation + fuzz tests + SSR helper | dispatch:standard | done | 0046e52eb9 |
+| 7 | 7.2 | PUT /stores/:id/branding command route + GET preview-branding | dispatch:standard | done | pending |
 | 7 | 7.3 | GET store-channel-bindings/:id/assortment-count | dispatch:standard | todo | — |
 | 7 | 7.4 | Admin UI: store list + create | dispatch:standard | todo | — |
 | 7 | 7.5 | Admin UI: General tab (incl. store availability defaults) | dispatch:standard | todo | — |
