@@ -69,11 +69,13 @@ write time.
   (record present, known policy version, digest matches the bytes just read),
   with `VECTOR_IMAGE_CONTENT_SECURITY_POLICY` and `X-Content-Type-Options:
   nosniff`. Every other SVG-typed row stays download-only.
-- `GET /api/attachments/file/{id}` owns its `Content-Security-Policy` and MUST set
-  one on every response, JSON errors included. The app's `next.config.ts` (and
-  the create-app template) exclude that path from the app CSP rule, because a
-  config header overrides a route handler header of the same name; keep both
-  configs in sync (`yarn template:sync`).
+- `GET /api/attachments/file/{id}` MUST set a sandboxing `Content-Security-Policy`
+  on every response it produces, JSON errors included. In the app, `next.config.ts`
+  (and the create-app template) give every response under
+  `/api/attachments/file/` the vector CSP and exclude that path from the app CSP
+  rule; a config header overrides a route handler header of the same name, and
+  only config reaches the dispatcher's own responses. Keep both configs in sync
+  (`yarn template:sync`).
 - Build attachment preview URLs with `resolveAttachmentThumbnailUrl`
   (`lib/imageUrls.ts`): a sanitised vector row previews through the file route,
   everything else through the image route. Client code reads the vector record
@@ -81,8 +83,14 @@ write time.
   loads `jsdom` and `dompurify`).
 - Keep every pass in `lib/vector-image.ts` linear: walk the DOM over
   `firstChild`/`nextSibling`, never copy jsdom's live `children`/`childNodes`
-  collections per node, and keep the element, depth and attribute bounds that
-  the `bounded cost` test enforces.
+  collections, never remove scattered nodes one by one from a wide parent
+  (rebuild it), refuse at the first non-inert finding instead of removing more,
+  run DOMPurify on a copy (not `IN_PLACE`), and keep the markup, node, element,
+  depth, attribute and rendered-element bounds that the `bounded cost` test
+  enforces.
+- A `<style>` may contain only text: check its children, and inspect exactly the
+  concatenation of its direct text children (what browsers apply), never
+  `textContent`.
 
 ## Never
 

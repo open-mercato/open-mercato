@@ -567,7 +567,7 @@ new application version serves traffic. Until it has run, saving an encryption m
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
 
-### Attachments accept opt-in sanitised SVG logos; the file route owns its CSP (no action required for most apps)
+### Attachments accept opt-in sanitised SVG logos; the attachment file path gets its own CSP rule (no action required for most apps)
 
 `attachmentService.createScoped()` gained an optional `allowVectorImage` flag. Without it — every
 existing caller — SVG is still rejected as active content, and the generic `POST /api/attachments`
@@ -587,16 +587,22 @@ What widened, all additively:
   image is uploaded, and `jsdom` is a Next.js server-external package. Nothing new is fetched for
   an existing lockfile: both versions were already resolved.
 
-**Action for apps that copied the attachment header rule.** `GET /api/attachments/file/{id}` now sets
-its own `Content-Security-Policy` on every response, including JSON errors, and the scaffolded
-`next.config.ts` no longer sets one for that path: the app-wide CSP rule uses the source
-`/:path((?!api/attachments/file/).*)`, and the `/api/attachments/file/:path*` rule is gone. Next.js
-keeps a config header over a route handler's header of the same name. So an app whose
-`next.config.ts` still sets `Content-Security-Policy` for `/api/attachments/file/*` keeps every
-existing file working, but a sanitised SVG will be served under the stricter config CSP: its inline
-`<style>` and embedded rasters will not render when the file is opened directly. To fix it, mirror
-the scaffolded `headers()`. Nothing else changes: every other file still gets
-`default-src 'none'; sandbox`.
+**Action for apps with their own `next.config.ts` headers.** The scaffolded `headers()` changed:
+
+- The app-wide `Content-Security-Policy` rule now uses the source
+  `/:path((?!api/attachments/file/).*)`.
+- `/api/attachments/file/:path*` gets its own rule with
+  `default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox`.
+
+Every response under that path carries it, including the API dispatcher's own 404s and errors.
+`default-src 'none'` and `sandbox` stay. The added style and `data:` image allowances matter only for
+the sanitised SVG the route serves inline; every other file is a raster image or an
+`application/octet-stream` download.
+
+Next.js keeps a config header over a route handler's header of the same name. So an app that keeps
+`default-src 'none'; sandbox` for that path keeps every existing file working, but a sanitised SVG's
+inline `<style>` and embedded rasters will not apply when the file is opened directly. To fix it,
+mirror the scaffolded `headers()`.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
