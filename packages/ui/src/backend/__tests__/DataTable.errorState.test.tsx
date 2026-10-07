@@ -61,6 +61,9 @@ describe('DataTable error state centres within the visible area', () => {
         expect.arrayContaining(['sticky', 'left-0', 'flex', 'items-center', 'justify-center', 'text-destructive']),
       )
       expect(tokensOf(box.closest('td'))).toContain('p-0')
+      // A block box with a fixed height would clip a wrapped message; on the cell it was a minimum.
+      expect(tokens).toContain('min-h-24')
+      expect(tokens).not.toContain('h-24')
     } finally {
       queryClient.clear()
     }
