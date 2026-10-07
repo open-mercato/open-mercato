@@ -280,6 +280,7 @@ const sidebars: SidebarsConfig = {
           label: "Bootstrap & Database",
           items: [
             "cli/init",
+            "cli/upgrade",
             "cli/db-generate",
             "cli/db-migrate",
             "cli/db-greenfield",
