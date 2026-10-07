@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -32,7 +33,7 @@ export async function resolveWebhookRequestScope(request: Request): Promise<Webh
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
   const tenantId = scope?.tenantId ?? auth.tenantId ?? null
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
   const allowedOrganizationIds = Array.isArray(scope?.allowedIds) ? scope.allowedIds : null
 
   if (!tenantId) {

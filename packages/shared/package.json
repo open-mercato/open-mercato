@@ -12,6 +12,10 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./lib/availability": {
+      "types": "./src/lib/availability/index.ts",
+      "default": "./dist/lib/availability/index.js"
+    },
     "./lib/openapi": {
       "types": "./src/lib/openapi/index.ts",
       "default": "./dist/lib/openapi/index.js"
@@ -19,6 +23,10 @@
     "./lib/commands": {
       "types": "./src/lib/commands/index.ts",
       "default": "./dist/lib/commands/index.js"
+    },
+    "./lib/catalog-visibility": {
+      "types": "./src/lib/catalog-visibility/index.ts",
+      "default": "./dist/lib/catalog-visibility/index.js"
     },
     "./lib/hotkeys": {
       "types": "./src/lib/hotkeys/index.ts",
@@ -124,11 +132,12 @@
     "re2js": "2.8.6",
     "reflect-metadata": "^0.2.2",
     "sanitize-html": "2.17.5",
-    "undici": "^8.9.0"
+    "undici": "^8.11.2"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "jest": "^30.4.2",
+    "language-subtag-registry": "^0.3.20",
     "ts-jest": "^29.4.12",
     "ts-morph": "^28.0.0",
     "typescript": "7.0.2"

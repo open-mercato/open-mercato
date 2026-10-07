@@ -518,6 +518,7 @@ const sidebars: SidebarsConfig = {
             "framework/runtime/logging",
             "framework/runtime/dev-runtime-diagnostics",
             "framework/runtime/error-reporting",
+            "framework/runtime/telemetry",
           ],
         },
         {

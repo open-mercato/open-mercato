@@ -141,6 +141,13 @@ export function AdjustInventoryDialog({
   )
   const [submitting, setSubmitting] = React.useState(false)
   const [form, setForm] = React.useState<AdjustFormValues>(EMPTY_FORM)
+  // Raw text the user is typing into the delta field, decoupled from `form.delta` (issue
+  // #5828): re-deriving the input's display from the committed number on every keystroke
+  // drops an in-progress decimal separator the instant it's typed (`2,5` collapses to `2`
+  // then the next digit appends, producing `25`). Synced from `form.delta` only while the
+  // field is not focused, mirroring `CrudForm.NumberInput`'s buffer.
+  const [deltaInputText, setDeltaInputText] = React.useState<string>(String(EMPTY_FORM.delta))
+  const deltaInputFocusedRef = React.useRef(false)
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [onHand, setOnHand] = React.useState<number | null>(null)
   const [previewError, setPreviewError] = React.useState<string | null>(null)
@@ -189,6 +196,7 @@ export function AdjustInventoryDialog({
 
   const resetDialog = React.useCallback(() => {
     setForm(EMPTY_FORM)
+    setDeltaInputText(String(EMPTY_FORM.delta))
     setFieldErrors({})
     setOnHand(null)
     setPreviewError(null)
@@ -207,6 +215,10 @@ export function AdjustInventoryDialog({
     setForm((current) => ({ ...current, ...patch }))
     setFieldErrors({})
   }, [])
+
+  React.useEffect(() => {
+    if (!deltaInputFocusedRef.current) setDeltaInputText(String(form.delta))
+  }, [form.delta])
 
   React.useEffect(() => {
     if (!open) return
@@ -689,11 +701,19 @@ export function AdjustInventoryDialog({
                 <Input
                   type="text"
                   inputMode="decimal"
-                  value={String(form.delta)}
+                  value={deltaInputText}
                   onChange={(event) => {
+                    setDeltaInputText(event.target.value)
                     const parsed = parseDeltaInput(event.target.value, locale)
                     if (parsed == null) return
                     patchForm({ delta: parsed })
+                  }}
+                  onFocus={() => {
+                    deltaInputFocusedRef.current = true
+                  }}
+                  onBlur={() => {
+                    deltaInputFocusedRef.current = false
+                    setDeltaInputText(String(form.delta))
                   }}
                   className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
                   inputClassName="text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
