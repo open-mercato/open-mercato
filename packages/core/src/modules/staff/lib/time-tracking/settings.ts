@@ -28,14 +28,15 @@ export const TIME_TRACKING_ROUNDING_UNIT_MINUTES_KEY = 'rounding.unitMinutes'
 export const TIME_TRACKING_ROUNDING_DIRECTION_KEY = 'rounding.direction'
 export const TIME_TRACKING_DEFAULTS_BILLABLE_KEY = 'defaults.billable'
 export const TIME_TRACKING_DEFAULTS_CHAIN_START_KEY = 'defaults.chainStartFromPreviousEnd'
+export const TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY = 'defaults.entryMode'
 export const TIME_TRACKING_TARGETS_DAILY_HOURS_KEY = 'targets.dailyHours'
 export const TIME_TRACKING_WARNINGS_OVERLAP_KEY = 'warnings.overlap'
 export const TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY = 'warnings.runningTimer'
 export const TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY = 'access.assignmentGraceDays'
 
 /**
- * The eight keys the module shipped. FROZEN — a stored config row is named after one
- * of these, so none may be renamed or removed. The list is no longer the whole truth:
+ * The built-in keys the module ships. FROZEN — a stored config row is named after one
+ * of these, so none may be renamed or removed; new built-ins are appended. The list is no longer the whole truth:
  * `timeTrackingSettingKeyIds()` returns these plus every contributed key (EP-42).
  */
 export const TIME_TRACKING_SETTING_KEYS = [
@@ -47,13 +48,17 @@ export const TIME_TRACKING_SETTING_KEYS = [
   TIME_TRACKING_WARNINGS_OVERLAP_KEY,
   TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY,
   TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY,
+  TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY,
 ] as const
 
 export type TimeTrackingSettingKey = (typeof TIME_TRACKING_SETTING_KEYS)[number]
 
+export type TimeEntryMode = 'task' | 'project'
+
 export type TimeTrackingEntryDefaults = {
   billable: boolean
   chainStartFromPreviousEnd: boolean
+  entryMode: TimeEntryMode
 }
 
 export type TimeTrackingTargets = {

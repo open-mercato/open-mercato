@@ -5,6 +5,7 @@ import {
   DEFAULT_TIME_TRACKING_SETTINGS,
   STAFF_TIME_TRACKING_MODULE_ID,
   TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY,
+  TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY,
   TIME_TRACKING_SETTING_KEYS,
   normalizeTimeTrackingSettings,
   readTimeTrackingSettings,
@@ -116,5 +117,30 @@ describe('staffTimeTrackingSettingsSchema access group', () => {
     expect(() => staffTimeTrackingSettingsSchema.parse({ access: { assignmentGraceDays: -1 } })).toThrow()
     expect(() => staffTimeTrackingSettingsSchema.parse({ access: { assignmentGraceDays: 1.5 } })).toThrow()
     expect(() => staffTimeTrackingSettingsSchema.parse({ access: { assignmentGraceDays: 366 } })).toThrow()
+  })
+})
+
+describe('time tracking entry mode setting', () => {
+  it('registers defaults.entryMode as a built-in key defaulting to task', () => {
+    expect(TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY).toBe('defaults.entryMode')
+    expect(TIME_TRACKING_SETTING_KEYS).toContain(TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY)
+    expect(DEFAULT_TIME_TRACKING_SETTINGS.defaults.entryMode).toBe('task')
+    expect(normalizeTimeTrackingSettings({}).defaults.entryMode).toBe('task')
+  })
+
+  it('falls back to task for an unknown stored value', async () => {
+    const { service } = createConfigService({ [TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY]: 'tasks' })
+    const read = await readTimeTrackingSettings(service, SCOPE)
+    expect(read.defaults.entryMode).toBe('task')
+  })
+
+  it('round-trips project mode and keeps the other defaults', async () => {
+    const { store, service } = createConfigService()
+    await writeTimeTrackingSettings(service, SCOPE, {
+      defaults: { billable: false, chainStartFromPreviousEnd: true, entryMode: 'project' },
+    })
+    expect(store.get(TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY)).toBe('project')
+    const read = await readTimeTrackingSettings(service, SCOPE)
+    expect(read.defaults).toEqual({ billable: false, chainStartFromPreviousEnd: true, entryMode: 'project' })
   })
 })

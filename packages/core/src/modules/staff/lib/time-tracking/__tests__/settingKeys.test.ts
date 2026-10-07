@@ -2,9 +2,9 @@
 /**
  * EP-42 — the settings key registry.
  *
- * The first block is the one that matters: with no contribution the eight built-in keys
- * produce the same defaults, the same validating schema and the same eight config rows
- * the module wrote before the registry existed.
+ * The first block is the one that matters: with no contribution the built-in keys
+ * produce the same defaults, the same validating schema and the same config rows
+ * the module wrote before the registry existed, plus `defaults.entryMode` (#6989).
  */
 import { z } from 'zod'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -58,7 +58,7 @@ function createConfigService() {
 }
 
 describe('built-in setting keys', () => {
-  it('registers exactly the eight frozen keys', () => {
+  it('registers exactly the frozen built-in keys', () => {
     expect([...BUILT_IN_TIME_TRACKING_SETTING_KEY_IDS].sort()).toEqual([...TIME_TRACKING_SETTING_KEYS].sort())
     expect(timeTrackingSettingKeyIds().sort()).toEqual([...TIME_TRACKING_SETTING_KEYS].sort())
     expect(contributedTimeTrackingSettingKeys()).toEqual([])
@@ -67,7 +67,7 @@ describe('built-in setting keys', () => {
   it('derives the shipped defaults from the registry', () => {
     expect(buildDefaultTimeTrackingSettings()).toEqual({
       rounding: { unitMinutes: 0, direction: 'up' },
-      defaults: { billable: true, chainStartFromPreviousEnd: true },
+      defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 14 },
@@ -81,6 +81,8 @@ describe('built-in setting keys', () => {
     expect(() => schema.parse({ rounding: { unitMinutes: 7 } })).toThrow()
     expect(() => schema.parse({ access: { assignmentGraceDays: 1.5 } })).toThrow()
     expect(schema.parse({ targets: { dailyHours: null } }).targets).toEqual({ dailyHours: null })
+    expect(schema.parse({ defaults: { entryMode: 'project' } }).defaults.entryMode).toBe('project')
+    expect(() => schema.parse({ defaults: { entryMode: 'tasks' } })).toThrow()
   })
 })
 
@@ -129,7 +131,7 @@ describe('contributed setting keys', () => {
 
       const { writes, service } = createConfigService()
       await writeTimeTrackingSettings(service, SCOPE, { jira: { projectKey: 'TIME' } })
-      expect(writes).toHaveLength(9)
+      expect(writes).toHaveLength(TIME_TRACKING_SETTING_KEYS.length + 1)
       expect(writes.find((write) => write.name === 'jira.projectKey')).toEqual({
         name: 'jira.projectKey',
         value: 'TIME',

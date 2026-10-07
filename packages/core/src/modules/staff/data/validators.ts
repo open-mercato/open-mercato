@@ -699,7 +699,7 @@ export const staffTimeProjectChangeCurrencySchema = z.object({
 /**
  * EP-42 — built from the setting-key registry rather than a literal, so a module can
  * contribute a key without patching this file. With no contribution the shape is the
- * eight built-in keys in their five groups, exactly as it was.
+ * built-in keys in their five groups.
  *
  * This constant is evaluated once at module load. A key registered later still
  * validates on the wire because the settings route parses with

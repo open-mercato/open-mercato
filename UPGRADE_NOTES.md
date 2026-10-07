@@ -24,6 +24,24 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
+
+The staff time-tracking settings gain a ninth built-in key, `defaults.entryMode`
+(`'task' | 'project'`, default `'task'`). It switches the time entry dialog between logging
+time against a task (today's behaviour) and against a project with an optional task. Tenants
+that never change it see no difference.
+
+**Action for module authors:** none, unless your module already contributes a key with the
+same id through `registerTimeTrackingSettingKey({ group: 'defaults', key: 'entryMode', … })`.
+A contribution cannot replace a built-in, so that registration now throws at load; rename
+your key. Code that asserted the exact `defaults` group shape or counted
+`TIME_TRACKING_SETTING_KEYS` should expect the extra key.
+
+The ten published time-tracking component `propsSchema`s are now named exports of their
+component files (e.g. `timeEntryDialogPropsSchema` from
+`@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog`). A replacement can
+import its contract instead of copying it.
+
 ### Redoing an `auth.users.create` no longer restores the account's password
 
 Creating a user writes an audit entry, and that entry used to carry the credential twice: the
