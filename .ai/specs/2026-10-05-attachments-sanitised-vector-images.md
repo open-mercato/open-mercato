@@ -784,9 +784,9 @@ Verified with a trial merge of the owner-scoped reads branch into this one:
   - `packages/core/src/modules/attachments/AGENTS.md` has two hunks: keep both `Always` blocks, and
     in the `Never` list keep the owner-scoped branch's `checkAttachmentAccess` exception and
     `readScopedForOwner` rule, then the vector rules.
-- The merged tree (re-verified on 2026-10-07 after the ninth review round) passes:
+- The merged tree (re-verified on 2026-10-07 after the tenth review round) passes:
   - core and checkout typecheck;
-  - every attachments suite (839 tests), `attachment-service.test.ts` among them (67). The only
+  - every attachments suite (843 tests), `attachment-service.test.ts` among them (67). The only
     failures are six in `storage.test.ts` and `localDriver.test.ts`, suites neither branch touches,
     which fail on the Windows machine used because they expect POSIX absolute paths;
   - checkout's pay route suites (47).
@@ -1114,6 +1114,7 @@ Regression proofs run during implementation:
 ## Changelog
 
 - 2026-10-07 — Tenth review round:
+  - Merge order re-verified with a trial merge: the same five conflicting files and hunks.
   - Carriage returns in text and CDATA are normalised to line feeds in `prepareForPurify`, so the
     stored bytes re-parse to the checked DOM (idempotence test extended with text, `<style>` and
     CDATA cases).
