@@ -7,6 +7,7 @@ import {
   resolveGeneratedMigrationPath,
   dbGenerate,
   dbGreenfield,
+  warnAboutMissingEncryptionMapBackfills,
 } from '../commands'
 import { MetadataStorage } from '@mikro-orm/core'
 import fs from 'node:fs'
@@ -397,5 +398,47 @@ describe('dbGenerate metadata isolation (issue #1911)', () => {
     // observe the registry state at clear time AND after dbGenerate exits.
     expect(clearSpy.mock.calls.length).toBeGreaterThanOrEqual(1)
     expect(Object.keys(MetadataStorage.getMetadata())).toHaveLength(0)
+  })
+})
+
+describe('warnAboutMissingEncryptionMapBackfills', () => {
+  const tempDirs: string[] = []
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+    }
+    jest.restoreAllMocks()
+  })
+
+  function createResolver(dir: string): PackageResolver {
+    return {
+      isMonorepo: () => true,
+      getRootDir: () => dir,
+      getAppDir: () => dir,
+      getOutputDir: () => dir,
+      getModulesConfigPath: () => path.join(dir, 'modules.ts'),
+      discoverPackages: () => [],
+      loadEnabledModules: () => [{ id: 'demo', from: '@app' }],
+      getModulePaths: () => ({ appBase: dir, pkgBase: dir }),
+      getModuleImportBase: () => ({ appBase: '@/modules/demo', pkgBase: '@open-mercato/core/modules/demo' }),
+      getPackageOutputDir: () => dir,
+      getPackageRoot: () => dir,
+    }
+  }
+
+  function createModule(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-enc-'))
+    tempDirs.push(dir)
+    return dir
+  }
+
+  it('stays silent without declared encryption maps', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation()
+    const resolver = createResolver(createModule())
+
+    await warnAboutMissingEncryptionMapBackfills(resolver.loadEnabledModules(), resolver)
+
+    expect(warn).not.toHaveBeenCalled()
   })
 })
