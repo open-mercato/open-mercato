@@ -219,6 +219,49 @@ describe('sync_excel import route', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Select a concrete organization before importing CSV.' })
   })
 
+  it('leaves an omitted batch size for the shared start helper to resolve', async () => {
+    const { batchSize: _batchSize, ...payload } = await mockReadJsonSafe()
+    mockReadJsonSafe.mockResolvedValueOnce(payload)
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockStartDataSyncRun).toHaveBeenCalledTimes(1)
+    expect(mockStartDataSyncRun.mock.calls[0][0].input.batchSize).toBeUndefined()
+  })
+
+  it.each([1, 100, 250, 1000])('preserves an explicit batch size of %i', async (batchSize) => {
+    const payload = { ...await mockReadJsonSafe(), batchSize }
+    mockReadJsonSafe.mockResolvedValueOnce(payload)
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockStartDataSyncRun.mock.calls[0][0].input.batchSize).toBe(batchSize)
+  })
+
+  it.each([0, 1001, 1.5])('rejects an invalid batch size of %s', async (batchSize) => {
+    const payload = { ...await mockReadJsonSafe(), batchSize }
+    mockReadJsonSafe.mockResolvedValueOnce(payload)
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }))
+
+    expect(response.status).toBe(422)
+    expect(mockStartDataSyncRun).not.toHaveBeenCalled()
+  })
+
   it('returns 404 when upload is missing', async () => {
     mockFindOneWithDecryption.mockResolvedValueOnce(null)
 
