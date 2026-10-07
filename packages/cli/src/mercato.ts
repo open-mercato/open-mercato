@@ -1476,62 +1476,167 @@ export async function run(argv = process.argv) {
     return runWithCapturedExitCode(() => runUmesCheck())
   }
 
+  if (first === 'upgrade') {
+    await ensureEnvLoaded()
+
+    const upgradeArgs = parts.slice(1).filter(Boolean)
+    const readUpgradeFlag = (name: string): string | null => {
+      for (let index = 0; index < upgradeArgs.length; index += 1) {
+        const token = upgradeArgs[index]
+        if (!token) continue
+        if (token.startsWith(`--${name}=`)) return token.slice(name.length + 3)
+        if (token === `--${name}`) {
+          const next = upgradeArgs[index + 1]
+          if (next && !next.startsWith('--')) return next
+        }
+      }
+      return null
+    }
+
+    const {
+      withUpgradeLock,
+      parseUpgradeLockArgs,
+      UpgradeLockTimeoutError,
+      UPGRADE_LOCK_NAMESPACE,
+      UPGRADE_LOCK_ID,
+    } = await import('./lib/upgrade-lock')
+    const {
+      runUpgradeSteps,
+      printUpgradeFollowUps,
+      printSeedDefaultsWarning,
+      assertDeploymentInitialized,
+      assertTenantExists,
+      UpgradeRefusal,
+    } = await import('./lib/upgrade')
+
+    let lockArgs: { skip: boolean; timeoutSeconds?: number }
+    try {
+      lockArgs = parseUpgradeLockArgs(upgradeArgs)
+    } catch (error: unknown) {
+      console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+      return 1
+    }
+
+    const tenantId = readUpgradeFlag('tenant') ?? readUpgradeFlag('tenantId')
+    const withSeedDefaults = upgradeArgs.includes('--with-seed-defaults')
+
+    if (!process.env.DATABASE_URL) {
+      console.error('❌ DATABASE_URL is not set. Aborting upgrade.')
+      return 1
+    }
+
+    console.log('⬆️  Upgrading Open Mercato deployment...\n')
+
+    try {
+      // `upgrade` is not in BOOTSTRAP_FREE_COMMANDS, so `bin.ts` has already bootstrapped the app
+      // and registered its CLI modules — bootstrapping again here would compile the whole module
+      // graph a second time. Unlike `init`, nothing is generated along the way either: a deployed
+      // image already carries its generated output, and a deploy container's filesystem may be
+      // read-only, so the reconcile must never depend on being able to write generated files.
+      const { createResolver } = await import('./lib/resolver')
+      const resolver = createResolver()
+      const allModules = await buildAllModules()
+
+      if (!allModules.length) {
+        console.error('❌ No CLI modules registered. Run `yarn generate` first.')
+        return 1
+      }
+
+      const { dbMigrateUnlocked } = await import('./lib/db')
+      const { Client } = await import('pg')
+
+      await withUpgradeLock(
+        async (lockClient) => {
+          // `--no-lock` leaves no connection to borrow, so the preflight opens its own. Either way
+          // the checks run inside the lock when there is one, so two racing deploys cannot both
+          // pass the guard and then interleave.
+          const ownClient = lockClient
+            ? null
+            : new Client({ connectionString: process.env.DATABASE_URL, ssl: getSslConfig() })
+          if (ownClient) await ownClient.connect()
+          const query = lockClient
+            ? (sql: string, values?: unknown[]) => lockClient.query(sql, values)
+            : async (sql: string, values?: unknown[]) => {
+                const result = await ownClient!.query(sql, values as any[])
+                return { rows: result.rows as Array<Record<string, unknown>> }
+              }
+
+          try {
+            await assertDeploymentInitialized(query)
+            if (tenantId) await assertTenantExists(query, tenantId)
+          } finally {
+            if (ownClient) {
+              try {
+                await ownClient.end()
+              } catch {}
+            }
+          }
+
+          if (withSeedDefaults) printSeedDefaultsWarning((message) => console.log(message))
+
+          await runUpgradeSteps(
+            {
+              migrate: () => dbMigrateUnlocked(resolver),
+              runModuleCommand: (moduleName, commandName, args, options) =>
+                runModuleCommand(allModules, moduleName, commandName, args, options),
+              seedDefaults: withSeedDefaults
+                ? async () => {
+                    const { runSeedDefaults } = await import('./lib/seed-defaults')
+                    await runSeedDefaults({ modules: getCliModules() })
+                  }
+                : undefined,
+            },
+            { tenantId, withSeedDefaults },
+          )
+        },
+        {
+          skip: lockArgs.skip,
+          timeoutSeconds: lockArgs.timeoutSeconds,
+          onSkip: () =>
+            console.warn('⚠️  --no-lock: reconciling without the upgrade lock. Local use only.\n'),
+          onWait: (_attempt, elapsedSeconds) =>
+            console.log(
+              `⏳ Waiting for the upgrade lock (another migrate or upgrade run is in progress, ${Math.round(elapsedSeconds)}s elapsed)...`,
+            ),
+        },
+      )
+
+      console.log('\n✅ Upgrade complete.')
+      printUpgradeFollowUps((message) => console.log(message), {
+        seedDefaultsAlreadyRan: withSeedDefaults,
+      })
+      return 0
+    } catch (error: unknown) {
+      if (error instanceof UpgradeRefusal) {
+        console.error(`❌ ${error.message}`)
+        return 1
+      }
+      if (error instanceof UpgradeLockTimeoutError) {
+        console.error(`❌ ${error.message}`)
+        console.error(
+          `   Identify the holder: SELECT a.pid, a.state, a.query_start, a.query FROM pg_locks l JOIN pg_stat_activity a USING (pid) WHERE l.locktype = 'advisory' AND l.classid = ${UPGRADE_LOCK_NAMESPACE} AND l.objid = ${UPGRADE_LOCK_ID};`,
+        )
+        return 1
+      }
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Upgrade failed: ${message}`)
+      return 1
+    }
+  }
+
   if (first === 'seed:defaults') {
     await ensureEnvLoaded()
     const moduleFilter = parts.includes('--module') ? parts[parts.indexOf('--module') + 1] : null
 
+    const { runSeedDefaults, SeedDefaultsRefusal } = await import('./lib/seed-defaults')
     try {
-      const [{ bootstrapFromAppRoot }, { createResolver }] = await Promise.all([
-        import('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
-        import('./lib/resolver'),
-      ])
-      const resolver = createResolver()
-      const data = await bootstrapFromAppRoot(resolver.getAppDir())
-      registerCliModules(data.modules)
-      const allModules = getCliModules()
-
-      const modulesToSeed = moduleFilter
-        ? allModules.filter((mod) => mod.id === moduleFilter)
-        : allModules
-
-      if (moduleFilter && modulesToSeed.length === 0) {
-        console.error(`❌ Module "${moduleFilter}" not found.`)
-        return 1
-      }
-
-      const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-      const seedContainer = await createRequestContainer()
-      const seedEm = seedContainer.resolve('em') as any
-
-      const { Organization } = await import('@open-mercato/core/modules/directory/data/entities')
-      const orgs = await seedEm.find(Organization, { deletedAt: null }, { populate: ['tenant'] as const })
-
-      if (orgs.length === 0) {
-        console.error('❌ No organizations found. Run yarn initialize first.')
-        return 1
-      }
-
-      console.log(`📚 Running seed:defaults for ${orgs.length} org(s)...\n`)
-      for (const org of orgs) {
-        const tenantId = String(org.tenant.id)
-        const organizationId = String(org.id)
-        const seedCtx = { em: seedEm, tenantId, organizationId, container: seedContainer }
-
-        console.log(`  🏢 org=${organizationId} tenant=${tenantId}`)
-        for (const mod of modulesToSeed) {
-          if (mod.setup?.seedDefaults) {
-            console.log(`    📦 ${mod.id}...`)
-            await mod.setup.seedDefaults(seedCtx)
-          }
-        }
-
-        const { ensureCustomRoleAcls } = await import('@open-mercato/core/modules/auth/lib/setup-app')
-        await ensureCustomRoleAcls(seedEm, tenantId, allModules)
-      }
-
-      console.log('\n✅ seed:defaults complete.')
+      await runSeedDefaults({ moduleFilter })
       return 0
     } catch (error: unknown) {
+      if (error instanceof SeedDefaultsRefusal) {
+        console.error(`❌ ${error.message}`)
+        return 1
+      }
       const message = error instanceof Error ? error.message : String(error)
       console.error(`❌ seed:defaults failed: ${message}`)
       return 1
@@ -2010,11 +2115,16 @@ export async function run(argv = process.argv) {
       },
       {
         command: 'migrate',
-        run: async () => {
+        run: async (args: string[] = []) => {
           const { createResolver } = await import('./lib/resolver')
           const { dbMigrate } = await import('./lib/db')
+          const { parseUpgradeLockArgs } = await import('./lib/upgrade-lock')
           const resolver = createResolver()
-          await dbMigrate(resolver)
+          const lockArgs = parseUpgradeLockArgs(args)
+          await dbMigrate(resolver, {
+            noLock: lockArgs.skip,
+            lockTimeoutSeconds: lockArgs.timeoutSeconds,
+          })
         },
       },
       {
