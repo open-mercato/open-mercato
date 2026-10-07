@@ -4,7 +4,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sanitizeRichTextHtml } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { SortDir, type QueryEngine, type Where } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
-import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import {
   CatalogProduct,
   CatalogProductCategory,
@@ -312,6 +312,34 @@ async function loadBreadcrumbAncestors(runtime: DetailRuntime, primary: VisibleC
   })
 }
 
+function isImageMimeType(mimeType: string | null | undefined): boolean {
+  return typeof mimeType === 'string' && mimeType.trim().toLowerCase().startsWith('image/')
+}
+
+async function loadPublicPartitionCodes(runtime: DetailRuntime, codes: string[]): Promise<Set<string>> {
+  if (!codes.length) return new Set()
+  const { ctx } = runtime
+  const partitions = await findWithDecryption(
+    runtime.em,
+    AttachmentPartition,
+    {
+      code: { $in: codes },
+      isPublic: true,
+      $and: [
+        { $or: [{ tenantId: null }, { tenantId: ctx.tenantId }] },
+        { $or: [{ organizationId: null }, { organizationId: ctx.organizationId }] },
+      ],
+    },
+    { fields: ['id', 'code'] },
+    runtime.decryptionScope,
+  )
+  return new Set(partitions.map((partition) => partition.code))
+}
+
+/**
+ * The product's gallery: only `image/*` attachments stored in a public partition, the only files an
+ * anonymous storefront visitor can fetch; private-partition files and documents are never listed.
+ */
 async function loadMedia(runtime: DetailRuntime, product: CatalogProduct): Promise<StorefrontProductMedia[]> {
   const { ctx } = runtime
   const attachments = await findWithDecryption(
@@ -323,12 +351,19 @@ async function loadMedia(runtime: DetailRuntime, product: CatalogProduct): Promi
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
     },
-    { fields: ['id', 'url', 'createdAt'], orderBy: { createdAt: 'asc' } },
+    { fields: ['id', 'url', 'createdAt', 'partitionCode', 'mimeType'], orderBy: { createdAt: 'asc' } },
     runtime.decryptionScope,
   )
+  const images = attachments.filter(
+    (attachment) => nonEmptyString(attachment.url) !== null && isImageMimeType(attachment.mimeType),
+  )
+  const publicPartitions = await loadPublicPartitionCodes(
+    runtime,
+    Array.from(new Set(images.map((attachment) => attachment.partitionCode))),
+  )
   const defaultMediaId = product.defaultMediaId ?? null
-  return attachments
-    .filter((attachment) => nonEmptyString(attachment.url) !== null)
+  return images
+    .filter((attachment) => publicPartitions.has(attachment.partitionCode))
     .map((attachment, index) => ({ attachment, index }))
     .sort(
       (left, right) =>

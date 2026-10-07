@@ -173,10 +173,23 @@ export function storefrontAvailabilityTag(tenantId: string): string {
   return `availability:${tenantId}`
 }
 
-export function buyerContextTags(buyer: Pick<BuyerContext, 'customerIds' | 'customerGroupIds'>): string[] {
+/**
+ * Buyer contexts of a tenant that resolved to no customer group (anonymous or unassigned buyers
+ * while the tenant has no default group): evicted when a group is created or updated, since that
+ * group may have become the default they fall back to.
+ */
+export function ecommerceUngroupedBuyerTag(tenantId: string): string {
+  return `customer-group-none:${tenantId}`
+}
+
+export function buyerContextTags(
+  buyer: Pick<BuyerContext, 'customerIds' | 'customerGroupIds'>,
+  tenantId?: string,
+): string[] {
   return [
     ...buyer.customerIds.map(ecommerceCustomerTag),
     ...buyer.customerGroupIds.map(ecommerceCustomerGroupTag),
+    ...(tenantId && buyer.customerGroupIds.length === 0 ? [ecommerceUngroupedBuyerTag(tenantId)] : []),
   ]
 }
 
@@ -313,7 +326,7 @@ export function buyerContextCache(
         buildBuyerContextCacheKey(scope.storeId, buyer.customerUserId),
         buyer,
         BUYER_CONTEXT_TTL_MS,
-        buyerContextTags(buyer),
+        buyerContextTags(buyer, scope.tenantId),
       ),
     deleteByTags: (tags) => access.deleteByTags(tags),
   }

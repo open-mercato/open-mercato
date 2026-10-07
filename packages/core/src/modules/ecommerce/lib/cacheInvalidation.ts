@@ -11,6 +11,7 @@ import {
   ecommerceDomainMappingTag,
   ecommerceDomainTag,
   ecommerceStoreTag,
+  ecommerceUngroupedBuyerTag,
   invalidateEcommerceCacheTags,
   storefrontAvailabilityTag,
 } from './cacheKeys'
@@ -31,10 +32,11 @@ import {
 
 const logger = createLogger('ecommerce').child({ component: 'cache-invalidation' })
 
-type TagDeriver = (payload: Record<string, unknown>, action: string | null) => string[]
+type TagDeriver = (payload: Record<string, unknown>, action: string | null, tenantId: string | null) => string[]
 
 const STORE_CACHE_ACTIONS: ReadonlySet<string> = new Set(['created', 'updated', 'deleted', 'branding_updated'])
-const CUSTOMER_GROUP_CACHE_ACTIONS: ReadonlySet<string> = new Set(['updated', 'deleted'])
+const CUSTOMER_GROUP_CACHE_ACTIONS: ReadonlySet<string> = new Set(['created', 'updated', 'deleted'])
+const CUSTOMER_GROUP_DEFAULT_CANDIDATE_ACTIONS: ReadonlySet<string> = new Set(['created', 'updated'])
 const CATALOG_CRUD_ACTIONS: ReadonlySet<string> = new Set(['created', 'updated', 'deleted'])
 
 function tagsFrom(values: Array<string | null>, toTag: (value: string) => string): string[] {
@@ -47,12 +49,18 @@ export const storeEventTags: TagDeriver = (payload, action) => {
 }
 
 export const storeDomainBindingEventTags: TagDeriver = (payload) => [
-  ...tagsFrom([readPayloadString(payload, 'storeId')], ecommerceStoreTag),
-  ...tagsFrom([readPayloadString(payload, 'domainMappingId')], ecommerceDomainMappingTag),
+  ...tagsFrom(
+    [readPayloadString(payload, 'storeId'), readPayloadString(payload, 'previousStoreId')],
+    ecommerceStoreTag,
+  ),
+  ...tagsFrom(
+    [readPayloadString(payload, 'domainMappingId'), readPayloadString(payload, 'previousDomainMappingId')],
+    ecommerceDomainMappingTag,
+  ),
 ]
 
 export const storeChannelBindingEventTags: TagDeriver = (payload) =>
-  tagsFrom([readPayloadString(payload, 'storeId')], ecommerceStoreTag)
+  tagsFrom([readPayloadString(payload, 'storeId'), readPayloadString(payload, 'previousStoreId')], ecommerceStoreTag)
 
 export const domainMappingEventTags: TagDeriver = (payload) => [
   ...tagsFrom(
@@ -68,9 +76,18 @@ export const domainMappingEventTags: TagDeriver = (payload) => [
 export const customerGroupMembershipEventTags: TagDeriver = (payload) =>
   tagsFrom([readPayloadString(payload, 'customerId')], ecommerceCustomerTag)
 
-export const customerGroupEventTags: TagDeriver = (payload, action) => {
+/**
+ * `customer_groups.group.*`: the group's buyer contexts. The payload carries no `isDefault`, so a
+ * create or update also evicts the tenant's ungrouped buyer contexts, which would fall back to the
+ * group if it became the tenant default; a replaced default is announced as its own update.
+ */
+export const customerGroupEventTags: TagDeriver = (payload, action, tenantId) => {
   if (action && !CUSTOMER_GROUP_CACHE_ACTIONS.has(action)) return []
-  return tagsFrom([readPayloadString(payload, 'id')], ecommerceCustomerGroupTag)
+  const tags = action === 'created' ? [] : tagsFrom([readPayloadString(payload, 'id')], ecommerceCustomerGroupTag)
+  if (tenantId && (!action || CUSTOMER_GROUP_DEFAULT_CANDIDATE_ACTIONS.has(action))) {
+    tags.push(ecommerceUngroupedBuyerTag(tenantId))
+  }
+  return tags
 }
 
 export const customerGroupTermsEventTags: TagDeriver = (payload) =>
@@ -82,9 +99,10 @@ export async function invalidateForEvent(
   deriveTags: TagDeriver,
 ): Promise<number> {
   const record = asPayloadRecord(payload)
-  const tags = deriveTags(record, eventAction(ctx.eventName))
+  const { tenantId } = readEventScope(record, ctx)
+  const tags = deriveTags(record, eventAction(ctx.eventName), tenantId)
   if (tags.length === 0) return 0
-  return invalidateEcommerceCacheTags(ctx, { tenantId: readEventScope(record, ctx).tenantId, tags })
+  return invalidateEcommerceCacheTags(ctx, { tenantId, tags })
 }
 
 type CatalogLookupDatabase = {

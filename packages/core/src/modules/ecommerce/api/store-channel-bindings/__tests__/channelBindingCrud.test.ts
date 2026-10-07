@@ -213,6 +213,23 @@ describe('ecommerce store channel binding CRUD route', () => {
       expect(binding.isDefault).toBe(true)
     })
 
+    it('names the store the binding moved away from in its updated payload', async () => {
+      const nextStoreId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+      const { em } = createFakeEm({ findOne: lookups() })
+      const binding = makeBinding()
+      const emitContext = () => ({
+        action: 'updated' as const,
+        entity: binding,
+        identifiers: { id: BINDING_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      })
+
+      await opts.update!.applyToEntity(binding, { id: BINDING_ID, requireAuthentication: true }, createCtx(em))
+      expect(opts.events!.buildPayload!(emitContext())).not.toHaveProperty('previousStoreId')
+
+      await opts.update!.applyToEntity(binding, { id: BINDING_ID, storeId: nextStoreId }, createCtx(em))
+      expect(opts.events!.buildPayload!(emitContext())).toMatchObject({ storeId: nextStoreId, previousStoreId: STORE_ID })
+    })
+
     it('rejects switching to a sales channel of another organization', async () => {
       const { em } = createFakeEm({ findOne: lookups({ channel: false }) })
 

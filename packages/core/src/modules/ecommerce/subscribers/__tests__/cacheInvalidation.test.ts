@@ -1,4 +1,6 @@
-import { getCurrentCacheTenant, type CacheStrategy } from '@open-mercato/cache'
+import { createMemoryStrategy, getCurrentCacheTenant, type CacheStrategy } from '@open-mercato/cache'
+import { buyerContextCache } from '../../lib/cacheKeys'
+import type { BuyerContext } from '../../lib/types'
 import type { EcommerceSubscriberContext } from '../../lib/subscriberSupport'
 import storeHandler, { metadata as storeMetadata } from '../store-cache-invalidation'
 import domainBindingHandler, { metadata as domainBindingMetadata } from '../store-domain-binding-cache-invalidation'
@@ -53,6 +55,25 @@ function createPriceEm(row: { customerId: string | null; productId?: string | nu
 }
 
 const PRODUCTS_TAG = `catalog-products:${TENANT_ID}`
+
+function anonymousBuyer(): BuyerContext {
+  return {
+    customerUserId: null,
+    customerId: null,
+    companyId: null,
+    customerIds: [],
+    customerGroupIds: [],
+    isAuthenticated: false,
+    taxMode: 'gross',
+    priceKindId: null,
+    allowPurchaseOnAccount: false,
+    approvalRequiredAbove: null,
+    assortmentScope: null,
+    assortmentScopeHash: 'none',
+    priceScopeKey: 'key',
+    customerOverlayId: null,
+  }
+}
 
 function createCtx(
   services: Record<string, unknown>,
@@ -122,6 +143,35 @@ describe('ecommerce cache invalidation subscribers', () => {
     expect(calls).toHaveLength(2)
   })
 
+  it('also evicts the store and domain mapping a binding moved away from', async () => {
+    const { cache, calls } = createRecordingCache()
+    await domainBindingHandler(
+      {
+        id: 'binding-1',
+        storeId: 'store-2',
+        domainMappingId: 'mapping-2',
+        previousStoreId: 'store-1',
+        previousDomainMappingId: 'mapping-1',
+        tenantId: TENANT_ID,
+      },
+      createCtx({ cache }, { eventName: 'ecommerce.store_domain_binding.updated' }),
+    )
+    expect(calls[0]).toEqual({
+      tenant: null,
+      tags: [
+        'ecommerce-domain-mapping:mapping-1',
+        'ecommerce-domain-mapping:mapping-2',
+        'ecommerce-store:store-1',
+        'ecommerce-store:store-2',
+      ],
+    })
+    await channelBindingHandler(
+      { id: 'channel-binding-1', storeId: 'store-2', previousStoreId: 'store-1', salesChannelId: 'channel-1' },
+      createCtx({ cache }, { eventName: 'ecommerce.store_channel_binding.updated' }),
+    )
+    expect(calls[2].tags).toEqual(['ecommerce-store:store-1', 'ecommerce-store:store-2'])
+  })
+
   it('evicts the store for channel binding events', async () => {
     const { cache, calls } = createRecordingCache()
     await channelBindingHandler(
@@ -173,17 +223,30 @@ describe('ecommerce cache invalidation subscribers', () => {
     ])
   })
 
-  it('evicts the group tag for group updates and deletes but not creates', async () => {
+  it('evicts the group tag for group updates and deletes, and ungrouped buyer contexts for creates and updates', async () => {
     const { cache, calls } = createRecordingCache()
     const ctx = (eventName: string) => createCtx({ cache }, { eventName })
     await groupHandler({ id: 'group-1', tenantId: TENANT_ID }, ctx('customer_groups.group.created'))
-    expect(calls).toEqual([])
     await groupHandler({ id: 'group-1', tenantId: TENANT_ID }, ctx('customer_groups.group.updated'))
     await groupHandler({ id: 'group-2', tenantId: TENANT_ID }, ctx('customer_groups.group.deleted'))
     expect(calls.filter((call) => call.tenant === TENANT_ID).map((call) => call.tags)).toEqual([
-      ['customer-group:group-1'],
+      [`customer-group-none:${TENANT_ID}`],
+      ['customer-group:group-1', `customer-group-none:${TENANT_ID}`].sort(),
       ['customer-group:group-2'],
     ])
+  })
+
+  it('evicts a cached anonymous buyer context when a group that may be the new default is created', async () => {
+    const strategy = createMemoryStrategy()
+    const container = { resolve: (name: string) => (name === 'cache' ? strategy : undefined) }
+    const anonymous = buyerContextCache(container, { tenantId: TENANT_ID, storeId: 'store-1' })
+    await anonymous.set(anonymousBuyer())
+    expect(await anonymous.get(null)).not.toBeNull()
+    await groupHandler(
+      { id: 'group-new', organizationId: null, tenantId: TENANT_ID },
+      createCtx({ cache: strategy }, { eventName: 'customer_groups.group.created', organizationId: undefined }),
+    )
+    expect(await anonymous.get(null)).toBeNull()
   })
 
   it('evicts the owning group tag (not the terms id) on terms updates', async () => {

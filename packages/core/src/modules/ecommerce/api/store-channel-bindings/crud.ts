@@ -21,6 +21,7 @@ import {
   announceStoreChannelBindingsUpdated,
   buildStoreChannelBindingEventPayload,
   ECOMMERCE_EVENTS_MODULE,
+  rememberChannelBindingStore,
   STORE_CHANNEL_BINDING_EVENT_ENTITY,
 } from '../../lib/crudEvents'
 
@@ -181,6 +182,7 @@ export const channelBindingCrud = makeCrudRoute<RawChannelBindingInput, RawChann
     getId: (input) => (typeof input.id === 'string' ? input.id : ''),
     applyToEntity: async (entity, input, ctx) => {
       const binding = entity as EcommerceStoreChannelBinding
+      rememberChannelBindingStore(binding)
       const parsed = parseUpdateInput(input, ctx)
       const em = ctx.container.resolve('em') as EntityManager
       const { translate } = await resolveTranslations()

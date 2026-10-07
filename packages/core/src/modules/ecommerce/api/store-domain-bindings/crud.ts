@@ -22,6 +22,7 @@ import {
   announceStoreDomainBindingsUpdated,
   buildStoreDomainBindingEventPayload,
   ECOMMERCE_EVENTS_MODULE,
+  rememberDomainBindingPlacement,
   STORE_DOMAIN_BINDING_EVENT_ENTITY,
 } from '../../lib/crudEvents'
 
@@ -210,6 +211,7 @@ export const domainBindingCrud = makeCrudRoute<RawDomainBindingInput, RawDomainB
     getId: (input) => (typeof input.id === 'string' ? input.id : ''),
     applyToEntity: async (entity, input, ctx) => {
       const binding = entity as EcommerceStoreDomainBinding
+      rememberDomainBindingPlacement(binding)
       const parsed = parseUpdateInput(input, ctx)
       const em = ctx.container.resolve('em') as EntityManager
       const { translate } = await resolveTranslations()

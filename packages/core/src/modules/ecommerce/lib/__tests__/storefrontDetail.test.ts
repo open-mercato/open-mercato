@@ -9,7 +9,7 @@ import type { EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeFilters, type NormalizedFilter } from '@open-mercato/shared/lib/query/join-utils'
 import type { QueryOptions, Where } from '@open-mercato/shared/lib/query/types'
-import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import {
   CatalogProduct,
   CatalogProductCategory,
@@ -289,9 +289,20 @@ function priceRow(input: PriceInput) {
   }
 }
 
+const MEDIA_SCOPE = { entityId: 'catalog:catalog_product', recordId: MAIN_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
+
 const MEDIA = [
-  { id: 'media-1', entityId: 'catalog:catalog_product', recordId: MAIN_ID, url: '/files/one.jpg', tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
-  { id: 'media-2', entityId: 'catalog:catalog_product', recordId: MAIN_ID, url: '/files/two.jpg', tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+  { id: 'media-1', ...MEDIA_SCOPE, url: '/files/one.jpg', partitionCode: 'productsMedia', mimeType: 'image/jpeg' },
+  { id: 'media-2', ...MEDIA_SCOPE, url: '/files/two.jpg', partitionCode: 'productsMedia', mimeType: 'image/png' },
+  { id: 'media-private', ...MEDIA_SCOPE, url: '/files/secret.jpg', partitionCode: 'privateAttachments', mimeType: 'image/jpeg' },
+  { id: 'media-pdf', ...MEDIA_SCOPE, url: '/files/manual.pdf', partitionCode: 'productsMedia', mimeType: 'application/pdf' },
+  { id: 'media-foreign', ...MEDIA_SCOPE, url: '/files/foreign.jpg', partitionCode: 'otherTenantMedia', mimeType: 'image/jpeg' },
+]
+
+const PARTITIONS = [
+  { id: 'partition-public', code: 'productsMedia', isPublic: true, tenantId: null, organizationId: null },
+  { id: 'partition-private', code: 'privateAttachments', isPublic: false, tenantId: null, organizationId: null },
+  { id: 'partition-foreign', code: 'otherTenantMedia', isPublic: true, tenantId: 'tenant-other', organizationId: null },
 ]
 
 const TRANSLATIONS: Record<string, Record<string, Record<string, Record<string, unknown>>>> = {
@@ -451,6 +462,9 @@ function installFind() {
     }
     if (entity === Attachment) {
       return MEDIA.filter((entry) => matchesWhere(entry as unknown as Record<string, unknown>, where))
+    }
+    if (entity === AttachmentPartition) {
+      return PARTITIONS.filter((entry) => matchesWhere(entry as unknown as Record<string, unknown>, where))
     }
     if (entity === CatalogProductPrice) {
       return world.prices.filter((row) => matchesWhere(row as unknown as Record<string, unknown>, where))
@@ -719,6 +733,16 @@ describe('getStorefrontProductDetail — payload (§5.2)', () => {
     ])
   })
 
+  it('publishes only images from public partitions visible to the tenant', async () => {
+    const result = await detail(MAIN_ID)
+    const mediaIds = result?.media.map((entry) => entry.id) ?? []
+    expect(mediaIds).not.toContain('media-private')
+    expect(mediaIds).not.toContain('media-pdf')
+    expect(mediaIds).not.toContain('media-foreign')
+    const partitionCall = mockedFind.mock.calls.find(([, entity]) => entity === AttachmentPartition)
+    expect(partitionCall?.[2]).toMatchObject({ isPublic: true, code: { $in: ['productsMedia', 'privateAttachments', 'otherTenantMedia'] } })
+  })
+
   it('returns categories with ancestor ids and a root-first breadcrumb', async () => {
     const result = await detail(MAIN_ID)
     expect(result?.categories).toEqual([{ id: CAT_DRESS, name: 'Sukienki', slug: 'dresses', ancestorIds: [CAT_ROOT] }])
@@ -840,7 +864,7 @@ describe('getStorefrontProductDetail — per-variant price tiers', () => {
     resetCounters()
     await detail(MAIN_ID, { variantId: variantId(MAIN_ID, 0) })
     expect(totalQueries()).toBe(baseline)
-    expect(totalQueries()).toBeLessThanOrEqual(10)
+    expect(totalQueries()).toBeLessThanOrEqual(11)
   })
 })
 
@@ -955,6 +979,6 @@ describe('getStorefrontProductDetail — query budget (§10)', () => {
     resetCounters()
     const result = await detail(MAIN_ID)
     expect(result?.relatedProducts.length).toBeGreaterThan(0)
-    expect(totalQueries()).toBeLessThanOrEqual(10)
+    expect(totalQueries()).toBeLessThanOrEqual(11)
   })
 })

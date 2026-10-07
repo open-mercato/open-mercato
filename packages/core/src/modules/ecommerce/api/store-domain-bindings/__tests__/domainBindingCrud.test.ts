@@ -224,6 +224,50 @@ describe('ecommerce store domain binding CRUD route', () => {
       )
     })
 
+    it('names the store and domain mapping the binding moved away from in its updated payload', async () => {
+      const nextStoreId = '99999999-9999-4999-8999-999999999999'
+      const nextMappingId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      const { em } = createFakeEm({
+        findOne: (entity, where) => (entity === EcommerceStore && where.organizationId === ORG_ID ? { id: where.id } : null),
+      })
+      const { ctx } = createCtx(em)
+      const binding = makeBinding()
+
+      await opts.update!.applyToEntity(binding, { id: BINDING_ID, storeId: nextStoreId, domainMappingId: nextMappingId }, ctx)
+
+      expect(
+        opts.events!.buildPayload!({
+          action: 'updated',
+          entity: binding,
+          identifiers: { id: BINDING_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+        }),
+      ).toEqual({
+        id: BINDING_ID,
+        storeId: nextStoreId,
+        domainMappingId: nextMappingId,
+        previousStoreId: STORE_ID,
+        previousDomainMappingId: MAPPING_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+      })
+    })
+
+    it('adds no previous placement to the payload when the binding stays in place', async () => {
+      const { em } = createFakeEm()
+      const { ctx } = createCtx(em)
+      const binding = makeBinding()
+
+      await opts.update!.applyToEntity(binding, { id: BINDING_ID, pathPrefix: '/b2b' }, ctx)
+
+      const payload = opts.events!.buildPayload!({
+        action: 'updated',
+        entity: binding,
+        identifiers: { id: BINDING_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      })
+      expect(payload).not.toHaveProperty('previousStoreId')
+      expect(payload).not.toHaveProperty('previousDomainMappingId')
+    })
+
     it('does not re-check references or uniqueness for an unchanged placement', async () => {
       const { em } = createFakeEm()
       const { ctx, domainMappingService } = createCtx(em)

@@ -146,6 +146,8 @@ describe('tag helpers', () => {
       'customer:c1',
       'customer-group:g1',
     ])
+    expect(buyerContextTags({ customerIds: [], customerGroupIds: [] }, 't1')).toEqual(['customer-group-none:t1'])
+    expect(buyerContextTags({ customerIds: [], customerGroupIds: ['g1'] }, 't1')).toEqual(['customer-group:g1'])
   })
 })
 
