@@ -4,7 +4,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLink } from '../../../../data/entities'
-import { CHECKOUT_ENTITY_IDS, CHECKOUT_LOGO_ATTACHMENT_PARTITION } from '../../../../lib/constants'
+import { CHECKOUT_ENTITY_IDS } from '../../../../lib/constants'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { checkoutPublicViewRateLimitConfig, enforceCheckoutRateLimit } from '../../../../lib/rateLimiter'
 import { isCheckoutLinkPublic, verifyCheckoutAccessToken } from '../../../../lib/utils'
@@ -55,7 +55,6 @@ async function readLogo(
         tenantId: link.tenantId,
         organizationId: link.organizationId,
         expectedOwner,
-        expectedPartitionCode: CHECKOUT_LOGO_ATTACHMENT_PARTITION,
         rendition: LOGO_RENDITION,
       })
     } catch (error) {
@@ -77,9 +76,10 @@ async function readLogo(
  * up only within the caller's own tenant and organization.
  *
  * The logo is the link's own `logoAttachmentId`, read through the attachments
- * service's owner-scoped read, pinned to the link's tenant, organization and
- * partition and to the link — or, for a logo inherited from its template, the
- * template — as owner. It comes back as the 640×240 `contain` rendition from
+ * service's owner-scoped read, pinned to the link's tenant and organization,
+ * to the link — or, for a logo inherited from its template, the template — as
+ * owner, and to the partition the attachments upload route stores that owner's
+ * files in by default (a logo uploaded to another partition is a 404). It comes back as the 640×240 `contain` rendition from
  * the attachments image pipeline, and only raster images are served: an SVG
  * or anything else is a 404.
  *

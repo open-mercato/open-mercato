@@ -117,7 +117,6 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
       tenantId: TENANT_ID,
       organizationId: ORGANIZATION_ID,
       expectedOwner: { entityId: 'checkout:checkout_link', recordId: LINK_ID },
-      expectedPartitionCode: 'privateAttachments',
       rendition: { width: 640, height: 240, cropType: 'contain' },
     })
   })
@@ -224,8 +223,11 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
     expect(response.status).toBe(404)
   })
 
-  it('answers a logo the image pipeline refuses as not found, without the core message', async () => {
-    readScopedForOwner.mockRejectedValue(new CrudHttpError(400, { error: 'Image MIME type does not match file content' }))
+  it.each([
+    ['refuses', new CrudHttpError(400, { error: 'Image MIME type does not match file content' })],
+    ['cannot decode', new CrudHttpError(422, { error: 'Image could not be rendered' })],
+  ])('answers a logo the image pipeline %s as not found, without the core message', async (_label, refusal) => {
+    readScopedForOwner.mockRejectedValue(refusal)
 
     const response = await logoRequest()
 
