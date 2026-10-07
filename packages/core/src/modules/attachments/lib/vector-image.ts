@@ -28,7 +28,8 @@ export const VECTOR_IMAGE_MAX_MARKUP = 4_000
 export const VECTOR_IMAGE_MAX_RENDER_WORK = 10_000
 export const VECTOR_IMAGE_RENDER_CHARACTERS_PER_UNIT = 128
 export const VECTOR_IMAGE_MAX_FILTER_PRIMITIVES = 32
-export const VECTOR_IMAGE_MAX_MORPHOLOGY_RADIUS = 4
+export const VECTOR_IMAGE_MAX_BLURS = 8
+export const VECTOR_IMAGE_MAX_BLUR_DEVIATION_RATIO = 0.1
 export const VECTOR_IMAGE_MAX_RASTER_SIDE = 4_096
 export const VECTOR_IMAGE_MAX_STYLE_RULES = 2_000
 export const VECTOR_IMAGE_MAX_SELECTORS_PER_RULE = 32
@@ -79,22 +80,22 @@ const URL_PROPERTIES = new Set([
 /**
  * Work per filter primitive application, in the units of `elementWork`,
  * measured in Chrome on CPU canvas as ten primitives over an 800 px region
- * (ms per primitive in brackets) and rounded up: morphology at radius 4 (105),
- * lighting (48–52), arithmetic composite (23), displacement (15), blend,
- * composite and drop shadow (11), blur (8–9), turbulence at ten octaves (9.5),
- * merge (5), colour matrix and component transfer (3), offset, flood and tile
- * (under 1.5). Anything else counts as the heaviest measured class.
+ * (ms per primitive in brackets) and rounded up: blur (8–9 over the canvas,
+ * up to 118 in a chain of eight over a region ten times the canvas at the
+ * largest allowed deviation, so 640),
+ * arithmetic composite (23), blend and composite (11), turbulence at ten
+ * octaves (9.5), merge (5), colour matrix and component transfer (3), offset,
+ * flood and tile (under 1.5). Anything else counts as 600. Primitives whose
+ * cost grows with a user-unit size — `feMorphology`, the lighting primitives,
+ * `feConvolveMatrix` — and the ones no exporter writes whose cost grows with
+ * the device region (`feDisplacementMap`, `feDropShadow`) are refused
+ * (`exceedsFilterLimits`).
  */
 const FILTER_PRIMITIVE_WORK: Record<string, number> = {
-  femorphology: 600,
-  fespecularlighting: 300,
-  fediffuselighting: 300,
   feturbulence: 300,
   fecomposite: 125,
-  fedisplacementmap: 100,
+  fegaussianblur: 640,
   feblend: 75,
-  fedropshadow: 75,
-  fegaussianblur: 75,
   femerge: 50,
   fecolormatrix: 25,
   fecomponenttransfer: 25,
@@ -104,6 +105,11 @@ const FILTER_PRIMITIVE_WORK: Record<string, number> = {
   fetile: 10,
 }
 const DEFAULT_FILTER_PRIMITIVE_WORK = 600
+/**
+ * A gradient stop costs twice an element: a full-canvas fill with a 30-stop
+ * radial gradient measured 6–11 ms in Chrome, against 31 units at one per stop.
+ */
+const GRADIENT_STOP_WORK = 2
 const REFERENCE_ONLY_ELEMENTS = new Set([
   'defs',
   'symbol',
@@ -115,9 +121,18 @@ const REFERENCE_ONLY_ELEMENTS = new Set([
   'mask',
   'clippath',
 ])
+const USER_UNIT_SCALED_PRIMITIVES = new Set([
+  'femorphology',
+  'fespecularlighting',
+  'fediffuselighting',
+  'feconvolvematrix',
+  'fedisplacementmap',
+  'fedropshadow',
+])
+const CSS_ALLOWED_FUNCTIONS = new Set(['url', 'rgb', 'rgba', 'hsl', 'hsla'])
 const SMIL_ELEMENTS = new Set(['animate', 'animatecolor', 'animatemotion', 'animatetransform', 'set', 'mpath', 'discard'])
 const CSS_ACTIVE_IDENTIFIERS = new Set(['behavior', '-moz-binding', 'javascript', 'vbscript'])
-const RASTER_DATA_URI_PATTERN = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=\t\n\f\r ]+)$/i
+const RASTER_DATA_URI_PATTERN = /^data:(image\/(?:png|jpeg));base64,([a-z0-9+/=\t\n\f\r ]+)$/i
 const ACTIVE_SCHEME_PATTERN = /^(?:javascript|vbscript|data):/i
 const DTD_DECLARATION_PATTERN = /<!(?:ENTITY|ATTLIST|ELEMENT|NOTATION)/i
 const VENDOR_PREFIX_PATTERN = /^-[a-z0-9]+-/
@@ -440,44 +455,64 @@ function trimCssWhitespace(value: string): string {
 }
 
 /**
- * The pixel size an embedded raster declares in its header — PNG `IHDR`, the
- * GIF logical screen, a JPEG start-of-frame, a WebP `VP8`/`VP8L`/`VP8X`
- * chunk — or null when the header cannot be read.
+ * The pixel size of an embedded PNG: its chunks are walked to the end, the
+ * first must be the only `IHDR`, and an animated PNG (`acTL`, `fcTL`) is
+ * refused, so no later chunk can declare a larger image.
  */
-function rasterDimensions(bytes: Buffer, mimeType: string): { width: number; height: number } | null {
-  if (mimeType === 'image/png') return bytes.length >= 24 ? { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) } : null
-  if (mimeType === 'image/gif') return bytes.length >= 10 ? { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) } : null
-  if (mimeType === 'image/webp') {
-    const chunk = bytes.toString('latin1', 12, 16)
-    if (chunk === 'VP8 ' && bytes.length >= 30) return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff }
-    if (chunk === 'VP8L' && bytes.length >= 25) {
-      const bits = bytes.readUInt32LE(21)
-      return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 }
+function pngDimensions(bytes: Buffer): { width: number; height: number } | null {
+  let size: { width: number; height: number } | null = null
+  let offset = 8
+  while (offset + 8 <= bytes.length) {
+    const length = bytes.readUInt32BE(offset)
+    const type = bytes.toString('latin1', offset + 4, offset + 8)
+    if (type === 'IHDR') {
+      if (size || offset !== 8 || length !== 13 || offset + 16 > bytes.length) return null
+      size = { width: bytes.readUInt32BE(offset + 8), height: bytes.readUInt32BE(offset + 12) }
+    } else if (!size || type === 'acTL' || type === 'fcTL') {
+      return null
     }
-    if (chunk === 'VP8X' && bytes.length >= 30) return { width: bytes.readUIntLE(24, 3) + 1, height: bytes.readUIntLE(27, 3) + 1 }
-    return null
+    if (type === 'IEND') return size
+    offset += 12 + length
   }
+  return size
+}
+
+/**
+ * The pixel size of an embedded JPEG: its markers are walked up to the first
+ * scan, and exactly one baseline, extended or progressive start-of-frame
+ * (`SOF0`–`SOF2`) is allowed. Hierarchical (`DHP`), lossless and arithmetic
+ * frames are refused.
+ */
+function jpegDimensions(bytes: Buffer): { width: number; height: number } | null {
+  let size: { width: number; height: number } | null = null
   let offset = 2
-  while (offset + 9 < bytes.length && bytes[offset] === 0xff) {
+  while (offset + 4 <= bytes.length && bytes[offset] === 0xff) {
     const marker = bytes[offset + 1]!
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) }
+    if (marker === 0xda) return size
+    const length = bytes.readUInt16BE(offset + 2)
+    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+      if (size || offset + 9 > bytes.length) return null
+      size = { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) }
+    } else if ((marker >= 0xc3 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) || marker === 0xde) {
+      return null
     }
-    offset += 2 + bytes.readUInt16BE(offset + 2)
+    offset += 2 + length
   }
   return null
 }
 
 /**
  * True when the decoded bytes carry the declared raster signature and a
- * header no larger than `VECTOR_IMAGE_MAX_RASTER_SIDE` on either side. A
- * small file can declare a huge canvas that every viewer then decodes.
+ * single frame no larger than `VECTOR_IMAGE_MAX_RASTER_SIDE` on either side.
+ * Only PNG and JPEG are accepted — the only formats logo exporters embed — so
+ * every frame and descriptor of each format is checked. A small file can
+ * declare a huge image that every viewer then decodes.
  */
 function hasRasterSignature(mimeType: string, base64: string): boolean {
   const bytes = Buffer.from(base64.replace(/[\t\n\f\r ]+/g, ''), 'base64')
   const type = mimeType.toLowerCase()
   if (detectAttachmentMimeType(bytes, null, null) !== type) return false
-  const size = rasterDimensions(bytes, type)
+  const size = type === 'image/png' ? pngDimensions(bytes) : jpegDimensions(bytes)
   return Boolean(size)
     && size!.width > 0 && size!.height > 0
     && size!.width <= VECTOR_IMAGE_MAX_RASTER_SIDE && size!.height <= VECTOR_IMAGE_MAX_RASTER_SIDE
@@ -622,7 +657,10 @@ function tokenizeCss(css: string): CssToken[] | null {
 }
 
 /**
- * The CSS policy over a token stream: `url()` targets must be fragments or
+ * The CSS policy over a token stream: the only functions are `url()` and the
+ * colour functions `rgb()`, `rgba()`, `hsl()`, `hsla()` — no gradients,
+ * image functions, `path()` or filter functions; a `filter` is one `url()` or
+ * `none` (`isSingleFilterReference`); `url()` targets must be fragments or
  * allowed raster `data:` URIs, and may appear only in `URL_PROPERTIES` (paint,
  * clip, mask, filter and marker); `@import`, string-URL functions and external
  * `url()`s are external references; `expression()`, `var()`, `if()`, custom
@@ -642,6 +680,8 @@ function inspectCssTokens(
   let currentProperty = property
   let pendingName: string | null = null
   let depth = 0
+  let valueStart = property === null ? -1 : 0
+  const filterValueRefused = (end: number): boolean => currentProperty === 'filter' && !isSingleFilterReference(tokens.slice(valueStart, end))
   const reference = (target: string): VectorImageFindingKind | null => {
     const kind = classifyReference(target, true)
     if (kind !== null) return kind
@@ -676,6 +716,7 @@ function inspectCssTokens(
       const functionName = name.replace(VENDOR_PREFIX_PATTERN, '')
       if (CSS_ACTIVE_FUNCTIONS.has(functionName)) return 'active_content'
       if (CSS_STRING_URL_FUNCTIONS.has(functionName)) verdict = verdict ?? 'external_reference'
+      else if (!CSS_ALLOWED_FUNCTIONS.has(name)) return 'active_content'
       continue
     }
     if (token.type === 'url') {
@@ -690,18 +731,42 @@ function inspectCssTokens(
       } else if (token.value === ')') {
         depth = Math.max(0, depth - 1)
       } else if (token.value === '{' || token.value === '}') {
+        if (filterValueRefused(index)) return 'active_content'
         currentProperty = null
         depth = 0
       } else if (depth === 0 && token.value === ':') {
         currentProperty = pendingName ?? currentProperty
+        valueStart = index + 1
         if (currentProperty === 'd') return 'active_content'
       } else if (depth === 0 && token.value === ';') {
+        if (filterValueRefused(index)) return 'active_content'
         currentProperty = property
+        valueStart = index + 1
       }
     }
     pendingName = null
   }
+  if (filterValueRefused(tokens.length)) return 'active_content'
   return verdict
+}
+
+/**
+ * A `filter` value may only be `none` or one `url()` to an SVG filter, which
+ * the render-work bound counts; CSS filter functions (`blur()`,
+ * `drop-shadow()`, …) and chains are refused. `!important` may follow.
+ */
+function isSingleFilterReference(value: CssToken[]): boolean {
+  const significant = value.filter((token) => token.type !== 'whitespace')
+  const last = significant.length
+  const important = last >= 2
+    && significant[last - 2]!.type === 'delim' && significant[last - 2]!.value === '!'
+    && significant[last - 1]!.type === 'ident' && significant[last - 1]!.value.toLowerCase() === 'important'
+  const core = important ? significant.slice(0, -2) : significant
+  if (core.length === 1) return core[0]!.type === 'url' || (core[0]!.type === 'ident' && core[0]!.value.toLowerCase() === 'none')
+  return core.length === 3
+    && core[0]!.type === 'function' && core[0]!.value.toLowerCase() === 'url'
+    && core[1]!.type === 'string'
+    && core[2]!.type === 'delim' && core[2]!.value === ')'
 }
 
 /**
@@ -1298,6 +1363,7 @@ function elementWork(element: DomElement, tag: string): number {
   if ((element.parentNode as DomElement | null)?.localName?.toLowerCase() === 'filter') {
     return FILTER_PRIMITIVE_WORK[tag] ?? DEFAULT_FILTER_PRIMITIVE_WORK
   }
+  if (tag === 'stop') return GRADIENT_STOP_WORK
   let length = 0
   if (tag === 'path') length = (element.getAttribute('d') ?? '').length
   else if (tag === 'polyline' || tag === 'polygon') length = (element.getAttribute('points') ?? '').length
@@ -1307,28 +1373,94 @@ function elementWork(element: DomElement, tag: string): number {
 
 /**
  * Filter limits checked before the estimate: at most
- * `VECTOR_IMAGE_MAX_FILTER_PRIMITIVES` primitives in the document, no
- * `feMorphology` radius above `VECTOR_IMAGE_MAX_MORPHOLOGY_RADIUS` (its cost
- * grows with the radius over every pixel of the region), and no
- * `feConvolveMatrix` (330 ms per application at order 5 in Chrome; no logo
- * exporter writes one).
+ * `VECTOR_IMAGE_MAX_FILTER_PRIMITIVES` primitives in the document; no
+ * primitive whose cost grows with a size in user units, which a small
+ * `viewBox` or `primitiveUnits="objectBoundingBox"` turns into thousands of
+ * device pixels (`feMorphology`, the lighting primitives, `feConvolveMatrix`),
+ * nor `feDisplacementMap` or `feDropShadow`; no
+ * `primitiveUnits="objectBoundingBox"`; at most `VECTOR_IMAGE_MAX_BLURS`
+ * blurs, each with a deviation no larger than
+ * `VECTOR_IMAGE_MAX_BLUR_DEVIATION_RATIO` of the root viewport's smaller side;
+ * and no blur in a document that can scale content up — a `transform` or
+ * `patternTransform` stretching by more than 1, or a `viewBox` below the root.
+ * Measured in Chrome, a blur's cost grows with its deviation and region in
+ * device pixels: eight chained blurs over a region ten times the canvas took
+ * 0.95 s at a deviation of 10% of the viewport, 3.3 s at 50%, and 3.4 s at
+ * 4% under `scale(10)`. No corpus file or logo exporter needs more (the
+ * largest deviation seen is 3.3%, the most blurs five).
  */
 function exceedsFilterLimits(root: DomElement): boolean {
   let primitives = 0
+  let blurs = 0
+  let scalesUp = false
   let exceeded = false
+  const maxDeviation = rootViewportSize(root) * VECTOR_IMAGE_MAX_BLUR_DEVIATION_RATIO
   walk(root, (node) => {
     if (exceeded || !isElement(node)) return false
     const parent = node.parentNode as DomElement | null
     if (parent?.localName?.toLowerCase() === 'filter') primitives += 1
-    if (node.localName.toLowerCase() === 'feconvolvematrix') exceeded = true
-    if (node.localName.toLowerCase() === 'femorphology') {
-      const radii = (node.getAttribute('radius') ?? '0').trim().split(/[\s,]+/).map(Number)
-      if (radii.some((radius) => !Number.isFinite(radius) || radius > VECTOR_IMAGE_MAX_MORPHOLOGY_RADIUS)) exceeded = true
+    const tag = node.localName.toLowerCase()
+    if (USER_UNIT_SCALED_PRIMITIVES.has(tag)) exceeded = true
+    if (tag === 'fegaussianblur') {
+      blurs += 1
+      const deviations = (node.getAttribute('stdDeviation') ?? '0').trim().split(/[\s,]+/).map(Number)
+      if (blurs > VECTOR_IMAGE_MAX_BLURS || deviations.some((value) => !(value >= 0 && value <= maxDeviation))) exceeded = true
     }
+    if (node !== root && node.getAttribute('viewBox') !== null) scalesUp = true
+    for (const name of ['transform', 'patternTransform']) {
+      const transform = node.getAttribute(name)
+      if (transform !== null && transformScale(transform) > 1 + 1e-9) scalesUp = true
+    }
+    if (tag === 'filter' && (node.getAttribute('primitiveUnits') ?? '').trim() === 'objectBoundingBox') exceeded = true
     exceeded = exceeded || primitives > VECTOR_IMAGE_MAX_FILTER_PRIMITIVES
     return !exceeded
   })
-  return exceeded
+  return exceeded || (blurs > 0 && scalesUp)
+}
+
+/**
+ * The smaller side of the root's `viewBox`, or of its `width`/`height` when it
+ * has none: the user-unit size a blur deviation is measured against. NaN when
+ * neither can be read, which refuses any blur.
+ */
+function rootViewportSize(root: DomElement): number {
+  const viewBox = (root.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number)
+  if (viewBox.length === 4 && viewBox.every(Number.isFinite)) return Math.min(viewBox[2]!, viewBox[3]!)
+  const width = Number.parseFloat(root.getAttribute('width') ?? '')
+  const height = Number.parseFloat(root.getAttribute('height') ?? '')
+  return Math.min(width, height)
+}
+
+/**
+ * The largest factor by which a transform list can stretch a length: the
+ * largest singular value of its linear part, composed over the list.
+ * Anything it cannot parse counts as infinite.
+ */
+function transformScale(transform: string): number {
+  let [a, b, c, d] = [1, 0, 0, 1]
+  const pattern = /\s*,?\s*([a-zA-Z]+)\s*\(([^)]*)\)/y
+  let rest = transform.trim()
+  while (rest) {
+    pattern.lastIndex = 0
+    const match = pattern.exec(rest)
+    if (!match) return Infinity
+    rest = rest.slice(match[0].length).trim()
+    const values = match[2]!.trim().split(/[\s,]+/).filter(Boolean).map(Number)
+    if (values.some((value) => !Number.isFinite(value))) return Infinity
+    const name = match[1]!.toLowerCase()
+    let next: [number, number, number, number]
+    if (name === 'matrix' && values.length === 6) next = [values[0]!, values[1]!, values[2]!, values[3]!]
+    else if (name === 'scale' && (values.length === 1 || values.length === 2)) next = [values[0]!, 0, 0, values[1] ?? values[0]!]
+    else if (name === 'translate' && (values.length === 1 || values.length === 2)) next = [1, 0, 0, 1]
+    else if (name === 'rotate' && (values.length === 1 || values.length === 3)) next = [1, 0, 0, 1]
+    else if (name === 'skewx' && values.length === 1) next = [1, 0, Math.tan((values[0]! * Math.PI) / 180), 1]
+    else if (name === 'skewy' && values.length === 1) next = [1, Math.tan((values[0]! * Math.PI) / 180), 0, 1]
+    else return Infinity
+    ;[a, b, c, d] = [a * next[0] + c * next[1], b * next[0] + d * next[1], a * next[2] + c * next[3], b * next[2] + d * next[3]]
+  }
+  const sum = a * a + b * b + c * c + d * d
+  const determinant = a * d - b * c
+  return Math.sqrt((sum + Math.sqrt(Math.max(0, sum * sum - 4 * determinant * determinant))) / 2)
 }
 
 function vertexBound(element: DomElement, tag: string): number {

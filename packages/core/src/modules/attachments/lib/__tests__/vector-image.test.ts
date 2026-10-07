@@ -184,6 +184,19 @@ describe('sanitizeVectorImage — benign logos', () => {
     expect(prepared.ok).toBe(true)
   })
 
+  it.each([
+    ['a filter attribute with a single url()', '<filter id="f"><feOffset dx="1"/></filter><rect width="1" height="1" filter="url(#f)"/>'],
+    ['a stylesheet filter with a single url() and !important', '<style>rect{filter:url(#f) !important}</style><filter id="f"><feOffset dx="1"/></filter><rect width="1" height="1"/>'],
+    ['filter:none', '<rect width="1" height="1" style="filter:none"/>'],
+    ['rgb() and hsl() colours', '<rect width="1" height="1" style="fill:rgb(10, 20, 30);stroke:hsl(120 50% 50%)"/>'],
+    ['a blur in a document whose transforms only shrink, rotate or translate', '<filter id="f"><feGaussianBlur stdDeviation="2"/></filter><g transform="matrix(.569 0 0 .569 186 255) rotate(30) translate(4 5)"><rect width="10" height="10" filter="url(#f)"/></g>'],
+    ['scale-up transforms in a document without a blur', '<g transform="scale(10)"><rect width="10" height="10"/></g>'],
+    ['an embedded JPEG', `<image href="data:image/jpeg;base64,${Buffer.from('ffd8ffe000104a46494600010100000100010000ffc0000b080010001001011100ffda0008010100003f00ffd9', 'hex').toString('base64')}"/>`],
+  ])('keeps %s', async (_label, body) => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${body}</svg>`))
+    expect(prepared.ok).toBe(true)
+  })
+
   it('keeps a drop-shadow filter of eight primitives applied to the logo', async () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><filter id="s" x="-10" y="-10" width="120" height="120" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="alpha"/><feOffset dy="4"/><feGaussianBlur stdDeviation="2"/><feComposite in2="alpha" operator="out"/><feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/><feBlend mode="normal" in2="bg" result="shadow"/><feBlend mode="normal" in="SourceGraphic" in2="shadow"/></filter></defs><g filter="url(#s)"><circle cx="50" cy="50" r="40" fill="#2a9d8f"/></g></svg>'
     const prepared = await prepareVectorImageUpload(svgBuffer(svg))
@@ -421,7 +434,7 @@ describe('sanitizeVectorImage — bounded cost', () => {
     ['900 stylesheet rules referencing 900 targets from every rect', wrap(`<style>${Array.from({ length: 900 }, (_, index) => `rect{marker-start:url(#g${index})}`).join('')}</style><defs>${Array.from({ length: 900 }, (_, index) => `<linearGradient id="g${index}"/>`).join('')}</defs>${'<rect/>'.repeat(elements - 902)}`), true],
     ['a 1 MiB stylesheet of url() rules (refused by the rule cap)', wrap(`<defs><linearGradient id="g"/></defs><style>${'.a{fill:url(#g)}'.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 16))}</style><rect class="a"/>`), false],
     ['stylesheet rules at the selector-times-reference work cap', wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 1250 }, (_, rule) => `${Array.from({ length: 16 }, (_, index) => `.r${rule}s${index}`).join(',')}{fill:url(#g)}`).join('')}</style>${'<rect class="r0s0"/>'.repeat(elements - 4)}`), true],
-    ['1 MiB of empty functions in one declaration', wrap(`<style>a{fill:${'x() '.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 4))}}</style><rect/>`), true],
+    ['1 MiB of empty functions in one declaration (refused)', wrap(`<style>a{fill:${'x() '.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 4))}}</style><rect/>`), false],
     ['1 MiB of @ in one declaration', wrap(`<style>a{fill:${'@'.repeat(VECTOR_IMAGE_MAX_BYTES - 400)}}</style><rect/>`), true],
     ['1 MiB of @ inside a url() (refused)', wrap(`<style>a{fill:url(#a${'@'.repeat(VECTOR_IMAGE_MAX_BYTES - 400)})}</style><rect/>`), false],
     ['1 MiB of ! in one declaration', wrap(`<style>a{fill:x${'!'.repeat(VECTOR_IMAGE_MAX_BYTES - 400)}}</style><rect/>`), true],

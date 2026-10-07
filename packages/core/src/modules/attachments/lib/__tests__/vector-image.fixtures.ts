@@ -686,9 +686,9 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     code: 'vector_image_unsafe_content',
   },
   {
-    name: 'a ; inside a function ahead of a mid-path marker url()',
+    name: 'a ; inside a function ahead of a mid-path marker url() (refused by the function allowlist)',
     svg: wrap(`<style>path{marker-mid:x(;) url(#m)}</style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(400)}</marker></defs><path d="M0 0${'l1 1'.repeat(20000)}"/>`),
-    code: 'vector_image_too_complex',
+    code: 'vector_image_unsafe_content',
   },
   ...[
     ['mask-image in a stylesheet', '<style>.i{mask-image:url(#m)}</style><mask id="m"><rect width="1" height="1"/></mask><rect class="i" width="1" height="1"/>'],
@@ -739,6 +739,74 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     name: 'ten thousand full-size rects through <use>',
     svg: wrap(`<defs><rect id="r" width="800" height="800" fill-opacity="0.01"/>${[1, 2, 3, 4].map((level) => `<g id="l${level}">${`<use href="#${level === 1 ? 'r' : `l${level - 1}`}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#l4"/>`),
     code: 'vector_image_too_complex',
+  },
+  ...[
+    ['blur() and drop-shadow() in a stylesheet filter, over 1,000 rects', `<style>rect{filter:blur(40px) blur(40px) drop-shadow(0 0 30px black) blur(40px)}</style>${'<rect width="800" height="800"/>'.repeat(1000)}`],
+    ['blur() in a filter attribute', '<rect width="1" height="1" filter="blur(40px)"/>'],
+    ['blur() in a style attribute filter', '<rect width="1" height="1" style="filter:blur(4px)"/>'],
+    ['a filter url() followed by a filter function', '<filter id="f"><feOffset/></filter><rect width="1" height="1" style="filter:url(#f) blur(4px)"/>'],
+    ['two filter url()s', '<filter id="f"><feOffset/></filter><rect width="1" height="1" style="filter:url(#f) url(#f)"/>'],
+    ['backdrop-filter', '<rect width="1" height="1" style="backdrop-filter:blur(4px)"/>'],
+    ['a gradient in mask-image', '<rect width="1" height="1" style="mask-image:linear-gradient(red, blue)"/>'],
+    ['a gradient in a stylesheet background', '<style>rect{background:radial-gradient(red, blue)}</style><rect width="1" height="1"/>'],
+    ['a CSS function outside the colour allowlist', '<rect width="1" height="1" style="fill:color-mix(in srgb, red, blue)"/>'],
+  ].map(([label, body]): MaliciousFixture => ({
+    name: `CSS render functions: ${label}`,
+    svg: wrap(body!),
+    code: 'vector_image_unsafe_content',
+  })),
+  ...[
+    ['feMorphology under a 1 x 1 viewBox', '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 1 1"><filter id="m" x="0" y="0" width="1" height="1"><feMorphology operator="dilate" radius="4"/></filter><rect width="1" height="1" filter="url(#m)"/></svg>'],
+    ['eight feMorphology under a 1 x 1 viewBox', `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 1 1"><filter id="m" x="0" y="0" width="1" height="1">${'<feMorphology operator="dilate" radius="4"/>'.repeat(8)}</filter><rect width="1" height="1" filter="url(#m)"/></svg>`],
+    ['feMorphology with object-bounding-box primitive units', '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800"><filter id="m" primitiveUnits="objectBoundingBox" x="0" y="0" width="1" height="1"><feMorphology operator="dilate" radius="0.5"/></filter><rect width="800" height="800" filter="url(#m)"/></svg>'],
+    ['a blur with object-bounding-box primitive units', '<svg xmlns="http://www.w3.org/2000/svg"><filter id="b" primitiveUnits="objectBoundingBox"><feGaussianBlur stdDeviation="0.5"/></filter><rect width="1" height="1" filter="url(#b)"/></svg>'],
+    ['feSpecularLighting', '<svg xmlns="http://www.w3.org/2000/svg"><filter id="l"><feSpecularLighting><fePointLight/></feSpecularLighting></filter><rect width="1" height="1" filter="url(#l)"/></svg>'],
+    ['feDiffuseLighting', '<svg xmlns="http://www.w3.org/2000/svg"><filter id="l"><feDiffuseLighting><feDistantLight/></feDiffuseLighting></filter><rect width="1" height="1" filter="url(#l)"/></svg>'],
+  ].map(([label, svg]): MaliciousFixture => ({
+    name: `filter primitives whose cost scales with user units: ${label}`,
+    svg: svg!,
+    code: 'vector_image_too_complex',
+  })),
+  ...[
+    ['a chain of blurs under scale(10)', `<filter id="f">${'<feGaussianBlur stdDeviation="40"/>'.repeat(8)}</filter><g transform="scale(10)"><rect x="-360" y="-360" width="800" height="800" filter="url(#f)"/></g>`],
+    ['a blur under a matrix that stretches', '<filter id="f"><feGaussianBlur stdDeviation="4"/></filter><g transform="matrix(0.9 0.9 -0.9 0.9 0 0)"><rect width="10" height="10" filter="url(#f)"/></g>'],
+    ['a blur under a skew', '<filter id="f"><feGaussianBlur stdDeviation="4"/></filter><g transform="skewX(80)"><rect width="10" height="10" filter="url(#f)"/></g>'],
+    ['a blur inside a nested viewport', '<filter id="f"><feGaussianBlur stdDeviation="4"/></filter><svg width="800" height="800" viewBox="0 0 8 8"><rect width="80" height="80" filter="url(#f)"/></svg>'],
+    ['a blur with an unparseable transform elsewhere', '<filter id="f"><feGaussianBlur stdDeviation="4"/></filter><rect width="10" height="10" filter="url(#f)"/><g transform="scale(1e999)"/>'],
+    ['a blur deviation over 10% of the viewport', '<filter id="f"><feGaussianBlur stdDeviation="11"/></filter><rect width="10" height="10" filter="url(#f)"/>'],
+    ['nine blurs', `<filter id="f">${'<feGaussianBlur stdDeviation="1"/>'.repeat(9)}</filter><rect width="10" height="10" filter="url(#f)"/>`],
+    ['feDisplacementMap', '<filter id="f"><feDisplacementMap in2="SourceGraphic" scale="50"/></filter><rect width="10" height="10" filter="url(#f)"/>'],
+    ['feDropShadow', '<filter id="f"><feDropShadow dx="4" dy="4" stdDeviation="40"/></filter><rect width="10" height="10" filter="url(#f)"/>'],
+  ].map(([label, body]): MaliciousFixture => ({
+    name: `filter cost that grows with the device region: ${label}`,
+    svg: wrap(body!),
+    code: 'vector_image_too_complex',
+  })),
+  ...[
+    ['a GIF whose image descriptor is 20,000 x 20,000 behind a 16 x 16 screen', 'data:image/gif;base64,R0lGODlhEAAQAAAAACwAAAAAIE4gTgACAkwBADs='],
+    ['a WebP', 'data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA=='],
+    ['a PNG with a second, larger IHDR', 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAAAAAA6mKC9AAAADUlIRFIAAE4gAABOIAgAAAAAxhsZ5QAAAA1JREFUeJxjYBgFyAAAARAAAaCTEaUAAAAASUVORK5CYII='],
+  ].map(([label, uri]): MaliciousFixture => ({
+    name: `an embedded raster that is not a single bounded PNG or JPEG frame: ${label}`,
+    svg: wrap(`<image width="800" height="800" href="${uri}"/>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  {
+    name: 'an embedded animated PNG (acTL)',
+    svg: wrap(`<image href="data:image/png;base64,${(() => {
+      const png = Buffer.from(TINY_PNG_BASE64, 'base64')
+      const actl = Buffer.alloc(20)
+      actl.writeUInt32BE(8, 0)
+      actl.write('acTL', 4, 'latin1')
+      actl.writeUInt32BE(1, 8)
+      return Buffer.concat([png.subarray(0, 33), actl, png.subarray(33)]).toString('base64')
+    })()}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'an embedded hierarchical JPEG (DHP)',
+    svg: wrap(`<image href="data:image/jpeg;base64,${Buffer.from('ffd8ffde000b0800100010010111000000ffc0000b080010001001011100ffda0008010100003f00ffd9', 'hex').toString('base64')}"/>`),
+    code: 'vector_image_unsafe_content',
   },
   {
     name: 'a stylesheet rule with more selectors than the cap',
