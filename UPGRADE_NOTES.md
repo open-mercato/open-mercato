@@ -580,7 +580,9 @@ switch to `logoPreviewUrl`.
 
 `AttachmentService` gained an optional `readScopedForOwner(input)` method and the exported
 `ReadScopedAttachmentForOwnerInput` type, for module code that publishes its own files without a
-signed-in user. Its optional `rendition` returns a resized raster through the same pipeline as
+signed-in user. It is pinned to `expectedPartitionCode`, or, when that is omitted, to the
+partition the upload route uses by default for the owner entity. Its optional `rendition` returns a
+resized raster through the same pipeline as
 `GET /api/attachments/image/{id}`, which now lives in `attachments/lib/imageRendition`; the image
 route's behaviour is unchanged. A third-party `AttachmentService` implementation does not need to add it; the pay
 link logo route returns `404` when the method is absent. See

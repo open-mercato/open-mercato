@@ -58,7 +58,10 @@ write time.
 - Module code that publishes its own files to anonymous visitors MUST use
   `attachmentService.readScopedForOwner()` (owner + tenant + organization +
   partition, no principal) and resolve the attachment id and owner from its own
-  records. Never fabricate an `AuthContext` to call `readScoped`. Pass `rendition`
+  records. Never fabricate an `AuthContext` to call `readScoped`. Omit
+  `expectedPartitionCode` for files uploaded without a partition (it then pins to
+  `resolveDefaultPartitionCode(owner entity)`) rather than hard-coding a partition
+  code. Pass `rendition`
   to get a resized raster from the shared image pipeline (`lib/imageRendition.ts`),
   never call Sharp directly. See
   `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`.

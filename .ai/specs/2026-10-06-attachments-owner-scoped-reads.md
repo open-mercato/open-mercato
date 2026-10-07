@@ -18,7 +18,7 @@ This change adds a sanctioned server-side read for exactly this case,
 `GET /api/checkout/pay/{slug}/logo`, which the pay payload's `logoPreviewUrl` now points to. The
 read takes no principal: the module's own record (the pay link that names the logo) is the
 authorization, and the read is pinned to that record as owner, to its tenant and organization, and
-to the partition the logo was uploaded to. The logo is served as the same 640×240 `contain` raster
+to the partition the generic upload route stores that owner's files in. The logo is served as the same 640×240 `contain` raster
 rendition the old URL requested, produced by the attachments image pipeline.
 
 ## Problem Statement
@@ -50,7 +50,7 @@ export type ReadScopedAttachmentForOwnerInput = {
   organizationId: string
   expectedOwner: AttachmentOwner          // entityId + recordId, required
   expectedAssignment?: AttachmentAssignment
-  expectedPartitionCode: string           // required
+  expectedPartitionCode?: string          // default: resolveDefaultPartitionCode(expectedOwner.entityId)
   forceDownload?: boolean
   rendition?: { width?: number; height?: number; cropType?: 'cover' | 'contain' }
 }
@@ -65,7 +65,12 @@ Behaviour, in order:
 
 1. A blank `tenantId`, `organizationId`, `expectedPartitionCode`, `expectedOwner.entityId` or
    `expectedOwner.recordId` is a 500 (`[internal]` message) before any query, so a caller bug can
-   never widen the lookup (for example to the global both-null shape).
+   never widen the lookup (for example to the global both-null shape). An omitted
+   `expectedPartitionCode` is not blank: the read is pinned to
+   `resolveDefaultPartitionCode(expectedOwner.entityId)`, the partition `POST /api/attachments`
+   stores that entity's uploads in when the upload names no partition. The partition is always
+   pinned; omitting it only lets the attachments module, which owns that mapping, name it, so a
+   caller never hard-codes a partition code that could drift from the upload route.
 2. An `attachmentId` that is not a UUID (`z.string().uuid()`) is a 404 before any query.
 3. The row is looked up by `{ id, tenantId, organizationId }` at the database boundary, and the
    returned row's scope pair is re-checked (defence in depth against a regressed filter).
@@ -77,7 +82,9 @@ Behaviour, in order:
    storage driver is touched). The bytes then go through `renderImageRendition`, the raster pipeline
    now shared with `GET /api/attachments/image/{id}`: the per-size thumbnail cache, magic-byte and
    dimension checks, and Sharp with a source pixel limit. A refusal from that pipeline keeps its
-   status (400 or 413). Vector input never reaches Sharp.
+   status (400 or 413). An image that passes those checks but that Sharp cannot decode (a corrupt
+   file with a valid header) is a 422 (`Image could not be rendered`), not an unhandled 500. Vector
+   input never reaches Sharp.
 
 Every refusal after step 1 is a 404, apart from a rendition pipeline refusal, so the method does not
 reveal whether an id exists elsewhere. The method is optional on the interface, so third-party
@@ -117,8 +124,9 @@ Public (`requireAuth: false`). The link is resolved and gated as follows:
 It then reads the link's own `logoAttachmentId` — never an id from the request — with
 `readScopedForOwner`:
 - pinned to the link's tenant and organization;
-- pinned to the partition `CHECKOUT_LOGO_ATTACHMENT_PARTITION` (`privateAttachments`, where the
-  generic upload route puts checkout entities' files);
+- pinned to the default partition of the owner entity: the route passes no partition, so the
+  attachments module resolves it the same way its upload route does for the link editor's uploads,
+  which never name a partition;
 - with the link as owner, or, when that is a 404 and the link has a `templateId`, the template.
 
 The read asks for the `{ width: 640, height: 240, cropType: 'contain' }` rendition, so the served
@@ -172,7 +180,8 @@ staff keep the resized image-route preview.
 | Logo of a locked, unpublished or foreign link leaks | Medium | privacy | public requests: publish and password gates. Previews: checkout preview context, and the link lookup restricted to the caller's tenant and organization | — |
 | Oversized logo served publicly | Low | bandwidth | 640×240 rendition; per-size thumbnail cache | — |
 | Extra request per pay page view | Low | load | separate rate-limit namespace, fail-open; 5-minute cache for published links | — |
-| Logo uploaded to a non-default partition | Low | UX | the editor never sets a partition; such a logo is a 404 rather than served from an unexpected partition | Re-upload through the editor |
+| Logo uploaded to a non-default partition | Low | UX | the partition is the attachments module's default for the owner entity, the one the upload route uses when no partition is named; the editor never names one. A logo uploaded with an explicit `partitionCode`, or after an operator maps checkout entities to another default, is a 404 rather than served from an unexpected partition | Re-upload through the editor |
+| Corrupt logo | Low | availability | a file Sharp cannot decode is a 422 from the service and a 404 from the route, not a 500 | — |
 
 ## Migration & Backward Compatibility
 
@@ -222,10 +231,15 @@ type, which a test pins.
   - refuses a non-UUID, an empty and an injected id before querying (404);
   - refuses a blank tenant, organization, partition or owner record with an `[internal]` 500 before
     querying;
+  - pins an omitted partition to `resolveDefaultPartitionCode` of the owner entity, and refuses a
+    row stored in another partition;
   - with `rendition`:
     - serves the image pipeline's output inline with the attachment's content type;
     - refuses a non-raster before touching storage;
-    - passes on the pipeline's refusal of a damaged image.
+    - passes on the pipeline's refusal of a damaged image;
+    - refuses a corrupt PNG (valid signature and header, unreadable pixel data) with a 422, through
+      the real pipeline and Sharp. Before the fix the raw Sharp error (`vipspng: libpng read error`)
+      escaped and the route answered 500.
 - `core: api/__tests__/image.route.anonymous.test.ts` — with the real `checkAttachmentAccess`, an
   anonymous request for a tenant-scoped image is a 401 on a private and on a public partition and
   never reaches Sharp: the reason the old `logoPreviewUrl` could not work.
@@ -236,7 +250,7 @@ type, which a test pins.
 - `checkout: api/pay/[slug]/logo/__tests__/route.test.ts`:
   - serving:
     - serves the link-owned logo to an anonymous visitor, asking for the 640×240 rendition with
-      the pinned tenant, organization and partition;
+      the pinned tenant and organization and no partition of its own;
     - looks a public request's link up by slug only;
     - falls back to the template owner, and is a 404 when neither owns it;
     - does not try a template when there is none, and ignores ids in the query string;
@@ -246,7 +260,8 @@ type, which a test pins.
       password-protected link, a download-only result, and a service without owner-scoped reads;
     - never serves an SVG (with or without parameters) or an HTML document, even when the
       attachments service would serve it inline;
-    - answers refusals, including a pipeline refusal of a damaged image, with the translation key;
+    - answers refusals, including a pipeline refusal of a damaged image and a 422 for one Sharp
+      cannot decode, with the translation key;
   - previews:
     - passes the rate limiter's response through, and requires (and is refused without) the
       preview context for previews;
@@ -284,6 +299,11 @@ Regression proofs:
 
 ## Changelog
 
+- 2026-10-07 — Third review round:
+  - a corrupt image that Sharp cannot decode is a 422 from `readScopedForOwner` (a 404 from the logo
+    route) instead of a 500;
+  - `expectedPartitionCode` is optional and defaults to the owner entity's default partition, so the
+    logo route no longer hard-codes `privateAttachments`.
 - 2026-10-06 — Review fixes:
   - logo route previews scoped to the caller's tenant and organization;
   - raster-only logo serving;
