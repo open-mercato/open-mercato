@@ -102,8 +102,14 @@ write time.
   the stylesheet rules and every declaration's references consume its tokens,
   once per stylesheet. Never add a second character-level CSS reader (for
   comments, strings, braces or `url()`): two readers disagree, and the
-  disagreement hides rules from the policy and the rendered-size bound. Keep the
-  jsdom CSSOM cross-check.
+  disagreement hides rules from the policy and the rendered-size bound. Never
+  parse untrusted CSS with jsdom's CSSOM or rrweb-cssom: they are quadratic and
+  do not tokenise `url()` as browsers do.
+- Accept a fragment reference only as `#` and a plain ASCII id
+  (`PLAIN_ID_PATTERN`), require every `id` to match it, and look ids up
+  verbatim. Never decode, unescape or normalise a fragment to make it match:
+  browsers percent-decode fragments, so any second spelling lets a reference
+  escape the rendered-size bound.
 - Keep stylesheets to the exporter subset `parseStyleRules` accepts (flat rules,
   simple selectors, no at-rules, custom properties or `var()`) and keep its
   rule/selector/reference/work caps. Narrow what a stylesheet may contain rather

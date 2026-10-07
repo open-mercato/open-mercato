@@ -613,7 +613,9 @@ Uploaded SVG stylesheets are limited to what logo exporters write: flat rules wh
 type, `*`, `.class` or `#id` (compound, in comma lists). At-rules (`@media`, `@keyframes`, …),
 combinators, pseudo-classes, attribute selectors, nesting, custom properties and `var()` are refused
 with `vector_image_unsafe_content`, and a stylesheet over 2,000 rules, 32 selectors or 16 references
-in one rule, or 20,000 selector × reference pairs in total, with `vector_image_too_complex`.
+in one rule, or 20,000 selector × reference pairs in total, with `vector_image_too_complex`. Every `id` and every in-document
+reference (`href="#…"`, `url(#…)`) must be a plain ASCII id — a letter or `_`, then letters, digits,
+`_`, `-` or `.` — and `xml:id` is not accepted; anything else is `vector_image_unsafe_content`.
 
 `attachmentService.readScoped()` returns a sanitised SVG as an `application/octet-stream` download,
 like any other SVG: a module route outside the file path gets the app-wide CSP, which Next.js keeps

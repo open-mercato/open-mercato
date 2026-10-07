@@ -250,7 +250,17 @@ icons whose stylesheets use `@keyframes` and `@media` (§ 3, stylesheet subset);
      Browsers follow SVG 2 `href` over `xlink:href`, so a decoy `xlink:href` must not be what the
      policy reads; when they agree, `href` is the one followed;
    - `href` / `xlink:href` must be an in-document fragment (`#id`) after stripping only what the URL
-     parser strips (leading and trailing C0 controls and spaces). On `<image>`/`<feImage>` a
+     parser strips (leading and trailing C0 controls and spaces). The id after `#` must be a
+     **plain id**: an ASCII letter or `_`, then ASCII letters, digits, `_`, `-` and `.`
+     (`PLAIN_ID_PATTERN`). Every `id` attribute must match the same pattern, and `xml:id` is
+     refused. A browser percent-decodes a fragment — `<use href="#%61">` renders `id="a"`, and
+     `url(#%67)` paints gradient `g` — so before this rule a ten-wide `<use>` chain written with
+     `#%61…` fragments passed the rendered bound at eight levels (about 10⁸ instances) because the
+     lookup used the literal `%61`. With plain ids on both sides no encoding (percent, character
+     reference, non-ASCII, escape, `xpointer()`) can make the sanitiser and a browser name different
+     elements, and lookups use the id verbatim. Every id in the dependency corpus and in the
+     exporter fixtures (`SVGID_1_`, `linearGradient1234`, `paint0_linear_1_2`, `path-1`, `id0`,
+     `_Linear1`) already matches; a fragment or id that does not is `active_content`. On `<image>`/`<feImage>` a
      `data:image/(png|jpeg|gif|webp);base64,…` URI is also accepted, and its decoded bytes must
      carry the matching raster signature. `javascript:`/`vbscript:`/other `data:` →
      `active_content`; anything else → `external_reference`;
@@ -278,9 +288,12 @@ rendered-size bound. A browser applied all of them; an 887 KB stored document to
 to draw.
 
 The tokenizer refuses, as `active_content`, an escape, a string ended by a newline or by the end of
-the text, an unterminated comment or `url(`, a malformed unquoted URL, a CDO or CDC token (`<!--`,
-`-->`) and a vendor-prefixed `url(` (`-webkit-url(` is a plain function to a browser, in whose
-arguments `/*` does open a comment).
+the text, an unterminated comment or `url(`, a malformed unquoted URL and a vendor-prefixed `url(`
+(`-webkit-url(` is a plain function to a browser, in whose arguments `/*` does open a comment). CDO
+and CDC (`<!--`, `-->`) tokenise as a `--` identifier, which the CSS rule refuses as a custom
+property. Since fragments must be plain ids, no allowed `url()` can contain `/*` at all: the
+fifth-round trick is now refused at the reference, and the tokenizer reads such a `url()` as Chrome
+does in any case.
 
 **CSS rule** (`inspectVectorImageCss` and `inspectCssTokens`). The result is:
 
@@ -300,7 +313,8 @@ arguments `/*` does open a comment).
   - `@import`;
   - any of `image()`, `image-set()`, `cross-fade()`, `element()`, `src()`, `attr()`, with or without
     a vendor prefix (these accept a bare string URL);
-  - a `url()` whose target is neither `#id` nor an allowed raster `data:` URI. An unquoted target loses
+  - a `url()` whose target is neither `#` and a plain id nor an allowed raster `data:` URI (a `#`
+    target that is not a plain id is `active_content`). An unquoted target loses
     only the ASCII whitespace the tokenizer drops, and a quoted one loses nothing. So `url(\u3000#a)`
     and `url(" #a")` are relative URLs, as browsers read them;
 - nothing otherwise.
@@ -322,15 +336,12 @@ rules whose selectors are simple: a type or `*`, then any `.class` and `#id`, in
 Comments may sit between rules and inside declarations. The parse is one linear pass over the tokens,
 so neither nesting nor an unclosed block costs more than its length.
 
-**Cross-check against jsdom's CSSOM.** After our reading succeeds, the same stylesheet text is given
-to jsdom's own CSSOM, an independent parser that is already loaded, through a `<style>` element in
-the sanitiser's window. The document is refused unless it reads the same number of rules, all style
-rules, with the same selectors (comments and whitespace aside). A second parser agreeing is evidence
-against a differential that ours alone would miss. jsdom's CSSOM does **not** read `url(#x/*)` as
-Chrome does — it opens a comment there — so it disagrees with our tokenizer on exactly the review's
-documents and refuses them a second time; on every exporter fixture and corpus stylesheet the two
-agree. Its parse errors go to a silent virtual console. The check is skipped past the rule cap,
-which refuses the document anyway.
+**No second CSS parser.** The sixth round briefly cross-checked every stylesheet against jsdom's
+CSSOM (rrweb-cssom). The seventh review measured it as quadratic — it rescans to the end of the text
+for each `@`, each `!` and each value-level `(`, so a 1 MiB declaration of `x() ` took 157.6 s and
+`!`×200,000 12.4 s — and it reads `url(/*` as opening a comment, the very differential it was meant
+to catch. It is removed, and untrusted CSS is never given to jsdom's CSSOM or rrweb-cssom.
+
 Of the dependency corpus, only four pdf.js spinner icons used at-rules (`@keyframes`, `@media
 (prefers-reduced-motion)`), for animation; they are now refused. No file used a selector outside the
 subset. The rule, selector, reference and work caps in the bound table above are checked before the
@@ -399,53 +410,51 @@ another.
 | 1 MiB of flat `<!---->` | 2,482 ms, accepted | refused by the markup bound in 15 ms |
 | 1 MiB of `a<g/>` | not measured (minutes) | refused by the markup bound in 52 ms |
 | 1,000 rects × 3 levels of 10 `<use>` (1 million rendered) | accepted | refused by the rendered bound |
-| text with a comment between every character | — | 201 / 247 ms |
-| text with a PI between every character | — | 194 / 279 ms |
-| text with a CDATA section between every character | — | 240 / 273 ms |
-| flat comments / flat PIs / prolog comments | — | 130 / 223, 83 / 103, 52 / 71 ms |
-| text alternating with allowed elements | — | 262 / 289 ms |
-| text alternating with disallowed elements (refused) | — | 217 / 327 ms |
-| text alternating with XHTML elements (refused) | — | 162 / 202 ms |
-| text alternating with foreign editor elements | — | 156 / 236 ms |
-| `<metadata>` holding foreign elements | — | 50 / 76 ms |
-| elements at the element and attribute bounds | — | 328 / 412 ms |
-| elements at the per-element attribute bound | — | 187 / 408 ms |
-| editor-namespaced attributes at the bounds | — | 298 / 339 ms |
-| rects with five kept presentation attributes at the attribute bound | — | 401 / 483 ms |
-| paths with `url()` paint at the attribute bound | — | 426 / 715 ms |
-| `<use>` at the element bound | — | 338 / 580 ms |
-| `<use>` rendering just under the rendered bound | — | 187 / 255 ms |
-| nesting at the depth bound | — | 283 / 368 ms |
-| a 1 MiB stylesheet / 1 MiB of text | — | 243 / 410, 145 / 365 ms |
-| whitespace-formatted rects at the node bound | — | 478 / 655 ms |
-| stylesheet rules referencing 900 targets from every rect | — | 168 / 188 ms |
-| stylesheet rules at the work cap (1,250 rules × 16 selectors × 1 reference) with 1,996 rects | — | 193 / 234 ms |
-| 2,000 rules with 16 references each (refused by the work cap) | — | 56 / 153 ms |
-| a 1 MiB stylesheet of `url()` rules (refused by the rule cap) | accepted, 167 / 200 ms | 123 / 138 ms |
-| one rule of 2,000 selectors × 2,000 custom-property references (refused) | 4.1 s, accepted | 13 / 18 ms |
-| one rule of 8,000 selectors × 8,000 custom-property references (refused) | heap exhausted | 23 / 27 ms |
-| 40,000 nested `@media` blocks (refused) | 55.1 s | 32 / 38 ms |
-| 20,000 unclosed nested `@media` blocks (refused) | 11.7 s | 17 / 19 ms |
-| a custom-property `marker-mid` on a 100,000-vertex path (refused) | accepted | 54 / 72 ms |
-| inherited pattern paint over every element | — | 128 / 213 ms |
-| eight nested patterns of 200 rects (refused by the rendered bound) | accepted | 107 / 118 ms |
-| a mid-path marker on a 1 MiB path (refused by the rendered bound) | accepted | 193 / 213 ms |
+| text with a comment between every character | — | 117 / 152 ms |
+| text with a PI between every character | — | 103 / 141 ms |
+| text with a CDATA section between every character | — | 138 / 178 ms |
+| flat comments / flat PIs / prolog comments | — | 66 / 80, 52 / 74, 35 / 47 ms |
+| text alternating with allowed elements | — | 235 / 309 ms |
+| text alternating with disallowed elements (refused) | — | 114 / 143 ms |
+| text alternating with XHTML elements (refused) | — | 78 / 87 ms |
+| text alternating with foreign editor elements | — | 88 / 102 ms |
+| `<metadata>` holding foreign elements | — | 43 / 62 ms |
+| elements at the element and attribute bounds | — | 300 / 331 ms |
+| elements at the per-element attribute bound | — | 132 / 192 ms |
+| editor-namespaced attributes at the bounds | — | 194 / 274 ms |
+| rects with five kept presentation attributes at the attribute bound | — | 246 / 261 ms |
+| paths with `url()` paint at the attribute bound | — | 247 / 272 ms |
+| `<use>` at the element bound | — | 217 / 319 ms |
+| `<use>` rendering just under the rendered bound | — | 90 / 111 ms |
+| nesting at the depth bound | — | 213 / 228 ms |
+| a 1 MiB stylesheet (refused by the rule cap) / 1 MiB of text | — | 126 / 140, 78 / 85 ms |
+| whitespace-formatted rects at the node bound | — | 213 / 273 ms |
+| stylesheet rules referencing 900 targets from every rect | — | 185 / 231 ms |
+| stylesheet rules at the work cap (1,250 rules × 16 selectors × 1 reference) with 1,996 rects | — | 311 / 416 ms |
+| 2,000 rules with 16 references each (refused by the work cap) | — | 78 / 88 ms |
+| a 1 MiB stylesheet of `url()` rules (refused by the rule cap) | accepted, 167 / 200 ms | 225 / 246 ms |
+| a stylesheet of compound selectors, 860 KiB (refused by the subset) | — | 295 / 389 ms |
+| one rule of 2,000 selectors × 2,000 custom-property references (refused) | 4.1 s, accepted | 21 / 23 ms |
+| one rule of 8,000 selectors × 8,000 custom-property references (refused) | heap exhausted | 40 / 42 ms |
+| 40,000 nested `@media` blocks (refused) | 55.1 s | 46 / 72 ms |
+| 20,000 unclosed nested `@media` blocks (refused) | 11.7 s | 25 / 32 ms |
+| a custom-property `marker-mid` on a 100,000-vertex path (refused) | accepted | 66 / 95 ms |
+| 1 MiB of `x() ` in one declaration | 157.6 s with the CSSOM cross-check | 184 / 234 ms |
+| 1 MiB of `@` in one declaration | — | 169 / 200 ms |
+| 1 MiB of `@` inside a `url()` (refused, not a plain id) | 24.1 s at 50,000 with the CSSOM cross-check | 95 / 149 ms |
+| 1 MiB of `!` in one declaration | 12.4 s at 200,000 with the CSSOM cross-check | 134 / 151 ms |
+| 1 MiB of `url(#g)` in one declaration (refused by the reference cap) | 34 s with the CSSOM cross-check | 113 / 142 ms |
+| inherited pattern paint over every element | — | 134 / 180 ms |
+| eight nested patterns of 200 rects (refused by the rendered bound) | accepted | 168 / 233 ms |
+| a mid-path marker on a 1 MiB path (refused by the rendered bound) | accepted | 291 / 310 ms |
 | first call in a process (loads `jsdom` and `dompurify`) | — | 0.5–1.6 s, once |
 
-Every median at the bounds is under 0.5 s. The maxima, up to 0.72 s, coincide with spikes from the
-concurrent build. The previous bounds (3,000 elements, 15,000 attributes) measured 1.0–1.65 s on
-attribute-heavy shapes under the same conditions, which is why they were lowered.
-
-The stylesheet and reference rows were re-timed in the fifth review round on a quieter machine
-(seven runs each, one per macrotask, after a forced GC); the "before" column for the H1/H2 shapes is
-the round-five sanitiser as the review measured it. In that run every shape's maximum was under
-0.41 s. Reference expansion itself was measured A/B in the fourth round at 0–90 ms per shape. The sixth-round single tokenizer
-and CSSOM cross-check were measured A/B against the fifth-round sanitiser in one process (seven runs
-each, alternating) on every stylesheet-heavy shape: +0 to +32 ms per shape (the work-cap shape 228 →
-248 ms median, 2,000 rules × 16 references 53 → 85 ms, 40,000 nested `@media` 29 → 41 ms). A full
-re-time in the same round ran under heavy load from other processes, about 2.5 times slower on
-every shape including those without CSS (worst maximum 639 ms), so the table keeps the fifth-round
-numbers.
+The "after" column was re-timed in the seventh review round with every change in place (seven runs
+per shape, one per macrotask, after a forced GC, other processes running): every median is under
+0.32 s and every maximum under 0.42 s. Earlier rounds measured up to 0.72 s under heavier load. The
+bounds before the third round (3,000 elements, 15,000 attributes) measured 1.0–1.65 s on
+attribute-heavy shapes, which is why they were lowered; the "before" entries for the stylesheet
+shapes are the earlier sanitisers as the reviews measured them.
 
 Benchmarks that keep calls inside one macrotask measure up to three times more and a growing heap:
 jsdom tracks NodeIterators through `WeakRef`s, which keep their targets alive until the current job
@@ -649,8 +658,8 @@ has the same problem.
 |---|---|---|---|---|
 | Sanitiser bypass yields script in a stored SVG | High | XSS on direct navigation | DOMPurify allowlist; refusal at the first non-inert finding; reference and tokenised CSS policy on exactly what browsers apply; serving CSP `sandbox`/`default-src 'none'`; `nosniff`; `<img>` embedding disables script regardless | Low: requires a DOMPurify bypass *and* a CSP bypass |
 | Parser differential (CSS strings, `<style>` children, `href` precedence, DOCTYPE lexing) hides a reference | Medium | privacy | CSS Syntax Level 3 tokenisation; text-only `<style>`; conflicting `href`s refused; XML-aware DTD scan; `default-src 'none'` at serve | Low |
-| Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute and rendered bounds; linear passes; first-finding stop; DOMPurify on a copy; cost test | under 0.5 s median and 0.72 s maximum per upload at the bounds, measured under concurrent load |
-| Render DoS via reference amplification | Medium | client (a hung tab for whoever opens the logo) | rendered-element bound over every in-document reference — `<use>`, `href`s, paint servers, clip paths, masks, filters, markers (per vertex for `marker-mid`), inherited paint and stylesheet rules — with cycle refusal. The bound is only as good as its reading of the stylesheets: the fifth review round's parse differential hid a `marker-mid` rule from it (about 42 s to draw in Chrome). Every stylesheet is now read once by one CSS Syntax tokenizer, limited to the exporter subset, and cross-checked against jsdom's CSSOM | Low: needs a new disagreement between our tokenizer and a browser that jsdom's CSSOM also misses. Pattern tiles repeat with the painted area, and filters cost per pixel, both of which a browser bounds by resolution |
+| Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute, stylesheet and rendered bounds; one linear CSS tokenizer and no second CSS parser (jsdom's CSSOM was quadratic); linear passes; first-finding stop; DOMPurify on a copy; cost test | medians under 0.32 s and maxima under 0.42 s per upload at the bounds, measured under concurrent load (up to 0.72 s in earlier, heavier runs) |
+| Render DoS via reference amplification | Medium | client (a hung tab for whoever opens the logo) | rendered-element bound over every in-document reference — `<use>`, `href`s, paint servers, clip paths, masks, filters, markers (per vertex for `marker-mid`), inherited paint and stylesheet rules — with cycle refusal. The bound is only as good as its reading of the stylesheets: the fifth review round's parse differential hid a `marker-mid` rule from it (about 42 s to draw in Chrome). The seventh round found a second gap: a percent-encoded fragment (`#%61`) named an element for the browser but nothing for the lookup. Every stylesheet is now read once by one CSS Syntax tokenizer limited to the exporter subset, and every fragment and `id` is a plain ASCII id, so the bound and the browser resolve the same references | Low: needs a disagreement between our tokenizer and a browser on the exporter subset, which the reviews' Chrome comparisons have not found. Pattern tiles repeat with the painted area, and filters cost per pixel, both of which a browser bounds by resolution |
 | Sandbox lost on an encoded path or a module route | Medium | XSS defence in depth | inline SVG only from the file route at the canonical path; `readScoped` never inline; encoded spellings tested against Next's matchers and over HTTP | Requires a sanitiser bypass as well; an `<img>`-embedded SVG runs no script either way |
 | Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 220 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts and animated spinners) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, CSS animation or media queries, selectors beyond type/class/id, custom properties, or more than 2,000 elements or 6,000 attributes need re-exporting |
 | Forged `vectorImage` record on an unsanitised row | Low | XSS | no endpoint writes arbitrary metadata keys; SHA-256 binding to stored bytes; CSP still applies | Requires DB write access |
@@ -714,9 +723,9 @@ it always asks for a raster rendition and refuses any non-raster content type, w
 Every bullet below is a test that exists.
 
 - `lib/__tests__/vector-image.test.ts` (fixtures in `vector-image.fixtures.ts`)
-  - **Hostile documents** — 112 fixtures. For each, `sanitizeVectorImage` refuses with the listed
+  - **Hostile documents** — 145 fixtures. For each, `sanitizeVectorImage` refuses with the listed
     code and returns no document, and `prepareVectorImageUpload` refuses with the same code:
-    - `vector_image_unsafe_content` (73):
+    - `vector_image_unsafe_content` (108):
       - script and handlers: `<script>`; XHTML-namespaced `<html:script>`; a script hidden inside
         a foreign-namespace wrapper; a script hidden inside `<metadata>`; `onload` on the root;
         `onclick` on a shape;
@@ -744,6 +753,12 @@ Every bullet below is a test that exists.
         stylesheets, with a pseudo-class and with a `marker-mid` rule; escapes in a selector (`.`,
         `:`, `{`), an escaped `@`, an escape inside `url()`; CDO/CDC; a comment inside a selector; a
         string and a rule left open to the end; `@charset`; a `}` inside parentheses;
+      - fragments that are not plain ids, each in an `href`, an `xlink:href`, a stylesheet `url()`, a
+        `style` attribute `url()` and a presentation attribute `url()`: percent-encoded (`#%61`),
+        an entity-encoded percent (`#&#x25;61`), non-ASCII (`#á`), with `{` and `}`, and with `;`
+        (25 fixtures); ids with a percent sign, an entity-encoded non-ASCII letter, a space, a colon
+        and a leading digit; an `xml:id` target; the review's ten-wide `<use>` chain eight levels
+        deep written with `#%61…` fragments; a rule closed while a parenthesis is open;
       - outside the stylesheet subset: 20,000 nested `@media` blocks, closed and unclosed; nested
         patterns through classes inside `@media`; a child combinator, a descendant combinator, a
         pseudo-class (`:root`), a pseudo-element, an attribute selector, a namespace selector; a
@@ -754,11 +769,10 @@ Every bullet below is a test that exists.
         comment, and by a processing instruction; CDATA and an element mixed;
       - `href` decoys: a `<use>` chain whose `href` differs from an `xlink:href` decoy; a `<use>`
         self-cycle hidden behind an `xlink:href` decoy.
-    - `vector_image_external_reference` (19):
+    - `vector_image_external_reference` (17):
       - links: external `xlink:href` on `<image>`; external `href` on `<feImage>`;
         `<use href="https://…">`; an `href` whose target starts with U+3000;
       - whitespace that browsers keep: `fill="url(\u3000#a)"`; `url(" #a")` in a stylesheet;
-      - `@import` hidden by `/*` inside an unquoted `url()`;
       - CSS comment and string tricks: a comment opener hidden in a double-quoted CSS string before
         an external `url()`, and before an external `@font-face`; the same in a `style=""`
         attribute; the same in a single-quoted CSS string; a comment inside an unquoted `url()`; an
@@ -789,9 +803,8 @@ Every bullet below is a test that exists.
       `viewBox`/`preserveAspectRatio`, a `style=""` attribute and `<title>`;
     - a mask-based logo;
     - an `<feImage>` filter carrying an embedded PNG with a real PNG signature;
-    - stylesheets a browser reads as we do: `{` and `}` inside an unquoted `url()`; `;` inside one;
-      comment markers inside quoted strings; `/*`-free rules in two stylesheets; `!important` with an
-      upper-case property;
+    - stylesheets a browser reads as we do: comment markers inside quoted strings; rules in two
+      stylesheets; `!important` with an upper-case property;
     - a gradient applied by `*`, `svg`, `path` and a compound comma list (`path.a, #b, *.a`),
       without a false cycle through the gradient's stops;
     - a design-tool export with a CDATA-wrapped `<style>` using a compound selector list (and CSS inside CDATA is still
@@ -953,6 +966,18 @@ Regression proofs run during implementation:
   first call under load. The reviewer's 24 `e*` files, the `d1`–`d4` repros and the six exporter
   files (Affinity, CorelDRAW, Figma, Illustrator, Inkscape, Sketch) were also run: every exporter
   file is accepted and every `d` file refused.
+  In the seventh round it grew to 167 inputs. The two `url()` probes with `{ }` and `;` are now
+  refused (not plain ids), and a reference-encoding section of 63 was added: ten fragment forms —
+  percent-encoded, entity-encoded percent, a character reference for a letter, non-ASCII, fullwidth,
+  upper-case, a trailing dot, a backslash, a colon, `xpointer()` — each in an `href`, an
+  `xlink:href`, an unquoted and a quoted stylesheet `url()`, a `style` attribute and a `fill`
+  attribute; the percent-encoded `<use>` chain; an `xml:id` target; an id with a space. The forms
+  that resolve to a plain id once the XML parser has run (a character reference for a letter,
+  upper-case, a trailing dot) are accepted; every other form is refused. All 167 pass, at most 175 ms
+  outside the first call. The reviewer's 60 exporter variants (BOM, CRLF, tabs, upper-case hex) and
+  the six exporter files are all accepted; every `b-pct-*` bomb is refused (unsafe content), the
+  plain `b-plain-5` as too complex, and `c-pct`, `c-pct-css`, `c-xpointer`, `c-del`, `f-harmless`
+  and `f-marker` are refused.
 - **Serving red-team**: thirteen spellings of the file path run through Next 16.3.6's own header
   matcher (`getPathMatch`) and dispatcher matcher (`getRouteRegex('/api/[...slug]')`) together with
   the route's canonical-path check. Every spelling that serves inline SVG gets the vector CSP; the
@@ -971,6 +996,15 @@ Regression proofs run during implementation:
 
 ## Changelog
 
+- 2026-10-07 — Seventh review round:
+  - The jsdom CSSOM cross-check is removed: it was quadratic on `@`, `!` and `(` and misread
+    `url(/*` itself. Untrusted CSS is never given to jsdom's CSSOM or rrweb-cssom.
+  - Fragments and ids are plain ASCII ids (`PLAIN_ID_PATTERN`) and `xml:id` is refused, so no
+    encoding can make the sanitiser and a browser resolve a reference differently.
+  - CDO/CDC refusal is left to the custom-property rule it already fell under; direct
+    `inspectVectorImageCss` cases pin it, the vendor-`url(` refusal, and a fixture pins the
+    bracket-balance check (each fails under its mutation).
+  - The cost table is re-timed with every change in place; corpus unchanged at 220 of 230.
 - 2026-10-07 — Sixth review round:
   - Merge order re-verified with a trial merge: the same five conflicting files and hunks.
   - One CSS tokenizer (`tokenizeCss`, CSS Syntax Level 3): the CSS rule, the stylesheet rules and
@@ -980,7 +1014,7 @@ Regression proofs run during implementation:
     and the rendered-size bound.
   - A vendor-prefixed `url(` and CDO/CDC are refused; unbalanced brackets in a declaration are
     refused.
-  - Each stylesheet is cross-checked against jsdom's CSSOM; a disagreement refuses the document.
+  - Each stylesheet was cross-checked against jsdom's CSSOM (removed in the seventh round).
   - The reference-amplification risk is rated Medium, with the single reading as its mitigation.
   - Dependency corpus unchanged at 220 of 230; A/B against the fifth-round sanitiser on the
     stylesheet shapes: +0 to +32 ms per shape.
