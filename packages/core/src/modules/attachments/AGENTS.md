@@ -98,7 +98,13 @@ write time.
 - A `<style>` may contain only text: check its children, and inspect exactly the
   concatenation of its direct text children (what browsers apply), never
   `textContent`.
-- Keep stylesheets to the exporter subset `parseStylesheet` accepts (flat rules,
+- Read CSS only through `tokenizeCss` in `lib/vector-image.ts`: the CSS policy,
+  the stylesheet rules and every declaration's references consume its tokens,
+  once per stylesheet. Never add a second character-level CSS reader (for
+  comments, strings, braces or `url()`): two readers disagree, and the
+  disagreement hides rules from the policy and the rendered-size bound. Keep the
+  jsdom CSSOM cross-check.
+- Keep stylesheets to the exporter subset `parseStyleRules` accepts (flat rules,
   simple selectors, no at-rules, custom properties or `var()`) and keep its
   rule/selector/reference/work caps. Narrow what a stylesheet may contain rather
   than model more CSS in the rendered-size bound.
