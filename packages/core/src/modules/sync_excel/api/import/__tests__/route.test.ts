@@ -19,15 +19,27 @@ const mockExistingMapping = {
   mapping: {},
 }
 
+const transactionEvents: string[] = []
+const mockInvalidateCredentialsMap = jest.fn(async () => {
+  transactionEvents.push('invalidate')
+})
+
 const mockEm = {
   findOne: jest.fn(),
   create: jest.fn((Entity: unknown, data: Record<string, unknown>) => ({ __entity: Entity, ...data })),
   persist: jest.fn(),
   flush: jest.fn(async () => undefined),
   transactional: jest.fn(async (work: (tx: unknown) => unknown) => {
-    const result = await work(mockEm)
-    await mockEm.flush()
-    return result
+    transactionEvents.push('begin')
+    try {
+      const result = await work(mockEm)
+      await mockEm.flush()
+      transactionEvents.push('commit')
+      return result
+    } catch (error) {
+      transactionEvents.push('rollback')
+      throw error
+    }
   }),
 }
 
@@ -38,7 +50,14 @@ const mockSyncRunService = {
 const mockProgressService = {}
 
 const mockCredentialsService = {
-  save: jest.fn(async () => undefined),
+  save: jest.fn(async (
+    _integrationId: string,
+    _credentials: Record<string, unknown>,
+    _scope: Record<string, unknown>,
+    options?: { deferAfterCommit?: (callback: () => void | Promise<void>) => void },
+  ) => {
+    options?.deferAfterCommit?.(mockInvalidateCredentialsMap)
+  }),
 }
 
 const mockIntegrationStateService = {
@@ -91,6 +110,8 @@ beforeAll(async () => {
 describe('sync_excel import route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    transactionEvents.length = 0
+    mockIntegrationStateService.upsert.mockResolvedValue(undefined)
     mockUpload.status = 'uploaded'
     mockUpload.syncRunId = null
     mockGetAuthFromRequest.mockResolvedValue({
@@ -173,10 +194,15 @@ describe('sync_excel import route', () => {
       entityType: 'customers.person',
       matchStrategy: 'externalId',
     })
-    expect(mockCredentialsService.save).toHaveBeenCalledWith('sync_excel', {}, {
-      organizationId: '33333333-3333-4333-8333-333333333333',
-      tenantId: '22222222-2222-4222-8222-222222222222',
-    })
+    expect(mockCredentialsService.save).toHaveBeenCalledWith(
+      'sync_excel',
+      {},
+      {
+        organizationId: '33333333-3333-4333-8333-333333333333',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+      },
+      { deferAfterCommit: expect.any(Function) },
+    )
     expect(mockIntegrationStateService.upsert).toHaveBeenCalledWith('sync_excel', { isEnabled: true }, {
       organizationId: '33333333-3333-4333-8333-333333333333',
       tenantId: '22222222-2222-4222-8222-222222222222',
@@ -197,6 +223,32 @@ describe('sync_excel import route', () => {
     expect(mockUpload.syncRunId).toBe('44444444-4444-4444-8444-444444444444')
     expect(mockUpload.status).toBe('importing')
     expect(mockEm.flush).toHaveBeenCalled()
+    expect(mockInvalidateCredentialsMap).toHaveBeenCalledTimes(1)
+    expect(transactionEvents.slice(0, 3)).toEqual(['begin', 'commit', 'invalidate'])
+  })
+
+  it('suppresses deferred encryption-map invalidation when the outer transaction rolls back', async () => {
+    mockIntegrationStateService.upsert.mockRejectedValueOnce(new Error('state write failed'))
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ok: true }),
+    }))
+
+    expect(response.status).toBe(500)
+    expect(mockCredentialsService.save).toHaveBeenCalledWith(
+      'sync_excel',
+      {},
+      expect.objectContaining({
+        organizationId: '33333333-3333-4333-8333-333333333333',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+      }),
+      { deferAfterCommit: expect.any(Function) },
+    )
+    expect(transactionEvents).toEqual(['begin', 'rollback'])
+    expect(mockInvalidateCredentialsMap).not.toHaveBeenCalled()
+    expect(mockStartDataSyncRun).not.toHaveBeenCalled()
   })
 
   it('returns 422 when All organizations is selected', async () => {
