@@ -804,6 +804,23 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     code: 'vector_image_unsafe_content',
   },
   {
+    name: 'an embedded JPEG whose fill bytes and comment hide a decoy 16 x 16 frame ahead of a 5,000 x 5,000 one',
+    svg: wrap(`<image href="data:image/jpeg;base64,${(() => {
+      const head = Buffer.alloc(607)
+      head.set([0xff, 0xd8, 0xff, 0xff, 0x01, 0xff, 0xfe])
+      head.writeUInt16BE(600, 7)
+      head.set([0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x10, 0x00, 0x10, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xda], 515)
+      const frame = Buffer.from('ffc0001108138813880301220002110103110100ffda000801010000003f00ffd9', 'hex')
+      return Buffer.concat([head, frame]).toString('base64')
+    })()}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'eight blurs and translucent rects drawn 23 times through <use>',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><defs><filter id="f" x="-1.5" y="-1.5" width="4" height="4">${'<feGaussianBlur stdDeviation="10"/>'.repeat(8)}</filter></defs><rect width="100" height="100" fill="#123456" filter="url(#f)"/><g id="g">${'<rect width="100" height="100" fill="#2a9d8f" fill-opacity="0.5"/>'.repeat(200)}</g>${'<use href="#g"/>'.repeat(22)}</svg>`,
+    code: 'vector_image_too_complex',
+  },
+  {
     name: 'an embedded hierarchical JPEG (DHP)',
     svg: wrap(`<image href="data:image/jpeg;base64,${Buffer.from('ffd8ffde000b0800100010010111000000ffc0000b080010001001011100ffda0008010100003f00ffd9', 'hex').toString('base64')}"/>`),
     code: 'vector_image_unsafe_content',

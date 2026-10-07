@@ -282,7 +282,15 @@ describe('sanitizeVectorImage — benign logos', () => {
   })
 
   it('is idempotent: sanitising sanitised output removes nothing', async () => {
-    for (const svg of [BENIGN_LOGO, EDITOR_EXPORT_LOGO, MASKED_LOGO, FILTERED_RASTER_LOGO]) {
+    for (const svg of [
+      BENIGN_LOGO,
+      EDITOR_EXPORT_LOGO,
+      MASKED_LOGO,
+      FILTERED_RASTER_LOGO,
+      '<svg xmlns="http://www.w3.org/2000/svg"><text>a&#xD;b&#xD;&#xA;c</text></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>rect{fill:red}&#xD;rect{fill:blue}</style><rect width="1" height="1"/></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><style><![CDATA[rect{fill:red}\r\nrect{fill:blue}]]></style><rect width="1" height="1"/></svg>',
+    ]) {
       const once = await sanitizeVectorImage(svgBuffer(svg))
       expect(once.ok).toBe(true)
       if (!once.ok) continue
@@ -420,7 +428,7 @@ describe('sanitizeVectorImage — bounded cost', () => {
     ['rects with five kept presentation attributes at the attribute bound', wrap('<rect x="1" y="1" width="1" height="1" fill="#123456"/>'.repeat(Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / 5) - 2)), true],
     ['elements at the per-element attribute bound', wrap(`<rect ${unknownAttributes(VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT)}/>`.repeat(Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT))), true],
     ['editor-namespaced attributes at the attribute bound', wrap(`<rect ${unknownAttributes(attributesPerElement, 'x:a')}/>`.repeat(elements)), true],
-    ['in-document <use> at the element bound', wrap(`<defs><g id="a"><rect/></g></defs>${'<use href="#a"/>'.repeat(elements)}`), true],
+    ['in-document <use> at the element bound (refused by the render-work bound)', wrap(`<defs><g id="a"><rect/></g></defs>${'<use href="#a"/>'.repeat(elements)}`), false],
     ['nesting at the depth bound', wrap(`${'<g>'.repeat(VECTOR_IMAGE_MAX_DEPTH - 2)}${'<rect/>'.repeat(elements - VECTOR_IMAGE_MAX_DEPTH)}${'</g>'.repeat(VECTOR_IMAGE_MAX_DEPTH - 2)}`), true],
     ['text interleaved with comments at the node bound', wrap(`<text>${'a<!---->'.repeat(pairs)}</text>`), true],
     ['text interleaved with processing instructions at the node bound', wrap(`<text>${'a<?a?>'.repeat(pairs)}</text>`), true],

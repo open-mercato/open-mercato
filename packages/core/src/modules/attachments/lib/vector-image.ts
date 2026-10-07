@@ -110,6 +110,13 @@ const DEFAULT_FILTER_PRIMITIVE_WORK = 600
  * radial gradient measured 6–11 ms in Chrome, against 31 units at one per stop.
  */
 const GRADIENT_STOP_WORK = 2
+/**
+ * Every rendered element is costed as translucent: a translucent fill
+ * measured about 1.8 times an opaque one in Chrome, and opacity can come from
+ * attributes, `style`, stylesheets, `rgba()`/`hsla()` colours or gradient
+ * stops, which the bound does not resolve.
+ */
+const TRANSLUCENT_WORK_FACTOR = 2
 const REFERENCE_ONLY_ELEMENTS = new Set([
   'defs',
   'symbol',
@@ -479,24 +486,33 @@ function pngDimensions(bytes: Buffer): { width: number; height: number } | null 
 
 /**
  * The pixel size of an embedded JPEG: its markers are walked up to the first
- * scan, and exactly one baseline, extended or progressive start-of-frame
- * (`SOF0`–`SOF2`) is allowed. Hierarchical (`DHP`), lossless and arithmetic
- * frames are refused.
+ * scan, skipping `0xFF` fill bytes as decoders do, and exactly one baseline,
+ * extended or progressive start-of-frame (`SOF0`–`SOF2`) is allowed.
+ * Hierarchical (`DHP`), lossless and arithmetic frames, and the parameterless
+ * markers (`TEM`, `RST0`–`RST7`, a second `SOI`, `EOI`) before the scan, are
+ * refused — reading a fill byte as a marker let a comment hide a decoy frame.
  */
 function jpegDimensions(bytes: Buffer): { width: number; height: number } | null {
   let size: { width: number; height: number } | null = null
   let offset = 2
-  while (offset + 4 <= bytes.length && bytes[offset] === 0xff) {
-    const marker = bytes[offset + 1]!
+  while (offset < bytes.length) {
+    if (bytes[offset] !== 0xff) return null
+    while (bytes[offset] === 0xff) offset += 1
+    if (offset >= bytes.length) return null
+    const marker = bytes[offset]!
+    offset += 1
     if (marker === 0xda) return size
-    const length = bytes.readUInt16BE(offset + 2)
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9)) return null
+    if (offset + 2 > bytes.length) return null
+    const length = bytes.readUInt16BE(offset)
+    if (length < 2) return null
     if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
-      if (size || offset + 9 > bytes.length) return null
-      size = { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) }
+      if (size || offset + 7 > bytes.length) return null
+      size = { width: bytes.readUInt16BE(offset + 5), height: bytes.readUInt16BE(offset + 3) }
     } else if ((marker >= 0xc3 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) || marker === 0xde) {
       return null
     }
-    offset += 2 + length
+    offset += length
   }
   return null
 }
@@ -945,7 +961,10 @@ function normaliseAttributes(
  * Removes what never renders — comments, processing instructions other than
  * `xml-stylesheet`, `<metadata>`, foreign-namespace editor elements and
  * attributes — and turns CDATA sections into the text they hold (design tools
- * wrap stylesheets in CDATA; the CSS policy still inspects that text). A
+ * wrap stylesheets in CDATA; the CSS policy still inspects that text). Carriage
+ * returns in character data (`&#xD;`) become line feeds first: the serialiser
+ * writes a raw CR, which re-parses as LF, so the checked DOM would otherwise
+ * differ from what the stored bytes parse to. A
  * parent with removals is rebuilt, which keeps the pass linear. Nodes outside
  * the root element (the DOCTYPE, prolog comments and PIs) are classified but
  * left in place: only the root is serialised, and removing a Document's child
@@ -965,8 +984,9 @@ function prepareForPurify(document: DomDocument, removals: VectorImageRemoval[])
     const kept: DomNode[] = []
     let changed = false
     for (let child = parent.firstChild; child; child = child.nextSibling) {
-      if (child.nodeType === NODE_CDATA_SECTION) {
-        kept.push(document.createTextNode(child.textContent ?? ''))
+      const text = child.textContent ?? ''
+      if (child.nodeType === NODE_CDATA_SECTION || (child.nodeType === NODE_TEXT && text.includes('\r'))) {
+        kept.push(document.createTextNode(text.replace(/\r\n?/g, '\n')))
         changed = true
         continue
       }
@@ -1368,7 +1388,7 @@ function elementWork(element: DomElement, tag: string): number {
   if (tag === 'path') length = (element.getAttribute('d') ?? '').length
   else if (tag === 'polyline' || tag === 'polygon') length = (element.getAttribute('points') ?? '').length
   else if (tag === 'text' || tag === 'tspan' || tag === 'textpath') length = directTextLength(element)
-  return 1 + Math.ceil(length / VECTOR_IMAGE_RENDER_CHARACTERS_PER_UNIT)
+  return TRANSLUCENT_WORK_FACTOR * (1 + Math.ceil(length / VECTOR_IMAGE_RENDER_CHARACTERS_PER_UNIT))
 }
 
 /**
@@ -1437,7 +1457,7 @@ function rootViewportSize(root: DomElement): number {
  * Anything it cannot parse counts as infinite.
  */
 function transformScale(transform: string): number {
-  let [a, b, c, d] = [1, 0, 0, 1]
+  let [scaleX, skewY, skewX, scaleY] = [1, 0, 0, 1]
   const pattern = /\s*,?\s*([a-zA-Z]+)\s*\(([^)]*)\)/y
   let rest = transform.trim()
   while (rest) {
@@ -1456,10 +1476,15 @@ function transformScale(transform: string): number {
     else if (name === 'skewx' && values.length === 1) next = [1, 0, Math.tan((values[0]! * Math.PI) / 180), 1]
     else if (name === 'skewy' && values.length === 1) next = [1, Math.tan((values[0]! * Math.PI) / 180), 0, 1]
     else return Infinity
-    ;[a, b, c, d] = [a * next[0] + c * next[1], b * next[0] + d * next[1], a * next[2] + c * next[3], b * next[2] + d * next[3]]
+    ;[scaleX, skewY, skewX, scaleY] = [
+      scaleX * next[0] + skewX * next[1],
+      skewY * next[0] + scaleY * next[1],
+      scaleX * next[2] + skewX * next[3],
+      skewY * next[2] + scaleY * next[3],
+    ]
   }
-  const sum = a * a + b * b + c * c + d * d
-  const determinant = a * d - b * c
+  const sum = scaleX * scaleX + skewY * skewY + skewX * skewX + scaleY * scaleY
+  const determinant = scaleX * scaleY - skewY * skewX
   return Math.sqrt((sum + Math.sqrt(Math.max(0, sum * sum - 4 * determinant * determinant))) / 2)
 }
 
