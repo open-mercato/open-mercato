@@ -217,7 +217,7 @@ icons whose stylesheets use `@keyframes` and `@media` (§ 3, stylesheet subset);
    - `<use>` is added back because logos rely on in-document reuse; step 3 restricts every `href`
      to `#id`.
    - `feImage` joins the `data:` URI list; step 3 still limits those URIs to base64
-     PNG/JPEG/GIF/WebP with a matching signature.
+     PNG/JPEG with a matching signature and a single bounded frame.
    - `KEEP_CONTENT: false`: nothing of a removed element is hoisted.
    - `SANITIZE_DOM: false`. DOMPurify's DOM-clobbering guard removes any `id` or `name` that
      matches a property of `document` or a form (`title`, `body`, `images`, `links`, `fonts`,
@@ -719,9 +719,16 @@ What the sanitiser guarantees, and what it only reduces:
   beyond `url()` and colours, CSS `d`, SMIL, user-unit-scaled and region-scaled filter primitives,
   blurs under scale-up, animated and non-PNG/JPEG rasters — and a work-weighted bound, calibrated
   in Chrome on CPU canvas at 800 px, limits the rest: the largest accepted variant of each costly
-  shape draws in about 2 s or less on the machine measured. A stored logo is shown only on the
-  uploading tenant's own pages, so a slow logo can only affect that tenant's users; browsers render
-  arbitrary SVG from any site, and closing the tab ends it. Residual risk: Low.
+  shape draws in about 2 s or less on the machine measured. A stored logo is shown on the uploading
+  tenant's own pages, including to super-admins viewing that tenant (the attachment library
+  thumbnails), so a slow logo can only affect people looking at that tenant. No cross-tenant surface
+  exists: the pay page logo route returns 404 for SVG, and no in-repo caller sets
+  `allowVectorImage`. Browsers render arbitrary SVG from any site, and closing the tab ends it.
+  Residual risk: Low.
+- **Stored bytes equal the checked document.** Carriage returns in character data are normalised to
+  line feeds before any check, so what is stored re-parses to the DOM that was checked;
+  sanitising the stored bytes again is byte-identical (all 312 accepted corpus and exporter files,
+  and every accepted fixture).
 
 ## Risks & Impact Review
 
@@ -730,9 +737,9 @@ What the sanitiser guarantees, and what it only reduces:
 | Sanitiser bypass yields script in a stored SVG | High | XSS on direct navigation | DOMPurify allowlist; refusal at the first non-inert finding; reference and tokenised CSS policy on exactly what browsers apply; serving CSP `sandbox`/`default-src 'none'`; `nosniff`; `<img>` embedding disables script regardless | Low: requires a DOMPurify bypass *and* a CSP bypass |
 | Parser differential (CSS strings, `<style>` children, `href` precedence, DOCTYPE lexing) hides a reference | Medium | privacy | CSS Syntax Level 3 tokenisation; text-only `<style>`; conflicting `href`s refused; XML-aware DTD scan; `default-src 'none'` at serve | Low |
 | Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute, stylesheet and render-work bounds; one linear CSS tokenizer and no second CSS parser (jsdom's CSSOM was quadratic); linear passes; first-finding stop; DOMPurify on a copy; cost test | worst 381 ms, medians under 0.34 s per upload at the bounds, measured under concurrent load (up to 0.72 s in earlier, heavier runs) |
-| Render DoS (whoever opens the logo) | Low (Threat Model: best effort) | client, the uploading tenant's own pages | refusing what logos do not need (CSS functions beyond `url()` and colours, CSS `d`, `if()`, `var()`, SMIL, `feMorphology`, lighting, `feConvolveMatrix`, `feDisplacementMap`, `feDropShadow`, object-bounding-box primitive units, more than eight blurs, blur deviations over 10% of the viewport, blurs under scale-up, GIF/WebP/animated rasters, rasters over 4,096 px) plus the render-work bound (§ 4, 10,000 units). Measured in Chrome (CPU canvas, 800 px, `drawTime`), largest accepted variants: full-canvas rects 0.86–1.24 s, 30-stop gradient rects 0.89–1.00 s, 2 × 32 arithmetic composites 0.95–1.38 s, eight blurs at 10% over a region ten times the canvas 0.95–1.21 s and with the rest of the budget in rects 1.78–2.05 s, a 550-segment path × 222 0.75–1.20 s, text 0.24–0.39 s, mid-markers 0.09–0.16 s (ranges span runs on a machine whose speed varied by about 30% during the round). Every review repro is refused | A shape or primitive combination not yet measured could exceed 2 s; a slower client scales every figure; ordinary raster uploads served inline by the file route are not header-checked (follow-up) |
+| Render DoS (whoever opens the logo) | Low (Threat Model: best effort) | client, the uploading tenant's pages (and super-admins viewing them) | refusing what logos do not need (CSS functions beyond `url()` and colours, CSS `d`, `if()`, `var()`, SMIL, `feMorphology`, lighting, `feConvolveMatrix`, `feDisplacementMap`, `feDropShadow`, object-bounding-box primitive units, more than eight blurs, blur deviations over 10% of the viewport, blurs under scale-up, GIF/WebP/animated rasters, rasters over 4,096 px) plus the render-work bound (§ 4, 10,000 units, every element costed as translucent). Measured in Chrome (CPU canvas, 800 px, `drawTime`), largest accepted variants in the tenth round: the review's `gen-worst` (eight 10% blurs over a 4× region plus translucent rects through `<use>`) 1.23–1.31 s at 11 uses (it took 3.2–4.8 s at 22 before translucency was weighted; 12 uses are now refused); eight 10% blurs over a region ten times the canvas plus the rest of the budget in translucent rects 1.51–1.61 s; 2,400 translucent full-canvas rects 0.40–0.41 s; a translucent 550-segment path × 111 0.58–0.69 s; earlier rounds: 2 × 32 arithmetic composites 0.95–1.38 s, text 0.24–0.39 s, mid-markers 0.09–0.16 s. Every review repro is refused | A shape or primitive combination not yet measured could exceed 2 s; a slower client scales every figure; ordinary raster uploads served inline by the file route are not header-checked (follow-up) |
 | Sandbox lost on an encoded path or a module route | Medium | XSS defence in depth | inline SVG only from the file route at the canonical path; `readScoped` never inline; encoded spellings tested against Next's matchers and over HTTP | Requires a sanitiser bypass as well; an `<img>`-embedded SVG runs no script either way |
-| Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 220 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts and animated spinners) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, CSS animation or media queries, selectors beyond type/class/id, custom properties, or more than 2,000 elements or 6,000 attributes need re-exporting |
+| Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 220 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts and animated spinners) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, CSS animation or media queries, selectors beyond type/class/id, custom properties, or more than 2,000 elements or 6,000 attributes need re-exporting. Known over-refusals from the render-cost limits, all `vector_image_too_complex` with the generic message: Figma shadows or glows whose blur deviation is 10% or more of the frame's smaller side (for example a deviation of 12 on a 240 × 96 frame); any blur under a scaling group or an import matrix such as Inkscape's PDF/AI `matrix(1.333…)`; small icons with large blurs (a deviation of 3 on a 24 px icon) |
 | Forged `vectorImage` record on an unsanitised row | Low | XSS | no endpoint writes arbitrary metadata keys; SHA-256 binding to stored bytes; CSP still applies | Requires DB write access |
 | A non-SVG response under the file path gets the vector CSP's extra allowances | Low | headers | they only affect a document rendered inline, and the route renders only sanitised SVG inline; `default-src 'none'` and `sandbox` stay | — |
 | `jsdom` weight | Low | memory/startup | lazy load; server-external; heap flat across requests (measured) | 0.5–1.6 s first-call load per process |
@@ -1106,6 +1113,17 @@ Regression proofs run during implementation:
 
 ## Changelog
 
+- 2026-10-07 — Tenth review round:
+  - Carriage returns in text and CDATA are normalised to line feeds in `prepareForPurify`, so the
+    stored bytes re-parse to the checked DOM (idempotence test extended with text, `<style>` and
+    CDATA cases).
+  - The JPEG walker skips `0xFF` fill bytes and refuses parameterless markers before the scan; a
+    comment could hide a decoy 16 × 16 frame ahead of a large one.
+  - Every rendered element is costed as translucent (×2); the review's worst file is now accepted
+    only up to 11 uses, drawing in about 1.3 s.
+  - Threat Model: super-admins viewing a tenant also see its logos; no cross-tenant surface.
+  - Known over-refusals documented; `transformScale` identifiers renamed.
+  - Corpus unchanged at 220 of 230; idempotence holds for all 312 accepted files.
 - 2026-10-07 — Ninth review round:
   - Merge order re-verified with a trial merge: the same five conflicting files and hunks.
   - A Threat Model section: server cost bounded, no active content guaranteed, client render cost

@@ -624,7 +624,9 @@ the lighting primitives, `feConvolveMatrix`, `feDisplacementMap`, `feDropShadow`
 over 10% of the viewport, blurs next to a stretching transform or nested `viewBox`, and embedded
 rasters other than single-frame PNG or JPEG of at most 4,096 px a side are refused, and documents
 whose estimated drawing work exceeds the bound are `vector_image_too_complex`. Client render cost
-is best effort: see the Threat Model in the spec.
+is best effort: see the Threat Model in the spec. Known over-refusals: Figma shadows or glows whose blur
+deviation is 10% or more of the frame's smaller side, blurs under a scaling group or an import
+matrix such as Inkscape's PDF/AI `matrix(1.333…)`, and small icons with large blurs.
 
 `attachmentService.readScoped()` returns a sanitised SVG as an `application/octet-stream` download,
 like any other SVG: a module route outside the file path gets the app-wide CSP, which Next.js keeps
