@@ -99,6 +99,8 @@ Provide the `id` in the query string or body. Soft deletes the entity and reinde
 **Feature:** `customers.companies.view`  
 Supports the same pagination, search, tag, status, lifecycle stage, source, email, and custom field filters as `/customers/people`.
 
+- `domain` — exact match on the company domain, for duplicate checks before creating a company. Pass a bare domain: it is trimmed and lowercased, and a leading `@` or `www.` is removed, so `@acme.com` and `www.Acme.com` both mean `acme.com`. A value with whitespace, `/` or `:` (a URL), or without an interior dot returns `400`; a blank value is ignored. Stored domains are compared after removing protocol, `www.`, path, port and trailing dot, so a company saved as `https://www.acme.com/` matches `acme.com`. Subdomains stay distinct. Works on organizations with encrypted company data.
+
 ### Retrieve company — `GET /customers/companies/{id}`
 
 **Feature:** `customers.companies.view`  

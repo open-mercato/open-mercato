@@ -1,6 +1,6 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerCompanyProfile,
@@ -26,6 +26,8 @@ import {
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
+import { findEntityIdsBySearchTokens, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import {
   createCustomersCrudOpenApi,
@@ -39,11 +41,50 @@ import {
   withScopedCustomerDealLinkWhere,
 } from '../../lib/personCompanyLinkTable'
 import { normalizeCompanyProfilePayload } from './payload'
+import { normalizeCompanyDomain, parseCompanyDomainFilter } from '../../lib/companyDomain'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
 
 const rawBodySchema = z.object({}).passthrough()
+
+async function findCompanyIdsByDomain(ctx: CrudCtx, domain: string): Promise<string[]> {
+  const em = ctx.container.resolve('em') as EntityManager
+  const tenantId = ctx.auth?.tenantId ?? null
+  const tokenMatch = await findEntityIdsBySearchTokens({
+    db: em.getKysely<SearchTokenDatabase>(),
+    entityType: E.customers.customer_company_profile,
+    query: domain,
+    fields: ['domain'],
+    scope: {
+      tenantId: ctx.auth?.tenantId !== undefined ? tenantId : undefined,
+      organizationId: ctx.selectedOrganizationId ?? undefined,
+      organizationIds: ctx.organizationIds,
+    },
+  })
+  if (tokenMatch.matched && tokenMatch.ids.length === 0) return []
+  const where: Record<string, unknown> = tokenMatch.matched
+    ? { tenantId, id: { $in: tokenMatch.ids } }
+    : { tenantId, domain: { $ne: null } }
+  if (ctx.selectedOrganizationId) where.organizationId = ctx.selectedOrganizationId
+  else if (Array.isArray(ctx.organizationIds)) where.organizationId = { $in: ctx.organizationIds }
+  const profiles = await findWithDecryption(
+    em,
+    CustomerCompanyProfile,
+    where as FilterQuery<CustomerCompanyProfile>,
+    {},
+    { tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null },
+  )
+  if (profiles.some((profile) => isEncryptedPayloadShape(profile.domain))) {
+    logger.error('company domain lookup could not decrypt candidate profiles', { component: 'companies.list', tenantId })
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(500, { error: translate('customers.errors.internal', 'Internal server error') })
+  }
+  return profiles
+    .filter((profile) => normalizeCompanyDomain(profile.domain) === domain)
+    .map((profile) => (profile as { entity?: { id?: unknown } }).entity?.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
 
 const listSchema = z
   .object({
@@ -53,6 +94,10 @@ const listSchema = z
     email: z.string().optional(),
     emailStartsWith: z.string().optional(),
     emailContains: z.string().optional(),
+    domain: z
+      .string()
+      .refine((value) => value.trim().length === 0 || parseCompanyDomainFilter(value) !== null, { message: 'Invalid domain' })
+      .optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     status: z.string().optional(),
@@ -191,6 +236,15 @@ const crud = makeCrudRoute({
             { next_interaction_name: { $ilike: searchPattern } },
           ]
         }
+      }
+      const domain = typeof query.domain === 'string' ? parseCompanyDomainFilter(query.domain) : null
+      if (ctx && domain) {
+        const domainIds = await findCompanyIdsByDomain(ctx, domain)
+        const searchIds = (filters.id as { $in?: unknown } | undefined)?.$in
+        applyEntityIdRestriction(
+          filters,
+          Array.isArray(searchIds) ? domainIds.filter((id) => searchIds.includes(id)) : domainIds,
+        )
       }
       if (query.status) {
         filters.status = { $eq: query.status }
