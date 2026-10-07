@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   bridgeLegacyGuard,
@@ -52,7 +53,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid JSON, invalid request, unknown template or invalid source reference.', schema: errorSchema },
         { status: 401, description: 'Unauthenticated caller.', schema: errorSchema },
-        { status: 403, description: 'The caller lacks the features required by the template.', schema: forbiddenSchema },
+        { status: 403, description: 'The caller lacks the features required by the template, or has no user or API key id to record as the generator.', schema: forbiddenSchema },
         { status: 404, description: 'Document source not found.', schema: errorSchema },
         { status: 409, description: 'An organization must be selected.', schema: errorSchema },
         { status: 422, description: 'Generation blocked by a mutation guard (a guard may supply another status and body).', schema: z.record(z.string(), z.unknown()) },
@@ -106,6 +107,13 @@ async function recordGeneratedDocument(input: {
   return (await input.history.persist(input.prepared)).id
 }
 
+const actorIdSchema = z.string().uuid()
+
+function resolveGeneratedBy(auth: NonNullable<AuthContext>): string | null {
+  const candidate = auth.userId ?? (auth.isApiKey ? auth.keyId : auth.sub)
+  return actorIdSchema.safeParse(candidate).success ? (candidate as string) : null
+}
+
 async function loadUserFeatures(
   container: { resolve: (name: string) => unknown },
   userId: string,
@@ -134,6 +142,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     const organization = await requireOrganization({ auth, container, request, translate })
     if (!organization.ok) return organization.response
+    const generatedBy = resolveGeneratedBy(organization.auth)
+    if (!generatedBy) return errorResponse('forbidden', 403, translate, { requiredFeatures: [] })
     const template = templateRegistry.getTemplateMetadata(parsed.data.template_id, translate)
     const policy = new TemplateAccessPolicy({
       featureAuthorizer: container.resolve('rbacService') as TemplateFeatureAuthorizer,
@@ -187,7 +197,7 @@ export async function POST(request: Request): Promise<Response> {
       templateVersion: loaded.template.version,
       format: rendered.format,
       mimeType: rendered.mimeType,
-      generatedBy: userId,
+      generatedBy,
       generatedAt: new Date(),
     })
     let recordedId: string | null = null
