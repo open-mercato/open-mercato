@@ -79,7 +79,7 @@ describe('StoreEditPage', () => {
     renderPage()
     expect(await screen.findByRole('heading', { name: 'Main store' })).toBeInTheDocument()
     expect(apiCallMock.mock.calls[0][0]).toContain('id=store-1')
-    expect(screen.getByText('main · /main-shop')).toBeInTheDocument()
+    expect(screen.getByText('main — /main-shop')).toBeInTheDocument()
     expect(screen.getByText('Draft')).toBeInTheDocument()
     expect(screen.getByText('shop.example.com')).toBeInTheDocument()
     expect(screen.getByText('Web channel')).toBeInTheDocument()

@@ -618,24 +618,23 @@ export function OmnibusSettings() {
                   </SelectContent>
                 </Select>
               </FormField>
-              <div className="space-y-1 md:col-span-2">
-                <p className="text-sm font-medium">{t('catalog.omnibus.settings.defaultPresentedPriceKind', 'Default presented price kind')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t(
-                    'catalog.omnibus.settings.defaultPresentedPriceKindDescription',
-                    'The price kind shown to shoppers, used when a channel has no override. Required when Omnibus is enabled without channel overrides.',
-                  )}
-                </p>
+              <FormField
+                label={t('catalog.omnibus.settings.defaultPresentedPriceKind', 'Default presented price kind')}
+                description={t(
+                  'catalog.omnibus.settings.defaultPresentedPriceKindDescription',
+                  'The price kind shown to shoppers, used when a channel has no override. Required when Omnibus is enabled without channel overrides.',
+                )}
+                error={fieldErrors.defaultPresentedPriceKindId}
+                disabled={readOnly}
+                className="md:col-span-2"
+              >
                 <PricePriceKindSelect
                   value={form.defaultPresentedPriceKindId}
                   onChange={(next) => updateForm({ defaultPresentedPriceKindId: next })}
                   disabled={readOnly}
                   clearable
                 />
-                {fieldErrors.defaultPresentedPriceKindId ? (
-                  <p className="text-xs text-status-error-text" role="alert">{fieldErrors.defaultPresentedPriceKindId}</p>
-                ) : null}
-              </div>
+              </FormField>
             </div>
 
             <div className="space-y-3">
@@ -667,28 +666,28 @@ export function OmnibusSettings() {
                     <div key={row.key} className="space-y-3 rounded-md border p-4" data-testid="catalog-omnibus-channel-row">
                       <div className="flex items-start justify-between gap-2">
                         <div className="grid flex-1 gap-4 md:grid-cols-2">
-                          <div className="space-y-1">
-                            <p className="text-sm font-medium">{t('catalog.omnibus.settings.channels.channel', 'Channel')}</p>
+                          <FormField
+                            label={t('catalog.omnibus.settings.channels.channel', 'Channel')}
+                            error={rowError('channelId')}
+                            disabled={readOnly}
+                          >
                             <PriceChannelSelect
                               value={row.channelId}
                               onChange={(next) => updateChannel(row.key, { channelId: next })}
                               disabled={readOnly}
                             />
-                            {rowError('channelId') ? (
-                              <p className="text-xs text-status-error-text" role="alert">{rowError('channelId')}</p>
-                            ) : null}
-                          </div>
-                          <div className="space-y-1">
-                            <p className="text-sm font-medium">{t('catalog.omnibus.settings.channels.presentedPriceKind', 'Presented price kind')}</p>
+                          </FormField>
+                          <FormField
+                            label={t('catalog.omnibus.settings.channels.presentedPriceKind', 'Presented price kind')}
+                            error={rowError('presentedPriceKindId')}
+                            disabled={readOnly}
+                          >
                             <PricePriceKindSelect
                               value={row.presentedPriceKindId}
                               onChange={(next) => updateChannel(row.key, { presentedPriceKindId: next })}
                               disabled={readOnly}
                             />
-                            {rowError('presentedPriceKindId') ? (
-                              <p className="text-xs text-status-error-text" role="alert">{rowError('presentedPriceKindId')}</p>
-                            ) : null}
-                          </div>
+                          </FormField>
                           <FormField
                             label={t('catalog.omnibus.settings.channels.countryCode', 'Member state')}
                             description={t('catalog.omnibus.settings.channels.countryCodeDescription', 'Leave empty for non-EU channels.')}

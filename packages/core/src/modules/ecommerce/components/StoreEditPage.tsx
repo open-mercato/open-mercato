@@ -136,7 +136,7 @@ export function StoreEditPage({ storeId, tabs = STORE_EDIT_TABS }: StoreEditPage
             backLabel={backLabel}
             entityTypeLabel={t('ecommerce.backend.store.entityType', 'Store')}
             title={store.name}
-            subtitle={`${store.code} · /${store.slug}`}
+            subtitle={`${store.code} — /${store.slug}`}
             statusBadge={<StoreStatusBadge status={store.status} />}
           />
           <Card>
