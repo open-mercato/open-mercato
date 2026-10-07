@@ -657,6 +657,21 @@ describe('DefaultAttachmentService.readScopedForOwner', () => {
     expect(result.contentDisposition).toMatch(/^inline;/)
   })
 
+  it('returns an SVG row as a download, never inline, even one carrying a sanitised-vector record', async () => {
+    const { service } = createHarness({
+      attachment: ownedAttachment({
+        fileName: 'logo.svg',
+        mimeType: 'image/svg+xml',
+        storageMetadata: { vectorImage: { sanitizer: 'dompurify', sanitizerVersion: '3.4.11', policyVersion: 1, sha256: '0'.repeat(64), sanitizedAt: '2026-10-07T00:00:00.000Z' } },
+      }),
+    })
+
+    const result = await service.readScopedForOwner(ownerInput)
+
+    expect(result.contentType).toBe('application/octet-stream')
+    expect(result.contentDisposition).toMatch(/^attachment;/)
+  })
+
   it.each([
     ['a different owner entity', { expectedOwner: { entityId: 'catalog:catalog_product', recordId: 'document-1' } }],
     ['a different owner record', { expectedOwner: { entityId: 'documents:document', recordId: 'document-2' } }],
