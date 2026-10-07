@@ -63,7 +63,7 @@ test.describe('TC-CHKT-044: public pay link logo', () => {
         buffer: PNG,
       })
       attachmentIds.push(ownLogo.id)
-      expect((await updateLink(request, token, ownLink.id, { logoAttachmentId: ownLogo.id })).ok()).toBeTruthy()
+      expect((await updateLink(request, token, ownLink.id, { logoAttachmentId: ownLogo.id, status: 'active' })).ok()).toBeTruthy()
 
       const ownLogoUrl = await readLogoUrl(request, ownLink.slug)
       expect(ownLogoUrl).toBe(`/api/checkout/pay/${encodeURIComponent(ownLink.slug)}/logo`)
@@ -93,7 +93,7 @@ test.describe('TC-CHKT-044: public pay link logo', () => {
 
       const borrowingLink = await createLinkFixture(request, token, createFixedTemplateInput({ status: 'active' }))
       linkIds.push(borrowingLink.id)
-      expect((await updateLink(request, token, borrowingLink.id, { logoAttachmentId: ownLogo.id })).ok()).toBeTruthy()
+      expect((await updateLink(request, token, borrowingLink.id, { logoAttachmentId: ownLogo.id, status: 'active' })).ok()).toBeTruthy()
       const borrowedResponse = await fetchAnonymously(request, `/api/checkout/pay/${encodeURIComponent(borrowingLink.slug)}/logo`)
       expect(borrowedResponse.status()).toBe(404)
 
