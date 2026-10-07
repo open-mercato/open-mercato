@@ -654,7 +654,9 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.object({
             error: z.string(),
             ok: z.literal(false).optional(),
-            errors: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
+            errors: z
+              .array(z.object({ path: z.string(), message: z.string(), value: z.unknown().optional() }))
+              .optional(),
           }),
         },
       ],

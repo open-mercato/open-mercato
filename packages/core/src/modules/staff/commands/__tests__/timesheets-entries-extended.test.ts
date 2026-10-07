@@ -102,6 +102,7 @@ type RegisteredCommand = {
 type Loaded = {
   create: RegisteredCommand
   update: RegisteredCommand
+  remove: RegisteredCommand
   entities: Entities
   roundMinutes: (raw: number, settings: { unitMinutes: 0 | 5 | 10 | 15; direction: 'up' | 'nearest' }) => number
 }
@@ -118,6 +119,7 @@ async function loadCommands(): Promise<Loaded> {
   return {
     create: commandRegistry.get('staff.timesheets.time_entries.create') as RegisteredCommand,
     update: commandRegistry.get('staff.timesheets.time_entries.update') as RegisteredCommand,
+    remove: commandRegistry.get('staff.timesheets.time_entries.delete') as RegisteredCommand,
     entities: {
       StaffTimeEntry: entities.StaffTimeEntry,
       StaffTimeProject: entities.StaffTimeProject,
@@ -740,6 +742,45 @@ describe('staff timesheets extended time-entry write path (T4.1)', () => {
 
       await expect(update.execute({ id: ENTRY_ID, durationMinutes: 30 }, ctx)).rejects.toMatchObject({ status: 403 })
       expect(entry.durationMinutes).toBe(60)
+    })
+
+    it('refuses moving an entry to an assigned project whose assignment does not cover its date', async () => {
+      const { update, entities } = await loadCommands()
+      mockResolveProjectAccess.mockResolvedValue({
+        ...ASSIGNED_IN_JULY,
+        projectIds: [PROJECT_ID, HIDDEN_PROJECT_ID],
+        assignmentWindows: {
+          ...ASSIGNED_IN_JULY.assignmentWindows,
+          [HIDDEN_PROJECT_ID]: [{ startIndex: dayIndex('2026-08-01'), endIndex: null }],
+        },
+      })
+      const entry = entryRow({ date: new Date('2026-07-15T00:00:00.000Z') })
+      const world: World = {
+        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID })],
+        tasks: [],
+        entries: [entry],
+        created: [],
+      }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: false })
+
+      await expect(update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID }, ctx)).rejects.toMatchObject({
+        status: 403,
+        body: { error: OUTSIDE_WINDOW },
+      })
+      expect(entry.timeProjectId).toBe(PROJECT_ID)
+    })
+
+    it('refuses deleting a stored entry dated outside the assignment', async () => {
+      const { remove, entities } = await loadCommands()
+      const entry = entryRow({ date: new Date('2026-06-15T00:00:00.000Z') })
+      const world: World = { projects: [projectRow()], tasks: [], entries: [entry], created: [] }
+      const { ctx } = makeCtx(makeEm(world, entities), { manageAll: false })
+
+      await expect(remove.execute({ id: ENTRY_ID }, ctx)).rejects.toMatchObject({
+        status: 403,
+        body: { error: OUTSIDE_WINDOW },
+      })
+      expect(entry.deletedAt).toBeNull()
     })
 
     it('lets a timesheet manager write outside the assignment window', async () => {

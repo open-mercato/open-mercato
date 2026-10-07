@@ -192,6 +192,48 @@ describe('POST /api/staff/timesheets/time-entries/bulk project access (#6988)', 
     })
   })
 
+  it('refuses clearing a stored cell dated outside the assignment', async () => {
+    useWorld({
+      memberships: [{ ...assignedSince2020, assignedStartDate: '2026-08-01' }],
+      storedEntries: [
+        { id: existingEntryId, staffMemberId, timeProjectId: assignedProjectId, date: '2026-07-20', durationMinutes: 60 },
+      ],
+    })
+    const { POST } = await loadRoute()
+
+    const response = await POST(
+      buildRequest([{ id: existingEntryId, date: '2026-07-20', timeProjectId: assignedProjectId, durationMinutes: 0 }]),
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'This date is outside your assignment to this project.',
+    })
+    const transactionReads = mockFindWithDecryption.mock.calls.filter(
+      ([, entity]) => entityName(entity) === 'StaffTimeEntry',
+    )
+    expect(transactionReads).toHaveLength(0)
+  })
+
+  it('refuses re-dating a stored entry to a day outside the assignment', async () => {
+    useWorld({
+      memberships: [{ ...assignedSince2020, assignedStartDate: '2026-08-01' }],
+      storedEntries: [
+        { id: existingEntryId, staffMemberId, timeProjectId: assignedProjectId, date: '2026-08-03', durationMinutes: 60 },
+      ],
+    })
+    const { POST } = await loadRoute()
+
+    const response = await POST(
+      buildRequest([{ id: existingEntryId, date: '2026-07-31', timeProjectId: assignedProjectId, durationMinutes: 60 }]),
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'This date is outside your assignment to this project.',
+    })
+  })
+
   it('refuses everything for a member with no assignments, as the entry dialog does', async () => {
     useWorld({ memberships: [] })
     const { POST } = await loadRoute()
