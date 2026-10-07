@@ -131,6 +131,16 @@ describe('extractModuleRequiresFromSource', () => {
   })
 
   it.each([
+    ['a single export', `Object.defineProperty(exports, "__esModule", { value: true });\nexports.metadata = void 0;\nexports.metadata = { requires: ['auth'] };`],
+    ['multiple exports', `Object.defineProperty(exports, "__esModule", { value: true });\nexports.features = exports.metadata = void 0;\nexports.metadata = { requires: ['auth'] };\nexports.features = [];`],
+  ])('reads tsc CommonJS output with %s', (_label, compiled) => {
+    const file = writeSource('index.js', `"use strict";\n${compiled}\n`)
+    expect(extractModuleRequiresFromSource(file)).toEqual({ status: 'declared', requires: ['auth'] })
+  })
+
+  it.each([
+    ['a re-export', `export { metadata } from './meta'`, 're-exported'],
+    ['a computed key', `export const metadata = { ['requires']: ['auth'] }`, 'computed key'],
     ['an identifier entry', `const DEP = 'auth'\nexport const metadata = { requires: [DEP] }`, 'non-literal entry'],
     ['a spread entry', `const base = ['auth']\nexport const metadata = { requires: [...base, 'attachments'] }`, 'non-literal entry'],
     ['an interpolated template', `const id = 'auth'\nexport const metadata = { requires: [\`\${id}\`] }`, 'non-literal entry'],

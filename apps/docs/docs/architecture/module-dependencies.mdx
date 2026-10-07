@@ -51,7 +51,7 @@ In addition, `seedDefaults` and `seedExamples` hooks in each module's `setup.ts`
 
 ## Module catalog
 
-The tables below enumerate every module discovered under `packages/*/src/modules/*` and the create-app templates. The **Requires** column reproduces the module's declared `metadata.requires`; an empty cell means the module has no declared hard dependencies. **Foundational** marks modules that another module declares as a dependency — disabling one of these is only safe if every dependent module is also disabled.
+The tables below list the modules that ship in the monorepo and the create-app templates, including every module that declares or is the target of a `requires` edge (the edge list under [Reading the graph](#reading-the-graph) is the complete, enforced set). The **Requires** column reproduces the module's declared `metadata.requires`; an empty cell means the module has no declared hard dependencies. **Foundational** marks modules that another module declares as a dependency — disabling one of these is only safe if every dependent module is also disabled.
 
 ### Core platform (`@open-mercato/core`)
 
@@ -59,37 +59,42 @@ The tables below enumerate every module discovered under `packages/*/src/modules
 | --- | --- | --- | --- |
 | `api_docs` | API Documentation | — | |
 | `api_keys` | API Keys | `auth` | ✅ (agent_orchestrator) |
-| `attachments` | Attachments | — | ✅ (agent_orchestrator) |
+| `attachments` | Attachments | — | ✅ (agent_orchestrator, documents) |
 | `audit_logs` | Audit & Action Logs | — | |
-| `auth` | Authentication & Accounts | — | ✅ (api_keys, agent_orchestrator) |
+| `auth` | Authentication & Accounts | — | ✅ (agent_orchestrator, api_keys, devices, documents, push_notifications) |
 | `business_rules` | Business Rules | — | ✅ (workflows) |
-| `catalog` | Product Catalog | — | ✅ (sales, sync_akeneo) |
+| `catalog` | Product Catalog | — | ✅ (sales, sync_akeneo, wms) |
+| `communication_channels` | Communication Channels | `progress` | ✅ (channel_resend, channel_ses, push_notifications) |
 | `configs` | Configuration | — | |
 | `currencies` | Currencies | — | |
 | `customer_accounts` | Customer Identity & Portal Authentication | — | ✅ (portal) |
 | `customers` | Customer Relationship Management | `progress` | ✅ (sales) |
 | `dashboards` | Admin Dashboards | — | |
 | `data_sync` | Data Sync | — | ✅ (sync_akeneo) |
+| `devices` | Devices | `auth` | ✅ (push_notifications) |
 | `dictionaries` | Shared Dictionaries | — | ✅ (sales) |
-| `directory` | Directory (Tenants & Organizations) | — | |
+| `directory` | Directory (Tenants & Organizations) | — | ✅ (documents) |
 | `entities` | Custom Entities & Fields | `query_index` | |
-| `feature_toggles` | Feature Toggles | — | |
+| `feature_toggles` | Feature Toggles | — | ✅ (wms) |
 | `inbox_ops` | InboxOps — Email-to-ERP Agent | — | |
-| `integrations` | Integrations | — | ✅ (sync_akeneo) |
+| `integrations` | Integrations | — | ✅ (channel_resend, channel_ses, push_notifications, sync_akeneo, tillio) |
 | `messages` | Messages | — | |
-| `notifications` | Notifications | — | |
+| `notifications` | Notifications | — | ✅ (push_notifications) |
 | `payment_gateways` | Payment Gateways | — | |
 | `perspectives` | Table perspectives | — | |
+| `phone_calls` | Phone Calls | — | ✅ (tillio) |
 | `planner` | Worktime / Availabilities | — | ✅ (resources, staff) |
 | `portal` | Customer Portal | `customer_accounts` | |
-| `progress` | Progress | — | ✅ (customers) |
+| `progress` | Progress | — | ✅ (communication_channels, customers) |
+| `push_notifications` | Push Notifications | `auth`, `devices`, `notifications`, `communication_channels`, `integrations` | |
 | `query_index` | Query Indexes | — | ✅ (entities) |
 | `resources` | Resource planning | `planner` | ✅ (staff) |
-| `sales` | Sales Management | `catalog`, `customers`, `dictionaries` | ✅ (sync_akeneo) |
+| `sales` | Sales Management | `catalog`, `customers`, `dictionaries` | ✅ (sync_akeneo, wms) |
 | `shipping_carriers` | Shipping Carriers | — | |
 | `staff` | Employees | `planner`, `resources` | |
 | `sync_excel` | Excel / CSV Import | — | |
 | `translations` | Entity Translations | — | |
+| `wms` | Warehouse Management System | `catalog`, `sales`, `feature_toggles` | |
 | `workflows` | Workflow Engine | `business_rules` | ✅ (agent_orchestrator) |
 
 ### Other first-party packages
@@ -97,14 +102,18 @@ The tables below enumerate every module discovered under `packages/*/src/modules
 | Module id | Package | Requires | Foundational? |
 | --- | --- | --- | --- |
 | `ai_assistant` | `@open-mercato/ai-assistant` | — | |
+| `channel_resend` | `@open-mercato/channel-resend` | `communication_channels`, `integrations` | |
+| `channel_ses` | `@open-mercato/channel-ses` | `communication_channels`, `integrations` | |
 | `checkout` | `@open-mercato/checkout` | — | |
 | `content` | `@open-mercato/content` | — | |
+| `documents` | `@open-mercato/documents` | `auth`, `directory`, `attachments` | |
 | `events` | `@open-mercato/events` | — | |
 | `gateway_stripe` | `@open-mercato/gateway-stripe` | — | |
 | `onboarding` | `@open-mercato/onboarding` | — | |
 | `scheduler` | `@open-mercato/scheduler` | — | |
 | `search` | `@open-mercato/search` | — | |
 | `sync_akeneo` | `@open-mercato/sync-akeneo` | `integrations`, `data_sync`, `catalog`, `sales` | |
+| `tillio` | `@open-mercato/tillio` | `integrations`, `phone_calls` | |
 | `webhooks` | `@open-mercato/webhooks` | — | |
 
 ### Enterprise (`@open-mercato/enterprise`)
@@ -133,16 +142,24 @@ These are scaffolded into new apps by `create-app` but are not enabled in the mo
 The current declared edges are:
 
 ```text
-agent_orchestrator → workflows, api_keys, auth, attachments
-api_keys      → auth
-customers     → progress
-entities      → query_index
-portal        → customer_accounts
-resources     → planner
-sales         → catalog, customers, dictionaries
-staff         → planner, resources
-sync_akeneo   → integrations, data_sync, catalog, sales
-workflows     → business_rules
+agent_orchestrator     → workflows, api_keys, auth, attachments
+api_keys               → auth
+channel_resend         → communication_channels, integrations
+channel_ses            → communication_channels, integrations
+communication_channels → progress
+customers              → progress
+devices                → auth
+documents              → auth, directory, attachments
+entities               → query_index
+portal                 → customer_accounts
+push_notifications     → auth, devices, notifications, communication_channels, integrations
+resources              → planner
+sales                  → catalog, customers, dictionaries
+staff                  → planner, resources
+sync_akeneo            → integrations, data_sync, catalog, sales
+tillio                 → integrations, phone_calls
+wms                    → catalog, sales, feature_toggles
+workflows              → business_rules
 ```
 
 Transitive closures worth noting:

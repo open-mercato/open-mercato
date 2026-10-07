@@ -61,11 +61,16 @@ storing it).
 
 The module dependency check described in
 [Module dependency graph](apps/docs/docs/architecture/module-dependencies.mdx) never actually ran:
-the generator loaded each module's `index.ts` with `require()`, which fails for packaged TypeScript
-sources (and executes module side effects), and a bare `catch` skipped validation silently. The
-generator now reads `metadata.requires` from the source syntactically, so the check fires — and
-`workflows` (`business_rules`) and `agent_orchestrator` (`workflows`, `api_keys`, `auth`,
-`attachments`) now declare the dependencies they already needed at runtime.
+the generator tried to load each module's `index` with `require()` — unavailable in the ESM CLI
+build, unable to load packaged TypeScript sources, and executing module side effects when it did
+work — and a bare `catch` skipped validation silently. The generator now reads `metadata.requires`
+from the source syntactically, so **every** declared edge is enforced for the first time, e.g.
+`sales` → `catalog`, `customers`, `dictionaries`; `wms` → `catalog`, `sales`, `feature_toggles`;
+`push_notifications` → `auth`, `devices`, `notifications`, `communication_channels`, `integrations`;
+`documents` → `auth`, `directory`, `attachments`; `channel_resend` / `channel_ses` →
+`communication_channels`, `integrations`; `tillio` → `integrations`, `phone_calls`. The complete list
+is the edge list in the docs page above. Two edges are new in this release: `workflows` →
+`business_rules` and `agent_orchestrator` → `workflows`, `api_keys`, `auth`, `attachments`.
 
 **Action for app authors:** if `yarn generate` now stops with `Module dependency check failed`,
 enable the listed modules in `src/modules.ts` (or disable the module that requires them). Such a
@@ -73,7 +78,7 @@ configuration was already broken — it typically surfaced later as
 `Metadata for entity … not found` during `mercato init`.
 
 **Action for module authors:** write `requires` as an array of string literals in the exported
-`metadata` object. A dynamically built list is skipped with a `[generate] ⚠` warning.
+`metadata` object. A dynamically built or re-exported list is skipped with a `[generate] ⚠` warning.
 
 ### Module API routes answer a thrown `CrudHttpError` with its own status instead of `500`
 

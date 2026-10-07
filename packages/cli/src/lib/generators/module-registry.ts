@@ -536,7 +536,11 @@ function isCommonJsMetadataTarget(expression: ts.Expression): boolean {
     && target.expression.text === 'module'
 }
 
-function findExportedMetadataInitializer(parsed: ts.SourceFile): ts.Expression | undefined {
+type ExportedMetadataSource =
+  | { kind: 'initializer'; expression: ts.Expression }
+  | { kind: 're-export' }
+
+function findExportedMetadataSource(parsed: ts.SourceFile): ExportedMetadataSource | undefined {
   const localNamesExportedAsMetadata = new Set<string>()
   for (const statement of parsed.statements) {
     if (
@@ -544,16 +548,16 @@ function findExportedMetadataInitializer(parsed: ts.SourceFile): ts.Expression |
       && !statement.isTypeOnly
       && statement.exportClause
       && ts.isNamedExports(statement.exportClause)
-      && !statement.moduleSpecifier
     ) {
       for (const element of statement.exportClause.elements) {
-        if (element.name.text === 'metadata') {
-          localNamesExportedAsMetadata.add(element.propertyName?.text ?? element.name.text)
-        }
+        if (element.name.text !== 'metadata') continue
+        if (statement.moduleSpecifier) return { kind: 're-export' }
+        localNamesExportedAsMetadata.add(element.propertyName?.text ?? element.name.text)
       }
     }
   }
 
+  let commonJsInitializer: ts.Expression | undefined
   for (const statement of parsed.statements) {
     if (ts.isVariableStatement(statement)) {
       const exportsDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
@@ -562,7 +566,8 @@ function findExportedMetadataInitializer(parsed: ts.SourceFile): ts.Expression |
         if (!ts.isIdentifier(declaration.name)) continue
         const localName = declaration.name.text
         const exported = (exportsDirectly && localName === 'metadata') || localNamesExportedAsMetadata.has(localName)
-        if (exported) return declaration.initializer
+        if (!exported) continue
+        return declaration.initializer ? { kind: 'initializer', expression: declaration.initializer } : undefined
       }
       continue
     }
@@ -571,11 +576,12 @@ function findExportedMetadataInitializer(parsed: ts.SourceFile): ts.Expression |
       && ts.isBinaryExpression(statement.expression)
       && statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
       && isCommonJsMetadataTarget(statement.expression.left)
+      && !ts.isVoidExpression(statement.expression.right)
     ) {
-      return statement.expression.right
+      commonJsInitializer = statement.expression.right
     }
   }
-  return undefined
+  return commonJsInitializer ? { kind: 'initializer', expression: commonJsInitializer } : undefined
 }
 
 /**
@@ -600,10 +606,13 @@ export function extractModuleRequiresFromSource(sourceFile: string): ModuleRequi
     inferScriptKind(sourceFile),
   )
 
-  const initializer = findExportedMetadataInitializer(parsed)
-  if (!initializer) return { status: 'absent' }
+  const metadataSource = findExportedMetadataSource(parsed)
+  if (!metadataSource) return { status: 'absent' }
+  if (metadataSource.kind === 're-export') {
+    return { status: 'unresolvable', reason: 'exported metadata is re-exported from another file' }
+  }
 
-  const metadata = unwrapExpression(initializer)
+  const metadata = unwrapExpression(metadataSource.expression)
   if (!ts.isObjectLiteralExpression(metadata)) {
     return { status: 'unresolvable', reason: 'exported metadata is not an object literal' }
   }
@@ -615,6 +624,9 @@ export function extractModuleRequiresFromSource(sourceFile: string): ModuleRequi
     }
     const name = property.name
     if (!name) continue
+    if (ts.isComputedPropertyName(name)) {
+      return { status: 'unresolvable', reason: 'exported metadata uses a computed key' }
+    }
     const key = ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null
     if (key !== 'requires') continue
     if (!ts.isPropertyAssignment(property)) {
@@ -1733,16 +1745,6 @@ function alreadyWarned(sourcePath: string): boolean {
   return false
 }
 
-/**
- * Warns when a discovered page metadata file exports no `metadata` binding.
- *
- * Both page-route emitters read `<module>.metadata` off the imported file. When the author
- * named the export something else — `meta` is the common near-miss — that read yields
- * `undefined`, the route still generates, and every declaration in the file is dropped.
- * `requireAuth` and `requireFeatures` are among them, so the page ships with no
- * authorization gate and nothing in the build says so. The warning names that consequence
- * because the rule alone ("export `metadata`") does not convey why it matters.
- */
 export type MissingModuleRequires = { moduleId: string; missing: string[] }
 
 export function findMissingModuleRequires(
@@ -1791,6 +1793,16 @@ function collectDeclaredModuleRequires(
   }
 }
 
+/**
+ * Warns when a discovered page metadata file exports no `metadata` binding.
+ *
+ * Both page-route emitters read `<module>.metadata` off the imported file. When the author
+ * named the export something else — `meta` is the common near-miss — that read yields
+ * `undefined`, the route still generates, and every declaration in the file is dropped.
+ * `requireAuth` and `requireFeatures` are among them, so the page ships with no
+ * authorization gate and nothing in the build says so. The warning names that consequence
+ * because the rule alone ("export `metadata`") does not convey why it matters.
+ */
 export function warnIfPageMetaMissingMetadataExport(metaPath: string | null, quiet = false): void {
   if (!metaPath || quiet) return
   if (hasNamedExport(metaPath, 'metadata')) return
