@@ -22,6 +22,7 @@ import {
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
+import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
@@ -600,6 +601,44 @@ export async function POST(req: Request) {
       guardResult.errorBody ?? { error: 'Operation blocked by guard' },
       { status: guardResult.errorStatus ?? 422 },
     )
+  }
+
+  // #6258: an explicitly chosen mailbox routes the whole send through the
+  // communication-channels facade, which writes the conversation, thread mapping
+  // and outbound channel link the inbound thread matcher needs. Without the
+  // field this stays the platform-sender path, unchanged.
+  if (requiresSenderDelegation(input)) {
+    const delegated = await delegateComposeToSender(
+      ctx.container,
+      {
+        userId: scope.userId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId ?? null,
+        auth: ctx.auth ?? null,
+      },
+      { ...input, parentMessageId: composeParentMessageId },
+    )
+    if (!delegated.ok) {
+      return Response.json(
+        { error: delegated.error, fieldErrors: delegated.fieldErrors },
+        { status: delegated.status },
+      )
+    }
+    const delegatedResponse = Response.json(
+      { id: delegated.messageId, threadId: delegated.threadId },
+      { status: 201 },
+    )
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: delegated.messageId,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+    return delegatedResponse
   }
 
   const { result, logEntry } = await commandBus.execute('messages.messages.compose', {

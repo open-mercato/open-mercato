@@ -9,6 +9,7 @@ import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import {
   buildChanges,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   requireId,
   type CrudEventsConfig,
 } from "@open-mercato/shared/lib/commands/helpers";
@@ -140,6 +141,7 @@ import {
   mapQuoteLineEntityToSnapshot,
   resolveUpsertDiscountFields,
   resolveUpsertTotalsOrigin,
+  resolveUpsertCalculatedAmounts,
 } from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
@@ -1533,12 +1535,14 @@ async function applyDocumentUpdate({
       !Array.isArray(input.customFields)
         ? (input.customFields as Record<string, unknown>)
         : {};
+    // Same normalize path as create (`setDocumentCustomFieldsIfSupplied`) so
+    // update and create agree on key/value shapes written to EAV.
     await setRecordCustomFields(em, {
       entityId: kind === "order" ? E.sales.sales_order : E.sales.sales_quote,
       recordId: entity.id,
       organizationId,
       tenantId,
-      values,
+      values: normalizeCustomFieldValues(values),
     });
   }
 }
@@ -4093,6 +4097,7 @@ async function undoQuoteGraph(
 ): Promise<void> {
   ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
   const em = (ctx.container.resolve("em") as EntityManager).fork();
+  let restored: SalesQuote | undefined;
   await em.transactional(async (tx) => {
     const quote = await findOneWithDecryption(
       tx,
@@ -4106,8 +4111,21 @@ async function undoQuoteGraph(
       await assertQuoteGraphUndoCurrent(tx, quote.id, after);
       tx.clear();
     }
-    await restoreQuoteGraph(tx, before, quote && after ? after : null);
+    restored = await restoreQuoteGraph(tx, before, quote && after ? after : null);
     await tx.flush();
+  });
+  if (!restored) return;
+  const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action: "updated",
+    entity: restored,
+    identifiers: {
+      id: restored.id,
+      organizationId: restored.organizationId,
+      tenantId: restored.tenantId,
+    },
+    indexer: { entityType: E.sales.sales_quote },
   });
 }
 
@@ -4593,6 +4611,7 @@ async function undoOrderGraph(
   after: OrderGraphSnapshot | null | undefined,
 ): Promise<void> {
   ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
+  let restored: SalesOrder | undefined;
   await withVerifiedOrderGraph(
     ctx,
     after,
@@ -4603,10 +4622,23 @@ async function undoOrderGraph(
     },
     async (tx, exists) => {
       if (!exists && after) await throwDocumentUndoStale("order");
-      await restoreOrderGraph(tx, before, exists ? after : null);
+      restored = await restoreOrderGraph(tx, before, exists ? after : null);
       await tx.flush();
     },
   );
+  if (!restored) return;
+  const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action: "updated",
+    entity: restored,
+    identifiers: {
+      id: restored.id,
+      organizationId: restored.organizationId,
+      tenantId: restored.tenantId,
+    },
+    indexer: { entityType: E.sales.sales_order },
+  });
 }
 
 async function restoreOrderGraph(
@@ -5659,6 +5691,21 @@ const updateQuoteCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    // Same as sales.orders.update (#6217): refresh the query-index projection so
+    // customFields written in applyDocumentUpdate are visible on the next list GET.
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: quote,
+      identifiers: {
+        id: quote.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_quote },
+      actorUserId: ctx.auth?.sub ?? null,
+    });
     const resourceKind =
       deriveResourceFromCommandId(updateQuoteCommand.id) ?? "sales.quote";
     await invalidateCrudCache(
@@ -5930,8 +5977,24 @@ const updateOrderCommand: CommandHandler<
       { transaction: true },
     );
     emitOrderLifecycleEventsForTransition({ order, previousStatus });
+    // Refresh the query-index projection (including customValues). Create already
+    // did this; update used to only invalidate the HTTP CRUD cache, so a PUT that
+    // wrote EAV custom fields still returned the pre-update values on the next
+    // GET `/api/sales/orders?id=` (list reads cf_* from the index, #6217).
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: order,
+      identifiers: {
+        id: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_order },
+      actorUserId: ctx.auth?.sub ?? null,
+    });
     if (statusChangeNote) {
-      const dataEngine = ctx.container.resolve("dataEngine");
       await emitCrudSideEffects({
         dataEngine,
         action: "created",
@@ -7575,11 +7638,8 @@ const orderLineUpsertCommand: CommandHandler<
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
       totalNetAmount:
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
       ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
@@ -7593,6 +7653,10 @@ const orderLineUpsertCommand: CommandHandler<
           ? cloneJson(parsed.customFields)
           : ((existingSnapshot as any)?.customFields ?? null),
     };
+    Object.assign(
+      updatedSnapshot,
+      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
+    );
     (updatedSnapshot as any).statusEntryId = statusEntryId;
     (updatedSnapshot as any).catalogSnapshot =
       parsed.catalogSnapshot ??
@@ -8067,11 +8131,8 @@ const quoteLineUpsertCommand: CommandHandler<
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
       totalNetAmount:
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
       ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
@@ -8085,6 +8146,10 @@ const quoteLineUpsertCommand: CommandHandler<
           ? cloneJson(parsed.customFields)
           : ((existingSnapshot as any)?.customFields ?? null),
     };
+    Object.assign(
+      updatedSnapshot,
+      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
+    );
     (updatedSnapshot as any).statusEntryId = statusEntryId;
     (updatedSnapshot as any).catalogSnapshot =
       parsed.catalogSnapshot ??

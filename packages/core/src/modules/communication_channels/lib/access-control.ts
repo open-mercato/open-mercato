@@ -50,12 +50,15 @@ export function channelOrgScopeWhere(
  * `undefined` when the caller is unrestricted (super-admin viewing all orgs).
  * An unrestricted caller sees every channel in the tenant, so the fragment is
  * empty; a restricted one gets their orgs plus the tenant-wide (`NULL`) rows.
+ * An explicitly empty organization list is deny-all, including tenant-wide
+ * rows, because it represents a resolved restricted scope with no visibility.
  */
 export function channelOrgScopeWhereFromFilter(
   filter: { organizationIds: string[] | undefined } | null | undefined,
 ): Record<string, unknown> {
   const organizationIds = filter?.organizationIds
-  if (!organizationIds || organizationIds.length === 0) return {}
+  if (organizationIds === undefined) return {}
+  if (organizationIds.length === 0) return { organizationId: { $in: [] } }
   return { $or: [{ organizationId: { $in: organizationIds } }, { organizationId: null }] }
 }
 
