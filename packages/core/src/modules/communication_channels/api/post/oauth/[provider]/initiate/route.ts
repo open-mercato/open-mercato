@@ -4,6 +4,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton'
 import { resolveOAuthClientCredentials } from '../../../../../lib/oauth-client-config'
 import {
@@ -15,6 +17,8 @@ import {
   normalizeOAuthReturnUrl,
   OAuthStateError,
 } from '../../../../../lib/oauth-state'
+
+const logger = createLogger('communication_channels').child({ component: 'oauth-initiate' })
 
 export const metadata = {
   path: '/communication_channels/oauth/[provider]/initiate',
@@ -58,6 +62,14 @@ function defaultRedirectUri(req: Request, providerKey: string): string {
 
 function oauthStateErrorResponse(err: unknown): Response | null {
   if (err instanceof OAuthStateError) {
+    if (err.code === 'missing_secret') {
+      logger.error('OAuth state secret is not configured', { err })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'communication_channels',
+        code: 'communication_channels.missing_secret',
+      })
+      return NextResponse.json({ error: 'OAuth is not available', code: err.code }, { status: 500 })
+    }
     return NextResponse.json({ error: err.message, code: err.code }, { status: 500 })
   }
   return null

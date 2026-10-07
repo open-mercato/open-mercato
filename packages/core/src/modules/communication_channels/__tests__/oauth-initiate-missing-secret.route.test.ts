@@ -1,9 +1,26 @@
 /** @jest-environment node */
 
 import { POST as initiateOAuth } from '../api/post/oauth/[provider]/initiate/route'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveOAuthClientCredentials = jest.fn()
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const logger = { error: jest.fn(), child: jest.fn() }
+  logger.child.mockReturnValue(logger)
+  return { createLogger: jest.fn(() => logger) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  error: jest.Mock
+  child: jest.Mock
+}
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => ({ reportError: mockReportError })),
+}))
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const ORG_ID = '223e4567-e89b-12d3-a456-426614174001'
@@ -53,6 +70,8 @@ describe('communication_channels oauth initiate — missing state secret in prod
     mockGetAuthFromRequest.mockReset()
     mockResolveOAuthClientCredentials.mockReset()
     mockContainer.resolve.mockClear()
+    mockLogger.error.mockClear()
+    mockReportError.mockClear()
 
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -91,5 +110,21 @@ describe('communication_channels oauth initiate — missing state secret in prod
     expect(body.code).toBe('missing_secret')
     expect(typeof body.error).toBe('string')
     expect(body.error.length).toBeGreaterThan(0)
+    expect(JSON.stringify(body)).not.toContain('[internal]')
+    expect(JSON.stringify(body)).not.toContain('OM_HUB_OAUTH_STATE_KEY')
+    expect(JSON.stringify(body)).not.toContain('KMS_MASTER_KEY')
+  })
+
+  test('logs and reports the missing state secret once', async () => {
+    await initiateOAuth(makeRequest(), { params: { provider: PROVIDER } })
+
+    expect(createLogger).toHaveBeenCalledWith('communication_channels')
+    expect(mockLogger.child).toHaveBeenCalledWith({ component: 'oauth-initiate' })
+    expect(mockLogger.error).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'missing_secret' }),
+      expect.objectContaining({ module: 'communication_channels', code: 'communication_channels.missing_secret' }),
+    )
   })
 })
