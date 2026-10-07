@@ -727,7 +727,7 @@ describe('TimeEntryDialog — saving', () => {
 
     fireEvent.click(screen.getByTestId('entry-dialog-locked-report'))
     expect(window.open).toHaveBeenCalledWith(
-      expect.stringContaining(REPORT_ID),
+      `/backend/staff/time-tracking/reports/${REPORT_ID}`,
       '_blank',
       'noopener',
     )
