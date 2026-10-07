@@ -65,7 +65,10 @@ function makeGuard(overrides: Partial<MutationGuard> = {}): MutationGuard {
   }
 }
 
-const baseAuth = { sub: 'user-sub', tenantId: 'tenant-1', orgId: 'org-1' }
+const USER_ID = '3f6c2a1e-8b4d-4c7a-9e21-5d0b7a6c4f10'
+const BOUND_USER_ID = '7a1d9c3b-2e5f-4b8a-8c6d-0f4e3a2b1c90'
+const API_KEY_ID = 'c2b4e6a8-1d3f-4a5c-9b7e-2f4d6a8c0e12'
+const baseAuth = { sub: USER_ID, tenantId: 'tenant-1', orgId: 'org-1' }
 const call = (body: unknown) => POST(new Request('http://localhost/api/document-generators/generate', {
   method: 'POST',
   body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -124,7 +127,7 @@ describe('generate route', () => {
   })
 
   it('answers 409 without an organization', async () => {
-    setContext({ sub: 'user-sub', tenantId: 'tenant-1', orgId: null })
+    setContext({ sub: USER_ID, tenantId: 'tenant-1', orgId: null })
     resolveForRequest.mockResolvedValue({ selectedId: null, allowedIds: null, filterIds: null, tenantId: 'tenant-1' })
     expect((await call(valid)).status).toBe(409)
     expect(persistSpy).not.toHaveBeenCalled()
@@ -175,7 +178,7 @@ describe('generate route', () => {
     expect(guard.validate).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'tenant-1',
       organizationId: 'org-selected',
-      userId: 'user-sub',
+      userId: USER_ID,
       operation: 'create',
       resourceKind: 'document_generators.generated_document',
       resourceId: null,
@@ -201,15 +204,37 @@ describe('generate route', () => {
       templateVersion: '1',
       format: 'md',
       mimeType: 'text/markdown',
-      generatedBy: 'user-sub',
+      generatedBy: USER_ID,
     })
     expect(persistSpy).toHaveBeenCalledTimes(1)
   })
 
   it('prefers auth.userId over auth.sub for generated_by', async () => {
-    setContext({ ...baseAuth, userId: 'user-real' })
+    setContext({ ...baseAuth, userId: BOUND_USER_ID })
     await call(valid)
-    expect(prepareSpy.mock.calls[0][0].generatedBy).toBe('user-real')
+    expect(prepareSpy.mock.calls[0][0].generatedBy).toBe(BOUND_USER_ID)
+  })
+
+  it('records a user-less API key by its key id so history and the stored file survive', async () => {
+    setContext({ sub: `api_key:${API_KEY_ID}`, isApiKey: true, keyId: API_KEY_ID, tenantId: 'tenant-1', orgId: 'org-1' })
+    const response = await call(valid)
+    expect(response.status).toBe(200)
+    expect(prepareSpy.mock.calls[0][0].generatedBy).toBe(API_KEY_ID)
+    expect(persistSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('records a user-bound API key by the bound user', async () => {
+    setContext({ sub: `api_key:${API_KEY_ID}`, isApiKey: true, keyId: API_KEY_ID, userId: BOUND_USER_ID, tenantId: 'tenant-1', orgId: 'org-1' })
+    await call(valid)
+    expect(prepareSpy.mock.calls[0][0].generatedBy).toBe(BOUND_USER_ID)
+  })
+
+  it('answers 403 before rendering when the caller has no recordable identity', async () => {
+    setContext({ ...baseAuth, sub: 'not-a-uuid' })
+    const response = await call(valid)
+    expect(response.status).toBe(403)
+    expect((await response.json()).error).toBe('forbidden')
+    expect(prepareSpy).not.toHaveBeenCalled()
   })
 
   it('still returns the document and logs and reports when persisting fails', async () => {
