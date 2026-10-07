@@ -175,7 +175,7 @@ staff keep the resized image-route preview.
 | `AttachmentService.readScopedForOwner?(input)` | new optional method | ADDITIVE |
 | `ReadScopedAttachmentForOwnerInput` (exported from `@open-mercato/core/modules/attachments`), including `rendition` | new type | ADDITIVE |
 | `lib/imageRendition.ts` (`renderImageRendition`, `ImageRenditionSize`) | new module, extracted from the image route | ADDITIVE |
-| `GET /api/attachments/image/{id}` | uses the extracted pipeline | a stored image Sharp cannot decode is a `422` instead of the `500` `Failed to render image`; every other failure is still a `500`, now also reported |
+| `GET /api/attachments/image/{id}` | uses the extracted pipeline | a stored image Sharp cannot decode is a `422` instead of the `500` `Failed to render image`; every other failure is still a `500`, now also reported (recorded in `BACKWARD_COMPATIBILITY.md`) |
 | `GET /api/checkout/pay/{slug}/logo` | new public route | ADDITIVE |
 | `GET /api/checkout/pay/{slug}` → `logoPreviewUrl` | value changes from the image route to the logo route when a logo attachment is set | public pay-page API value change (Ask First in `packages/checkout/AGENTS.md`; requested in the PR) |
 | `buildCheckoutPublicLogoUrl`, `CHECKOUT_LOGO_ATTACHMENT_PARTITION` (checkout lib) | new helpers | ADDITIVE |
@@ -271,7 +271,12 @@ it always asks for a raster rendition and refuses any non-raster content type, w
     `attachments.image_rendition_failed`; passes a caller's `CrudHttpError` through unreported;
   - `isUndecodableImageError` accepts the messages Sharp 0.34 gives for a corrupt PNG, a truncated
     JPEG, a corrupt WebP header, a truncated GIF and an unknown format, and rejects `EACCES`,
-    libvips out-of-memory errors, an encoder (`pngsave`) error and a generic error.
+    libvips out-of-memory errors, libjpeg's `Insufficient memory`, the JPEG encoder's maximum
+    dimension, an encoder (`pngsave`) error and a generic error.
+- `core: lib/__tests__/imageRendition.failure.test.ts`, with Sharp mocked: a `toBuffer` rejection
+  that is out of memory, `Insufficient memory`, the maximum dimension or a generic encoder error is
+  rethrown and reported; a `vipspng` decode error is a 422 and is not reported. Replacing the
+  classifier with a blanket catch fails four of these cases.
 - `core: api/__tests__/image.route.anonymous.test.ts` — with the real `checkAttachmentAccess`, an
   anonymous request for a tenant-scoped image is a 401 on a private and on a public partition and
   never reaches Sharp: the reason the old `logoPreviewUrl` could not work.
@@ -332,6 +337,13 @@ Regression proofs:
 
 ## Changelog
 
+- 2026-10-07 — Fifth review round:
+  - libjpeg's `Insufficient memory` and the JPEG encoder's maximum-dimension error are operational
+    failures, not undecodable images;
+  - a mocked-Sharp test pins that a non-decode `toBuffer` failure is rethrown and reported (it
+    fails if the classifier is replaced by a blanket catch);
+  - `isCrudHttpError` replaces `instanceof CrudHttpError`;
+  - the image route's `500` → `422` change is recorded in `BACKWARD_COMPATIBILITY.md`.
 - 2026-10-07 — Fourth review round:
   - merge order re-verified with a trial merge;
   - only Sharp decode errors are a 422; cache, storage, memory and encoder failures are logged,
