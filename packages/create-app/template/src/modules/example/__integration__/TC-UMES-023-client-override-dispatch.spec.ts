@@ -49,7 +49,6 @@ test.describe('TC-UMES-023: client-side module-override dispatch', () => {
     // means the browser registration has completed — the exact point at which the
     // pre-#5152 bug made the disabled widget reappear.
     await expect(page.getByTestId('example-override-probe-control')).toBeVisible()
-    await page.waitForLoadState('networkidle')
 
     for (let check = 0; check < POST_HYDRATION_SETTLE_CHECKS; check += 1) {
       await expect(page.getByTestId('example-override-probe')).toHaveCount(0)
@@ -66,7 +65,7 @@ test.describe('TC-UMES-023: client-side module-override dispatch', () => {
 
     // A soft navigation re-runs the registry group loaders without a fresh document, so
     // it exercises the dispatch memoisation rather than the first-load path.
-    await page.getByRole('link', { name: /Open customers table/i }).click()
+    await page.getByTestId('phase-f-open-customers').click()
     await page.waitForURL('**/backend/customers/people')
     await page.goBack()
     await page.waitForURL('**/backend/umes-extensions')
