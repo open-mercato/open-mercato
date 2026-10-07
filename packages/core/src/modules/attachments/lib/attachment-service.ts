@@ -9,13 +9,14 @@ import { Attachment, AttachmentPartition } from '../data/entities'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
 import type { StorageDriverFactory } from './drivers'
 import { buildAttachmentFileUrl } from './imageUrls'
-import { renderImageRendition, type ImageRenditionSize } from './imageRendition'
+import { renderImageRendition, type ImageRenditionResult, type ImageRenditionSize } from './imageRendition'
 import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
   type ScopedAttachmentUploadService,
 } from './scoped-upload-service'
 import { readAttachmentMetadata, type AttachmentAssignment } from './metadata'
+import { resolveDefaultPartitionCode } from './partitions'
 import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
@@ -163,7 +164,13 @@ export type ReadScopedAttachmentForOwnerInput = {
   organizationId: string
   expectedOwner: AttachmentOwner
   expectedAssignment?: AttachmentAssignment
-  expectedPartitionCode: string
+  /**
+   * The partition the row must be stored in. When omitted, it is the partition
+   * `POST /api/attachments` stores the owner entity's uploads in when the
+   * upload names no partition (`resolveDefaultPartitionCode`). Pass it for
+   * files uploaded to any other partition.
+   */
+  expectedPartitionCode?: string
   forceDownload?: boolean
   /**
    * Serve a resized rendition instead of the stored bytes, through the same
@@ -399,7 +406,9 @@ export class DefaultAttachmentService implements AttachmentService {
   async readScopedForOwner(input: ReadScopedAttachmentForOwnerInput): Promise<ReadScopedAttachmentResult> {
     const tenantId = typeof input.tenantId === 'string' ? input.tenantId.trim() : ''
     const organizationId = typeof input.organizationId === 'string' ? input.organizationId.trim() : ''
-    const partitionCode = typeof input.expectedPartitionCode === 'string' ? input.expectedPartitionCode.trim() : ''
+    const partitionCode = input.expectedPartitionCode === undefined
+      ? resolveDefaultPartitionCode(input.expectedOwner?.entityId)
+      : typeof input.expectedPartitionCode === 'string' ? input.expectedPartitionCode.trim() : ''
     if (!tenantId || !organizationId || !partitionCode || !input.expectedOwner?.entityId || !input.expectedOwner?.recordId) {
       throw new CrudHttpError(500, {
         error: '[internal] Owner-scoped attachment reads require a tenant, organization, partition and owner',
@@ -476,11 +485,17 @@ export class DefaultAttachmentService implements AttachmentService {
     }
 
     if (input.rendition) {
-      const rendered = await renderImageRendition({
-        attachment,
-        readSource: async () => (await readStoredBytes()).buffer,
-        size: input.rendition,
-      })
+      let rendered: ImageRenditionResult
+      try {
+        rendered = await renderImageRendition({
+          attachment,
+          readSource: async () => (await readStoredBytes()).buffer,
+          size: input.rendition,
+        })
+      } catch (error) {
+        if (error instanceof CrudHttpError) throw error
+        throw new CrudHttpError(422, { error: 'Image could not be rendered' })
+      }
       if (!rendered.ok) throw new CrudHttpError(rendered.status, { error: rendered.error })
       return {
         buffer: rendered.buffer,

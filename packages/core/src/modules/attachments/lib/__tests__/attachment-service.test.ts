@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import sharp from 'sharp'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
@@ -81,6 +82,8 @@ function createHarness(options: {
   attachment?: Attachment | null
   storeError?: Error
   readError?: Error
+  /** Bytes the storage driver returns on read. */
+  readBuffer?: Buffer
   /**
    * Simulates a regression that drops the scope columns from the Attachment
    * lookup, so the authorization layer can be exercised on its own.
@@ -101,7 +104,7 @@ function createHarness(options: {
     }),
     read: jest.fn(async () => {
       if (options.readError) throw options.readError
-      return { buffer: Buffer.from('file'), contentType: 'text/plain' }
+      return { buffer: options.readBuffer ?? Buffer.from('file'), contentType: 'text/plain' }
     }),
     delete: jest.fn(async () => undefined),
     toLocalPath: jest.fn(),
@@ -669,6 +672,25 @@ describe('DefaultAttachmentService.readScopedForOwner', () => {
     expect(factory.resolveForPartition).not.toHaveBeenCalled()
   })
 
+  it('pins an omitted partition to the default partition of the owner entity', async () => {
+    const partitions = jest.requireMock('../partitions') as { resolveDefaultPartitionCode: jest.Mock }
+    partitions.resolveDefaultPartitionCode.mockClear()
+    const withoutPartition = {
+      attachmentId: ownerInput.attachmentId,
+      tenantId: ownerInput.tenantId,
+      organizationId: ownerInput.organizationId,
+      expectedOwner: ownerInput.expectedOwner,
+    }
+    const served = createHarness({ attachment: ownedAttachment() })
+
+    await expect(served.service.readScopedForOwner(withoutPartition)).resolves.toMatchObject({ fileName: expect.any(String) })
+    expect(partitions.resolveDefaultPartitionCode).toHaveBeenCalledWith('documents:document')
+
+    const elsewhere = createHarness({ attachment: ownedAttachment({ partitionCode: 'productsMedia' }) })
+    await expectStatus(elsewhere.service.readScopedForOwner(withoutPartition), 404)
+    expect(elsewhere.factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
   it('refuses a foreign-scope row even if the scoped lookup filter regresses', async () => {
     const { service, factory } = createHarness({
       attachment: ownedAttachment({ tenantId: 'tenant-2', organizationId: 'org-2' }),
@@ -726,6 +748,29 @@ describe('DefaultAttachmentService.readScopedForOwner', () => {
     const { service } = createHarness({ attachment: ownedAttachment({ mimeType: 'image/png' }) })
 
     await expectStatus(service.readScopedForOwner({ ...ownerInput, rendition: { width: 640 } }), 400)
+  })
+
+  it('refuses a corrupt image that passes the header checks but fails to decode, instead of failing with a 500', async () => {
+    const actualRendition = jest.requireActual('../imageRendition') as typeof import('../imageRendition')
+    mockRenderImageRendition.mockImplementationOnce(actualRendition.renderImageRendition)
+    const png = await sharp({ create: { width: 64, height: 64, channels: 3, background: { r: 42, g: 157, b: 143 } } })
+      .png()
+      .toBuffer()
+    const pixelDataStart = png.indexOf(Buffer.from('IDAT')) + 4
+    const corruptPng = Buffer.concat([
+      png.subarray(0, pixelDataStart),
+      Buffer.alloc(png.length - pixelDataStart - 12, 0xff),
+      png.subarray(png.length - 12),
+    ])
+    const { service } = createHarness({
+      attachment: ownedAttachment({ fileName: 'logo.png', mimeType: 'image/png' }),
+      readBuffer: corruptPng,
+    })
+
+    await expectStatus(service.readScopedForOwner({
+      ...ownerInput,
+      rendition: { width: 640, height: 240, cropType: 'contain' },
+    }), 422)
   })
 
   it.each([
