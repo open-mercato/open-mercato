@@ -136,10 +136,10 @@ describe('GenerationHistoryService listAndCount', () => {
   it('always scopes by tenant and organization and returns decrypted DTOs', async () => {
     stubResult()
     const { em } = createEm()
-    const result = await new GenerationHistoryService(em as never).listAndCount(scope, listQuery({ page: 3, pageSize: 10 }))
+    const result = await new GenerationHistoryService(em as never).listAndCount(scope, listQuery({ page: 3, pageSize: 10 }), { authorizedTemplateIds: ['t'] })
     const [, entityName, where, options, decryptionScope] = findMock.mock.calls[0]
     expect(entityName).toBe(GeneratedDocument)
-    expect(where).toEqual(scope)
+    expect(where).toEqual({ ...scope, templateId: 't' })
     expect(options).toMatchObject({ limit: 10, offset: 20 })
     expect(decryptionScope).toEqual(scope)
     expect(result).toEqual({
@@ -161,7 +161,7 @@ describe('GenerationHistoryService listAndCount', () => {
       generated_by: baseInput.generatedBy,
       generated_from: '2026-10-01T00:00:00.000Z',
       generated_to: '2026-10-02T00:00:00.000Z',
-    }))
+    }), { authorizedTemplateIds: ['tpl', 'other'] })
     expect(findMock.mock.calls[0][2]).toEqual({
       ...scope,
       resourceKind: 'sales:order',
@@ -180,15 +180,33 @@ describe('GenerationHistoryService listAndCount', () => {
   ])('maps sort %s with direction and a stable id tiebreaker', async (sort, property) => {
     stubResult()
     const { em } = createEm()
-    await new GenerationHistoryService(em as never).listAndCount(scope, listQuery({ sort, sort_direction: 'asc' }))
+    await new GenerationHistoryService(em as never).listAndCount(scope, listQuery({ sort, sort_direction: 'asc' }), { authorizedTemplateIds: ['t'] })
     expect(findMock.mock.calls[0][3].orderBy).toEqual([{ [property]: 'asc' }, { id: 'asc' }])
   })
 
   it('cannot sort by the encrypted resource label', async () => {
     stubResult()
     const { em } = createEm()
-    await new GenerationHistoryService(em as never).listAndCount(scope, listQuery({ sort: 'resource_label' }))
+    await new GenerationHistoryService(em as never).listAndCount(scope, listQuery({ sort: 'resource_label' }), { authorizedTemplateIds: ['t'] })
     expect(findMock.mock.calls[0][3].orderBy).toEqual([{ generatedAt: 'desc' }, { id: 'desc' }])
+  })
+
+  it('restricts the listing to every authorized template', async () => {
+    stubResult()
+    const { em } = createEm()
+    await new GenerationHistoryService(em as never).listAndCount(scope, listQuery(), { authorizedTemplateIds: ['invoice', 'offer'] })
+    expect(findMock.mock.calls[0][2]).toEqual({ ...scope, templateId: { $in: ['invoice', 'offer'] } })
+  })
+
+  it.each([
+    ['no authorized template', listQuery({ page: 2, pageSize: 10 }), []],
+    ['a template filter outside the authorized set', listQuery({ template_id: 'offer', page: 2, pageSize: 10 }), ['invoice']],
+  ])('answers an empty page without querying for %s', async (_label, query, authorizedTemplateIds) => {
+    stubResult()
+    const { em } = createEm()
+    const result = await new GenerationHistoryService(em as never).listAndCount(scope, query, { authorizedTemplateIds })
+    expect(result).toEqual({ items: [], total: 0, page: 2, pageSize: 10 })
+    expect(findMock).not.toHaveBeenCalled()
   })
 })
 
