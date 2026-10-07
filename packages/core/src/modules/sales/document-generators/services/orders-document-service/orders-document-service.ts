@@ -26,6 +26,7 @@ import {
 } from '../../templates/orders/order-invoice/types'
 import { resolveClientAddress, resolveClientName } from '../../utils/client'
 import { isDraftDocumentStatus } from '../../utils/status'
+import { reconcileDocumentTotals } from '../../utils/totals'
 
 const orderRequestSchema = z.object({ id: z.string().uuid() })
 
@@ -86,7 +87,7 @@ const LABEL_DEFAULTS: OrderInvoiceLabels = {
   unitPrice: 'Unit price',
   total: 'Total',
   subtotal: 'Subtotal',
-  discount: 'Discount',
+  adjustments: 'Discounts and adjustments',
   shipping: 'Shipping',
   surcharge: 'Surcharge',
   tax: 'Tax',
@@ -260,12 +261,13 @@ export class OrdersDocumentService extends BaseDocumentService {
         : undefined,
       lines: normalizedLines,
       totals: {
-        subtotal: toNumber(order.subtotalNetAmount),
-        discount: toNumber(order.discountTotalAmount),
-        shipping: toNumber(order.shippingNetAmount),
-        surcharge: toNumber(order.surchargeTotalAmount),
-        tax: toNumber(order.taxTotalAmount),
-        total: toNumber(order.grandTotalGrossAmount),
+        ...reconcileDocumentTotals({
+          lineTotals: normalizedLines.map((line) => line.total),
+          subtotalNet: toNumber(order.subtotalNetAmount),
+          grandTotalGross: toNumber(order.grandTotalGrossAmount),
+          shipping: toNumber(order.shippingNetAmount),
+          surcharge: toNumber(order.surchargeTotalAmount),
+        }),
         paid: toNumber(order.paidTotalAmount),
         outstanding: toNumber(order.outstandingAmount),
         currency,

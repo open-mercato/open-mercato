@@ -149,6 +149,12 @@ export default function SalesOfferPdf({ data }: { data: Record<string, unknown> 
             <Text>{labels.subtotal}</Text>
             <Text>{formatMoney(totals.subtotal, totals.currency, locale)}</Text>
           </View>
+          {totals.adjustments !== 0 ? (
+            <View style={styles.totalRow}>
+              <Text>{labels.adjustments}</Text>
+              <Text>{formatMoney(totals.adjustments, totals.currency, locale)}</Text>
+            </View>
+          ) : null}
           <View style={styles.totalRow}>
             <Text>{labels.tax}</Text>
             <Text>{formatMoney(totals.tax, totals.currency, locale)}</Text>

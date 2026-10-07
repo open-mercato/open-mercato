@@ -26,6 +26,7 @@ import {
 } from '../../templates/quotes/sales-offer/types'
 import { resolveClientAddress, resolveClientName } from '../../utils/client'
 import { isDraftDocumentStatus } from '../../utils/status'
+import { reconcileDocumentTotals } from '../../utils/totals'
 
 const quoteRequestSchema = z.object({ id: z.string().uuid() })
 
@@ -81,6 +82,7 @@ const LABEL_DEFAULTS: SalesOfferLabels = {
   unitPrice: 'Unit price',
   total: 'Total',
   subtotal: 'Subtotal',
+  adjustments: 'Discounts and adjustments',
   tax: 'Tax',
   grandTotal: 'Total due',
   notes: 'Notes',
@@ -206,6 +208,11 @@ export class QuotesDocumentService extends BaseDocumentService {
       currency: line.currencyCode || currency,
     }))
     const sellerName = toText(channel?.name)
+    const reconciled = reconcileDocumentTotals({
+      lineTotals: normalizedLines.map((line) => line.total),
+      subtotalNet: toNumber(quote.subtotalNetAmount),
+      grandTotalGross: toNumber(quote.grandTotalGrossAmount),
+    })
     return {
       locale,
       isDraft: isDraftDocumentStatus(quote.status),
@@ -231,9 +238,10 @@ export class QuotesDocumentService extends BaseDocumentService {
         : undefined,
       lines: normalizedLines,
       totals: {
-        subtotal: toNumber(quote.subtotalNetAmount),
-        tax: toNumber(quote.taxTotalAmount),
-        total: toNumber(quote.grandTotalGrossAmount),
+        subtotal: reconciled.subtotal,
+        adjustments: reconciled.adjustments,
+        tax: reconciled.tax,
+        total: reconciled.total,
         currency,
       },
       notes: toText(quote.comments),

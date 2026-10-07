@@ -185,7 +185,7 @@ describe('QuotesDocumentService', () => {
         currency: 'EUR',
       })
       expect(result.lines[1]).toMatchObject({ title: '', description: undefined, quantity: 0, unitPrice: 0, total: 5.5 })
-      expect(result.totals).toEqual({ subtotal: 100, tax: 23, total: 123, currency: 'EUR' })
+      expect(result.totals).toEqual({ subtotal: 105.5, adjustments: -5.5, tax: 23, total: 123, currency: 'EUR' })
       expect(result.notes).toBe('Thanks')
       expect(result.seller).toEqual({ name: 'Web shop', email: 'shop@example.test', phone: undefined })
     })
@@ -194,7 +194,7 @@ describe('QuotesDocumentService', () => {
       const result = service.toTemplateData({ data: source, locale: 'pl', translate })
       expect(result.labels.title).toBe('Oferta')
       expect(result.labels.grandTotal).toBe('Total due')
-      expect(Object.keys(result.labels)).toHaveLength(15)
+      expect(Object.keys(result.labels)).toHaveLength(16)
       expect(result.labels.draftWatermark).toBe('DRAFT')
     })
 

@@ -201,11 +201,11 @@ describe('OrdersDocumentService', () => {
       })
       expect(result.lines[1]).toMatchObject({ title: '', description: undefined, quantity: 0, unitPrice: 0, total: 5.5 })
       expect(result.totals).toEqual({
-        subtotal: 100,
-        discount: 10,
+        subtotal: 105.5,
+        adjustments: -12.5,
         shipping: 5,
         surcharge: 2,
-        tax: 20.7,
+        tax: 10.7,
         total: 110.7,
         paid: 50,
         outstanding: 60.7,
