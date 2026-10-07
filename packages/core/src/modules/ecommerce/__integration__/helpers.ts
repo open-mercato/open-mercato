@@ -469,3 +469,86 @@ export async function cleanupSecondTenantActor(
     token: superadminToken,
   }).catch(() => undefined);
 }
+
+export const STORE_BRANDING_PATH = (storeId: string): string =>
+  `${STORES_PATH}/${encodeURIComponent(storeId)}/branding`;
+export const STORE_PREVIEW_BRANDING_PATH = (storeId: string): string =>
+  `${STORES_PATH}/${encodeURIComponent(storeId)}/preview-branding`;
+export const ASSORTMENT_COUNT_PATH = (bindingId: string): string =>
+  `${CHANNEL_BINDINGS_PATH}/${encodeURIComponent(bindingId)}/assortment-count`;
+export const ECOMMERCE_DOMAIN_MAPPINGS_PATH = '/api/ecommerce/domain-mappings';
+
+export type StoreRecordBody = {
+  id: string;
+  code: string;
+  name: string;
+  status: StoreStatus;
+  updatedAt: string;
+  settings: Record<string, unknown> | null;
+};
+
+/** Reads one store through the admin list route (`GET /api/ecommerce/stores?id=`). */
+export async function readStoreRecord(
+  request: APIRequestContext,
+  token: string,
+  storeId: string,
+): Promise<StoreRecordBody> {
+  const response = await apiRequest(request, 'GET', `${STORES_PATH}?id=${encodeURIComponent(storeId)}`, { token });
+  expect(response.status(), 'store read should be 200').toBe(200);
+  const item = (await readJsonSafe<{ items?: StoreRecordBody[] }>(response))?.items?.[0];
+  expect(item, `store ${storeId} should be listed`).toBeTruthy();
+  return item as StoreRecordBody;
+}
+
+export function toEpochMs(value: string): number {
+  const parsed = Date.parse(value.includes('T') ? value : value.replace(' ', 'T').replace(/\+00$/, 'Z'));
+  expect(Number.isFinite(parsed), `timestamp should parse: ${value}`).toBe(true);
+  return parsed;
+}
+
+export type ScopedActor = { roleId: string; userId: string; token: string };
+
+/**
+ * A user in the given organization whose only role grants `features`, for permission-gate checks
+ * inside the shared tenant. Release with {@link cleanupScopedActor}.
+ */
+export async function createScopedActor(
+  request: APIRequestContext,
+  superadminToken: string,
+  input: { stamp: string; tenantId: string; organizationId: string; features: string[]; label: string },
+): Promise<ScopedActor> {
+  const roleId = await createRoleFixture(request, superadminToken, {
+    name: `QA ECOM ${input.label} ${input.stamp}`,
+    tenantId: input.tenantId,
+  });
+  try {
+    await setRoleAclFeatures(request, superadminToken, {
+      roleId,
+      features: input.features,
+      organizations: [input.organizationId],
+    });
+    const email = `qa-ecom-${input.label}-${input.stamp}@test.invalid`.toLowerCase();
+    const password = 'Valid1!Pass';
+    const userId = await createUserFixture(request, superadminToken, {
+      email,
+      password,
+      organizationId: input.organizationId,
+      roles: [roleId],
+    });
+    const token = await getAuthToken(request, email, password);
+    return { roleId, userId, token };
+  } catch (error) {
+    await deleteRoleIfExists(request, superadminToken, roleId);
+    throw error;
+  }
+}
+
+export async function cleanupScopedActor(
+  request: APIRequestContext,
+  superadminToken: string | null,
+  actor: ScopedActor | null,
+): Promise<void> {
+  if (!actor || !superadminToken) return;
+  await deleteUserIfExists(request, superadminToken, actor.userId);
+  await deleteRoleIfExists(request, superadminToken, actor.roleId);
+}
