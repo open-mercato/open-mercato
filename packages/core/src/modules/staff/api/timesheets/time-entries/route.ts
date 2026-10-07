@@ -32,6 +32,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { sanitizeSearchTerm } from '../../helpers'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject } from '../../../data/entities'
@@ -42,6 +43,7 @@ import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { decorateTimeEntryRows } from '../../../lib/timesheets/timeEntryDecoration'
+import { computeTimeEntryTotals } from '../../../lib/timesheets/timeEntryTotals'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries' })
@@ -120,6 +122,11 @@ const listSchema = z
     tagIds: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
+    /**
+     * `true` adds a `totals` object computed over the WHOLE filtered set (not the
+     * page). Opt-in so callers that only need rows pay for no aggregate query.
+     */
+    includeTotals: z.string().optional(),
   })
   .passthrough()
 
@@ -398,6 +405,44 @@ export async function decorateTimeEntryList(payload: unknown, ctx: CrudCtx): Pro
   })
 }
 
+function resolveListOrganizationIds(ctx: CrudCtx): string[] {
+  if (Array.isArray(ctx.organizationIds)) return Array.from(new Set(ctx.organizationIds))
+  const fallback = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  return fallback ? [fallback] : []
+}
+
+/**
+ * Adds `totals` for the whole filtered set when the caller asked for them with
+ * `?includeTotals=true`. Reuses the exact scoped filters of the list, so the
+ * totals never count a row the list would not return. A failure leaves the list
+ * intact and simply omits `totals`.
+ */
+export async function attachTimeEntryTotals(
+  payload: unknown,
+  ctx: CrudCtx & { query: EntryListQuery },
+): Promise<void> {
+  if (parseBooleanToken(ctx.query?.includeTotals ?? null) !== true) return
+  if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { items?: unknown }).items)) return
+  const tenantId = ctx.auth?.tenantId ?? null
+  if (!tenantId) return
+  try {
+    const { organizationId } = resolveCtxScope(ctx)
+    const filters = await buildScopedTimeEntryListFilters(ctx.query, ctx)
+    const rates = await resolveFeatureAccess(ctx.container, ctx.auth?.sub ?? null, [RATES_FEATURE], {
+      tenantId,
+      organizationId,
+    })
+    const em = ctx.container.resolve('em') as EntityManager
+    ;(payload as Record<string, unknown>).totals = await computeTimeEntryTotals(em.getKysely(), filters, {
+      tenantId,
+      organizationIds: resolveListOrganizationIds(ctx),
+      canSeeRates: rates.allowed,
+    })
+  } catch (err) {
+    logger.error('staff.timesheets.time-entries totals failed', { err })
+  }
+}
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
@@ -422,6 +467,9 @@ const crud = makeCrudRoute({
       roundedMinutes: F.rounded_minutes,
     },
     buildFilters: buildScopedTimeEntryListFilters,
+  },
+  hooks: {
+    afterList: attachTimeEntryTotals,
   },
   actions: {
     create: {
@@ -507,11 +555,24 @@ const timeEntryListItemSchema = z.object({
   currencyCode: z.string().nullable().optional(),
 })
 
+const timeEntryTotalsSchema = z.object({
+  entryCount: z.number(),
+  /** Sum of `duration_minutes` across the whole filtered set. */
+  durationMinutes: z.number(),
+  /** Sum of `rounded_minutes` across the whole filtered set. */
+  roundedMinutes: z.number(),
+  /** Present only for a caller holding `staff.timesheets.rates.view`; one entry per currency, never added together. */
+  money: z.array(z.object({ currencyCode: z.string().nullable(), amount: z.number() })).optional(),
+})
+
 export const openApi = createStaffCrudOpenApi({
   resourceName: 'TimeEntry',
   pluralName: 'TimeEntries',
   querySchema: listSchema,
-  listResponseSchema: createPagedListResponseSchema(timeEntryListItemSchema),
+  listResponseSchema: createPagedListResponseSchema(timeEntryListItemSchema).extend({
+    /** Present only when the request sends `includeTotals=true`; covers every row matching the filters, not just the page. */
+    totals: timeEntryTotalsSchema.optional(),
+  }),
   create: {
     schema: staffTimeEntryCreateSchema,
     description:
