@@ -1,5 +1,6 @@
 import { resolveDocumentRequestContext } from '../../../_shared/request-context'
 import { GenerationHistoryService } from '../../../../services/generation-history-service'
+import { templateRegistry } from '../../../../lib/template-registry'
 import { GET, metadata, openApi } from '../route'
 
 jest.mock('../../../_shared/request-context', () => ({ resolveDocumentRequestContext: jest.fn() }))
@@ -9,6 +10,8 @@ const translate = (key: string, fallback?: string) => (key === 'document_generat
 
 const listAndCount = jest.fn()
 const resolveForRequest = jest.fn()
+const userHasAllFeatures = jest.fn()
+const listTemplatesSpy = jest.spyOn(templateRegistry, 'listTemplates')
 const baseAuth = { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' }
 const USER_ID = '8f0e1c3e-6a3c-4f56-9d2a-1d6a7f9f2b11'
 
@@ -17,6 +20,7 @@ function setContext(auth: Record<string, unknown> | null) {
     resolve: (name: string) => {
       if (name === 'em') return {}
       if (name === 'organizationScopeService') return { resolveForRequest }
+      if (name === 'rbacService') return { userHasAllFeatures }
       throw new Error(`unknown ${name}`)
     },
   }
@@ -29,6 +33,12 @@ beforeEach(() => {
   listAndCount.mockReset().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 })
   ;(GenerationHistoryService as unknown as jest.Mock).mockReset().mockImplementation(() => ({ listAndCount }))
   resolveForRequest.mockReset().mockResolvedValue({ selectedId: 'org-selected', allowedIds: null, filterIds: null, tenantId: 'tenant-1' })
+  userHasAllFeatures.mockReset().mockResolvedValue(true)
+  listTemplatesSpy.mockReset().mockReturnValue([
+    { id: 'sales.order-invoice', requiredFeatures: ['sales.orders.view'] },
+    { id: 'sales.quote-offer', requiredFeatures: ['sales.quotes.view'] },
+    { id: 'open.template' },
+  ] as never)
   setContext(baseAuth)
 })
 
@@ -56,6 +66,14 @@ describe('documents history route', () => {
     const [scope, query] = listAndCount.mock.calls[0]
     expect(scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-selected' })
     expect(query).toMatchObject({ page: 1, pageSize: 20, sort: 'generated_at', sort_direction: 'desc' })
+  })
+
+  it('limits history to templates whose required features the caller holds', async () => {
+    userHasAllFeatures.mockImplementation(async (_userId: string, features: string[]) => !features.includes('sales.quotes.view'))
+    await call()
+    const [, , access] = listAndCount.mock.calls[0]
+    expect(access).toEqual({ authorizedTemplateIds: ['sales.order-invoice', 'open.template'] })
+    expect(userHasAllFeatures).toHaveBeenCalledWith('user-1', ['sales.quotes.view'], { tenantId: 'tenant-1', organizationId: 'org-selected' })
   })
 
   it('forwards filters, sort and paging to the service', async () => {

@@ -123,14 +123,26 @@ export class GenerationHistoryService {
     )
   }
 
-  async listAndCount(scope: GenerationHistoryScope, query: ListDocumentsQuery): Promise<GenerationHistoryPage> {
+  async listAndCount(
+    scope: GenerationHistoryScope,
+    query: ListDocumentsQuery,
+    access: { authorizedTemplateIds: string[] },
+  ): Promise<GenerationHistoryPage> {
+    const page = query.page ?? 1
+    const pageSize = query.pageSize ?? 20
+    const authorized = new Set(access.authorizedTemplateIds)
+    const templateIds = query.template_id
+      ? (authorized.has(query.template_id) ? [query.template_id] : [])
+      : [...authorized]
+    if (templateIds.length === 0) return { items: [], total: 0, page, pageSize }
+
     const where: Record<string, unknown> = {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
+      templateId: templateIds.length === 1 ? templateIds[0] : { $in: templateIds },
     }
     if (query.resource_kind) where.resourceKind = query.resource_kind
     if (query.resource_id) where.resourceId = query.resource_id
-    if (query.template_id) where.templateId = query.template_id
     if (query.generated_by) where.generatedBy = query.generated_by
     const generatedAtRange: Record<string, Date> = {}
     if (query.generated_from) generatedAtRange.$gte = new Date(query.generated_from)
@@ -139,8 +151,6 @@ export class GenerationHistoryService {
 
     const sortProperty = SORT_PROPERTY_BY_FIELD[query.sort] ?? SORT_PROPERTY_BY_FIELD.generated_at
     const direction = query.sort_direction === 'asc' ? 'asc' : 'desc'
-    const page = query.page ?? 1
-    const pageSize = query.pageSize ?? 20
 
     const [records, total] = await findAndCountWithDecryption(
       this.em,

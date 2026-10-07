@@ -3,6 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { listDocumentsSchema, searchParamsToObject } from '../../../data/validators'
 import { GenerationHistoryService } from '../../../services/generation-history-service'
+import { TemplateAccessPolicy, type TemplateFeatureAuthorizer } from '../../../lib/template-access-policy'
+import { templateRegistry } from '../../../lib/template-registry'
 import { errorResponse, mapDocumentError, requireOrganization } from '../../_shared/http'
 import { resolveDocumentRequestContext } from '../../_shared/request-context'
 
@@ -41,7 +43,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       operationId: 'documentGeneratorsListDocuments',
       summary: 'List the generation history of the selected organization.',
-      description: 'Returns a page of generated document history entries scoped to the active tenant and organization. Responds with an empty page when no organization is selected.',
+      description: 'Returns a page of generated document history entries scoped to the active tenant and organization, limited to templates whose required features the caller holds. Responds with an empty page when no organization is selected.',
       query: listDocumentsSchema,
       responses: [
         { status: 200, description: 'A page of generated documents.', schema: pageSchema },
@@ -64,8 +66,15 @@ export async function GET(request: Request): Promise<Response> {
     if (!organization.ok) {
       return Response.json({ items: [], total: 0, page: parsed.data.page, pageSize: parsed.data.pageSize })
     }
+    const policy = new TemplateAccessPolicy({
+      featureAuthorizer: container.resolve('rbacService') as TemplateFeatureAuthorizer,
+      auth: organization.auth,
+    })
+    const authorizedTemplates = await policy.filterAuthorizedTemplates({ templates: templateRegistry.listTemplates({}, translate) })
     const service = new GenerationHistoryService(container.resolve('em') as EntityManager)
-    const page = await service.listAndCount(organization.scope, parsed.data)
+    const page = await service.listAndCount(organization.scope, parsed.data, {
+      authorizedTemplateIds: authorizedTemplates.map((template) => template.id),
+    })
     return Response.json(page)
   } catch (error) {
     return mapDocumentError(error, translate)
