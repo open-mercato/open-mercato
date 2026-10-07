@@ -540,6 +540,7 @@ test('template baseline installs every enabled Documents package', () => {
   )
   assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'puppeteer-core'/)
   assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'jszip'/)
+  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'pdfjs-dist'/)
   assert.match(environmentTemplate, /^NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=/m)
   assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_JWT_SECRET_V2=$/m)
   assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_ALLOWED_ORIGINS=/m)
