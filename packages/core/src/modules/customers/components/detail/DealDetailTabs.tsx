@@ -21,6 +21,7 @@ type TabDef = {
   label: string
   icon?: React.ReactNode
   count?: React.ReactNode
+  priority?: number
 }
 
 export const DEAL_DETAIL_TABS_COMPONENT_ID = 'section:customers.deals.detailTabs'
@@ -28,7 +29,7 @@ export const DEAL_DETAIL_TABS_COMPONENT_ID = 'section:customers.deals.detailTabs
 export type DealDetailTabsProps = {
   activeTab: DealTabId
   onTabChange: (tab: DealTabId) => void
-  injectedTabs?: Array<{ id: string; label: string }>
+  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
   hiddenTabIds?: string[]
   peopleCount?: number
   companiesCount?: number
@@ -106,8 +107,11 @@ function DefaultDealDetailTabs({
       ...injectedTabs.map((tab) => ({
         id: tab.id as DealTabId,
         label: tab.label,
+        priority: tab.priority,
       })),
-    ].filter((tab) => !hidden.has(tab.id))
+    ]
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+      .filter((tab) => !hidden.has(tab.id))
   }, [builtInTabs, hiddenTabIds, injectedTabs])
 
   return (
