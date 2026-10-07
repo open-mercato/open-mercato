@@ -735,9 +735,9 @@ Verified with a trial merge of the owner-scoped reads branch into this one:
   - `packages/core/src/modules/attachments/AGENTS.md` has two hunks: keep both `Always` blocks, and
     in the `Never` list keep the owner-scoped branch's `checkAttachmentAccess` exception and
     `readScopedForOwner` rule, then the vector rules.
-- The merged tree (re-verified on 2026-10-07 after the seventh review round) passes:
+- The merged tree (re-verified on 2026-10-07 after the eighth review round) passes:
   - core and checkout typecheck;
-  - every attachments suite (738 tests), `attachment-service.test.ts` among them (67). The only
+  - every attachments suite (774 tests), `attachment-service.test.ts` among them (67). The only
     failures are six in `storage.test.ts` and `localDriver.test.ts`, suites neither branch touches,
     which fail on the Windows machine used because they expect POSIX absolute paths;
   - checkout's pay route suites (47).
@@ -1044,6 +1044,7 @@ Regression proofs run during implementation:
 ## Changelog
 
 - 2026-10-07 — Eighth review round:
+  - Merge order re-verified with a trial merge: the same five conflicting files and hunks.
   - `url()` only in the paint, clip, mask, filter and marker properties (and Inkscape's
     `shape-inside`/`shape-subtract`); the CSS `d` property and `if()` refused; a declaration's
     property changes only at function depth 0.
