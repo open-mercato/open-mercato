@@ -117,6 +117,29 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       entryIds.push(String(saved!.id))
       expect(saved!.task_id ?? saved!.taskId ?? null).toBeNull()
       expect(saved!.time_project_id ?? saved!.timeProjectId).toBe(assigned.id)
+
+      await page.reload()
+      await page.getByRole('row').filter({ hasText: `QATT24 assigned ${stamp}` }).first().click()
+      const editDialog = page.getByTestId('entry-dialog')
+      await expect(editDialog).toBeVisible({ timeout: 30_000 })
+      await expect(editDialog.getByTestId('entry-dialog-project').getByRole('combobox')).toHaveValue(
+        new RegExp(`QATT24 assigned ${stamp}`),
+      )
+      await page.locator('#entry-dialog-duration').fill('2h')
+      await page.getByTestId('entry-dialog-save').click()
+      await expect(editDialog).toBeHidden({ timeout: 30_000 })
+
+      const reread = await apiRequest(
+        request,
+        'GET',
+        `${TIME_ENTRIES_PATH}?ids=${encodeURIComponent(String(saved!.id))}&pageSize=1`,
+        { token: employeeToken },
+      )
+      expect(reread.ok(), 'GET /api/staff/timesheets/time-entries?ids= should succeed').toBeTruthy()
+      const updated = (((await reread.json()) as { items?: Array<Record<string, unknown>> }).items ?? [])[0]
+      expect(updated?.duration_minutes ?? updated?.durationMinutes).toBe(120)
+      expect(updated?.task_id ?? updated?.taskId ?? null).toBeNull()
+      expect(updated?.time_project_id ?? updated?.timeProjectId).toBe(assigned.id)
     } finally {
       for (const id of entryIds) {
         await deleteStaffEntityIfExists(request, employeeToken, TIME_ENTRIES_PATH, id)

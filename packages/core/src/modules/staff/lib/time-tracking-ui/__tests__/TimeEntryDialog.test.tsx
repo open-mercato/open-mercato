@@ -1456,6 +1456,99 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
     await waitFor(() => expect(screen.getByTestId('entry-dialog').textContent).toContain('500'))
   })
 
+  function projectRefusal() {
+    return Object.assign(new Error('Time project not found or not accessible.'), {
+      body: {
+        error: 'Time project not found or not accessible.',
+        details: [{ path: ['timeProjectId'], message: 'Time project not found or not accessible.' }],
+      },
+    })
+  }
+
+  it('flashes a server project refusal in task mode, where there is no project field to show it under', async () => {
+    mockApiCallOrThrow.mockRejectedValue(projectRefusal())
+    renderDialog()
+
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() =>
+      expect(mockFlash).toHaveBeenCalledWith('Time project not found or not accessible.', 'error'),
+    )
+  })
+
+  it('shows a server project refusal under the project field in project mode', async () => {
+    mockApiCallOrThrow.mockRejectedValue(projectRefusal())
+    renderDialog({ mode: 'project' })
+
+    await pickProject(OTHER_PROJECT_ID)
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    const message = await screen.findByTestId('entry-dialog-project-error')
+    expect(message.textContent).toBe('Time project not found or not accessible.')
+    expect(mockFlash).not.toHaveBeenCalledWith('Time project not found or not accessible.', 'error')
+  })
+
+  it('keeps the mode when the settings answer after the user started typing', async () => {
+    let releaseSettings: () => void = () => {}
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/settings')) {
+        await new Promise<void>((resolve) => {
+          releaseSettings = resolve
+        })
+        return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    renderDialog()
+
+    await screen.findByTestId('entry-dialog-task')
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Already typing' } })
+    releaseSettings()
+
+    await waitFor(() => expect(mockApiCall.mock.calls.some(([url]) => String(url).includes('/timesheets/settings'))).toBe(true))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
+  })
+
+  it('reports the chosen project to injected widgets as timeProjectId', async () => {
+    renderDialog({ mode: 'project' })
+
+    await pickProject(OTHER_PROJECT_ID)
+
+    await waitFor(() =>
+      expect(
+        mockInjection.calls.some(
+          (call) => call.event === 'onFieldChange' && call.fieldId === 'timeProjectId' && call.fieldValue === OTHER_PROJECT_ID,
+        ),
+      ).toBe(true),
+    )
+  })
+
+  it('ignores a widget write to timeProjectId in task mode and still reports the next project change', async () => {
+    mockInjection.fieldChange = { sideEffects: { timeProjectId: OTHER_PROJECT_ID } }
+    renderDialog()
+
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Typed' } })
+    await waitFor(() =>
+      expect(mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'description')).toBe(true),
+    )
+    mockInjection.fieldChange = null
+
+    await pickTask()
+    await waitFor(() =>
+      expect(
+        mockInjection.calls.some(
+          (call) => call.event === 'onFieldChange' && call.fieldId === 'timeProjectId' && call.fieldValue === PROJECT_ID,
+        ),
+      ).toBe(true),
+    )
+    expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
+  })
+
   it('shows the project of the picked task in task mode', async () => {
     renderDialog()
 

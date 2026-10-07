@@ -35,7 +35,11 @@ that never change it see no difference.
 same id through `registerTimeTrackingSettingKey({ group: 'defaults', key: 'entryMode', … })`.
 A contribution cannot replace a built-in, so that registration now throws at load; rename
 your key. Code that asserted the exact `defaults` group shape or counted
-`TIME_TRACKING_SETTING_KEYS` should expect the extra key.
+`TIME_TRACKING_SETTING_KEYS` should expect the extra key. `TimeTrackingEntryDefaults` (and
+therefore `TimeTrackingSettings`) gains a required `entryMode: TimeEntryMode` field: an object
+literal typed as either one must add `entryMode: 'task'` to compile. Payloads sent to
+`PUT /api/staff/timesheets/settings` and `writeTimeTrackingSettings` may still omit it — the
+registry fills in the default.
 
 The ten published time-tracking component `propsSchema`s are now named exports of their
 component files (e.g. `timeEntryDialogPropsSchema` from

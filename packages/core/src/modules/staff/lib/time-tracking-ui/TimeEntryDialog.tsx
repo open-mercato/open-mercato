@@ -374,6 +374,7 @@ function DefaultTimeEntryDialog({
 
   const [taskId, setTaskId] = React.useState<string | null>(null)
   const [mode, setMode] = React.useState<TimeEntryMode>('task')
+  const isProjectMode = mode === 'project'
   const [projectSelection, setProjectSelection] = React.useState<string | null>(null)
   /** Projects the project field found beyond the first directory page, so rate and currency still resolve. */
   const [lookupProjects, setLookupProjects] = React.useState<ReadonlyMap<string, ProjectOption>>(() => new Map())
@@ -413,6 +414,7 @@ function DefaultTimeEntryDialog({
    * button and the next entry would start with a handful of Shift+Tabs.
    */
   const taskTriggerRef = React.useRef<HTMLDivElement | null>(null)
+  const projectTriggerRef = React.useRef<HTMLDivElement | null>(null)
   /**
    * The picker is a search box inside a container, not a single focusable
    * control, so the keyboard loop focuses the input within it. Without this,
@@ -438,11 +440,10 @@ function DefaultTimeEntryDialog({
     return focusTaskPicker()
   }, [focusTaskPicker, mode])
 
-  const projectTriggerRef = React.useRef<HTMLDivElement | null>(null)
-
   const seedKeyRef = React.useRef<string | null>(null)
   const billableDefaultRef = React.useRef<string | null>(null)
   const modeDefaultRef = React.useRef<string | null>(null)
+  const refocusAfterModeChangeRef = React.useRef(false)
   const versionRef = React.useRef<string | null>(null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -951,6 +952,7 @@ function DefaultTimeEntryDialog({
         setTaskId(typeof value === 'string' && value.length > 0 ? value : null)
         return
       case 'timeProjectId':
+        if (!isProjectMode) return
         injectedFieldWritesRef.current.add(fieldId)
         setProjectSelection(typeof value === 'string' && value.length > 0 ? value : null)
         return
@@ -1002,7 +1004,7 @@ function DefaultTimeEntryDialog({
         return
       default:
     }
-  }, [])
+  }, [isProjectMode])
 
   const previousEntryFormValuesRef = React.useRef<FormValues | null>(null)
 
@@ -1155,14 +1157,25 @@ function DefaultTimeEntryDialog({
     if (modeDefaultRef.current === seedKeyRef.current) return
     modeDefaultRef.current = seedKeyRef.current
     if (isDirty) return
-    setMode(
-      resolveTimeEntryDialogMode({
-        entry,
-        propMode: modeProp,
-        settingMode: settings.defaults.entryMode,
-      }),
-    )
-  }, [baseline, entry, isDirty, modeProp, open, settings.defaults.entryMode, settingsQuery.isPending])
+    const resolved = resolveTimeEntryDialogMode({
+      entry,
+      propMode: modeProp,
+      settingMode: settings.defaults.entryMode,
+    })
+    if (resolved === mode) return
+    refocusAfterModeChangeRef.current = true
+    setMode(resolved)
+  }, [baseline, entry, isDirty, mode, modeProp, open, settings.defaults.entryMode, settingsQuery.isPending])
+
+  React.useEffect(() => {
+    if (!refocusAfterModeChangeRef.current) return
+    refocusAfterModeChangeRef.current = false
+    if (locked) return
+    const frame = window.requestAnimationFrame(() => {
+      focusFirstField()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [focusFirstField, locked, mode])
 
   /**
    * In project mode a task can only come from the chosen project, so a task that
@@ -1231,11 +1244,31 @@ function DefaultTimeEntryDialog({
     [projectById, projectUnavailableLabel, rememberProjects],
   )
 
+  const unresolvedProjectId =
+    isProjectMode && projectSelection && !projectsQuery.isPending && !projectById.has(projectSelection)
+      ? projectSelection
+      : null
+
+  const pinnedProjectQuery = useQuery<ProjectOption | null>({
+    queryKey: [...DIALOG_QUERY_ROOT, 'project', `scope:${scopeVersion}`, unresolvedProjectId ?? 'none'],
+    enabled: open && !!unresolvedProjectId,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const found = await fetchProjectById(unresolvedProjectId as string)
+      if (found) rememberProjects([found])
+      return found
+    },
+  })
+
   const projectSeedOptions = React.useMemo<ComboboxOption[]>(() => {
     if (!projectSelection) return []
     const known = projectById.get(projectSelection)
-    return known ? [{ value: known.id, label: known.name, description: known.customerName }] : []
-  }, [projectById, projectSelection])
+    if (known) return [{ value: known.id, label: known.name, description: known.customerName }]
+    if (pinnedProjectQuery.isSuccess && pinnedProjectQuery.data === null) {
+      return [{ value: projectSelection, label: projectUnavailableLabel, description: null }]
+    }
+    return []
+  }, [pinnedProjectQuery.data, pinnedProjectQuery.isSuccess, projectById, projectSelection, projectUnavailableLabel])
 
   /**
    * Every way out of the dialog — Escape, the ×, the overlay, Cancel — lands
@@ -1306,8 +1339,9 @@ function DefaultTimeEntryDialog({
         return
       }
       const issues = readFieldIssues(error)
-      if (issues) {
-        setFieldIssues(issues)
+      const visibleIssues = issues && !isProjectMode ? { ...issues, project: null } : issues
+      if (visibleIssues && (visibleIssues.task || visibleIssues.project || visibleIssues.duration)) {
+        setFieldIssues(visibleIssues)
         return
       }
       logger.error('staff.time_tracking entry dialog save failed', { err: error })
@@ -1318,7 +1352,7 @@ function DefaultTimeEntryDialog({
         'error',
       )
     },
-    [t],
+    [isProjectMode, t],
   )
 
   const submit = React.useCallback(
@@ -1341,7 +1375,9 @@ function DefaultTimeEntryDialog({
       if (!beforeSave.ok) {
         if (beforeSave.fieldErrors) {
           const taskIssue = beforeSave.fieldErrors.taskId ?? beforeSave.fieldErrors.task ?? null
-          const projectIssue = beforeSave.fieldErrors.timeProjectId ?? beforeSave.fieldErrors.project ?? null
+          const projectIssue = isProjectMode
+            ? beforeSave.fieldErrors.timeProjectId ?? beforeSave.fieldErrors.project ?? null
+            : null
           const durationIssue =
             beforeSave.fieldErrors.durationMinutes ?? beforeSave.fieldErrors.duration ?? null
           if (taskIssue || projectIssue || durationIssue) {
@@ -1446,6 +1482,7 @@ function DefaultTimeEntryDialog({
       entryInjectionContext,
       focusFirstField,
       interval.crossesMidnight,
+      isProjectMode,
       isBillable,
       isEdit,
       midnightEndDate,
