@@ -281,3 +281,9 @@
 ## 2026-10-06T18:03:17Z — checkpoint 14 (steps 7.6–7.10 + 7.7-fix) + safety stop
 - Green after one fix: Domains tab smoke failed (enricher not opted into the route) → 7.7-fix with a structural guard; re-run passed. Branding, Channels, SEO, group terms passed first time. Full core 19973 / ui 2505, typecheck, i18n, lint.
 - SAFETY STOP: 21 Steps landed since this resume (5.1–7.10 incl. 6.1-fix, 7.7-fix; one rescue at 7.9). Next: Step 7.11. Resume with `om-auto-continue-pr-loop 12`.
+
+## 2026-10-07T07:26:11Z — om-auto-continue-pr-loop resume
+- Resumed by: @adeptofvoltron
+- Resume point: 7.11 (source: HANDOFF.md + Tasks table, agree)
+- PR head SHA: b1cfb3c5eb
+- Worktree reused. Ephemeral env from the previous session still running (code through ff2cfeffce; later commits docs-only).
