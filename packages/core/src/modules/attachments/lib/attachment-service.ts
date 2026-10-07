@@ -20,12 +20,6 @@ import {
   hasDangerousExecutableExtension,
 } from './security'
 import {
-  DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
-  isTrustedVectorImage,
-  VECTOR_IMAGE_CONTENT_SECURITY_POLICY,
-  VECTOR_IMAGE_MIME_TYPE,
-} from './vector-image'
-import {
   isMultipartRequestWithinUploadLimit,
   resolveAttachmentMaxBytes,
   resolveAttachmentMultipartMaxBytes,
@@ -148,7 +142,10 @@ export type CreateScopedAttachmentInput = AttachmentOwner & {
    * Accept an SVG (for example a company logo) by sanitising it on the server
    * instead of rejecting it as active content. Only the sanitised document is
    * stored; a file that cannot be sanitised without losing content is rejected
-   * with a `vector_image_*` code. Default false.
+   * with a `vector_image_*` code. Default false. The stored SVG is served
+   * inline only by `GET /api/attachments/file/{id}` under its sandboxing CSP;
+   * `readScoped` returns it as a download, because a module route cannot keep
+   * a CSP of its own over the app-wide one. Show it with `<img>`.
    */
   allowVectorImage?: boolean
   /**
@@ -183,12 +180,6 @@ export type ReadScopedAttachmentResult = {
   contentDisposition: string
   fileName: string
   mimeType: string
-  /**
-   * The Content-Security-Policy the response serving these bytes should carry.
-   * Sanitised vector images need inline styles and embedded data: images;
-   * everything else keeps the fully locked-down default.
-   */
-  contentSecurityPolicy?: string
 }
 
 export type ReleaseScopedAttachmentInput = {
@@ -440,21 +431,16 @@ export class DefaultAttachmentService implements AttachmentService {
     }
 
     const mimeType = attachment.mimeType || 'application/octet-stream'
-    const vectorImage = isTrustedVectorImage(attachment, result.buffer)
-    const renderInline = !input.forceDownload && (vectorImage || canRenderInlineAttachment(mimeType))
-    const inlineContentType = vectorImage ? VECTOR_IMAGE_MIME_TYPE : result.contentType ?? mimeType
+    const renderInline = !input.forceDownload && canRenderInlineAttachment(mimeType)
     return {
       buffer: result.buffer,
-      contentType: renderInline ? inlineContentType : 'application/octet-stream',
+      contentType: renderInline ? result.contentType ?? mimeType : 'application/octet-stream',
       contentDisposition: buildAttachmentContentDisposition(
         attachment.fileName,
         renderInline ? 'inline' : 'attachment',
       ),
       fileName: attachment.fileName,
       mimeType,
-      contentSecurityPolicy: vectorImage
-        ? VECTOR_IMAGE_CONTENT_SECURITY_POLICY
-        : DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY,
     }
   }
 

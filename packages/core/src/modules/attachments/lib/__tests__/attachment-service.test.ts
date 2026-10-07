@@ -8,7 +8,6 @@ import type { AttachmentQuotaService } from '../quota-service'
 import { ScopedAttachmentUploadService } from '../scoped-upload-service'
 import {
   hashVectorImage,
-  VECTOR_IMAGE_CONTENT_SECURITY_POLICY,
   VECTOR_IMAGE_METADATA_KEY,
   VECTOR_IMAGE_POLICY_VERSION,
 } from '../vector-image'
@@ -730,35 +729,17 @@ describe('DefaultAttachmentService — sanitised vector images', () => {
     })
   }
 
-  it('serves a sanitised vector image inline as image/svg+xml under the vector CSP', async () => {
-    const { service } = createHarness({ attachment: vectorAttachment(vectorRecord), readBuffer: storedLogo })
-
-    const result = await service.readScoped(readInput)
-
-    expect(result.contentType).toBe('image/svg+xml')
-    expect(result.contentDisposition).toMatch(/^inline;/)
-    expect(result.contentSecurityPolicy).toBe(VECTOR_IMAGE_CONTENT_SECURITY_POLICY)
-  })
-
-  it('still forces a download of a sanitised vector image when asked', async () => {
-    const { service } = createHarness({ attachment: vectorAttachment(vectorRecord), readBuffer: storedLogo })
-
-    const result = await service.readScoped({ ...readInput, forceDownload: true })
-
-    expect(result.contentType).toBe('application/octet-stream')
-    expect(result.contentDisposition).toMatch(/^attachment;/)
-  })
-
   it.each([
-    ['without a vector record', null, storedLogo],
-    ['whose bytes no longer match the record', vectorRecord, Buffer.from(hostileLogo, 'utf8')],
-  ])('keeps download-only serving for an SVG row %s', async (_label, record, bytes) => {
+    ['a sanitised vector image', vectorRecord, storedLogo],
+    ['an SVG row without a vector record', null, storedLogo],
+    ['an SVG row whose bytes no longer match the record', vectorRecord, Buffer.from(hostileLogo, 'utf8')],
+  ])('returns %s as a download, never inline: a module route cannot keep a sandboxing CSP', async (_label, record, bytes) => {
     const { service } = createHarness({ attachment: vectorAttachment(record), readBuffer: bytes })
 
     const result = await service.readScoped(readInput)
 
     expect(result.contentType).toBe('application/octet-stream')
     expect(result.contentDisposition).toMatch(/^attachment;/)
-    expect(result.contentSecurityPolicy).toBe("default-src 'none'; sandbox")
+    expect(result).not.toHaveProperty('contentSecurityPolicy')
   })
 })
