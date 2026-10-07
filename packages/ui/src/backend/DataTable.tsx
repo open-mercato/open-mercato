@@ -3441,7 +3441,7 @@ export function DataTable<T extends RowData>({
   const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
-  // Measure the horizontal scroll viewport so the empty state can center within
+  // Measure the horizontal scroll viewport so the empty and error states can center within
   // the visible area instead of within the (often wider, overflowing) table.
   const [tableScrollEl, setTableScrollEl] = React.useState<HTMLDivElement | null>(null)
   const [emptyStateViewportWidth, setEmptyStateViewportWidth] = React.useState<number | null>(null)
@@ -3689,8 +3689,13 @@ export function DataTable<T extends RowData>({
               </TableRow>
             ) : error ? (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-destructive">
-                  {error}
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                  <div
+                    className={cn('sticky left-0 flex h-24 items-center justify-center px-4 text-center text-destructive', emptyStateViewportWidth ? '' : 'w-fit')}
+                    style={emptyStateViewportWidth ? { width: emptyStateViewportWidth } : undefined}
+                  >
+                    {error}
+                  </div>
                 </TableCell>
               </TableRow>
             ) : allRows.length ? (
