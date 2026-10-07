@@ -47,6 +47,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
+import { HelpTip } from './HelpTip'
 import { useConfirmDialog } from './confirm-dialog'
 import { surfaceRecordConflict } from './conflicts'
 import type {
@@ -311,6 +312,11 @@ export type DataTableProps<T extends RowData> = {
    * compatibility; ReactNode titles remain caller-owned unless this is set.
    */
   titleHeadingLevel?: 1 | 2
+  /**
+   * Contextual help behind a "?" beside the table title, for a list screen whose name does not say
+   * what it is for. Both strings must arrive translated.
+   */
+  titleHelp?: { title: string; body: React.ReactNode }
   actions?: React.ReactNode
   refreshButton?: DataTableRefreshButton
   sortable?: boolean
@@ -1259,6 +1265,7 @@ function DataTableImpl<T extends RowData>({
   toolbar,
   title,
   titleHeadingLevel,
+  titleHelp,
   actions,
   refreshButton,
   sortable,
@@ -3541,10 +3548,11 @@ function DataTableImpl<T extends RowData>({
 
   const TitleHeading = titleHeadingLevel === 1 ? 'h1' : 'h2'
   const titleContent = hasTitle ? (
-    <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
+    <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center gap-1">
       {typeof title === 'string' || titleHeadingLevel
         ? <TitleHeading className="text-base font-semibold">{title}</TitleHeading>
         : title}
+      {titleHelp ? <HelpTip title={titleHelp.title} body={titleHelp.body} size="sm" /> : null}
     </div>
   ) : <div className="min-h-[2.25rem]" />
 
