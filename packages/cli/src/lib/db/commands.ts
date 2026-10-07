@@ -10,6 +10,13 @@ import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { quotePostgresIdentifier } from './identifiers'
 import {
+  checkEncryptionMapBackfills,
+  isEncryptionBackfillCheckEnabled,
+  readDeclaredEncryptionMaps,
+  type DeclaredEncryptionMap,
+  type EncryptionMapRow,
+} from './encryption-backfill-check'
+import {
   collectQueryIndexReindexEntityTypes,
   isMigrationReindexEnabled,
   requestQueryIndexReindex,
@@ -228,6 +235,72 @@ function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): strin
   return path.join(roots.pkgBase, 'migrations').replace(/\\/g, '/')
 }
 
+async function loadModuleEncryptionMaps(entry: ModuleEntry, resolver: PackageResolver): Promise<DeclaredEncryptionMap[]> {
+  const roots = resolver.getModulePaths(entry)
+  const appFile = path.join(roots.appBase, 'encryption.ts')
+  const pkgFile = path.join(roots.pkgBase, 'encryption.ts')
+  try {
+    if (fs.existsSync(appFile)) return readDeclaredEncryptionMaps(entry.id, await importWithTypeScriptFile(appFile))
+    if (entry.from === '@app' || resolver.isMonorepo()) {
+      return fs.existsSync(pkgFile) ? readDeclaredEncryptionMaps(entry.id, await importWithTypeScriptFile(pkgFile)) : []
+    }
+    return readDeclaredEncryptionMaps(entry.id, await import(`${resolver.getModuleImportBase(entry).pkgBase}/encryption`))
+  } catch {
+    return []
+  }
+}
+
+function readModuleMigrationSources(modules: ModuleEntry[], resolver: PackageResolver): string[] {
+  const sources: string[] = []
+  for (const entry of modules) {
+    const migrationsPath = getMigrationsPath(entry, resolver)
+    if (!fs.existsSync(migrationsPath)) continue
+    for (const file of fs.readdirSync(migrationsPath)) {
+      if (!/^Migration.*\.(ts|js)$/.test(file) || file.endsWith('.d.ts')) continue
+      sources.push(fs.readFileSync(path.join(migrationsPath, file), 'utf8'))
+    }
+  }
+  return sources
+}
+
+async function queryEncryptionMapRows(): Promise<EncryptionMapRow[] | null> {
+  const { Client } = await import('pg')
+  const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig(), connectionTimeoutMillis: 5000 })
+  await client.connect()
+  try {
+    const table = await client.query(`select to_regclass('encryption_maps') is not null as "exists"`)
+    if (!table.rows[0]?.exists) return null
+    const result = await client.query(
+      `select "tenant_id", "organization_id", "entity_id", "fields_json", "is_active" from "encryption_maps" where "deleted_at" is null`,
+    )
+    return result.rows.map((row) => ({
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      entityId: String(row.entity_id),
+      fieldsJson: row.fields_json,
+      isActive: row.is_active === true,
+    }))
+  } finally {
+    try {
+      await client.end()
+    } catch { }
+  }
+}
+
+export async function warnAboutMissingEncryptionMapBackfills(modules: ModuleEntry[], resolver: PackageResolver): Promise<void> {
+  if (!isEncryptionBackfillCheckEnabled()) return
+  await checkEncryptionMapBackfills({
+    loadDeclaredMaps: async () => {
+      const declared: DeclaredEncryptionMap[] = []
+      for (const entry of modules) declared.push(...(await loadModuleEncryptionMaps(entry, resolver)))
+      return declared
+    },
+    loadMigrationSources: () => readModuleMigrationSources(modules, resolver),
+    queryEncryptionMaps: queryEncryptionMapRows,
+    warn: (message) => console.warn(message),
+  })
+}
+
 export interface DbOptions {
   quiet?: boolean
 }
@@ -338,6 +411,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
   }
 
   console.log(results.join('\n'))
+  await warnAboutMissingEncryptionMapBackfills(ordered, resolver)
 }
 
 export async function dbMigrate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
