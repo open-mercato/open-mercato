@@ -131,6 +131,8 @@ describe('isUndecodableImageError', () => {
     'EACCES: permission denied, open thumbnail',
     'vips_malloc: out of memory --- size == 1048576',
     'VipsJpeg: out of memory',
+    'VipsJpeg: Insufficient memory (case 4)',
+    'VipsJpeg: Maximum supported image dimension is 65500 pixels',
     'pngsave: unable to write to target',
     'Unexpected failure',
   ])('treats %j as an operational failure', (message) => {

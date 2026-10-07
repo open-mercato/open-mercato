@@ -1,5 +1,5 @@
 import sharp, { type ResizeOptions } from 'sharp'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ImageCropType } from './imageUrls'
@@ -10,13 +10,15 @@ const logger = createLogger('attachments').child({ component: 'image-rendition' 
 
 const UNDECODABLE_IMAGE_ERROR =
   /^(?:Input (?:buffer|file) (?:has corrupt header|contains unsupported image format)|(?:vips|lib)?(?:png|spng|jpe?g|gif|webp|heif|avif|tiff?)(?!\w*save)\w*:|Vips(?:Jpeg|Png|Gif|Webp|Heif|Tiff|ForeignLoad\w*)\b|\w+load(?:_buffer|_source)?:)/i
-const RESOURCE_ERROR = /out of memory|cannot allocate|memory allocation/i
+const RESOURCE_ERROR = /out of memory|insufficient memory|cannot allocate|memory allocation|maximum supported image dimension/i
 
 /**
  * True for Sharp's report that the stored bytes cannot be decoded: a libvips
  * loader error (`vipspng:`, `VipsJpeg:`, `gifload_buffer:`, …) or Sharp's own
- * input error, named on the first line of the message. Memory exhaustion, I/O
- * and encoder errors are operational failures, not a property of the file.
+ * input error, named on the first line of the message. Memory exhaustion
+ * (including libjpeg's `Insufficient memory`), the JPEG encoder's maximum
+ * dimension, I/O and other encoder errors are operational failures, not a
+ * property of the file.
  */
 export function isUndecodableImageError(error: unknown): boolean {
   if (!(error instanceof Error)) return false
@@ -56,7 +58,7 @@ export async function renderImageRendition(input: ImageRenditionInput): Promise<
   try {
     return await renderCheckedImage(input)
   } catch (error) {
-    if (error instanceof CrudHttpError) throw error
+    if (isCrudHttpError(error)) throw error
     logger.error('Image rendition failed', { err: error, attachmentId: input.attachment.id })
     getTelemetryRuntime()?.reportError(error, { module: 'attachments', code: 'attachments.image_rendition_failed' })
     throw error
