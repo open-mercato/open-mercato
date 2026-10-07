@@ -560,6 +560,18 @@ EP-42…EP-45. Four declaration surfaces. Read the "does not" column of each bef
 building on one — three of the four are contracts that a later phase still has to make
 load-bearing, and pretending otherwise is how a third-party module ships a broken screen.
 
+### Time entry dialog modes (#6989)
+
+`TimeEntryDialog` logs against a **task** (default; project derived from the task and
+shown read-only) or a **project** (required project field over the access-scoped
+`GET /api/staff/timesheets/time-projects?status=active`, task optional and filtered by
+`timeProjectId`). Precedence lives in `resolveTimeEntryDialogMode`
+(`lib/time-tracking-ui/timeEntryDialogState.ts`): an entry with a project and no task →
+project; else the optional `mode` prop; else the tenant's `defaults.entryMode`; else task.
+The setting is applied late (once per seed, pristine form only) because the settings
+query may answer after the seed. Writes stay authorised by the command's project access
+check; the dialog adds no access logic.
+
 ### Contributed settings keys (EP-42 — BC surface #2, STABLE)
 
 `TIME_TRACKING_SETTING_KEYS`, `normalizeTimeTrackingSettings` and
