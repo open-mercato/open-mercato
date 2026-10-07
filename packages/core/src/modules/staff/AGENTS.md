@@ -430,20 +430,24 @@ same use case today.
 `registerComponent` and resolved with `useRegisteredComponent`. Every one publishes a zod
 `propsSchema`, which `useRegisteredComponent` parses in development — a replacement that
 does not satisfy it falls back to the original component. Catalogued in
-[`widgets/components.ts`](./widgets/components.ts).
+[`widgets/components.ts`](./widgets/components.ts). Each schema is a named export of its
+component file (STABLE contract, additive-only): a replacement imports it, e.g.
+`import { timeEntryDialogPropsSchema } from '@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog'`,
+and passes it as its own `metadata.propsSchema` instead of copying it. The exports are
+typed `z.ZodType<Props>`; wrap with `z.intersection` to add fields.
 
-| Handle | Component |
-|---|---|
-| `staff.time_entry_dialog` | `lib/time-tracking-ui/TimeEntryDialog.tsx` |
-| `staff.timer_bar` | `lib/timesheets-ui/TimerBar.tsx` |
-| `staff.kanban_card` | `lib/time-tracking-ui/KanbanCard.tsx` |
-| `staff.kanban_column` | `lib/time-tracking-ui/KanbanColumn.tsx` |
-| `staff.timesheet_grid` | `backend/staff/time-tracking/timesheet/GridView.tsx` |
-| `staff.timesheet_list` | `lib/timesheets-ui/ListView.tsx` |
-| `staff.timesheet_calendar` | `lib/time-tracking-ui/TimesheetCalendar.tsx` |
-| `staff.report_sheet` | `lib/time-tracking-ui/ReportSheet.tsx` |
-| `staff.project_card` | `lib/timesheets-projects-ui/ProjectCard.tsx` |
-| `staff.entries_summary_footer` | `lib/time-tracking-ui/TimeEntriesSummaryFooter.tsx` |
+| Handle | Component | Schema export |
+|---|---|---|
+| `staff.time_entry_dialog` | `lib/time-tracking-ui/TimeEntryDialog.tsx` | `timeEntryDialogPropsSchema` |
+| `staff.timer_bar` | `lib/timesheets-ui/TimerBar.tsx` | `timerBarPropsSchema` |
+| `staff.kanban_card` | `lib/time-tracking-ui/KanbanCard.tsx` | `kanbanCardPropsSchema` |
+| `staff.kanban_column` | `lib/time-tracking-ui/KanbanColumn.tsx` | `kanbanColumnPropsSchema` |
+| `staff.timesheet_grid` | `backend/staff/time-tracking/timesheet/GridView.tsx` | `gridViewPropsSchema` |
+| `staff.timesheet_list` | `lib/timesheets-ui/ListView.tsx` | `listViewPropsSchema` |
+| `staff.timesheet_calendar` | `lib/time-tracking-ui/TimesheetCalendar.tsx` | `timesheetCalendarPropsSchema` |
+| `staff.report_sheet` | `lib/time-tracking-ui/ReportSheet.tsx` | `reportSheetPropsSchema` |
+| `staff.project_card` | `lib/timesheets-projects-ui/ProjectCard.tsx` | `projectCardPropsSchema` |
+| `staff.entries_summary_footer` | `lib/time-tracking-ui/TimeEntriesSummaryFooter.tsx` | `timeEntriesSummaryFooterPropsSchema` |
 
 ## Time-tracking strategy registries
 
