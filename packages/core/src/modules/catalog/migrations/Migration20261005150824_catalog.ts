@@ -18,7 +18,7 @@ export class Migration20261005150824_catalog extends Migration {
     this.addSql(`create unique index "catalog_price_history_idempotency_uq" on "catalog_price_history_entries" ("tenant_id", "organization_id", "idempotency_key") where "idempotency_key" is not null;`);
 
     this.addSql(`-- MANUAL DDL: immutability trigger and role restriction
-CREATE OR REPLACE FUNCTION prevent_history_modification() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION catalog_price_history_prevent_modification() RETURNS trigger AS $$
 BEGIN
   RAISE EXCEPTION 'catalog_price_history_entries is immutable';
 END;
@@ -27,12 +27,12 @@ $$ LANGUAGE plpgsql;`);
 -- REVOKE UPDATE, DELETE ON catalog_price_history_entries FROM <app_db_role>;
 CREATE OR REPLACE TRIGGER history_immutable
   BEFORE UPDATE OR DELETE ON catalog_price_history_entries
-  FOR EACH ROW EXECUTE FUNCTION prevent_history_modification();`);
+  FOR EACH ROW EXECUTE FUNCTION catalog_price_history_prevent_modification();`);
   }
 
   override down(): void | Promise<void> {
     this.addSql(`DROP TRIGGER IF EXISTS history_immutable ON catalog_price_history_entries;`);
-    this.addSql(`DROP FUNCTION IF EXISTS prevent_history_modification();`);
+    this.addSql(`DROP FUNCTION IF EXISTS catalog_price_history_prevent_modification();`);
     this.addSql(`drop table if exists "catalog_price_history_entries" cascade;`);
   }
 

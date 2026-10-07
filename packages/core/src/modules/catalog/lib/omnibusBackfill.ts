@@ -186,13 +186,16 @@ export async function runOmnibusBackfill(
   if (options.dryRun) {
     return { dryRun: true, tenantId: scope.tenantId, organizationId: scope.organizationId, targets: results, coverageRecorded: [] }
   }
-  await recordBackfillCoverage(deps.moduleConfigService, options.tenantId, results, deps.now ?? new Date())
+  const recordsCoverage = scope.organizationId === null
+  if (recordsCoverage) {
+    await recordBackfillCoverage(deps.moduleConfigService, options.tenantId, results, deps.now ?? new Date())
+  }
   await invalidateOmnibusTenantCache(deps.cache ?? null, options.tenantId)
   return {
     dryRun: false,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     targets: results,
-    coverageRecorded: results.map((target) => target.coverageKey),
+    coverageRecorded: recordsCoverage ? results.map((target) => target.coverageKey) : [],
   }
 }

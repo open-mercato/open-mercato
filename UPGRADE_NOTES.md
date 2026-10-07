@@ -100,6 +100,49 @@ A custom `SearchStrategy` or `VectorDriver` keeps working unchanged and is simpl
 searches; to take part in them, apply the filter inside its ranking query (`buildIndexDocFilterExists` for Kysely
 and `compileIndexDocFilterExists` for raw SQL, both from `@open-mercato/search/strategies`) and set `supportsIndexDocFilter: true`.
 
+### Catalog records an append-only price history for the EU Omnibus reference price
+
+The `catalog` module ships a new `catalog_price_history_entries` table (migration
+`Migration20261005150824_catalog`). Every create, delete, undo and redo of a tracked price, and every
+update that changes its amounts, scope or schedule, writes one row, and the Omnibus resolver reads it to present the "lowest price in the prior 30 days" (EU Price
+Indication Directive, Art. 6a). Omnibus itself stays off until a tenant enables it.
+
+- **The history is immutable.** The migration installs a `history_immutable` trigger (function
+  `catalog_price_history_prevent_modification()`) that rejects every `UPDATE` and `DELETE` on the
+  table. Any tooling that removes tenant or organization data with `DELETE` — a tenant purge, a
+  data-retention job, a test-database reset — fails on this table. Plan such purges as a table-owner
+  maintenance step (`ALTER TABLE catalog_price_history_entries DISABLE TRIGGER history_immutable`,
+  delete, re-enable); in disposable environments `TRUNCATE` still works because row triggers do not
+  fire on it.
+- **Production hardening (recommended):** grant the application role `INSERT`/`SELECT` only:
+  `REVOKE UPDATE, DELETE ON catalog_price_history_entries FROM <app_db_role>;`. The trigger is the
+  active guard until you do.
+- **Backfill before enabling.** Run `mercato catalog omnibus:backfill --tenant <tenantId>` (optionally
+  `--channel-id <channelId>` per channel, `--dry-run` first) before turning Omnibus on. It writes one
+  baseline row per price that has no history yet and records the backfill coverage that the
+  configuration endpoint requires before it accepts `enabled: true`. Re-run it after raising
+  `lookbackDays`.
+- **Coverage is tenant-wide.** `--org <organizationId>` narrows which prices are backfilled, but such a
+  run does **not** record coverage — only a run without `--org` does, so recorded coverage always means
+  every organization of the tenant has its baselines.
+- **Only public prices are tracked.** Prices scoped to a customer, customer group, user or user group,
+  and quantity-tier prices (`minQuantity > 1`), are never recorded and never feed the public
+  reference; the backfill reports them as `skippedUntracked`.
+
+**Action for operators:** apply the migration, run the backfill, then enable Omnibus per tenant; add
+the `REVOKE` to your production deploy runbook and review any purge tooling that deletes from
+catalog tables.
+
+### Translation entries accept field keys up to 400 characters
+
+`PUT /api/translations/:entityType/:entityId` (`translationBodySchema` in
+`@open-mercato/core/modules/translations/data/validators`) now accepts field keys of up to 400
+characters, up from 100, so catalog option-schema labels can be translated under dotted keys such as
+`options.<optionCode>.choices.<choiceCode>.label`. Payloads that were valid before stay valid.
+
+**Action for module authors:** none, unless you mirror this limit in your own validation — raise it to
+400 to accept the same keys.
+
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
 `createOpenAICompatibleProvider(preset)`

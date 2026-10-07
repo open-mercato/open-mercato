@@ -429,6 +429,15 @@
           "unique": true
         },
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "catalog_price_history_idempotency_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"catalog_price_history_idempotency_uq\" on \"catalog_price_history_entries\" (\"tenant_id\", \"organization_id\", \"idempotency_key\") where \"idempotency_key\" is not null"
+        },
+        {
           "columnNames": [
             "tenant_id",
             "organization_id",

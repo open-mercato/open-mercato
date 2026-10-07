@@ -40,10 +40,10 @@ function historyEntityBlock(): string {
 
 function readSnapshotTable(): {
   columns: Record<string, unknown>
-  indexes: Array<{ keyName: string }>
+  indexes: Array<{ keyName: string; expression?: string }>
 } | undefined {
   const snapshot = JSON.parse(readFileSync(join(migrationsDir, '.snapshot-open-mercato.json'), 'utf8')) as {
-    tables: Array<{ name: string; columns: Record<string, unknown>; indexes: Array<{ keyName: string }> }>
+    tables: Array<{ name: string; columns: Record<string, unknown>; indexes: Array<{ keyName: string; expression?: string }> }>
   }
   return snapshot.tables.find((table) => table.name === tableName)
 }
@@ -95,10 +95,10 @@ describe('catalog price history schema (omnibus)', () => {
       const source = readHistoryMigration()
       expect(source).toContain('-- MANUAL DDL: immutability trigger and role restriction')
       const up = normalizeSql(migrationSection(source, 'up'))
-      expect(up).toContain('create or replace function prevent_history_modification() returns trigger')
+      expect(up).toContain('create or replace function catalog_price_history_prevent_modification() returns trigger')
       expect(up).toContain(`raise exception '${tableName} is immutable'`)
       expect(up).toContain(
-        `create or replace trigger history_immutable before update or delete on ${tableName} for each row execute function prevent_history_modification()`,
+        `create or replace trigger history_immutable before update or delete on ${tableName} for each row execute function catalog_price_history_prevent_modification()`,
       )
       expect(up).toContain(`-- revoke update, delete on ${tableName} from <app_db_role>;`)
     })
@@ -118,7 +118,7 @@ describe('catalog price history schema (omnibus)', () => {
     it('drops trigger, then function, then table on down', () => {
       const down = normalizeSql(migrationSection(readHistoryMigration(), 'down'))
       const triggerAt = down.indexOf(`drop trigger if exists history_immutable on ${tableName}`)
-      const functionAt = down.indexOf('drop function if exists prevent_history_modification()')
+      const functionAt = down.indexOf('drop function if exists catalog_price_history_prevent_modification()')
       const tableAt = down.indexOf(`drop table if exists "${tableName}"`)
       expect(triggerAt).toBeGreaterThanOrEqual(0)
       expect(functionAt).toBeGreaterThan(triggerAt)
@@ -144,6 +144,10 @@ describe('catalog price history schema (omnibus)', () => {
         expect(block).toContain(`name: '${index.name}'`)
       }
     })
+
+    it('declares the partial idempotency index the duplicate-capture handling relies on', () => {
+      expect(historyEntityBlock()).toContain("name: 'catalog_price_history_idempotency_uq'")
+    })
   })
 
   describe('snapshot', () => {
@@ -154,7 +158,10 @@ describe('catalog price history schema (omnibus)', () => {
       for (const index of lookbackIndexes) {
         expect(indexNames).toContain(index.name)
       }
-      expect(indexNames).not.toContain('catalog_price_history_idempotency_uq')
+      const idempotency = table!.indexes.find((index) => index.keyName === 'catalog_price_history_idempotency_uq')
+      expect(idempotency?.expression).toBe(
+        'create unique index "catalog_price_history_idempotency_uq" on "catalog_price_history_entries" ("tenant_id", "organization_id", "idempotency_key") where "idempotency_key" is not null',
+      )
       expect(Object.keys(table!.columns)).not.toEqual(expect.arrayContaining(['updated_at']))
       expect(Object.keys(table!.columns)).not.toEqual(expect.arrayContaining(['deleted_at']))
     })

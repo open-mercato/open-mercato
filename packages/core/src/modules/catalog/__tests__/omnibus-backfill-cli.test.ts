@@ -274,8 +274,21 @@ describe('runOmnibusBackfill', () => {
       expect(call[4]).toEqual({ tenantId: TENANT, organizationId: ORG })
     }
     expect(configService.stored.get(OTHER_TENANT)).toBe(EU_CONFIG)
-    expect(configService.setValue).toHaveBeenCalledTimes(1)
-    expect(configService.setValue.mock.calls[0][3]).toEqual({ tenantId: TENANT })
+  })
+
+  it('does not record tenant-wide coverage from an organization-scoped run', async () => {
+    const store: Store = { prices: [buildPrice(1), buildPrice(2, { organizationId: OTHER_ORG })], history: [] }
+    installFindMock(store)
+    const configService = buildConfigService({ [TENANT]: EU_CONFIG })
+    const cache = buildCache()
+    const result = await runOmnibusBackfill(
+      { em: buildEm(store), moduleConfigService: configService, cache, now: NOW },
+      { tenantId: TENANT, organizationId: ORG },
+    )
+    expect(store.history.map((row) => row.priceId)).toEqual([priceId(1)])
+    expect(result.coverageRecorded).toEqual([])
+    expect(configService.setValue).not.toHaveBeenCalled()
+    expect(cache.deleteByTags).toHaveBeenCalledWith([omnibusTenantWideTag(TENANT)])
   })
 
   it('walks prices in keyset batches', async () => {

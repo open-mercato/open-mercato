@@ -188,6 +188,11 @@ function printOmnibusBackfillResult(result: OmnibusBackfillResult) {
   if (!result.dryRun) {
     console.log(`  Coverage recorded: ${result.coverageRecorded.map((key) => key || '(unscoped)').join(', ') || 'none'}`)
   }
+  if (result.organizationId) {
+    console.log(
+      '  Coverage is tenant-wide and is recorded only by a run without --org; run the backfill without --org before enabling Omnibus.',
+    )
+  }
 }
 
 const omnibusBackfillCommand: ModuleCli = {

@@ -904,6 +904,11 @@ export class CatalogProductPrice {
   name: 'catalog_price_history_price_idx',
   properties: ['tenantId', 'organizationId', 'priceId'],
 })
+@Index({
+  name: 'catalog_price_history_idempotency_uq',
+  expression:
+    'create unique index "catalog_price_history_idempotency_uq" on "catalog_price_history_entries" ("tenant_id", "organization_id", "idempotency_key") where "idempotency_key" is not null',
+})
 export class CatalogPriceHistoryEntry {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
