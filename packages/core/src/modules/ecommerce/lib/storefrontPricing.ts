@@ -90,15 +90,27 @@ export type StorefrontPricingContainer = {
   resolve: (name: string) => unknown
 }
 
+/**
+ * The customer ids pricing may match on: only `buyer.customerOverlayId`, the ids that are part of the
+ * cache `digest`. A contract price added after the buyer context was cached is ignored until that
+ * context is re-resolved, so a response is never cached under a digest it does not belong to.
+ */
+export function storefrontPricingCustomerIds(buyer: Pick<StoreContext['buyer'], 'customerOverlayId'>): string[] {
+  if (!buyer.customerOverlayId) return []
+  return buyer.customerOverlayId.split(',').filter((id) => id.length > 0)
+}
+
 export function buildStorefrontPricingContext(
   ctx: StoreContext,
   overrides: { quantity?: number; date?: Date } = {},
 ): StorefrontPricingContext {
+  const customerIds = storefrontPricingCustomerIds(ctx.buyer)
+  const customerId = ctx.buyer.customerId && customerIds.includes(ctx.buyer.customerId) ? ctx.buyer.customerId : null
   return {
     channelId: ctx.channel?.salesChannelId ?? null,
     priceKindId: ctx.buyer.priceKindId ?? ctx.channel?.priceKindId ?? null,
-    customerId: ctx.buyer.customerId,
-    customerIds: [...ctx.buyer.customerIds],
+    customerId,
+    customerIds,
     customerGroupIds: [...ctx.buyer.customerGroupIds],
     currencyCode: ctx.currencyCode,
     quantity: overrides.quantity ?? 1,

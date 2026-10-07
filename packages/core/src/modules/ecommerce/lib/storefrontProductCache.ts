@@ -94,7 +94,7 @@ export async function cachedListStorefrontProducts(
   const cache = storefrontCache(container, ctx)
   const parts = storefrontProductListCacheParts(query)
   const cached = await cache.get<StorefrontProductListResponse>(parts, { scope: 'digest' })
-  if (cached) return cached
+  if (cached) return { ...cached, requestedLocale: ctx.requestedLocale }
   const response = await listStorefrontProducts(container, ctx, query)
   await cache.set(parts, response, {
     scope: 'digest',

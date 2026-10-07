@@ -265,6 +265,7 @@ describe('buildStorefrontPricingContext', () => {
         companyId: 'company-1',
         customerIds: ['person-1', 'company-1'],
         customerGroupIds: ['group-a', 'group-b'],
+        customerOverlayId: 'person-1,company-1',
       },
       { channelPriceKindId: REGULAR_KIND.id },
     )
@@ -288,6 +289,34 @@ describe('buildStorefrontPricingContext', () => {
     expect(pricingContext.quantity).toBe(25)
     expect(pricingContext.customerIds).toEqual([])
   })
+
+  it('prices with no customer ids when the cached overlay is null, even for an identified buyer', () => {
+    const ctx = makeContext({
+      customerId: 'person-1',
+      companyId: 'company-1',
+      customerIds: ['person-1', 'company-1'],
+      customerOverlayId: null,
+    })
+    const pricingContext = buildStorefrontPricingContext(ctx, { date: NOW })
+    expect(pricingContext.customerIds).toEqual([])
+    expect(pricingContext.customerId).toBeNull()
+  })
+
+  it('prices only with the overlay ids that are part of the digest', () => {
+    const both = buildStorefrontPricingContext(
+      makeContext({ customerId: 'a', customerIds: ['a', 'b'], customerOverlayId: 'a,b' }),
+      { date: NOW },
+    )
+    expect(both.customerIds).toEqual(['a', 'b'])
+    expect(both.customerId).toBe('a')
+
+    const companyOnly = buildStorefrontPricingContext(
+      makeContext({ customerId: 'a', companyId: 'b', customerIds: ['a', 'b'], customerOverlayId: 'b' }),
+      { date: NOW },
+    )
+    expect(companyOnly.customerIds).toEqual(['b'])
+    expect(companyOnly.customerId).toBeNull()
+  })
 })
 
 describe('resolveStorefrontPrices — batched narrowed fetch', () => {
@@ -304,7 +333,12 @@ describe('resolveStorefrontPrices — batched narrowed fetch', () => {
       priceRow({ id: 'p2-list', productId: 'p2', gross: '20.00', net: '16.26' }),
       priceRow({ id: 'v1-list', productId: 'p2', variantId: 'v1', gross: '25.00', net: '20.33' }),
     ]
-    const ctx = makeContext({ customerId: 'person-1', companyId: 'company-1', customerIds: ['person-1', 'company-1'] })
+    const ctx = makeContext({
+      customerId: 'person-1',
+      companyId: 'company-1',
+      customerIds: ['person-1', 'company-1'],
+      customerOverlayId: 'person-1',
+    })
     const items = [
       { productId: 'p1', variantIds: [] },
       { productId: 'p2', variantIds: ['v1'] },

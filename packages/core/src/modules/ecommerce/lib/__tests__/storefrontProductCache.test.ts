@@ -179,6 +179,23 @@ describe('storefront product cache', () => {
     expect(options).toMatchObject({ ttl: STOREFRONT_PRODUCT_LIST_TTL_MS })
   })
 
+  it('echoes each request\'s own requestedLocale when serving a shared listing entry', async () => {
+    const { container } = createContainer()
+    listMock.mockImplementation(async (_container: unknown, ctx: StoreContext) => ({
+      ...listResponse('first'),
+      requestedLocale: ctx.requestedLocale,
+    }))
+    const fromHeader = await cachedListStorefrontProducts(
+      container,
+      { ...buildContext('digest-shared'), requestedLocale: 'de-AT' },
+      listQuery(),
+    )
+    const withoutLocale = await cachedListStorefrontProducts(container, buildContext('digest-shared'), listQuery())
+    expect(listMock).toHaveBeenCalledTimes(1)
+    expect(fromHeader.requestedLocale).toBe('de-AT')
+    expect(withoutLocale.requestedLocale).toBeNull()
+  })
+
   it('keeps buyers with different digests on separate entries', async () => {
     const { container } = createContainer()
     listMock.mockResolvedValueOnce(listResponse('retail')).mockResolvedValueOnce(listResponse('wholesale'))

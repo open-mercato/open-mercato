@@ -1135,11 +1135,37 @@ describe('listStorefrontProducts — facets (§5.3, §5.4)', () => {
 
   it('ranges past the cap by list prices under approximate and returns null under unavailable', async () => {
     world.prices.push(VIP_ALPHA_PRICE)
-    const approximate = await list('', { cap: 2, buyer: { customerGroupIds: ['group-vip'] } })
+    const approximate = await list('sort=price_asc', { cap: 2, buyer: { customerGroupIds: ['group-vip'] } })
     expect(approximate.facets.priceRange).toEqual({ min: 20, max: 80, currencyCode: 'EUR' })
     const unavailable = await list('', { cap: 2, fallback: 'unavailable' })
     expect(unavailable.facets.priceRange).toBeNull()
     expect(unavailable.facets.categories).not.toEqual([])
+  })
+
+  it('skips the full candidate and list-price load past the cap when no price sort or filter asks for it', async () => {
+    const plain = await list('sort=title_asc', { cap: 2 })
+    expect(plain.facets.priceRange).toBeNull()
+    expect(plain.priceSort).toEqual({ cap: 2, fallback: 'approximate', capExceeded: true })
+    expect(plain.sortApproximate).toBe(false)
+    expect(ids(plain)).toEqual(['p-alpha', 'p-bravo', 'p-charlie', 'p-delta'])
+    const candidateQueries = queryEngineCalls.filter((call) => call.fields?.join(',') === 'id,title,sku')
+    expect(candidateQueries).toHaveLength(1)
+    expect(candidateQueries[0].page?.pageSize).toBe(2)
+    const listPriceLoads = mockedFind.mock.calls.filter(
+      ([, entity, where]) => entity === CatalogProductPrice && (where as Record<string, unknown>).customerId === null,
+    )
+    expect(listPriceLoads).toHaveLength(0)
+
+    resetCounters()
+    mockedFind.mockClear()
+    const filtered = await list('priceMax=35&sort=title_asc', { cap: 2 })
+    expect(filtered.facets.priceRange).not.toBeNull()
+    expect(queryEngineCalls.filter((call) => call.fields?.join(',') === 'id,title,sku').map((call) => call.page?.pageSize)).toEqual([2, 4])
+    expect(
+      mockedFind.mock.calls.filter(
+        ([, entity, where]) => entity === CatalogProductPrice && (where as Record<string, unknown>).customerId === null,
+      ),
+    ).toHaveLength(1)
   })
 
   it('counts availability over the returned page before the availability filter', async () => {

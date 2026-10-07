@@ -703,7 +703,8 @@ async function resolveCountFacetState(
  * the price sorts, the price filter, relevance ranking and `facets.priceRange` (the filtered set
  * without the price filter, §5.4) and is reused for the page. Past the cap the channel's
  * `priceSortFallback` decides: `'approximate'` orders, filters and ranges by the channel default
- * price kind's list rows and flags `sortApproximate`, `'unavailable'` withdraws the price sorts from
+ * price kind's list rows and flags `sortApproximate` — loading every candidate and default-kind row only
+ * when a price sort or price filter asks for it, otherwise `priceRange` is `null` — `'unavailable'` withdraws the price sorts from
  * `availableSorts`, applies the default sort instead (`sortUnavailable`), leaves the price filter
  * unapplied and returns `priceRange: null`. `availability=` and `hideWhenOutOfStock` are
  * page-scoped (D21): the page is chosen first, then filtered, so `total` counts the
@@ -781,13 +782,13 @@ export async function listStorefrontProducts(
     )
     prefetch = { variants, pricing }
     amounts = new Map(candidateIds.map((id) => [id, pricingAmount(pricing.get(id))]))
-  } else if (priceOnOffer) {
+  } else if (priceOnOffer && (priceSortRequested || priceFilterRequested)) {
     const [all, approximate] = await Promise.all([
       queryCandidates(runtime, filters, sqlSortFor(baseSort), first.total),
       loadApproximateAmounts(runtime),
     ])
     amounts = new Map(all.items.map((candidate) => [candidate.id, approximate.get(candidate.id) ?? null]))
-    if (priceSortRequested || priceFilterRequested) candidates = all.items
+    candidates = all.items
   }
   const priceRange = amounts ? storefrontPriceRangeFacet(amounts.values(), ctx.currencyCode) : null
 
