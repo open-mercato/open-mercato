@@ -7,6 +7,7 @@ import { AccessLogService } from '@open-mercato/core/modules/audit_logs/services
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
 import { requireResolvedTenantScope } from '../readScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
@@ -134,11 +135,12 @@ export async function GET(req: Request) {
     throw err
   }
 
+  const { translate } = await resolveTranslations()
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: list.items.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
     tenantIds: list.items.map((entry) => entry.tenantId).filter((value): value is string => !!value),
     organizationIds: list.items.map((entry) => entry.organizationId).filter((value): value is string => !!value),
-  })
+  }, { translate })
 
   const items = list.items.map((entry) => ({
     id: entry.id,

@@ -40,7 +40,7 @@ export function AccessLogsTable({ items, isLoading, actions, pagination }: { ite
     {
       accessorKey: 'actorUserId',
       header: t('audit_logs.access.columns.user'),
-      cell: (info) => info.row.original.actorUserName || info.getValue() || noneLabel,
+      cell: (info) => info.row.original.actorUserName || noneLabel,
       meta: { priority: 3 },
     },
     {
