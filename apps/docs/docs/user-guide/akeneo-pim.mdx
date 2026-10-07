@@ -234,6 +234,7 @@ During import, Open Mercato downloads product images and files from Akeneo using
 | Products imported without images | The Akeneo user may lack media read permissions. Check the connection's permission scope in Akeneo. |
 | Missing attributes on imported products | Review the attribute mapping — unmapped attributes are skipped by default. |
 | Variants not appearing | Ensure the source products are product models (not simple products) with family variants configured in Akeneo. |
+| Only one variant of a product has prices | Earlier versions removed the prices of a product's other variants whenever one variant was imported. Run one full products sync (**Run as full sync**) to restore them; incremental syncs only restore variants that changed in Akeneo. |
 | Sync seems stuck | Check **Ongoing Imports** for error details. Large catalogs may take time on the first full import. |
 | Duplicate products after re-import | Open Mercato matches products by Akeneo identifier. If identifiers changed in Akeneo, duplicates can occur — use the deletion reconciliation to clean up. |
 
