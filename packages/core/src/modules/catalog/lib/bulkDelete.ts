@@ -2,12 +2,11 @@ import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
 
 export const CATALOG_PRODUCT_BULK_DELETE_QUEUE = 'catalog-product-bulk-delete'
 
-const queues = new Map<string, Queue<Record<string, unknown>>>()
+export { getCatalogQueue } from './catalogQueue'
 
 export type CatalogProductBulkDeleteScope = {
   organizationId: string
@@ -26,17 +25,6 @@ export type CatalogProductBulkDeleteSummary = {
 }
 
 const BULK_DELETE_CACHE_ALIASES = ['catalog.products']
-
-export function getCatalogQueue(queueName: string): Queue<Record<string, unknown>> {
-  const existing = queues.get(queueName)
-  if (existing) return existing
-
-  const concurrency = Math.max(1, Number.parseInt(process.env.CATALOG_QUEUE_CONCURRENCY ?? '3', 10) || 3)
-  const created = createModuleQueue<Record<string, unknown>>(queueName, { concurrency })
-
-  queues.set(queueName, created)
-  return created
-}
 
 function buildCommandContext(
   scope: CatalogProductBulkDeleteScope,
