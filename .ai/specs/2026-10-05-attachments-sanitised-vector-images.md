@@ -688,7 +688,7 @@ Both production dependencies are already resolved in `yarn.lock`, so adding them
 |---|---|---|---|
 | `dompurify` | `^3.4.11` | 3.4.11 (root `resolutions` pin, already used by `mermaid`) | The OWASP-recommended allowlist sanitiser, with a maintained SVG profile, namespace checks and mXSS defences. |
 | `jsdom` | `^26.1.0` | 26.1.0 (already resolved via `jest-environment-jsdom`) | DOMPurify needs a DOM on the server. jsdom is the server DOM DOMPurify documents and tests against (`happy-dom` is documented as unsafe for it). Its XML parser (saxes) fetches no DTDs or external entities. |
-| `@types/jsdom` (dev) | `^21.1.7` | 21.1.7 | Types for the dynamic import. |
+| `@types/jsdom` | `^21.1.7` | 21.1.7 | Types for the dynamic import. A runtime `dependency`, not a dev one: core ships `jsdom` as a dependency, and `types-dependency-classification.test.ts` requires its `@types` package beside it so consumers typecheck. |
 
 **Why not an existing dependency.** `sanitize-html` (already in core) is an HTML allowlist over
 `htmlparser2` with no model of SVG namespaces, reference attributes or `<use>`. Making it safe for
