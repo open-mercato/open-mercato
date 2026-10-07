@@ -1,0 +1,719 @@
+import type { FilterQuery } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { QueuedJob, WorkerMeta } from '@open-mercato/queue'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import { findScheduledCampaigns } from '../lib/campaign-lookup.js'
+import { readDefinition, startCampaignForSubject, subjectGuardsAllow } from '../lib/dispatcher.js'
+import type { DispatchDeps, ReentryPolicy } from '../lib/dispatcher.js'
+import { buildSubjectDocument } from '../lib/subject-document.js'
+import { describeNarrowing, planNarrowing } from '../lib/engine/narrowing.js'
+import { loadTierThresholds } from '../lib/tiers.js'
+import { loadSegmentDefinitions } from '../lib/segments.js'
+import type { SegmentDefinition } from '../lib/segments.js'
+import type { TierThreshold } from '../lib/engine/tiers.js'
+import { createSqlCandidateSource, resolveCandidates } from '../lib/audience/set-resolver.js'
+import { findRowSweepSource } from '../lib/sweep-sources.js'
+import type { RowSweepSource, SweepCandidate } from '../lib/sweep-sources.js'
+import { isSweepDue } from '../lib/sweep-interval.js'
+import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
+import { pruneInboundRequests } from '../lib/inbound-requests.js'
+import { pruneDeadLetters } from '../lib/dead-letter.js'
+import { expireStaleSendReservations } from '../lib/send-slots.js'
+import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
+import { loadValueBoundaries, refreshValueBoundariesIfStale } from '../lib/value-boundaries.js'
+import { loadValueHorizonYears } from '../lib/value-horizon.js'
+import type { ValueBoundaries } from '../lib/engine/rfm.js'
+import { scanPriceWatches } from '../lib/product-watches.js'
+import { leadDigestIsDue, sendWeeklyLeadDigests, DIGEST_JOB_KIND } from '../lib/lead-digest.js'
+import { announceBreaker, applyDeliverabilityGuardrails } from '../lib/deliverability.js'
+import { announceAppliedWinner, applyEarnedWinners } from '../lib/auto-winner.js'
+import { emitMarketingAutomationEvent } from '../events.js'
+import { MarketingCampaignTrigger as TriggerEntity, MarketingJobRun } from '../data/entities.js'
+import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
+import type { SweepJob } from '../lib/queue.js'
+import { enqueueScoreRulesRecompute } from '../lib/queue.js'
+import { SCORE_RULES_JOB_KIND, scoreRulesInPlay } from '../lib/score-rules.js'
+import { buildDispatchDeps, logger, readScope } from './shared.js'
+import type { HandlerContext, JobScope } from './shared.js'
+import { reportError } from '@open-mercato/telemetry'
+import { readCapabilities } from '../lib/capabilities.js'
+
+// See the note in dispatch.ts: this string must stay a literal.
+export const metadata: WorkerMeta = {
+  queue: 'marketing-automation-sweep',
+  id: 'marketing_automation:sweep',
+  concurrency: 1,
+  schedulerSafe: true,
+  schedulerRequiredFeatures: ['marketing_automation.campaigns.manage'],
+}
+
+/**
+ * Keyset rather than offset: the candidate set is mutated while the sweep runs, so an offset
+ * page would skip or repeat rows. `customer_entities` has a partial index on
+ * `(tenant_id, organization_id, id) where deleted_at is null and kind = 'person'`, which is
+ * exactly an id-ordered keyset.
+ */
+const PAGE_SIZE = 200
+
+/**
+ * How many ROWS one tick of a row source will walk, across as many pages as that takes.
+ *
+ * A row source used to be asked for a single page and nothing more, so an installation with more than
+ * `PAGE_SIZE` matching rows kept re-reading the same page: the rows past it never fired at all, and for a
+ * claimed source — "ask for a review of this order exactly once" — the claimed rows at the front of the
+ * order occupied the whole page forever, so the sweep did nothing while looking busy.
+ *
+ * Bounded rather than unbounded because a tick has to end. The ceiling being hit is logged, since it means
+ * the remainder waits for the next tick and somebody may want to know.
+ */
+const MAX_ROWS_PER_TICK = 5_000
+
+/**
+ * The per-lane sample an automatic promotion waits for, before the auto-apply multiplier.
+ *
+ * The same default the results screen suggests at, so the two answers cannot drift into disagreeing about
+ * whether a test is ready — the automatic path then doubles it, because acting unattended needs more than
+ * suggesting does.
+ */
+const DEFAULT_MINIMUM_REACHED = 50
+
+/** What the subject projection needs that is tenant-wide rather than per-customer. */
+type ProjectionOptions = {
+  tierThresholds: TierThreshold[]
+  segments: SegmentDefinition[]
+  valueBoundaries: ValueBoundaries
+  valueHorizonYears: number
+}
+
+function reentryPolicyFor(trigger: MarketingCampaignTrigger): ReentryPolicy {
+  return trigger.reentryAfterDays == null
+    ? { kind: 'once' }
+    : { kind: 'cooldown', afterDays: trigger.reentryAfterDays }
+}
+
+/**
+ * Projects one candidate and enrols it if the audience accepts.
+ *
+ * Shared by both paths below so that narrowing can only ever change WHICH customers are considered,
+ * never what happens to one — `matchesAudience` inside `startCampaignForSubject` stays the sole
+ * authority on membership.
+ */
+async function startForCandidate(
+  campaign: MarketingCampaign,
+  subjectEntityId: string,
+  policy: ReentryPolicy,
+  deps: DispatchDeps,
+  scope: JobScope,
+  projection: ProjectionOptions,
+): Promise<boolean> {
+  try {
+  /**
+   * Asked BEFORE the projection, because none of these guards reads it.
+   *
+   * Describing a customer costs eleven queries. Discovering that they are already mid-journey, or that a
+   * `once` policy enrolled them months ago, costs four indexed reads and does not need a single one of those
+   * eleven. On a mature campaign the already-enrolled are most of the population, so this is the difference
+   * between the sweep paying for everybody and paying for the people it can actually start.
+   */
+  if (!(await subjectGuardsAllow(campaign, subjectEntityId, policy, deps))) return false
+  const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now, projection)
+  const outcome = await startCampaignForSubject(
+    campaign,
+    {
+      subject,
+      subjectEntityId,
+      triggerEventId: 'marketing_automation.sweep.customers',
+      triggerContext: {},
+      dispatchDepth: 1,
+      reentryPolicy: policy,
+    },
+    deps,
+  )
+  return outcome === 'started'
+} catch (error) {
+  // One bad candidate never aborts the sweep.
+  logger.error('[internal] marketing sweep candidate failed', {
+    campaignId: campaign.id,
+    subjectEntityId,
+    error: error instanceof Error ? error.message : String(error),
+  })
+  reportError(error, {
+    module: 'marketing_automation',
+    code: 'marketing_automation.sweep_candidate_failed',
+    attributes: { campaignId: campaign.id, subjectEntityId },
+  })
+  return false
+}
+}
+
+const LIVE_PERSON_FIELDS = { kind: 'person', deletedAt: null } as const
+
+/**
+ * Enrols every customer in the organization whose subject document the audience accepts.
+ *
+ * The cost here is projecting, not matching: a subject document is a decrypting read plus three
+ * queries, so asking it of every person to find the few hundred who qualify is what makes a sweep
+ * stop finishing. So the audience is first pushed down as far as the database can answer it, and
+ * only the candidates it returns are projected. The pushdown is a SUPERSET by construction
+ * (`lib/engine/narrowing.ts`), which is why this cannot change who gets messaged — only how much
+ * work it took to find them.
+ */
+async function sweepCustomers(
+campaign: MarketingCampaign,
+trigger: MarketingCampaignTrigger,
+deps: DispatchDeps,
+scope: JobScope,
+projection: ProjectionOptions,
+): Promise<number> {
+const em = deps.em
+const policy = reentryPolicyFor(trigger)
+// Parsed through the definition schema, the same way the dispatcher reads it.
+const plan = planNarrowing(readDefinition(campaign).audience)
+const candidates = await resolveCandidates(plan.narrowing, createSqlCandidateSource(em, scope, deps.now))
+logger.info('marketing sweep narrowing', {
+  campaignId: campaign.id,
+  narrowing: describeNarrowing(plan),
+  candidates: candidates.ids ? candidates.ids.length : null,
+  queries: candidates.queries,
+  abandoned: candidates.abandoned,
+})
+
+let started = 0
+
+if (candidates.ids) {
+  for (let offset = 0; offset < candidates.ids.length; offset += PAGE_SIZE) {
+    const chunk = candidates.ids.slice(offset, offset + PAGE_SIZE)
+    // A tag assignment or an order can point at a customer who has since been deleted, or at a
+    // company rather than a person, so the candidate list is still filtered to live people —
+    // the same predicate the unnarrowed scan applies.
+    const live: { id: string }[] = await em.find(
+      CustomerEntity,
+      { id: { $in: chunk }, tenantId: scope.tenantId, organizationId: scope.organizationId, ...LIVE_PERSON_FIELDS },
+      { fields: ['id'], orderBy: { id: 'ASC' } },
+    )
+    for (const candidate of live) {
+      if (await startForCandidate(campaign, candidate.id, policy, deps, scope, projection)) started += 1
+    }
+    em.clear()
+  }
+  return started
+}
+
+let cursor: string | null = null
+
+for (;;) {
+  const where: FilterQuery<CustomerEntity> = {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    ...LIVE_PERSON_FIELDS,
+    ...(cursor ? { id: { $gt: cursor } } : {}),
+  }
+  // Ids only: the subject document does its own decrypting read per candidate, so pulling
+  // whole entities here would decrypt every customer in the organization for nothing.
+  // Annotated because the keyset cursor is derived from this page, which would otherwise make
+  // the inferred type circular.
+  const page: { id: string }[] = await em.find(
+    CustomerEntity,
+    where,
+    { fields: ['id'], orderBy: { id: 'ASC' }, limit: PAGE_SIZE },
+  )
+  if (!page.length) break
+
+  for (const candidate of page) {
+    if (await startForCandidate(campaign, candidate.id, policy, deps, scope, projection)) started += 1
+  }
+
+  if (page.length < PAGE_SIZE) break
+  cursor = page[page.length - 1].id
+  // Release the page before fetching the next one; every write went through its own flush.
+  em.clear()
+}
+
+return started
+}
+
+/**
+ * Runs a ROW source: one candidate per row its query returned.
+ *
+ * Every row source shares this, so adding one is a query and a label — see `lib/sweep-sources.ts`.
+ * A candidate may carry a durable claim, which is what makes "ask for a review of this order exactly
+ * once, ever" enforceable by the database rather than by a marker column of its own.
+ */
+async function sweepRows(
+campaign: MarketingCampaign,
+trigger: MarketingCampaignTrigger,
+source: RowSweepSource,
+deps: DispatchDeps,
+scope: JobScope,
+projection: ProjectionOptions,
+): Promise<number> {
+const policy = reentryPolicyFor(trigger)
+const params = (trigger.sweepParams ?? {}) as { withinDays?: number }
+
+let started = 0
+let walked = 0
+
+/**
+ * Paged, because the claimed rows sit at the FRONT.
+ *
+ * A claim makes a row single-use, but it does not remove the row from the source's query — an order stays
+ * fulfilled forever. Reading one page therefore meant re-reading rows that had already been acted on,
+ * while the rows behind them were never reached. Offset paging is safe here in a way it is not for the
+ * population scan above: each source orders totally, and a row arriving or leaving mid-sweep costs at
+ * worst one row seen twice or once late, which the claim already makes harmless.
+ */
+/**
+ * A raw-SQL source is read ONCE; only an entity source is paged.
+ *
+ * Both used to page, and for one of them that was expensive in a way an offset hides. `reorderDue` groups
+ * every order line in the shop by customer and sku with a `having` over distinct orders, and `birthdays`
+ * joins custom field values to people: Postgres must compute the whole aggregate before it can skip to any
+ * offset, so twenty-five pages meant twenty-five full aggregations per tick, per campaign, for a result that
+ * does not change between them. Asking for the tick's ceiling in one statement computes it once.
+ *
+ * Entity sources keep paging, for the reason given below — their rows land in the identity map.
+ */
+const pageSize = source.hydratesEntities ? PAGE_SIZE : MAX_ROWS_PER_TICK
+const bulk = source.hydratesEntities
+  ? null
+  : await source.collect(deps.em, scope, params, deps.now, MAX_ROWS_PER_TICK, 0)
+
+for (let offset = 0; offset < MAX_ROWS_PER_TICK; offset += pageSize) {
+  const page = bulk ?? await source.collect(deps.em, scope, params, deps.now, pageSize, offset)
+  walked += page.length
+  for (const candidate of page) {
+    if (await startRowCandidate(campaign, source, candidate, policy, deps, scope, projection)) started += 1
+  }
+  if (page.length < pageSize) break
+  /**
+   * Release the page before fetching the next one, exactly as both population scans do.
+   *
+   * Without it this loop was the one path that could hold twenty-five pages of entities at once: a tick walking
+   * up to `MAX_ROWS_PER_TICK` rows accumulated every row, every customer its subject document touched, and every
+   * run it created in one identity map for the whole tick. Each candidate's writes go through their own flush
+   * inside `startRowCandidate`, so there is nothing pending to lose.
+   */
+  deps.em.clear()
+  if (offset + pageSize >= MAX_ROWS_PER_TICK) {
+    logger.warn('marketing sweep reached its per-tick row ceiling', {
+      campaignId: campaign.id,
+      source: source.id,
+      walked,
+      ceiling: MAX_ROWS_PER_TICK,
+    })
+  }
+}
+
+return started
+}
+
+/**
+ * One row, and the promise that a bad one never aborts the sweep.
+ */
+async function startRowCandidate(
+  campaign: MarketingCampaign,
+  source: RowSweepSource,
+  candidate: SweepCandidate,
+  policy: ReentryPolicy,
+  deps: DispatchDeps,
+  scope: JobScope,
+  projection: ProjectionOptions,
+): Promise<boolean> {
+  try {
+    // Same reason as the population sweep: the guards need an id, not a description.
+    if (!(await subjectGuardsAllow(campaign, candidate.subjectEntityId, policy, deps))) return false
+    const subject = await buildSubjectDocument(
+      deps.em,
+      candidate.subjectEntityId,
+      scope,
+      candidate.trigger,
+      deps.now,
+      projection,
+    )
+    const outcome = await startCampaignForSubject(
+      campaign,
+      {
+        subject,
+        subjectEntityId: candidate.subjectEntityId,
+        triggerEventId: source.triggerEventId,
+        triggerContext: candidate.trigger,
+        dispatchDepth: 1,
+        reentryPolicy: policy,
+        occurrenceKey: candidate.claimKey ?? null,
+      },
+      deps,
+    )
+    return outcome === 'started'
+  } catch (error) {
+    // One bad row never aborts the sweep.
+    logger.error('[internal] marketing sweep row failed', {
+      campaignId: campaign.id,
+      source: source.id,
+      subjectEntityId: candidate.subjectEntityId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.sweep_candidate_failed',
+      attributes: { campaignId: campaign.id, source: source.id },
+    })
+    return false
+  }
+}
+
+/**
+ * Runs every campaign that starts on a schedule rather than an event.
+ *
+ * This is the path that makes re-engagement and offer-expiry reminders possible at all: nothing
+ * happens to make a customer dormant, and nothing happens when a quote is about to lapse, so
+ * there is no event to react to — only a periodic question to ask.
+ */
+export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerContext): Promise<void> {
+  const scope = readScope(job.payload)
+  if (!scope) return
+
+  const deps = buildDispatchDeps(ctx, scope)
+  const scheduled = await findScheduledCampaigns(deps.em, scope)
+  // NOT an early return: the housekeeping below — segment sizes, job-log pruning — has nothing to do with
+  // whether any campaign runs on a schedule, and returning here left both undone on every installation that
+  // only uses event triggers.
+
+  // Once per job rather than once per candidate: the ladder is tenant configuration, not per-subject.
+  /**
+   * The tenant ladder and the segment definitions, loaded ONCE for the whole job — and only when there is a
+   * campaign to project candidates for.
+   *
+   * Both are tenant configuration rather than per-subject facts, and a sweep may project thousands of
+   * candidates, so `buildSubjectDocument` must not read them once per customer.
+   */
+  /**
+   * The deliverability guardrail, before anything else on this pass — and this time actually before.
+   *
+   * First because everything below is about sending more: a campaign being refused by the transport should
+   * stop before the sweep enrols another thousand people into it. It used to run AFTER the campaign loop, so
+   * a campaign the transport was rejecting enrolled one more tick's worth of people on every pass and was
+   * paused only once that was done.
+   */
+  try {
+    const tripped = await applyDeliverabilityGuardrails(deps.em, deps.container, scope, deps.now)
+    for (const outcome of tripped) {
+      logger.warn('marketing campaign paused by the deliverability guardrail', {
+        campaignId: outcome.campaignId,
+        failureRate: outcome.decision.failureRate,
+        attempts: outcome.decision.attempts,
+      })
+      await announceBreaker(deps.container, scope, outcome)
+    }
+  } catch (error) {
+    /**
+     * Reported, not just logged.
+     *
+     * This catch swallowed a guardrail that could not work at all: the command it calls threw on every trip,
+     * and a `warn` with no error report is invisible in exactly the way that let it stay broken. A pass that
+     * cannot pause a campaign is worth knowing about — the whole point of the breaker is that nobody is
+     * watching when it matters.
+     */
+    logger.warn('[internal] marketing deliverability guardrail failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.deliverability_guardrail_failed',
+    })
+  }
+  /**
+   * The RFM cut points, refreshed before any campaign is projected — and this time actually before.
+   *
+   * The ordering was asserted in a comment and contradicted by the code: the refresh sat AFTER the
+   * campaign loop, so on an installation that had never swept there was no boundaries row when the
+   * projection read one, and a published "top 20% spenders" campaign enrolled nobody on its first pass
+   * with no diagnostic, then started working an hour later.
+   *
+   * Refreshed at most once a day rather than on every tick. The statement is percentiles over every buyer
+   * in the tenant — the most expensive one this module runs — and where the top fifth of customers starts
+   * does not move between one hour and the next. An ABSENT row still refreshes immediately, because that
+   * is the case the ordering above exists for.
+   *
+   * A failure is logged and the pass continues. Yesterday's boundaries are a perfectly good answer, and
+   * none at all means no scores — never a wrong score.
+   */
+  try {
+    const { refreshed, boundaries } = await refreshValueBoundariesIfStale(deps.em, scope, deps.now)
+    if (refreshed) logger.info('marketing value boundaries refreshed', { buyers: boundaries.buyerCount })
+  } catch (error) {
+    logger.warn('[internal] marketing value boundaries refresh failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  const projection: ProjectionOptions | null = scheduled.length
+    ? {
+        tierThresholds: await loadTierThresholds(deps.container, scope),
+        segments: await loadSegmentDefinitions(deps.em, scope),
+        // Refreshed just above, at most once a day; read here as one row, because a percentile over every
+        // buyer must not run per candidate.
+        valueBoundaries: await loadValueBoundaries(deps.em, scope),
+        valueHorizonYears: await loadValueHorizonYears(deps.container, scope),
+      }
+    : null
+
+  for (const { campaign, trigger } of scheduled) {
+    try {
+      // The tick is the clock; the campaign's own interval is the gate.
+      if (!isSweepDue(trigger.scheduleValue, trigger.lastSweptAt, deps.now)) continue
+
+      /**
+       * Advanced BEFORE the work, deliberately.
+       *
+       * This makes a sweep at-most-once per interval rather than at-least-once, and for work that sends
+       * email that is the right way round: a sweep that failed halfway has already enrolled people, and
+       * re-running it on the next tick would enrol them again wherever the campaign's re-entry policy
+       * allows it. The failure is not lost by this — the job-run row below records `failed` with the
+       * message, and the handler at the bottom reports it — it is deferred to the next interval, which is
+       * the cheaper of the two mistakes.
+       */
+      await deps.em.nativeUpdate(
+        TriggerEntity,
+        { id: trigger.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+        { lastSweptAt: deps.now },
+      )
+
+      const rowSource = findRowSweepSource(trigger.sweepSource)
+
+      /**
+       * A source whose module is not installed is SKIPPED, visibly, rather than attempted.
+       *
+       * `fulfilledOrders` and `expiringQuotes` reach `sales` through its ORM entities, so without that module
+       * the table behind the entity does not exist and `collect` throws — once per tick, for ever, as a
+       * `sweep_failed` with a Postgres message that says nothing about modules. Skipping it records a job run
+       * with zero started instead, which is the honest answer and the one the job log can explain.
+       *
+       * The campaign stays enabled on purpose: install the module and the next tick picks it up, with no
+       * edit needed to a campaign that was authored correctly.
+       */
+      if (rowSource?.requiresModule) {
+        const capabilities = await readCapabilities(deps.em)
+        if (!capabilities[rowSource.requiresModule]) {
+          logger.info('marketing sweep skipped: the source needs a module this installation does not have', {
+            campaignId: campaign.id,
+            source: rowSource.id,
+            needs: rowSource.requiresModule,
+          })
+          await recordJobRun(
+            deps.em,
+            scope,
+            { kind: 'sweep', campaignId: campaign.id },
+            /**
+             * A counter, not a free-text note: `counters` is `Record<string, number>` and is the only part of a
+             * job run that is persisted, so a note would have been dropped on the way to the table — a
+             * write-only field explaining a skip nobody could then see.
+             *
+             * `started: 0` alone would read as "nothing to do", which is the ambiguity this log exists to
+             * remove, so the skip gets a key of its own.
+             */
+            async () => ({ counters: { started: 0, skippedModuleMissing: 1 } }),
+          )
+          continue
+        }
+      }
+      /**
+       * Logged as a job run, per campaign.
+       *
+       * A sweep that quietly stopped firing is indistinguishable from a sweep with nothing to do, which is
+       * the failure this module could not previously answer for. One row per campaign rather than per tick,
+       * because "did the win-back campaign run last night" is the question people actually ask.
+       */
+      const { counters } = await recordJobRun(
+        deps.em,
+        scope,
+        { kind: 'sweep', campaignId: campaign.id },
+        async () => {
+          const started = rowSource
+            ? await sweepRows(campaign, trigger, rowSource, deps, scope, projection as ProjectionOptions)
+            : await sweepCustomers(campaign, trigger, deps, scope, projection as ProjectionOptions)
+          return { counters: { started } }
+        },
+      )
+      logger.info('marketing sweep finished', {
+        campaignId: campaign.id,
+        source: trigger.sweepSource ?? 'customers',
+        started: counters?.started ?? 0,
+      })
+    } catch (error) {
+      logger.error('[internal] marketing sweep failed', {
+        campaignId: campaign.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      reportError(error, {
+        module: 'marketing_automation',
+        code: 'marketing_automation.sweep_failed',
+        attributes: { campaignId: campaign.id },
+      })
+    }
+  }
+
+
+  /**
+   * The weekly lead digest, which decides for itself whether it is due.
+   *
+   * Recorded as a job run so the operator can see it happened — and so the record IS the "already sent this
+   * week" answer, rather than a second flag that can disagree with it.
+   */
+  try {
+    /**
+     * The job row is written BEFORE the sending, which is what makes it a claim.
+     *
+     * It used to be written after: `sendWeeklyLeadDigests` decided it was due, sent every rep their week,
+     * and only then was the row that answers "already sent this week" created. Two overlapping ticks both
+     * read "not yet" and both sent, and the longer the send loop the wider that window. `recordJobRun`
+     * creates its row as `running` first, and the due check counts running rows, so the second tick finds
+     * the first one's claim.
+     */
+    if (await leadDigestIsDue(deps.em, scope, deps.now)) {
+      const due = await recordJobRun(deps.em, scope, { kind: DIGEST_JOB_KIND }, async () => {
+        const outcome = await sendWeeklyLeadDigests(deps.em, deps.container, scope, deps.now)
+        return { counters: { sent: outcome.sent, skipped: outcome.skipped }, outcome }
+      })
+      if (due.outcome.sent > 0) logger.info('marketing lead digests sent', { sent: due.outcome.sent })
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing lead digest failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  /**
+   * Score rules, re-evaluated for everybody once a day.
+   *
+   * A rule over orders, engagement or RFM changes its answer without anything happening to the customer record, so
+   * the per-customer subscribers alone would leave those points stale for ever. The job log is the "already done
+   * today" answer, as it is for the lead digest; the pass itself runs on its own queue, because walking the whole
+   * population does not belong inside an hourly tick.
+   */
+  try {
+    const since = new Date(deps.now.getTime() - 86_400_000)
+    const recent = await deps.em.count(MarketingJobRun, { ...scope, kind: SCORE_RULES_JOB_KIND, startedAt: { $gte: since } })
+    if (recent === 0 && await scoreRulesInPlay(deps.em, scope)) {
+      await enqueueScoreRulesRecompute(scope)
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing score rules pass could not be queued', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  /**
+   * Price watches, on the same periodic pass.
+   *
+   * One pass rather than a queue of its own, for the reason the snapshots share it: a module with three
+   * schedules has three things that can be unscheduled. The scan commits its bookkeeping BEFORE the events go
+   * out, so a crash between the two sends nothing rather than sending twice.
+   */
+  try {
+    const watches = await scanPriceWatches(deps.em, scope, deps.now)
+    for (const firing of watches.fired) {
+      await emitMarketingAutomationEvent('marketing_automation.product.price_dropped', {
+        entityId: firing.watch.subjectEntityId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        sku: firing.watch.sku,
+        currencyCode: firing.watch.currencyCode,
+        previousPrice: String(firing.decision.previous),
+        currentPrice: String(firing.decision.current),
+        dropPercent: String(firing.decision.dropPercent),
+      }, { persistent: true })
+    }
+    if (watches.fired.length > 0) {
+      logger.info('marketing price drops announced', { count: watches.fired.length, scanned: watches.scanned })
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing price watch scan failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  /**
+   * Today's segment sizes, on the same pass.
+   *
+   * Idempotent through a unique index on the day, so running on every tick records one point per day without
+   * needing to remember whether it already did.
+   */
+
+  /**
+   * A/B tests that have earned a conclusion, concluded.
+   *
+   * OFF unless a tenant switched it on — promoting a winner rewrites an author's campaign, which this module
+   * otherwise reserves for a person. When it does act it goes through the ordinary command, so the change is
+   * validated, version-checked and recorded as a revision like any edit.
+   */
+  try {
+    const applied = await applyEarnedWinners(deps.em, deps.container, scope, DEFAULT_MINIMUM_REACHED)
+    for (const winner of applied) {
+      logger.info('marketing split winner applied automatically', {
+        campaignId: winner.campaignId,
+        variant: winner.variant,
+        reached: winner.reached,
+      })
+      await announceAppliedWinner(deps.container, scope, winner)
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing automatic winner selection failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  try {
+    const snapshots = await takeSegmentSnapshots(deps.em, deps.container, scope, deps.now)
+    if (snapshots.taken > 0) logger.info('marketing segment sizes recorded', { taken: snapshots.taken })
+    await pruneSegmentSnapshots(deps.em, scope, deps.now)
+  } catch (error) {
+    logger.warn('[internal] marketing segment snapshots failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  // Pruned here rather than by a job of its own: a cleanup task nobody scheduled is a table that grows
+  // until somebody notices it.
+  try {
+    await pruneJobRuns(deps.em, scope, deps.now)
+  } catch (error) {
+    logger.warn('[internal] marketing job-run pruning failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  // The inbound log holds a partner's raw body, so letting it miss a sweep costs more than the other two.
+  try {
+    await pruneInboundRequests(deps.em, scope, deps.now)
+  } catch (error) {
+    logger.warn('[internal] marketing inbound-request pruning failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  /**
+   * Slots whose worker never came back.
+   *
+   * A reservation counts against the frequency cap — that is what makes the cap atomic — so a worker that
+   * died between taking a slot and hearing from the transport would otherwise cost that person a message for
+   * ever. Expired rather than settled: nothing went out, so nothing belongs in the delivery figures.
+   */
+  try {
+    const freed = await expireStaleSendReservations(deps.em, scope, deps.now)
+    if (freed > 0) logger.info('marketing send reservations expired', { freed })
+  } catch (error) {
+    logger.warn('[internal] marketing send reservation expiry failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  // The other side of the same log: what ran, and what could not be processed at all.
+  try {
+    const removed = await pruneDeadLetters(deps.em, scope, deps.now)
+    if (removed > 0) logger.info('marketing dead letters pruned', { removed })
+  } catch (error) {
+    logger.warn('[internal] marketing dead-letter pruning failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}

@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from '../primitives/select'
 import { flash } from './FlashMessages'
+import { HelpTip } from './HelpTip'
 import { FormHeader } from './forms/FormHeader'
 import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
@@ -203,6 +204,15 @@ export type CrudFieldBase = {
   label: string
   placeholder?: string
   description?: React.ReactNode // inline field-level help
+  /**
+   * Longer explanation behind a "?" next to the label, for a field whose name does not give away
+   * what it does. Both strings must arrive translated.
+   *
+   * Distinct from `description`, which stays a short always-visible hint under the control — a field
+   * can carry both. Moving existing `description` text behind the "?" would change the look of every
+   * form already using it, so this is additive instead.
+   */
+  help?: { title: string; body: React.ReactNode }
   required?: boolean
   /**
    * Simple conditional visibility for base fields.
@@ -4678,10 +4688,13 @@ const FieldControl = React.memo(function FieldControlImpl({
         : undefined}
     >
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <label className="block text-sm font-medium">
-          {field.label}
-          {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
-        </label>
+        <div className="flex items-center gap-1">
+          <label className="block text-sm font-medium">
+            {field.label}
+            {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
+          </label>
+          {field.help ? <HelpTip title={field.help.title} body={field.help.body} /> : null}
+        </div>
       ) : null}
       {field.type === 'text' && (
         <TextInput
@@ -4839,15 +4852,18 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <label className="inline-flex items-center gap-2 cursor-pointer">
-          <Checkbox
-            checked={value === true}
-            onCheckedChange={(next) => setValue(field.id, next === true)}
-            data-crud-focus-target=""
-            disabled={disabled}
-          />
-          <span className="text-sm">{field.label}</span>
-        </label>
+        <div className="flex items-center gap-1">
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <Checkbox
+              checked={value === true}
+              onCheckedChange={(next) => setValue(field.id, next === true)}
+              data-crud-focus-target=""
+              disabled={disabled}
+            />
+            <span className="text-sm">{field.label}</span>
+          </label>
+          {field.help ? <HelpTip title={field.help.title} body={field.help.body} /> : null}
+        </div>
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <Select
@@ -4977,6 +4993,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.type === next.field.type &&
   prev.field.label === next.field.label &&
   prev.field.description === next.field.description &&
+  prev.field.help === next.field.help &&
   prev.field.required === next.field.required &&
   prev.markRequired === next.markRequired &&
   prev.value === next.value &&

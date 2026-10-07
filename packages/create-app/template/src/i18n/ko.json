@@ -982,6 +982,7 @@
   "ui.forms.select.clearOption": "— 지우기 —",
   "ui.forms.select.emptyOption": "—",
   "ui.forms.status.saving": "저장 중…",
+  "ui.helpTip.ariaLabel": "이것은 무엇인가요?",
   "ui.inputs.amountInput.currencyLabel": "통화",
   "ui.inputs.amountInput.placeholder": "0.00",
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",
