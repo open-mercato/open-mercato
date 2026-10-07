@@ -7,6 +7,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { EudrDueDiligenceStatement } from '../../../../data/entities'
 import { EUDR_STATEMENT_STATUSES } from '../../../../data/validators'
 import { evaluateSubmissionGate } from '../../../../lib/statement-lifecycle'
@@ -59,7 +60,7 @@ export async function GET(
     if (Array.isArray(orgScope?.filterIds)) {
       statementFilter.organizationId = { $in: orgScope.filterIds }
     } else {
-      const organizationId = orgScope?.selectedId ?? auth.orgId
+      const organizationId = resolveSingleOrganizationIdOrDeny(orgScope, auth)
       if (!organizationId) {
         return Response.json({ error: translate('eudr.errors.forbidden', 'Forbidden') }, { status: 403 })
       }

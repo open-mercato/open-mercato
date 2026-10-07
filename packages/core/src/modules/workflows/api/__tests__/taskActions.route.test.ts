@@ -413,3 +413,28 @@ describe('act-gate cost', () => {
     expect(stubs.execute).not.toHaveBeenCalled()
   })
 })
+
+describe('an explicitly empty organization scope', () => {
+  beforeEach(() => {
+    const {
+      resolveOrganizationScopeForRequest,
+    } = require('@open-mercato/core/modules/directory/utils/organizationScope')
+    resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: null, filterIds: [], allowedIds: [] })
+    setTask(makeTask({ status: 'IN_PROGRESS', claimedBy: USER_ID }))
+  })
+
+  test('claim answers 403, not 500', async () => {
+    const { status, body } = await bodyAndStatus(await runClaim())
+
+    expect(status).toBe(403)
+    expect(body).toEqual({ error: 'Forbidden' })
+    expect(taskHandler.claimUserTask).not.toHaveBeenCalled()
+  })
+
+  test('unclaim and complete answer 403, not 500', async () => {
+    expect((await runUnclaim()).status).toBe(403)
+    expect((await runComplete()).status).toBe(403)
+    expect(taskHandler.releaseUserTask).not.toHaveBeenCalled()
+    expect(taskHandler.completeUserTask).not.toHaveBeenCalled()
+  })
+})

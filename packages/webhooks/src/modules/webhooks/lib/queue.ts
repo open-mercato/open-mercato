@@ -48,7 +48,7 @@ async function ensureLocalWebhookQueueWorkerStarted(): Promise<void> {
 
       const container = await createRequestContainer()
       const em = (container.resolve('em') as EntityManager).fork()
-      await processWebhookDeliveryJob(em, job.payload)
+      await processWebhookDeliveryJob(em, job.payload, { resolver: container })
     })
   })().catch((error) => {
     delete globalStore[LOCAL_WORKER_PROMISE_KEY]
