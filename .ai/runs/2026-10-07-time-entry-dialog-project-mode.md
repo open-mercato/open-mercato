@@ -62,3 +62,5 @@ PR: #7001
 - [x] 3.3 Project field, task filtering, validation, read-only project line — 3046814d0
 - [x] 3.4 Integration test TC-TT-024 — 759471144
 - [x] 3.5 Docs and the full validation gate — 4cbc4c90d
+
+- [x] Post-review fix: review findings on project mode (silent task-mode error, injected write, focus, locked label, PUT coverage) — 56122091b
