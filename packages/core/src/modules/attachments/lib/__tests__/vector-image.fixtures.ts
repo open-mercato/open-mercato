@@ -71,6 +71,80 @@ export const CDATA_STYLED_LOGO = `<?xml version="1.0" encoding="utf-8"?>
 <g><rect class="st1" x="50" width="50" height="40"/></g>
 </svg>`
 
+export const INKSCAPE_LOGO = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="64mm"
+   height="64mm"
+   viewBox="0 0 64 64"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.3.2 (091e20e, 2023-11-25, custom)"
+   sodipodi:docname="mark.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="fill:#2a9d8f;stroke:none;stroke-width:0.264583"
+       id="rect1"
+       width="48"
+       height="48"
+       x="8"
+       y="8" />
+  </g>
+</svg>
+`
+
+export const INKSCAPE_PLAIN_LOGO = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="64mm"
+   height="64mm"
+   viewBox="0 0 64 64"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1">
+    <rect
+       style="fill:#2a9d8f;stroke:none;stroke-width:0.264583"
+       id="rect1"
+       width="48"
+       height="48"
+       x="8"
+       y="8" />
+  </g>
+</svg>
+`
+
+export const NON_STANDARD_XLINK_PREFIX_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><defs><path id="leaf" d="M0 0h5v5z"/></defs><use x:href="#leaf"/></svg>`
+
+export const CLOBBERING_ID_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs>${['title', 'body', 'images', 'links', 'fonts', 'style', 'name', 'action'].map((id) => `<linearGradient id="${id}"><stop offset="0" stop-color="#123456"/></linearGradient>`).join('')}</defs>${['title', 'body', 'images', 'links', 'fonts', 'style', 'name', 'action'].map((id) => `<rect width="1" height="1" fill="url(#${id})"/>`).join('')}</svg>`
+
+export const ACCESSIBLE_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" role="img" aria-labelledby="title desc"><title id="title">Brand</title><desc id="desc">The brand mark</desc><rect width="10" height="10" fill="#123456"/></svg>`
+
 export type MaliciousFixture = {
   name: string
   svg: string
@@ -269,18 +343,48 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
   },
   {
     name: '<use> amplifying a large referenced subtree',
-    svg: wrap(`<defs><g id="l0">${'<rect/>'.repeat(2000)}</g>${[1, 2, 3].map((level) => `<g id="l${level}">${`<use href="#l${level - 1}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#l3"/>`),
+    svg: wrap(`<defs><g id="l0">${'<rect/>'.repeat(1000)}</g>${[1, 2, 3].map((level) => `<g id="l${level}">${`<use href="#l${level - 1}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#l3"/>`),
     code: 'vector_image_too_complex',
   },
   {
     name: '<use> amplifying a large referenced subtree through xlink:href',
-    svg: wrap(`<defs><g id="l0">${'<rect/>'.repeat(2000)}</g>${[1, 2, 3].map((level) => `<g id="l${level}">${`<use xlink:href="#l${level - 1}"/>`.repeat(10)}</g>`).join('')}</defs><use xlink:href="#l3"/>`),
+    svg: wrap(`<defs><g id="l0">${'<rect/>'.repeat(1000)}</g>${[1, 2, 3].map((level) => `<g id="l${level}">${`<use xlink:href="#l${level - 1}"/>`.repeat(10)}</g>`).join('')}</defs><use xlink:href="#l3"/>`),
     code: 'vector_image_too_complex',
   },
   {
     name: 'DOCTYPE quote opened inside a comment ahead of a real internal subset',
     svg: `<!-- <!DOCTYPE " --><!DOCTYPE svg [ ]>${wrap('<rect width="1" height="1"/>')}`,
     code: 'vector_image_entity_declaration',
+  },
+  {
+    name: 'url() whose target starts with an ideographic space',
+    svg: wrap('<defs><linearGradient id="a"/></defs><rect width="10" height="10" fill="url(\u3000#a)"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'quoted url() whose target starts with a space',
+    svg: wrap('<defs><linearGradient id="a"/></defs><style>rect{fill:url(" #a")}</style><rect width="10" height="10"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'href whose target starts with an ideographic space',
+    svg: wrap('<defs><path id="a" d="M0 0h1"/></defs><use href="\u3000#a"/>'),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: 'paint attribute with a non-ASCII space DOMPurify would trim away',
+    svg: wrap('<defs><linearGradient id="a"/></defs><rect width="10" height="10" fill="　url(#a)"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'animateTransform whose attributeName targets href',
+    svg: wrap('<a href="#safe"><animateTransform attributeName="href" type="rotate" from="0" to="1"/><rect id="safe" width="10" height="10"/></a>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'animateMotion whose attributeName targets xlink:href',
+    svg: wrap('<a xlink:href="#safe"><animateMotion attributeName="xlink:href" path="M0 0h1"/><rect id="safe" width="10" height="10"/></a>'),
+    code: 'vector_image_unsafe_content',
   },
   {
     name: 'external url() in a style element',

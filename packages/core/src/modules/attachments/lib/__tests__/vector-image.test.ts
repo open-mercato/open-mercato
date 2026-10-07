@@ -17,13 +17,18 @@ import {
   VECTOR_IMAGE_POLICY_VERSION,
 } from '../vector-image'
 import {
+  ACCESSIBLE_LOGO,
   BENIGN_LOGO,
   CDATA_STYLED_LOGO,
+  CLOBBERING_ID_LOGO,
   EDITOR_EXPORT_LOGO,
   FILTERED_RASTER_LOGO,
+  INKSCAPE_LOGO,
+  INKSCAPE_PLAIN_LOGO,
   MALICIOUS_FIXTURES,
   MASKED_LOGO,
   nestedUseBomb,
+  NON_STANDARD_XLINK_PREFIX_LOGO,
   TINY_PNG_BASE64,
 } from './vector-image.fixtures'
 
@@ -113,6 +118,61 @@ describe('sanitizeVectorImage — benign logos', () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"><style><![CDATA[ rect{fill:url(https://evil.example/p.svg#p)} ]]></style><rect width="1" height="1"/></svg>'
     const prepared = await prepareVectorImageUpload(svgBuffer(svg))
     expect(prepared).toMatchObject({ ok: false, code: 'vector_image_external_reference' })
+  })
+
+  it.each([
+    ['an Inkscape SVG export', INKSCAPE_LOGO],
+    ['an Inkscape plain SVG export', INKSCAPE_PLAIN_LOGO],
+  ])('keeps %s, dropping only editor data', async (_label, svg) => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.removals.every((removal) => removal.kind === 'inert')).toBe(true)
+    const output = prepared.buffer.toString('utf8')
+    expect(output).toContain('style="fill:#2a9d8f;stroke:none;stroke-width:0.264583"')
+    expect(output).toContain('viewBox="0 0 64 64"')
+    expect(output).not.toMatch(/sodipodi|inkscape:/)
+  })
+
+  it('keeps an XLink reference written with a prefix other than xlink', async () => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(NON_STANDARD_XLINK_PREFIX_LOGO))
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.buffer.toString('utf8')).toContain('xlink:href="#leaf"')
+  })
+
+  it('keeps ids that clash with document properties, and the references to them', async () => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(CLOBBERING_ID_LOGO))
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    const output = prepared.buffer.toString('utf8')
+    for (const id of ['title', 'body', 'images', 'links', 'fonts', 'style', 'name', 'action']) {
+      expect(output).toContain(`<linearGradient id="${id}">`)
+      expect(output).toContain(`fill="url(#${id})"`)
+    }
+  })
+
+  it('keeps the accessible-name pattern: role, aria-labelledby and the ids it points at', async () => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(ACCESSIBLE_LOGO))
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    const output = prepared.buffer.toString('utf8')
+    expect(output).toContain('role="img"')
+    expect(output).toContain('aria-labelledby="title desc"')
+    expect(output).toContain('<title id="title">Brand</title>')
+    expect(output).toContain('<desc id="desc">The brand mark</desc>')
+  })
+
+  it('accepts non-ASCII spaces at the edges of an attribute that carries no reference', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1" aria-label="　Brand"/></svg>'
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
+  })
+
+  it('keeps an unquoted url() with ASCII whitespace around an in-document target', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="a"/></defs><style>rect{fill:url( #a )}</style><rect width="1" height="1"/></svg>'
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
   })
 
   it('keeps a <style> that mentions a DOCTYPE inside a CSS comment in CDATA', async () => {
@@ -270,10 +330,11 @@ describe('sanitizeVectorImage — bounded cost', () => {
    * Every pass is linear in the document, the first non-inert finding stops
    * the work, and the bounds cap the document — by bytes, markup before
    * parsing, nodes of every type, elements, depth and attributes. Warm worst
-   * cases measured at these bounds were 0.03-0.33 s. The pre-fix quadratic
-   * shapes took 2.5-27 s at sizes the bounds now refuse. The ceiling is about
-   * fifteen times the measured worst case, so a slow CI runner cannot flake
-   * it, while a return of super-linear behaviour fails it.
+   * cases measured at these bounds, one call per macrotask on a loaded
+   * laptop, were 0.04-0.44 s. The pre-fix quadratic shapes took 2.5-27 s at
+   * sizes the bounds now refuse. The ceiling is more than ten times the
+   * measured worst case, so a slow CI runner cannot flake it, while a return
+   * of super-linear behaviour fails it.
    */
   const CEILING_MS = 5_000
   const open = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="urn:example:editor" viewBox="0 0 10 10">'
@@ -285,7 +346,8 @@ describe('sanitizeVectorImage — bounded cost', () => {
   const unknownAttributes = (count: number, prefix = 'a') => Array.from({ length: count }, (_, index) => `${prefix}${index}="1"`).join(' ')
   const worstCases: Array<[string, string, boolean]> = [
     ['flat elements at the element and attribute bounds', wrap(`<rect ${unknownAttributes(attributesPerElement)}/>`.repeat(elements)), true],
-    ['paths with url() paint at the attribute bound', wrap(`<defs><linearGradient id="g"/></defs>${'<path d="M0 0h1v1z" fill="url(#g)" stroke="url(#g)" class="c" transform="translate(1 1)"/>'.repeat(elements)}`), true],
+    ['paths with url() paint at the attribute bound', wrap(`<defs><linearGradient id="g"/></defs>${'<path d="M0 0h1v1z" fill="url(#g)" stroke="url(#g)" class="c" transform="translate(1 1)"/>'.repeat(Math.min(elements, Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / 5) - 2))}`), true],
+    ['rects with five kept presentation attributes at the attribute bound', wrap('<rect x="1" y="1" width="1" height="1" fill="#123456"/>'.repeat(Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / 5) - 2)), true],
     ['elements at the per-element attribute bound', wrap(`<rect ${unknownAttributes(VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT)}/>`.repeat(Math.floor(VECTOR_IMAGE_MAX_ATTRIBUTES / VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT))), true],
     ['editor-namespaced attributes at the attribute bound', wrap(`<rect ${unknownAttributes(attributesPerElement, 'x:a')}/>`.repeat(elements)), true],
     ['in-document <use> at the element bound', wrap(`<defs><g id="a"><rect/></g></defs>${'<use href="#a"/>'.repeat(elements)}`), true],
@@ -331,6 +393,8 @@ describe('inspectVectorImageCss', () => {
     ['width:expression(alert(1))', 'active_content'],
     ['fill:url(javascript:alert(1))', 'active_content'],
     ['fill:/* comment */url(#ok)', null],
+    ['fill:url(\u3000#a)', 'external_reference'],
+    ['fill:url(" #a")', 'external_reference'],
   ])('classifies %s', (css, expected) => {
     expect(inspectVectorImageCss(css)).toBe(expected)
   })
