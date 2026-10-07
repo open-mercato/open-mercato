@@ -56,7 +56,7 @@ Let people log time to a project without a task from the time entry dialog (tena
 ### Phase 3: Dialog
 
 - [x] 3.1 resolveTimeEntryDialogMode helper with unit tests — 842f5e576
-- [ ] 3.2 Dialog plumbing for mode, project state, snapshot and payload
-- [ ] 3.3 Project field, task filtering, validation, read-only project line
+- [x] 3.2 Dialog plumbing for mode, project state, snapshot and payload — 3046814d0
+- [x] 3.3 Project field, task filtering, validation, read-only project line — 3046814d0
 - [ ] 3.4 Integration test TC-TT-024
 - [ ] 3.5 Docs and the full validation gate
