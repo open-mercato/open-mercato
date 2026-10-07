@@ -613,9 +613,14 @@ Uploaded SVG stylesheets are limited to what logo exporters write: flat rules wh
 type, `*`, `.class` or `#id` (compound, in comma lists). At-rules (`@media`, `@keyframes`, …),
 combinators, pseudo-classes, attribute selectors, nesting, custom properties and `var()` are refused
 with `vector_image_unsafe_content`, and a stylesheet over 2,000 rules, 32 selectors or 16 references
-in one rule, or 20,000 selector × reference pairs in total, with `vector_image_too_complex`. Every `id` and every in-document
-reference (`href="#…"`, `url(#…)`) must be a plain ASCII id — a letter or `_`, then letters, digits,
-`_`, `-` or `.` — and `xml:id` is not accepted; anything else is `vector_image_unsafe_content`.
+in one rule, or 20,000 selector × reference pairs in total, with `vector_image_too_complex`. Every in-document
+reference (`href="#…"`, `url(#…)`) must name a plain ASCII id — a letter, digit or `_`, then
+letters, digits, `_`, `-` or `.`; other ids are kept but cannot be referenced, and `xml:id` is not
+accepted. `url()` is allowed only in `fill`, `stroke`, `clip-path`, `mask`, `filter` and the marker
+properties; the CSS `d` property, `if()`, SMIL animation, `feConvolveMatrix`, an `feMorphology`
+radius over 4, more than 32 filter primitives and embedded rasters over 4,096 px a side are
+refused, and documents whose estimated drawing work exceeds the bound are
+`vector_image_too_complex`.
 
 `attachmentService.readScoped()` returns a sanitised SVG as an `application/octet-stream` download,
 like any other SVG: a module route outside the file path gets the app-wide CSP, which Next.js keeps

@@ -146,7 +146,10 @@ count plus one) before any parsing happens.
 | elements | 2,000 | `vector_image_too_complex` |
 | nesting depth | 64 | `vector_image_too_complex` |
 | attributes on one element / in the document | 64 / 6,000 | `vector_image_too_complex` |
-| rendered elements: every element once, plus every in-document reference's target again, recursively and weighted by how often it renders (§ 4); any reference cycle | 50,000 | `vector_image_too_complex` |
+| render work (§ 4): every rendered element's drawing work, plus every in-document reference's target again, recursively and weighted by how often it renders; any reference cycle | 10,000 units | `vector_image_too_complex` |
+| filter primitives in the document | 32 | `vector_image_too_complex` |
+| `feMorphology` radius / `feConvolveMatrix` | 4 / refused | `vector_image_too_complex` |
+| embedded raster (`data:` URI) declared width or height, read from its header | 4,096 px | `vector_image_unsafe_content` |
 | stylesheet rules, across every `<style>` | 2,000 | `vector_image_too_complex` |
 | selectors in one rule / in-document references in one rule | 32 / 16 | `vector_image_too_complex` |
 | stylesheet work: Σ over rules of selectors × references, checked before indexing | 20,000 | `vector_image_too_complex` |
@@ -251,18 +254,23 @@ icons whose stylesheets use `@keyframes` and `@media` (§ 3, stylesheet subset);
      policy reads; when they agree, `href` is the one followed;
    - `href` / `xlink:href` must be an in-document fragment (`#id`) after stripping only what the URL
      parser strips (leading and trailing C0 controls and spaces). The id after `#` must be a
-     **plain id**: an ASCII letter or `_`, then ASCII letters, digits, `_`, `-` and `.`
-     (`PLAIN_ID_PATTERN`). Every `id` attribute must match the same pattern, and `xml:id` is
-     refused. A browser percent-decodes a fragment — `<use href="#%61">` renders `id="a"`, and
+     **plain id**: an ASCII letter, digit or `_`, then ASCII letters, digits, `_`, `-` and `.`
+     (`PLAIN_ID_PATTERN`; a leading digit is allowed because exporters write ids such as
+     `7f1a2b3c4d` and Chrome resolves `url(#7f1a…)`). `xml:id` is refused. An `id` that is not plain
+     (`레이어_1`, `Слой_1`, `Layer 1`) is kept: no allowed fragment can name it, so it is unreachable
+     and harmless. A fragment `href` on `<image>` is refused: Chrome loads the whole document URL as
+     the image. A browser percent-decodes a fragment — `<use href="#%61">` renders `id="a"`, and
      `url(#%67)` paints gradient `g` — so before this rule a ten-wide `<use>` chain written with
      `#%61…` fragments passed the rendered bound at eight levels (about 10⁸ instances) because the
      lookup used the literal `%61`. With plain ids on both sides no encoding (percent, character
      reference, non-ASCII, escape, `xpointer()`) can make the sanitiser and a browser name different
-     elements, and lookups use the id verbatim. Every id in the dependency corpus and in the
-     exporter fixtures (`SVGID_1_`, `linearGradient1234`, `paint0_linear_1_2`, `path-1`, `id0`,
-     `_Linear1`) already matches; a fragment or id that does not is `active_content`. On `<image>`/`<feImage>` a
+     elements, and lookups use the id verbatim. Every id the corpus and exporter fixtures reference
+     (`SVGID_1_`, `linearGradient1234`, `paint0_linear_1_2`, `path-1`, `id0`, `_Linear1`,
+     `7f1a2b3c4d`) matches; a fragment that does not is `active_content`. On `<image>`/`<feImage>` a
      `data:image/(png|jpeg|gif|webp);base64,…` URI is also accepted, and its decoded bytes must
-     carry the matching raster signature. `javascript:`/`vbscript:`/other `data:` →
+     carry the matching raster signature and a header (PNG `IHDR`, GIF screen, JPEG start-of-frame,
+     WebP `VP8`/`VP8L`/`VP8X`) no larger than 4,096 px on either side: a 762 KB PNG declaring
+     14,000 × 14,000 pixels was accepted before. `javascript:`/`vbscript:`/other `data:` →
      `active_content`; anything else → `external_reference`;
    - a `<style>` is checked again for text-only children, and the CSS rule is applied to exactly the
      concatenation of its direct text children, which is what browsers apply;
@@ -313,6 +321,14 @@ does in any case.
   - `@import`;
   - any of `image()`, `image-set()`, `cross-fade()`, `element()`, `src()`, `attr()`, with or without
     a vendor prefix (these accept a bare string URL);
+  - a `url()` in any property other than `fill`, `stroke`, `clip-path`, `mask`, `filter`,
+    `marker`, `marker-start`, `marker-mid`, `marker-end`, and Inkscape's `shape-inside` and
+    `shape-subtract` (`URL_PROPERTIES`). Before, an unknown property counted as inherited paint, so
+    `.i{mask-image:url(#m)}` on 1,000 `<image>`s counted nothing and took 7.1 s to draw;
+  - the CSS `d` property and `if()`: path data written in CSS (`path{d:path("…")}` or a `style`
+    attribute) gave the mid-marker bound no vertices, and `if(supports(…): url(#m))` moved a
+    `url()` to another property. A declaration's property now changes only at function depth 0,
+    so a `:`, `;` or `else:` inside a function cannot reassign it;
   - a `url()` whose target is neither `#` and a plain id nor an allowed raster `data:` URI (a `#`
     target that is not a plain id is `active_content`). An unquoted target loses
     only the ASCII whitespace the tokenizer drops, and a quoted one loses nothing. So `url(\u3000#a)`
@@ -389,6 +405,19 @@ Three sources of super-linear cost were found by profiling and are removed:
    - one edge per bucket an element falls into. A bucket sums its targets' rendered sizes per
      weight once, so a stylesheet costs an element at most one edge per key it matches, however many
      rules feed the key.
+
+   Each rendered element counts its **drawing work**, in units of about one full-canvas fill at
+   800 px (0.19 ms on CPU canvas in Chrome): one, plus one per 128 characters of path data,
+   points or text (measured at about 316 characters per unit for paths and 264 for text, so 128 is
+   conservative), and a filter primitive counts its measured class weight each time the filter is
+   applied (`FILTER_PRIMITIVE_WORK`: morphology 600, lighting and turbulence 300, composite 125,
+   displacement 100, blend, drop shadow and blur 75, merge 50, colour matrix, component transfer and
+   image 25, offset, flood and tile 10, anything else 600). Elements that render only through a
+   reference — `defs`, `symbol`, filters, paint servers, markers, masks, clip paths — add nothing
+   where they are defined, so a definition is not counted twice. SMIL animation (`animate`,
+   `animateTransform`, `animateMotion`, `animateColor`, `set`, `mpath`, `discard`) is refused as
+   active content: it would turn any accepted cost into a per-frame one, and no corpus file or
+   exporter fixture uses it.
 
    A selector is indexed under its id, else its first class, else its type, else "any element"
    for `*`; further classes only narrow a match, and the cascade is ignored, so the estimate can only
@@ -658,8 +687,8 @@ has the same problem.
 |---|---|---|---|---|
 | Sanitiser bypass yields script in a stored SVG | High | XSS on direct navigation | DOMPurify allowlist; refusal at the first non-inert finding; reference and tokenised CSS policy on exactly what browsers apply; serving CSP `sandbox`/`default-src 'none'`; `nosniff`; `<img>` embedding disables script regardless | Low: requires a DOMPurify bypass *and* a CSP bypass |
 | Parser differential (CSS strings, `<style>` children, `href` precedence, DOCTYPE lexing) hides a reference | Medium | privacy | CSS Syntax Level 3 tokenisation; text-only `<style>`; conflicting `href`s refused; XML-aware DTD scan; `default-src 'none'` at serve | Low |
-| Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute, stylesheet and rendered bounds; one linear CSS tokenizer and no second CSS parser (jsdom's CSSOM was quadratic); linear passes; first-finding stop; DOMPurify on a copy; cost test | medians under 0.32 s and maxima under 0.42 s per upload at the bounds, measured under concurrent load (up to 0.72 s in earlier, heavier runs) |
-| Render DoS via reference amplification | Medium | client (a hung tab for whoever opens the logo) | rendered-element bound over every in-document reference — `<use>`, `href`s, paint servers, clip paths, masks, filters, markers (per vertex for `marker-mid`), inherited paint and stylesheet rules — with cycle refusal. The bound is only as good as its reading of the stylesheets: the fifth review round's parse differential hid a `marker-mid` rule from it (about 42 s to draw in Chrome). The seventh round found a second gap: a percent-encoded fragment (`#%61`) named an element for the browser but nothing for the lookup. Every stylesheet is now read once by one CSS Syntax tokenizer limited to the exporter subset, and every fragment and `id` is a plain ASCII id, so the bound and the browser resolve the same references | Low: needs a disagreement between our tokenizer and a browser on the exporter subset, which the reviews' Chrome comparisons have not found. Pattern tiles repeat with the painted area, and filters cost per pixel, both of which a browser bounds by resolution |
+| Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute, stylesheet and render-work bounds; one linear CSS tokenizer and no second CSS parser (jsdom's CSSOM was quadratic); linear passes; first-finding stop; DOMPurify on a copy; cost test | medians under 0.32 s and maxima under 0.51 s per upload at the bounds, measured under concurrent load (up to 0.72 s in earlier, heavier runs) |
+| Render DoS (whoever opens the logo) | Medium | client | a render-work bound (§ 4) over every in-document reference — `<use>`, `href`s, paint servers, clip paths, masks, filters, markers (per vertex for `marker-mid`), inherited paint and stylesheet rules — weighting each rendered element by its path, points or text length and each filter primitive by its measured class; reference-only definitions not double-counted; 10,000-unit cap; at most 32 filter primitives; `feMorphology` radius at most 4; no `feConvolveMatrix`; no SMIL; `url()` only in the paint, clip, mask, filter and marker properties; no CSS `d`, `if()` or `var()`; one CSS tokenizer; plain fragments; embedded rasters at most 4,096 px a side. Measured in Chrome (CPU canvas, 800 px, the review's `drawTime`): the largest accepted variant of each costly shape draws in 0.12–1.47 s — full-canvas rects through `<use>` 0.90 s, 30-stop gradient rects 1.29 s, 16 `feMorphology` radius 4 1.40 s, 32 specular lightings 1.35 s, 2 × 32 arithmetic composites 0.97 s, 4 × 32 blurs 0.92 s, a 550-segment path through 222 `<use>` 0.90 s, a 63 KB text through 20 `<use>` 0.28 s, full-size mid-markers 0.12 s; the review's accepted cost files that are still accepted draw in 0.006–0.61 s (median of three; worst single run 0.72 s). Before this round `long-path-x10` took 6.5 s, `blur-x1k` 25.8 s and `morph-chain-1900` over 45 s; all are now refused | Low: the units are calibrated on one machine's CPU canvas; a slower client scales every figure. Pattern tiles repeat with the painted area, which a browser bounds by resolution. Ordinary raster uploads served inline by the file route are not header-checked (follow-up) |
 | Sandbox lost on an encoded path or a module route | Medium | XSS defence in depth | inline SVG only from the file route at the canonical path; `readScoped` never inline; encoded spellings tested against Next's matchers and over HTTP | Requires a sanitiser bypass as well; an `<img>`-embedded SVG runs no script either way |
 | Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 220 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts and animated spinners) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, CSS animation or media queries, selectors beyond type/class/id, custom properties, or more than 2,000 elements or 6,000 attributes need re-exporting |
 | Forged `vectorImage` record on an unsanitised row | Low | XSS | no endpoint writes arbitrary metadata keys; SHA-256 binding to stored bytes; CSP still applies | Requires DB write access |
@@ -723,9 +752,9 @@ it always asks for a raster rendition and refuses any non-raster content type, w
 Every bullet below is a test that exists.
 
 - `lib/__tests__/vector-image.test.ts` (fixtures in `vector-image.fixtures.ts`)
-  - **Hostile documents** — 145 fixtures. For each, `sanitizeVectorImage` refuses with the listed
+  - **Hostile documents** — 158 fixtures. For each, `sanitizeVectorImage` refuses with the listed
     code and returns no document, and `prepareVectorImageUpload` refuses with the same code:
-    - `vector_image_unsafe_content` (108):
+    - `vector_image_unsafe_content` (114):
       - script and handlers: `<script>`; XHTML-namespaced `<html:script>`; a script hidden inside
         a foreign-namespace wrapper; a script hidden inside `<metadata>`; `onload` on the root;
         `onclick` on a shape;
@@ -756,9 +785,13 @@ Every bullet below is a test that exists.
       - fragments that are not plain ids, each in an `href`, an `xlink:href`, a stylesheet `url()`, a
         `style` attribute `url()` and a presentation attribute `url()`: percent-encoded (`#%61`),
         an entity-encoded percent (`#&#x25;61`), non-ASCII (`#á`), with `{` and `}`, and with `;`
-        (25 fixtures); ids with a percent sign, an entity-encoded non-ASCII letter, a space, a colon
-        and a leading digit; an `xml:id` target; the review's ten-wide `<use>` chain eight levels
-        deep written with `#%61…` fragments; a rule closed while a parenthesis is open;
+        (25 fixtures); an `xml:id` target; the review's ten-wide `<use>` chain eight levels deep
+        written with `#%61…` fragments; a rule closed while a parenthesis is open;
+      - the eighth round: path data in the CSS `d` property feeding mid-markers, and in a `style`
+        attribute; a `url()` inside `if()`; `mask-image` in a stylesheet, `background` in a
+        `style` attribute, a `cursor` attribute; a fragment `href` on `<image>`;
+        `<animateTransform>`, `<animateMotion>` and `<animateColor>`; an embedded PNG whose header
+        declares 14,000 × 14,000 pixels;
       - outside the stylesheet subset: 20,000 nested `@media` blocks, closed and unclosed; nested
         patterns through classes inside `@media`; a child combinator, a descendant combinator, a
         pseudo-class (`:root`), a pseudo-element, an attribute selector, a namespace selector; a
@@ -784,9 +817,14 @@ Every bullet below is a test that exists.
       DOCTYPE whose double-quoted public id contains `>` ahead of an internal subset carrying
       `<!ATTLIST … onload …>`; the same with a single-quoted system id; a DOCTYPE quote opened
       inside a comment ahead of a real internal subset.
-    - `vector_image_too_complex` (15):
+    - `vector_image_too_complex` (22):
       - the stylesheet caps: 33 selectors in one rule; 17 references in one rule; 1,251 rules of 16
         selectors × 1 reference (20,016 against the work cap of 20,000); 2,001 rules;
+      - the filter limits: 33 primitives; an `feMorphology` radius of 5, and of `1 5`;
+      - render work: a `;` inside a function ahead of a mid-marker `url()` on a 20,000-segment path
+        (counted per vertex, as the property stays `marker-mid`); a blurred rect drawn 1,000 times
+        through `<use>`; a 200,000-character path drawn ten times; 10,000 full-size rects through
+        `<use>`;
       - each of the following inside every other bound, so the rendered-element bound is what
         refuses it:
         - a 1,000-rect group amplified by three levels of ten `<use>`, through `href` and through
@@ -805,6 +843,8 @@ Every bullet below is a test that exists.
     - an `<feImage>` filter carrying an embedded PNG with a real PNG signature;
     - stylesheets a browser reads as we do: comment markers inside quoted strings; rules in two
       stylesheets; `!important` with an upper-case property;
+    - ids that are not plain and so stay unreachable (Korean and Cyrillic layer ids, `Layer 1`,
+      `a%61`); a digit-first id named by `url(#7f1a2b3c4d)`; an eight-primitive drop-shadow filter;
     - a gradient applied by `*`, `svg`, `path` and a compound comma list (`path.a, #b, *.a`),
       without a false cycle through the gradient's stops;
     - a design-tool export with a CDATA-wrapped `<style>` using a compound selector list (and CSS inside CDATA is still
@@ -857,7 +897,8 @@ Every bullet below is a test that exists.
     - one rule of 2,000 × 2,000 and one of 8,000 × 8,000 custom-property references (refused); 20,000
       and 40,000 nested `@media` blocks and 20,000 unclosed ones (refused);
     - whitespace-formatted elements at the node bound.
-  - **`inspectVectorImageCss`**: a 19-case table (it now runs `tokenizeCss` then `inspectCssTokens`):
+  - **`inspectVectorImageCss`**: a table (it runs `tokenizeCss` then `inspectCssTokens`), which also
+    refuses `background:url(data:…)`, `mask-image:url(#m)`, `d:path(…)` and a `url()` inside `if()`:
     - pass: fragment and raster `data:` `url()`s, plain declarations, a commented `url(#…)`;
     - external: external, protocol-relative and relative `url()`, `@import` (any case),
       `-webkit-image-set()`, `url(\u3000#a)`, `url(" #a")`;
@@ -963,7 +1004,13 @@ Regression proofs run during implementation:
   newline — all refused — and `{ }` and `;` inside an unquoted `url()`, comment markers inside
   strings, an upper-case property with `!important`, and comments between rules and inside
   declarations — all accepted, as a browser reads them. All 104 pass, at most 427 ms outside the
-  first call under load. The reviewer's 24 `e*` files, the `d1`–`d4` repros and the six exporter
+  first call under load. In the eighth round it grew to 188 inputs with a render-cost section of 21:
+  the CSS `d` property, `d` in a `style` attribute, `if(supports())` and `else:` inside `if()`,
+  `mask-image`, `border-image`, `animateTransform`, `animateMotion` with `mpath`, `feMorphology`
+  radius 5, `feConvolveMatrix`, 33 primitives, a blurred rect ×1,000, 10,000 full rects, a 200 KB
+  path ×10, two 32-primitive lighting filters, a fragment `href` on `<image>`, a 14,000² PNG header
+  — all refused — and a drop shadow, a digit-first id, a Korean id and Inkscape `shape-inside` —
+  all accepted. All 188 pass, at most 137 ms outside the first call. The reviewer's 24 `e*` files, the `d1`–`d4` repros and the six exporter
   files (Affinity, CorelDRAW, Figma, Illustrator, Inkscape, Sketch) were also run: every exporter
   file is accepted and every `d` file refused.
   In the seventh round it grew to 167 inputs. The two `url()` probes with `{ }` and `;` are now
@@ -996,6 +1043,20 @@ Regression proofs run during implementation:
 
 ## Changelog
 
+- 2026-10-07 — Eighth review round:
+  - `url()` only in the paint, clip, mask, filter and marker properties (and Inkscape's
+    `shape-inside`/`shape-subtract`); the CSS `d` property and `if()` refused; a declaration's
+    property changes only at function depth 0.
+  - A render-work bound replaces the element count: path, points and text length, per-class filter
+    primitive weights measured in Chrome, no double count of reference-only definitions, a
+    10,000-unit cap; at most 32 filter primitives, `feMorphology` radius at most 4, no
+    `feConvolveMatrix`, no SMIL. The largest accepted variant of each costly shape draws in at
+    most 1.47 s on CPU canvas at 800 px.
+  - Ids that are not plain are kept (unreachable); fragments may start with a digit; `xml:id` is
+    still refused; a fragment `href` on `<image>` is refused.
+  - Embedded rasters at most 4,096 px a side, read from the header.
+  - Corpus unchanged at 220 of 230; every exporter variant (r6, r7, r8) accepted, the SMIL spinner
+    refused.
 - 2026-10-07 — Seventh review round:
   - Merge order re-verified with a trial merge: the same five conflicting files and hunks.
   - The jsdom CSSOM cross-check is removed: it was quadratic on `@`, `!` and `(` and misread

@@ -106,10 +106,15 @@ write time.
   parse untrusted CSS with jsdom's CSSOM or rrweb-cssom: they are quadratic and
   do not tokenise `url()` as browsers do.
 - Accept a fragment reference only as `#` and a plain ASCII id
-  (`PLAIN_ID_PATTERN`), require every `id` to match it, and look ids up
-  verbatim. Never decode, unescape or normalise a fragment to make it match:
+  (`PLAIN_ID_PATTERN`) and look ids up verbatim; keep non-plain `id`s (they are
+  unreachable) and keep refusing `xml:id`. Never decode, unescape or normalise a fragment to make it match:
   browsers percent-decode fragments, so any second spelling lets a reference
   escape the rendered-size bound.
+- Allow `url()` only in `URL_PROPERTIES`; never default an unknown property to
+  a multiplier. Change a declaration's property only at function depth 0.
+- Keep the render-work bound measured: when adding a weight, a filter primitive
+  or a cap, time the largest accepted variant in Chrome on CPU canvas at 800 px
+  (target about 2 s) and record it in the spec. Never accept SMIL animation.
 - Keep stylesheets to the exporter subset `parseStyleRules` accepts (flat rules,
   simple selectors, no at-rules, custom properties or `var()`) and keep its
   rule/selector/reference/work caps. Narrow what a stylesheet may contain rather
