@@ -147,6 +147,9 @@ count plus one) before any parsing happens.
 | nesting depth | 64 | `vector_image_too_complex` |
 | attributes on one element / in the document | 64 / 6,000 | `vector_image_too_complex` |
 | rendered elements: every element once, plus every in-document reference's target again, recursively and weighted by how often it renders (§ 4); any reference cycle | 50,000 | `vector_image_too_complex` |
+| stylesheet rules, across every `<style>` | 2,000 | `vector_image_too_complex` |
+| selectors in one rule / in-document references in one rule | 32 / 16 | `vector_image_too_complex` |
+| stylesheet work: Σ over rules of selectors × references, checked before indexing | 20,000 | `vector_image_too_complex` |
 
 Real logos are typically 2–150 KB with tens to hundreds of paths and a handful of attributes per
 element (a 1,000-path logo with `d`, `fill` and `id` uses 3,000 attributes). Every node type counts because jsdom removes a node in time linear in its preceding
@@ -157,8 +160,9 @@ times through three levels of ten `<use>`s, and counting only `<use>` accepted e
 of 200 rects each (200^8 rendered rects from 1,600 elements).
 
 The bounds are sized from measurement (§ 4). Real exports stay well inside them: of the 230 SVG
-files in this repository's dependencies, 224 are accepted, at most 267 ms each. The six refused
-are SVG web fonts (`<font-face>` is outside DOMPurify's SVG profile), not logos.
+files in this repository's dependencies, 220 are accepted, at most 200 ms each. The ten refused are
+six SVG web fonts (`<font-face>` is outside DOMPurify's SVG profile) and four animated pdf.js spinner
+icons whose stylesheets use `@keyframes` and `@media` (§ 3, stylesheet subset); none is a logo.
 
 **Sanitisation**
 
@@ -268,6 +272,11 @@ and a comment inside an unquoted `url(` stays part of the URL. The result is:
 - `active_content` for:
   - any backslash (escapes are the standard way to smuggle `\75 rl(` or `@\69mport` past a check,
     and logos need none);
+  - a custom property (`--*`) or `var()`, in any case or vendor spelling. `var()` moves a value into
+    a property the policy never saw it in: `--m:url(#mk)` on a group and `marker-mid:var(--m)` on a
+    path drew a marker at every vertex of a 100,000-vertex path, about 318 times the rendered bound
+    (9.5 s in Chromium against 22 ms for the control). No logo exporter writes either. `var()` is
+    also refused in any presentation attribute other than `aria-*`;
   - a string ended by a newline or by the end of the text;
   - an unterminated comment or `url(` token;
   - a malformed unquoted URL (quote, `(`, or inner ASCII whitespace);
@@ -283,6 +292,24 @@ and a comment inside an unquoted `url(` stays part of the URL. The result is:
 
 The rule is deliberately stricter than a browser: anything that could make two CSS parsers disagree
 is refused. The serving CSP is the second layer.
+
+**Stylesheet subset** (`parseStylesheet`, after the CSS rule passes). A `<style>` may hold only flat
+rules whose selectors are simple: a type or `*`, then any `.class` and `#id`, in a comma list
+(`.st0`, `path.st1, #a`, `*`). That is what logo exporters write. Anything else is
+`active_content`:
+- any at-rule (`@media`, `@supports`, `@layer`, `@container`, `@keyframes`, `@font-face`, …;
+  `@import` is already `external_reference`);
+- combinators, pseudo-classes, pseudo-elements, attribute and namespace selectors;
+- a nested block, an unclosed rule, a stray `}` or `;`, a string or an HTML comment token in a
+  selector.
+
+Comments may sit between rules and inside declarations. The parse is one linear pass over the text
+with a single open-block flag, so neither nesting nor an unclosed block costs more than its length.
+Of the dependency corpus, only four pdf.js spinner icons used at-rules (`@keyframes`, `@media
+(prefers-reduced-motion)`), for animation; they are now refused. No file used a selector outside the
+subset. The rule, selector, reference and work caps in the bound table above are checked before the
+stylesheet is indexed, so index writes are bounded by the work cap: one rule with 2,000 selectors
+and 2,000 references once made 4 million writes (4.1 s), and 8,000 × 8,000 exhausted the heap.
 
 **Storage policy.** A document is stored only when every removal was inert. "Materially" therefore
 means:
@@ -326,12 +353,12 @@ Three sources of super-linear cost were found by profiling and are removed:
      weight once, so a stylesheet costs an element at most one edge per key it matches, however many
      rules feed the key.
 
-   A selector is reduced to its subject compound's single most selective key, and every other
-   constraint is dropped; a subject with no id, class or type, a rule nested in another rule, and
-   any at-rule block other than a grouping rule (`@media`, `@supports`, `@layer`, `@container`,
-   `@scope`) count as "any element". Dropping constraints only widens a match and the cascade is
-   ignored, so the estimate can only exceed what a browser renders. A cycle anywhere in the graph is
-   refused: a browser ignores a cyclic reference, but no benign export has one.
+   A selector is indexed under its id, else its first class, else its type, else "any element"
+   for `*`; further classes only narrow a match, and the cascade is ignored, so the estimate can only
+   exceed what a browser renders. Gradients, their stops, filters and filter primitives contribute
+   no property references: they never render their own paint, so `*{fill:url(#g)}` does not route a
+   gradient's stops back to the gradient. Their `href`s (`feImage`) still count. Any other cycle in
+   the graph is refused: a browser ignores a cyclic reference, but no benign export has one.
 
 Measured on an Intel i5-1235U laptop (Windows 11, Node 24) while another agent's build was running
 on the same machine. Each case was run seven times, each run in its own macrotask after a forced GC,
@@ -365,31 +392,35 @@ another.
 | nesting at the depth bound | — | 283 / 368 ms |
 | a 1 MiB stylesheet / 1 MiB of text | — | 243 / 410, 145 / 365 ms |
 | whitespace-formatted rects at the node bound | — | 478 / 655 ms |
-| stylesheet rules referencing 900 targets from every rect (fourth round) | — | 208 / 270 ms |
-| a 1 MiB stylesheet of `url()` rules applied to an element (fourth round) | — | 167 / 200 ms |
-| a stylesheet of compound selectors, 860 KiB, with 1,996 matching rects (fourth round) | — | 372 / 408 ms |
-| inherited pattern paint over every element (fourth round) | — | 171 / 184 ms |
-| eight nested patterns of 200 rects (fourth round, refused by the rendered bound) | accepted | 128 / 158 ms |
-| a mid-path marker on a 1 MiB path (fourth round, refused by the rendered bound) | accepted | 202 / 288 ms |
+| stylesheet rules referencing 900 targets from every rect | — | 168 / 188 ms |
+| stylesheet rules at the work cap (1,250 rules × 16 selectors × 1 reference) with 1,996 rects | — | 193 / 234 ms |
+| 2,000 rules with 16 references each (refused by the work cap) | — | 56 / 153 ms |
+| a 1 MiB stylesheet of `url()` rules (refused by the rule cap) | accepted, 167 / 200 ms | 123 / 138 ms |
+| one rule of 2,000 selectors × 2,000 custom-property references (refused) | 4.1 s, accepted | 13 / 18 ms |
+| one rule of 8,000 selectors × 8,000 custom-property references (refused) | heap exhausted | 23 / 27 ms |
+| 40,000 nested `@media` blocks (refused) | 55.1 s | 32 / 38 ms |
+| 20,000 unclosed nested `@media` blocks (refused) | 11.7 s | 17 / 19 ms |
+| a custom-property `marker-mid` on a 100,000-vertex path (refused) | accepted | 54 / 72 ms |
+| inherited pattern paint over every element | — | 128 / 213 ms |
+| eight nested patterns of 200 rects (refused by the rendered bound) | accepted | 107 / 118 ms |
+| a mid-path marker on a 1 MiB path (refused by the rendered bound) | accepted | 193 / 213 ms |
 | first call in a process (loads `jsdom` and `dompurify`) | — | 0.5–1.6 s, once |
 
 Every median at the bounds is under 0.5 s. The maxima, up to 0.72 s, coincide with spikes from the
 concurrent build. The previous bounds (3,000 elements, 15,000 attributes) measured 1.0–1.65 s on
 attribute-heavy shapes under the same conditions, which is why they were lowered.
 
-The fourth-round rows come from an A/B run: the third-round and fourth-round sanitisers alternated
-on every shape in one process, seven runs each, while other processes kept the CPU about half busy.
-Reference expansion adds 0–90 ms per shape. The largest additions are on stylesheet-heavy
-documents (a 1 MiB stylesheet: 112 → 198 ms median), because the stylesheet is scanned once more to
-index its references. The first bucket-less version gave every element one edge per stylesheet
-reference and took 0.87–1.28 s on the 900-target shape, which is why buckets are graph nodes.
+The stylesheet and reference rows were re-timed in the fifth review round on a quieter machine
+(seven runs each, one per macrotask, after a forced GC); the "before" column for the H1/H2 shapes is
+the round-five sanitiser as the review measured it. In that run every shape's maximum was under
+0.41 s. Reference expansion itself was measured A/B in the fourth round at 0–90 ms per shape.
 
 Benchmarks that keep calls inside one macrotask measure up to three times more and a growing heap:
 jsdom tracks NodeIterators through `WeakRef`s, which keep their targets alive until the current job
 ends. With one call per macrotask, as in a server, the heap stays flat (28–30 MB over 12 consecutive
 calls on the largest shape).
 
-The `bounded cost` test sanitises eighteen shapes at the bounds (the above plus the node floods) and
+The `bounded cost` test sanitises twenty-four shapes at the bounds (the above plus the node floods) and
 asserts each finishes under 5 s. That is more than ten times the measured worst case, so a slow CI
 runner cannot make it flaky, while the pre-fix behaviour (2.5–27 s at sizes the bounds now refuse)
 would fail it.
@@ -589,7 +620,7 @@ has the same problem.
 | Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute and rendered bounds; linear passes; first-finding stop; DOMPurify on a copy; cost test | under 0.5 s median and 0.72 s maximum per upload at the bounds, measured under concurrent load |
 | Render DoS via reference amplification | Low | client | rendered-element bound over every in-document reference — `<use>`, `href`s, paint servers, clip paths, masks, filters, markers (per vertex for `marker-mid`), inherited paint and stylesheet rules — with cycle refusal | Pattern tiles repeat with the painted area, and filters cost per pixel, both of which a browser bounds by resolution |
 | Sandbox lost on an encoded path or a module route | Medium | XSS defence in depth | inline SVG only from the file route at the canonical path; `readScoped` never inline; encoded spellings tested against Next's matchers and over HTTP | Requires a sanitiser bypass as well; an `<img>`-embedded SVG runs no script either way |
-| Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 224 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, or more than 2,000 elements or 6,000 attributes need re-exporting |
+| Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 220 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts and animated spinners) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, CSS animation or media queries, selectors beyond type/class/id, custom properties, or more than 2,000 elements or 6,000 attributes need re-exporting |
 | Forged `vectorImage` record on an unsanitised row | Low | XSS | no endpoint writes arbitrary metadata keys; SHA-256 binding to stored bytes; CSP still applies | Requires DB write access |
 | A non-SVG response under the file path gets the vector CSP's extra allowances | Low | headers | they only affect a document rendered inline, and the route renders only sanitised SVG inline; `default-src 'none'` and `sandbox` stay | — |
 | `jsdom` weight | Low | memory/startup | lazy load; server-external; heap flat across requests (measured) | 0.5–1.6 s first-call load per process |
@@ -651,9 +682,9 @@ it always asks for a raster rendition and refuses any non-raster content type, w
 Every bullet below is a test that exists.
 
 - `lib/__tests__/vector-image.test.ts` (fixtures in `vector-image.fixtures.ts`)
-  - **Hostile documents** — 74 fixtures. For each, `sanitizeVectorImage` refuses with the listed
+  - **Hostile documents** — 92 fixtures. For each, `sanitizeVectorImage` refuses with the listed
     code and returns no document, and `prepareVectorImageUpload` refuses with the same code:
-    - `vector_image_unsafe_content` (39):
+    - `vector_image_unsafe_content` (54):
       - script and handlers: `<script>`; XHTML-namespaced `<html:script>`; a script hidden inside
         a foreign-namespace wrapper; a script hidden inside `<metadata>`; `onload` on the root;
         `onclick` on a shape;
@@ -670,6 +701,13 @@ Every bullet below is a test that exists.
         `<feImage>` declaring `data:image/jpeg` while carrying PNG bytes;
       - unsafe CSS: a CSS string left unterminated at a newline, and at the end of the stylesheet;
         an escaped quote keeping a CSS string open; a CSS escape smuggling `url()`;
+      - custom properties: a `marker-mid` fed through `--m` and `var()`; a custom property declared
+        in a stylesheet; `var()` in a presentation attribute; one rule of 2,000 selectors × 2,000
+        custom-property references;
+      - outside the stylesheet subset: 20,000 nested `@media` blocks, closed and unclosed; nested
+        patterns through classes inside `@media`; a child combinator, a descendant combinator, a
+        pseudo-class (`:root`), a pseudo-element, an attribute selector, a namespace selector; a
+        nested rule; an unclosed rule;
       - `<style>` with non-text children: a stylesheet hidden by a comment split across nested
         `<g>`, `<title>`, `<desc>` and `<tspan>` elements; a stylesheet hidden by a CSS string
         split across nested elements; `@import` hidden by a split comment; `url(` split by an XML
@@ -691,23 +729,28 @@ Every bullet below is a test that exists.
       DOCTYPE whose double-quoted public id contains `>` ahead of an internal subset carrying
       `<!ATTLIST … onload …>`; the same with a single-quoted system id; a DOCTYPE quote opened
       inside a comment ahead of a real internal subset.
-    - `vector_image_too_complex` (12), each inside every other bound, so the rendered-element bound
-      is what refuses it:
-      - a 1,000-rect group amplified by three levels of ten `<use>`, through `href` and through
-        `xlink:href`;
-      - eight nested levels of 200 rects (about 200^8 rendered) through patterns referenced by a
-        `fill` attribute, a `style` attribute, stylesheet classes, stylesheet classes inside
-        `@media`, and `fill` inherited from a group; through masks; through clip paths; and through
-        filters whose `feImage` renders the level below;
-      - a 1,000-rect marker repeated by `marker-mid` at every vertex of a 20,000-segment path, and
-        the same marker applied by a stylesheet `marker` shorthand.
+    - `vector_image_too_complex` (15):
+      - the stylesheet caps: 33 selectors in one rule; 17 references in one rule; 1,251 rules of 16
+        selectors × 1 reference (20,016 against the work cap of 20,000); 2,001 rules;
+      - each of the following inside every other bound, so the rendered-element bound is what
+        refuses it:
+        - a 1,000-rect group amplified by three levels of ten `<use>`, through `href` and through
+          `xlink:href`;
+        - eight nested levels of 200 rects (about 200^8 rendered) through patterns referenced by a
+          `fill` attribute, a `style` attribute, stylesheet classes, and `fill` inherited from a
+          group; through masks; through clip paths; and through filters whose `feImage` renders the
+          level below;
+        - a 1,000-rect marker repeated by `marker-mid` at every vertex of a 20,000-segment path, and
+          the same marker applied by a stylesheet `marker` shorthand.
   - **Benign documents** that are stored, with the structures named here present in the output:
     - a combined logo: `<style>` block, linear and radial gradients, clip path, mask, in-document
       `<use>` via both `href` and `xlink:href`, embedded base64 PNG on `<image>`,
       `viewBox`/`preserveAspectRatio`, a `style=""` attribute and `<title>`;
     - a mask-based logo;
     - an `<feImage>` filter carrying an embedded PNG with a real PNG signature;
-    - a design-tool export with a CDATA-wrapped `<style>` (and CSS inside CDATA is still
+    - a gradient applied by `*`, `svg`, `path` and a compound comma list (`path.a, #b, *.a`),
+      without a false cycle through the gradient's stops;
+    - a design-tool export with a CDATA-wrapped `<style>` using a compound selector list (and CSS inside CDATA is still
       inspected);
     - an editor export (comment, plain DOCTYPE, Inkscape/Sodipodi/RDF metadata);
     - a `<style>` that mentions a DOCTYPE inside a CSS comment in CDATA;
@@ -743,7 +786,7 @@ Every bullet below is a test that exists.
     - accepted: modest `<use>` reuse;
     - `malformed`: not well-formed XML, an HTML document, an `<svg>` root outside the SVG namespace,
       plain text, and non-UTF-8 bytes.
-  - **Bounded cost**: eighteen documents at the bounds sanitise (or are refused) in under 5 s each
+  - **Bounded cost**: twenty-four documents at the bounds sanitise (or are refused) in under 5 s each
     (§ 4):
     - elements at the element and attribute bounds; paths with `url()` paint; rects with five kept
       presentation attributes; elements at the per-element attribute bound; editor-namespaced
@@ -752,14 +795,17 @@ Every bullet below is a test that exists.
     - text interleaved with comments, with PIs and with CDATA; flat comments; flat PIs; prolog
       comments;
     - text interleaved with disallowed elements (refused) and with foreign editor elements;
-    - 900 stylesheet rules referencing 900 targets from every rect; a 1 MiB stylesheet of `url()`
-      rules;
+    - 900 stylesheet rules referencing 900 targets from every rect; stylesheet rules at the work cap;
+      a 1 MiB stylesheet of `url()` rules (refused by the rule cap);
+    - one rule of 2,000 × 2,000 and one of 8,000 × 8,000 custom-property references (refused); 20,000
+      and 40,000 nested `@media` blocks and 20,000 unclosed ones (refused);
     - whitespace-formatted elements at the node bound.
-  - **`inspectVectorImageCss`**: a 17-case table:
+  - **`inspectVectorImageCss`**: a 19-case table:
     - pass: fragment and raster `data:` `url()`s, plain declarations, a commented `url(#…)`;
     - external: external, protocol-relative and relative `url()`, `@import` (any case),
       `-webkit-image-set()`, `url(\u3000#a)`, `url(" #a")`;
-    - unsafe: an unterminated `url(`, a CSS escape, `expression()`, `javascript:` inside `url()`.
+    - unsafe: an unterminated `url(`, a CSS escape, `expression()`, `javascript:` inside `url()`,
+      `marker-mid:var(--m)`, `--m:url(#marker)`.
   - **`isVectorImageUploadCandidate`**: `.svg` accepted; extension-less accepted by declared or
     sniffed type; `.html`, `.xhtml`, `.xml`, `.htm` never accepted.
   - **`isTrustedVectorImage`**: matching digest trusted; tampered bytes, a missing record, null
@@ -847,7 +893,11 @@ Regression proofs run during implementation:
   `*|rect`, `:is()`, attribute selectors, descendant selectors with comments, CSS nesting and
   `@keyframes`; masks, clip paths, `feImage` filters, a pattern template `href` and stylesheet
   `marker` shorthands; trimmed `id`/`class`; two benign documents) refused or accepted each as
-  expected, in at most 356 ms per input outside the first-load call.
+  expected, in at most 356 ms per input outside the first-load call. In the fifth round it grew to 83
+  inputs with the review's H1, H2 and M1 repros, a real-property variant of H1 (40 rules × 32
+  selectors × 16 references), `var()` with a fallback, upper-case `VAR()`, `-webkit-var()`, `:root`,
+  a comment hiding a combinator, an HTML comment token, and four benign stylesheets (`*`, `svg`,
+  `path`, comments with compound selectors); all 83 pass, at most 229 ms outside the first call.
 - **Serving red-team**: thirteen spellings of the file path run through Next 16.3.6's own header
   matcher (`getPathMatch`) and dispatcher matcher (`getRouteRegex('/api/[...slug]')`) together with
   the route's canonical-path check. Every spelling that serves inline SVG gets the vector CSP; the
@@ -866,6 +916,20 @@ Regression proofs run during implementation:
 
 ## Changelog
 
+- 2026-10-07 — Fifth review round:
+  - Stylesheets narrowed to the subset logo exporters write: flat rules with simple selectors (type,
+    `*`, `.class`, `#id`, compound, comma lists). At-rules, combinators, pseudo-classes and
+    -elements, attribute and namespace selectors, nesting and unclosed rules are refused, parsed in
+    one linear pass.
+  - Custom properties and `var()` refused in stylesheets, `style` attributes and presentation
+    attributes.
+  - Caps on rules (2,000), selectors per rule (32), references per rule (16) and Σ selectors ×
+    references (20,000), checked before indexing. The selector-subject parser, grouping-rule
+    handling and brace matching they made unnecessary are removed.
+  - Gradients, stops and filters contribute no property references, so `*{fill:url(#g)}` is no
+    longer a false cycle.
+  - Dependency corpus: 220 of 230 accepted. The ten refused are the six SVG fonts and four pdf.js
+    spinner icons that animate with `@keyframes` and `@media`; no logo-style file is lost.
 - 2026-10-07 — Fourth review round:
   - Merge order re-verified with a trial merge.
   - The file route serves sanitised SVG inline only at the canonical path; percent-encoded

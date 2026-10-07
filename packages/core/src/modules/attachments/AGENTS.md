@@ -98,6 +98,10 @@ write time.
 - A `<style>` may contain only text: check its children, and inspect exactly the
   concatenation of its direct text children (what browsers apply), never
   `textContent`.
+- Keep stylesheets to the exporter subset `parseStylesheet` accepts (flat rules,
+  simple selectors, no at-rules, custom properties or `var()`) and keep its
+  rule/selector/reference/work caps. Narrow what a stylesheet may contain rather
+  than model more CSS in the rendered-size bound.
 - Trim a reference only as its own syntax does: C0 controls and spaces for an
   `href`, ASCII CSS whitespace for an unquoted `url()`, nothing for a quoted one.
   Never use JavaScript `trim()` on a reference, and refuse a reference-bearing

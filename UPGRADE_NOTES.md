@@ -600,6 +600,21 @@ the undecoded path, so a percent-encoded spelling such as `/api/attachments/%66i
 route without this rule; the route serves a sanitised SVG inline only on the canonical
 `/api/attachments/file/<id>` and as a download on any other spelling.
 
+**Action for standalone apps scaffolded before 2026-08-01** (before the create-app template mirrored
+the app's security headers in `8fcfd248b`). If your `next.config.ts` sets the app-wide
+`Content-Security-Policy` on `/:path*` and has no `/api/attachments/file/:path*` rule, a canonical
+request for a sanitised SVG is served inline under the app-wide CSP — which allows inline script and
+has no `sandbox` — because Next.js keeps the config header over the route's own. Add the two rules
+above before any module stores vector images: narrow the app-wide rule's source to
+`/:path((?!api/attachments/file/).*)` and add the file-path rule with the vector CSP. The scaffolded
+`headers()` in `packages/create-app/template/next.config.ts` is the reference.
+
+Uploaded SVG stylesheets are limited to what logo exporters write: flat rules whose selectors are a
+type, `*`, `.class` or `#id` (compound, in comma lists). At-rules (`@media`, `@keyframes`, …),
+combinators, pseudo-classes, attribute selectors, nesting, custom properties and `var()` are refused
+with `vector_image_unsafe_content`, and a stylesheet over 2,000 rules, 32 selectors or 16 references
+in one rule, or 20,000 selector × reference pairs in total, with `vector_image_too_complex`.
+
 `attachmentService.readScoped()` returns a sanitised SVG as an `application/octet-stream` download,
 like any other SVG: a module route outside the file path gets the app-wide CSP, which Next.js keeps
 over the route's own header, so it cannot serve the SVG inline safely. Show a stored SVG with `<img>`
