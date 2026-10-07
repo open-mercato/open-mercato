@@ -18,6 +18,8 @@ type NotificationTypeCatalogueItem = {
   id: string
   labelKey: string
   descriptionKey?: string | null
+  category?: string | null
+  categoryLabel?: string | null
   // Effective "required" flag (tenant override ?? code-declared).
   nonOptOut?: boolean
   // Effective channel eligibility for this tenant (stored override ?? code-declared; null = every channel).
@@ -80,6 +82,26 @@ export function NotificationSettingsPageClient() {
   const [types, setTypes] = React.useState<NotificationTypeCatalogueItem[]>([])
   const [channels, setChannels] = React.useState<Array<{ id: string; labelKey: string }>>([])
   const [savingTypeCell, setSavingTypeCell] = React.useState<string | null>(null)
+  const groupHeadingId = React.useId()
+  const typeGroups = React.useMemo(() => {
+    const groups = new Map<string | null, {
+      category: string | null
+      label: string | null
+      items: NotificationTypeCatalogueItem[]
+    }>()
+    for (const type of types) {
+      const category = type.category || null
+      const group = groups.get(category)
+      if (group) group.items.push(type)
+      else groups.set(category, { category, label: category ? type.categoryLabel || category : null, items: [type] })
+    }
+    return Array.from(groups.values()).sort((left, right) => {
+      if (left.category === right.category) return 0
+      if (left.category === null) return 1
+      if (right.category === null) return -1
+      return left.category < right.category ? -1 : left.category > right.category ? 1 : 0
+    })
+  }, [types])
 
   const fetchCatalogue = React.useCallback(async () => {
     try {
@@ -453,55 +475,62 @@ export function NotificationSettingsPageClient() {
                     </th>
                   </tr>
                 </thead>
-                <tbody>
-                  {types.map((type) => (
-                    <tr key={type.id} className="border-b border-border last:border-0">
-                      <td className="px-4 py-3">
-                        <div className="font-medium">{t(type.labelKey, type.id)}</div>
-                        {type.descriptionKey ? (
-                          <div className="text-xs text-muted-foreground">{t(type.descriptionKey, '')}</div>
-                        ) : null}
-                      </td>
-                      {channels.map((channel) => {
-                        const cellKey = `${type.id}::${channel.id}`
-                        const channelEnabled = type.channels === null || type.channels.includes(channel.id)
-                        return (
-                          <td key={channel.id} className="px-4 py-3">
-                            {/* The saving spinner is absolutely positioned so it never joins the cell's
-                                layout flow — an in-flow sibling would widen the column mid-toggle and
-                                make the whole table jump for the duration of the save. */}
-                            <span className="relative inline-flex items-center">
-                              <Switch
-                                checked={channelEnabled}
-                                disabled={savingTypeCell !== null}
-                                aria-label={`${t(type.labelKey, type.id)} – ${t(channel.labelKey, channel.id)}`}
-                                onCheckedChange={(checked) =>
-                                  handleTypeChannelToggle(type, channel.id, checked)
-                                }
-                              />
-                              {savingTypeCell === cellKey ? (
-                                <Spinner size="sm" className="absolute left-full ml-2" />
-                              ) : null}
-                            </span>
-                          </td>
-                        )
-                      })}
-                      <td className="px-4 py-3">
-                        <span className="relative inline-flex">
-                          <Switch
-                            checked={type.nonOptOut === true}
-                            disabled={savingTypeCell !== null}
-                            aria-label={`${t(type.labelKey, type.id)} – ${t('notifications.settings.types.requiredColumn', 'Required')}`}
-                            onCheckedChange={(checked) => handleTypeNonOptOutToggle(type, checked)}
-                          />
-                          {savingTypeCell === `${type.id}::nonOptOut` ? (
-                            <Spinner size="sm" className="absolute left-full ml-2" />
-                          ) : null}
-                        </span>
-                      </td>
+                {typeGroups.map((group, index) => (
+                  <tbody key={JSON.stringify(group.category)} aria-labelledby={`${groupHeadingId}-${index}`}>
+                    <tr className="border-b border-border bg-muted/50">
+                      <th id={`${groupHeadingId}-${index}`} scope="rowgroup" colSpan={channels.length + 2} className="px-4 py-3 text-left font-semibold">
+                        {group.label ?? t('notifications.settings.types.uncategorized', 'Other notifications')}
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
+                    {group.items.map((type) => (
+                      <tr key={type.id} className="border-b border-border last:border-0">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{t(type.labelKey, type.id)}</div>
+                          {type.descriptionKey ? (
+                            <div className="text-xs text-muted-foreground">{t(type.descriptionKey, '')}</div>
+                          ) : null}
+                        </td>
+                        {channels.map((channel) => {
+                          const cellKey = `${type.id}::${channel.id}`
+                          const channelEnabled = type.channels === null || type.channels.includes(channel.id)
+                          return (
+                            <td key={channel.id} className="px-4 py-3">
+                              {/* The saving spinner is absolutely positioned so it never joins the cell's
+                                  layout flow — an in-flow sibling would widen the column mid-toggle and
+                                  make the whole table jump for the duration of the save. */}
+                              <span className="relative inline-flex items-center">
+                                <Switch
+                                  checked={channelEnabled}
+                                  disabled={savingTypeCell !== null}
+                                  aria-label={`${t(type.labelKey, type.id)} – ${t(channel.labelKey, channel.id)}`}
+                                  onCheckedChange={(checked) =>
+                                    handleTypeChannelToggle(type, channel.id, checked)
+                                  }
+                                />
+                                {savingTypeCell === cellKey ? (
+                                  <Spinner size="sm" className="absolute left-full ml-2" />
+                                ) : null}
+                              </span>
+                            </td>
+                          )
+                        })}
+                        <td className="px-4 py-3">
+                          <span className="relative inline-flex">
+                            <Switch
+                              checked={type.nonOptOut === true}
+                              disabled={savingTypeCell !== null}
+                              aria-label={`${t(type.labelKey, type.id)} – ${t('notifications.settings.types.requiredColumn', 'Required')}`}
+                              onCheckedChange={(checked) => handleTypeNonOptOutToggle(type, checked)}
+                            />
+                            {savingTypeCell === `${type.id}::nonOptOut` ? (
+                              <Spinner size="sm" className="absolute left-full ml-2" />
+                            ) : null}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
               </table>
             </div>
           )}
