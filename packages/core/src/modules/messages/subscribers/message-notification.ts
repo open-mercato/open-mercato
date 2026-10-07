@@ -10,6 +10,7 @@ import {
 import { User } from '../../auth/data/entities'
 import { Message } from '../data/entities'
 import { notificationTypes } from '../notifications'
+import { SYSTEM_SENDER_USER_ID } from '../lib/constants'
 
 export const metadata = {
   event: 'messages.message.sent',
@@ -99,7 +100,10 @@ async function resolveNotificationVariables(payload: MessageSentPayload, ctx: Re
 
 
 export default async function handle(payload: MessageSentPayload, ctx: ResolverContext): Promise<void> {
+  // The system sender has no user row; one stray id would fail the notification
+  // batch and drop the whole event, email delivery included (#6391).
   const uniqueRecipientUserIds = Array.from(new Set(payload.recipientUserIds))
+    .filter((recipientUserId) => recipientUserId !== SYSTEM_SENDER_USER_ID)
 
   const typeDef = notificationTypes.find((type) => type.type === 'messages.new')
   if (typeDef && uniqueRecipientUserIds.length > 0) {
