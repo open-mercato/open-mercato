@@ -131,9 +131,15 @@ const connectChannelSchema = z.object({
 const ingestInboundSchema = z.object({
   action: z.literal('ingest-inbound'),
   channelId: z.string().uuid(),
-  /** Opaque sender handle — a Discord snowflake, a Slack member id, etc. */
+  /**
+   * Opaque sender handle — a Discord snowflake, a Slack member id, etc. For a
+   * channel connected with the default `email` flavor this is the sender's
+   * address, and the email stub normalizes it into an email-shaped frame.
+   */
   senderIdentifier: z.string().min(1).max(255),
   senderDisplayName: z.string().max(255).optional(),
+  /** Honored by the email stub only; chat frames carry no subject. */
+  subject: z.string().max(500).optional(),
   body: z.string().max(50_000).optional(),
   externalMessageId: z.string().min(1).max(255),
   externalConversationId: z.string().min(1).max(255),
@@ -449,11 +455,14 @@ export async function POST(req: Request): Promise<Response> {
     // check that `providerKey` matches the channel it names, so passing a
     // different one would silently stamp the wrong provider onto the link.
     const channelProviderKey = ownedChannel.providerKey
-    if (channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY) {
+    if (
+      channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY
+      && channelProviderKey !== TEST_SEED_PROVIDER_KEY
+    ) {
       return NextResponse.json(
         {
           error:
-            'ingest-inbound requires a channel connected with providerFlavor: "chat"; ' +
+            'ingest-inbound requires a channel connected through the test-seed stub; ' +
             `channel ${body.channelId} is '${channelProviderKey}'`,
         },
         { status: 422 },
@@ -472,17 +481,29 @@ export async function POST(req: Request): Promise<Response> {
       )
     }
 
-    const normalized = await adapter.normalizeInbound({
-      raw: {
-        externalMessageId: body.externalMessageId,
-        externalConversationId: body.externalConversationId,
-        senderIdentifier: body.senderIdentifier,
-        senderDisplayName: body.senderDisplayName,
-        body: body.body ?? '',
-      },
-      eventType: 'message',
-      metadata: {},
-    })
+    // A frame the stub cannot normalize (an email channel given a non-address
+    // sender) is a test-author mistake, not a server fault: answer 422 with the
+    // adapter's message instead of an empty 500 (#6392).
+    let normalized: unknown
+    try {
+      normalized = await adapter.normalizeInbound({
+        raw: {
+          externalMessageId: body.externalMessageId,
+          externalConversationId: body.externalConversationId,
+          senderIdentifier: body.senderIdentifier,
+          senderDisplayName: body.senderDisplayName,
+          ...(body.subject !== undefined ? { subject: body.subject } : {}),
+          body: body.body ?? '',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : 'ingest-inbound could not normalize the frame' },
+        { status: 422 },
+      )
+    }
 
     const ingestInput = {
       channelId: body.channelId,
@@ -492,19 +513,29 @@ export async function POST(req: Request): Promise<Response> {
       message: normalized,
     } as IngestInboundMessageInput
 
-    const { result } = await commandBus.execute<
-      IngestInboundMessageInput,
-      IngestInboundMessageResult
-    >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
-      input: ingestInput,
-      ctx: {
-        container,
-        auth: auth as never,
-        organizationScope: null,
-        selectedOrganizationId: organizationId,
-        organizationIds: organizationId ? [organizationId] : null,
-      },
-    })
+    let result: IngestInboundMessageResult
+    try {
+      result = (await commandBus.execute<
+        IngestInboundMessageInput,
+        IngestInboundMessageResult
+      >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
+        input: ingestInput,
+        ctx: {
+          container,
+          auth: auth as never,
+          organizationScope: null,
+          selectedOrganizationId: organizationId,
+          organizationIds: organizationId ? [organizationId] : null,
+        },
+      })).result
+    } catch (err) {
+      // Surface the hub's rejection (compose validation, identity contract) to
+      // the test author instead of an empty 500 (#6392).
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : 'ingest-inbound failed' },
+        { status: 422 },
+      )
+    }
 
     return NextResponse.json(
       {
