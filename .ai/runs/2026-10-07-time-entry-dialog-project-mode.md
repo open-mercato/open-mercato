@@ -45,8 +45,8 @@ Let people log time to a project without a task from the time entry dialog (tena
 
 ### Phase 1: Exported schemas
 
-- [ ] 1.1 Export the ten propsSchemas and add the export unit test
-- [ ] 1.2 Document the exports in EP-31 and the staff AGENTS.md
+- [x] 1.1 Export the ten propsSchemas and add the export unit test — f10fa800c
+- [x] 1.2 Document the exports in EP-31 and the staff AGENTS.md — a4cd6d5e0
 
 ### Phase 2: Setting
 
