@@ -57,6 +57,24 @@ revert a write that may carry no secret of its own. Reach for `redoInput` first;
 that changes a password still uses it, because restoring the previous credential would require
 storing it).
 
+### `yarn generate` now enforces `metadata.requires` for every module
+
+The module dependency check described in
+[Module dependency graph](apps/docs/docs/architecture/module-dependencies.mdx) never actually ran:
+the generator loaded each module's `index.ts` with `require()`, which fails for packaged TypeScript
+sources (and executes module side effects), and a bare `catch` skipped validation silently. The
+generator now reads `metadata.requires` from the source syntactically, so the check fires — and
+`workflows` (`business_rules`) and `agent_orchestrator` (`workflows`, `api_keys`, `auth`,
+`attachments`) now declare the dependencies they already needed at runtime.
+
+**Action for app authors:** if `yarn generate` now stops with `Module dependency check failed`,
+enable the listed modules in `src/modules.ts` (or disable the module that requires them). Such a
+configuration was already broken — it typically surfaced later as
+`Metadata for entity … not found` during `mercato init`.
+
+**Action for module authors:** write `requires` as an array of string literals in the exported
+`metadata` object. A dynamically built list is skipped with a `[generate] ⚠` warning.
+
 ### Module API routes answer a thrown `CrudHttpError` with its own status instead of `500`
 
 The `/api/[...slug]` dispatcher now maps a `CrudHttpError` that escapes a route handler onto that

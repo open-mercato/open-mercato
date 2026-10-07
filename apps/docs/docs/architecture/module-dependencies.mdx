@@ -33,6 +33,8 @@ The shape lives in `packages/shared/src/modules/registry.ts` (`ModuleInfo`). Onl
 
 ## Enforcement
 
+The generator reads `requires` **statically**: it parses the module's `index.ts` (or the compiled `index.js` of a packaged module) and never executes it, so module side effects do not run and packaged TypeScript sources are supported. Only the exported `metadata` object counts, and `requires` must be an array of string literals. A declaration built dynamically — a spread, a constant, a computed entry — cannot be read; the generator prints a `[generate] ⚠` warning naming the file and skips the check for that module rather than guessing.
+
 The check runs at code-generation time, not at HTTP request time, but the effect on the running app is the same: if a required module is missing the generator refuses to write `modules.generated.ts`.
 
 ```text
@@ -43,7 +45,7 @@ Fix: Enable required module(s) in src/modules.ts. Example:
   export const enabledModules = [ { id: 'catalog' }, { id: 'customers' }, { id: 'dictionaries' } ]
 ```
 
-(See `packages/cli/src/lib/generators/module-registry.ts:3010` for the check.) Because the generator emits the registry that the Next.js dispatcher imports, a failed `yarn generate` means the app cannot boot until the dependency is satisfied.
+(See `extractModuleRequiresFromSource` and `findMissingModuleRequires` in `packages/cli/src/lib/generators/module-registry.ts`.) Because the generator emits the registry that the Next.js dispatcher imports, a failed `yarn generate` means the app cannot boot until the dependency is satisfied.
 
 In addition, `seedDefaults` and `seedExamples` hooks in each module's `setup.ts` are executed in topological order derived from `requires` so that a dependent module sees the data its dependency seeded.
 
@@ -56,11 +58,11 @@ The tables below enumerate every module discovered under `packages/*/src/modules
 | Module id | Title | Requires | Foundational? |
 | --- | --- | --- | --- |
 | `api_docs` | API Documentation | — | |
-| `api_keys` | API Keys | `auth` | |
-| `attachments` | Attachments | — | |
+| `api_keys` | API Keys | `auth` | ✅ (agent_orchestrator) |
+| `attachments` | Attachments | — | ✅ (agent_orchestrator) |
 | `audit_logs` | Audit & Action Logs | — | |
-| `auth` | Authentication & Accounts | — | ✅ (api_keys) |
-| `business_rules` | Business Rules | — | |
+| `auth` | Authentication & Accounts | — | ✅ (api_keys, agent_orchestrator) |
+| `business_rules` | Business Rules | — | ✅ (workflows) |
 | `catalog` | Product Catalog | — | ✅ (sales, sync_akeneo) |
 | `configs` | Configuration | — | |
 | `currencies` | Currencies | — | |
@@ -88,7 +90,7 @@ The tables below enumerate every module discovered under `packages/*/src/modules
 | `staff` | Employees | `planner`, `resources` | |
 | `sync_excel` | Excel / CSV Import | — | |
 | `translations` | Entity Translations | — | |
-| `workflows` | Workflow Engine | — | |
+| `workflows` | Workflow Engine | `business_rules` | ✅ (agent_orchestrator) |
 
 ### Other first-party packages
 
@@ -107,10 +109,11 @@ The tables below enumerate every module discovered under `packages/*/src/modules
 
 ### Enterprise (`@open-mercato/enterprise`)
 
-Enterprise modules are off by default. Toggle them via `OM_ENABLE_ENTERPRISE_MODULES`, `OM_ENABLE_ENTERPRISE_MODULES_SSO`, and `OM_ENABLE_ENTERPRISE_MODULES_SECURITY`.
+Enterprise modules are off by default. Toggle them via `OM_ENABLE_ENTERPRISE_MODULES`, `OM_ENABLE_ENTERPRISE_MODULES_SSO`, `OM_ENABLE_ENTERPRISE_MODULES_SECURITY`, and `OM_ENABLE_ENTERPRISE_MODULES_AGENTS`.
 
 | Module id | Title | Requires |
 | --- | --- | --- |
+| `agent_orchestrator` | Agent Orchestrator | `workflows`, `api_keys`, `auth`, `attachments` |
 | `record_locks` | Record Locking | — |
 | `security` | Security | — |
 | `sso` | Single Sign-On | — |
@@ -130,6 +133,7 @@ These are scaffolded into new apps by `create-app` but are not enabled in the mo
 The current declared edges are:
 
 ```text
+agent_orchestrator → workflows, api_keys, auth, attachments
 api_keys      → auth
 customers     → progress
 entities      → query_index
@@ -138,6 +142,7 @@ resources     → planner
 sales         → catalog, customers, dictionaries
 staff         → planner, resources
 sync_akeneo   → integrations, data_sync, catalog, sales
+workflows     → business_rules
 ```
 
 Transitive closures worth noting:
