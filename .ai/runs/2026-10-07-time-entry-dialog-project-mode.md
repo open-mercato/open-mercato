@@ -64,3 +64,4 @@ PR: #7001
 - [x] 3.5 Docs and the full validation gate — 4cbc4c90d
 
 - [x] Post-review fix: review findings on project mode (silent task-mode error, injected write, focus, locked label, PUT coverage) — 56122091b
+- [x] Post-review fix: re-review minors (single pinned lookup, refocus and locked-label tests) — 78355ac6f
