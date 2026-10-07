@@ -149,34 +149,43 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   )
   const groups = React.useMemo(() => createProjectFormGroups(t), [t])
 
+  // A reload of the project already on screen — most often the organization
+  // switcher settling its scope just after mount — keeps that screen until the
+  // answer arrives. Falling back to the full-page loader would unmount it and
+  // drop its local state: the form's unsaved edits, or an access request the
+  // user has just sent.
+  const resolvedProjectIdRef = React.useRef<string | null>(null)
   React.useEffect(() => {
     if (!projectId) return
     let cancelled = false
     async function load() {
-      setLoading(true)
-      setError(null)
-      setIsNotFound(false)
-      setAccessDenied(false)
+      if (resolvedProjectIdRef.current !== projectId) setLoading(true)
+      const settle = (outcome: { values?: ProjectFormValues; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
+        if (cancelled) return
+        resolvedProjectIdRef.current = projectId ?? null
+        setAccessDenied(outcome.accessDenied === true)
+        setIsNotFound(outcome.isNotFound === true)
+        setError(outcome.error ?? null)
+        if (outcome.values) setInitialValues(outcome.values)
+        setLoading(false)
+      }
       try {
         const record = await fetchProject()
         if (!record) {
-          if (!cancelled) setIsNotFound(true)
+          settle({ isNotFound: true })
           return
         }
-        if (!cancelled) setInitialValues(toValues(record))
+        settle({ values: toValues(record) })
       } catch (err) {
-        if (cancelled) return
         if (err instanceof ProjectAccessDeniedError) {
-          setAccessDenied(true)
+          settle({ accessDenied: true })
           return
         }
-        setError(
-          err instanceof Error
+        settle({
+          error: err instanceof Error
             ? err.message
             : t('staff.timesheets.projects.errors.load', 'Failed to load project.'),
-        )
-      } finally {
-        if (!cancelled) setLoading(false)
+        })
       }
     }
     load()

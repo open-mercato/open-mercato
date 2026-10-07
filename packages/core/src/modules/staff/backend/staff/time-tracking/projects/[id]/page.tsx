@@ -380,14 +380,25 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   )
 
   // --- Load project ---
+  // A reload of the project already on screen — most often the organization
+  // switcher settling its scope just after mount — keeps that screen until the
+  // answer arrives. Falling back to the full-page loader would unmount it and
+  // drop its local state, such as an access request the user has just sent.
+  const resolvedProjectIdRef = React.useRef<string | null>(null)
   React.useEffect(() => {
     if (!projectId) return
     let cancelled = false
     async function loadProject() {
-      setLoading(true)
-      setError(null)
-      setIsNotFound(false)
-      setAccessDenied(false)
+      if (resolvedProjectIdRef.current !== projectId) setLoading(true)
+      const settle = (outcome: { project?: ProjectRecord; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
+        if (cancelled) return
+        resolvedProjectIdRef.current = projectId ?? null
+        setAccessDenied(outcome.accessDenied === true)
+        setIsNotFound(outcome.isNotFound === true)
+        setError(outcome.error ?? null)
+        if (outcome.project) setProject(outcome.project)
+        setLoading(false)
+      }
       try {
         const queryParams = new URLSearchParams({ page: '1', pageSize: '1', ids: projectId! })
         const call = await apiCall<ProjectResponse>(
@@ -396,7 +407,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          if (!cancelled) setAccessDenied(true)
+          settle({ accessDenied: true })
           return
         }
         if (!call.ok) {
@@ -405,16 +416,12 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         const payload = call.result
         const record = Array.isArray(payload?.items) ? payload.items[0] : null
         if (!record) {
-          if (!cancelled) setIsNotFound(true)
+          settle({ isNotFound: true })
           return
         }
-        if (!cancelled) setProject(record)
+        settle({ project: record })
       } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
+        settle({ error: loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.') })
       }
     }
     loadProject()

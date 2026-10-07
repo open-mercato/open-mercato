@@ -25,10 +25,17 @@ export default function ProjectBoardPage({ params }: { params?: { id?: string | 
   const rawId = params?.id
   const projectId = Array.isArray(rawId) ? rawId[0] ?? null : rawId ?? null
 
+  const projectKey = projectId ?? 'none'
   const projectQuery = useQuery<{ id: string; name: string } | null>({
-    queryKey: ['staff', 'time-tracking', 'board', 'project', `scope:${scopeVersion}`, projectId ?? 'none'],
+    queryKey: ['staff', 'time-tracking', 'board', 'project', `scope:${scopeVersion}`, projectKey],
     enabled: !!projectId,
     staleTime: 60_000,
+    // A scope change re-keys the query. For the same project, keep the screen
+    // already shown until the new answer arrives: the loading branch below would
+    // unmount it and drop its local state, such as an access request just sent.
+    placeholderData: (previous, previousQuery) => (
+      previousQuery?.queryKey.at(-1) === projectKey ? previous : undefined
+    ),
     queryFn: async () => {
       if (!projectId) return null
       const call = await apiCall<Record<string, unknown>>(
