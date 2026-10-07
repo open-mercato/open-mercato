@@ -773,6 +773,14 @@ describe('DefaultAttachmentService.readScopedForOwner', () => {
     }), 422)
   })
 
+  it('propagates an operational rendition failure instead of answering it as an undecodable image', async () => {
+    const accessDenied = Object.assign(new Error('EACCES: permission denied, open thumbnail'), { code: 'EACCES' })
+    mockRenderImageRendition.mockRejectedValueOnce(accessDenied)
+    const { service } = createHarness({ attachment: ownedAttachment({ fileName: 'logo.png', mimeType: 'image/png' }) })
+
+    await expect(service.readScopedForOwner({ ...ownerInput, rendition: { width: 640 } })).rejects.toBe(accessDenied)
+  })
+
   it.each([
     ['a non-UUID id', 'attachment-1'],
     ['an empty id', ''],

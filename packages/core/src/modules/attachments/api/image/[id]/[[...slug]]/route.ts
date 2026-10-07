@@ -121,6 +121,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized - authentication required for private partitions', schema: attachmentErrorSchema },
         { status: 403, description: 'Forbidden - insufficient permissions', schema: attachmentErrorSchema },
         { status: 404, description: 'Image not found', schema: attachmentErrorSchema },
+        { status: 422, description: 'Stored image cannot be decoded', schema: attachmentErrorSchema },
         { status: 500, description: 'Partition misconfigured or image rendering failed', schema: attachmentErrorSchema },
       ],
     },

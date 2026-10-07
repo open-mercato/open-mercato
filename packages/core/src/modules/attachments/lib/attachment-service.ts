@@ -9,7 +9,7 @@ import { Attachment, AttachmentPartition } from '../data/entities'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
 import type { StorageDriverFactory } from './drivers'
 import { buildAttachmentFileUrl } from './imageUrls'
-import { renderImageRendition, type ImageRenditionResult, type ImageRenditionSize } from './imageRendition'
+import { renderImageRendition, type ImageRenditionSize } from './imageRendition'
 import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
@@ -485,17 +485,11 @@ export class DefaultAttachmentService implements AttachmentService {
     }
 
     if (input.rendition) {
-      let rendered: ImageRenditionResult
-      try {
-        rendered = await renderImageRendition({
-          attachment,
-          readSource: async () => (await readStoredBytes()).buffer,
-          size: input.rendition,
-        })
-      } catch (error) {
-        if (error instanceof CrudHttpError) throw error
-        throw new CrudHttpError(422, { error: 'Image could not be rendered' })
-      }
+      const rendered = await renderImageRendition({
+        attachment,
+        readSource: async () => (await readStoredBytes()).buffer,
+        size: input.rendition,
+      })
       if (!rendered.ok) throw new CrudHttpError(rendered.status, { error: rendered.error })
       return {
         buffer: rendered.buffer,

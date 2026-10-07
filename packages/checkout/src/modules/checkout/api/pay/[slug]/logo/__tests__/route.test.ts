@@ -235,6 +235,14 @@ describe('GET /api/checkout/pay/[slug]/logo', () => {
     expect(await response.json()).toEqual({ error: 'checkout.payPage.errors.logoNotFound' })
   })
 
+  it('answers an operational failure behind the logo with a 500, not a silent 404', async () => {
+    readScopedForOwner.mockRejectedValue(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }))
+
+    const response = await logoRequest()
+
+    expect(response.status).toBe(500)
+  })
+
   it('returns the rate limiter response when the visitor is throttled', async () => {
     jest.mocked(enforceCheckoutRateLimit).mockResolvedValue(
       NextResponse.json({ error: 'Too many requests' }, { status: 429 }),
