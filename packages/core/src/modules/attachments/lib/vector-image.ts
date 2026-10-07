@@ -19,12 +19,12 @@ export {
 } from './vector-image-record'
 
 export const VECTOR_IMAGE_MAX_BYTES = 1024 * 1024
-export const VECTOR_IMAGE_MAX_ELEMENTS = 3_000
+export const VECTOR_IMAGE_MAX_ELEMENTS = 2_000
 export const VECTOR_IMAGE_MAX_ATTRIBUTES_PER_ELEMENT = 64
-export const VECTOR_IMAGE_MAX_ATTRIBUTES = 15_000
+export const VECTOR_IMAGE_MAX_ATTRIBUTES = 6_000
 export const VECTOR_IMAGE_MAX_DEPTH = 64
-export const VECTOR_IMAGE_MAX_NODES = 6_000
-export const VECTOR_IMAGE_MAX_MARKUP = 6_000
+export const VECTOR_IMAGE_MAX_NODES = 4_000
+export const VECTOR_IMAGE_MAX_MARKUP = 4_000
 export const VECTOR_IMAGE_MAX_RENDERED_ELEMENTS = 50_000
 export const VECTOR_IMAGE_CONTENT_SECURITY_POLICY =
   "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
@@ -38,8 +38,7 @@ const XML_NAMESPACE = 'http://www.w3.org/XML/1998/namespace'
 const XMLNS_NAMESPACE = 'http://www.w3.org/2000/xmlns/'
 
 const RENDERING_ELEMENT_NAMESPACES = new Set([SVG_NAMESPACE, XHTML_NAMESPACE, MATHML_NAMESPACE])
-const KEPT_ATTRIBUTE_NAMESPACES = new Set([XLINK_NAMESPACE, XML_NAMESPACE])
-const KEPT_NAMESPACE_DECLARATIONS = new Set([SVG_NAMESPACE, XLINK_NAMESPACE])
+const REFERENCED_ATTRIBUTES = new Set(['id', 'name', 'class', 'attributename'])
 const ANIMATION_ELEMENTS = new Set(['animate', 'animatecolor', 'animatemotion', 'animatetransform', 'set'])
 const RASTER_DATA_URI_ELEMENTS = new Set(['image', 'feimage'])
 const CSS_PARSED_ATTRIBUTES = new Set([
@@ -58,7 +57,7 @@ const CSS_PARSED_ATTRIBUTES = new Set([
 const CSS_STRING_URL_FUNCTIONS = new Set(['image', 'image-set', 'cross-fade', 'element', 'src', 'attr'])
 const CSS_ACTIVE_FUNCTIONS = new Set(['expression'])
 const CSS_ACTIVE_IDENTIFIERS = new Set(['behavior', '-moz-binding', 'javascript', 'vbscript'])
-const RASTER_DATA_URI_PATTERN = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=\s]+)$/i
+const RASTER_DATA_URI_PATTERN = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=\t\n\f\r ]+)$/i
 const ACTIVE_SCHEME_PATTERN = /^(?:javascript|vbscript|data):/i
 const DTD_DECLARATION_PATTERN = /<!(?:ENTITY|ATTLIST|ELEMENT|NOTATION)/i
 const VENDOR_PREFIX_PATTERN = /^-[a-z0-9]+-/
@@ -121,12 +120,15 @@ type DomAttributeList = {
   item(index: number): DomAttribute | null
 }
 
+type DomAttributeWithPrefix = DomAttribute & { prefix: string | null }
+
 type DomElement = DomNode & {
   localName: string
   namespaceURI: string | null
   attributes: DomAttributeList
   getAttribute(name: string): string | null
   removeAttributeNode(attribute: DomAttribute): unknown
+  setAttributeNS(namespace: string, qualifiedName: string, value: string): void
 }
 
 type VectorImageFinding = VectorImageRemoval & { kind: VectorImageFindingKind }
@@ -349,22 +351,47 @@ function normaliseUrlValue(value: string): string {
   return normalised
 }
 
+/**
+ * The URL parser strips leading and trailing C0 controls and spaces from an
+ * attribute URL, and nothing else: a non-ASCII space such as U+3000 stays part
+ * of the URL and makes `#id` a relative URL.
+ */
+function trimUrlBoundary(value: string): string {
+  let start = 0
+  let end = value.length
+  while (start < end && value.charCodeAt(start) <= 0x20) start += 1
+  while (end > start && value.charCodeAt(end - 1) <= 0x20) end -= 1
+  return value.slice(start, end)
+}
+
+function trimCssWhitespace(value: string): string {
+  let start = 0
+  let end = value.length
+  while (start < end && isCssWhitespace(value[start])) start += 1
+  while (end > start && isCssWhitespace(value[end - 1])) end -= 1
+  return value.slice(start, end)
+}
+
 function hasRasterSignature(mimeType: string, base64: string): boolean {
-  const bytes = Buffer.from(base64.replace(/\s+/g, ''), 'base64')
+  const bytes = Buffer.from(base64.replace(/[\t\n\f\r ]+/g, ''), 'base64')
   return detectAttachmentMimeType(bytes, null, null) === mimeType.toLowerCase()
 }
 
 function isAllowedRasterDataUri(value: string): boolean {
-  const match = RASTER_DATA_URI_PATTERN.exec(value.trim())
+  const match = RASTER_DATA_URI_PATTERN.exec(value)
   if (!match) return false
   return hasRasterSignature(match[1]!, match[2]!)
 }
 
+/**
+ * Classifies a reference exactly as given: callers strip only what their own
+ * syntax strips (C0 controls and spaces for an attribute URL, ASCII whitespace
+ * for an unquoted CSS `url(`, nothing inside a quoted CSS string).
+ */
 function classifyReference(value: string, allowRasterData: boolean): VectorImageFindingKind | null {
-  const trimmed = value.trim()
-  if (/^#[^\s#]+$/.test(trimmed)) return null
-  if (allowRasterData && isAllowedRasterDataUri(trimmed)) return null
-  if (ACTIVE_SCHEME_PATTERN.test(normaliseUrlValue(trimmed))) return 'active_content'
+  if (/^#[^\s#]+$/.test(value)) return null
+  if (allowRasterData && isAllowedRasterDataUri(value)) return null
+  if (ACTIVE_SCHEME_PATTERN.test(normaliseUrlValue(value))) return 'active_content'
   return 'external_reference'
 }
 
@@ -463,8 +490,8 @@ export function inspectVectorImageCss(css: string): VectorImageFindingKind | nul
           close += 1
         }
         if (close >= css.length) return 'active_content'
-        const target = css.slice(start, close).trim()
-        if (/\s/.test(target)) return 'active_content'
+        const target = trimCssWhitespace(css.slice(start, close))
+        if (/[\t\n\f\r ]/.test(target)) return 'active_content'
         const kind = classifyReference(target, true)
         if (kind === 'active_content') return kind
         verdict = verdict ?? kind
@@ -559,17 +586,61 @@ function classifyChild(node: DomNode): ChildVerdict {
   return 'keep'
 }
 
-function stripForeignAttributes(element: DomElement, removals: VectorImageRemoval[]): void {
+function isReferenceBearing(attribute: DomAttribute): boolean {
+  if (isHrefAttribute(attribute)) return true
+  if (attribute.namespaceURI !== null) return false
+  return CSS_PARSED_ATTRIBUTES.has(attribute.localName.toLowerCase()) || /url\s*\(/i.test(attribute.value)
+}
+
+function isKeptNamespaceDeclaration(attribute: DomAttribute): boolean {
+  if (attribute.name === 'xmlns') return attribute.value === SVG_NAMESPACE
+  return attribute.name === 'xmlns:xlink' && attribute.value === XLINK_NAMESPACE
+}
+
+/**
+ * Normalises one element's attributes before DOMPurify and returns the first
+ * attribute that refuses the document, if any.
+ *
+ * - Foreign-namespace attributes (editor data) are removed, and so is every
+ *   namespace declaration except the default SVG one and `xmlns:xlink`: the
+ *   serialiser re-declares any prefix it needs, and DOMPurify allows no other
+ *   declaration (Inkscape writes `xmlns:svg`).
+ * - XLink attributes written with another prefix (`xmlns:x` + `x:href`) are
+ *   rewritten as `xlink:`, the only XLink spelling DOMPurify allows.
+ * - DOMPurify rewrites every attribute value with JavaScript `trim()`, which
+ *   also strips non-ASCII spaces that a browser keeps (`href="\u3000#a"` is a
+ *   relative URL to a browser and `#a` after DOMPurify). A reference-bearing
+ *   attribute (`href`, a CSS-parsed attribute, any value with `url(`) whose
+ *   value it would change that way is refused rather than silently rewritten;
+ *   elsewhere the trim changes nothing that renders or fetches.
+ */
+function normaliseAttributes(
+  element: DomElement,
+  removals: VectorImageRemoval[],
+): { finding: VectorImageFinding | null; rewroteXlink: boolean } {
+  let rewroteXlink = false
   for (const attribute of attributesOf(element)) {
     const attributeNamespace = attribute.namespaceURI
-    if (attributeNamespace === null || KEPT_ATTRIBUTE_NAMESPACES.has(attributeNamespace)) continue
+    if (isReferenceBearing(attribute) && attribute.value.trim() !== trimUrlBoundary(attribute.value)) {
+      const kind = isHrefAttribute(attribute) ? 'external_reference' : 'active_content'
+      return { finding: { kind, target: describeAttribute(attribute, element) }, rewroteXlink }
+    }
+    if (attributeNamespace === null || attributeNamespace === XML_NAMESPACE) continue
+    if (attributeNamespace === XLINK_NAMESPACE) {
+      if ((attribute as DomAttributeWithPrefix).prefix === 'xlink') continue
+      element.removeAttributeNode(attribute)
+      element.setAttributeNS(XLINK_NAMESPACE, `xlink:${attribute.localName}`, attribute.value)
+      rewroteXlink = true
+      continue
+    }
     if (attributeNamespace === XMLNS_NAMESPACE) {
-      if (KEPT_NAMESPACE_DECLARATIONS.has(attribute.value)) continue
+      if (isKeptNamespaceDeclaration(attribute)) continue
     } else {
       removals.push({ kind: 'inert', target: describeAttribute(attribute, element) })
     }
     element.removeAttributeNode(attribute)
   }
+  return { finding: null, rewroteXlink }
 }
 
 /**
@@ -590,6 +661,7 @@ function stripForeignAttributes(element: DomElement, removals: VectorImageRemova
  */
 function prepareForPurify(document: DomDocument, removals: VectorImageRemoval[]): VectorImageFinding | null {
   const parents: DomNode[] = [document]
+  let rewroteXlink = false
   while (parents.length) {
     const parent = parents.pop()!
     const kept: DomNode[] = []
@@ -612,9 +684,15 @@ function prepareForPurify(document: DomDocument, removals: VectorImageRemoval[])
     if (changed && parent !== document) replaceChildren(parent, kept)
     for (const child of kept) {
       if (!isElement(child)) continue
-      stripForeignAttributes(child, removals)
+      const normalised = normaliseAttributes(child, removals)
+      if (normalised.finding) return normalised.finding
+      rewroteXlink = rewroteXlink || normalised.rewroteXlink
       parents.push(child)
     }
+  }
+  const root = document.documentElement
+  if (rewroteXlink && root && root.getAttribute('xmlns:xlink') !== XLINK_NAMESPACE) {
+    root.setAttributeNS(XMLNS_NAMESPACE, 'xmlns:xlink', XLINK_NAMESPACE)
   }
   return null
 }
@@ -644,8 +722,8 @@ function hasConflictingHrefs(attributes: DomAttribute[]): boolean {
   let xlink: string | null = null
   for (const attribute of attributes) {
     if (!isHrefAttribute(attribute)) continue
-    if (attribute.namespaceURI === null) plain = attribute.value.trim()
-    else xlink = attribute.value.trim()
+    if (attribute.namespaceURI === null) plain = trimUrlBoundary(attribute.value)
+    else xlink = trimUrlBoundary(attribute.value)
   }
   return plain !== null && xlink !== null && plain !== xlink
 }
@@ -654,19 +732,29 @@ function looksLikeReference(value: string): boolean {
   return /url\s*\(|:/i.test(value)
 }
 
+/**
+ * A DOMPurify removal is inert only for an attribute it does not know that
+ * nothing can depend on: not a namespace declaration's target, not an event
+ * handler, link, style or URL-bearing value, and not an attribute other
+ * content references or that drives animation (`id`, `name`, `class`,
+ * `attributeName` — DOMPurify drops an `attributeName` naming `href`).
+ */
 function classifyPurifyRemoval(entry: PurifyRemovedEntry): VectorImageRemoval {
   if (entry.attribute) {
+    const target = describeAttribute(entry.attribute, entry.from)
+    if (entry.attribute.namespaceURI === XMLNS_NAMESPACE) return { kind: 'inert', target }
     const name = entry.attribute.name.toLowerCase()
     const isHandler = /^on/.test(entry.attribute.localName.toLowerCase())
     const isLink = name.endsWith('href') || name === 'src' || name === 'style'
-    const inert = !isHandler && !isLink && !looksLikeReference(entry.attribute.value ?? '')
-    return { kind: inert ? 'inert' : 'active_content', target: describeAttribute(entry.attribute, entry.from) }
+    const isReferenced = REFERENCED_ATTRIBUTES.has(entry.attribute.localName.toLowerCase())
+    const inert = !isHandler && !isLink && !isReferenced && !looksLikeReference(entry.attribute.value ?? '')
+    return { kind: inert ? 'inert' : 'active_content', target }
   }
   return { kind: 'active_content', target: entry.element ? describeElement(entry.element) : 'element' }
 }
 
 function inspectAttribute(tag: string, attribute: DomAttribute): VectorImageFindingKind | null {
-  if (isHrefAttribute(attribute)) return classifyReference(attribute.value, RASTER_DATA_URI_ELEMENTS.has(tag))
+  if (isHrefAttribute(attribute)) return classifyReference(trimUrlBoundary(attribute.value), RASTER_DATA_URI_ELEMENTS.has(tag))
   if (attribute.namespaceURI !== null) return null
   const name = attribute.localName.toLowerCase()
   if (CSS_PARSED_ATTRIBUTES.has(name) || /url\s*\(/i.test(attribute.value)) {
@@ -714,7 +802,7 @@ function findReferenceViolation(root: DomElement): VectorImageFinding | null {
 }
 
 function referencedId(element: DomElement): string | null {
-  const value = effectiveHref(element)?.trim() ?? ''
+  const value = trimUrlBoundary(effectiveHref(element) ?? '')
   return value.startsWith('#') ? value.slice(1) : null
 }
 
@@ -833,7 +921,9 @@ function runPurify(
       USE_PROFILES: { svg: true, svgFilters: true },
       ADD_TAGS: ['use'],
       ADD_DATA_URI_TAGS: ['feimage'],
+      ADD_ATTR: ['role'],
       KEEP_CONTENT: false,
+      SANITIZE_DOM: false,
       RETURN_DOM: true,
     }) as DomNode | null
     collectRemovals()
