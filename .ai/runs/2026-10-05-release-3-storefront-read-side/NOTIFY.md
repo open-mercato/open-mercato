@@ -304,3 +304,8 @@
 - Coverage limit — draft-store seed (7.11) is unit-covered only: the running env has no `UPGRADE_ACTIONS_ENABLED`, the configs POST route always runs with the app version (0.8.0 < action version 0.8.1, no explicit-version parameter), and `onTenantCreated` runs only through `setupInitialTenant` (CLI/onboarding), not `POST /api/directory/tenants`. Observed in passing: the ephemeral env's tenant already carries the seeded draft store "Acme Corp" (code `acme-corp`, USD), consistent with the hook running at init; no test depends on it.
 - Domain mappings for the UI test are an `active` and a `verified` mapping in the admin organization at the same time (the same shape TC-ECOM-001 uses); the verified one shows the "does not serve" warning both in the dialog and on its table row.
 - No production defect found.
+
+## 2026-10-07 — final gate
+- `validation.commands` gate on HEAD 8dc28f8468: green except the host-only `create-mercato-app` bwrap failures (80, baseline 81). The first gate run's docs failure was fixed in 7.12-gate-fix.
+- Full integration suite (1.3h): 2411 passed, 8 failed, 4 flaky. All failures triaged as environmental. One-shot harness re-runs: TC-PHONE-HUB-006 and TC-WEBHOOK-009 pass; TC-SX-001 passes with the attachments-root env. TC-START-001, TC-ONBOARDING-EMAIL-001 and TC-DOCUMENTS-009/013 need CI-only env (onboarding, system email, documents collaboration). 0 regressions. See `final-gate-checks.md`.
+- Lesson: attached-mode `yarn test:integration` (BASE_URL against a separately started env) does not hand the app's runtime env to the Playwright process. Specs that run commands in-process or share cache/storage paths fail there, so re-run them with `yarn test:integration:ephemeral <regex>` before calling a regression.

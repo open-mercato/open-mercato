@@ -89,7 +89,7 @@
 | 7 | 7.12 | Integration tests: admin UI paths (SPEC-029 Phases 2–3 gates) | dispatch:capable | done | 9435edbb3d |
 | 7 | 7.12-gate-fix | Document the ecommerce notification types in notification-delivery.mdx (docs registry test) | inline | done | ffe3a3dceb |
 | 7 | 7.12-ds-fix | Design-system fixes from the final-gate style pass | inline | done | 2547c77055 |
-| 7 | 7.12-ui-fix | UI polish from checkpoints 13–14 | inline | done | pending |
+| 7 | 7.12-ui-fix | UI polish from checkpoints 13–14 | inline | done | 8dc28f8468 |
 
 ## Goal
 
