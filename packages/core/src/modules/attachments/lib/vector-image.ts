@@ -68,7 +68,7 @@ const PAINTED_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon', 'rect',
 const MARKABLE_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon'])
 const NON_INHERITED_REFERENCE_PROPERTIES = new Set(['clip-path', 'mask', 'filter'])
 const SIMPLE_SELECTOR_NAME = '-?[_a-zA-Z\\u0080-\\uffff][-_a-zA-Z0-9\\u0080-\\uffff]*'
-const SIMPLE_SELECTOR_PATTERN = new RegExp(`^(?:\\*|${SIMPLE_SELECTOR_NAME})?(?:[.#]${SIMPLE_SELECTOR_NAME})*$`)
+const CSS_IDENTIFIER_PATTERN = new RegExp(`^${SIMPLE_SELECTOR_NAME}$`)
 const NON_RENDERING_PROPERTY_SOURCES = new Set(['lineargradient', 'radialgradient', 'stop', 'filter'])
 
 const NODE_ELEMENT = 1
@@ -156,9 +156,19 @@ type DomDocument = DomNode & {
   getElementsByTagName(name: string): { length: number }
 }
 
+type CssomStyleElement = {
+  textContent: string | null
+  sheet: { cssRules: ArrayLike<{ type: number; selectorText?: string }> } | null
+  remove(): void
+}
+
 type DomWindow = {
   DOMParser: new () => { parseFromString(text: string, type: string): DomDocument }
   XMLSerializer: new () => { serializeToString(node: DomNode): string }
+  document: {
+    head: { appendChild(node: CssomStyleElement): unknown } | null
+    createElement(name: 'style'): CssomStyleElement
+  }
   close(): void
 }
 
@@ -181,10 +191,10 @@ let runtimePromise: Promise<SanitizerRuntime> | null = null
 async function loadSanitizerRuntime(): Promise<SanitizerRuntime> {
   if (!runtimePromise) {
     runtimePromise = (async (): Promise<SanitizerRuntime> => {
-      const [{ JSDOM }, purifyModule] = await Promise.all([import('jsdom'), import('dompurify')])
+      const [{ JSDOM, VirtualConsole }, purifyModule] = await Promise.all([import('jsdom'), import('dompurify')])
       const createPurify = (purifyModule.default ?? purifyModule) as unknown as (window: unknown) => PurifyInstance
       return {
-        createWindow: () => new JSDOM('').window as unknown as DomWindow,
+        createWindow: () => new JSDOM('', { virtualConsole: new VirtualConsole() }).window as unknown as DomWindow,
         createPurify: (window: DomWindow) => createPurify(window),
       }
     })().catch((error) => {
@@ -423,135 +433,184 @@ function readCssName(css: string, start: number): number {
   return end
 }
 
-/**
- * Classifies a stylesheet or a CSS-parsed attribute value by tokenising it the
- * way CSS Syntax Level 3 does: comments, quoted strings and `url(` tokens are
- * recognised as tokens, so a comment opener inside a string cannot hide what
- * follows it and a comment inside an unquoted `url(` stays part of the URL.
- *
- * Deliberately stricter than a browser: any escape (`\`), any string ended by
- * a newline or by the end of the stylesheet, any unterminated comment or
- * `url(` token and any malformed unquoted URL are refused as active content,
- * because each is a way to make two parsers disagree and logos need none. So
- * are custom properties (`--*`) and `var()`, which would let a value reach a
- * property the reference policy did not see it in.
- */
-export function inspectVectorImageCss(css: string): VectorImageFindingKind | null {
-  return scanCss(css, null, null)
-}
+type CssTokenType = 'ident' | 'function' | 'at' | 'hash' | 'string' | 'url' | 'whitespace' | 'delim'
+
+type CssToken = { type: CssTokenType; value: string }
 
 /**
- * The tokenizer behind `inspectVectorImageCss`. It also reports every allowed
- * `url()` target (a fragment or a raster `data:` URI) with the property it
- * was found in: the declaration's name, or `property` for an attribute value.
+ * The sanitiser's one CSS tokenizer, after CSS Syntax Level 3. Comments,
+ * strings, `url(` tokens, functions, at-keywords and hashes are recognised
+ * here, once: the CSS policy, the stylesheet rules and the references of each
+ * declaration all consume these tokens, so no two readers can split the text
+ * differently. A comment opener inside a string or inside an unquoted `url(`
+ * is part of that token, as in a browser.
+ *
+ * Returns null — refused as active content — for what could make it disagree
+ * with a browser and logos never need: an escape (`\`), a string ended by a
+ * newline or by the end of the text, an unterminated comment or `url(`, a
+ * malformed unquoted URL (quote, `(` or inner whitespace), a CDO or CDC token
+ * (`<!--`, `-->`), and a vendor-prefixed `url(` (a plain function to a
+ * browser, in which `/*` opens a comment).
  */
-function scanCss(
-  css: string,
-  property: string | null,
-  onUrl: ((target: string, property: string | null) => void) | null,
-): VectorImageFindingKind | null {
-  let verdict: VectorImageFindingKind | null = null
-  let urlStringExpected = false
-  let currentProperty = property
-  let pendingName: string | null = null
+function tokenizeCss(css: string): CssToken[] | null {
+  const tokens: CssToken[] = []
   let index = 0
   while (index < css.length) {
     const character = css[index]!
     if (character === '/' && css[index + 1] === '*') {
       const end = css.indexOf('*/', index + 2)
-      if (end < 0) return 'active_content'
+      if (end < 0) return null
       index = end + 2
       continue
     }
-    if (character === '\\') return 'active_content'
+    if (character === '\\') return null
+    if (css.startsWith('<!--', index) || css.startsWith('-->', index)) return null
     if (character === '"' || character === "'") {
       let end = index + 1
       while (end < css.length && css[end] !== character) {
         const inner = css[end]
-        if (inner === '\\' || inner === '\n' || inner === '\r' || inner === '\f') return 'active_content'
+        if (inner === '\\' || inner === '\n' || inner === '\r' || inner === '\f') return null
         end += 1
       }
-      if (end >= css.length) return 'active_content'
-      if (urlStringExpected) {
-        const target = css.slice(index + 1, end)
-        const kind = classifyReference(target, true)
-        if (kind === 'active_content') return kind
-        if (kind === null) onUrl?.(target, currentProperty)
-        verdict = verdict ?? kind
-        urlStringExpected = false
-      }
-      pendingName = null
+      if (end >= css.length) return null
+      tokens.push({ type: 'string', value: css.slice(index + 1, end) })
       index = end + 1
       continue
     }
     if (isCssWhitespace(character)) {
-      index += 1
+      let end = index + 1
+      while (isCssWhitespace(css[end])) end += 1
+      tokens.push({ type: 'whitespace', value: ' ' })
+      index = end
       continue
     }
-    urlStringExpected = false
-    if (character === ':') {
-      currentProperty = pendingName ?? currentProperty
-      pendingName = null
-      index += 1
-      continue
-    }
-    if (character === ';' || character === '{' || character === '}') {
-      currentProperty = character === ';' ? property : null
-      pendingName = null
-      index += 1
-      continue
-    }
-    if (character === '@') {
+    if (character === '@' || character === '#') {
       const end = readCssName(css, index + 1)
-      if (css.slice(index + 1, end).toLowerCase() === 'import') verdict = verdict ?? 'external_reference'
-      index = Math.max(end, index + 1)
-      continue
-    }
-    if (isCssNameCharacter(css.charCodeAt(index))) {
-      const end = readCssName(css, index)
-      const name = css.slice(index, end).toLowerCase()
-      if (name.startsWith('--')) return 'active_content'
-      if (css[end] !== '(') {
-        if (CSS_ACTIVE_IDENTIFIERS.has(name)) return 'active_content'
-        pendingName = name
+      if (end > index + 1) {
+        tokens.push({ type: character === '@' ? 'at' : 'hash', value: css.slice(index + 1, end) })
         index = end
         continue
       }
-      pendingName = null
-      const functionName = name.replace(VENDOR_PREFIX_PATTERN, '')
-      if (functionName === 'url') {
-        let start = end + 1
-        while (isCssWhitespace(css[start])) start += 1
-        if (css[start] === '"' || css[start] === "'") {
-          urlStringExpected = true
-          index = start
-          continue
-        }
-        let close = start
-        while (close < css.length && css[close] !== ')') {
-          const inner = css[close]!
-          if (inner === '"' || inner === "'" || inner === '(' || inner === '\\') return 'active_content'
-          close += 1
-        }
-        if (close >= css.length) return 'active_content'
-        const target = trimCssWhitespace(css.slice(start, close))
-        if (/[\t\n\f\r ]/.test(target)) return 'active_content'
-        const kind = classifyReference(target, true)
-        if (kind === 'active_content') return kind
-        if (kind === null) onUrl?.(target, currentProperty)
-        verdict = verdict ?? kind
-        index = close + 1
+    }
+    if (isCssNameCharacter(css.charCodeAt(index))) {
+      const end = readCssName(css, index)
+      const name = css.slice(index, end)
+      if (css[end] !== '(') {
+        tokens.push({ type: 'ident', value: name })
+        index = end
         continue
       }
-      if (CSS_ACTIVE_FUNCTIONS.has(functionName)) return 'active_content'
-      if (CSS_STRING_URL_FUNCTIONS.has(functionName)) verdict = verdict ?? 'external_reference'
-      index = end + 1
+      const lower = name.toLowerCase()
+      let start = end + 1
+      while (isCssWhitespace(css[start])) start += 1
+      if (lower !== 'url' || css[start] === '"' || css[start] === "'") {
+        if (lower !== 'url' && lower.replace(VENDOR_PREFIX_PATTERN, '') === 'url') return null
+        tokens.push({ type: 'function', value: name })
+        index = end + 1
+        continue
+      }
+      let close = start
+      while (close < css.length && css[close] !== ')') {
+        const inner = css[close]!
+        if (inner === '"' || inner === "'" || inner === '(' || inner === '\\') return null
+        close += 1
+      }
+      if (close >= css.length) return null
+      const target = trimCssWhitespace(css.slice(start, close))
+      if (/[\t\n\f\r ]/.test(target)) return null
+      tokens.push({ type: 'url', value: target })
+      index = close + 1
       continue
     }
-    pendingName = null
+    tokens.push({ type: 'delim', value: character })
     index += 1
   }
+  return tokens
+}
+
+/**
+ * The CSS policy over a token stream: `url()` targets must be fragments or
+ * allowed raster `data:` URIs, `@import`, string-URL functions and external
+ * `url()`s are external references, and `expression()`, `var()`, custom
+ * properties (`--*`) and the identifiers `behavior`, `-moz-binding`,
+ * `javascript`, `vbscript` are active content — `var()` would let a value
+ * reach a property the policy did not see it in. Every allowed target is
+ * reported to `onUrl` with the property it was found in: the declaration's
+ * name, or `property` for an attribute value.
+ */
+function inspectCssTokens(
+  tokens: CssToken[],
+  property: string | null,
+  onUrl: ((target: string, property: string | null) => void) | null,
+): VectorImageFindingKind | null {
+  let verdict: VectorImageFindingKind | null = null
+  let currentProperty = property
+  let pendingName: string | null = null
+  const reference = (target: string): VectorImageFindingKind | null => {
+    const kind = classifyReference(target, true)
+    if (kind === null) onUrl?.(target, currentProperty)
+    return kind
+  }
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!
+    if (token.type === 'whitespace') continue
+    if (token.type === 'ident' || token.type === 'function') {
+      const name = token.value.toLowerCase()
+      if (name.startsWith('--')) return 'active_content'
+      if (token.type === 'ident') {
+        if (CSS_ACTIVE_IDENTIFIERS.has(name)) return 'active_content'
+        pendingName = name
+        continue
+      }
+      pendingName = null
+      if (name === 'url') {
+        let next = index + 1
+        while (tokens[next]?.type === 'whitespace') next += 1
+        const argument = tokens[next]
+        if (argument?.type !== 'string') return 'active_content'
+        const kind = reference(argument.value)
+        if (kind === 'active_content') return kind
+        verdict = verdict ?? kind
+        index = next
+        continue
+      }
+      const functionName = name.replace(VENDOR_PREFIX_PATTERN, '')
+      if (CSS_ACTIVE_FUNCTIONS.has(functionName)) return 'active_content'
+      if (CSS_STRING_URL_FUNCTIONS.has(functionName)) verdict = verdict ?? 'external_reference'
+      continue
+    }
+    if (token.type === 'url') {
+      const kind = reference(token.value)
+      if (kind === 'active_content') return kind
+      verdict = verdict ?? kind
+    } else if (token.type === 'at') {
+      if (token.value.toLowerCase() === 'import') verdict = verdict ?? 'external_reference'
+    } else if (token.type === 'delim') {
+      if (token.value === ':') currentProperty = pendingName ?? currentProperty
+      else if (token.value === ';') currentProperty = property
+      else if (token.value === '{' || token.value === '}') currentProperty = null
+    }
+    pendingName = null
+  }
   return verdict
+}
+
+/**
+ * Classifies a stylesheet or a CSS-parsed attribute value: `tokenizeCss`, then
+ * `inspectCssTokens`. Deliberately stricter than a browser, because each
+ * refusal is a way to make two parsers disagree and logos need none.
+ */
+export function inspectVectorImageCss(css: string): VectorImageFindingKind | null {
+  return scanCss(css, null, null)
+}
+
+function scanCss(
+  css: string,
+  property: string | null,
+  onUrl: ((target: string, property: string | null) => void) | null,
+): VectorImageFindingKind | null {
+  const tokens = tokenizeCss(css)
+  return tokens ? inspectCssTokens(tokens, property, onUrl) : 'active_content'
 }
 
 function describeElement(node: DomNode): string {
@@ -834,7 +893,11 @@ function inspectAttribute(tag: string, attribute: DomAttribute): VectorImageFind
  * first violation, if any. Nothing is removed: a violation refuses the whole
  * document.
  */
-function findReferenceViolation(root: DomElement): VectorImageFinding | null {
+function findReferenceViolation(
+  root: DomElement,
+  readSheet: (css: string) => StylesheetReading,
+  rules: StyleRule[],
+): VectorImageFinding | null {
   let finding: VectorImageFinding | null = null
   walk(root, (node) => {
     if (finding || !isElement(node)) return false
@@ -845,12 +908,11 @@ function findReferenceViolation(root: DomElement): VectorImageFinding | null {
       return false
     }
     if (tag === 'style') {
-      let verdict: VectorImageFindingKind | null = 'active_content'
-      if (hasOnlyTextChildren(node)) {
-        const css = styleSheetText(node)
-        verdict = inspectVectorImageCss(css) ?? (parseStylesheet(css) ? null : 'active_content')
-      }
-      if (verdict) finding = { kind: verdict, target: describeElement(node) }
+      const reading: StylesheetReading = hasOnlyTextChildren(node)
+        ? readSheet(styleSheetText(node))
+        : { kind: 'active_content' }
+      if ('kind' in reading) finding = { kind: reading.kind, target: describeElement(node) }
+      else for (const rule of reading.rules) rules.push(rule)
       return false
     }
     for (const attribute of attributes) {
@@ -909,60 +971,142 @@ function collectFragmentReferences(css: string, property: string | null, into: F
   })
 }
 
-type StyleRule = { selectors: string[]; body: string }
+type StyleRule = { selectors: string[]; references: FragmentReference[] }
+
+type StylesheetReading = { rules: StyleRule[] } | { kind: VectorImageFindingKind }
 
 /**
- * Parses a stylesheet in one linear pass into flat rules whose selectors are
- * simple: a type or `*`, then any `.class` and `#id`, in a comma list. That is
- * the subset logo exporters write (`.st0{…}`, `path.st1, #a{…}`). Anything
- * else — an at-rule, a combinator, a pseudo-class or pseudo-element, an
- * attribute or namespace selector, a nested or unclosed block, a stray `;` or
- * `}` — returns null and refuses the document. Comments may sit between
- * rules and inside declarations; `inspectVectorImageCss` has already checked
- * strings, escapes and `url()`s.
+ * One selector of a rule, from its tokens, when it is simple: a type or `*`,
+ * then any `.class` and `#id`, with no whitespace inside (a combinator).
+ * Returns null for anything else.
  */
-function parseStylesheet(css: string): StyleRule[] | null {
-  const rules: StyleRule[] = []
-  let prelude = ''
-  let bodyStart = -1
-  let index = 0
-  while (index < css.length) {
-    const character = css[index]!
-    if (character === '/' && css[index + 1] === '*') {
-      const end = css.indexOf('*/', index + 2)
-      if (end < 0) return null
-      if (bodyStart < 0) prelude += ' '
-      index = end + 2
-      continue
-    }
-    if (character === '"' || character === "'") {
-      if (bodyStart < 0) return null
-      const end = css.indexOf(character, index + 1)
-      if (end < 0) return null
-      index = end + 1
-      continue
-    }
-    if (bodyStart < 0) {
-      if (character === '@' || character === '}' || character === ';') return null
-      if (character === '{') {
-        const selectors = prelude.split(',').map(trimCssWhitespace)
-        if (!selectors.every((selector) => selector && SIMPLE_SELECTOR_PATTERN.test(selector))) return null
-        rules.push({ selectors, body: '' })
-        bodyStart = index + 1
-        prelude = ''
-      } else {
-        prelude += character
-      }
-    } else if (character === '{') {
+function simpleSelector(tokens: CssToken[]): string | null {
+  let start = 0
+  let end = tokens.length
+  while (start < end && tokens[start]!.type === 'whitespace') start += 1
+  while (end > start && tokens[end - 1]!.type === 'whitespace') end -= 1
+  if (start === end) return null
+  let text = ''
+  for (let index = start; index < end; index += 1) {
+    const token = tokens[index]!
+    if (index === start && token.type === 'ident' && CSS_IDENTIFIER_PATTERN.test(token.value)) {
+      text += token.value
+    } else if (index === start && token.type === 'delim' && token.value === '*') {
+      text += '*'
+    } else if (token.type === 'hash' && CSS_IDENTIFIER_PATTERN.test(token.value)) {
+      text += `#${token.value}`
+    } else if (token.type === 'delim' && token.value === '.' && tokens[index + 1]?.type === 'ident' && CSS_IDENTIFIER_PATTERN.test(tokens[index + 1]!.value)) {
+      index += 1
+      text += `.${tokens[index]!.value}`
+    } else {
       return null
-    } else if (character === '}') {
-      rules[rules.length - 1]!.body = css.slice(bodyStart, index)
-      bodyStart = -1
     }
-    index += 1
   }
-  if (bodyStart >= 0 || trimCssWhitespace(prelude)) return null
+  return text
+}
+
+/**
+ * The rules of a stylesheet, from its tokens: flat rules whose selectors are
+ * simple (`simpleSelector`), in a comma list — the subset logo exporters write
+ * (`.st0{…}`, `path.st1, #a{…}`). Anything else returns null: an at-rule, a
+ * selector that is not simple, a nested or unclosed block, unbalanced
+ * brackets, a stray `}` or `;`. Each rule keeps the in-document references its
+ * declarations make, read from the same tokens.
+ */
+function parseStyleRules(tokens: CssToken[]): StyleRule[] | null {
+  const rules: StyleRule[] = []
+  let prelude: CssToken[] = []
+  let index = 0
+  while (index < tokens.length) {
+    const token = tokens[index]!
+    if (token.type === 'at') return null
+    if (token.type !== 'delim' || (token.value !== '{' && token.value !== '}' && token.value !== ';')) {
+      prelude.push(token)
+      index += 1
+      continue
+    }
+    if (token.value !== '{') return null
+    const selectors: string[] = []
+    let selectorStart = 0
+    for (let position = 0; position <= prelude.length; position += 1) {
+      const separator = prelude[position]
+      if (position < prelude.length && !(separator!.type === 'delim' && separator!.value === ',')) continue
+      const selector = simpleSelector(prelude.slice(selectorStart, position))
+      if (!selector) return null
+      selectors.push(selector)
+      selectorStart = position + 1
+    }
+    const closers: string[] = []
+    let end = index + 1
+    for (; end < tokens.length; end += 1) {
+      const inner = tokens[end]!
+      if (inner.type === 'at') return null
+      if (inner.type === 'function') closers.push(')')
+      if (inner.type !== 'delim') continue
+      if (inner.value === '(') closers.push(')')
+      else if (inner.value === '[') closers.push(']')
+      else if (inner.value === ')' || inner.value === ']') {
+        if (closers.pop() !== inner.value) return null
+      } else if (inner.value === '{') {
+        return null
+      } else if (inner.value === '}') {
+        if (closers.length) return null
+        break
+      }
+    }
+    if (end >= tokens.length) return null
+    const references: FragmentReference[] = []
+    inspectCssTokens(tokens.slice(index + 1, end), null, (target, property) => {
+      if (target.startsWith('#')) references.push({ id: target.slice(1), multiplier: referenceMultiplier(property) })
+    })
+    rules.push({ selectors, references })
+    prelude = []
+    index = end + 1
+  }
+  if (prelude.some((token) => token.type !== 'whitespace')) return null
   return rules
+}
+
+/**
+ * True when jsdom's own CSSOM, an independent parser, reads the stylesheet as
+ * the same style rules with the same selectors. A disagreement means one of
+ * the two readers splits the text differently, so the document is refused.
+ */
+function cssomAgrees(window: DomWindow, css: string, rules: StyleRule[]): boolean {
+  const style = window.document.createElement('style')
+  style.textContent = css
+  try {
+    window.document.head?.appendChild(style)
+    const parsed = style.sheet?.cssRules
+    if (!parsed || parsed.length !== rules.length) return false
+    for (let index = 0; index < rules.length; index += 1) {
+      const rule = parsed[index]
+      if (!rule || rule.type !== 1) return false
+      const selectorText = (rule.selectorText ?? '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/[\t\n\f\r ]+/g, '')
+      if (selectorText !== rules[index]!.selectors.join(',')) return false
+    }
+    return true
+  } catch {
+    return false
+  } finally {
+    style.remove()
+  }
+}
+
+/**
+ * Reads one `<style>` once: one tokenization, the CSS policy and the rules
+ * over the same tokens, then jsdom's CSSOM as an independent cross-check
+ * (skipped past the rule cap, which refuses the document anyway).
+ */
+function readStylesheet(css: string, agreesWithCssom: (rules: StyleRule[]) => boolean): StylesheetReading {
+  const tokens = tokenizeCss(css)
+  if (!tokens) return { kind: 'active_content' }
+  const verdict = inspectCssTokens(tokens, null, null)
+  if (verdict) return { kind: verdict }
+  const rules = parseStyleRules(tokens)
+  if (!rules) return { kind: 'active_content' }
+  if (rules.length <= VECTOR_IMAGE_MAX_STYLE_RULES && !agreesWithCssom(rules)) return { kind: 'active_content' }
+  return { rules }
 }
 
 function addToBucket(buckets: Map<string, ReferenceBucket>, key: string, reference: FragmentReference): void {
@@ -995,29 +1139,21 @@ function selectorKey(selector: string): { key: 'id' | 'class' | 'type'; value: s
  * selector, reference or work caps. The work cap bounds Σ selectors ×
  * references, which is exactly the number of index writes, before any is made.
  */
-function indexStylesheetReferences(stylesheets: string[]): StylesheetReferenceIndex | null {
+function indexStylesheetReferences(rules: StyleRule[]): StylesheetReferenceIndex | null {
   const index: StylesheetReferenceIndex = { any: { references: new Map() }, byId: new Map(), byClass: new Map(), byType: new Map() }
-  const parsed: Array<{ selectors: string[]; references: FragmentReference[] }> = []
-  let rules = 0
+  if (rules.length > VECTOR_IMAGE_MAX_STYLE_RULES) return null
   let work = 0
-  for (const css of stylesheets) {
-    for (const rule of parseStylesheet(css) ?? []) {
-      rules += 1
-      const references: FragmentReference[] = []
-      collectFragmentReferences(rule.body, null, references)
-      work += rule.selectors.length * references.length
-      if (
-        rules > VECTOR_IMAGE_MAX_STYLE_RULES
-        || rule.selectors.length > VECTOR_IMAGE_MAX_SELECTORS_PER_RULE
-        || references.length > VECTOR_IMAGE_MAX_REFERENCES_PER_RULE
-        || work > VECTOR_IMAGE_MAX_STYLE_WORK
-      ) {
-        return null
-      }
-      if (references.length) parsed.push({ selectors: rule.selectors, references })
+  for (const rule of rules) {
+    work += rule.selectors.length * rule.references.length
+    if (
+      rule.selectors.length > VECTOR_IMAGE_MAX_SELECTORS_PER_RULE
+      || rule.references.length > VECTOR_IMAGE_MAX_REFERENCES_PER_RULE
+      || work > VECTOR_IMAGE_MAX_STYLE_WORK
+    ) {
+      return null
     }
   }
-  for (const rule of parsed) {
+  for (const rule of rules) {
     for (const selector of rule.selectors) {
       const subject = selectorKey(selector)
       for (const reference of rule.references) {
@@ -1079,17 +1215,15 @@ function vertexBound(element: DomElement, tag: string): number {
  * elements than it does, a cascade overriding a paint) only ever refuses; the
  * estimate never falls below what a browser renders.
  */
-function exceedsRenderedSize(root: DomElement): boolean {
+function exceedsRenderedSize(root: DomElement, stylesheetRules: StyleRule[]): boolean {
   const byId = new Map<string, DomElement>()
-  const stylesheets: string[] = []
   walk(root, (node) => {
     if (!isElement(node)) return false
     const id = node.getAttribute('id')
     if (id && !byId.has(id)) byId.set(id, node)
-    if (isStyleElement(node)) stylesheets.push(styleSheetText(node))
     return true
   })
-  const stylesheetIndex = indexStylesheetReferences(stylesheets)
+  const stylesheetIndex = indexStylesheetReferences(stylesheetRules)
   if (!stylesheetIndex) return true
   type RenderNode = DomElement | ReferenceBucket
   type Edge =
@@ -1326,10 +1460,15 @@ export async function sanitizeVectorImage(buffer: Buffer): Promise<VectorImageSa
       return { ok: false, code: 'vector_image_malformed', removals }
     }
 
-    const referenceFinding = findReferenceViolation(sanitised)
+    const stylesheetRules: StyleRule[] = []
+    const referenceFinding = findReferenceViolation(
+      sanitised,
+      (css) => readStylesheet(css, (rules) => cssomAgrees(window, css, rules)),
+      stylesheetRules,
+    )
     if (referenceFinding) return refuse(referenceFinding)
 
-    if (exceedsRenderedSize(sanitised)) return { ok: false, code: 'vector_image_too_complex', removals }
+    if (exceedsRenderedSize(sanitised, stylesheetRules)) return { ok: false, code: 'vector_image_too_complex', removals }
 
     const serialised = Buffer.from(new window.XMLSerializer().serializeToString(sanitised), 'utf8')
     if (serialised.length > VECTOR_IMAGE_MAX_BYTES) return { ok: false, code: 'vector_image_too_large', removals }

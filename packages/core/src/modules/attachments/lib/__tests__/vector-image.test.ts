@@ -157,6 +157,18 @@ describe('sanitizeVectorImage — benign logos', () => {
     expect(prepared.ok).toBe(true)
   })
 
+  it.each([
+    ['{ and } inside an unquoted url()', '.a{fill:url(#x}path{y)} .b{fill:#123456}'],
+    ['; inside an unquoted url()', '.a{fill:url(#x;y)} .b{fill:#123456}'],
+    ['comment openers and closers inside quoted strings', '.a{font-family:"/*"} .b{fill:url(#g)} .c{font-family:"*/"}'],
+    ['/* and */ in two separate stylesheets', '.a{fill:#123456}</style><style>.b{fill:url(#g)} .c{fill:#654321}'],
+    ['!important and an upper-case property', '.a{FILL:url(#g)!important}'],
+  ])('reads %s as a browser does and keeps the document', async (_label, css) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs><style>${css}</style><rect class="a b c" width="1" height="1"/></svg>`
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
+  })
+
   it('keeps an XLink reference written with a prefix other than xlink', async () => {
     const prepared = await prepareVectorImageUpload(svgBuffer(NON_STANDARD_XLINK_PREFIX_LOGO))
     expect(prepared.ok).toBe(true)

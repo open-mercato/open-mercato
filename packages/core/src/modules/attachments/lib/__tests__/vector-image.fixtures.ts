@@ -581,6 +581,68 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     code: 'vector_image_unsafe_content',
   },
   {
+    name: 'a mid-path marker rule hidden from a second reader by /* inside an unquoted url()',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><style>.a{fill:url(#x/*)} path{marker-mid:url(#m)} .z{fill:url(#y*/)}</style><defs><marker id="m">${'<circle r="1"/>'.repeat(400)}</marker></defs><path d="M0 0${' l1 0'.repeat(20000)}" stroke="black"/></svg>`,
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'an at-rule, a combinator and a pseudo-class hidden by /* inside an unquoted url()',
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><style>.a{fill:url(#x/*)} path{marker-mid:url(#m)} @media all { rect{fill:blue} } svg > circle:first-of-type{fill:orange} .z{fill:url(#y*/)}</style><defs><marker id="m" markerWidth="4" markerHeight="4"><circle r="1"/></marker></defs><path d="M10 10 L30 30 L50 10 L70 30" stroke="black" fill="none"/><rect x="10" y="50" width="30" height="30" fill="green"/></svg>',
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'harmless rules between /* and */ inside two unquoted url()s',
+    svg: wrap('<style>.a{fill:url(#x/*)} .b{fill:#123456} .z{fill:url(#y*/)}</style><rect class="b" width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a vendor-prefixed url() whose /* a browser reads as a comment',
+    svg: wrap('<style>.a{fill:-webkit-url(#x/*)} path{marker-mid:url(#m)} .z{fill:red*/}</style><rect width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '@import hidden by /* inside an unquoted url()',
+    svg: wrap(`<style>.a{fill:url(#x/*)} @import 'https://evil.example/x.css'; .z{fill:url(#y*/)}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_external_reference',
+  },
+  {
+    name: '@font-face hidden by /* inside an unquoted url()',
+    svg: wrap('<style>.a{fill:url(#x/*)} @font-face{font-family:f;src:local(Arial)} .z{fill:url(#y*/)}</style><text>a</text>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a pseudo-element hidden by /* inside an unquoted url()',
+    svg: wrap(`<style>.a{fill:url(#x/*)} svg::after{content:'x'} .z{fill:url(#y*/)}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a pseudo-class in a second stylesheet after /* inside an unquoted url()',
+    svg: wrap('<style>.a{fill:url(#x/*)}</style><style>rect:hover{fill:red} .z{fill:url(#y*/)}</style><rect width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a mid-path marker rule in a second stylesheet after /* inside an unquoted url()',
+    svg: wrap(`<style><![CDATA[.a{fill:url(#x/*)}]]></style><style><![CDATA[path{marker-mid:url(#m)} .z{fill:url(#y*/)}]]></style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(400)}</marker></defs><path d="M0 0${'l1 1'.repeat(20000)}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  ...[
+    ['an escaped dot in a selector', '.a\\2e b{fill:red}'],
+    ['an escaped colon in a selector', 'rect\\3a hover{fill:red}'],
+    ['an escaped at-sign', '\\@media{}'],
+    ['an escaped brace in a selector', '.a\\{x{fill:red}'],
+    ['an escape inside url()', '.a{fill:url(#x\\29 )}'],
+    ['CDO and CDC tokens', '&lt;!-- .a{fill:red} -->'],
+    ['a comment inside a selector', 'rect/**/:hover{fill:red}'],
+    ['a string left open to the end', '.a{font-family:"x}'],
+    ['a rule left open to the end', '.a{fill:red'],
+    ['@charset', '@charset "utf-8"; .a{fill:red}'],
+    ['a } inside parentheses', '.a{fill:rgb(1}2)} .b{fill:red}'],
+  ].map(([label, css]): MaliciousFixture => ({
+    name: `a stylesheet parse differential: ${label}`,
+    svg: wrap(`<style>${css}</style><rect class="a" width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  {
     name: 'a stylesheet rule with more selectors than the cap',
     svg: wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 33 }, (_, index) => `.c${index}`).join(',')}{fill:url(#g)}</style><rect class="c0" width="1" height="1"/>`),
     code: 'vector_image_too_complex',
