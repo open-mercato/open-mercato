@@ -130,6 +130,25 @@ function useRuntimeStatus(token: string | null): RuntimeStatus | null {
   return status
 }
 
+// The banner floats above every dialog and sheet but lives outside their DOM,
+// so an open modal layer treats a press or focus on it as an outside
+// interaction and closes itself instead of letting the banner handle it. The
+// layers listen on `document`, so stopping these events at the banner root
+// keeps them from ever seeing the interaction; React's own click handling is
+// unaffected because buttons act on `click`, not on these events.
+const SHIELDED_OUTSIDE_EVENTS = ['pointerdown', 'mousedown', 'touchstart', 'focusin'] as const
+
+function useShieldFromOutsideDismiss(element: HTMLElement | null): void {
+  React.useEffect(() => {
+    if (!element) return undefined
+    const stop = (event: Event) => event.stopPropagation()
+    for (const eventName of SHIELDED_OUTSIDE_EVENTS) element.addEventListener(eventName, stop)
+    return () => {
+      for (const eventName of SHIELDED_OUTSIDE_EVENTS) element.removeEventListener(eventName, stop)
+    }
+  }, [element])
+}
+
 function reloadPage(): void {
   if (typeof window === 'undefined') return
   try {
@@ -161,6 +180,8 @@ export function DevRuntimeDiagnosticsBanner() {
   const [logs, setLogs] = React.useState<DevRuntimeLogSnapshot | null>(null)
   const [logsOpen, setLogsOpen] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
+  const [bannerElement, setBannerElement] = React.useState<HTMLDivElement | null>(null)
+  useShieldFromOutsideDismiss(bannerElement)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   // ConfirmDialog itself calls `useT`, so it can only be mounted where the
   // provider exists.
@@ -251,6 +272,7 @@ export function DevRuntimeDiagnosticsBanner() {
 
   return (
     <div
+      ref={setBannerElement}
       data-testid="dev-runtime-diagnostics-banner"
       data-health={status.health}
       role={status.health === 'unavailable' ? 'alert' : 'status'}
@@ -260,7 +282,10 @@ export function DevRuntimeDiagnosticsBanner() {
       // very high z-index, so the banner stacks ABOVE the bubble rather than
       // trying to outrank it. `max-w-4xl` keeps the action row on one line on
       // desktop; it still wraps (never scrolls) once the viewport is narrow.
-      className={`fixed inset-x-3 bottom-20 z-banner flex flex-col gap-2 rounded-lg border px-4 py-3 text-sm shadow-lg sm:inset-x-auto sm:right-4 sm:max-w-4xl ${TONE_CLASSES[tone]}`}
+      // `pointer-events-auto` keeps it clickable while a modal dialog sets
+      // `pointer-events: none` on <body>; without it a click falls through to
+      // the dialog overlay underneath.
+      className={`pointer-events-auto fixed inset-x-3 bottom-20 z-banner flex flex-col gap-2 rounded-lg border px-4 py-3 text-sm shadow-lg sm:inset-x-auto sm:right-4 sm:max-w-4xl ${TONE_CLASSES[tone]}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">

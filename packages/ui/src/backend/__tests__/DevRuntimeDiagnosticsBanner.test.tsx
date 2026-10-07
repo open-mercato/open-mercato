@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { DevRuntimeDiagnosticsBanner } from '../dev/DevRuntimeDiagnosticsBanner'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../primitives/dialog'
 import {
   DEV_RUNTIME_BANNER_META_NAME,
   DEV_RUNTIME_LOGS_URL_META_NAME,
@@ -378,6 +379,90 @@ describe('DevRuntimeDiagnosticsBanner', () => {
 
   // The app shell's sidebar toggle and the toast stack own fixed slots at the
   // top of the viewport, so a top-anchored banner is overlapped by them.
+  describe('above an open modal dialog', () => {
+    function renderBannerOverDialog(onOpenChange: jest.Mock) {
+      return render(
+        <I18nProvider locale="en" dict={{}}>
+          <Dialog open onOpenChange={onOpenChange}>
+            <DialogContent>
+              <DialogTitle>Add line item</DialogTitle>
+              <DialogDescription>Line item form</DialogDescription>
+            </DialogContent>
+          </Dialog>
+          <button type="button" data-testid="page-content">page</button>
+          <DevRuntimeDiagnosticsBanner />
+        </I18nProvider>,
+      )
+    }
+
+    // Radix registers its outside-press listener on the next tick after mount.
+    async function waitForOutsideDismissListener() {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+
+    function pressAndClick(element: Element) {
+      fireEvent.pointerDown(element)
+      fireEvent.mouseDown(element)
+      fireEvent.focusIn(element)
+      fireEvent.pointerUp(element)
+      fireEvent.mouseUp(element)
+      fireEvent.click(element)
+    }
+
+    it('closes the dialog on a genuine outside press (control)', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange)
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByTestId('page-content'))
+
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
+
+    it('dismisses only the banner when its close button is pressed', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange)
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByRole('button', { name: 'Dismiss', hidden: true }))
+
+      expect(screen.queryByTestId('dev-runtime-diagnostics-banner')).toBeNull()
+      expect(onOpenChange).not.toHaveBeenCalled()
+      expect(screen.getByRole('dialog')).toBeTruthy()
+    })
+
+    it('keeps the dialog open when the banner actions are used', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange)
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByRole('button', { name: 'Show details', hidden: true }))
+
+      expect(screen.getByText('Error code')).toBeTruthy()
+      expect(onOpenChange).not.toHaveBeenCalled()
+    })
+
+    it('stays clickable while the modal disables pointer events on the body', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      renderBannerOverDialog(jest.fn())
+
+      const banner = await screen.findByTestId('dev-runtime-diagnostics-banner')
+      expect(banner.className).toContain('pointer-events-auto')
+    })
+  })
+
   it('floats at the bottom above app chrome instead of sitting in page flow', async () => {
     enableBanner()
     mockStatusResponses(createStatus())
