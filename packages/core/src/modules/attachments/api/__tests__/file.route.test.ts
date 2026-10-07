@@ -138,6 +138,8 @@ describe('attachments file route', () => {
     )
 
     expect(response.status).toBe(404)
+    expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox")
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
     expect(mockEm.findOne).not.toHaveBeenCalled()
     expect(mockStorageRead).not.toHaveBeenCalled()
   })

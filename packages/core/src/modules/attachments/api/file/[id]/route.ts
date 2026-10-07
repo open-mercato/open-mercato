@@ -70,7 +70,7 @@ export async function GET(
 
   const requestScope = await resolveAttachmentRequestScope(container, auth, req);
   if (requestScope.denied) {
-    return NextResponse.json(
+    return jsonResponse(
       { error: "Attachment not found" },
       { status: 404 },
     );
