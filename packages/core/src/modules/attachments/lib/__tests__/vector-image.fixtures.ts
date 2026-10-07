@@ -145,6 +145,31 @@ export const CLOBBERING_ID_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewB
 
 export const ACCESSIBLE_LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" role="img" aria-labelledby="title desc"><title id="title">Brand</title><desc id="desc">The brand mark</desc><rect width="10" height="10" fill="#123456"/></svg>`
 
+export const ILLUSTRATOR_CLIPPED_LOGO = `<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 200 80" style="enable-background:new 0 0 200 80;" xml:space="preserve">
+<style type="text/css">
+  .st0{fill:url(#SVGID_1_);}
+  .st1{clip-path:url(#SVGID_3_);}
+  .st2{fill:url(#SVGID_4_);}
+  .st3{fill:#1D3557;}
+</style>
+<linearGradient id="SVGID_1_" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="80" y2="80">
+  <stop offset="0" style="stop-color:#E63946"/>
+  <stop offset="1" style="stop-color:#457B9D"/>
+</linearGradient>
+<rect class="st0" width="80" height="80" rx="12"/>
+<g>
+  <defs><rect id="SVGID_2_" x="90" y="10" width="100" height="60"/></defs>
+  <clipPath id="SVGID_3_"><use xlink:href="#SVGID_2_" style="overflow:visible;"/></clipPath>
+  <g class="st1">
+    <pattern id="SVGID_4_" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="4" height="4" class="st3"/><circle cx="6" cy="6" r="2" class="st3"/></pattern>
+${'    <path class="st2" d="M90 10h20v20H90z"/>\n'.repeat(40)}  </g>
+</g>
+<defs><marker id="arrow" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0 0L6 3L0 6z" class="st3"/></marker></defs>
+<path class="st3" d="M10 70L70 70" marker-end="url(#arrow)" stroke="#1D3557"/>
+<path class=" st3 " d="M10 74L70 74"/>
+</svg>`
+
 export type MaliciousFixture = {
   name: string
   svg: string
@@ -468,7 +493,94 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     svg: `<?xml version="1.0"?><?xml-stylesheet href="https://example.com/brand.css" type="text/css"?>${wrap('<rect width="10" height="10"/>')}`,
     code: 'vector_image_external_reference',
   },
+  {
+    name: 'class with a non-ASCII space DOMPurify would trim away',
+    svg: wrap('<style>.x{fill:#123456}</style><rect class="\u3000x" width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'id with a non-ASCII space DOMPurify would trim away',
+    svg: wrap('<defs><linearGradient id="\u00a0a"/></defs><rect width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'id with an edge space DOMPurify would trim away',
+    svg: wrap('<defs><linearGradient id=" a"/></defs><rect width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'nested patterns through fill',
+    svg: nestedPaintServers('pattern', (level) => `fill="url(#p${level})"`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested patterns through a style attribute',
+    svg: nestedPaintServers('pattern', (level) => `style="fill:url(#p${level})"`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested patterns through stylesheet classes',
+    svg: nestedPaintServers('pattern', (level) => `class="c${level}"`, Array.from({ length: 8 }, (_, level) => `.c${level}{fill:url(#p${level})}`).join('')),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested patterns through stylesheet classes inside @media',
+    svg: nestedPaintServers('pattern', (level) => `class="c${level}"`, `@media all{${Array.from({ length: 8 }, (_, level) => `.c${level}{fill:url(#p${level})}`).join('')}}`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'mid-path markers applied by a stylesheet marker shorthand',
+    svg: wrap(`<style>path{marker:url(#m)}</style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(1000)}</marker></defs><path d="M0 0${'l1 1'.repeat(20000)}"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested patterns through fill inherited from a group',
+    svg: nestedPaintServers('pattern', () => '', '', (level, rects) => `<g fill="url(#p${level})">${rects}</g>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested masks',
+    svg: nestedPaintServers('mask', (level) => `mask="url(#p${level})"`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested clip paths',
+    svg: nestedPaintServers('clipPath', (level) => `clip-path="url(#p${level})"`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'nested filters rendering groups through feImage',
+    svg: wrap(`<defs><g id="g0">${'<rect width="1" height="1"/>'.repeat(200)}</g>${Array.from({ length: 7 }, (_, index) => {
+      const level = index + 1
+      return `<filter id="f${level}"><feImage href="#g${level - 1}"/></filter><g id="g${level}">${`<rect width="1" height="1" filter="url(#f${level})"/>`.repeat(200)}</g>`
+    }).join('')}</defs><use href="#g7"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'a mid-path marker repeated at every vertex of a long path',
+    svg: wrap(`<defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(1000)}</marker></defs><path marker-mid="url(#m)" d="M0 0${'l1 1'.repeat(20000)}"/>`),
+    code: 'vector_image_too_complex',
+  },
 ]
+
+/**
+ * Eight levels of a paint server (or mask, clip path) holding 200 rects that
+ * each reference the level below: about 200^8 rendered elements from 1,600.
+ */
+export function nestedPaintServers(
+  element: 'pattern' | 'mask' | 'clipPath',
+  reference: (level: number) => string,
+  stylesheet = '',
+  group: (level: number, rects: string) => string = (_level, rects) => rects,
+): string {
+  const levels: string[] = [`<${element} id="p0">${'<rect width="1" height="1"/>'.repeat(200)}</${element}>`]
+  for (let level = 1; level < 8; level += 1) {
+    const rects = `<rect width="1" height="1" ${reference(level - 1)}/>`.repeat(200)
+    levels.push(`<${element} id="p${level}">${group(level - 1, rects)}</${element}>`)
+  }
+  const style = stylesheet ? `<style>${stylesheet}</style>` : ''
+  return wrap(`${style}<defs>${levels.join('')}</defs>${group(7, `<rect width="10" height="10" ${reference(7)}/>`)}`)
+}
 
 export function referenceChain(levels: number, fanOut: number, attributes: (level: number) => string): string {
   const groups = ['<g id="l0"><rect width="1" height="1"/></g>', '<path id="leaf" d="M0 0h1"/>']

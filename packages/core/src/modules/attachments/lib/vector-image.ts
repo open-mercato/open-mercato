@@ -39,7 +39,6 @@ const XMLNS_NAMESPACE = 'http://www.w3.org/2000/xmlns/'
 
 const RENDERING_ELEMENT_NAMESPACES = new Set([SVG_NAMESPACE, XHTML_NAMESPACE, MATHML_NAMESPACE])
 const REFERENCED_ATTRIBUTES = new Set(['id', 'name', 'class', 'attributename'])
-const ANIMATION_ELEMENTS = new Set(['animate', 'animatecolor', 'animatemotion', 'animatetransform', 'set'])
 const RASTER_DATA_URI_ELEMENTS = new Set(['image', 'feimage'])
 const CSS_PARSED_ATTRIBUTES = new Set([
   'style',
@@ -61,6 +60,11 @@ const RASTER_DATA_URI_PATTERN = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a
 const ACTIVE_SCHEME_PATTERN = /^(?:javascript|vbscript|data):/i
 const DTD_DECLARATION_PATTERN = /<!(?:ENTITY|ATTLIST|ELEMENT|NOTATION)/i
 const VENDOR_PREFIX_PATTERN = /^-[a-z0-9]+-/
+const PAINTED_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon', 'rect', 'circle', 'ellipse', 'text', 'tspan', 'textpath'])
+const MARKABLE_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon'])
+const NON_INHERITED_REFERENCE_PROPERTIES = new Set(['clip-path', 'mask', 'filter'])
+const STYLESHEET_GROUPING_RULES = new Set(['media', 'supports', 'layer', 'container', 'scope', 'document', '-moz-document', 'starting-style'])
+const SELECTOR_COMBINATORS = new Set([' ', '\t', '\n', '\r', '\f', '>', '+', '~'])
 
 const NODE_ELEMENT = 1
 const NODE_TEXT = 3
@@ -426,8 +430,23 @@ function readCssName(css: string, start: number): number {
  * because each is a way to make two parsers disagree and logos need none.
  */
 export function inspectVectorImageCss(css: string): VectorImageFindingKind | null {
+  return scanCss(css, null, null)
+}
+
+/**
+ * The tokenizer behind `inspectVectorImageCss`. It also reports every allowed
+ * `url()` target (a fragment or a raster `data:` URI) with the property it
+ * was found in: the declaration's name, or `property` for an attribute value.
+ */
+function scanCss(
+  css: string,
+  property: string | null,
+  onUrl: ((target: string, property: string | null) => void) | null,
+): VectorImageFindingKind | null {
   let verdict: VectorImageFindingKind | null = null
   let urlStringExpected = false
+  let currentProperty = property
+  let pendingName: string | null = null
   let index = 0
   while (index < css.length) {
     const character = css[index]!
@@ -447,11 +466,14 @@ export function inspectVectorImageCss(css: string): VectorImageFindingKind | nul
       }
       if (end >= css.length) return 'active_content'
       if (urlStringExpected) {
-        const kind = classifyReference(css.slice(index + 1, end), true)
+        const target = css.slice(index + 1, end)
+        const kind = classifyReference(target, true)
         if (kind === 'active_content') return kind
+        if (kind === null) onUrl?.(target, currentProperty)
         verdict = verdict ?? kind
         urlStringExpected = false
       }
+      pendingName = null
       index = end + 1
       continue
     }
@@ -460,6 +482,18 @@ export function inspectVectorImageCss(css: string): VectorImageFindingKind | nul
       continue
     }
     urlStringExpected = false
+    if (character === ':') {
+      currentProperty = pendingName ?? currentProperty
+      pendingName = null
+      index += 1
+      continue
+    }
+    if (character === ';' || character === '{' || character === '}') {
+      currentProperty = character === ';' ? property : null
+      pendingName = null
+      index += 1
+      continue
+    }
     if (character === '@') {
       const end = readCssName(css, index + 1)
       if (css.slice(index + 1, end).toLowerCase() === 'import') verdict = verdict ?? 'external_reference'
@@ -471,9 +505,11 @@ export function inspectVectorImageCss(css: string): VectorImageFindingKind | nul
       const name = css.slice(index, end).toLowerCase()
       if (css[end] !== '(') {
         if (CSS_ACTIVE_IDENTIFIERS.has(name)) return 'active_content'
+        pendingName = name
         index = end
         continue
       }
+      pendingName = null
       const functionName = name.replace(VENDOR_PREFIX_PATTERN, '')
       if (functionName === 'url') {
         let start = end + 1
@@ -494,6 +530,7 @@ export function inspectVectorImageCss(css: string): VectorImageFindingKind | nul
         if (/[\t\n\f\r ]/.test(target)) return 'active_content'
         const kind = classifyReference(target, true)
         if (kind === 'active_content') return kind
+        if (kind === null) onUrl?.(target, currentProperty)
         verdict = verdict ?? kind
         index = close + 1
         continue
@@ -503,6 +540,7 @@ export function inspectVectorImageCss(css: string): VectorImageFindingKind | nul
       index = end + 1
       continue
     }
+    pendingName = null
     index += 1
   }
   return verdict
@@ -592,6 +630,24 @@ function isReferenceBearing(attribute: DomAttribute): boolean {
   return CSS_PARSED_ATTRIBUTES.has(attribute.localName.toLowerCase()) || /url\s*\(/i.test(attribute.value)
 }
 
+/**
+ * DOMPurify re-sets every attribute value through JavaScript `trim()`. For a
+ * reference that matters where the trim differs from the URL parser's; for an
+ * `id` any change does (the stored id would not be the uploaded one); for a
+ * `class` only non-ASCII whitespace does, since class lists split on ASCII
+ * whitespace anyway.
+ */
+function changedByPurifyTrim(attribute: DomAttribute): boolean {
+  const value = attribute.value
+  const trimmed = value.trim()
+  if (trimmed === value) return false
+  if (isReferenceBearing(attribute)) return trimmed !== trimUrlBoundary(value)
+  if (attribute.namespaceURI !== null) return false
+  const name = attribute.localName.toLowerCase()
+  if (name === 'id') return true
+  return name === 'class' && trimmed !== trimCssWhitespace(value)
+}
+
 function isKeptNamespaceDeclaration(attribute: DomAttribute): boolean {
   if (attribute.name === 'xmlns') return attribute.value === SVG_NAMESPACE
   return attribute.name === 'xmlns:xlink' && attribute.value === XLINK_NAMESPACE
@@ -610,9 +666,10 @@ function isKeptNamespaceDeclaration(attribute: DomAttribute): boolean {
  * - DOMPurify rewrites every attribute value with JavaScript `trim()`, which
  *   also strips non-ASCII spaces that a browser keeps (`href="\u3000#a"` is a
  *   relative URL to a browser and `#a` after DOMPurify). A reference-bearing
- *   attribute (`href`, a CSS-parsed attribute, any value with `url(`) whose
- *   value it would change that way is refused rather than silently rewritten;
- *   elsewhere the trim changes nothing that renders or fetches.
+ *   attribute (`href`, a CSS-parsed attribute, any value with `url(`), an `id`
+ *   or a `class` whose meaning that trim would change is refused rather than
+ *   silently rewritten (`changedByPurifyTrim`); elsewhere the trim changes
+ *   nothing that renders, fetches or is referenced.
  */
 function normaliseAttributes(
   element: DomElement,
@@ -621,7 +678,7 @@ function normaliseAttributes(
   let rewroteXlink = false
   for (const attribute of attributesOf(element)) {
     const attributeNamespace = attribute.namespaceURI
-    if (isReferenceBearing(attribute) && attribute.value.trim() !== trimUrlBoundary(attribute.value)) {
+    if (changedByPurifyTrim(attribute)) {
       const kind = isHrefAttribute(attribute) ? 'external_reference' : 'active_content'
       return { finding: { kind, target: describeAttribute(attribute, element) }, rewroteXlink }
     }
@@ -773,13 +830,6 @@ function findReferenceViolation(root: DomElement): VectorImageFinding | null {
   walk(root, (node) => {
     if (finding || !isElement(node)) return false
     const tag = node.localName.toLowerCase()
-    if (ANIMATION_ELEMENTS.has(tag)) {
-      const target = (node.getAttribute('attributeName') ?? '').trim().toLowerCase()
-      if (target === 'href' || target.endsWith(':href')) {
-        finding = { kind: 'active_content', target: describeElement(node) }
-        return false
-      }
-    }
     const attributes = attributesOf(node)
     if (hasConflictingHrefs(attributes)) {
       finding = { kind: 'active_content', target: `${describeElement(node)}@href` }
@@ -806,62 +856,406 @@ function referencedId(element: DomElement): string | null {
   return value.startsWith('#') ? value.slice(1) : null
 }
 
+type ReferenceMultiplier = 'once' | 'painted' | 'markables' | 'vertices'
+
+type FragmentReference = { id: string; multiplier: ReferenceMultiplier }
+
+type SelectorSubject = { key: 'id' | 'class' | 'type'; value: string } | null
+
 /**
- * Bounds what the document renders, not what it contains: every element
- * counts once where it appears, and a `<use>` counts its referenced subtree
- * again — recursively, so nested reuse multiplies. One iterative post-order
- * pass over the element graph (tree children plus each `<use>` target)
- * computes each element's rendered size once, so the check is linear in the
- * document. A reference cycle is unbounded.
+ * The references every element a selector could match picks up from the
+ * stylesheets, deduplicated by target and multiplier. A bucket is one node of
+ * the rendered-size graph, so an element costs one edge per bucket it falls
+ * into, however many rules feed that bucket.
+ */
+type ReferenceBucket = { references: Map<string, FragmentReference> }
+
+type StylesheetReferenceIndex = {
+  any: ReferenceBucket
+  byId: Map<string, ReferenceBucket>
+  byClass: Map<string, ReferenceBucket>
+  byType: Map<string, ReferenceBucket>
+}
+
+/**
+ * How many times one element renders what a property references: once for
+ * `clip-path`, `mask` and `filter`, which do not inherit; once per painted
+ * element it reaches for an inherited paint (`fill`, `stroke`, or a property
+ * the policy does not know); once per markable element for `marker-start` and
+ * `marker-end`; once per vertex for `marker-mid` and the `marker` shorthand.
+ */
+function referenceMultiplier(property: string | null): ReferenceMultiplier {
+  const name = (property ?? '').toLowerCase()
+  if (name === 'marker' || name === 'marker-mid') return 'vertices'
+  if (name === 'marker-start' || name === 'marker-end') return 'markables'
+  if (NON_INHERITED_REFERENCE_PROPERTIES.has(name)) return 'once'
+  return 'painted'
+}
+
+function collectFragmentReferences(css: string, property: string | null, into: FragmentReference[]): void {
+  scanCss(css, property, (target, targetProperty) => {
+    if (target.startsWith('#')) into.push({ id: target.slice(1), multiplier: referenceMultiplier(targetProperty) })
+  })
+}
+
+/** Index just past a comment or quoted string starting at `index`, or `index`. */
+function skipCssCommentOrString(css: string, index: number): number {
+  if (css[index] === '/' && css[index + 1] === '*') {
+    const end = css.indexOf('*/', index + 2)
+    return end < 0 ? css.length : end + 2
+  }
+  const quote = css[index]
+  if (quote !== '"' && quote !== "'") return index
+  const end = css.indexOf(quote, index + 1)
+  return end < 0 ? css.length : end + 1
+}
+
+function matchingBrace(css: string, open: number, limit: number): number {
+  let depth = 0
+  let index = open
+  while (index < limit) {
+    const skipped = skipCssCommentOrString(css, index)
+    if (skipped !== index) {
+      index = skipped
+      continue
+    }
+    if (css[index] === '{') depth += 1
+    else if (css[index] === '}') {
+      depth -= 1
+      if (depth === 0) return index
+    }
+    index += 1
+  }
+  return limit
+}
+
+/**
+ * The subject compound of one selector, reduced to the single most selective
+ * constraint it carries (an id, else a class, else a type), or null when it
+ * could match any element. Dropping every other constraint — combinators,
+ * further classes, attributes, pseudo-classes — only widens the match, which
+ * keeps the rendered-size estimate an upper bound.
+ */
+function selectorSubject(selector: string): SelectorSubject {
+  let depth = 0
+  let compoundStart = 0
+  let index = 0
+  while (index < selector.length) {
+    const skipped = skipCssCommentOrString(selector, index)
+    if (skipped !== index) {
+      if (depth === 0) compoundStart = skipped
+      index = skipped
+      continue
+    }
+    const character = selector[index]!
+    if (character === '(' || character === '[') depth += 1
+    else if (character === ')' || character === ']') depth = Math.max(0, depth - 1)
+    else if (depth === 0 && SELECTOR_COMBINATORS.has(character)) compoundStart = index + 1
+    index += 1
+  }
+  const compound = selector.slice(compoundStart)
+  let id: string | null = null
+  let className: string | null = null
+  let type: string | null = null
+  depth = 0
+  index = 0
+  while (index < compound.length) {
+    const skipped = skipCssCommentOrString(compound, index)
+    if (skipped !== index) {
+      index = skipped
+      continue
+    }
+    const character = compound[index]!
+    if (character === '(' || character === '[') {
+      depth += 1
+      index += 1
+      continue
+    }
+    if (character === ')' || character === ']') {
+      depth = Math.max(0, depth - 1)
+      index += 1
+      continue
+    }
+    if (depth > 0) {
+      index += 1
+      continue
+    }
+    if (character === '#' || character === '.' || character === ':') {
+      const end = readCssName(compound, index + 1)
+      const name = compound.slice(index + 1, end).toLowerCase()
+      if (character === '#' && name) id = id ?? name
+      if (character === '.' && name) className = className ?? name
+      index = Math.max(end, index + 1)
+      continue
+    }
+    if (isCssNameCharacter(compound.charCodeAt(index))) {
+      const end = readCssName(compound, index)
+      const name = compound.slice(index, end).toLowerCase()
+      if (compound[end] === '|') {
+        index = end + 1
+        continue
+      }
+      type = type ?? name
+      index = end
+      continue
+    }
+    index += 1
+  }
+  if (id) return { key: 'id', value: id }
+  if (className) return { key: 'class', value: className }
+  if (type) return { key: 'type', value: type }
+  return null
+}
+
+function selectorSubjects(selectorList: string): SelectorSubject[] {
+  const subjects: SelectorSubject[] = []
+  let depth = 0
+  let start = 0
+  let index = 0
+  while (index <= selectorList.length) {
+    const skipped = index < selectorList.length ? skipCssCommentOrString(selectorList, index) : index
+    if (skipped !== index) {
+      index = skipped
+      continue
+    }
+    const character = selectorList[index]
+    if (character === '(' || character === '[') depth += 1
+    else if (character === ')' || character === ']') depth = Math.max(0, depth - 1)
+    else if (index === selectorList.length || (character === ',' && depth === 0)) {
+      subjects.push(selectorSubject(selectorList.slice(start, index).trim()))
+      start = index + 1
+    }
+    index += 1
+  }
+  return subjects
+}
+
+function addToBucket(buckets: Map<string, ReferenceBucket>, key: string, reference: FragmentReference): void {
+  let bucket = buckets.get(key)
+  if (!bucket) {
+    bucket = { references: new Map() }
+    buckets.set(key, bucket)
+  }
+  bucket.references.set(`${reference.multiplier}|${reference.id}`, reference)
+}
+
+/**
+ * Indexes every in-document `url()` a stylesheet holds under the selectors
+ * that could apply it. Grouping at-rules (`@media`, `@supports`, …) are
+ * entered; anything else with a block (`@keyframes`, nested rules) applies to
+ * any element.
+ */
+function indexStylesheetReferences(stylesheets: string[]): StylesheetReferenceIndex {
+  const index: StylesheetReferenceIndex = { any: { references: new Map() }, byId: new Map(), byClass: new Map(), byType: new Map() }
+  for (const css of stylesheets) {
+    const ranges: Array<[number, number]> = [[0, css.length]]
+    while (ranges.length) {
+      const [rangeStart, rangeEnd] = ranges.pop()!
+      let preludeStart = rangeStart
+      let position = rangeStart
+      while (position < rangeEnd) {
+        const skipped = skipCssCommentOrString(css, position)
+        if (skipped !== position) {
+          position = skipped
+          continue
+        }
+        const character = css[position]
+        if (character === ';' || character === '}') {
+          position += 1
+          preludeStart = position
+          continue
+        }
+        if (character !== '{') {
+          position += 1
+          continue
+        }
+        const close = matchingBrace(css, position, rangeEnd)
+        const prelude = css.slice(preludeStart, position).trim()
+        const body = css.slice(position + 1, close)
+        if (prelude.startsWith('@') && STYLESHEET_GROUPING_RULES.has(prelude.slice(1, readCssName(prelude, 1)).toLowerCase())) {
+          ranges.push([position + 1, close])
+        } else {
+          const references: FragmentReference[] = []
+          collectFragmentReferences(body, null, references)
+          const subjects = prelude.startsWith('@') || body.includes('{') ? [null] : selectorSubjects(prelude)
+          for (const reference of references) {
+            for (const subject of subjects) {
+              if (!subject) index.any.references.set(`${reference.multiplier}|${reference.id}`, reference)
+              else if (subject.key === 'id') addToBucket(index.byId, subject.value, reference)
+              else if (subject.key === 'class') addToBucket(index.byClass, subject.value, reference)
+              else addToBucket(index.byType, subject.value, reference)
+            }
+          }
+        }
+        position = close + 1
+        preludeStart = position
+      }
+    }
+  }
+  return index
+}
+
+function bucketsFor(element: DomElement, tag: string, index: StylesheetReferenceIndex): ReferenceBucket[] {
+  const buckets: ReferenceBucket[] = []
+  const add = (bucket: ReferenceBucket | undefined) => {
+    if (bucket && bucket.references.size) buckets.push(bucket)
+  }
+  add(index.any)
+  add(index.byType.get(tag))
+  const id = element.getAttribute('id')
+  if (id) add(index.byId.get(id.toLowerCase()))
+  const classes = element.getAttribute('class')
+  if (classes) {
+    for (const className of classes.toLowerCase().split(/[\t\n\f\r ]+/)) {
+      if (className) add(index.byClass.get(className))
+    }
+  }
+  return buckets
+}
+
+function vertexBound(element: DomElement, tag: string): number {
+  if (tag === 'line') return 2
+  if (tag === 'path') return (element.getAttribute('d') ?? '').length
+  if (tag === 'polyline' || tag === 'polygon') return (element.getAttribute('points') ?? '').length
+  return 0
+}
+
+/**
+ * Bounds what the document renders, not what it contains. Every element
+ * counts once where it appears, and every in-document reference renders its
+ * target again, recursively, so nested reuse multiplies:
+ * - a `<use>` renders its target as an instance that inherits from it, like a
+ *   child;
+ * - any other `href` (`feImage`, `textPath`, a paint server inheriting a
+ *   template) renders its target once; a link (`<a>`) renders nothing;
+ * - a `url(#…)` in an attribute, a `style` attribute or a stylesheet rule that
+ *   could apply to the element renders its target as many times as
+ *   `referenceMultiplier` says: inherited paint reaches every painted element
+ *   below (`<use>` instances included), and a `marker-mid` every vertex.
+ *
+ * One iterative post-order pass over that graph computes, once per node, how
+ * many painted elements, markable elements and vertices inherit from an
+ * element and how many elements it renders. An element's tree and `<use>`
+ * edges come first, so those counts are complete when its references multiply
+ * by them. Stylesheet buckets are nodes too: a bucket sums its targets'
+ * rendered sizes per multiplier once, and an element applies those sums. A
+ * reference cycle is unbounded. Over-counting (a selector matching more
+ * elements than it does, a cascade overriding a paint) only ever refuses; the
+ * estimate never falls below what a browser renders.
  */
 function exceedsRenderedSize(root: DomElement): boolean {
   const byId = new Map<string, DomElement>()
+  const stylesheets: string[] = []
   walk(root, (node) => {
     if (!isElement(node)) return false
     const id = node.getAttribute('id')
     if (id && !byId.has(id)) byId.set(id, node)
+    if (isStyleElement(node)) stylesheets.push(styleSheetText(node))
     return true
   })
-  const dependenciesOf = (element: DomElement): DomElement[] => {
-    const dependencies: DomElement[] = []
-    for (let child = element.firstChild; child; child = child.nextSibling) {
-      if (isElement(child)) dependencies.push(child)
+  const stylesheetIndex = indexStylesheetReferences(stylesheets)
+  type RenderNode = DomElement | ReferenceBucket
+  type Edge =
+    | { kind: 'tree'; target: DomElement }
+    | { kind: 'reference'; target: DomElement; multiplier: ReferenceMultiplier }
+    | { kind: 'bucket'; target: ReferenceBucket }
+  /**
+   * For an element: what inherits from it and what it renders. For a bucket:
+   * the summed rendered size of its targets per multiplier, `rendered` for
+   * `once`.
+   */
+  type Totals = { painted: number; markables: number; vertices: number; rendered: number }
+  const isBucket = (node: RenderNode): node is ReferenceBucket => 'references' in node
+  const edgesOf = (node: RenderNode): Edge[] => {
+    const edges: Edge[] = []
+    if (isBucket(node)) {
+      for (const reference of node.references.values()) {
+        const target = byId.get(reference.id)
+        if (target) edges.push({ kind: 'reference', target, multiplier: reference.multiplier })
+      }
+      return edges
     }
-    if (element.localName === 'use') {
-      const targetId = referencedId(element)
-      const target = targetId ? byId.get(targetId) : undefined
-      if (target) dependencies.push(target)
+    const tag = node.localName.toLowerCase()
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (isElement(child)) edges.push({ kind: 'tree', target: child })
     }
-    return dependencies
+    const hrefTarget = referencedId(node)
+    const linked = hrefTarget ? byId.get(hrefTarget) : undefined
+    if (linked && tag === 'use') edges.push({ kind: 'tree', target: linked })
+    if (linked && tag !== 'use' && tag !== 'a') edges.push({ kind: 'reference', target: linked, multiplier: 'once' })
+    const references: FragmentReference[] = []
+    for (const attribute of attributesOf(node)) {
+      if (attribute.namespaceURI !== null || isHrefAttribute(attribute) || !/url\s*\(/i.test(attribute.value)) continue
+      const name = attribute.localName.toLowerCase()
+      collectFragmentReferences(attribute.value, name === 'style' ? null : name, references)
+    }
+    for (const reference of references) {
+      const target = byId.get(reference.id)
+      if (target) edges.push({ kind: 'reference', target, multiplier: reference.multiplier })
+    }
+    for (const bucket of bucketsFor(node, tag, stylesheetIndex)) edges.push({ kind: 'bucket', target: bucket })
+    return edges
   }
-  type Frame = { element: DomElement; dependencies: DomElement[]; next: number; size: number }
-  const finished = new Map<DomElement, number>()
-  const inProgress = new Set<DomElement>([root])
-  const stack: Frame[] = [{ element: root, dependencies: dependenciesOf(root), next: 0, size: 1 }]
+  const ownTotals = (node: RenderNode): Totals => {
+    if (isBucket(node)) return { painted: 0, markables: 0, vertices: 0, rendered: 0 }
+    const tag = node.localName.toLowerCase()
+    return {
+      painted: PAINTED_ELEMENTS.has(tag) ? 1 : 0,
+      markables: MARKABLE_ELEMENTS.has(tag) ? 1 : 0,
+      vertices: vertexBound(node, tag),
+      rendered: 1,
+    }
+  }
+  const times = (totals: Totals, multiplier: ReferenceMultiplier): number => {
+    if (multiplier === 'once') return 1
+    if (multiplier === 'painted') return totals.painted
+    return multiplier === 'markables' ? totals.markables : totals.vertices
+  }
+  const absorb = (node: RenderNode, totals: Totals, edge: Edge, dependency: Totals): boolean => {
+    if (edge.kind === 'tree') {
+      totals.painted += dependency.painted
+      totals.markables += dependency.markables
+      totals.vertices += dependency.vertices
+      totals.rendered += dependency.rendered
+    } else if (edge.kind === 'bucket') {
+      totals.rendered += dependency.rendered
+        + dependency.painted * totals.painted
+        + dependency.markables * totals.markables
+        + dependency.vertices * totals.vertices
+    } else if (isBucket(node)) {
+      if (edge.multiplier === 'once') totals.rendered += dependency.rendered
+      else totals[edge.multiplier] += dependency.rendered
+      return false
+    } else {
+      totals.rendered += times(totals, edge.multiplier) * dependency.rendered
+    }
+    return totals.rendered > VECTOR_IMAGE_MAX_RENDERED_ELEMENTS
+  }
+  type Frame = { node: RenderNode; edges: Edge[]; next: number; totals: Totals }
+  const open = (node: RenderNode): Frame => ({ node, edges: edgesOf(node), next: 0, totals: ownTotals(node) })
+  const finished = new Map<RenderNode, Totals>()
+  const inProgress = new Set<RenderNode>([root])
+  const stack: Frame[] = [open(root)]
   while (stack.length) {
     const frame = stack[stack.length - 1]!
-    if (frame.next < frame.dependencies.length) {
-      const dependency = frame.dependencies[frame.next]!
+    if (frame.next < frame.edges.length) {
+      const edge = frame.edges[frame.next]!
       frame.next += 1
-      const known = finished.get(dependency)
+      const known = finished.get(edge.target)
       if (known !== undefined) {
-        frame.size += known
-        if (frame.size > VECTOR_IMAGE_MAX_RENDERED_ELEMENTS) return true
+        if (absorb(frame.node, frame.totals, edge, known)) return true
         continue
       }
-      if (inProgress.has(dependency)) return true
-      inProgress.add(dependency)
-      stack.push({ element: dependency, dependencies: dependenciesOf(dependency), next: 0, size: 1 })
+      if (inProgress.has(edge.target)) return true
+      inProgress.add(edge.target)
+      stack.push(open(edge.target))
       continue
     }
     stack.pop()
-    inProgress.delete(frame.element)
-    finished.set(frame.element, frame.size)
+    inProgress.delete(frame.node)
+    finished.set(frame.node, frame.totals)
     const parent = stack[stack.length - 1]
-    if (parent) {
-      parent.size += frame.size
-      if (parent.size > VECTOR_IMAGE_MAX_RENDERED_ELEMENTS) return true
-    }
+    if (parent && absorb(parent.node, parent.totals, parent.edges[parent.next - 1]!, frame.totals)) return true
   }
   return false
 }

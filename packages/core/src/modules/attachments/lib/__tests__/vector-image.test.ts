@@ -23,6 +23,7 @@ import {
   CLOBBERING_ID_LOGO,
   EDITOR_EXPORT_LOGO,
   FILTERED_RASTER_LOGO,
+  ILLUSTRATOR_CLIPPED_LOGO,
   INKSCAPE_LOGO,
   INKSCAPE_PLAIN_LOGO,
   MALICIOUS_FIXTURES,
@@ -132,6 +133,17 @@ describe('sanitizeVectorImage — benign logos', () => {
     expect(output).toContain('style="fill:#2a9d8f;stroke:none;stroke-width:0.264583"')
     expect(output).toContain('viewBox="0 0 64 64"')
     expect(output).not.toMatch(/sodipodi|inkscape:/)
+  })
+
+  it('keeps a design-tool export with classed clip paths, a pattern swatch, a gradient and an arrow marker', async () => {
+    const prepared = await prepareVectorImageUpload(svgBuffer(ILLUSTRATOR_CLIPPED_LOGO))
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.removals.every((removal) => removal.kind === 'inert')).toBe(true)
+    const output = prepared.buffer.toString('utf8')
+    expect(output).toContain('.st1{clip-path:url(#SVGID_3_);}')
+    expect(output).toContain('marker-end="url(#arrow)"')
+    expect(output.match(/class="st2"/g)).toHaveLength(40)
   })
 
   it('keeps an XLink reference written with a prefix other than xlink', async () => {
@@ -331,7 +343,8 @@ describe('sanitizeVectorImage — bounded cost', () => {
    * the work, and the bounds cap the document — by bytes, markup before
    * parsing, nodes of every type, elements, depth and attributes. Warm worst
    * cases measured at these bounds, one call per macrotask on a loaded
-   * laptop, were 0.04-0.44 s. The pre-fix quadratic shapes took 2.5-27 s at
+   * laptop, had medians under 0.5 s and maxima up to 0.72 s; the reference
+   * expansion added 0-90 ms per shape. The pre-fix quadratic shapes took 2.5-27 s at
    * sizes the bounds now refuse. The ceiling is more than ten times the
    * measured worst case, so a slow CI runner cannot flake it, while a return
    * of super-linear behaviour fails it.
@@ -361,6 +374,8 @@ describe('sanitizeVectorImage — bounded cost', () => {
     ['text interleaved with disallowed elements at the element bound', wrap('a<blink/>'.repeat(Math.min(pairs, elements))), false],
     ['text interleaved with foreign editor elements at the element bound', wrap('a<x:a/>'.repeat(Math.min(pairs, elements))), true],
     ['whitespace-formatted elements at the node bound', wrap('\n<rect/>'.repeat(Math.floor(VECTOR_IMAGE_MAX_NODES / 2) - 12)), true],
+    ['900 stylesheet rules referencing 900 targets from every rect', wrap(`<style>${Array.from({ length: 900 }, (_, index) => `rect{marker-start:url(#g${index})}`).join('')}</style><defs>${Array.from({ length: 900 }, (_, index) => `<linearGradient id="g${index}"/>`).join('')}</defs>${'<rect/>'.repeat(elements - 902)}`), true],
+    ['a 1 MiB stylesheet of url() rules', wrap(`<defs><linearGradient id="g"/></defs><style>${'.a{fill:url(#g)}'.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 16))}</style><rect class="a"/>`), true],
   ]
 
   beforeAll(async () => {
