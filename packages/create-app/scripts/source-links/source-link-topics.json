@@ -945,6 +945,41 @@
       "owner": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
       "requirement": "retained-normative-snippet",
       "evidence": "Health checks and OAuth refresh retries redact credentials and provider details"
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:api/todos/route.ts",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "href": "../../../../src/modules/example/api/todos/route.ts",
+      "resolvedPath": "src/modules/example/api/todos/route.ts",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:encryption.ts",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "href": "../../../../src/modules/example/encryption.ts",
+      "resolvedPath": "src/modules/example/encryption.ts",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:search.ts",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "href": "../../../../src/modules/example/search.ts",
+      "resolvedPath": "src/modules/example/search.ts",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:.ai/skills/om-data-model-design/references/sensitive-data.md",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "href": "../../om-data-model-design/references/sensitive-data.md#encrypted-list-search",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "href": "../../../../node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "requirement": "source-required"
     }
   ]
 }

@@ -56,7 +56,7 @@ yarn workspace @open-mercato/shared build
 | `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint (`parseNumberWithDefault`), or when parsing a number a USER TYPED, which carries the application locale's decimal/group separators (`parseLocaleNumber`, returns `null` — never a silent `0` — on unparseable input). MUST NOT run API/DB values through `parseLocaleNumber`; those are already numbers | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
-| `search/` | When resolving record ids from the `search_tokens` index — MUST use instead of hand-rolling the Kysely lookup, and MUST be unioned into (or replace) any `$ilike` filter on a column an encryption map covers | `@open-mercato/shared/lib/search/tokenLookup` |
+| `search/` | When resolving record ids from the `search_tokens` index — MUST use instead of hand-rolling the Kysely lookup, for raw ORM/Kysely encrypted-column filters; QueryEngine owns this rewrite automatically | `@open-mercato/shared/lib/search/tokenLookup` |
 | `string.ts` | When parsing comma-separated lists from CLI args/query params, or coercing a string to `undefined` when blank | `@open-mercato/shared/lib/string` |
 | `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
 
@@ -99,7 +99,7 @@ const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organ
 
 Encryption maps default to tenant-scoped keys. Use the additive `keyScope: 'system'` option only for records that must exist before a tenant does; the system scope remains authoritative after a tenant id is later assigned so existing ciphertext stays readable.
 
-### Search Tokens — MUST use instead of `$ilike` on encrypted columns
+### Search Tokens — QueryEngine filters and direct ORM reads
 
 ```typescript
 import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
@@ -111,33 +111,20 @@ const match = await findEntityIdsBySearchTokens({
   fields: ['display_name', 'primary_email'],
   scope: { tenantId, organizationId },
 })
-if (match.matched && match.ids.length) filters.$or.push({ id: { $in: match.ids } })
+if (!match.matched) throw new Error('[internal] Scoped token search is unavailable')
+const filters = { id: { $in: match.ids }, tenantId, organizationId }
 ```
 
-An `$ilike` predicate runs against the stored column value. For a field covered by a
-module encryption map that value is ciphertext, so the filter matches nothing and the
-endpoint returns an empty page indistinguishable from a genuine no-result. The token
-index stores hashes of the plaintext, so it keeps matching. Issue #2990.
+For QueryEngine list routes (`makeCrudRoute` with `entityId` + `fields`), use the normal `$ilike` filter. Both query engines own the token rewrite and apply trusted tenant/organization scope. Do not add a second manual ID-narrowing lookup to that path.
 
-- `matched: false` means the index was **not consulted** (blank query, `OM_SEARCH_ENABLED=off`,
-  or the term produced no tokens) — it is NOT "nothing matched". Keep the caller's own
-  predicate in that case.
-- `matched: true` with `ids: []` is a real empty result.
-- Queries that go through the query engine get this routing automatically; raw
-  `em.find` / Kysely list routes must wire it themselves. One carve-out: with
-  `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` (**off by default per #5383**, opt in ahead
-  of it to fix #5803), a base-column `like`/`ilike` on a **plaintext** column runs as SQL ILIKE —
-  one containment predicate per word of the term, ANDed (`lib/search/containment`), so word-order
-  independence survives the reroute — instead of the token rewrite; encrypted columns keep the
-  token path either way. Leaving the var unset keeps the legacy rewrite-everything behavior. When
-  the fallback would run
-  `ILIKE` against an encrypted column, both query engines now log a warning
-  (`lib/query/ciphertext-search-warning`) instead of degrading silently.
-- The `…WithDecryption` helpers log the same warning outside production when the `where`
-  clause targets an encryption-map property with `$like`/`$ilike`/`$re`
-  (`lib/encryption/likeFilterWarning`). It is a development aid — the map lookup costs an
-  uncached read, so it is skipped in production. A search that only breaks under a
-  production-only encryption map still needs a test.
+Raw ORM/Kysely predicates compare against stored ciphertext and cannot text-match plaintext. Use `findEntityIdsBySearchTokens` for those paths, with trusted tenant/organization scope, then constrain IDs before a scoped decrypted read. `matched: true` with `ids: []` is an empty result; `matched: false` means the index was not consulted, so do not treat it as successful search or fall back to ciphertext ILIKE.
+
+Both paths require populated `search_tokens` for the entity, encrypted field, and records in the requested scope, enabled search, and a term long enough to tokenize. Declare `indexer` on the real write path, ensure the indexing events/worker run, and reindex existing records. Tokens are built from decrypted query-index documents independently of `search.ts` fulltext/vector policies; adding that file cannot repair an empty index. Prove a real encrypted fixture is indexed and found through the list API, including cross-organization denial; mocked/unit/build gates cannot establish this invariant.
+
+When fallback would compare with ciphertext, both engines retain the existing warn-once log. Outside production, `meta.ciphertextSearchWarnings` additionally reports entity, field, reason and remediation hint on every affected query/list response, including `no-search-tokens`. No values, hashes or tenant IDs are exposed. Production response metadata is unchanged.
+
+- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default.
+- Direct `…WithDecryption` helpers warn outside production about `$like`/`$ilike`/`$re` in encrypted-field ORM predicates (`lib/encryption/likeFilterWarning`); they decrypt returned rows but cannot repair a ciphertext filter.
 
 ### Boolean Parsing — MUST use instead of ad-hoc parsing
 

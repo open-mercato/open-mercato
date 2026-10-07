@@ -1,5 +1,6 @@
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Profiler } from '../profiler'
+import type { CiphertextSearchWarning } from './ciphertext-search-warning'
 import type { ResolvedCustomFieldDefinitions } from '../crud/custom-field-definition-index'
 
 export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists'
@@ -169,6 +170,7 @@ export type ListCountCapWarning = {
 }
 
 export type QueryResultMeta = {
+  ciphertextSearchWarnings?: CiphertextSearchWarning[]
   partialIndexWarning?: PartialIndexWarning
   encryptedSortRowCapWarning?: EncryptedSortRowCapWarning
   listCountCapWarning?: ListCountCapWarning
