@@ -199,5 +199,9 @@
   "configs.upgrades.devicesPushTokenEncryption.cta": "Push-Tokens von Geräten verschlüsseln",
   "configs.upgrades.devicesPushTokenEncryption.loading": "Verschlüsselungszuordnung für Push-Tokens wird angelegt…",
   "configs.upgrades.devicesPushTokenEncryption.message": "Version {{version}} fügt mobile Push-Benachrichtigungen hinzu und verschlüsselt Geräte-Push-Tokens im Ruhezustand. Bestehende Mandanten haben keine Verschlüsselungszuordnung für die neue Geräte-Entität, sodass nach dem Upgrade registrierte Tokens unverschlüsselt gespeichert würden. Führen Sie dies aus, um die Zuordnung anzulegen, damit Push-Tokens verschlüsselt werden.",
-  "configs.upgrades.devicesPushTokenEncryption.success": "Verschlüsselungszuordnung für Push-Tokens angelegt."
+  "configs.upgrades.devicesPushTokenEncryption.success": "Verschlüsselungszuordnung für Push-Tokens angelegt.",
+  "configs.upgrades.ecommerceDraftStore.cta": "Standard-Shop erstellen",
+  "configs.upgrades.ecommerceDraftStore.loading": "Standard-Shop wird erstellt…",
+  "configs.upgrades.ecommerceDraftStore.message": "Version {{version}} fügt das Shop-Modul hinzu. Arbeitsbereiche, die schon vorher existierten, haben noch keinen Shop. Führen Sie dies aus, um aus dem Namen Ihrer Organisation einen Entwurfs-Shop zu erstellen, den Sie dann konfigurieren können. Existiert bereits ein Shop, passiert nichts.",
+  "configs.upgrades.ecommerceDraftStore.success": "Standard-Shop erstellt."
 }

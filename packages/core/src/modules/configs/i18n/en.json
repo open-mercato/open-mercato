@@ -199,5 +199,9 @@
   "configs.upgrades.devicesPushTokenEncryption.cta": "Encrypt device push tokens",
   "configs.upgrades.devicesPushTokenEncryption.loading": "Seeding push-token encryption map…",
   "configs.upgrades.devicesPushTokenEncryption.message": "Version {{version}} adds mobile push and encrypts device push tokens at rest. Existing tenants have no encryption map for the new device entity, so tokens registered after the upgrade would be stored unencrypted. Run this to seed the map so push tokens are encrypted.",
-  "configs.upgrades.devicesPushTokenEncryption.success": "Push-token encryption map seeded."
+  "configs.upgrades.devicesPushTokenEncryption.success": "Push-token encryption map seeded.",
+  "configs.upgrades.ecommerceDraftStore.cta": "Create the default store",
+  "configs.upgrades.ecommerceDraftStore.loading": "Creating the default store…",
+  "configs.upgrades.ecommerceDraftStore.message": "Version {{version}} adds the Stores module. Workspaces that existed before it have no store yet. Run this to create one draft store from your organization's name so you have something to configure. It does nothing if a store already exists.",
+  "configs.upgrades.ecommerceDraftStore.success": "Default store created."
 }

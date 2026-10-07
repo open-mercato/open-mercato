@@ -7,6 +7,13 @@ import { reconcileAttachmentOrganizations } from '@open-mercato/core/modules/att
 
 const logger = createLogger('configs').child({ component: 'upgrade-actions' })
 
+type BaseCurrencyResolver = {
+  resolveBaseCurrency(scope: {
+    tenantId: string
+    organizationIds: string[]
+  }): Promise<{ status: 'resolved'; code: string } | { status: 'missing' | 'ambiguous' | 'unavailable' }>
+}
+
 export type UpgradeActionContext = {
   tenantId: string
   organizationId: string
@@ -151,6 +158,34 @@ export const upgradeActions: UpgradeActionDefinition[] = [
         import('@open-mercato/core/modules/entities/cli'),
       ])
       await upsertEncryptionMapSpecs(em, tenantId, organizationId ?? null, phoneCallsEncryptionMaps)
+    },
+  },
+  {
+    id: 'ecommerce.seed-draft-store',
+    version: '0.8.1',
+    messageKey: 'configs.upgrades.ecommerceDraftStore.message',
+    ctaKey: 'configs.upgrades.ecommerceDraftStore.cta',
+    successKey: 'configs.upgrades.ecommerceDraftStore.success',
+    loadingKey: 'configs.upgrades.ecommerceDraftStore.loading',
+    requiredModules: ['ecommerce'],
+    run: async ({ container, em, tenantId, organizationId }) => {
+      const { seedDraftStore } = await import('@open-mercato/core/modules/ecommerce/lib/seedDraftStore')
+      const result = await seedDraftStore(
+        em,
+        { tenantId, organizationId },
+        {
+          resolveCurrencyCode: async () => {
+            try {
+              const resolver = container.resolve<BaseCurrencyResolver>('baseCurrencyService')
+              const resolution = await resolver.resolveBaseCurrency({ tenantId, organizationIds: [organizationId] })
+              return resolution.status === 'resolved' ? resolution.code : null
+            } catch {
+              return null
+            }
+          },
+        },
+      )
+      logger.info('ecommerce draft store seed completed', { tenantId, organizationId, status: result.status })
     },
   },
 ]

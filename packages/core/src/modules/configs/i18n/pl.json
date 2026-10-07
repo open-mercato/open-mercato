@@ -199,5 +199,9 @@
   "configs.upgrades.devicesPushTokenEncryption.cta": "Szyfruj tokeny push urządzeń",
   "configs.upgrades.devicesPushTokenEncryption.loading": "Tworzenie mapy szyfrowania tokenów push…",
   "configs.upgrades.devicesPushTokenEncryption.message": "Wersja {{version}} dodaje mobilne powiadomienia push i szyfruje tokeny push urządzeń w spoczynku. Istniejący najemcy nie mają mapy szyfrowania dla nowej encji urządzenia, więc tokeny zarejestrowane po aktualizacji byłyby przechowywane bez szyfrowania. Uruchom to, aby utworzyć mapę i zaszyfrować tokeny push.",
-  "configs.upgrades.devicesPushTokenEncryption.success": "Utworzono mapę szyfrowania tokenów push."
+  "configs.upgrades.devicesPushTokenEncryption.success": "Utworzono mapę szyfrowania tokenów push.",
+  "configs.upgrades.ecommerceDraftStore.cta": "Utwórz domyślny sklep",
+  "configs.upgrades.ecommerceDraftStore.loading": "Tworzenie domyślnego sklepu…",
+  "configs.upgrades.ecommerceDraftStore.message": "Wersja {{version}} dodaje moduł sklepów. Przestrzenie robocze istniejące wcześniej nie mają jeszcze żadnego sklepu. Uruchom to, aby utworzyć jeden sklep w wersji szkicu na podstawie nazwy organizacji, który możesz skonfigurować. Jeśli sklep już istnieje, nic się nie dzieje.",
+  "configs.upgrades.ecommerceDraftStore.success": "Utworzono domyślny sklep."
 }

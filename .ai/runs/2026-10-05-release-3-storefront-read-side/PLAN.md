@@ -85,7 +85,7 @@
 | 7 | 7.9 | Admin UI: SEO tab | dispatch:cheap | done | 3300e50119 |
 | 7 | 7.10 | customer_groups group-terms assortment pickers | dispatch:standard | done | 3133c689f6 |
 | 7 | 7.7-fix | Wire the domain-mapping response enricher into the store-domain-bindings CRUD route | inline | done | ff2cfeffce |
-| 7 | 7.11 | setup.ts draft-store seed + Upgrade Action for existing tenants | dispatch:standard | todo | — |
+| 7 | 7.11 | setup.ts draft-store seed + Upgrade Action for existing tenants | dispatch:standard | done | pending |
 | 7 | 7.12 | Integration tests: admin UI paths (SPEC-029 Phases 2–3 gates) | dispatch:capable | todo | — |
 
 ## Goal

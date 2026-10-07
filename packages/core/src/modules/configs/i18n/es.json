@@ -199,5 +199,9 @@
   "configs.upgrades.devicesPushTokenEncryption.cta": "Cifrar tokens push de dispositivos",
   "configs.upgrades.devicesPushTokenEncryption.loading": "Creando el mapa de cifrado de tokens push…",
   "configs.upgrades.devicesPushTokenEncryption.message": "La versión {{version}} añade notificaciones push móviles y cifra los tokens push de los dispositivos en reposo. Los inquilinos existentes no tienen un mapa de cifrado para la nueva entidad de dispositivo, por lo que los tokens registrados tras la actualización se guardarían sin cifrar. Ejecuta esto para crear el mapa y que los tokens push queden cifrados.",
-  "configs.upgrades.devicesPushTokenEncryption.success": "Mapa de cifrado de tokens push creado."
+  "configs.upgrades.devicesPushTokenEncryption.success": "Mapa de cifrado de tokens push creado.",
+  "configs.upgrades.ecommerceDraftStore.cta": "Crear la tienda predeterminada",
+  "configs.upgrades.ecommerceDraftStore.loading": "Creando la tienda predeterminada…",
+  "configs.upgrades.ecommerceDraftStore.message": "La versión {{version}} añade el módulo de tiendas. Los espacios de trabajo anteriores aún no tienen ninguna tienda. Ejecuta esto para crear una tienda en borrador a partir del nombre de tu organización y tener algo que configurar. No hace nada si ya existe una tienda.",
+  "configs.upgrades.ecommerceDraftStore.success": "Tienda predeterminada creada."
 }
