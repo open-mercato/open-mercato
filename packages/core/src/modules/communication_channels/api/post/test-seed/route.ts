@@ -24,6 +24,7 @@ import {
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
   createTestSeedPlatformMessage,
+  deleteTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
   isTestEmailCaptureAccessAuthorized,
   isTestChannelSeedingEnabled,
@@ -42,7 +43,7 @@ import {
  * production default) every request returns 404, so this route is invisible and
  * inert in production. See `lib/test-seed.ts` for the full rationale.
  *
- * Three actions, all scoped to the caller's tenant/org:
+ * Actions, all scoped to the caller's tenant/org:
  *   - `connect-channel`: connect a network-free stub channel owned by the caller
  *     (delegates to the real connect-credential command so the channel persists
  *     credentials + lands in `status='connected'`). Enables the outbound
@@ -60,6 +61,8 @@ import {
  *     the inbound auto-link tests (TC-CRM-EMAIL-002..005). NOTE: this action
  *     deliberately bypasses `messages.messages.compose` — it can never prove that
  *     the hub accepts a message, only that downstream subscribers fire.
+ *   - `purge-inbound`: hard-delete the rows one `emit-inbound` call seeded, for
+ *     integration teardown.
  */
 type RbacServiceLike = {
   loadAcl: (
@@ -190,10 +193,26 @@ const emitInboundSchema = z.object({
   createThreadMapping: z.boolean().optional(),
 })
 
+/**
+ * Teardown for `emit-inbound`: hard-delete the rows one seed created (thread
+ * mapping, channel link, synthetic conversation and the `messages` row), scoped
+ * to the caller's channel. Disconnecting a channel deliberately retains its
+ * conversations and messages, so without this every seed leaks into the shared
+ * integration database.
+ */
+const purgeInboundSchema = z.object({
+  action: z.literal('purge-inbound'),
+  channelId: z.string().uuid(),
+  channelLinkId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+})
+
 const bodySchema = z.discriminatedUnion('action', [
   connectChannelSchema,
   ingestInboundSchema,
   emitInboundSchema,
+  purgeInboundSchema,
   seedSystemChannelSchema,
   clearCaptureSchema,
   listCaptureSchema,
@@ -383,7 +402,7 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
 
-  // action === 'ingest-inbound' | 'emit-inbound' — both address an existing channel.
+  // action === 'ingest-inbound' | 'emit-inbound' | 'purge-inbound' — all address an existing channel.
   const em = (container.resolve('em') as EntityManager).fork()
   // Only the `emit-inbound` branch stamps a caller-chosen provider key onto the
   // rows it seeds; `ingest-inbound` takes the channel's own (see below).
@@ -437,6 +456,31 @@ export async function POST(req: Request): Promise<Response> {
       { error: err instanceof Error ? err.message : 'Access denied' },
       { status },
     )
+  }
+
+  if (body.action === 'purge-inbound') {
+    const rowScope = { tenantId, organizationId }
+    await em.nativeDelete(ChannelThreadMapping, {
+      externalConversationId: body.conversationId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    await em.nativeDelete(MessageChannelLink, {
+      id: body.channelLinkId,
+      externalConversationId: body.conversationId,
+      ...rowScope,
+    })
+    await em.nativeDelete(ExternalConversation, {
+      id: body.conversationId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    await deleteTestSeedPlatformMessage(em, {
+      messageId: body.messageId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    return NextResponse.json({ ok: true })
   }
 
   if (body.action === 'ingest-inbound') {
@@ -617,7 +661,7 @@ export const openApi = {
   methods: {
     POST: {
       summary:
-        'Test-only: seed a connected channel, ingest a real inbound message, or emit a seeded inbound link (env-gated)',
+        'Test-only: seed a connected channel, ingest a real inbound message, emit a seeded inbound link, or purge one (env-gated)',
       tags: ['CommunicationChannels'],
       responses: [
         { status: 201, description: 'Channel seeded / inbound message emitted' },

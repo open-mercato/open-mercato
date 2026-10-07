@@ -142,6 +142,31 @@ export async function createTestSeedPlatformMessage(
   return rows[0]?.id ?? null
 }
 
+/**
+ * Hard-delete a `messages` row seeded by {@link createTestSeedPlatformMessage}.
+ * Matches only rows stamped as test-seed inbound for the given channel and
+ * scope, so integration teardown can never remove a real message.
+ */
+export async function deleteTestSeedPlatformMessage(
+  em: EntityManager,
+  input: {
+    messageId: string
+    channelId: string
+    tenantId: string
+    organizationId: string | null
+  },
+): Promise<void> {
+  await em.getConnection().execute(
+    `DELETE FROM messages
+     WHERE id = ?
+       AND source_entity_type = 'communication_channels.test_seed_inbound'
+       AND source_entity_id = ?
+       AND tenant_id = ?
+       AND organization_id IS NOT DISTINCT FROM ?`,
+    [input.messageId, input.channelId, input.tenantId, input.organizationId],
+  )
+}
+
 function normalizeToken(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const normalized = value.trim()

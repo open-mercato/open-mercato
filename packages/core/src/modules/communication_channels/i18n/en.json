@@ -26,6 +26,7 @@
   "communication_channels.errors.missingChannelId": "No channel selected.",
   "communication_channels.errors.pollNowPushDriven": "Channel is push-driven — polling does not apply. Inbound messages arrive through the provider push connection.",
   "communication_channels.errors.reactionFailed": "Reaction failed",
+  "communication_channels.errors.threadNotFound": "Thread not found",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Another channel is now primary for this user. Set it as non-primary before restoring the disconnected channel as primary.",
   "communication_channels.infoPanel.aria": "Channel info",
   "communication_channels.infoPanel.assignedTo": "Assigned to",
