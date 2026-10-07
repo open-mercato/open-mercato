@@ -42,9 +42,17 @@ function buildCommandContext(
   scope: CatalogProductBulkDeleteScope,
   container: AwilixContainer,
 ): CommandRuntimeContext {
+  if (!scope.tenantId || !scope.organizationId || !scope.userId) {
+    throw new Error('[internal] Catalog bulk delete requires tenant, organization and user scope')
+  }
   return {
     container,
-    auth: null,
+    auth: {
+      sub: scope.userId,
+      tenantId: scope.tenantId,
+      orgId: scope.organizationId,
+      isSuperAdmin: false,
+    },
     organizationScope: {
       selectedId: scope.organizationId,
       filterIds: [scope.organizationId],
