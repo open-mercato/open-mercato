@@ -25,7 +25,11 @@ export const VECTOR_IMAGE_MAX_ATTRIBUTES = 6_000
 export const VECTOR_IMAGE_MAX_DEPTH = 64
 export const VECTOR_IMAGE_MAX_NODES = 4_000
 export const VECTOR_IMAGE_MAX_MARKUP = 4_000
-export const VECTOR_IMAGE_MAX_RENDERED_ELEMENTS = 50_000
+export const VECTOR_IMAGE_MAX_RENDER_WORK = 10_000
+export const VECTOR_IMAGE_RENDER_CHARACTERS_PER_UNIT = 128
+export const VECTOR_IMAGE_MAX_FILTER_PRIMITIVES = 32
+export const VECTOR_IMAGE_MAX_MORPHOLOGY_RADIUS = 4
+export const VECTOR_IMAGE_MAX_RASTER_SIDE = 4_096
 export const VECTOR_IMAGE_MAX_STYLE_RULES = 2_000
 export const VECTOR_IMAGE_MAX_SELECTORS_PER_RULE = 32
 export const VECTOR_IMAGE_MAX_REFERENCES_PER_RULE = 16
@@ -58,7 +62,60 @@ const CSS_PARSED_ATTRIBUTES = new Set([
   'cursor',
 ])
 const CSS_STRING_URL_FUNCTIONS = new Set(['image', 'image-set', 'cross-fade', 'element', 'src', 'attr'])
-const CSS_ACTIVE_FUNCTIONS = new Set(['expression', 'var'])
+const CSS_ACTIVE_FUNCTIONS = new Set(['expression', 'var', 'if'])
+const URL_PROPERTIES = new Set([
+  'fill',
+  'stroke',
+  'clip-path',
+  'mask',
+  'filter',
+  'marker',
+  'marker-start',
+  'marker-mid',
+  'marker-end',
+  'shape-inside',
+  'shape-subtract',
+])
+/**
+ * Work per filter primitive application, in the units of `elementWork`,
+ * measured in Chrome on CPU canvas as ten primitives over an 800 px region
+ * (ms per primitive in brackets) and rounded up: morphology at radius 4 (105),
+ * lighting (48–52), arithmetic composite (23), displacement (15), blend,
+ * composite and drop shadow (11), blur (8–9), turbulence at ten octaves (9.5),
+ * merge (5), colour matrix and component transfer (3), offset, flood and tile
+ * (under 1.5). Anything else counts as the heaviest measured class.
+ */
+const FILTER_PRIMITIVE_WORK: Record<string, number> = {
+  femorphology: 600,
+  fespecularlighting: 300,
+  fediffuselighting: 300,
+  feturbulence: 300,
+  fecomposite: 125,
+  fedisplacementmap: 100,
+  feblend: 75,
+  fedropshadow: 75,
+  fegaussianblur: 75,
+  femerge: 50,
+  fecolormatrix: 25,
+  fecomponenttransfer: 25,
+  feimage: 25,
+  feoffset: 10,
+  feflood: 10,
+  fetile: 10,
+}
+const DEFAULT_FILTER_PRIMITIVE_WORK = 600
+const REFERENCE_ONLY_ELEMENTS = new Set([
+  'defs',
+  'symbol',
+  'filter',
+  'lineargradient',
+  'radialgradient',
+  'pattern',
+  'marker',
+  'mask',
+  'clippath',
+])
+const SMIL_ELEMENTS = new Set(['animate', 'animatecolor', 'animatemotion', 'animatetransform', 'set', 'mpath', 'discard'])
 const CSS_ACTIVE_IDENTIFIERS = new Set(['behavior', '-moz-binding', 'javascript', 'vbscript'])
 const RASTER_DATA_URI_PATTERN = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=\t\n\f\r ]+)$/i
 const ACTIVE_SCHEME_PATTERN = /^(?:javascript|vbscript|data):/i
@@ -66,10 +123,10 @@ const DTD_DECLARATION_PATTERN = /<!(?:ENTITY|ATTLIST|ELEMENT|NOTATION)/i
 const VENDOR_PREFIX_PATTERN = /^-[a-z0-9]+-/
 const PAINTED_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon', 'rect', 'circle', 'ellipse', 'text', 'tspan', 'textpath'])
 const MARKABLE_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon'])
-const NON_INHERITED_REFERENCE_PROPERTIES = new Set(['clip-path', 'mask', 'filter'])
+const NON_INHERITED_REFERENCE_PROPERTIES = new Set(['clip-path', 'mask', 'filter', 'shape-inside', 'shape-subtract'])
 const SIMPLE_SELECTOR_NAME = '-?[_a-zA-Z\\u0080-\\uffff][-_a-zA-Z0-9\\u0080-\\uffff]*'
 const CSS_IDENTIFIER_PATTERN = new RegExp(`^${SIMPLE_SELECTOR_NAME}$`)
-const PLAIN_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/
+const PLAIN_ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/
 const NON_RENDERING_PROPERTY_SOURCES = new Set(['lineargradient', 'radialgradient', 'stop', 'filter'])
 
 const NODE_ELEMENT = 1
@@ -382,9 +439,48 @@ function trimCssWhitespace(value: string): string {
   return value.slice(start, end)
 }
 
+/**
+ * The pixel size an embedded raster declares in its header — PNG `IHDR`, the
+ * GIF logical screen, a JPEG start-of-frame, a WebP `VP8`/`VP8L`/`VP8X`
+ * chunk — or null when the header cannot be read.
+ */
+function rasterDimensions(bytes: Buffer, mimeType: string): { width: number; height: number } | null {
+  if (mimeType === 'image/png') return bytes.length >= 24 ? { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) } : null
+  if (mimeType === 'image/gif') return bytes.length >= 10 ? { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) } : null
+  if (mimeType === 'image/webp') {
+    const chunk = bytes.toString('latin1', 12, 16)
+    if (chunk === 'VP8 ' && bytes.length >= 30) return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff }
+    if (chunk === 'VP8L' && bytes.length >= 25) {
+      const bits = bytes.readUInt32LE(21)
+      return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 }
+    }
+    if (chunk === 'VP8X' && bytes.length >= 30) return { width: bytes.readUIntLE(24, 3) + 1, height: bytes.readUIntLE(27, 3) + 1 }
+    return null
+  }
+  let offset = 2
+  while (offset + 9 < bytes.length && bytes[offset] === 0xff) {
+    const marker = bytes[offset + 1]!
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { width: bytes.readUInt16BE(offset + 7), height: bytes.readUInt16BE(offset + 5) }
+    }
+    offset += 2 + bytes.readUInt16BE(offset + 2)
+  }
+  return null
+}
+
+/**
+ * True when the decoded bytes carry the declared raster signature and a
+ * header no larger than `VECTOR_IMAGE_MAX_RASTER_SIDE` on either side. A
+ * small file can declare a huge canvas that every viewer then decodes.
+ */
 function hasRasterSignature(mimeType: string, base64: string): boolean {
   const bytes = Buffer.from(base64.replace(/[\t\n\f\r ]+/g, ''), 'base64')
-  return detectAttachmentMimeType(bytes, null, null) === mimeType.toLowerCase()
+  const type = mimeType.toLowerCase()
+  if (detectAttachmentMimeType(bytes, null, null) !== type) return false
+  const size = rasterDimensions(bytes, type)
+  return Boolean(size)
+    && size!.width > 0 && size!.height > 0
+    && size!.width <= VECTOR_IMAGE_MAX_RASTER_SIDE && size!.height <= VECTOR_IMAGE_MAX_RASTER_SIDE
 }
 
 function isAllowedRasterDataUri(value: string): boolean {
@@ -398,11 +494,11 @@ function isAllowedRasterDataUri(value: string): boolean {
  * syntax strips (C0 controls and spaces for an attribute URL, ASCII whitespace
  * for an unquoted CSS `url(`, nothing inside a quoted CSS string).
  *
- * A fragment is allowed only as `#` and a plain id (`PLAIN_ID_PATTERN`, which
- * every `id` must also match). A browser percent-decodes a fragment
- * (`#%61` names `id="a"`); with plain ids on both sides there is no encoding
- * for the sanitiser and a browser to read differently, and lookups use the id
- * verbatim.
+ * A fragment is allowed only as `#` and a plain id (`PLAIN_ID_PATTERN`). A
+ * browser percent-decodes a fragment (`#%61` names `id="a"`); a plain fragment
+ * has no encoding for the sanitiser and a browser to read differently, and
+ * lookups use the id verbatim. An element whose `id` is not plain stays, but
+ * no allowed fragment can name it.
  */
 function classifyReference(value: string, allowRasterData: boolean): VectorImageFindingKind | null {
   if (value.startsWith('#')) return PLAIN_ID_PATTERN.test(value.slice(1)) ? null : 'active_content'
@@ -527,11 +623,13 @@ function tokenizeCss(css: string): CssToken[] | null {
 
 /**
  * The CSS policy over a token stream: `url()` targets must be fragments or
- * allowed raster `data:` URIs, `@import`, string-URL functions and external
- * `url()`s are external references, and `expression()`, `var()`, custom
- * properties (`--*`) and the identifiers `behavior`, `-moz-binding`,
- * `javascript`, `vbscript` are active content — `var()` would let a value
- * reach a property the policy did not see it in. Every allowed target is
+ * allowed raster `data:` URIs, and may appear only in `URL_PROPERTIES` (paint,
+ * clip, mask, filter and marker); `@import`, string-URL functions and external
+ * `url()`s are external references; `expression()`, `var()`, `if()`, custom
+ * properties (`--*`), the CSS `d` property and the identifiers `behavior`,
+ * `-moz-binding`, `javascript`, `vbscript` are active content. A declaration's
+ * property changes only at function depth 0, so `;`, `:` or `else:` inside a
+ * function cannot move a `url()` to another property. Every allowed target is
  * reported to `onUrl` with the property it was found in: the declaration's
  * name, or `property` for an attribute value.
  */
@@ -543,10 +641,13 @@ function inspectCssTokens(
   let verdict: VectorImageFindingKind | null = null
   let currentProperty = property
   let pendingName: string | null = null
+  let depth = 0
   const reference = (target: string): VectorImageFindingKind | null => {
     const kind = classifyReference(target, true)
-    if (kind === null) onUrl?.(target, currentProperty)
-    return kind
+    if (kind !== null) return kind
+    if (!URL_PROPERTIES.has(currentProperty ?? '')) return 'active_content'
+    onUrl?.(target, currentProperty)
+    return null
   }
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]!
@@ -560,6 +661,7 @@ function inspectCssTokens(
         continue
       }
       pendingName = null
+      depth += 1
       if (name === 'url') {
         let next = index + 1
         while (tokens[next]?.type === 'whitespace') next += 1
@@ -583,9 +685,19 @@ function inspectCssTokens(
     } else if (token.type === 'at') {
       if (token.value.toLowerCase() === 'import') verdict = verdict ?? 'external_reference'
     } else if (token.type === 'delim') {
-      if (token.value === ':') currentProperty = pendingName ?? currentProperty
-      else if (token.value === ';') currentProperty = property
-      else if (token.value === '{' || token.value === '}') currentProperty = null
+      if (token.value === '(') {
+        depth += 1
+      } else if (token.value === ')') {
+        depth = Math.max(0, depth - 1)
+      } else if (token.value === '{' || token.value === '}') {
+        currentProperty = null
+        depth = 0
+      } else if (depth === 0 && token.value === ':') {
+        currentProperty = pendingName ?? currentProperty
+        if (currentProperty === 'd') return 'active_content'
+      } else if (depth === 0 && token.value === ';') {
+        currentProperty = property
+      }
     }
     pendingName = null
   }
@@ -875,12 +987,16 @@ function classifyPurifyRemoval(entry: PurifyRemovedEntry): VectorImageRemoval {
 }
 
 function inspectAttribute(tag: string, attribute: DomAttribute): VectorImageFindingKind | null {
-  if (isHrefAttribute(attribute)) return classifyReference(trimUrlBoundary(attribute.value), RASTER_DATA_URI_ELEMENTS.has(tag))
+  if (isHrefAttribute(attribute)) {
+    const target = trimUrlBoundary(attribute.value)
+    if (tag === 'image' && target.startsWith('#')) return 'active_content'
+    return classifyReference(target, RASTER_DATA_URI_ELEMENTS.has(tag))
+  }
   if (attribute.namespaceURI !== null) return null
   const name = attribute.localName.toLowerCase()
   if (!name.startsWith('aria-') && /var\s*\(/i.test(attribute.value)) return 'active_content'
   if (CSS_PARSED_ATTRIBUTES.has(name) || /url\s*\(/i.test(attribute.value)) {
-    return inspectVectorImageCss(attribute.value)
+    return scanCss(attribute.value, name === 'style' ? null : name, null)
   }
   return null
 }
@@ -900,10 +1016,12 @@ function findReferenceViolation(
     if (finding || !isElement(node)) return false
     const tag = node.localName.toLowerCase()
     const attributes = attributesOf(node)
-    const id = node.getAttribute('id')
-    const xmlId = attributes.some((attribute) => attribute.namespaceURI === XML_NAMESPACE && attribute.localName === 'id')
-    if (xmlId || (id !== null && !PLAIN_ID_PATTERN.test(id))) {
-      finding = { kind: 'active_content', target: `${describeElement(node)}@id` }
+    if (SMIL_ELEMENTS.has(tag)) {
+      finding = { kind: 'active_content', target: describeElement(node) }
+      return false
+    }
+    if (attributes.some((attribute) => attribute.namespaceURI === XML_NAMESPACE && attribute.localName === 'id')) {
+      finding = { kind: 'active_content', target: `${describeElement(node)}@xml:id` }
       return false
     }
     if (hasConflictingHrefs(attributes)) {
@@ -1161,6 +1279,58 @@ function bucketsFor(element: DomElement, tag: string, index: StylesheetReference
   return buckets
 }
 
+function directTextLength(element: DomElement): number {
+  let length = 0
+  for (let child = element.firstChild; child; child = child.nextSibling) {
+    if (child.nodeType === NODE_TEXT) length += (child.textContent ?? '').length
+  }
+  return length
+}
+
+/**
+ * The drawing work of one rendered element, in units of about one 800 px
+ * full-canvas fill (0.19 ms on CPU canvas in Chrome): one, plus one per
+ * `VECTOR_IMAGE_RENDER_CHARACTERS_PER_UNIT` characters of path data, points
+ * or text, or `FILTER_PRIMITIVE_WORK` for a filter primitive, which runs over
+ * the whole filter region each time the filter is applied.
+ */
+function elementWork(element: DomElement, tag: string): number {
+  if ((element.parentNode as DomElement | null)?.localName?.toLowerCase() === 'filter') {
+    return FILTER_PRIMITIVE_WORK[tag] ?? DEFAULT_FILTER_PRIMITIVE_WORK
+  }
+  let length = 0
+  if (tag === 'path') length = (element.getAttribute('d') ?? '').length
+  else if (tag === 'polyline' || tag === 'polygon') length = (element.getAttribute('points') ?? '').length
+  else if (tag === 'text' || tag === 'tspan' || tag === 'textpath') length = directTextLength(element)
+  return 1 + Math.ceil(length / VECTOR_IMAGE_RENDER_CHARACTERS_PER_UNIT)
+}
+
+/**
+ * Filter limits checked before the estimate: at most
+ * `VECTOR_IMAGE_MAX_FILTER_PRIMITIVES` primitives in the document, no
+ * `feMorphology` radius above `VECTOR_IMAGE_MAX_MORPHOLOGY_RADIUS` (its cost
+ * grows with the radius over every pixel of the region), and no
+ * `feConvolveMatrix` (330 ms per application at order 5 in Chrome; no logo
+ * exporter writes one).
+ */
+function exceedsFilterLimits(root: DomElement): boolean {
+  let primitives = 0
+  let exceeded = false
+  walk(root, (node) => {
+    if (exceeded || !isElement(node)) return false
+    const parent = node.parentNode as DomElement | null
+    if (parent?.localName?.toLowerCase() === 'filter') primitives += 1
+    if (node.localName.toLowerCase() === 'feconvolvematrix') exceeded = true
+    if (node.localName.toLowerCase() === 'femorphology') {
+      const radii = (node.getAttribute('radius') ?? '0').trim().split(/[\s,]+/).map(Number)
+      if (radii.some((radius) => !Number.isFinite(radius) || radius > VECTOR_IMAGE_MAX_MORPHOLOGY_RADIUS)) exceeded = true
+    }
+    exceeded = exceeded || primitives > VECTOR_IMAGE_MAX_FILTER_PRIMITIVES
+    return !exceeded
+  })
+  return exceeded
+}
+
 function vertexBound(element: DomElement, tag: string): number {
   if (tag === 'line') return 2
   if (tag === 'path') return (element.getAttribute('d') ?? '').length
@@ -1181,6 +1351,11 @@ function vertexBound(element: DomElement, tag: string): number {
  *   `referenceMultiplier` says: inherited paint reaches every painted element
  *   below (`<use>` instances included), and a `marker-mid` every vertex.
  *
+ * Elements that render only through a reference (`defs`, `symbol`, filters,
+ * paint servers, markers, masks, clip paths) add nothing where they are
+ * defined, only where they are referenced, so a definition is not counted
+ * twice. Each rendered element counts its drawing work (`elementWork`).
+ *
  * One iterative post-order pass over that graph computes, once per node, how
  * many painted elements, markable elements and vertices inherit from an
  * element and how many elements it renders. An element's tree and `<use>`
@@ -1192,6 +1367,7 @@ function vertexBound(element: DomElement, tag: string): number {
  * estimate never falls below what a browser renders.
  */
 function exceedsRenderedSize(root: DomElement, stylesheetRules: StyleRule[]): boolean {
+  if (exceedsFilterLimits(root)) return true
   const byId = new Map<string, DomElement>()
   walk(root, (node) => {
     if (!isElement(node)) return false
@@ -1204,6 +1380,7 @@ function exceedsRenderedSize(root: DomElement, stylesheetRules: StyleRule[]): bo
   type RenderNode = DomElement | ReferenceBucket
   type Edge =
     | { kind: 'tree'; target: DomElement }
+    | { kind: 'instance'; target: DomElement }
     | { kind: 'reference'; target: DomElement; multiplier: ReferenceMultiplier }
     | { kind: 'bucket'; target: ReferenceBucket }
   /**
@@ -1228,7 +1405,7 @@ function exceedsRenderedSize(root: DomElement, stylesheetRules: StyleRule[]): bo
     }
     const hrefTarget = referencedId(node)
     const linked = hrefTarget ? byId.get(hrefTarget) : undefined
-    if (linked && tag === 'use') edges.push({ kind: 'tree', target: linked })
+    if (linked && tag === 'use') edges.push({ kind: 'instance', target: linked })
     if (linked && tag !== 'use' && tag !== 'a') edges.push({ kind: 'reference', target: linked, multiplier: 'once' })
     if (NON_RENDERING_PROPERTY_SOURCES.has(tag) || tag.startsWith('fe')) return edges
     const references: FragmentReference[] = []
@@ -1251,7 +1428,7 @@ function exceedsRenderedSize(root: DomElement, stylesheetRules: StyleRule[]): bo
       painted: PAINTED_ELEMENTS.has(tag) ? 1 : 0,
       markables: MARKABLE_ELEMENTS.has(tag) ? 1 : 0,
       vertices: vertexBound(node, tag),
-      rendered: 1,
+      rendered: elementWork(node, tag),
     }
   }
   const times = (totals: Totals, multiplier: ReferenceMultiplier): number => {
@@ -1260,11 +1437,13 @@ function exceedsRenderedSize(root: DomElement, stylesheetRules: StyleRule[]): bo
     return multiplier === 'markables' ? totals.markables : totals.vertices
   }
   const absorb = (node: RenderNode, totals: Totals, edge: Edge, dependency: Totals): boolean => {
-    if (edge.kind === 'tree') {
+    if (edge.kind === 'tree' || edge.kind === 'instance') {
       totals.painted += dependency.painted
       totals.markables += dependency.markables
       totals.vertices += dependency.vertices
-      totals.rendered += dependency.rendered
+      if (edge.kind === 'instance' || !REFERENCE_ONLY_ELEMENTS.has(edge.target.localName.toLowerCase())) {
+        totals.rendered += dependency.rendered
+      }
     } else if (edge.kind === 'bucket') {
       totals.rendered += dependency.rendered
         + dependency.painted * totals.painted
@@ -1277,7 +1456,7 @@ function exceedsRenderedSize(root: DomElement, stylesheetRules: StyleRule[]): bo
     } else {
       totals.rendered += times(totals, edge.multiplier) * dependency.rendered
     }
-    return totals.rendered > VECTOR_IMAGE_MAX_RENDERED_ELEMENTS
+    return totals.rendered > VECTOR_IMAGE_MAX_RENDER_WORK
   }
   type Frame = { node: RenderNode; edges: Edge[]; next: number; totals: Totals }
   const open = (node: RenderNode): Frame => ({ node, edges: edgesOf(node), next: 0, totals: ownTotals(node) })

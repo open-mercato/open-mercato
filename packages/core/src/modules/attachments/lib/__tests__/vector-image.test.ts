@@ -167,6 +167,29 @@ describe('sanitizeVectorImage — benign logos', () => {
     expect(prepared.ok).toBe(true)
   })
 
+  it.each([
+    ['a localized layer id', 'id="\ub808\uc774\uc5b4_1"'],
+    ['a Cyrillic layer id', 'id="\u0421\u043b\u043e\u0439_1"'],
+    ['an id with a space', 'id="Layer 1"'],
+    ['an id with a percent sign', 'id="a%61"'],
+  ])('keeps %s, which no allowed fragment can name', async (_label, id) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><g ${id}><rect width="1" height="1"/></g></svg>`
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
+  })
+
+  it('keeps a digit-first id and the url() that names it', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="7f1a2b3c4d"><rect width="1" height="1"/></clipPath></defs><g clip-path="url(#7f1a2b3c4d)"><rect width="1" height="1"/></g></svg>'
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
+  })
+
+  it('keeps a drop-shadow filter of eight primitives applied to the logo', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><filter id="s" x="-10" y="-10" width="120" height="120" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="bg"/><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="alpha"/><feOffset dy="4"/><feGaussianBlur stdDeviation="2"/><feComposite in2="alpha" operator="out"/><feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/><feBlend mode="normal" in2="bg" result="shadow"/><feBlend mode="normal" in="SourceGraphic" in2="shadow"/></filter></defs><g filter="url(#s)"><circle cx="50" cy="50" r="40" fill="#2a9d8f"/></g></svg>'
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
+  })
+
   it('keeps an XLink reference written with a prefix other than xlink', async () => {
     const prepared = await prepareVectorImageUpload(svgBuffer(NON_STANDARD_XLINK_PREFIX_LOGO))
     expect(prepared.ok).toBe(true)
@@ -427,7 +450,11 @@ describe('inspectVectorImageCss', () => {
   it.each([
     ['fill:url(#gradient)', null],
     ['fill:url("#gradient")', null],
-    [`background:url(data:image/png;base64,${TINY_PNG_BASE64})`, null],
+    [`fill:url(data:image/png;base64,${TINY_PNG_BASE64})`, null],
+    [`background:url(data:image/png;base64,${TINY_PNG_BASE64})`, 'active_content'],
+    ['mask-image:url(#m)', 'active_content'],
+    ['d:path("M0 0")', 'active_content'],
+    ['marker-mid:if(supports(display: block): url(#m))', 'active_content'],
     ['fill:#123456;stroke-width:2', null],
     ['marker-mid:var(--m)', 'active_content'],
     ['fill:-webkit-url(#a)', 'active_content'],

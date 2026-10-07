@@ -660,17 +660,6 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     svg: wrap(body!),
     code: 'vector_image_unsafe_content' as const,
   }))),
-  ...[
-    ['a percent sign', 'a%61'],
-    ['an entity-encoded non-ASCII letter', '&#xe9;'],
-    ['a space', 'a b'],
-    ['a colon', 'a:b'],
-    ['a leading digit', '1a'],
-  ].map(([label, id]): MaliciousFixture => ({
-    name: `an id with ${label}`,
-    svg: wrap(`<defs><linearGradient id="${id}"/></defs><rect width="1" height="1"/>`),
-    code: 'vector_image_unsafe_content',
-  })),
   {
     name: 'an xml:id referenced by <use>, which the id lookup would not see',
     svg: wrap('<defs><rect xml:id="b" width="1" height="1"/></defs><use href="#b"/>'),
@@ -680,6 +669,76 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     name: 'ten-wide <use> chain eight levels deep written with percent-encoded fragments',
     svg: wrap(`<defs><g id="a0"><rect width="1" height="1"/></g>${Array.from({ length: 8 }, (_, index) => `<g id="a${index + 1}">${`<use href="#%61${index}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#a8"/>`),
     code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'path data in the CSS d property feeding mid-path markers',
+    svg: wrap(`<style>path{d:path("M0 0${' l1 1'.repeat(2000)}");marker-mid:url(#m)}</style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(100)}</marker></defs><path/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'path data in a style attribute d property',
+    svg: wrap(`<defs><marker id="m"><rect width="1" height="1"/></marker></defs><path style="d:path('M0 0 l1 1');marker-mid:url(#m)"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a url() inside if() that a reader without function depth would give to another property',
+    svg: wrap('<defs><marker id="m"><rect width="1" height="1"/></marker></defs><style>path{marker-mid:if(supports(display: block): url(#m))}</style><path d="M0 0l1 1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a ; inside a function ahead of a mid-path marker url()',
+    svg: wrap(`<style>path{marker-mid:x(;) url(#m)}</style><defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(400)}</marker></defs><path d="M0 0${'l1 1'.repeat(20000)}"/>`),
+    code: 'vector_image_too_complex',
+  },
+  ...[
+    ['mask-image in a stylesheet', '<style>.i{mask-image:url(#m)}</style><mask id="m"><rect width="1" height="1"/></mask><rect class="i" width="1" height="1"/>'],
+    ['background in a style attribute', '<linearGradient id="m"/><rect style="background:url(#m)" width="1" height="1"/>'],
+    ['a cursor attribute', '<cursor id="m"/><rect cursor="url(#m)" width="1" height="1"/>'],
+    ['a fragment href on <image>', '<image href="#m"/><rect id="m" width="1" height="1"/>'],
+  ].map(([label, body]): MaliciousFixture => ({
+    name: `a url() or reference where none may be: ${label}`,
+    svg: wrap(body!),
+    code: 'vector_image_unsafe_content',
+  })),
+  ...['animateTransform', 'animateMotion', 'animateColor'].map((element): MaliciousFixture => ({
+    name: `SMIL animation: <${element}>`,
+    svg: wrap(`<rect width="1" height="1"><${element} attributeName="transform" type="rotate" from="0" to="360" dur="1s" repeatCount="indefinite"/></rect>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  {
+    name: 'an embedded PNG whose header declares 14,000 x 14,000 pixels',
+    svg: wrap(`<image href="data:image/png;base64,${(() => {
+      const bytes = Buffer.from(TINY_PNG_BASE64, 'base64')
+      bytes.writeUInt32BE(14000, 16)
+      bytes.writeUInt32BE(14000, 20)
+      return bytes.toString('base64')
+    })()}"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'more filter primitives than the cap',
+    svg: wrap(`<filter id="f">${'<feOffset dx="1"/>'.repeat(33)}</filter><rect width="1" height="1" filter="url(#f)"/>`),
+    code: 'vector_image_too_complex',
+  },
+  ...['5', '1 5'].map((radius): MaliciousFixture => ({
+    name: `an feMorphology radius of ${radius}`,
+    svg: wrap(`<filter id="f"><feMorphology operator="dilate" radius="${radius}"/></filter><rect width="1" height="1" filter="url(#f)"/>`),
+    code: 'vector_image_too_complex',
+  })),
+  {
+    name: 'a blurred rect drawn 1,000 times through <use>',
+    svg: wrap(`<defs><filter id="b"><feGaussianBlur stdDeviation="40"/></filter><rect id="r" width="800" height="800" filter="url(#b)"/>${[1, 2, 3].map((level) => `<g id="l${level}">${`<use href="#${level === 1 ? 'r' : `l${level - 1}`}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#l3"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'a 200,000-character path drawn ten times through <use>',
+    svg: wrap(`<defs><path id="p" d="M0 0${' L1 2'.repeat(40000)}"/></defs>${'<use href="#p"/>'.repeat(10)}`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'ten thousand full-size rects through <use>',
+    svg: wrap(`<defs><rect id="r" width="800" height="800" fill-opacity="0.01"/>${[1, 2, 3, 4].map((level) => `<g id="l${level}">${`<use href="#${level === 1 ? 'r' : `l${level - 1}`}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#l4"/>`),
+    code: 'vector_image_too_complex',
   },
   {
     name: 'a stylesheet rule with more selectors than the cap',
