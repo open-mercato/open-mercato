@@ -65,13 +65,20 @@ write time.
   or active content are rejected with a `vector_image_*` code, never stored
   silently altered. See
   `.ai/specs/2026-10-05-attachments-sanitised-vector-images.md`.
-- Serve SVG inline **only** when `isTrustedVectorImage(attachment, bytes)` holds
-  (record present, known policy version, digest matches the bytes just read),
-  with `VECTOR_IMAGE_CONTENT_SECURITY_POLICY` and `X-Content-Type-Options:
-  nosniff`. Every other SVG-typed row stays download-only.
+- Serve SVG inline **only** from `GET /api/attachments/file/{id}`, **only** when
+  `isTrustedVectorImage(attachment, bytes)` holds (record present, known policy
+  version, digest matches the bytes just read) **and** the raw request path is
+  the canonical `/api/attachments/file/<encodeURIComponent(id)>`, with
+  `VECTOR_IMAGE_CONTENT_SECURITY_POLICY` and `X-Content-Type-Options: nosniff`.
+  Next.js matches `headers()` sources against the undecoded path while the API
+  dispatcher decodes it, so an encoded spelling reaches the route under the app
+  CSP. Every other SVG-typed row, and every other spelling, stays a download.
+- `readScoped` (and any service read a module route serves) returns SVG as an
+  `application/octet-stream` download, never inline: a route outside the file
+  path gets the app-wide CSP from `next.config.ts`, which wins over its own.
 - `GET /api/attachments/file/{id}` MUST set a sandboxing `Content-Security-Policy`
   on every response it produces, JSON errors included. In the app, `next.config.ts`
-  (and the create-app template) give every response under
+  (and the create-app template) give responses whose raw path starts with
   `/api/attachments/file/` the vector CSP and exclude that path from the app CSP
   rule; a config header overrides a route handler header of the same name, and
   only config reaches the dispatcher's own responses. Keep both configs in sync
@@ -108,6 +115,11 @@ write time.
   vector input to Sharp (`api/image/...` keeps refusing `image/svg+xml`).
 - Never write `storageMetadata.vectorImage` from anywhere but the scoped upload
   service's vector path.
+- Never inject a stored SVG's markup into a page DOM (`innerHTML`,
+  `dangerouslySetInnerHTML`, inline `<svg>` built from the file): show it with
+  `<img>` or link to the file route. The sanitiser keeps ids such as `title` or
+  `body` (`SANITIZE_DOM: false`), which are safe only in a document no page
+  script shares.
 
 ## Known cross-module creation paths
 

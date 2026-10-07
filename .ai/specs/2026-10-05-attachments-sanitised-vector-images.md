@@ -20,10 +20,12 @@ records on the row that the file went through this path. The first finding that 
 active content, an external reference — **refuses the file with an explicit error code**; nothing is
 stored silently altered.
 
-Serving changes only for rows carrying that record *and* whose stored bytes still hash to the
-recorded digest: they are returned as `image/svg+xml` with `inline` disposition under a sandboxing
-CSP that allows the document's own styles and embedded rasters. Every other SVG-typed row, every
-existing caller, the generic upload route and the image (thumbnail) route behave as before.
+Serving changes only on the attachment file route, only for rows carrying that record *and* whose
+stored bytes still hash to the recorded digest, and only when the request uses the canonical path:
+they are returned as `image/svg+xml` with `inline` disposition under a sandboxing CSP that allows
+the document's own styles and embedded rasters. `attachmentService.readScoped()`, every other
+SVG-typed row, every existing caller, the generic upload route and the image (thumbnail) route
+behave as before.
 
 ## Overview
 
@@ -32,9 +34,10 @@ existing caller, the generic upload route and the image (thumbnail) route behave
 | `POST /api/attachments` (generic route) | SVG → 400 `activeContentBlocked` | unchanged |
 | `attachmentService.createScoped()` without the flag | SVG → 400 | unchanged |
 | `attachmentService.createScoped({ allowVectorImage: true })` | SVG → 400 | SVG sanitised and stored, or refused with a `vector_image_*` code |
-| `attachmentService.readScoped()` on a sanitised vector row | `application/octet-stream`, `attachment` | `image/svg+xml`, `inline` (unless `forceDownload`), plus a `contentSecurityPolicy` hint |
-| `GET /api/attachments/file/{id}` on a sanitised vector row | `application/octet-stream`, `attachment` | `image/svg+xml`, `inline` (unless `?download=1`) |
-| CSP on responses under `/api/attachments/file/` (app `next.config.ts`) | `default-src 'none'; sandbox` | `default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox` on every response under the path |
+| `attachmentService.readScoped()` on a sanitised vector row | `application/octet-stream`, `attachment` | unchanged — a module route cannot keep a sandboxing CSP (§ Serving) |
+| `GET /api/attachments/file/{id}` on a sanitised vector row, canonical path | `application/octet-stream`, `attachment` | `image/svg+xml`, `inline` (unless `?download=1`) |
+| the same row through a percent-encoded spelling of the path | `application/octet-stream`, `attachment` | unchanged — download |
+| CSP on responses whose raw path starts with `/api/attachments/file/` (app `next.config.ts`) | `default-src 'none'; sandbox` | `default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox` |
 | `GET /api/attachments/library`, `GET /api/attachments` `thumbnailUrl` of a sanitised vector row | image route (which refuses SVG) | file route |
 | `GET /api/attachments/image/{id}` | SVG → 400 | unchanged — Sharp never rasterises vector input |
 | Any other SVG-typed row (legacy, copied, digest mismatch) | download | unchanged — download |
@@ -143,14 +146,15 @@ count plus one) before any parsing happens.
 | elements | 2,000 | `vector_image_too_complex` |
 | nesting depth | 64 | `vector_image_too_complex` |
 | attributes on one element / in the document | 64 / 6,000 | `vector_image_too_complex` |
-| rendered elements: every element once, plus each `<use>`'s referenced subtree again, recursively; any `<use>` reference cycle | 50,000 | `vector_image_too_complex` |
+| rendered elements: every element once, plus every in-document reference's target again, recursively and weighted by how often it renders (§ 4); any reference cycle | 50,000 | `vector_image_too_complex` |
 
 Real logos are typically 2–150 KB with tens to hundreds of paths and a handful of attributes per
 element (a 1,000-path logo with `d`, `fill` and `id` uses 3,000 attributes). Every node type counts because jsdom removes a node in time linear in its preceding
 siblings (`symbol-tree`'s `index()` after any change to the parent), so removal cost grows with
-removed × kept nodes whatever their type (§ 4). The rendered-element bound weights each `<use>` by
-the size of what it references: counting `<use>` elements alone accepted a large group reused
-1,000 times through three levels of ten `<use>`s.
+removed × kept nodes whatever their type (§ 4). The rendered-element bound weights every reference by
+the size of what it renders: counting `<use>` elements alone accepted a large group reused 1,000
+times through three levels of ten `<use>`s, and counting only `<use>` accepted eight nested patterns
+of 200 rects each (200^8 rendered rects from 1,600 elements).
 
 The bounds are sized from measurement (§ 4). Real exports stay well inside them: of the 230 SVG
 files in this repository's dependencies, 224 are accepted, at most 267 ms each. The six refused
@@ -210,13 +214,20 @@ are SVG web fonts (`<font-face>` is outside DOMPurify's SVG profile), not logos.
    - `SANITIZE_DOM: false`. DOMPurify's DOM-clobbering guard removes any `id` or `name` that
      matches a property of `document` or a form (`title`, `body`, `images`, `links`, `fonts`,
      `style`, `name`, `action`, …). It guards markup about to be inserted into a live HTML document,
-     where such an id would shadow `document.title` for the page's own scripts. Here the output is
-     serialised into a standalone SVG file: it is served as its own document under
-     `sandbox`/`default-src 'none'` (no script runs), or embedded with `<img>` (no script, no shared
-     DOM), and it carries no script of its own (refused). Clobbering needs a script that reads the
-     clobbered property, and there is none. With the guard on, `<linearGradient id="title">` lost its
-     id and the stored logo silently lost its paint, and the accessible pattern
-     `<title id="title">` + `aria-labelledby` broke.
+     where such an id would shadow `document.title` for the page's own scripts. Clobbering needs a
+     script that reads the clobbered property **in the same DOM** as the markup. The stored SVG never
+     shares a DOM with a script:
+     - it carries no script of its own (refused);
+     - it is only ever rendered as its own document: through `<img>` (an isolated image document,
+       no script, nothing shared with the page) or opened from the file route (its own document,
+       under `sandbox`/`default-src 'none'`);
+     - inserting its markup into a page DOM (`innerHTML`, inline `<svg>`) is forbidden by the
+       attachments `AGENTS.md`, so no page script ever sees these ids.
+
+     The guarantee rests on that "no script in the same DOM" rule, not on the sandboxing CSP alone:
+     an `<img>`-embedded SVG gets no CSP from the file route and is still safe. With the guard on,
+     `<linearGradient id="title">` lost its id and the stored logo silently lost its paint, and the
+     accessible pattern `<title id="title">` + `aria-labelledby` broke.
    - `ADD_ATTR: ['role']`. `aria-*` is already allowed (`ALLOW_ARIA_ATTR`); `role` is not in the SVG
      profile. Neither can fetch or execute anything, and `role="img"` with `aria-labelledby` is how
      an SVG logo gets an accessible name.
@@ -300,8 +311,27 @@ Three sources of super-linear cost were found by profiling and are removed:
    - the Document's children are not removed at all;
    - non-inert findings stop the pipeline instead of being removed;
    - DOMPurify runs on a copy, so its abort is O(1) (§ 3).
-3. **`<use>` expansion.** One pre-order pass and an iterative post-order over the element graph
-   (tree children plus each `<use>` target) compute each element's rendered size once.
+3. **Reference expansion.** One pre-order pass collects ids and stylesheets, and an iterative
+   post-order over the reference graph computes each node's rendered size once. Nodes are the
+   elements and one *bucket* per stylesheet selector key (an id, a class, a type, or "any
+   element"). Edges are:
+   - tree children and `<use>` targets, which pass on inheritance;
+   - other `href`s (`feImage`, `textPath`, paint-server templates), once; `<a>` renders nothing;
+   - `url(#…)` in an attribute or `style` attribute, weighted by the property: once for
+     `clip-path`, `mask` and `filter` (not inherited); once per painted element below for inherited
+     paint (`fill`, `stroke`, or any property the policy does not know); once per markable element
+     for `marker-start`/`marker-end`; once per vertex (bounded by the length of `d`/`points`) for
+     `marker-mid` and the `marker` shorthand;
+   - one edge per bucket an element falls into. A bucket sums its targets' rendered sizes per
+     weight once, so a stylesheet costs an element at most one edge per key it matches, however many
+     rules feed the key.
+
+   A selector is reduced to its subject compound's single most selective key, and every other
+   constraint is dropped; a subject with no id, class or type, a rule nested in another rule, and
+   any at-rule block other than a grouping rule (`@media`, `@supports`, `@layer`, `@container`,
+   `@scope`) count as "any element". Dropping constraints only widens a match and the cascade is
+   ignored, so the estimate can only exceed what a browser renders. A cycle anywhere in the graph is
+   refused: a browser ignores a cyclic reference, but no benign export has one.
 
 Measured on an Intel i5-1235U laptop (Windows 11, Node 24) while another agent's build was running
 on the same machine. Each case was run seven times, each run in its own macrotask after a forced GC,
@@ -335,18 +365,31 @@ another.
 | nesting at the depth bound | — | 283 / 368 ms |
 | a 1 MiB stylesheet / 1 MiB of text | — | 243 / 410, 145 / 365 ms |
 | whitespace-formatted rects at the node bound | — | 478 / 655 ms |
+| stylesheet rules referencing 900 targets from every rect (fourth round) | — | 208 / 270 ms |
+| a 1 MiB stylesheet of `url()` rules applied to an element (fourth round) | — | 167 / 200 ms |
+| a stylesheet of compound selectors, 860 KiB, with 1,996 matching rects (fourth round) | — | 372 / 408 ms |
+| inherited pattern paint over every element (fourth round) | — | 171 / 184 ms |
+| eight nested patterns of 200 rects (fourth round, refused by the rendered bound) | accepted | 128 / 158 ms |
+| a mid-path marker on a 1 MiB path (fourth round, refused by the rendered bound) | accepted | 202 / 288 ms |
 | first call in a process (loads `jsdom` and `dompurify`) | — | 0.5–1.6 s, once |
 
 Every median at the bounds is under 0.5 s. The maxima, up to 0.72 s, coincide with spikes from the
 concurrent build. The previous bounds (3,000 elements, 15,000 attributes) measured 1.0–1.65 s on
 attribute-heavy shapes under the same conditions, which is why they were lowered.
 
+The fourth-round rows come from an A/B run: the third-round and fourth-round sanitisers alternated
+on every shape in one process, seven runs each, while other processes kept the CPU about half busy.
+Reference expansion adds 0–90 ms per shape. The largest additions are on stylesheet-heavy
+documents (a 1 MiB stylesheet: 112 → 198 ms median), because the stylesheet is scanned once more to
+index its references. The first bucket-less version gave every element one edge per stylesheet
+reference and took 0.87–1.28 s on the 900-target shape, which is why buckets are graph nodes.
+
 Benchmarks that keep calls inside one macrotask measure up to three times more and a growing heap:
 jsdom tracks NodeIterators through `WeakRef`s, which keep their targets alive until the current job
 ends. With one call per macrotask, as in a server, the heap stays flat (28–30 MB over 12 consecutive
 calls on the largest shape).
 
-The `bounded cost` test sanitises sixteen shapes at the bounds (the above plus the node floods) and
+The `bounded cost` test sanitises eighteen shapes at the bounds (the above plus the node floods) and
 asserts each finishes under 5 s. That is more than ten times the measured worst case, so a slow CI
 runner cannot make it flaky, while the pre-fix behaviour (2.5–27 s at sizes the bounds now refuse)
 would fail it.
@@ -397,10 +440,15 @@ the record has a known `sanitizer` and `policyVersion`, and the SHA-256 of the b
 storage equals the recorded digest. The digest binds the record to the bytes: a storage object that
 was replaced out-of-band, or a legacy SVG row that somehow acquired the key, falls back to download.
 
-- `readScoped`: inline `image/svg+xml` unless `forceDownload`. The result gains an optional
-  `contentSecurityPolicy` so a calling route can emit the right header. It is present on every
-  result: the vector value for a trusted vector image, `default-src 'none'; sandbox` otherwise.
-- `GET /api/attachments/file/{id}`: same decision. The route itself sets
+- `readScoped` is unchanged: an SVG, trusted or not, is an `application/octet-stream` `attachment`.
+  Its caller is a module route, and a module route outside `/api/attachments/file/` gets the
+  app-wide CSP from `next.config.ts`, which Next.js keeps over the route's own header (the
+  documents attachment route's `default-src 'none'; sandbox` is already dropped that way). A hint
+  telling such a route which CSP to send could never take effect, so there is none; inline SVG is
+  exclusive to the file route.
+- `GET /api/attachments/file/{id}` serves a trusted vector image inline only when the raw request
+  pathname is exactly `/api/attachments/file/<encodeURIComponent(id)>`, and as a download on any
+  other spelling (see *Header ownership* below). The route itself sets
   `default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox` for a trusted vector
   image and `default-src 'none'; sandbox` for its other responses, JSON errors included, plus
   `X-Content-Type-Options: nosniff`.
@@ -425,11 +473,27 @@ the API dispatcher's 404 for an unknown sub-path or method, and an unhandled thr
 So the config, not the route, decides the CSP the browser sees under `/api/attachments/file/`:
 - the app-wide CSP rule uses the source `/:path((?!api/attachments/file/).*)`, which Next's
   build-time route regex (`buildCustomRoute`) matches for every path except the file path;
-- a separate rule gives every response under `/api/attachments/file/:path*` the vector CSP above;
+- a separate rule gives every response whose raw path starts with `/api/attachments/file/` the
+  vector CSP above;
 - `Referrer-Policy`, `X-Content-Type-Options` and `X-Frame-Options` stay global.
 
+**Encoded spellings.** Next.js matches `headers()` sources against the raw, still percent-encoded
+pathname (`resolve-routes.js`), while the `/api/[...slug]` dispatcher decodes segments before it
+looks up the module route. `/api/attachments/%66ile/<id>`, `/api/attachments%2Ffile%2F<id>` and
+`/api/%61ttachments/file/<id>` therefore reach the file route but match only the app-wide rule (its
+`script-src 'self' 'unsafe-inline' 'unsafe-eval'`, no `sandbox`). Next.js rebuilds the request URL a route handler
+sees from the original `initURL` (`base-server.js`, `next-server.js`), and WHATWG URL parsing keeps
+percent-encoding, so the route can tell; `TC-ATT-015` checks it over real HTTP. The canonical-path check is the
+single gate for inline SVG: a request whose raw path is exactly the canonical one is, by
+construction, a path the vector rule matches. Dot segments (`/./`, `/x/../`, `%2e`) are resolved by
+URL parsing before either side sees them, and an encoded id or an upper-case path segment fails the
+equality and gets a download. Checked against Next 16.3.6's own matchers in the fourth review
+round: of thirteen spellings, every one that serves inline SVG gets the vector CSP. The trade-off: an
+app with a `basePath` serves sanitised SVG as a download, since its canonical path carries the
+prefix.
+
 **Why the vector CSP for every file response is safe.** On the file route only a trusted vector
-image is served inline as a document. Everything else is a raster image served inline, or an
+image requested at the canonical path is served inline as a document. Everything else is a raster image served inline, or an
 `application/octet-stream` `attachment` download, and no CSP directive affects either. JSON errors
 are not rendered as documents. Every response keeps `default-src 'none'` and `sandbox`.
 
@@ -466,13 +530,12 @@ a new key, `vectorImage`. No migration, no `yarn db:generate`.
 | Contract | Change | Class |
 |---|---|---|
 | `CreateScopedAttachmentInput.allowVectorImage?: boolean` | new optional field | ADDITIVE |
-| `ReadScopedAttachmentResult.contentSecurityPolicy?: string` | new optional field | ADDITIVE |
 | `ScopedAttachmentUploadInput.allowVectorImage?: boolean` | new optional field (DI service `attachmentScopedUploadService`) | ADDITIVE |
 | `ScopedAttachmentUploadErrorCode` | new members `vector_image_*` (not exported from the module index) | ADDITIVE |
 | `createScoped` error body | `{ error }` gains `code` for `vector_image_*` refusals only | ADDITIVE |
 | `lib/imageUrls.ts` | new `resolveAttachmentThumbnailUrl` | ADDITIVE |
 | `lib/vector-image.ts`, `lib/vector-image-record.ts` | new modules | ADDITIVE |
-| `GET /api/attachments/file/{id}` | inline SVG only for trusted vector rows; the route sets a CSP on every response it produces | behaviour on rows that cannot exist before this change |
+| `GET /api/attachments/file/{id}` | inline SVG only for trusted vector rows requested at the canonical path; the route sets a CSP on every response it produces | behaviour on rows that cannot exist before this change |
 | `GET /api/attachments`, `GET /api/attachments/library` | `thumbnailUrl` of a vector row is the file URL | behaviour on rows that cannot exist before this change |
 | `apps/mercato/next.config.ts`, template `next.config.ts` | app CSP rule excludes `/api/attachments/file/*`; that path gets the vector CSP from its own rule | config change, mirrored in the template |
 
@@ -483,8 +546,8 @@ Refusal codes and statuses:
 | `vector_image_too_large` | 413 | input or serialised output over 1 MiB |
 | `vector_image_malformed` | 400 | not UTF-8, not well-formed XML, or root not `<svg>` in the SVG namespace |
 | `vector_image_entity_declaration` | 400 | a DTD declaration or a DOCTYPE internal subset |
-| `vector_image_too_complex` | 400 | markup, node, element, depth, attribute or rendered-element bound exceeded, or a `<use>` cycle |
-| `vector_image_unsafe_content` | 400 | script, handlers, `foreignObject`, embedded documents, XHTML/MathML elements, unsafe URLs, a `<style>` with non-text content, conflicting `href`s, or unsafe CSS |
+| `vector_image_too_complex` | 400 | markup, node, element, depth, attribute or rendered-element bound exceeded, or a reference cycle |
+| `vector_image_unsafe_content` | 400 | script, handlers, `foreignObject`, embedded documents, XHTML/MathML elements, unsafe URLs, a `<style>` with non-text content, conflicting `href`s, unsafe CSS, or an `id`/`class` that DOMPurify's trim would change |
 | `vector_image_external_reference` | 400 | an external link, `url()`, `@import` or stylesheet PI |
 | `vector_image_sanitizer_unavailable` | 500 | `dompurify`/`jsdom` could not be loaded |
 
@@ -524,7 +587,8 @@ has the same problem.
 | Sanitiser bypass yields script in a stored SVG | High | XSS on direct navigation | DOMPurify allowlist; refusal at the first non-inert finding; reference and tokenised CSS policy on exactly what browsers apply; serving CSP `sandbox`/`default-src 'none'`; `nosniff`; `<img>` embedding disables script regardless | Low: requires a DOMPurify bypass *and* a CSP bypass |
 | Parser differential (CSS strings, `<style>` children, `href` precedence, DOCTYPE lexing) hides a reference | Medium | privacy | CSS Syntax Level 3 tokenisation; text-only `<style>`; conflicting `href`s refused; XML-aware DTD scan; `default-src 'none'` at serve | Low |
 | Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute and rendered bounds; linear passes; first-finding stop; DOMPurify on a copy; cost test | under 0.5 s median and 0.72 s maximum per upload at the bounds, measured under concurrent load |
-| Render DoS via `<use>` amplification | Low | client | rendered-element bound weighted by referenced subtree size, with cycle detection | Pattern tiles repeat with the painted area, which a browser bounds by resolution |
+| Render DoS via reference amplification | Low | client | rendered-element bound over every in-document reference — `<use>`, `href`s, paint servers, clip paths, masks, filters, markers (per vertex for `marker-mid`), inherited paint and stylesheet rules — with cycle refusal | Pattern tiles repeat with the painted area, and filters cost per pixel, both of which a browser bounds by resolution |
+| Sandbox lost on an encoded path or a module route | Medium | XSS defence in depth | inline SVG only from the file route at the canonical path; `readScoped` never inline; encoded spellings tested against Next's matchers and over HTTP | Requires a sanitiser bypass as well; an `<img>`-embedded SVG runs no script either way |
 | Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 224 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, or more than 2,000 elements or 6,000 attributes need re-exporting |
 | Forged `vectorImage` record on an unsanitised row | Low | XSS | no endpoint writes arbitrary metadata keys; SHA-256 binding to stored bytes; CSP still applies | Requires DB write access |
 | A non-SVG response under the file path gets the vector CSP's extra allowances | Low | headers | they only affect a document rendered inline, and the route renders only sanitised SVG inline; `default-src 'none'` and `sandbox` stay | — |
@@ -536,8 +600,8 @@ The type changes are additive optional fields (BACKWARD_COMPATIBILITY.md § 2: "
 be added freely"). With the flag absent — every existing caller — `createScoped` takes exactly the
 code path it took before, and the generic route does not read the flag at all. Serving and
 thumbnail URLs change only for rows that carry a `vectorImage` record, and no such row can exist
-before this change. `ReadScopedAttachmentResult.contentSecurityPolicy` is optional, so third-party
-`AttachmentService` implementations keep compiling.
+before this change. `readScoped` returns exactly what it returned before, so third-party
+`AttachmentService` implementations keep compiling and behaving.
 
 Apps scaffolded from the template get the new header rules. An app that keeps the old
 `/api/attachments/file/:path*` rule (`default-src 'none'; sandbox`) keeps every existing file
@@ -579,9 +643,9 @@ Verified with a trial merge of the owner-scoped reads branch into this one:
 Every bullet below is a test that exists.
 
 - `lib/__tests__/vector-image.test.ts` (fixtures in `vector-image.fixtures.ts`)
-  - **Hostile documents** — 61 fixtures. For each, `sanitizeVectorImage` refuses with the listed
+  - **Hostile documents** — 74 fixtures. For each, `sanitizeVectorImage` refuses with the listed
     code and returns no document, and `prepareVectorImageUpload` refuses with the same code:
-    - `vector_image_unsafe_content` (36):
+    - `vector_image_unsafe_content` (39):
       - script and handlers: `<script>`; XHTML-namespaced `<html:script>`; a script hidden inside
         a foreign-namespace wrapper; a script hidden inside `<metadata>`; `onload` on the root;
         `onclick` on a shape;
@@ -590,6 +654,8 @@ Every bullet below is a test that exists.
         `<animateTransform attributeName="href">` (DOMPurify drops the `attributeName`);
         `<animateMotion attributeName="xlink:href">`; a paint attribute starting with U+3000 that
         DOMPurify would trim away;
+      - identity DOMPurify would change: a `class` starting with U+3000; an `id` starting with a
+        no-break space; an `id` starting with an ASCII space;
       - unsafe URLs: a `javascript:` link, plain and obfuscated with a character reference;
         non-raster `data:image/svg+xml` on `<image>`; a `data:image/png` URI on `<image>` whose
         bytes are not a PNG; an `<feImage>` `data:image/png` URI whose bytes are not a PNG; an
@@ -617,9 +683,16 @@ Every bullet below is a test that exists.
       DOCTYPE whose double-quoted public id contains `>` ahead of an internal subset carrying
       `<!ATTLIST … onload …>`; the same with a single-quoted system id; a DOCTYPE quote opened
       inside a comment ahead of a real internal subset.
-    - `vector_image_too_complex` (2): a 1,000-rect group amplified by three levels of ten `<use>`,
-      through `href` and through `xlink:href` (inside every other bound, so the rendered-element
-      bound is what refuses it).
+    - `vector_image_too_complex` (12), each inside every other bound, so the rendered-element bound
+      is what refuses it:
+      - a 1,000-rect group amplified by three levels of ten `<use>`, through `href` and through
+        `xlink:href`;
+      - eight nested levels of 200 rects (about 200^8 rendered) through patterns referenced by a
+        `fill` attribute, a `style` attribute, stylesheet classes, stylesheet classes inside
+        `@media`, and `fill` inherited from a group; through masks; through clip paths; and through
+        filters whose `feImage` renders the level below;
+      - a 1,000-rect marker repeated by `marker-mid` at every vertex of a 20,000-segment path, and
+        the same marker applied by a stylesheet `marker` shorthand.
   - **Benign documents** that are stored, with the structures named here present in the output:
     - a combined logo: `<style>` block, linear and radial gradients, clip path, mask, in-document
       `<use>` via both `href` and `xlink:href`, embedded base64 PNG on `<image>`,
@@ -643,7 +716,10 @@ Every bullet below is a test that exists.
     - the accessible-name pattern: `role="img"`, `aria-labelledby` and the `<title id>`/`<desc id>`
       it points at;
     - an unquoted `url( #a )` with ASCII whitespace;
-    - a non-ASCII space at the edge of an attribute that carries no reference.
+    - a non-ASCII space at the edge of an attribute that carries no reference;
+    - a design-tool export in the Illustrator style: classed gradient fill, a clip path applied by a
+      class through `<use>`, a pattern swatch filling 40 paths by class, an arrow `marker-end`, and a
+      `class` with ASCII spaces at its edges.
 
     A stored document reports only inert removals.
   - **Idempotence**: sanitising the sanitised output of the four main benign documents removes
@@ -659,7 +735,7 @@ Every bullet below is a test that exists.
     - accepted: modest `<use>` reuse;
     - `malformed`: not well-formed XML, an HTML document, an `<svg>` root outside the SVG namespace,
       plain text, and non-UTF-8 bytes.
-  - **Bounded cost**: sixteen documents at the bounds sanitise (or are refused) in under 5 s each
+  - **Bounded cost**: eighteen documents at the bounds sanitise (or are refused) in under 5 s each
     (§ 4):
     - elements at the element and attribute bounds; paths with `url()` paint; rects with five kept
       presentation attributes; elements at the per-element attribute bound; editor-namespaced
@@ -668,6 +744,8 @@ Every bullet below is a test that exists.
     - text interleaved with comments, with PIs and with CDATA; flat comments; flat PIs; prolog
       comments;
     - text interleaved with disallowed elements (refused) and with foreign editor elements;
+    - 900 stylesheet rules referencing 900 targets from every rect; a 1 MiB stylesheet of `url()`
+      rules;
     - whitespace-formatted elements at the node bound.
   - **`inspectVectorImageCss`**: a 17-case table:
     - pass: fragment and raster `data:` `url()`s, plain declarations, a commented `url(#…)`;
@@ -701,10 +779,14 @@ Every bullet below is a test that exists.
     `image/svg+xml` with the sanitised size;
   - a hostile SVG is a 400 with `code: vector_image_unsafe_content` before any quota reservation;
   - each of the seven `vector_image_*` codes maps to its status with `code` in the body;
-  - `readScoped` serves a trusted vector row inline with the vector CSP; `forceDownload` still
-    downloads; a row with no record or a digest mismatch stays a download with the default CSP.
+  - `readScoped` returns a trusted vector row, a row with no record and a row whose digest does not
+    match as an `application/octet-stream` `attachment`, with no CSP field on the result.
 - `api/__tests__/file.route.test.ts`:
-  - a trusted vector row is `image/svg+xml`, `inline`, with the vector CSP and `nosniff`;
+  - a trusted vector row at the canonical path is `image/svg+xml`, `inline`, with the vector CSP
+    and `nosniff`;
+  - the same row requested as `/api/attachments/%66ile/{id}`, `/api/attachments%2Ffile%2F{id}`,
+    `/api/%61ttachments/file/{id}` or with a percent-encoded id is an `application/octet-stream`
+    `attachment` with the default CSP;
   - `?download=1` forces a download;
   - a row with no record or a digest mismatch is an `application/octet-stream` `attachment` with
     the default CSP and `nosniff`;
@@ -719,6 +801,8 @@ Every bullet below is a test that exists.
   - `/`, a backend page and the image route receive the app CSP (with the Stripe allowances);
   - `/api/attachments/file/{id}`, a sub-path, and the bare prefix receive the vector CSP from
     config;
+  - `/api/attachments/%66ile/abc` and `/api/%61ttachments/file/abc` do not: header sources match
+    the undecoded path, which is why the route gates inline SVG itself;
   - `nosniff` applies to both kinds of path;
   - the app and template configs stay identical.
 - `__integration__/TC-ATT-015.spec.ts` (Playwright, monorepo only). It stores a logo in-process
@@ -727,6 +811,7 @@ Every bullet below is a test that exists.
   over HTTP:
   - `GET /api/attachments/file/{id}` is `200`, `image/svg+xml`, `inline`, the vector CSP and
     `nosniff`, with the comment stripped and the stylesheet kept;
+  - the three encoded spellings of the path never return inline SVG;
   - `?download=1` is an `attachment` download;
   - after the record is removed in the database, the row is an `application/octet-stream`
     download;
@@ -749,8 +834,16 @@ Regression proofs run during implementation:
     amplification and decoy cases, and the comment-hidden DOCTYPE.
   - The rest are the change from stripping to refusing.
   - The template header test failed on the round-one config (`actual: undefined`).
-- **A red-team probe** (46 inputs: every class above, the floods at 128 KiB–1 MiB and the third-round cases) refused or
-  accepted each as expected, in at most 52 ms per input outside the first-load call.
+- **A red-team probe** (68 inputs: every class above, the floods at 128 KiB–1 MiB, the third-round
+  cases, and 22 fourth-round cases — nested patterns through attributes, `style`, classes, `@media`,
+  `*|rect`, `:is()`, attribute selectors, descendant selectors with comments, CSS nesting and
+  `@keyframes`; masks, clip paths, `feImage` filters, a pattern template `href` and stylesheet
+  `marker` shorthands; trimmed `id`/`class`; two benign documents) refused or accepted each as
+  expected, in at most 356 ms per input outside the first-load call.
+- **Serving red-team**: thirteen spellings of the file path run through Next 16.3.6's own header
+  matcher (`getPathMatch`) and dispatcher matcher (`getRouteRegex('/api/[...slug]')`) together with
+  the route's canonical-path check. Every spelling that serves inline SVG gets the vector CSP; the
+  three encoded spellings found by the review get a download.
 
 ## Final Compliance Report
 
@@ -765,6 +858,19 @@ Regression proofs run during implementation:
 
 ## Changelog
 
+- 2026-10-07 — Fourth review round:
+  - The file route serves sanitised SVG inline only at the canonical path; percent-encoded
+    spellings, which reach the route without the sandboxing header rule, get a download.
+  - `readScoped` no longer serves SVG inline, and `ReadScopedAttachmentResult.contentSecurityPolicy`
+    is removed: a module route cannot keep its own CSP over the app-wide one.
+  - The `SANITIZE_DOM` justification rests on "no script in the same DOM", backed by a new `Never`
+    rule against injecting stored SVG into a page.
+  - The rendered-size bound covers every in-document reference (paint servers, clip paths, masks,
+    filters, markers, inherited paint, stylesheet rules), not only `<use>`.
+  - An `id` or `class` that DOMPurify's trim would change is refused.
+  - The unreachable animation-target check is removed: DOMPurify refuses `<set>` and `<animate>`,
+    and removes an `attributeName` naming `href`, which refuses the document first.
+  - Dependency corpus unchanged: 224 of 230 accepted (the rest SVG fonts), at most 217 ms.
 - 2026-10-07 — Third review round:
   - Merge order re-verified with a trial merge.
   - Inkscape exports accepted: every namespace declaration except the default and `xmlns:xlink` is

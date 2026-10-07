@@ -579,8 +579,6 @@ What widened, all additively:
 
 - `CreateScopedAttachmentInput.allowVectorImage?: boolean` and the same option on the scoped upload
   service (`attachmentScopedUploadService`).
-- `ReadScopedAttachmentResult.contentSecurityPolicy?: string` — the CSP a route serving the returned
-  bytes should send. A third-party `AttachmentService` implementation does not need to set it.
 - New helpers: `resolveAttachmentThumbnailUrl` in `attachments/lib/imageUrls`, and the
   `attachments/lib/vector-image` and `attachments/lib/vector-image-record` modules.
 - `@open-mercato/core` now depends on `dompurify` and `jsdom`. Both load lazily, only when a vector
@@ -594,10 +592,18 @@ What widened, all additively:
 - `/api/attachments/file/:path*` gets its own rule with
   `default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox`.
 
-Every response under that path carries it, including the API dispatcher's own 404s and errors.
-`default-src 'none'` and `sandbox` stay. The added style and `data:` image allowances matter only for
-the sanitised SVG the route serves inline; every other file is a raster image or an
-`application/octet-stream` download.
+Every response whose raw path starts with `/api/attachments/file/` carries it, including the API
+dispatcher's own 404s and errors. `default-src 'none'` and `sandbox` stay. The added style and
+`data:` image allowances matter only for the sanitised SVG the route serves inline; every other file
+is a raster image or an `application/octet-stream` download. Next.js matches header sources against
+the undecoded path, so a percent-encoded spelling such as `/api/attachments/%66ile/<id>` reaches the
+route without this rule; the route serves a sanitised SVG inline only on the canonical
+`/api/attachments/file/<id>` and as a download on any other spelling.
+
+`attachmentService.readScoped()` returns a sanitised SVG as an `application/octet-stream` download,
+like any other SVG: a module route outside the file path gets the app-wide CSP, which Next.js keeps
+over the route's own header, so it cannot serve the SVG inline safely. Show a stored SVG with `<img>`
+pointing at the file route, never by inserting its markup into a page.
 
 Next.js keeps a config header over a route handler's header of the same name. So an app that keeps
 `default-src 'none'; sandbox` for that path keeps every existing file working, but a sanitised SVG's
