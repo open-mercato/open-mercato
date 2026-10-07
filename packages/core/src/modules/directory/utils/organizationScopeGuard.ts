@@ -14,20 +14,24 @@ export type OrganizationReadAccessInput = {
  * and their own i18n key.
  *
  * Unrestricted access (super admin or `scope.allowedIds === null`) is the only
- * bypass. For a restricted principal the allowed set is derived the same way
- * the detail routes always have (`filterIds` narrows the active view, else the
- * principal's home org); an empty derived set denies instead of skipping.
+ * bypass. For a resolved restricted scope, `filterIds` narrows the active view
+ * and an empty array denies. The principal's home organization remains only as
+ * the legacy fallback for callers that have no resolved scope object.
  */
 export function isOrganizationReadAccessAllowed(input: OrganizationReadAccessInput): boolean {
   const isSuperAdmin = input.auth?.isSuperAdmin === true
   if (isSuperAdmin || input.scope?.allowedIds === null) return true
 
   const allowedOrganizationIds = new Set<string>()
-  if (input.scope?.filterIds?.length) {
+  if (Array.isArray(input.scope?.filterIds)) {
     for (const id of input.scope.filterIds) {
       if (typeof id === 'string' && id.trim().length) allowedOrganizationIds.add(id)
     }
-  } else if (input.auth?.orgId) {
+  } else if (input.scope && Array.isArray(input.scope.allowedIds)) {
+    for (const id of input.scope.allowedIds) {
+      if (typeof id === 'string' && id.trim().length) allowedOrganizationIds.add(id)
+    }
+  } else if (!input.scope && input.auth?.orgId) {
     allowedOrganizationIds.add(input.auth.orgId)
   }
 
