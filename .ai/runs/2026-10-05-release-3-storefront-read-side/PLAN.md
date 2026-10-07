@@ -86,7 +86,8 @@
 | 7 | 7.10 | customer_groups group-terms assortment pickers | dispatch:standard | done | 3133c689f6 |
 | 7 | 7.7-fix | Wire the domain-mapping response enricher into the store-domain-bindings CRUD route | inline | done | ff2cfeffce |
 | 7 | 7.11 | setup.ts draft-store seed + Upgrade Action for existing tenants | dispatch:standard | done | 0f3354ea17 |
-| 7 | 7.12 | Integration tests: admin UI paths (SPEC-029 Phases 2–3 gates) | dispatch:capable | done | pending |
+| 7 | 7.12 | Integration tests: admin UI paths (SPEC-029 Phases 2–3 gates) | dispatch:capable | done | 9435edbb3d |
+| 7 | 7.12-gate-fix | Document the ecommerce notification types in notification-delivery.mdx (docs registry test) | inline | done | pending |
 
 ## Goal
 
@@ -185,6 +186,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **7.7-fix Wire the domain-mapping enricher** — found by checkpoint 14 UI smoke: `store-domain-bindings/crud.ts` lacked `enrichers: { entityId }`, so `_domainMapping` never reached the Domains tab (every row "Unknown"/"details unavailable"). Opt-in added + structural guard test over all module enrichers.
 - **7.11 Seed** — `setup.ts` draft store on tenant creation (idempotent) + Upgrade Action for existing tenants (D17).
 - **7.12 Integration tests** — §16 UI paths incl. optimistic-lock conflict.
+- **7.12-gate-fix Document the ecommerce notification types** — found by the final gate (`yarn test`): `apps/docs/__tests__/notification-registry.test.mjs` requires every registered notification type in `notification-delivery.mdx` and the stated ratio (now 2 of 76).
 
 ## Risks
 
