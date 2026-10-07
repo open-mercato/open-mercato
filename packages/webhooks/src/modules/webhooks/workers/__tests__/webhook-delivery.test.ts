@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { QueuedJob } from '@open-mercato/queue'
 import handler from '../webhook-delivery'
+import type { WebhookDeliveryJob } from '../../lib/delivery'
 
 const mockProcessWebhookDeliveryJob = jest.fn()
 
@@ -17,7 +19,14 @@ function makeCtx(em: EntityManager) {
 }
 
 describe('webhooks delivery worker', () => {
-  const jobData = { deliveryId: 'delivery-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+  const jobData = { deliveryId: 'delivery-1', tenantId: 'tenant-1', organizationId: 'org-1' } as WebhookDeliveryJob
+
+  // The queue hands the handler the QueuedJob envelope, not the bare payload.
+  const job: QueuedJob<WebhookDeliveryJob> = {
+    id: 'job-1',
+    payload: jobData,
+    createdAt: '2026-10-07T00:00:00.000Z',
+  }
 
   afterEach(() => {
     jest.clearAllMocks()
@@ -27,7 +36,7 @@ describe('webhooks delivery worker', () => {
     const em = { fork: jest.fn().mockReturnThis() } as unknown as EntityManager
     mockProcessWebhookDeliveryJob.mockResolvedValue(null)
 
-    await handler({ payload: jobData }, makeCtx(em))
+    await handler(job, makeCtx(em))
 
     expect(mockProcessWebhookDeliveryJob).toHaveBeenCalledWith(
       em,
@@ -41,6 +50,6 @@ describe('webhooks delivery worker', () => {
     const cause = new Error('DB connection lost')
     mockProcessWebhookDeliveryJob.mockRejectedValue(cause)
 
-    await expect(handler({ payload: jobData }, makeCtx(em))).rejects.toThrow('DB connection lost')
+    await expect(handler(job, makeCtx(em))).rejects.toThrow('DB connection lost')
   })
 })

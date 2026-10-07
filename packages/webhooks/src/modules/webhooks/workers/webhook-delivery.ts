@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { QueuedJob } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { processWebhookDeliveryJob, type WebhookDeliveryJob } from '../lib/delivery'
 
@@ -11,7 +12,7 @@ export const metadata = {
 }
 
 export default async function handler(
-  job: { payload: WebhookDeliveryJob },
+  job: QueuedJob<WebhookDeliveryJob>,
   ctx: { resolve: <T = unknown>(name: string) => T },
 ) {
   const em = (ctx.resolve('em') as EntityManager).fork()
