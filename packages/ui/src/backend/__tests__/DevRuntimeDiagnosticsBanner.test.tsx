@@ -377,13 +377,11 @@ describe('DevRuntimeDiagnosticsBanner', () => {
     expect(actionRow?.contains(dismiss)).toBe(false)
   })
 
-  // The app shell's sidebar toggle and the toast stack own fixed slots at the
-  // top of the viewport, so a top-anchored banner is overlapped by them.
   describe('above an open modal dialog', () => {
-    function renderBannerOverDialog(onOpenChange: jest.Mock) {
+    function renderBannerOverDialog(onOpenChange: jest.Mock, { modal = true }: { modal?: boolean } = {}) {
       return render(
         <I18nProvider locale="en" dict={{}}>
-          <Dialog open onOpenChange={onOpenChange}>
+          <Dialog open modal={modal} onOpenChange={onOpenChange}>
             <DialogContent>
               <DialogTitle>Add line item</DialogTitle>
               <DialogDescription>Line item form</DialogDescription>
@@ -453,6 +451,38 @@ describe('DevRuntimeDiagnosticsBanner', () => {
       expect(onOpenChange).not.toHaveBeenCalled()
     })
 
+    it('keeps the dialog open through the portaled migrate confirmation', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange)
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByRole('button', { name: /Run migrations/, hidden: true }))
+      const confirmDialog = (await screen.findByText(/not automatically reversible/i)).closest('dialog')
+      expect(confirmDialog?.hasAttribute('open')).toBe(true)
+      pressAndClick(screen.getByRole('button', { name: /^Cancel$/, hidden: true }))
+
+      await waitFor(() => expect(confirmDialog?.hasAttribute('open')).toBe(false))
+      expect(onOpenChange).not.toHaveBeenCalled()
+      expect(actionCalls()).toHaveLength(0)
+    })
+
+    it('keeps a non-modal layer open when focus moves into the banner', async () => {
+      enableBanner()
+      mockStatusResponses(createStatus())
+      const onOpenChange = jest.fn()
+      renderBannerOverDialog(onOpenChange, { modal: false })
+      await screen.findByTestId('dev-runtime-diagnostics-banner')
+      await waitForOutsideDismissListener()
+
+      pressAndClick(screen.getByRole('button', { name: 'Show details' }))
+
+      expect(screen.getByText('Error code')).toBeTruthy()
+      expect(onOpenChange).not.toHaveBeenCalled()
+    })
+
     it('stays clickable while the modal disables pointer events on the body', async () => {
       enableBanner()
       mockStatusResponses(createStatus())
@@ -463,6 +493,8 @@ describe('DevRuntimeDiagnosticsBanner', () => {
     })
   })
 
+  // The app shell's sidebar toggle and the toast stack own fixed slots at the
+  // top of the viewport, so a top-anchored banner is overlapped by them.
   it('floats at the bottom above app chrome instead of sitting in page flow', async () => {
     enableBanner()
     mockStatusResponses(createStatus())

@@ -131,22 +131,22 @@ function useRuntimeStatus(token: string | null): RuntimeStatus | null {
 }
 
 // The banner floats above every dialog and sheet but lives outside their DOM,
-// so an open modal layer treats a press or focus on it as an outside
-// interaction and closes itself instead of letting the banner handle it. The
-// layers listen on `document`, so stopping these events at the banner root
-// keeps them from ever seeing the interaction; React's own click handling is
-// unaffected because buttons act on `click`, not on these events.
-const SHIELDED_OUTSIDE_EVENTS = ['pointerdown', 'mousedown', 'touchstart', 'focusin'] as const
+// so an open layer treats a press or focus on it as an outside interaction and
+// closes itself instead of letting the banner handle it. The layers listen on
+// `document`, so these events are stopped in React's capture phase at the
+// banner root: that follows the React tree, which also covers the migrate
+// confirmation portaled to <body>. Buttons act on `click`, which is untouched;
+// a bubble-phase pointer-down, mouse-down, touch-start or focus handler added
+// inside the banner would never fire.
+function stopOutsideDismiss(event: React.SyntheticEvent): void {
+  event.nativeEvent.stopPropagation()
+}
 
-function useShieldFromOutsideDismiss(element: HTMLElement | null): void {
-  React.useEffect(() => {
-    if (!element) return undefined
-    const stop = (event: Event) => event.stopPropagation()
-    for (const eventName of SHIELDED_OUTSIDE_EVENTS) element.addEventListener(eventName, stop)
-    return () => {
-      for (const eventName of SHIELDED_OUTSIDE_EVENTS) element.removeEventListener(eventName, stop)
-    }
-  }, [element])
+const OUTSIDE_DISMISS_SHIELD = {
+  onPointerDownCapture: stopOutsideDismiss,
+  onMouseDownCapture: stopOutsideDismiss,
+  onTouchStartCapture: stopOutsideDismiss,
+  onFocusCapture: stopOutsideDismiss,
 }
 
 function reloadPage(): void {
@@ -180,8 +180,6 @@ export function DevRuntimeDiagnosticsBanner() {
   const [logs, setLogs] = React.useState<DevRuntimeLogSnapshot | null>(null)
   const [logsOpen, setLogsOpen] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
-  const [bannerElement, setBannerElement] = React.useState<HTMLDivElement | null>(null)
-  useShieldFromOutsideDismiss(bannerElement)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   // ConfirmDialog itself calls `useT`, so it can only be mounted where the
   // provider exists.
@@ -272,7 +270,7 @@ export function DevRuntimeDiagnosticsBanner() {
 
   return (
     <div
-      ref={setBannerElement}
+      {...OUTSIDE_DISMISS_SHIELD}
       data-testid="dev-runtime-diagnostics-banner"
       data-health={status.health}
       role={status.health === 'unavailable' ? 'alert' : 'status'}
