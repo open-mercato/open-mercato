@@ -103,6 +103,27 @@ edited, or — for a top-level organization that only lost its children — diff
 and `after` `childParents` of its undo snapshot (the detached children get no log entry of their own).
 Re-assign the parent or the children on the organization edit page.
 
+### `SUB_WORKFLOW` output ports are validated against the child context before `outputMapping` (#6714)
+
+When a child workflow declares `definition.io.outputs`, a `SUB_WORKFLOW` step now validates and
+coerces the child's context against **every** declared output port first, and only then applies
+the parent step's `config.outputMapping` (`{ parentKey: childPath }`). Before, the mapped result
+was checked against the child's port names, so a renamed mapping (`renamedValue ← childValue`)
+failed with `Required port "childValue" is missing`. Both the inline completion and the resumed
+parent (`resume_subworkflow_parent`) use the new order. Children that declare no `io.outputs` are
+unaffected.
+
+- **Tightened:** declared ports the parent does not map are now validated too. A required port
+  missing from the child context, or a value that cannot be coerced to its declared type (for
+  example `"n/a"` in a `number` port), now fails the parent step with `OUTPUT_VALIDATION` where
+  the run previously completed.
+- **Relaxed:** callers no longer need to map every required child output port just for
+  validation to pass.
+
+**Action for workflow authors:** make each child satisfy its declared output-port contract, or
+remove or relax (`required: false`, a broader type) any port declaration that is not actually
+part of the child's contract.
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
