@@ -95,7 +95,7 @@
 | 7 | 7.15-review-fix | Storefront listing: price only with cache-key customer ids, bound the past-cap load, requestedLocale cache key | dispatch:capable | done | 2b5351a088 |
 | 7 | 7.16-review-fix | Storefront eviction + media: evict previous store/mapping on binding moves, default-group create eviction, public image media only | dispatch:capable | done | eb0537c398 |
 | 7 | 7.17-review-fix | i18n for admin route errors; lookup sources resolve by id within pageSize 100 | dispatch:standard | done | c17c43d4aa |
-| 7 | 7.18-review-fix | Storefront requests run in the store's cache tenant (admin invalidations reach unauthenticated readers) | inline | done | pending |
+| 7 | 7.18-review-fix | Storefront requests run in the store's cache tenant (admin invalidations reach unauthenticated readers) | inline | done | f25d337288 |
 
 ## Goal
 

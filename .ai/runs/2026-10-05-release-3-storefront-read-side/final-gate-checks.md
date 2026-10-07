@@ -72,3 +72,21 @@ Clean apart from a hard-coded middot separator and a raw label/input pair in `Om
 - US-E1 empty-intersection warning not built.
 - Logo and favicon are URL fields only.
 - Facets are counted in memory.
+
+## 5. Review-loop re-gate (after `om-auto-review-pr` autofix, 7.13–7.18-review-fix)
+
+**Fix commits:** a88d2e2ece, 116e43d19d, 2b5351a088, eb0537c398, c17c43d4aa, f25d337288.
+
+| Check | HEAD | Result |
+|---|---|---|
+| full `validation.commands` (build → generate → build, i18n sync/usage, typecheck, test, build:app) | c17c43d4aa | ✅ except the identical `create-mercato-app` bwrap set (80/897, same failing test list as gate2). core 20069, ui 2511, shared 2643, search 376 passed |
+| one-shot integration: ecommerce + catalog + customer_groups | c17c43d4aa | ⚠️ 218/219. TC-ECOM-013 also failed on the pre-fix code in one-shot mode, so it is pre-existing and not caused by the review fixes (see below) |
+| `build:packages --force`, core unit suite, `typecheck --force`, `lint --force`, `build:app` | f25d337288 | ✅ core 20073 passed |
+| one-shot integration: ecommerce + catalog + customer_groups | f25d337288 | ✅ **219/219** |
+
+**TC-ECOM-013 root cause (7.18-review-fix):**
+- Unauthenticated storefront requests and the CLI read the global cache namespace, because the API catch-all calls `runWithCacheTenant` only for authenticated requests. Admin writes invalidate the tenant namespace.
+- So the Omnibus module config (and any implicitly cached value) stayed stale for the storefront for up to its TTL (60 s for module config).
+- The one-shot harness shares one sqlite cache between the backfill CLI and the app. The CLI warmed a pre-enable copy, so the test saw Omnibus as disabled. Attached-mode runs hid the bug because they keep the CLI's cache separate.
+- **Fix:** storefront handlers run post-resolution work, and buyer resolution, under `runWithCacheTenant(store.tenantId)`; the backfill CLI runs under its tenant.
+- Verified by reproducing in attached mode with the shared cache exported (fails before, passes after) and by the 219/219 one-shot run.

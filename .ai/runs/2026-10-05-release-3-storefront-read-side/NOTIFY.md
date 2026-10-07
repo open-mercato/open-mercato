@@ -329,3 +329,10 @@
   - Admin writes invalidate the tenant namespace. So module config (Omnibus enable), and any other implicitly cached value, stayed stale for the storefront for up to the TTL.
   - In one-shot mode the backfill CLI warms the stale global copy before the PATCH.
 - **Fix:** 7.18-review-fix (`runInStoreCacheTenant` + buyer resolution under `runWithCacheTenant(store.tenantId)`).
+- 7.18-review-fix (f25d337288) re-gate:
+  - build, core unit (20073), typecheck, lint and build:app all green;
+  - one-shot ecommerce + catalog + customer_groups integration: 219/219.
+
+## 2026-10-07 — run complete
+- Every Tasks row is done; the PR flips to `Status: complete`, ready for review.
+- PR: https://github.com/adeptofvoltron/open-mercato/pull/12
