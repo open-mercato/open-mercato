@@ -27,7 +27,7 @@ const FALLBACK_LABEL = '—'
 
 export default function DefaultAccountPostingRulesListPage() {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
