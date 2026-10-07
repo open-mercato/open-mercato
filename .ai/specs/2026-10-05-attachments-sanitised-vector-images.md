@@ -665,13 +665,13 @@ Verified with a trial merge of the owner-scoped reads branch into this one:
   - `packages/core/src/modules/attachments/AGENTS.md` has two hunks: keep both `Always` blocks, and
     in the `Never` list keep the owner-scoped branch's `checkAttachmentAccess` exception and
     `readScopedForOwner` rule, then the vector rules.
-- The merged tree (re-verified on 2026-10-07 after the fourth review round) passes:
+- The merged tree (re-verified on 2026-10-07 after the fifth review round) passes:
   - core and checkout typecheck;
-  - every attachments suite (562 tests), then `attachment-service.test.ts` again (67) after the
-    owner-scoped branch's last test was added. The only failures are six in `storage.test.ts` and
-    `localDriver.test.ts`, suites neither branch touches, which fail on the Windows machine used
-    because they expect POSIX absolute paths;
+  - every attachments suite (618 tests), `attachment-service.test.ts` among them (67). The only
+    failures are six in `storage.test.ts` and `localDriver.test.ts`, suites neither branch touches,
+    which fail on the Windows machine used because they expect POSIX absolute paths;
   - checkout's pay route suites (47).
+  The conflicts are the same five files and hunks as listed above.
 
 After both merge, `readScopedForOwner` returns a sanitised SVG as a download, like `readScoped`; a
 test on the owner-scoped branch pins it, and passes in the merged tree. The logo route is unaffected:
@@ -917,6 +917,7 @@ Regression proofs run during implementation:
 ## Changelog
 
 - 2026-10-07 — Fifth review round:
+  - Merge order re-verified with a trial merge.
   - Stylesheets narrowed to the subset logo exporters write: flat rules with simple selectors (type,
     `*`, `.class`, `#id`, compound, comma lists). At-rules, combinators, pseudo-classes and
     -elements, attribute and namespace selectors, nesting and unclosed rules are refused, parsed in
