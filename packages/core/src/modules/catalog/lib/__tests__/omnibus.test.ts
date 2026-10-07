@@ -7,6 +7,8 @@ import {
   buildPriceHistoryIdempotencyKey,
   capturePriceHistoryEntries,
   capturePriceHistoryEntry,
+  hasPriceHistoryRelevantChange,
+  isOmnibusTrackedPrice,
   priceHistoryInputFromRecord,
   recordPriceHistoryEntries,
   recordPriceHistoryEntry,
@@ -190,6 +192,7 @@ describe('priceHistoryInputFromRecord', () => {
       maxQuantity: 10,
       startsAt: null,
       endsAt: null,
+      customerGroupId: '99999999-9999-4999-8999-999999999999',
     } as unknown as CatalogProductPrice
     expect(priceHistoryInputFromRecord(record)).toEqual({
       id: PRICE.id,
@@ -210,6 +213,10 @@ describe('priceHistoryInputFromRecord', () => {
       maxQuantity: 10,
       startsAt: null,
       endsAt: null,
+      customerId: null,
+      customerGroupId: '99999999-9999-4999-8999-999999999999',
+      userId: null,
+      userGroupId: null,
     })
   })
 
@@ -414,5 +421,93 @@ describe('capturePriceHistoryEntries', () => {
     await expect(capturePriceHistoryEntries(fake.em, null, 'delete')).resolves.toBeNull()
     await expect(capturePriceHistoryEntries(fake.em, [], 'delete')).resolves.toBeNull()
     expect(fake.fork).not.toHaveBeenCalled()
+  })
+})
+
+const INDIVIDUALIZED_CASES: Array<[string, Partial<PriceHistoryPriceInput>]> = [
+  ['customer', { customerId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+  ['customer group', { customerGroupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab' }],
+  ['user', { userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaac' }],
+  ['user group', { userGroupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaad' }],
+  ['quantity tier', { minQuantity: 5 }],
+]
+
+describe('isOmnibusTrackedPrice', () => {
+  it('tracks public prices without a quantity tier', () => {
+    expect(isOmnibusTrackedPrice(PRICE)).toBe(true)
+    expect(isOmnibusTrackedPrice({ ...PRICE, minQuantity: null })).toBe(true)
+    expect(
+      isOmnibusTrackedPrice({ ...PRICE, customerId: null, customerGroupId: null, userId: null, userGroupId: null }),
+    ).toBe(true)
+  })
+
+  it.each(INDIVIDUALIZED_CASES)('does not track a %s price', (_label, override) => {
+    expect(isOmnibusTrackedPrice({ ...PRICE, ...override })).toBe(false)
+  })
+})
+
+describe('untracked prices are never recorded', () => {
+  it.each(INDIVIDUALIZED_CASES)('capturePriceHistoryEntry skips a %s price', async (_label, override) => {
+    const fake = buildFakeEm()
+    await expect(capturePriceHistoryEntry(fake.em, { ...PRICE, ...override }, 'update')).resolves.toBeNull()
+    expect(fake.fork).not.toHaveBeenCalled()
+    expect(fake.rows).toHaveLength(0)
+  })
+
+  it.each(INDIVIDUALIZED_CASES)('batch capture drops a %s price and keeps the public one', async (_label, override) => {
+    const fake = buildFakeEm()
+    await expect(
+      capturePriceHistoryEntries(fake.em, [{ ...SECOND_PRICE, ...override }, PRICE], 'delete'),
+    ).resolves.toEqual({ recorded: 1, duplicates: 0 })
+    expect(fake.rows.map((row) => row.priceId)).toEqual([PRICE.id])
+  })
+
+  it('recordPriceHistoryEntries is a no-op when every price is untracked', async () => {
+    const fake = buildFakeEm()
+    await expect(
+      recordPriceHistoryEntries(fake.em, [{ ...PRICE, customerId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }], 'create'),
+    ).resolves.toEqual({ recorded: 0, duplicates: 0 })
+    expect(fake.fork).not.toHaveBeenCalled()
+  })
+})
+
+describe('hasPriceHistoryRelevantChange', () => {
+  it('ignores a re-save with equivalent decimal and date representations', () => {
+    const before: PriceHistoryPriceInput = {
+      ...PRICE,
+      unitPriceNet: '81.3000',
+      unitPriceGross: '100.0000',
+      startsAt: new Date('2026-06-01T00:00:00.000Z'),
+      endsAt: null,
+      customerId: null,
+    }
+    const after: PriceHistoryPriceInput = {
+      ...PRICE,
+      unitPriceNet: '81.3',
+      unitPriceGross: '100',
+      startsAt: '2026-06-01T00:00:00.000Z',
+      priceKindCode: 'renamed',
+    }
+    expect(hasPriceHistoryRelevantChange(before, after)).toBe(false)
+  })
+
+  it.each<[string, Partial<PriceHistoryPriceInput>]>([
+    ['productId', { productId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }],
+    ['variantId', { variantId: null }],
+    ['offerId', { offerId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc' }],
+    ['channelId', { channelId: null }],
+    ['priceKindId', { priceKindId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbd' }],
+    ['currencyCode', { currencyCode: 'PLN' }],
+    ['unitPriceNet', { unitPriceNet: '81.3100' }],
+    ['unitPriceGross', { unitPriceGross: null }],
+    ['taxRate', { taxRate: '8.0000' }],
+    ['taxAmount', { taxAmount: '7.0000' }],
+    ['minQuantity', { minQuantity: 2 }],
+    ['maxQuantity', { maxQuantity: 10 }],
+    ['startsAt', { startsAt: '2026-06-02T00:00:00.000Z' }],
+    ['endsAt', { endsAt: new Date('2026-07-01T00:00:00.000Z') }],
+    ['tracked-ness', { customerGroupId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbe' }],
+  ])('detects a %s change', (_field, override) => {
+    expect(hasPriceHistoryRelevantChange(PRICE, { ...PRICE, ...override })).toBe(true)
   })
 })

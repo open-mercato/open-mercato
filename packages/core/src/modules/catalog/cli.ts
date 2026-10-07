@@ -182,7 +182,7 @@ function printOmnibusBackfillResult(result: OmnibusBackfillResult) {
   for (const target of result.targets) {
     const key = target.coverageKey || '(unscoped)'
     console.log(
-      `  ${key}: lookbackDays=${target.lookbackDays} recordedAt=${target.recordedAt} scanned=${target.scanned} alreadyCovered=${target.alreadyCovered} missing=${target.missing} created=${target.created} skippedIncomplete=${target.skippedIncomplete}`,
+      `  ${key}: lookbackDays=${target.lookbackDays} recordedAt=${target.recordedAt} scanned=${target.scanned} alreadyCovered=${target.alreadyCovered} missing=${target.missing} created=${target.created} skippedIncomplete=${target.skippedIncomplete} skippedUntracked=${target.skippedUntracked}`,
     )
   }
   if (!result.dryRun) {

@@ -32,6 +32,10 @@ export type PriceHistoryPriceInput = {
   maxQuantity: number | null
   startsAt: Date | string | null
   endsAt: Date | string | null
+  customerId?: string | null
+  customerGroupId?: string | null
+  userId?: string | null
+  userGroupId?: string | null
 }
 
 export type BuildHistoryEntryOptions = {
@@ -43,18 +47,25 @@ export type BuildHistoryEntryOptions = {
 
 export type CapturePriceHistoryOptions = BuildHistoryEntryOptions & {
   cache?: CacheStrategy | null
+  invalidatePrices?: Array<PriceHistoryPriceInput | null | undefined>
 }
 
 export type RecordPriceHistoryResult = 'recorded' | 'duplicate'
 
-async function invalidateOmnibusCacheForPrices(
+/**
+ * Drops cached Omnibus references for every product/variant/offer scope the given prices touch.
+ * Pass both the before- and after-state of a moved price so the old scope is not left stale.
+ */
+export async function invalidateOmnibusCacheForPrices(
   cache: CacheStrategy | null | undefined,
-  prices: PriceHistoryPriceInput[],
+  prices: Array<PriceHistoryPriceInput | null | undefined>,
 ): Promise<void> {
   if (!cache) return
+  const present = prices.filter((price): price is PriceHistoryPriceInput => Boolean(price))
+  if (!present.length) return
   await invalidateOmnibusCache(
     cache,
-    prices.map((price) => ({
+    present.map((price) => ({
       tenantId: price.tenantId,
       organizationId: price.organizationId,
       productId: price.productId,
@@ -62,6 +73,78 @@ async function invalidateOmnibusCacheForPrices(
       offerId: price.offerId,
     })),
   )
+}
+
+/**
+ * A price feeds the public Omnibus reference only when it is addressed to the general public:
+ * no customer, customer group, user, or user group individualization and no quantity tier above 1.
+ */
+export function isOmnibusTrackedPrice(
+  price: Pick<PriceHistoryPriceInput, 'customerId' | 'customerGroupId' | 'userId' | 'userGroupId' | 'minQuantity'>,
+): boolean {
+  return (
+    !price.customerId &&
+    !price.customerGroupId &&
+    !price.userId &&
+    !price.userGroupId &&
+    (price.minQuantity ?? 1) <= 1
+  )
+}
+
+function normalizeDecimal(value: string | number | null | undefined): string | number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'number') return value
+  const trimmed = value.trim()
+  if (!trimmed.length) return null
+  const numeric = Number(trimmed)
+  return Number.isNaN(numeric) ? trimmed : numeric
+}
+
+function normalizeTimestamp(value: Date | string | null | undefined): number | string | null {
+  if (value === null || value === undefined) return null
+  const date = value instanceof Date ? value : new Date(value)
+  const time = date.getTime()
+  return Number.isNaN(time) ? String(value) : time
+}
+
+const PRICE_HISTORY_IDENTITY_FIELDS = [
+  'productId',
+  'variantId',
+  'offerId',
+  'channelId',
+  'priceKindId',
+  'currencyCode',
+] as const satisfies ReadonlyArray<keyof PriceHistoryPriceInput>
+
+const PRICE_HISTORY_DECIMAL_FIELDS = [
+  'unitPriceNet',
+  'unitPriceGross',
+  'taxRate',
+  'taxAmount',
+  'minQuantity',
+  'maxQuantity',
+] as const satisfies ReadonlyArray<keyof PriceHistoryPriceInput>
+
+const PRICE_HISTORY_TIMESTAMP_FIELDS = ['startsAt', 'endsAt'] as const satisfies ReadonlyArray<
+  keyof PriceHistoryPriceInput
+>
+
+/**
+ * True when an update changed anything the Omnibus history observes (scope, amounts, tiers, schedule
+ * or tracked-ness). Decimals compare numerically and dates by instant, so re-saving an unchanged price
+ * does not produce a fresh history row.
+ */
+export function hasPriceHistoryRelevantChange(before: PriceHistoryPriceInput, after: PriceHistoryPriceInput): boolean {
+  for (const field of PRICE_HISTORY_IDENTITY_FIELDS) {
+    if ((before[field] ?? null) !== (after[field] ?? null)) return true
+  }
+  for (const field of PRICE_HISTORY_DECIMAL_FIELDS) {
+    if (normalizeDecimal(before[field]) !== normalizeDecimal(after[field])) return true
+  }
+  for (const field of PRICE_HISTORY_TIMESTAMP_FIELDS) {
+    if (normalizeTimestamp(before[field]) !== normalizeTimestamp(after[field])) return true
+  }
+  return isOmnibusTrackedPrice(before) !== isOmnibusTrackedPrice(after)
 }
 
 export function buildPriceHistoryIdempotencyKey(
@@ -164,6 +247,10 @@ export function priceHistoryInputFromRecord(record: CatalogProductPrice): PriceH
     maxQuantity: record.maxQuantity ?? null,
     startsAt: record.startsAt ?? null,
     endsAt: record.endsAt ?? null,
+    customerId: record.customerId ?? null,
+    customerGroupId: record.customerGroupId ?? null,
+    userId: record.userId ?? null,
+    userGroupId: record.userGroupId ?? null,
   }
 }
 
@@ -196,8 +283,8 @@ export async function capturePriceHistoryEntry(
 ): Promise<RecordPriceHistoryResult | null> {
   if (!price) return null
   try {
-    const result = await recordPriceHistoryEntry(em, price, changeType, options)
-    await invalidateOmnibusCacheForPrices(options.cache, [price])
+    const result = isOmnibusTrackedPrice(price) ? await recordPriceHistoryEntry(em, price, changeType, options) : null
+    await invalidateOmnibusCacheForPrices(options.cache, [price, ...(options.invalidatePrices ?? [])])
     return result
   } catch (err) {
     logger.error('[internal] catalog price history capture failed', {
@@ -235,7 +322,7 @@ export async function recordPriceHistoryEntries(
   changeType: PriceHistoryChangeType,
   options: BuildHistoryEntryOptions = {},
 ): Promise<RecordPriceHistoryBatchResult> {
-  const unique = uniquePricesById(prices)
+  const unique = uniquePricesById(prices.filter(isOmnibusTrackedPrice))
   if (!unique.length) return { recorded: 0, duplicates: 0 }
   const batchOptions: BuildHistoryEntryOptions = { ...options, recordedAt: options.recordedAt ?? new Date() }
   const entries = unique.map((price) => buildHistoryEntry(price, changeType, batchOptions))
@@ -268,7 +355,7 @@ export async function capturePriceHistoryEntries(
   if (!prices || !prices.length) return null
   try {
     const result = await recordPriceHistoryEntries(em, prices, changeType, options)
-    await invalidateOmnibusCacheForPrices(options.cache, prices)
+    await invalidateOmnibusCacheForPrices(options.cache, [...prices, ...(options.invalidatePrices ?? [])])
     return result
   } catch (err) {
     logger.error('[internal] catalog price history batch capture failed', {

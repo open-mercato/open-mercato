@@ -303,6 +303,27 @@ describe('runOmnibusBackfill', () => {
     expect(result.targets[0]).toMatchObject({ skippedIncomplete: 1, created: 1 })
   })
 
+  it('skips individualized and quantity-tier prices', async () => {
+    const store: Store = {
+      prices: [
+        buildPrice(1, { customerId: '99999999-9999-4999-8999-999999999991' }),
+        buildPrice(2, { customerGroupId: '99999999-9999-4999-8999-999999999992' }),
+        buildPrice(3, { userId: '99999999-9999-4999-8999-999999999993' }),
+        buildPrice(4, { userGroupId: '99999999-9999-4999-8999-999999999994' }),
+        buildPrice(5, { minQuantity: 10 }),
+        buildPrice(6),
+      ],
+      history: [],
+    }
+    installFindMock(store)
+    const result = await runOmnibusBackfill(
+      { em: buildEm(store), moduleConfigService: buildConfigService(), now: NOW },
+      { tenantId: TENANT, unscoped: true },
+    )
+    expect(store.history.map((row) => row.priceId)).toEqual([priceId(6)])
+    expect(result.targets[0]).toMatchObject({ scanned: 6, skippedUntracked: 5, missing: 1, created: 1 })
+  })
+
   it('refuses to run against an invalid stored config', async () => {
     const store: Store = { prices: [buildPrice(1)], history: [] }
     installFindMock(store)

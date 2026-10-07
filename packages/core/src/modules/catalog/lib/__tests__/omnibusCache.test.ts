@@ -121,6 +121,39 @@ describe('history capture invalidates the omnibus cache', () => {
     expect(await readOmnibusCache(cache, TENANT, 'other')).toEqual({ value: 'other' })
   })
 
+  it('drops the before-state scope of a moved price as well as the after-state scope', async () => {
+    const cache = createCacheService({ strategy: 'memory' })
+    await seed(cache, 'old-scope', PRODUCT)
+    await seed(cache, 'new-scope', OTHER_PRODUCT)
+    await capturePriceHistoryEntry(fakeEm(), { ...PRICE, productId: OTHER_PRODUCT, variantId: null }, 'update', {
+      cache,
+      invalidatePrices: [PRICE],
+    })
+    expect(await readOmnibusCache(cache, TENANT, 'old-scope')).toBeNull()
+    expect(await readOmnibusCache(cache, TENANT, 'new-scope')).toBeNull()
+  })
+
+  it('still invalidates the scope of an untracked price it does not record', async () => {
+    const cache = createCacheService({ strategy: 'memory' })
+    await seed(cache, 'product', PRODUCT)
+    const em = fakeEm()
+    await expect(
+      capturePriceHistoryEntry(em, { ...PRICE, customerId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, 'update', { cache }),
+    ).resolves.toBeNull()
+    expect((em as unknown as { fork: jest.Mock }).fork).not.toHaveBeenCalled()
+    expect(await readOmnibusCache(cache, TENANT, 'product')).toBeNull()
+  })
+
+  it('invalidates extra before-state prices after a batch capture', async () => {
+    const cache = createCacheService({ strategy: 'memory' })
+    await seed(cache, 'old-scope', OTHER_PRODUCT)
+    await capturePriceHistoryEntries(fakeEm(), [PRICE], 'undo', {
+      cache,
+      invalidatePrices: [{ ...PRICE, productId: OTHER_PRODUCT, variantId: null }, null],
+    })
+    expect(await readOmnibusCache(cache, TENANT, 'old-scope')).toBeNull()
+  })
+
   it('drops cached entries after a batch capture', async () => {
     const cache = createCacheService({ strategy: 'memory' })
     await seed(cache, 'product', PRODUCT)

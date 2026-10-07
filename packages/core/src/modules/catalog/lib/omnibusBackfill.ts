@@ -4,7 +4,12 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { CatalogPriceHistoryEntry, CatalogProductPrice } from '../data/entities'
 import { omnibusBackfillOptionsSchema, type OmnibusBackfillOptionsInput } from '../data/validators'
-import { priceHistoryInputFromRecord, recordPriceHistoryEntries, type PriceHistoryPriceInput } from './omnibus'
+import {
+  isOmnibusTrackedPrice,
+  priceHistoryInputFromRecord,
+  recordPriceHistoryEntries,
+  type PriceHistoryPriceInput,
+} from './omnibus'
 import { invalidateOmnibusTenantCache } from './omnibusCache'
 import { listInScopeOmnibusChannels } from './omnibusConfig'
 import {
@@ -38,6 +43,7 @@ export type OmnibusBackfillTargetResult = OmnibusBackfillTarget & {
   missing: number
   created: number
   skippedIncomplete: number
+  skippedUntracked: number
 }
 
 export type OmnibusBackfillResult = {
@@ -101,6 +107,7 @@ async function backfillTarget(
     missing: 0,
     created: 0,
     skippedIncomplete: 0,
+    skippedUntracked: 0,
   }
   const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
   const orgFilter = scope.organizationId ? { organizationId: scope.organizationId } : {}
@@ -132,8 +139,10 @@ async function backfillTarget(
     const uncovered = prices.filter((price) => !covered.has(price.id))
     result.alreadyCovered += prices.length - uncovered.length
     const inputs = uncovered.map(priceHistoryInputFromRecord)
-    const complete = inputs.filter(isCompleteInput)
-    result.skippedIncomplete += inputs.length - complete.length
+    const tracked = inputs.filter(isOmnibusTrackedPrice)
+    result.skippedUntracked += inputs.length - tracked.length
+    const complete = tracked.filter(isCompleteInput)
+    result.skippedIncomplete += tracked.length - complete.length
     result.missing += complete.length
     if (!options.dryRun && complete.length) {
       const written = await recordPriceHistoryEntries(deps.em, complete, 'create', { recordedAt, source: 'system' })

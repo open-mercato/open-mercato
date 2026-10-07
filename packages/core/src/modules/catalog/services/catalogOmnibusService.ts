@@ -9,6 +9,7 @@ import {
   OMNIBUS_CONFIG_MODULE_ID,
   OMNIBUS_CONFIG_NAME,
   OMNIBUS_DEFAULT_LOOKBACK_DAYS,
+  OMNIBUS_PRICE_REMOVING_UNDO_COMMAND,
   omnibusConfigSchema,
   type OmnibusApplicabilityReason,
   type OmnibusBlock,
@@ -145,6 +146,11 @@ function isPresentedReduction(row: OmnibusHistoryRow, presented: OmnibusPresente
   )
 }
 
+function isPriceObservation(row: OmnibusHistoryRow): boolean {
+  if (row.changeType === 'delete') return false
+  return !(row.changeType === 'undo' && row.undoneCommand === OMNIBUS_PRICE_REMOVING_UNDO_COMMAND)
+}
+
 export type OmnibusCandidateSelection = {
   lowestRow: OmnibusHistoryRow | null
   previousRow: OmnibusHistoryRow | null
@@ -163,7 +169,9 @@ export function selectOmnibusCandidates(input: {
   const pool = input.baseline ? [input.baseline, ...input.inWindow] : [...input.inWindow]
   const candidates = pool.filter(
     (row) =>
-      !isPresentedReduction(row, input.presentedEntry) && (anchorMs === null || Date.parse(row.recordedAt) < anchorMs),
+      isPriceObservation(row) &&
+      !isPresentedReduction(row, input.presentedEntry) &&
+      (anchorMs === null || Date.parse(row.recordedAt) < anchorMs),
   )
   if (!candidates.length) {
     return { lowestRow: null, previousRow: null, insufficientHistory: false, coverageStartAt: null }
@@ -180,6 +188,7 @@ export function selectOmnibusCandidates(input: {
 
 function toHistoryRow(entry: CatalogPriceHistoryEntry): OmnibusHistoryRow {
   const recordedAt = entry.recordedAt instanceof Date ? entry.recordedAt : new Date(entry.recordedAt)
+  const undoneCommand = undoneCommandOf(entry.metadata)
   return {
     id: entry.id,
     priceId: entry.priceId,
@@ -187,7 +196,13 @@ function toHistoryRow(entry: CatalogPriceHistoryEntry): OmnibusHistoryRow {
     recordedAt: recordedAt.toISOString(),
     unitPriceNet: entry.unitPriceNet ?? null,
     unitPriceGross: entry.unitPriceGross ?? null,
+    ...(undoneCommand ? { undoneCommand } : {}),
   }
+}
+
+function undoneCommandOf(metadata: Record<string, unknown> | null | undefined): string | null {
+  const value = metadata?.undoneCommand
+  return typeof value === 'string' ? value : null
 }
 
 function resolveHistoryScope(context: OmnibusResolutionContext): HistoryScope | null {

@@ -32,7 +32,11 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { capturePriceHistoryEntry, priceHistoryInputFromRecord } from '../lib/omnibus'
+import {
+  capturePriceHistoryEntry,
+  hasPriceHistoryRelevantChange,
+  priceHistoryInputFromRecord,
+} from '../lib/omnibus'
 import { resolveOmnibusCache } from '../lib/omnibusCache'
 
 const priceCrudEvents: CrudEventsConfig = {
@@ -536,6 +540,11 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     } else if (currentProductRef) {
       targetProduct = currentProductRef
     }
+    const recordHistoryInput = priceHistoryInputFromRecord(record)
+    const historyBefore = {
+      ...recordHistoryInput,
+      productId: recordHistoryInput.productId ?? targetProduct?.id ?? null,
+    }
 
     if (parsed.variantId !== undefined) {
       if (!parsed.variantId) {
@@ -731,9 +740,13 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       },
       events: priceCrudEvents,
     })
-    await capturePriceHistoryEntry(em, priceHistoryInputFromRecord(record), 'update', {
-      cache: resolveOmnibusCache(ctx.container),
-    })
+    const historyAfter = priceHistoryInputFromRecord(record)
+    if (hasPriceHistoryRelevantChange(historyBefore, historyAfter)) {
+      await capturePriceHistoryEntry(em, historyAfter, 'update', {
+        cache: resolveOmnibusCache(ctx.container),
+        invalidatePrices: [historyBefore],
+      })
+    }
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -811,6 +824,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     await capturePriceHistoryEntry(em, before, 'undo', {
       metadata: { undoneCommand: 'catalog.prices.update' },
       cache: resolveOmnibusCache(ctx.container),
+      invalidatePrices: [after],
     })
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,

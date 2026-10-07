@@ -147,6 +147,7 @@ type Harness = {
   ctx: unknown
   historyRows: Row[]
   commandEm: Record<string, jest.Mock>
+  cache: { deleteByTags: jest.Mock }
 }
 
 function buildHarness(options: { existingPrice?: Row | null; historyFlushError?: unknown } = {}): Harness {
@@ -180,12 +181,14 @@ function buildHarness(options: { existingPrice?: Row | null; historyFlushError?:
       taxRate: 23,
     })),
   }
+  const cache = { deleteByTags: jest.fn().mockResolvedValue(0) }
   const ctx = {
     container: {
       resolve: jest.fn((token: string) => {
         if (token === 'em') return rootEm
         if (token === 'dataEngine') return { markOrmEntityChange: jest.fn() }
         if (token === 'taxCalculationService') return taxCalculationService
+        if (token === 'cache') return cache
         return undefined
       }),
     },
@@ -194,7 +197,21 @@ function buildHarness(options: { existingPrice?: Row | null; historyFlushError?:
     selectedOrganizationId: ORG_ID,
     organizationIds: [ORG_ID],
   }
-  return { ctx, historyRows, commandEm }
+  return { ctx, historyRows, commandEm, cache }
+}
+
+function invalidatedTags(harness: Harness): string[] {
+  return harness.cache.deleteByTags.mock.calls.flatMap(([tags]) => tags as string[])
+}
+
+function productTag(productId: string): string {
+  return `catalog:omnibus:${TENANT_ID}:${ORG_ID}:product:${productId}`
+}
+
+const OTHER_PRODUCT = {
+  id: '44444444-4444-4444-8444-000000000000',
+  tenantId: TENANT_ID,
+  organizationId: ORG_ID,
 }
 
 function commandById(id: string): CommandHandlerLike {
@@ -368,5 +385,63 @@ describe('catalog price commands record omnibus price history', () => {
     ).resolves.toBeUndefined()
     expect(harness.commandEm.flush).toHaveBeenCalled()
     expect(harness.historyRows).toHaveLength(0)
+  })
+
+  it('does not record a history entry when an update re-saves unchanged price values', async () => {
+    findOneWithDecryption.mockResolvedValue(
+      buildPriceRecord({ startsAt: new Date('2026-06-01T00:00:00.000Z') }),
+    )
+    const harness = buildHarness()
+    await commandById('catalog.prices.update').execute(
+      { id: PRICE_ID, currencyCode: 'EUR', metadata: { note: 'unrelated' }, startsAt: new Date('2026-06-01T00:00:00.000Z') },
+      harness.ctx,
+    )
+    expect(harness.historyRows).toHaveLength(0)
+  })
+
+  it('records an update when a price-relevant field changes and invalidates the before and after scopes', async () => {
+    findOneWithDecryption.mockResolvedValue(buildPriceRecord({ product: OTHER_PRODUCT }))
+    const harness = buildHarness()
+    await commandById('catalog.prices.update').execute({ id: PRICE_ID, productId: FAKE_PRODUCT.id }, harness.ctx)
+    expect(harness.historyRows).toHaveLength(1)
+    expect(harness.historyRows[0]).toMatchObject({ changeType: 'update', productId: FAKE_PRODUCT.id })
+    expect(invalidatedTags(harness)).toEqual(
+      expect.arrayContaining([productTag(FAKE_PRODUCT.id), productTag(OTHER_PRODUCT.id)]),
+    )
+  })
+
+  it.each([
+    ['customer', { customerId: '99999999-9999-4999-8999-999999999991' }],
+    ['customer group', { customerGroupId: '99999999-9999-4999-8999-999999999992' }],
+    ['user', { userId: '99999999-9999-4999-8999-999999999993' }],
+    ['user group', { userGroupId: '99999999-9999-4999-8999-999999999994' }],
+    ['quantity tier', { minQuantity: 10 }],
+  ])('does not record history for a %s price', async (_label, scoping) => {
+    const harness = buildHarness()
+    await commandById('catalog.prices.create').execute(
+      {
+        productId: FAKE_PRODUCT.id,
+        priceKindId: FAKE_PRICE_KIND.id,
+        currencyCode: 'EUR',
+        unitPriceNet: 100,
+        ...scoping,
+      },
+      harness.ctx,
+    )
+    expect(harness.historyRows).toHaveLength(0)
+  })
+
+  it('invalidates both the restored and the undone scope when an update is undone', async () => {
+    const harness = buildHarness({ existingPrice: buildPriceRecord() })
+    await commandById('catalog.prices.update').undo({
+      logEntry: undoLog({
+        before: buildSnapshot({ productId: FAKE_PRODUCT.id }),
+        after: buildSnapshot({ productId: OTHER_PRODUCT.id }),
+      }),
+      ctx: harness.ctx,
+    })
+    expect(invalidatedTags(harness)).toEqual(
+      expect.arrayContaining([productTag(FAKE_PRODUCT.id), productTag(OTHER_PRODUCT.id)]),
+    )
   })
 })

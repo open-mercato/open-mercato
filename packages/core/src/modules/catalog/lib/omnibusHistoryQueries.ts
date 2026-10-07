@@ -1,5 +1,6 @@
 import { sql, type RawBuilder } from 'kysely'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { OMNIBUS_PRICE_REMOVING_UNDO_COMMAND } from './omnibusTypes'
 
 export const OMNIBUS_IN_WINDOW_LIMIT = 1000
 
@@ -41,6 +42,9 @@ const SCOPE_COLUMNS: Record<OmnibusScopeColumn, RawBuilder<unknown>> = {
   offer_id: sql.ref('h.offer_id'),
 }
 
+const OBSERVATION_CLAUSE = sql`AND h.change_type <> 'delete'
+        AND NOT (h.change_type = 'undo' AND h.metadata->>'undoneCommand' = ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND})`
+
 function lookupGroupKey(lookup: OmnibusWindowLookup): string {
   return `${lookup.scopeColumn}|${lookup.channelId ? 'channel' : 'any'}`
 }
@@ -56,7 +60,7 @@ async function runWindowGroup(
   lookups: OmnibusWindowLookup[],
 ): Promise<LookupRow[]> {
   const scopeRef = SCOPE_COLUMNS[scopeColumn]
-  const channelClause = withChannel ? sql`AND h.channel_id = w.channel_id` : sql``
+  const channelClause = withChannel ? sql`AND (h.channel_id = w.channel_id OR h.channel_id IS NULL)` : sql``
   const tenantIds = lookups.map((lookup) => lookup.tenantId)
   const organizationIds = lookups.map((lookup) => lookup.organizationId)
   const scopeIds = lookups.map((lookup) => lookup.scopeId)
@@ -88,6 +92,7 @@ async function runWindowGroup(
         ${channelClause}
         AND h.price_kind_id = w.price_kind_id
         AND h.currency_code = w.currency_code
+        ${OBSERVATION_CLAUSE}
         AND h.recorded_at <= w.window_start
       ORDER BY h.recorded_at DESC, h.id DESC
       LIMIT 1
@@ -103,6 +108,7 @@ async function runWindowGroup(
         ${channelClause}
         AND h.price_kind_id = w.price_kind_id
         AND h.currency_code = w.currency_code
+        ${OBSERVATION_CLAUSE}
         AND h.recorded_at > w.window_start
         AND h.recorded_at <= w.window_end
       ORDER BY h.recorded_at DESC, h.id DESC
@@ -164,7 +170,8 @@ export async function fetchOmnibusFirstOfferIds(
         AND h.offer_id = w.offer_id
         AND h.price_kind_id = w.price_kind_id
         AND h.currency_code = w.currency_code
-        AND h.channel_id IS NOT DISTINCT FROM w.channel_id
+        AND (h.channel_id = w.channel_id OR h.channel_id IS NULL)
+        ${OBSERVATION_CLAUSE}
       ORDER BY h.recorded_at ASC, h.id ASC
       LIMIT 1
     ) first_offer

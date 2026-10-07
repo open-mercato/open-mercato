@@ -2,12 +2,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createCacheService } from '@open-mercato/cache'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { DefaultCatalogOmnibusService } from '../catalogOmnibusService'
+import { DefaultCatalogOmnibusService, selectOmnibusCandidates } from '../catalogOmnibusService'
 import { fetchOmnibusFirstOfferIds, fetchOmnibusWindowIds } from '../../lib/omnibusHistoryQueries'
 import type { OmnibusFirstOfferLookup, OmnibusWindowLookup } from '../../lib/omnibusHistoryQueries'
 import { invalidateOmnibusCache } from '../../lib/omnibusCache'
 import { omnibusConfigSchema } from '../../lib/omnibusTypes'
 import type {
+  OmnibusHistoryRow,
   OmnibusPresentedEntry,
   OmnibusResolutionContext,
   OmnibusResolutionRequest,
@@ -626,5 +627,68 @@ describe('catalogOmnibusService batch resolution', () => {
 
   it('returns an empty array for an empty batch', async () => {
     expect(await buildService().resolveOmnibusBlocks(em, [])).toEqual([])
+  })
+})
+
+describe('selectOmnibusCandidates tombstones', () => {
+  function historyRow(overrides: Partial<OmnibusHistoryRow> & Pick<OmnibusHistoryRow, 'id' | 'recordedAt'>): OmnibusHistoryRow {
+    return {
+      priceId: PRICE_ROW,
+      changeType: 'update',
+      unitPriceNet: null,
+      unitPriceGross: '100.0000',
+      ...overrides,
+    }
+  }
+
+  it('ignores delete rows and undo-of-create rows as price observations', () => {
+    const baseline = historyRow({ id: 'baseline', recordedAt: '2026-05-01T00:00:00.000Z', unitPriceGross: '100.0000' })
+    const selection = selectOmnibusCandidates({
+      baseline,
+      inWindow: [
+        historyRow({ id: 'deleted', recordedAt: '2026-05-20T00:00:00.000Z', changeType: 'delete', unitPriceGross: '10.0000' }),
+        historyRow({
+          id: 'undone-create',
+          recordedAt: '2026-05-21T00:00:00.000Z',
+          changeType: 'undo',
+          undoneCommand: 'catalog.prices.create',
+          unitPriceGross: '20.0000',
+        }),
+      ],
+      presentedEntry: null,
+      anchor: null,
+      axis: 'gross',
+    })
+    expect(selection.lowestRow?.id).toBe('baseline')
+    expect(selection.previousRow?.id).toBe('baseline')
+    expect(selection.insufficientHistory).toBe(false)
+  })
+
+  it('does not keep a tombstone baseline and keeps restoring undos as candidates', () => {
+    const selection = selectOmnibusCandidates({
+      baseline: historyRow({ id: 'deleted-baseline', recordedAt: '2026-05-01T00:00:00.000Z', changeType: 'delete', unitPriceGross: '5.0000' }),
+      inWindow: [
+        historyRow({
+          id: 'undone-delete',
+          recordedAt: '2026-05-20T00:00:00.000Z',
+          changeType: 'undo',
+          undoneCommand: 'catalog.prices.delete',
+          unitPriceGross: '90.0000',
+        }),
+        historyRow({
+          id: 'undone-update',
+          recordedAt: '2026-05-21T00:00:00.000Z',
+          changeType: 'undo',
+          undoneCommand: 'catalog.prices.update',
+          unitPriceGross: '95.0000',
+        }),
+      ],
+      presentedEntry: null,
+      anchor: null,
+      axis: 'gross',
+    })
+    expect(selection.lowestRow?.id).toBe('undone-delete')
+    expect(selection.insufficientHistory).toBe(true)
+    expect(selection.coverageStartAt).toBe('2026-05-20T00:00:00.000Z')
   })
 })

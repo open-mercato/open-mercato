@@ -56,6 +56,7 @@ import {
   type CatalogProductFilterQuery,
 } from "../../lib/productFilters";
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('catalog')
 const rawBodySchema = z.object({}).passthrough();
@@ -526,12 +527,20 @@ async function decorateProductsAfterList(
       }
     }
 
-    await attachProductListOmnibusBlocks({
-      em,
-      container: ctx.container,
-      tenantId: ctx.auth?.tenantId ?? null,
-      entries: omnibusEntries,
-    });
+    try {
+      await attachProductListOmnibusBlocks({
+        em,
+        container: ctx.container,
+        tenantId: ctx.auth?.tenantId ?? null,
+        entries: omnibusEntries,
+      });
+    } catch (error) {
+      logger.error('decorateProductsAfterList failed to attach Omnibus blocks', { err: error });
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'catalog',
+        code: 'catalog.omnibus_product_list_failed',
+      });
+    }
   } catch (error) {
     logger.error('decorateProductsAfterList Failed to load unit conversions', { err: error });
   }

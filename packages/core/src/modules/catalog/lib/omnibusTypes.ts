@@ -140,6 +140,9 @@ export type OmnibusResolutionRequest = {
   priceKindIsPromotion?: boolean
 }
 
+/** Undo of this command removes the price, so its history row is a tombstone, not a price observation. */
+export const OMNIBUS_PRICE_REMOVING_UNDO_COMMAND = 'catalog.prices.create'
+
 export type OmnibusHistoryRow = {
   id: string
   priceId: string
@@ -147,6 +150,7 @@ export type OmnibusHistoryRow = {
   recordedAt: string
   unitPriceNet: string | null
   unitPriceGross: string | null
+  undoneCommand?: string | null
 }
 
 export type OmnibusLowestPriceResult = {
