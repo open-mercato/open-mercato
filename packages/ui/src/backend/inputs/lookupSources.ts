@@ -14,8 +14,7 @@ export type LookupSource = {
 export type LookupRemoteItem = Record<string, unknown>
 
 const SEARCH_PAGE_SIZE = '50'
-const RESOLVE_PAGE_SIZE = '100'
-const TAG_RESOLVE_PAGE_SIZE = '200'
+const RESOLVE_CHUNK_SIZE = 100
 
 export function pickLookupString(item: LookupRemoteItem, ...keys: string[]): string {
   for (const key of keys) {
@@ -42,6 +41,31 @@ function mapItems(items: LookupRemoteItem[], mapItem: (item: LookupRemoteItem) =
   return items.map(mapItem).filter((option): option is LookupOption => option !== null)
 }
 
+function chunkIds(ids: readonly string[]): string[][] {
+  const unique = Array.from(new Set(ids))
+  const chunks: string[][] = []
+  for (let start = 0; start < unique.length; start += RESOLVE_CHUNK_SIZE) {
+    chunks.push(unique.slice(start, start + RESOLVE_CHUNK_SIZE))
+  }
+  return chunks
+}
+
+/** Resolves `ids` through the `?ids=` filter in chunks of at most 100, one request per chunk. */
+async function resolveByIds(
+  path: string,
+  ids: readonly string[],
+  mapItem: (item: LookupRemoteItem) => LookupOption | null,
+  extraParams: Record<string, string> = {},
+): Promise<LookupOption[]> {
+  const chunks = chunkIds(ids)
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      loadItems(path, { ...extraParams, ids: chunk.join(','), pageSize: String(chunk.length) }),
+    ),
+  )
+  return mapItems(pages.flat(), mapItem)
+}
+
 function searchParams(query: string | undefined, pageSize: string): Record<string, string> {
   const trimmed = (query ?? '').trim()
   return trimmed.length > 0 ? { search: trimmed, pageSize } : { pageSize }
@@ -56,13 +80,7 @@ export function createIdsLookupSource(
   return {
     id,
     search: async (query) => mapItems(await loadItems(path, { ...extraParams, ...searchParams(query, SEARCH_PAGE_SIZE) }), mapItem),
-    resolve: async (ids) => {
-      if (ids.length === 0) return []
-      return mapItems(
-        await loadItems(path, { ...extraParams, ids: ids.join(','), pageSize: RESOLVE_PAGE_SIZE }),
-        mapItem,
-      )
-    },
+    resolve: (ids) => resolveByIds(path, ids, mapItem, extraParams),
   }
 }
 
@@ -97,10 +115,5 @@ function mapTag(item: LookupRemoteItem): LookupOption | null {
 export const tagLookupSource: LookupSource = {
   id: 'tags',
   search: async (query) => mapItems(await loadItems('/api/catalog/tags', searchParams(query, SEARCH_PAGE_SIZE)), mapTag),
-  resolve: async (ids) => {
-    if (ids.length === 0) return []
-    const wanted = new Set(ids)
-    const options = mapItems(await loadItems('/api/catalog/tags', { pageSize: TAG_RESOLVE_PAGE_SIZE }), mapTag)
-    return options.filter((option) => wanted.has(option.value))
-  },
+  resolve: (ids) => resolveByIds('/api/catalog/tags', ids, mapTag),
 }

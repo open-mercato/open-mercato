@@ -28,8 +28,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { GET } from '../tags/route'
 
-function request() {
-  return new Request('http://localhost/api/catalog/tags')
+function request(query = '') {
+  return new Request(`http://localhost/api/catalog/tags${query}`)
 }
 
 describe('catalog tags list — organization scoping', () => {
@@ -81,5 +81,27 @@ describe('catalog tags list — organization scoping', () => {
       tenantId: 'tenant-1',
       organizationId: { $in: ['org-a', 'org-b'] },
     })
+  })
+
+  it('narrows the list to the requested ids and matches nothing for malformed ids', async () => {
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-a' })
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+      selectedId: 'org-a',
+      filterIds: ['org-a'],
+      allowedIds: ['org-a'],
+      tenantId: 'tenant-1',
+    })
+    const tagA = '0b8f3f0e-1d2a-4c5b-8e6f-000000000011'
+    const tagB = '0b8f3f0e-1d2a-4c5b-8e6f-000000000012'
+
+    const response = await GET(request(`?ids=${tagA},${tagB},not-a-uuid&pageSize=100`))
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount.mock.calls[0][1]).toMatchObject({ tenantId: 'tenant-1', id: { $in: [tagA, tagB] } })
+
+    await GET(request('?ids=not-a-uuid'))
+    expect(mockEm.findAndCount.mock.calls[1][1]).toMatchObject({ id: { $in: [] } })
+
+    await GET(request())
+    expect(mockEm.findAndCount.mock.calls[2][1]).not.toHaveProperty('id')
   })
 })

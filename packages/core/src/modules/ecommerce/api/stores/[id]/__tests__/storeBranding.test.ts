@@ -273,9 +273,10 @@ describe('ecommerce store branding routes', () => {
       expect(store.settings).toEqual(initialSettings())
     })
 
-    it('rejects a malformed JSON body', async () => {
+    it('rejects a malformed JSON body with a translated message', async () => {
       const response = await PUT(putRequest('{not json'), params())
       expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ error: 'The request body is not valid JSON.' })
       expect(flushCount).toBe(0)
     })
 

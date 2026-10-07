@@ -26,6 +26,7 @@ import {
   STORE_BRANDING_RESOURCE_KIND,
   STORE_BRANDING_UPDATE_COMMAND_ID,
 } from '../../../../lib/storeBranding'
+import { ecommerceInternalErrorBody } from '../../../../lib/crudSupport'
 
 export const metadata = {
   PUT: { requireAuth: true, requireFeatures: [BRANDING_MANAGE_FEATURE] },
@@ -64,7 +65,12 @@ export async function PUT(req: Request, ctx: RouteParams) {
     if (!storeId) return NextResponse.json({ error: translate('ecommerce.errors.storeNotFound', 'The selected store does not exist in this organization.') }, { status: 404 })
 
     const raw = await readJsonBody(req)
-    if (!raw.ok) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    if (!raw.ok) {
+      return NextResponse.json(
+        { error: translate('ecommerce.errors.invalidJsonBody', 'The request body is not valid JSON.') },
+        { status: 400 },
+      )
+    }
     const parsed = parseBrandingInput(raw.body, translate)
     if (!parsed.ok) return invalidBranding(parsed.fieldErrors)
     let branding: EcommerceStoreBranding = parsed.branding
@@ -88,7 +94,10 @@ export async function PUT(req: Request, ctx: RouteParams) {
       { userFeatures: await resolveGrantedFeatures(context) },
     )
     if (!guardResult.ok) {
-      return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, {
+      const blocked = guardResult.errorBody ?? {
+        error: translate('ecommerce.errors.operationBlocked', 'This change was blocked. Review the store and try again.'),
+      }
+      return NextResponse.json(blocked, {
         status: guardResult.errorStatus ?? 422,
       })
     }
@@ -147,7 +156,7 @@ export async function PUT(req: Request, ctx: RouteParams) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('ecommerce.stores.branding.PUT failed', { err })
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json(await ecommerceInternalErrorBody(), { status: 500 })
   }
 }
 

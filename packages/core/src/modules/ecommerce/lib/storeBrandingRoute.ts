@@ -9,7 +9,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { EcommerceStore } from '../data/entities'
-import { fieldError } from './crudSupport'
+import { fieldError, translateEcommerceError } from './crudSupport'
 
 export const BRANDING_MANAGE_FEATURE = 'ecommerce.branding.manage'
 
@@ -26,7 +26,9 @@ export type BrandingRouteContext = {
 export async function resolveBrandingRouteContext(request: Request): Promise<BrandingRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(request)
-  if (!auth || !auth.tenantId) throw new CrudHttpError(401, { error: 'Unauthorized' })
+  if (!auth || !auth.tenantId) {
+    throw new CrudHttpError(401, { error: await translateEcommerceError('ecommerce.errors.unauthorized', 'Sign in to continue.') })
+  }
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
   const tenantId = scope?.tenantId ?? auth.tenantId
   const organizationId = scope?.selectedId ?? auth.orgId ?? null

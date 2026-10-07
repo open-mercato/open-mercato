@@ -14,6 +14,7 @@ import {
   parseAssortmentCountDraft,
 } from '../../../../lib/assortmentCount'
 import { resolveBrandingRouteContext, storeIdParamSchema } from '../../../../lib/storeBrandingRoute'
+import { ecommerceInternalErrorBody } from '../../../../lib/crudSupport'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ecommerce.stores.view'] },
@@ -69,7 +70,7 @@ export async function GET(req: Request, ctx: RouteParams) {
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     logger.error('ecommerce.store-channel-bindings.assortment-count.GET failed', { err })
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json(await ecommerceInternalErrorBody(), { status: 500 })
   }
 }
 

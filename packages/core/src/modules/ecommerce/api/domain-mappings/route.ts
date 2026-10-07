@@ -5,6 +5,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { loadOrganizationDomainMappings } from '../../lib/domainMappingSummaries'
 import { resolveBrandingRouteContext } from '../../lib/storeBrandingRoute'
+import { ecommerceInternalErrorBody, translateEcommerceError } from '../../lib/crudSupport'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ecommerce.stores.view'] },
@@ -19,13 +20,19 @@ export async function GET(req: Request) {
       organizationId: context.organizationId,
       tenantId: context.tenantId,
     })
-    if (!mappings) return NextResponse.json({ error: 'Domain mappings are unavailable' }, { status: 503 })
+    if (!mappings) {
+      const error = await translateEcommerceError(
+        'ecommerce.errors.domainMappingsUnavailable',
+        'Domains are unavailable right now. Try again later.',
+      )
+      return NextResponse.json({ error }, { status: 503 })
+    }
     const items = [...mappings].sort((left, right) => left.hostname.localeCompare(right.hostname))
     return NextResponse.json({ items, total: items.length }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     logger.error('ecommerce.domain-mappings.GET failed', { err })
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json(await ecommerceInternalErrorBody(), { status: 500 })
   }
 }
 

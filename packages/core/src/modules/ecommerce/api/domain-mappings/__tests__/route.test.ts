@@ -101,15 +101,24 @@ describe('GET /api/ecommerce/domain-mappings', () => {
     })
   })
 
-  it('rejects an unauthenticated request', async () => {
+  it('rejects an unauthenticated request with a translated message', async () => {
     authValue = null
     const response = await GET(request())
     expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: 'Sign in to continue.' })
   })
 
-  it('answers 503 when the domain mapping service is not registered', async () => {
+  it('answers 503 with a translated message when the domain mapping service is not registered', async () => {
     domainService = null
     const response = await GET(request())
     expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: 'Domains are unavailable right now. Try again later.' })
+  })
+
+  it('answers 500 with a translated message when the lookup fails', async () => {
+    findByOrganization.mockRejectedValueOnce(new Error('[internal] database unavailable'))
+    const response = await GET(request())
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'Something went wrong. Try again.' })
   })
 })

@@ -11,6 +11,7 @@ import {
   renderBrandingStyleBlock,
 } from '../../../../lib/brandingStyles'
 import { parseBrandingInput } from '../../../../lib/storeBranding'
+import { ecommerceInternalErrorBody } from '../../../../lib/crudSupport'
 import {
   BRANDING_MANAGE_FEATURE,
   requireScopedStore,
@@ -63,7 +64,7 @@ export async function GET(req: Request, ctx: RouteParams) {
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     logger.error('ecommerce.stores.preview-branding.GET failed', { err })
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json(await ecommerceInternalErrorBody(), { status: 500 })
   }
 }
 
