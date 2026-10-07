@@ -48,6 +48,132 @@ serverExternalPackages: [
 Rebuild with `yarn build`, then restart the server. pdfjs caches a failed worker setup for the
 lifetime of the process.
 
+### Redoing an `auth.users.create` no longer restores the account's password
+
+Creating a user writes an audit entry, and that entry used to carry the credential twice: the
+plaintext `password` from the command input (persisted verbatim in `action_logs.command_payload`
+as the redo input) and the derived `password_hash` (persisted in the undo snapshot). Both are now
+withheld — the redo input is stored without `password`, and the undo snapshot without
+`passwordHash`.
+
+The operation itself stays fully undoable and redoable, and redo still restores the original row
+with its original id (#2506). What changes is that an account restored by **redo** comes back
+**without a credential** and must go through a password reset before it can sign in again. Undo is
+unaffected: it only deletes the row and never needed a secret.
+
+**Action for operators:** after redoing a user-create, send the account a password reset. The
+account is otherwise intact (same id, email, name, roles, organization, custom fields).
+
+**Action for module authors:** none, unless your own command takes a secret in its input. In that
+case set the new `redoInput` on the metadata your `buildLog` returns — a projection of the input
+with the secret removed — instead of marking the whole entry `replayable: false`:
+
+```ts
+buildLog: async ({ input, result }) => {
+  const { password: _secret, ...redoInput } = input
+  return { redoInput, /* …the rest of the metadata… */ }
+}
+```
+
+`replayable: false` suppresses the undo token as well, which removes the operator's ability to
+revert a write that may carry no secret of its own. Reach for `redoInput` first; keep
+`replayable: false` for the case where replaying genuinely cannot be made safe (an `auth.users.update`
+that changes a password still uses it, because restoring the previous credential would require
+storing it).
+
+### Module API routes answer a thrown `CrudHttpError` with its own status instead of `500`
+
+The `/api/[...slug]` dispatcher now maps a `CrudHttpError` that escapes a route handler onto that
+error's own status and body. Previously only handlers that caught it themselves produced the right
+answer; an uncaught one reached Next.js as an unhandled throw, and the caller saw
+`500 Internal Server Error` — so a deliberate 403/404/409 was indistinguishable from a crash.
+
+**Action for module authors:** none to make it work — a handler may now `throw forbidden()` /
+`notFound()` / `conflict()` without wiring its own `isCrudHttpError` catch. Review any code that
+treated a 500 from your route as the expected outcome of a guard; it now receives the real status.
+Routes that already catch `CrudHttpError` are unchanged.
+
+### `resolveAttachmentOrganizationId` is deprecated in favour of `resolveAttachmentRequestScope`
+
+`@open-mercato/core/modules/attachments/lib/requestScope` now exports
+`resolveAttachmentRequestScope(container, auth, request)`, which returns
+`{ denied, organizationId }` rather than a bare organization id. A principal whose organization
+visibility resolves to the empty set is reported as `denied`, so each route answers with the status
+its own contract documents (the file and image routes answer `404`, keeping a foreign-tenant id
+indistinguishable from a missing one).
+
+`resolveAttachmentOrganizationId` remains exported and now **throws** `forbidden()` for a denied
+scope instead of returning `null` — returning `null` there would drop the organization predicate
+entirely and read across the tenant. Migrate to `resolveAttachmentRequestScope` so the deny becomes
+a response your route chooses.
+
+### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
+
+`directory.organizations.update` (and so `PUT /api/directory/organizations` and
+`PUT /api/directory/organization-branding`) used to read an omitted `parentId` as "no parent" and an
+omitted `childIds` as "no children". Any partial update — including saving a sidebar logo — moved the
+organization to the top level and detached all of its children. Both fields are now left untouched
+when they are absent from the input, like every other field of the command.
+
+- To detach an organization from its parent send `parentId: null`; to remove its children send
+  `childIds: []`. Both worked before and still do.
+- A caller that relied on omission to clear the hierarchy must send those explicit values.
+- A request that sends `childIds` without `parentId` and lists the organization's current parent is
+  rejected with `400 Child cannot equal parent`.
+
+This does not repair trees that were already flattened. An affected `directory.organization` update
+in the audit log either lists `parentId` among its changes although only branding or name fields were
+edited, or — for a top-level organization that only lost its children — differs between the `before`
+and `after` `childParents` of its undo snapshot (the detached children get no log entry of their own).
+Re-assign the parent or the children on the organization edit page.
+
+### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
+
+Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
+is implemented in the database: a migration installs the `unaccent` and `pg_trgm` extensions, creates
+an `IMMUTABLE` `om_immutable_unaccent(text)` wrapper in `public`, and builds a GIN trigram index on
+`catalog_products`.
+
+**Action for operators: make sure the migrating role can enable both extensions.** Enabling an
+extension requires `CREATE` on the database, and some managed PostgreSQL providers additionally
+require the extension to be allowlisted. The migration skips the create when an extension is already
+installed, and otherwise fails with a message naming the extension and the statement to run, rather
+than a bare `permission denied to create extension`. To pre-empt it:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "unaccent" SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS "pg_trgm" SCHEMA public;
+```
+
+The index is built with `CREATE INDEX CONCURRENTLY`, so product writes are not blocked during the
+upgrade, but the build is not instantaneous on a large catalog. Deploy the migration **before** the
+new application code: until `om_immutable_unaccent` exists, every product search fails with
+`function om_immutable_unaccent(text) does not exist`.
+
+**Action for module authors: none**, unless you query `catalog_products` with your own
+accent-insensitive predicate — in that case build it from
+`@open-mercato/shared/lib/db/accentInsensitiveSearch` so your expression matches the index verbatim.
+A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
+index for it.
+
+### OpenAI-compatible presets call Chat Completions by default (#4638)
+
+`createOpenAICompatibleProvider(preset)`
+(`@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-adapters/openai`) used to build every
+model with `openai(modelId)`, which `@ai-sdk/openai` v4 routes to the Responses API
+(`POST {baseURL}/responses`). OpenAI-compatible backends (DeepInfra, Groq, Together, Fireworks,
+OpenRouter, LiteLLM, Ollama, LM Studio, …) only implement Chat Completions, so every call answered
+`404 Not Found`.
+
+`OpenAICompatiblePreset` gained an optional `apiMode?: 'chat' | 'responses'` (type
+`OpenAICompatibleApiMode`). A preset that omits it now calls `POST {baseURL}/chat/completions`.
+The built-in `openai` preset sets `apiMode: 'responses'`, so native OpenAI keeps the Responses API
+and its provider-executed tools such as `web_search`.
+
+**Action for app authors:** a custom preset registered with `createOpenAICompatibleProvider` now
+uses Chat Completions. If its backend implements the Responses API and you rely on it, add
+`apiMode: 'responses'` to the preset.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
@@ -88,6 +214,25 @@ precedence change landed. If you maintain a fork with its own `apps/<host>/src/i
 it the same way before upgrading: a key that duplicates a module key with a different value now
 silently wins, for better or for worse.
 
+### `CrudForm` now submits injected fields that reuse a host field id (PR #6709)
+
+A `crud-form:<entityId>:fields` injected field whose `id` matches a field the host form already
+declares replaces the host's input for that field (the injected entry wins the id lookup). Until
+now `CrudForm` still stripped every injected field id from the host payload before schema
+validation and `onSubmit`, so such an override silently dropped the edited value — the host
+received the stale initial value (or nothing). `CrudForm` now strips only **injected-only** ids
+(no host-declared counterpart); an injected field that reuses a host id is treated as the host
+field: its value reaches schema validation and the host `onSubmit` payload, and a dot-path id
+(e.g. `metadata.channel`) is collapsed into its nested shape like any declared dot-path field.
+Injected-only fields are unchanged: still stripped from the host payload and still delivered to
+widgets through `onBeforeSave`/`onSave`.
+
+**Action for module authors:** none if your injected field ids are unique (the common case). If
+a widget deliberately reuses a host field id, the host's `onSubmit` now receives that field's
+value — make sure the value matches what the host schema expects. If a widget reused a host id
+only by accident and persists the value itself in `onSave`, rename the injected field id so the
+host does not also submit it.
+
 ### `ChannelAdapter.fetchHistory` receives `scope.organizationId: null` for a channel with no organization (#6331)
 
 The `communication_channels` poll worker used to hand `adapter.fetchHistory` a scope in which a
@@ -98,16 +243,34 @@ looked in a bucket that does not exist.
 
 `FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
 (`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
-own organization — `null` when it has none. The Gmail push path (`gmail-history-sync` →
-`applyPushNotification`, which forwards its scope into `fetchHistory`) still substitutes the tenant
-id and is tracked in #6634, so adapters should keep handling both shapes for now. `TenantScope` and every other adapter input are unchanged,
-and the hub still resolves channel credentials under the key they are written with (the tenant id
-for an organization-less channel).
+own organization — `null` when it has none. The Gmail push path and the reaction adapter inputs
+follow in the same release — see the next entry (#6634). `TenantScope` and the remaining adapter
+inputs are unchanged, and the hub still resolves channel credentials under the key they are written
+with (the tenant id for an organization-less channel).
 
 **Action for adapter authors:** if your `fetchHistory` reads `input.scope.organizationId`, handle
 `null` (a tenant-wide channel). TypeScript now flags code that passes it where a `string` is
 required. If you previously worked around the substitution by resolving the channel's real
 organization yourself, that workaround keeps working and can be dropped.
+
+### `applyPushNotification`, `sendReaction` and `removeReaction` receive `scope.organizationId: null` for a channel with no organization (#6634)
+
+Follow-up to #6331. The `communication_channels` Gmail push worker (`gmail-history-sync` →
+`adapter.applyPushNotification`) and the outbound reaction worker (`reaction-processor` →
+`adapter.sendReaction` / `adapter.removeReaction`) also replaced a channel's missing organization
+with the tenant id in the scope they hand the adapter. For Gmail this reached `fetchHistory` too,
+because `applyPushNotification` forwards its scope there.
+
+`ApplyPushNotificationInput.scope`, `SendReactionInput.scope` and `RemoveReactionInput.scope` are
+now typed as `ChannelScope` (`{ tenantId: string; organizationId: string | null }`), and both
+workers pass the channel's own organization — `null` when it has none. Channel credentials are
+still resolved under the key they are written with (the tenant id for an organization-less
+channel), so existing credential rows keep working.
+
+**Action for adapter authors:** if your `applyPushNotification`, `sendReaction` or
+`removeReaction` reads `input.scope.organizationId`, handle `null` (a tenant-wide channel).
+TypeScript now flags code that passes it where a `string` is required. The in-repo Gmail and
+Discord adapters needed no change.
 
 ### `customers` now requires `progress` to be enabled (#6302)
 
@@ -288,6 +451,89 @@ that runs a diagnostic OpenTelemetry Collector. Before this change the `app` con
 these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enabled backend,
 telemetry now starts inside the container. Check that value before upgrading. See
 [`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
+
+### The SSE event stream rejects API keys and closes connections after a bounded lifetime
+
+`GET /api/events/stream` (the DOM Event Bridge) now accepts staff cookie and Bearer authentication
+only. A request carrying `x-api-key`, `Authorization: ApiKey …`, or one that resolves to an API-key
+principal is answered `401` before the stream opens.
+
+Every open stream also re-resolves the caller's auth and organization scope from the original
+request credentials on an interval, and closes fail-closed when the scope is rejected, validation
+fails, or the user, tenant, selected organization, or roles change. Independently of that, each
+stream is closed after a maximum age so the browser reconnects through fresh authorization. The
+age is jittered by ±15% per connection so clients do not reconnect in synchronized waves.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | How often an open stream re-checks auth and organization scope |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` (5 min) | Base maximum lifetime of one stream before the server closes it (±15% jitter) |
+
+Both take positive integer milliseconds. Values below `1000`, non-numeric values, and `Infinity`
+fall back to the default; values above Node's timer maximum (`2147483647`) are capped there.
+
+**Action for integrators:** a server-side consumer that subscribed to the stream with an API key
+must switch to webhooks (or another server-to-server channel). Any non-browser client must expect
+the server to close the stream periodically and reconnect; the shipped browser bridge already does.
+
+**Action for operators:** expect one reconnect per open browser tab roughly every 4¼–5¾ minutes
+with the default max age, and one canonical auth lookup per stream every revalidation interval.
+Tune both variables if connection-level monitoring or database load requires it.
+
+### An explicitly empty organization scope now denies access everywhere
+
+When a principal's organization scope resolves to an explicitly empty set (`filterIds: []` or
+`allowedIds: []` — e.g. a user whose organization visibility list was cleared, or whose only
+organizations were deleted), every module now treats it as deny-all instead of widening it back to
+the home organization. CRUD list routes return an empty page, and routes that need a single
+organization (`resolveSingleOrganizationIdOrDeny`) answer `403`.
+
+**Action for operators:** a user who suddenly sees empty lists or `403` responses after the upgrade
+has no organization visibility; grant the intended organizations in the user's access settings.
+
+**Action for module authors:** resolve an organization through `resolveSingleOrganizationIdOrDeny`
+(or `isExplicitlyEmptyOrganizationScope` when the route must answer its own not-found), and let a
+thrown `CrudHttpError` propagate — or map it with `isCrudHttpError` — instead of turning it into a
+`500` in a generic `catch`.
+
+### Progress APIs follow the selected organization
+
+`/api/progress/*` now resolves scope through the same organization switcher as other modules. With
+a specific organization selected, the progress bar and job lists show only that organization's
+jobs; with **All organizations** selected, an unrestricted user sees every job in the tenant, and a
+new job is stored against the caller's home organization. A user with finite access and no single
+organization selected cannot create a tenant-wide job (`403`).
+
+**Action:** none. Users who expected to see jobs from other organizations in the top bar should
+switch to **All organizations**.
+
+### API interceptors match the dispatcher's canonical route identity
+
+Interceptor `targetRoute` matching now uses the route the `/api/[...slug]` dispatcher actually
+matched (authored static segments plus matched params) instead of re-parsing the caller-controlled
+URL, so case or percent-encoding aliases (`/api/EXAMPLE/todos`, `/api/%65xample/todos`) can no
+longer bypass an interceptor.
+
+- A path with a malformed percent escape fails route matching and is answered `404` before the
+  handler runs.
+- A request that carries a forged, unknown, or evicted `x-open-mercato-route-identity` header is
+  answered `400` by interceptor-aware routes instead of falling back to URL-based matching.
+
+**Action for integrators:** fix clients that send malformed percent-encoded paths, and never set
+`x-open-mercato-route-identity` yourself — it is internal. Proxies that strip or rewrite unknown
+headers are unaffected because the dispatcher sets it per request.
+
+### Run the encryption-map uniqueness migration before serving writes
+
+`Migration20261004120000_encryption_map_scope_uniqueness` (module `entities`) soft-deletes
+duplicate live encryption maps per `(entity_id, tenant_id, organization_id)` and creates the unique
+index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now uses
+`INSERT … ON CONFLICT` on that index, which PostgreSQL rejects when the index does not exist.
+
+**Action for operators:** run `yarn db:migrate` (or your deployment's migration step) **before** the
+new application version serves traffic. Until it has run, saving an encryption map in the admin UI
+or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
+migrating must migrate first.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 

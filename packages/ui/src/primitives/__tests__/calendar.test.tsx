@@ -31,4 +31,48 @@ describe('Calendar source sizes and month selector', () => {
     fireEvent.click(previous)
     expect(onPreviousMonth).not.toHaveBeenCalled()
   })
+
+  it('translates the caption and month grid accessible names from the app locale', () => {
+    const dict = {
+      'ui.calendar.goToPreviousMonth': 'Poprzedni: {month}',
+      'ui.calendar.goToNextMonth': 'Następny: {month}',
+      'ui.calendar.openMonthYearNavigation': '{month} – otwórz nawigację',
+      'ui.calendar.selectMonthAndYear': 'Wybierz miesiąc i rok',
+      'ui.calendar.goToPreviousYear': 'Poprzedni rok: {year}',
+      'ui.calendar.goToNextYear': 'Następny rok: {year}',
+      'ui.calendar.backToDaySelection': '{year} – powrót do dni',
+    }
+    render(<I18nProvider locale="pl" dict={dict}><Calendar mode="single" defaultMonth={new Date(2026, 5, 1)} /></I18nProvider>)
+    expect(screen.getByRole('button', { name: 'Poprzedni: May 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Następny: July 2026' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'June 2026 – otwórz nawigację' }))
+    expect(screen.getByRole('dialog', { name: 'Wybierz miesiąc i rok' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Poprzedni rok: 2025' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Następny rok: 2027' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2026 – powrót do dni' })).toBeInTheDocument()
+  })
+
+  it('keeps the English accessible names without an I18nProvider', () => {
+    render(<Calendar mode="single" defaultMonth={new Date(2026, 5, 1)} />)
+    expect(screen.getByRole('button', { name: 'Go to previous month: May 2026' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'June 2026 – open month and year navigation' }))
+    expect(screen.getByRole('dialog', { name: 'Select month and year' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Go to previous year: 2025' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Go to next year: 2027' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2026 – back to day selection' })).toBeInTheDocument()
+  })
+
+  it('honors caller-supplied labels for the visible month arrows', () => {
+    const labelPrevious = jest.fn((month?: Date) => `Back to ${month?.getMonth()}`)
+    const labelNext = jest.fn((month?: Date) => `Forward to ${month?.getMonth()}`)
+    render(<I18nProvider locale="en" dict={{}}><Calendar mode="single" defaultMonth={new Date(2026, 5, 1)} labels={{ labelPrevious, labelNext }} /></I18nProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Forward to 6' }))
+    expect(screen.getByRole('button', { name: 'Back to 5' })).toBeInTheDocument()
+  })
+
+  it('does not render the hidden built-in navigation with its untranslated names', () => {
+    render(<I18nProvider locale="pl" dict={{}}><Calendar mode="single" defaultMonth={new Date(2026, 5, 1)} /></I18nProvider>)
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Go to the (Previous|Next) Month/ })).not.toBeInTheDocument()
+  })
 })

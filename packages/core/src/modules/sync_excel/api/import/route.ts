@@ -134,6 +134,7 @@ export async function POST(request: Request) {
     // Persist the mapping, credentials, and integration-state config atomically.
     // credentialsService / integrationStateService are request-scoped and share
     // this request `em`, so a single transaction covers all of their writes.
+    const afterCommitCallbacks: Array<() => void | Promise<void>> = []
     await em.transactional(async () => {
       if (existingMapping) {
         existingMapping.mapping = parsedPayload.data.mapping
@@ -147,9 +148,12 @@ export async function POST(request: Request) {
         }))
       }
 
-      await credentialsService.save('sync_excel', {}, scope)
+      await credentialsService.save('sync_excel', {}, scope, {
+        deferAfterCommit: (callback) => afterCommitCallbacks.push(callback),
+      })
       await integrationStateService.upsert('sync_excel', { isEnabled: true }, scope)
     })
+    for (const callback of afterCommitCallbacks) await callback()
 
     const { run, progressJob } = await startDataSyncRun({
       syncRunService,
