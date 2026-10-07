@@ -6,6 +6,7 @@ const createBatchMock = jest.fn(async () => [])
 const resolveNotificationServiceMock = jest.fn(() => ({ createBatch: createBatchMock }))
 const buildBatchNotificationFromTypeMock = jest.fn(() => ({ type: 'messages.new' }))
 const findOneWithDecryptionMock = jest.fn()
+const resolveMessageChannelThreadAccessMock = jest.fn()
 
 jest.mock('@open-mercato/queue', () => ({
   createQueue: (...args: unknown[]) => createQueueMock(...args),
@@ -23,12 +24,23 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
 }))
 
+jest.mock('../../lib/channelThreadAccess', () => ({
+  resolveMessageChannelThreadAccess: (...args: unknown[]) => resolveMessageChannelThreadAccessMock(...args),
+}))
+
 describe('messages sent subscriber', () => {
   const queueStrategy = process.env.QUEUE_STRATEGY
   const ctx = { resolve: jest.fn(() => ({ fork: () => ({}) })) }
 
   beforeEach(() => {
     jest.clearAllMocks()
+    resolveMessageChannelThreadAccessMock.mockReset().mockResolvedValue({
+      messageThreadId: 'thread-1',
+      externalConversationId: 'conversation-1',
+      channelId: 'channel-1',
+      channelType: 'email',
+      canAccess: false,
+    })
     delete process.env.QUEUE_STRATEGY
     findOneWithDecryptionMock
       .mockResolvedValueOnce({ subject: 'Subject line' })
@@ -121,6 +133,33 @@ describe('messages sent subscriber', () => {
     )
   })
 
+  it('queues the external job for an external_conversation when the channel is gone', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      sourceEntityType: 'communication_channels.external_conversation',
+      threadId: 'thread-1',
+      visibility: 'public',
+    })
+    resolveMessageChannelThreadAccessMock.mockResolvedValue(null)
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      externalEmail: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(enqueueMock).toHaveBeenCalledWith({
+      type: 'external',
+      messageId: 'message-1',
+      email: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+  })
+
   it('skips the external job for an external_conversation sourced message', async () => {
     findOneWithDecryptionMock.mockResolvedValueOnce({ sourceEntityType: 'communication_channels.external_conversation' })
 
@@ -141,6 +180,49 @@ describe('messages sent subscriber', () => {
     expect(enqueueMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'external' }),
     )
+  })
+
+  it.each([
+    ['live channel mapping', 'communication_channels.external_conversation', false],
+    ['send_as_user', 'communication_channels.send_as_user', false],
+    ['facade lookup failure', 'communication_channels.external_conversation', true],
+  ])('handles external delivery for %s', async (_scenario, sourceEntityType, shouldEnqueueExternal) => {
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      sourceEntityType,
+      threadId: 'thread-1',
+      visibility: 'public',
+    })
+    if (shouldEnqueueExternal) {
+      resolveMessageChannelThreadAccessMock.mockRejectedValueOnce(new Error('[internal] lookup failed'))
+    }
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      externalEmail: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    if (shouldEnqueueExternal) {
+      expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external' }))
+    } else {
+      expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'external' }))
+    }
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }))
+    if (sourceEntityType === 'communication_channels.send_as_user') {
+      expect(resolveMessageChannelThreadAccessMock).not.toHaveBeenCalled()
+    } else {
+      expect(resolveMessageChannelThreadAccessMock).toHaveBeenCalledTimes(1)
+      expect(resolveMessageChannelThreadAccessMock).toHaveBeenCalledWith(
+        ctx,
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+        { messageThreadId: 'thread-1' },
+        { userId: null, features: [] },
+      )
+    }
   })
 
   it('names the external correspondent, not the system user, for a channel-ingested message (#6093)', async () => {
