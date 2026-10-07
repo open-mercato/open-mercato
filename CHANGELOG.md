@@ -1,4 +1,4 @@
-# 0.8.0 (2026-09-17)
+# 0.8.0 (2026-09-18)
 
 ## Highlights
 
@@ -28,6 +28,8 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 - ✨ Let adapters declare which start controls apply to the data-sync dashboard's Run once now card. (#5863) *(@maxidragon)*
 - ✨ Report recorded errors to the telemetry backend, establishing that any catch which records an error (dead-letters, failed status, fallback) must also call `reportError`. (#5960) *(@jtomaszewski)*
 - ✨ Add a module runtime start hook (`runtime.ts`) so a module can start and gracefully stop a process-wide worker loop, broker subscription or poller with zero host wiring, starting from `mercato queue worker --all` (SPEC-072). (#6057) *(@jtomaszewski, @maxidragon)*
+- ✨ Developer-ready component library, DS primitives and SSE heartbeat fix. (#6199) *(@zielivia)*
+- ✨ Enable the Agent Orchestrator + OpenCode agents in standalone apps. (#6208) *(@pat-lewczuk)*
 
 ## 🔒 Security
 - 🔒 Raise Yarn's npm minimal-age gate from 1 day to 5 days to close the supply-chain window for compromised-maintainer package publishes. (#5138) *(@zawoj)*
@@ -180,6 +182,17 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 - 🌍 Add missing localized entity-type labels for wms, eudr and documents search results, replacing the humanized id fallback chip (#6006). (#6102) *(@adeptofvoltron, @wojciechszyjka)*
 - 🐛 Give the message compose 'Also send via email' / 'Reply all' / 'Include attachments' switches an accessible name by routing them through the shared SwitchField primitive (#6111). (#6121) *(@adeptofvoltron)*
 - 🌍 Route the remaining hand-rolled numeric inputs (link-template pricing, payment amount, inventory adjustment delta, UoM conversion) through the shared locale decimal parser, so a comma-decimal locale can type its own separator (#5828). (#6125) *(@adeptofvoltron)*
+- 🐳 Copy `apps/mercato/scripts` into the production runner image so `mercato init`/`db:migrate` stop crash-looping the demo container. (#6141) *(@dominikpalatynski)*
+- 🐛 Tolerate a malformed legacy `todo_source` value instead of crashing the customers dashboard todo widget (fixes #6140). (#6164) *(@patzick)*
+- 🐛 Stop leaking a raw UnauthorizedError banner on passive `/login`/`/start` visits by recognizing `/start` as a login-like route (fixes #6159). (#6165) *(@patzick)*
+- 🐛 Show a localized not-found page instead of the raw server error for a malformed person/company id. (#6166) *(@patzick)*
+- 🐛 Refresh the optimistic-lock token after saving a product so a second consecutive save no longer falsely 409s (fixes #5985). (#6167) *(@patzick)*
+- 🐛 Keep the just-saved field visible after a product save instead of snapping it back to its stale pre-edit value (fixes #6170). (#6177) *(@patzick)*
+- 🐛 Land the product edit page at the top on reload instead of restoring a stale mid-page scroll offset (fixes #6171). (#6178) *(@patzick)*
+- 🐛 Extend the malformed-id not-found fix to the v2 people/companies detail pages, deduping the check via a shared helper (extends #6166). (#6180) *(@patzick)*
+- 🐛 Flip a quarantined Discord channel's `isActive` off after a fatal gateway close, so the admin list stops showing it as Active (fixes #4979). (#6189) *(@patzick)*
+- 🐳 Move the fullapp Docker stack onto a fresh bridge network, fixing demo-container TCP connection timeouts to Redis/Postgres/Meilisearch. (#6191) *(@pat-lewczuk)*
+- 🐛 Make main's three red CI jobs green (push delivery deadlock, TC-ONB-002 budget, two broken unit suites) (fixes #6223). (#6220) *(@patzick)*
 
 ## 🛠️ Improvements
 - 🛠️ Retire the duplicated string-template emitters in the CLI's module-registry generator in favor of the existing AST emitter (#4672). (#5034) *(@wojciechszyjka)*
@@ -198,6 +211,7 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 ## 🧪 Testing
 - 🧪 Stop TC-EXAMPLE-017 stranding the post-save redirect fetch. (#5597) *(@pkarw)*
 - 🧪 Add an indexing barrier to TC-API-MSG-001 to fix its intermittent failure between composing a message and searching the inbox for it (#5905). (#5914) *(@adeptofvoltron)*
+- 🧪 Raise the warranty_claims multi-drain integration test timeout, fixing a consistently failing CI shard unrelated to any milestone-v0.8.0 PR. (#6179) *(@patzick)*
 
 ## 📝 Specs & Documentation
 - 📝 Spec the sales line `discount_amount` contract, precedence rules, and idempotency requirement (#5019). (#5200) *(@maxidragon)*
@@ -244,7 +258,24 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 - @KubaBir
 - @matgren
 - @truongx
+- @zielivia
 ---
+
+## 🐛 Fixes
+- 🐛 Let the standalone MCP server load API routes that import `next/server`. `mcp:serve-http` / `mcp:serve` / `mcp:dev` / `mcp:list-tools` run in plain Node, whose ESM resolver cannot resolve the bare subpath `next/server` (`next` ships no `exports` map), so every tool backed by such a route (287 route modules on 0.7.0, e.g. `customers.get_deal`, `customers.get_person`) failed with `Failed to load route module: Cannot find module '…/next/server'`. The `mercato ai_assistant` commands now install a `node:module` resolve hook that retries `next/<subpath>.js` after a failed bare `next/<subpath>`; it touches nothing else and steps aside once `next` resolves on its own. (#6118) *(@KamilMichalski0)*
+- 🐛 Convert CLI migration reindex imports to `file:` URLs on every platform so cwd-relative `node_modules/.../Migration.js` paths are no longer treated as bare package names and `queryIndexReindexEntityTypes` declarations are read after `db migrate`. (#6233) *(@Sawarz)*
+
+## 🐛 Fixes
+- 🐛 Stop dropping inbound channel messages once their conversation is assigned. Ingest addresses an inbound message to the conversation's assignee, but the compose validator rejected any recipient on a public message, the worker classified the error as permanent, and every message after the first assignment (which a single reply from the panel triggers via `send-as-user`) was silently skipped. `messages.messages.compose` now takes a server-only `inboundFromChannel` flag that waives the recipients rule for channel-ingested messages; `POST /api/messages` strips a client-sent value, so user-composed public messages are validated exactly as before. Compose no longer forces email delivery for such a message (ingest passes `sendViaEmail: false`), and the `messages.new` notification the assignee now receives names the external correspondent rather than the channel's system user. (#6093) *(@KamilMichalski0)*
+
+## 🐛 Fixes
+- 🐛 Date ingested channel messages and their CRM interactions with the provider's timestamp instead of the ingest time. `messages.messages.compose` accepts a server-only `sentAt`, channel ingest passes the adapter's `timestamp` through it, the hub carries that timestamp on its `message.received` / `.sent` events, and the customers `link-channel-message` subscriber dates `CustomerInteraction.occurredAt` from it (falling back to the link's creation time). `POST /api/messages` strips a client-sent `sentAt`, so a browser caller cannot backdate a message. The MIME normalizer now prefers the provider's receipt time (`receivedAt`: Gmail `internalDate`, IMAP `INTERNALDATE`) over the sender-written `Date` header, and ignores a header that is unparsable or more than a day in the future, so a forged header cannot misplace a message. Before this a history import showed a 90-day mailbox as one block on the import day, in import order, and a person's activity timeline put every email on one date. (#6095) *(@KamilMichalski0)*
+
+## 🐛 Fixes
+- 🐛 Make `customers.manage_deal_comment` and `customers.manage_deal_activity` able to write to a deal. The comment tool populated `personEntity` / `companyEntity` on the deal link tables, relations the entities define as `person` / `company`, and filtered them by `tenantId`, a column the link tables do not have, so MikroORM rejected the lookup for every deal; the activity tool read a `deal.entity` field `CustomerDeal` does not have and always reported "no associated person/company". Both now resolve the timeline owner through the same link-table helper, queried by the already scope-checked deal id: primary linked person first, then the oldest person, then the oldest linked company, otherwise an instruction to link a contact. (#6119) *(@KamilMichalski0)*
+
+## 🐛 Fixes
+- 🐛 Stop dropping inbound channel messages once their conversation is assigned. Ingest addresses an inbound message to the conversation's assignee, but the compose validator rejected any recipient on a public message, the worker classified the error as permanent, and every message after the first assignment (which a single reply from the panel triggers via `send-as-user`) was silently skipped. `messages.messages.compose` now takes a server-only `inboundFromChannel` flag that waives the recipients rule for channel-ingested messages; `POST /api/messages` strips a client-sent value, so user-composed public messages are validated exactly as before. Compose no longer forces email delivery for such a message (ingest passes `sendViaEmail: false`), and the `messages.new` notification the assignee now receives names the external correspondent rather than the channel's system user. (#6093) *(@KamilMichalski0)*
 
 # 0.7.0 (2026-08-26)
 

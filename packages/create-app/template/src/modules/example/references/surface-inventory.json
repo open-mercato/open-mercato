@@ -2506,7 +2506,7 @@
   ],
   "designSystemInventoryPath": ".ai/harness/design-system-inventory.json",
   "designSystemGallery": {
-    "itemCount": 113,
+    "itemCount": 148,
     "familyIds": [
       "foundations",
       "icons",
@@ -2524,7 +2524,8 @@
       "banners",
       "notifications",
       "schedule",
-      "messages"
+      "messages",
+      "library"
     ],
     "referenceCount": 16,
     "rowsWithoutVisualCoverage": [
@@ -2536,11 +2537,11 @@
     "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
   },
   "designFoundation": {
-    "mappedItemCount": 18,
+    "mappedItemCount": 31,
     "nodeComparisonCounts": {
-      "match": 1,
-      "mismatch": 0,
-      "not-comparable": 112
+      "match": 15,
+      "mismatch": 8,
+      "not-comparable": 125
     },
     "designSkillAvailability": "unavailable",
     "publicationStatus": "not-evidenced",
@@ -2687,6 +2688,7 @@
       "galleryItemIds": [
         "buttons/button",
         "buttons/icon-button",
+        "inputs/marketing-controls",
         "inputs/input",
         "inputs/textarea",
         "inputs/select",
@@ -2729,6 +2731,7 @@
       "galleryItemIds": [
         "buttons/button",
         "buttons/icon-button",
+        "inputs/marketing-controls",
         "inputs/input",
         "inputs/textarea",
         "inputs/select",

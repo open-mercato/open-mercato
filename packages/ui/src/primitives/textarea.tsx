@@ -5,7 +5,7 @@ import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const baseTextareaClass =
-  'flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors placeholder:text-muted-foreground outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive resize-y min-h-[80px]'
+  'flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors placeholder:text-muted-foreground outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:text-text-disabled disabled:placeholder:text-text-disabled aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive resize-y min-h-20'
 
 const DEFAULT_AUTO_RESIZE_MAX_ROWS = 12
 const FALLBACK_LINE_HEIGHT_PX = 20
@@ -37,6 +37,7 @@ function applyAutoResize(element: HTMLTextAreaElement | null, maxRows: number): 
 }
 
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  appearance?: 'default' | 'source'
   /** Show character counter (`current/max`) below the textarea. Requires `maxLength`. */
   showCount?: boolean
   /** Optional className applied to the outer wrapper (when counter is shown). */
@@ -54,6 +55,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
   (
     {
       className,
+      appearance = 'default',
       showCount,
       wrapperClassName,
       autoResize,
@@ -111,7 +113,9 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         defaultValue={isControlled ? undefined : defaultValue}
         maxLength={maxLength}
         onChange={handleChange}
-        className={cn(baseTextareaClass, autoResize && 'resize-none overflow-hidden', className)}
+        className={cn(baseTextareaClass, appearance === 'source' && 'min-h-28 rounded-textarea pl-3 pr-2.5 py-2.5 leading-5', appearance === 'source' && showCount && 'pb-8', autoResize && 'resize-none overflow-hidden', className)}
+        data-slot="textarea"
+        data-appearance={appearance}
         {...props}
       />
     )
@@ -124,9 +128,9 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     const isDisabled = props.disabled
 
     return (
-      <div className={cn('flex flex-col gap-1', wrapperClassName)}>
+      <div className={cn('flex flex-col gap-1', appearance === 'source' && 'relative', wrapperClassName)}>
         {textarea}
-        <div className="flex justify-end">
+        <div className={cn('flex justify-end', appearance === 'source' && 'pointer-events-none absolute bottom-2.5 right-6')}>
           <span
             className={cn(
               'text-overline uppercase',
@@ -136,6 +140,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
                   ? 'text-destructive'
                   : 'text-muted-foreground'
             )}
+            data-slot="textarea-counter"
             aria-live="polite"
           >
             {max != null ? `${length}/${max}` : `${length}`}

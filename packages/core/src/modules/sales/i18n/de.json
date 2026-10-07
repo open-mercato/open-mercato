@@ -846,6 +846,8 @@
   "sales.documents.errors.number_generate_failed": "Dokumentnummer konnte nicht generiert werden.",
   "sales.documents.errors.organization_required": "Organisationskontext ist erforderlich.",
   "sales.documents.errors.unauthorized": "Nicht autorisiert",
+  "sales.documents.errors.undoStaleOrder": "Diese Änderung kann nicht mehr rückgängig gemacht werden, da der Auftrag danach geändert wurde.",
+  "sales.documents.errors.undoStaleQuote": "Diese Änderung kann nicht mehr rückgängig gemacht werden, da das Angebot danach geändert wurde.",
   "sales.documents.form.address.city": "Stadt",
   "sales.documents.form.address.company": "Firma (optional)",
   "sales.documents.form.address.country": "Land",

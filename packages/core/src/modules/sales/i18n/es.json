@@ -846,6 +846,8 @@
   "sales.documents.errors.number_generate_failed": "No se pudo generar el número de documento.",
   "sales.documents.errors.organization_required": "Se requiere contexto de organización.",
   "sales.documents.errors.unauthorized": "No autorizado",
+  "sales.documents.errors.undoStaleOrder": "Este cambio ya no se puede deshacer porque el pedido se modificó después.",
+  "sales.documents.errors.undoStaleQuote": "Este cambio ya no se puede deshacer porque la cotización se modificó después.",
   "sales.documents.form.address.city": "Ciudad",
   "sales.documents.form.address.company": "Empresa (opcional)",
   "sales.documents.form.address.country": "País",

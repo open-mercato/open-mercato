@@ -134,12 +134,15 @@ line:
   `withAtomicFlush` has committed, not inside the phase. The event bus runs taps
   and subscribers inline with no transaction deferral, so emitting inside the
   phase would publish totals that a later flush or commit failure then erased.
-- **Undo is one transaction.** `restoreOrderGraph` flushes the restored header,
-  then native-deletes the whole child graph before rebuilding it, and the
-  command bus opens no transaction around `undo`. The batch undo wraps the
-  restore in `withAtomicFlush({ transaction: true })`, so a failure between the
-  delete and the rebuild cannot leave the order committed but stripped of its
-  lines, payments and shipments.
+- **Undo goes through the shared order-graph path.** `restoreOrderGraph`
+  native-deletes the whole child graph before rebuilding it, so an undo that runs
+  outside a transaction, or against an order that moved since the command, can
+  leave the order committed but stripped of its lines, payments and shipments.
+  The batch undo calls `undoOrderGraph(ctx, before, payload?.after)` — the one
+  path every other order-graph undo takes. It locks the order, refuses with 409
+  when the current graph no longer matches the command's `after` snapshot or when
+  returns or invoice lines reference it, restores inside a single
+  `em.transactional`, and refreshes the query index.
 
 ### Line numbering
 
@@ -233,8 +236,10 @@ anonymous. See the risk table.
 ### Audit and undo
 
 One `ActionLog` entry per call, with `snapshotBefore` / `snapshotAfter` order
-graphs and an undo that restores the before graph via `restoreOrderGraph` —
-identical in shape to the per-line command. Action label key
+graphs and an undo that restores the before graph via `undoOrderGraph` —
+identical in shape to the per-line command, including its staleness refusal.
+Both halves of the payload matter: without `after`, the staleness check has
+nothing to compare against and stops refusing. Action label key
 `sales.audit.orders.lines.upsert_many`.
 
 The id is deliberately **not** added to `DOCUMENT_LINE_UPSERT_COMMANDS` in
@@ -334,29 +339,13 @@ running app, on fixtures it creates and removes itself:
 That third case is the one the unit tests cannot supply. `restoreOrderGraph`
 native-deletes the whole child graph before rebuilding it; a mock can show that
 `rollback` was *called*, but only a database can show the graph actually came
-back. It is the round-trip proof for the atomic-undo fix.
+back.
 
-#### A pre-existing gap the equivalence test pins
-
-Running the two paths side by side surfaced something neither of them
-introduced. An upsert entry that changes a line's quantity without supplying
-totals carries the stored row's `totalGrossAmount` into the recalculation
-(`mapPersistedLine` reads it off the row and marks it `totalsFromStoredRow`),
-and `calculateLineTotals` honours any present `totalGrossAmount` verbatim —
-`totalsFromStoredRow` only gates the *net* reconciliation. So the edited line's
-net follows the new quantity while its gross, and therefore the order's grand
-gross, stays at the pre-edit value.
-
-Measured over HTTP on `PUT /api/sales/order-lines`, quantity 2 → 5 at 10.00:
-`total_net_amount` 20.00 → 50.00, `total_gross_amount` 20.00 → **20.00**, order
-grand gross **20.00**. `sales.orders.lines.upsert_many` reproduces it exactly,
-which is the equivalence this change promises.
-
-It is out of scope here — it predates the batch, it lives in the per-line path
-and the calculation engine, and fixing it changes an existing command's
-observable behaviour. The integration spec pins it as a characterization
-assertion with that framing, so it fails by design once the gross branch is
-fixed and both paths are forced to move together.
+The batch's **staleness refusal** is covered alongside the other order-graph
+undos, in
+`__integration__/TC-SALES-042-order-undo-keeps-later-children`: a batch followed
+by a payment refuses with 409 and leaves both the payment and the batch's own
+edit in place, and a batch with nothing recorded after it still undoes cleanly.
 
 Two properties stay unit-level by construction, and the spec does not claim
 otherwise:
@@ -398,6 +387,24 @@ call rather than this change's.
 
 ## Changelog
 
+### 2026-10-07
+
+- Merged `develop` in and retargeted the change at it: `main` was the wrong base,
+  and `develop` had since changed the same sales code.
+- Batch undo now calls `undoOrderGraph(ctx, before, payload?.after)` instead of
+  `restoreOrderGraph` inside its own `withAtomicFlush`. The batch was the only
+  order-graph undo bypassing the stale-undo guard (#6462 / #6833), so undoing a
+  batch could still hard-delete payments, shipments and notes recorded after it,
+  and skipped the query-index refresh. Covered by two new cases in
+  `TC-SALES-042-order-undo-keeps-later-children`.
+- The shared helper now applies `resolveUpsertCalculatedAmounts` (#6459), so the
+  batch recalculates a line's gross when its pricing moves exactly as the
+  per-line path now does. The TC-SALES-2979 characterization assertion flipped
+  from the stale gross to the recalculated one, as it was written to.
+- Dropped the two batch-undo transaction-boundary unit tests: that boundary is
+  `undoOrderGraph`'s now. Replaced with one pinning that the audit payload
+  carries both graphs, without which the staleness check silently stops running.
+
 ### 2026-09-21
 
 - Added `POST /api/sales/order-lines/batch` and the integration spec
@@ -409,7 +416,8 @@ call rather than this change's.
 - Recorded a pre-existing gap the equivalence test surfaced: a quantity change
   that supplies no totals leaves the line's — and the order's — gross at its
   pre-edit value, on the per-line path as much as on the batch. Not fixed here;
-  pinned as a characterization assertion.
+  pinned as a characterization assertion. (Filed as #6459 and fixed on `develop`
+  by #6923 — see the 2026-10-07 entry.)
 
 ### 2026-09-17
 

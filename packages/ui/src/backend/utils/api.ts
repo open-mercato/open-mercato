@@ -51,8 +51,11 @@ function readPathname(): string {
   return typeof window !== 'undefined' ? window.location?.pathname ?? '' : ''
 }
 
+// `/start` is the anonymous landing/dashboard page and, like `/login`, runs a
+// background auth-probe whose 401 is expected for a logged-out visitor — not a
+// real session problem worth surfacing (see GH #6159).
 function isLoginPathname(pathname: string): boolean {
-  return pathname.startsWith('/login')
+  return pathname.startsWith('/login') || pathname.startsWith('/start')
 }
 
 function isPortalPathname(pathname: string): boolean {

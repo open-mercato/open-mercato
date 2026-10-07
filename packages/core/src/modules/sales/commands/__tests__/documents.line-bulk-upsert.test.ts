@@ -677,46 +677,30 @@ describe('sales.orders.lines.upsert_many', () => {
     expect((log?.payload as { undo: { before: unknown } }).undo.before).toBe(before)
   })
 
-  it('restores the order graph inside one transaction when undoing a batch', async () => {
+  // The batch undo delegates to `undoOrderGraph`, the one path every order-graph
+  // undo takes: it locks the order, refuses with 409 when the graph moved since
+  // the command ran, restores inside a single `em.transactional`, and refreshes
+  // the query index. Its transaction boundary and its staleness refusal belong to
+  // that helper, which is exercised end to end by
+  // `__integration__/TC-SALES-042-order-undo-keeps-later-children` — including a
+  // batch case. What stays worth pinning here is that the handler feeds it both
+  // halves of the payload: without `after`, the staleness check has nothing to
+  // compare and the refusal silently stops happening.
+  it('records an undo payload carrying both graphs, so the staleness check can run', async () => {
     const world = makeWorld(2)
-    const harness = makeHarness(world)
+    const before = { order: world.order, lines: orderedLines(world).map(projectLine) }
+    const after = { order: { tenantId: TENANT_ID, organizationId: ORG_ID }, lines: [] }
 
-    await bulkHandler().undo!({
+    const log = await bulkHandler().buildLog!({
       input: {} as never,
-      ctx: harness.ctx as never,
-      logEntry: { commandPayload: { undo: { before: undoSnapshot() } } } as never,
+      result: { orderId: ORDER_ID, lineIds: [] } as never,
+      ctx: {} as never,
+      snapshots: { before, after },
     })
 
-    expect(harness.em.begin).toHaveBeenCalledTimes(1)
-    expect(harness.em.commit).toHaveBeenCalledTimes(1)
-    expect(harness.em.rollback).not.toHaveBeenCalled()
-    expect(harness.trace.indexOf('begin')).toBeLessThan(
-      harness.trace.findIndex((entry) => entry.startsWith('nativeDelete:')),
-    )
-  })
-
-  it('rolls the undo back when the graph restore fails after deleting the old lines', async () => {
-    const world = makeWorld(2)
-    const harness = makeHarness(world)
-    harness.em.nativeDelete.mockImplementation(async (entityClass: unknown) => {
-      harness.trace.push(`nativeDelete:${readEntityName(entityClass)}`)
-      if (readEntityName(entityClass) === 'SalesOrderLine') {
-        throw new Error('[internal] line delete failed')
-      }
-      return 0
-    })
-
-    await expect(
-      bulkHandler().undo!({
-        input: {} as never,
-        ctx: harness.ctx as never,
-        logEntry: { commandPayload: { undo: { before: undoSnapshot() } } } as never,
-      }),
-    ).rejects.toThrow('line delete failed')
-
-    expect(harness.em.begin).toHaveBeenCalledTimes(1)
-    expect(harness.em.rollback).toHaveBeenCalledTimes(1)
-    expect(harness.em.commit).not.toHaveBeenCalled()
+    const payload = log?.payload as { undo: { before: unknown; after: unknown } }
+    expect(payload.undo.before).toBe(before)
+    expect(payload.undo.after).toBe(after)
   })
 
   it('fails with the not-found error when the order id is unknown', async () => {
@@ -770,25 +754,3 @@ describe('sales.orders.lines.upsert_many', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 })
-
-/** The pre-batch order graph an undo restores, trimmed to what it reads. */
-function undoSnapshot() {
-  return {
-    order: {
-      id: ORDER_ID,
-      organizationId: ORG_ID,
-      tenantId: TENANT_ID,
-      orderNumber: 'SO-1',
-      currencyCode: 'USD',
-      status: 'draft',
-      lineItemCount: 2,
-    },
-    lines: [],
-    adjustments: [],
-    addresses: [],
-    notes: [],
-    tags: [],
-    shipments: [],
-    payments: [],
-  }
-}

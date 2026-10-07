@@ -102,7 +102,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `WorkerMeta`: `queue` — MUST NOT remove
 - `TelemetryProvider` (`@open-mercato/telemetry`): `name`, `supports`, `start`, `shutdown`, `runInSpan`, `activeSpan`, `activeTraceContext`, `inject`, `runInRemoteSpan`, `emitLog`, `recordMetric` — MUST NOT remove. `reportError?()` was added 2026-09-08 as an additive OPTIONAL method (see [spec](.ai/specs/2026-09-08-error-reporting-policy.md)); it **MUST stay optional** — third parties implement this interface and a required method would break every existing provider. The facade calls it as `provider.reportError?.(…)` *in addition to* the span/log/metric path, so a provider that omits it loses nothing.
 - `ReportErrorContext` (`@open-mercato/telemetry`) and the `reportError` context of `TelemetryRuntime` (`@open-mercato/shared/lib/telemetry/runtime`): `module?` and `attributes?` — MUST NOT remove. `code?: string` was added 2026-09-08 as an additive optional field carrying the enumerated `module.reason` fingerprint the backend groups on; it MUST stay optional so existing callers (the API dispatcher, the CRUD factory) keep compiling and keep emitting exactly what they emit today. `om.errors` gains an `error.code` label only when a caller supplies one — the same attribute name the span and the log record use, so one query works against all three.
-- `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
+- `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter was **removed** (see #3828 / UPGRADE_NOTES) — OAuth client config MUST be passed via `RefreshCredentialsInput.oauthClient`.
 - `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
 - `BackendChromePayload`: `groups`, `settingsSections`, `settingsPathPrefixes`, `profileSections`, `profilePathPrefixes`, `grantedFeatures`, `roles` — MUST NOT remove. `currentOrganization?` (`BackendChromeCurrentOrganization | null`) was added 2026-07-30 as an additive optional field (see [spec](.ai/specs/2026-07-30-backend-chrome-current-organization.md)); it is `null` under an all-organizations selection, when no organization is in scope, and when the lookup fails, so consumers MUST treat `null` as "unknown" rather than "no organization". `brand?` is **unchanged** and remains the branding channel — it populates only when the organization has a `logoUrl`, and `currentOrganization` does not supersede it.
 
@@ -148,6 +148,7 @@ These functions are called directly by module code. Their signatures MUST NOT ch
 | `collectCustomFieldValues()` | `@open-mercato/ui/backend/utils/customFieldValues` | MUST NOT change |
 | `flash()` | `@open-mercato/ui` | MUST NOT change |
 | `CrudForm` component props | `@open-mercato/ui/backend/crud` | MUST NOT remove existing props |
+| Built-in `CrudFormGroup.id` values | any module's form-group builder (e.g. `createCompanyFormGroups`) | MUST NOT rename or remove an id a shipped form declares — `CrudForm`'s `hiddenGroupIds` addresses groups by id, and an unmatched id is ignored, so a rename makes a card the host hid silently reappear in production. Renames follow the deprecation protocol; pin a builder's ids with a guard test (pattern: `packages/core/src/modules/customers/components/__tests__/companyFormHiddenGroups.test.tsx`). MAY add new groups freely |
 | `DataTable` component props | `@open-mercato/ui/backend` | MUST NOT remove existing props |
 | `parseBooleanToken` / `parseBooleanWithDefault` | `@open-mercato/shared/lib/boolean` | MUST NOT change |
 
@@ -359,6 +360,29 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ---
 
+## Canonical API Interceptor Route Identity (2026-10-04)
+
+API dispatch and API-interceptor selection now share the same matched-route identity.
+This closes a policy bypass where a mixed-case or percent-encoded spelling dispatched
+to a handler but did not select its exact `before` interceptor.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signature (`findApiRouteManifestMatch`) | New optional fourth parameter `request?: Request`; existing three-argument callers keep the same return value and matching behavior | ✓ ADDITIVE (optional parameter appended) |
+| API route URLs and handler context | No route is added, removed, or renamed; handler `params` and request query semantics are unchanged | ✓ No contract change |
+| Interceptor selection | Static segments use the matched manifest spelling, while matched dynamic/catch-all values stay concrete. Alternate spellings that already reached a route now run the same exact/prefix interceptors as its normal spelling; malformed percent encoding reaches no handler | ⚠️ Intentional security narrowing only (previous policy-bypass requests are denied or intercepted) |
+| Request cloning/reconstruction | Dispatcher identity survives `Request.clone()` and `new Request(request.url, request)`. Unknown, forged, or evicted internal continuity metadata fails closed; unbound direct handlers retain legacy URL-derived matching | ✓ Behavior-preserving for valid dispatches; intentional security narrowing for forged metadata |
+| Handler ordering | Authorization and interceptor `before`/`after` positions are unchanged | ✓ Behavior-preserving for normally spelled requests |
+
+**Migration path for existing modules**: none. Keep authored `targetRoute` values.
+Callers that dispatch through the framework catch-all receive canonical binding
+automatically; direct three-argument matcher consumers continue to work unchanged.
+Synthetic dispatchers should pass the exact request they invoke as argument four.
+Request wrappers should retain headers when reconstructing the request, or pass an
+authored route constant directly to the interceptor runner.
+
+---
+
 ## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
 
 Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
@@ -372,6 +396,22 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 | Event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
+
+---
+
+## Encrypt Path Rejects Wrong-Key Ciphertext (2026-09-11)
+
+`TenantDataEncryptionService.encryptFields` treats "already encrypted" as "decrypts under the current DEK" — a deliberate anti-forgery choice ([#2720](https://github.com/open-mercato/open-mercato/issues/2720)). Real ciphertext sealed under a *different* key failed that check too and was encrypted a second time, producing a nested envelope that no read path can undo, plus a lookup hash computed over ciphertext ([#5951](https://github.com/open-mercato/open-mercato/issues/5951)). That write is now rejected:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import path / exports (`@open-mercato/shared/lib/encryption/aes`) | New export `isEncryptedPayloadShape(value)` — a key-free structural check (`<iv>:<ct>:<tag>:v1` with a 12-byte IV, 16-byte tag and non-empty ciphertext). Explicitly NOT an "is this encrypted" oracle; the shape is forgeable | ✓ ADDITIVE (new export, nothing removed or renamed) |
+| Function behaviour (`encryptEntityPayload` / `encryptFields`) | A field holding a structurally well-formed envelope that does not decrypt under the current DEK now raises `TenantDataEncryptionError` with code `WRONG_KEY`, where it previously returned a payload containing a nested envelope. Signature, return type and every other input keep their byte-identical historical behaviour | ⚠️ Behaviour change on one previously-corrupting path. `WRONG_KEY` was already declared in `TenantDataEncryptionErrorCode` and emitted nowhere, so no existing handler changes meaning. Regression-tested in `tenantDataEncryptionService.test.ts` |
+| Encryption-at-rest guarantee (#2720) | Unchanged. Nothing is ever stored verbatim: a forgery whose shape is not length-valid (the check is length-based, not content-based) still fails the structural check and is encrypted as ordinary plaintext, and a length-valid one is rejected rather than persisted | ✓ Preserved (pinned by the retained `#2720` test cases) |
+| CLI behaviour (`mercato entities rotate-encryption-key`, `… backfill-system-encryption`) | A row whose ciphertext opens under neither `--old-key` nor the current tenant key is reported and skipped instead of rewritten; the backfill no longer passes already-encrypted columns to the encrypt path. Rows that rotated or backfilled successfully before are unaffected | ✓ Behaviour-preserving for every row that succeeded before; a row that was previously corrupted is now skipped instead — `rotate-encryption-key --old-key` reports it in the run summary, while `backfill-system-encryption` and `rotate-encryption-key` without `--old-key` skip it silently (see UPGRADE_NOTES.md) |
+| DB schema, API routes, event IDs, ACL features, DI names | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
 
 ---
 
@@ -454,3 +494,65 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 **Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
+
+## Data Sync Retry, Resume and Run Again (2026-09-16)
+
+[`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (§2) | New exported types `ResumePoint` (a discriminated union of `none` / `noCommittedBatch` / `resumes`) and `ResumePointRun` | ✓ ADDITIVE (new types, nothing renamed — same shape as the `StartControlMap` addition before it) |
+| Import paths (§4) | New module `data_sync/lib/resume-point.ts` exporting `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint`, `ResumePointRun` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
+| API route URLs (§7) | **No change.** `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` are untouched — no new request field, no new response field, no new status code and no new error code. The UI starts sending the already-accepted `fromBeginning: true` for the first time, and reads `cursor` / `initialCursor` / `batchesCompleted`, all of which `GET /api/data_sync/runs` and `GET /api/data_sync/runs/[id]` have returned since 2026-08-12 | ✓ n/a |
+| Database schema (§8) | No change. No entity, column, migration or `.snapshot-open-mercato.json` update; no new run status — the vestigial `paused` status is left exactly as it was | ✓ n/a |
+| Auto-discovery, function signatures, event IDs, widget spot IDs, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Contract commitments**: the retry endpoint deliberately does **not** enforce `supportsStartControl('fullSync', entityType)` before honouring `fromBeginning: true`. [§ Data Sync Start Control Applicability (2026-09-02)](#data-sync-start-control-applicability-2026-09-02) already commits that the declaration "governs what the dashboard **offers**, never what the run API **accepts**", and `fromBeginning: true` on `retry` requests the identical thing as `fullSync: true` on `run` — a `null` start cursor — so the two siblings MUST answer identically. An adapter-declared restriction hides the from-the-beginning action in the UI and nothing more; a scripted or API client keeps the documented escape hatch. Making either endpoint strict is a breaking change under §7 and needs the deprecation protocol, not a UI spec.
+
+`ResumePoint` also has **no `fromBeginning` variant, by design**. `api/runs/[id]/retry.ts` resolves a resumable retry as `previous.cursor ?? resolveStartCursor(...)`, and `resolveStartCursor` reads the shared `sync_cursors` row — state the run row does not carry — so a run that committed no batch of its own may still resume at a cursor an earlier run wrote. `noCommittedBatch` therefore means only "this run committed nothing" and MUST NOT be widened by a caller into a positional claim about where a retry starts. A future additive `retryStartCursor` response field is the only way to close that gap; it is out of scope here.
+
+**Migration path for existing adapters and clients**: none. The module is new, every endpoint is unchanged, and an adapter or API client that ignores all of this behaves exactly as before.
+
+## Customers Quick-Create Injection Spot Bridge (2026-09-16)
+
+[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Widget Injection Spot IDs (§6) | `CrudForm` gains an additive `legacyInjectionSpotId?: string` prop. When set, its header/body/field widgets are dual-published alongside the primary `injectionSpotId`'s — `crud-form:customers.customer_entity` stays live on these two dialogs via the bridge, so nothing that already targets it stops rendering | ✓ ADDITIVE (bridge, not a removal — see Deprecation Protocol steps 1–3) |
+| Widget Injection Spot IDs (§6) | The two dialogs now also publish `crud-form:customers.person` / `…company` (previously published only by the person/company detail pages) | ✓ ADDITIVE ("MAY add new spot IDs to new or existing pages") |
+| Context passed to widgets at `crud-form:customers.person` / `…company` | These hosts' widgets now also mount with `operation: 'create'` and no `recordId` on the two quick-create dialogs, for the first time — previously always `operation: 'update'` with a concrete `recordId` | Disclosed in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) "Action for module authors"; not itself a contract surface change (§6 permits "new optional context fields", and `operation`/`recordId` were always part of the injection context shape) |
+| Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
+
+**Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
+
+## Atomic Auth Command Replay (2026-10-04)
+
+[`.ai/specs/2026-07-28-protected-roles-and-audit-seam.md`](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (`CommandHandler`, `CommandRuntimeContext`, `CommandExecuteResult`) | New optional `atomicReplay?: boolean` and `stabilizeReplay(...)` handler capabilities, optional `replayTransactionGuard` request guard, optional caller-owned `transactionLifetime`, and optional `replaySourceFinalized?: boolean` result signal. `TransactionLifetime` plus its observation/completion-registration helpers are new exports; lifetime creation/completion remains owned by `withAtomicFlush` | ✓ ADDITIVE (optional fields and exports; omitted handlers and contexts keep the prior flow) |
+| `ActionLogService` method signatures | `log`, `claimForUndo`, `releaseUndoClaim`, and `markUndone` accept an optional trailing transactional `EntityManager`; new `claimForRedo` method | ✓ ADDITIVE (optional parameters appended and a new method; existing calls retain behavior) |
+| `RbacService` | New `loadAclWithEntityManager`, `userHasAllFeaturesWithEntityManager`, and `getGrantedFeaturesWithEntityManager` methods bypass caches and bind every query to the supplied transaction | ✓ ADDITIVE (new methods; existing cache-backed methods are unchanged) |
+| Auth command replay behavior | Auth user/role handlers opt in so source-log state, domain changes, undo trace or new redo log, and redo source finalization commit or roll back together. Before the request guard or feature interceptors run, `stabilizeReplay` discovers and seals one actor/target/destination footprint and locks API keys, users, roles, tenant/organization hierarchy, and authorization children in a total order using the same transaction | ⚠️ Intentional security hardening. A race that previously could deadlock or replay with stale authority is rejected with the existing domain `409`; successful, authorized replay keeps the same response shape |
+| Action-log actor persistence and self replay | `actor_user_id` remains a UUID; new entries also store the canonical user or `api_key:<uuid>` subject in `context.actorSubject`. API-key list ownership, undo/redo ownership, exact-EM RBAC, locks, and latest replay queries use the canonical subject. Canonical history is selected before the legacy bare-UUID fallback, which additionally requires a coherent live `isApiKey`/`keyId`/`sub` tuple | ✓ Database-compatible additive context metadata; same-UUID user, malformed, or ambiguous ownership cannot shadow canonical key history and fails closed |
+| Auth authorization-state writers | First-party `UserRole`, `UserAcl`, and `RoleAcl` writers in commands, setup, CLI, execution principals, SSO, and agent orchestration now share the canonical parent-lock protocol; SSO membership and grant rows commit together | ⚠️ Intentional concurrency hardening; no request, response, schema, import-path, event, feature, or CLI contract changes |
+| Non-auth command replay | Handlers that omit `atomicReplay` retain the existing undo claim/release compensation and route-level redo finalization | ✓ Behavior-preserving |
+| API routes, response schemas, database schema, event IDs, ACL feature IDs, DI names, CLI commands, generated files | No shape or identifier change | ✓ n/a |
+
+**Migration path for existing modules**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; when authorization depends on mutable domain rows it may add `stabilizeReplay` to acquire its complete footprint before guards and interceptors. The command bus supplies and owns the transaction by default. A caller deliberately composing replay inside an already-active `ctx.transactionalEm` must open that outer transaction with `withAtomicFlush(..., { transaction: true })`, obtain its exact `TransactionLifetime` inside the phase, and pass it as `ctx.transactionLifetime`; otherwise replay fails before mutation. Commit-only hooks and redo-finalization reporting follow the true outer completion. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.
+
+---
+
+## Organization Update Preserves Omitted Hierarchy Fields (2026-10-01)
+
+`directory.organizations.update` treated an omitted `parentId` as `null` and an omitted `childIds` as `[]`, so a partial update — notably `PUT /api/directory/organization-branding`, which sends only logo fields — detached the organization from its parent and orphaned its children. Omitted hierarchy fields are now preserved:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Command behaviour (`directory.organizations.update`) | `parentId` is written and validated only when present in the input; children are reconciled only when `childIds` is present. Explicit `parentId: null` and `childIds: []` still clear. With `childIds` present and `parentId` omitted, listing the current parent answers `400 Child cannot equal parent` (it answered `400 Cannot assign ancestor as child`) | ⚠️ Behaviour change on a previously-corrupting path. A caller that omitted the fields to clear the hierarchy must send the explicit values. Regression-tested in `updateOrganization.partial-hierarchy.test.ts` and `TC-DIR-018` |
+| API routes (`PUT /api/directory/organizations`, `PUT /api/directory/organization-branding`) | Same URLs, request schema (`organizationUpdateSchema` already declares both fields optional) and response shapes | ✓ No shape change |
+| Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).

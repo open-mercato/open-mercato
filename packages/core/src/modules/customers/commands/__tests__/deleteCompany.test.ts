@@ -77,11 +77,20 @@ type Counts = {
   personLinks?: number
   dealLinks?: number
   directPeople?: number
+  softDeletedPersonLinks?: number
+}
+
+function isSoftDeletedLinkFilter(where: unknown): boolean {
+  if (typeof where !== 'object' || where === null) return false
+  const deletedAt = (where as { deletedAt?: unknown }).deletedAt
+  return typeof deletedAt === 'object' && deletedAt !== null && '$ne' in deletedAt
 }
 
 function makeEm(entity: CustomerEntity, counts: Counts = {}): jest.Mocked<Pick<EntityManager,
   'fork' | 'findOne' | 'find' | 'count' | 'nativeDelete' | 'nativeUpdate' | 'remove' | 'flush' | 'transactional' | 'create' | 'persist' | 'getReference'
 >> {
+  let residualSoftDeletedLinks = counts.softDeletedPersonLinks ?? 0
+  let companyRemoved = false
   const em: any = {
     fork: jest.fn().mockReturnThis(),
     findOne: jest.fn(async (ctor: any) => {
@@ -95,11 +104,29 @@ function makeEm(entity: CustomerEntity, counts: Counts = {}): jest.Mocked<Pick<E
       if (ctor === CustomerPersonProfile) return counts.directPeople ?? 0
       return 0
     }),
-    nativeDelete: jest.fn(async () => undefined),
+    nativeDelete: jest.fn(async (ctor: any, where: any) => {
+      if (ctor === CustomerPersonCompanyLink && isSoftDeletedLinkFilter(where)) {
+        residualSoftDeletedLinks = 0
+      }
+      return undefined
+    }),
     nativeUpdate: jest.fn(async () => undefined),
-    remove: jest.fn().mockReturnValue(undefined),
+    remove: jest.fn(() => {
+      companyRemoved = true
+    }),
     flush: jest.fn().mockResolvedValue(undefined),
-    transactional: jest.fn(async (fn: any) => fn(em)),
+    // Postgres enforces `customer_person_company_links_company_entity_id_foreign` at commit,
+    // so removing the company entity while a soft-deleted link row survives fails the
+    // transaction — the HTTP 500 reported in #5965.
+    transactional: jest.fn(async (fn: any) => {
+      const result = await fn(em)
+      if (companyRemoved && residualSoftDeletedLinks > 0) {
+        throw new Error(
+          'update or delete on table "customer_entities" violates foreign key constraint "customer_person_company_links_company_entity_id_foreign"',
+        )
+      }
+      return result
+    }),
     create: jest.fn((_ctor: any, data: any) => ({ id: 'new-id', ...data })),
     persist: jest.fn(),
     getReference: jest.fn((_ctor: any, id: string) => ({ id })),
@@ -149,6 +176,35 @@ describe('customers.companies.delete — dependent guard', () => {
 
     expect(em.transactional).toHaveBeenCalledTimes(1)
     expect(em.remove).toHaveBeenCalledWith(entity)
+  })
+
+  it('removes residual soft-deleted person links so the company delete does not break the foreign key', async () => {
+    const entity = makeCompanyEntity()
+    const em = makeEm(entity, { personLinks: 0, softDeletedPersonLinks: 1 })
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+
+    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
+
+    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({ entityId: COMPANY_ID })
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerPersonCompanyLink, {
+      company: entity,
+      deletedAt: { $ne: null },
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+    })
+  })
+
+  it('never hard-deletes active person links — the 422 guard runs before any cleanup', async () => {
+    const entity = makeCompanyEntity()
+    const em = makeEm(entity, { personLinks: 1, softDeletedPersonLinks: 1 })
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+
+    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).rejects.toBeInstanceOf(CrudHttpError)
+
+    expect(em.nativeDelete).not.toHaveBeenCalledWith(CustomerPersonCompanyLink, expect.anything())
   })
 
   it('throws 422 with a "linked persons" blocker when person links are active', async () => {

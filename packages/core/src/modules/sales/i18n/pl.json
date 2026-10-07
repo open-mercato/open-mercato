@@ -846,6 +846,8 @@
   "sales.documents.errors.number_generate_failed": "Nie udało się wygenerować numeru dokumentu.",
   "sales.documents.errors.organization_required": "Wymagany jest kontekst organizacji.",
   "sales.documents.errors.unauthorized": "Brak autoryzacji",
+  "sales.documents.errors.undoStaleOrder": "Tej zmiany nie można już cofnąć, ponieważ zamówienie zostało później zmienione.",
+  "sales.documents.errors.undoStaleQuote": "Tej zmiany nie można już cofnąć, ponieważ oferta została później zmieniona.",
   "sales.documents.form.address.city": "Miasto",
   "sales.documents.form.address.company": "Firma (opcjonalnie)",
   "sales.documents.form.address.country": "Kraj",

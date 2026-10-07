@@ -139,8 +139,11 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
   ),
 }))
 
+let capturedFetchOptions: (() => Promise<unknown>) | null = null
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect', () => ({
-  DictionaryEntrySelect: ({ value, onChange }: any) => (
+  DictionaryEntrySelect: ({ value, onChange, fetchOptions }: any) => {
+    capturedFetchOptions = fetchOptions
+    return (
     <select
       data-testid="currency-select"
       value={value ?? ''}
@@ -150,14 +153,8 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySel
       <option value="eur">EUR</option>
       <option value="usd">USD</option>
     </select>
-  ),
-}))
-
-jest.mock('@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary', () => ({
-  useCurrencyDictionary: () => ({
-    data: { entries: [{ value: 'eur', label: 'Euro', color: null, icon: null }] },
-    refetch: jest.fn(),
-  }),
+    )
+  },
 }))
 
 const sampleItems = [
@@ -532,5 +529,46 @@ describe('PriceKindSettings', () => {
     })
     // The conflict surface owns the messaging, so no error flash is raised.
     expect(mockFlash).not.toHaveBeenCalledWith(expect.anything(), 'error')
+  })
+
+  it('loads currency options from the currencies module, not the customers dictionary', async () => {
+    render(<PriceKindSettings />)
+    await waitFor(() => {
+      expect(screen.getByTestId('data-count')).toHaveTextContent('2')
+    })
+    await openCreateDialog()
+    expect(capturedFetchOptions).toBeInstanceOf(Function)
+
+    mockReadApiResultOrThrow.mockResolvedValueOnce({
+      items: [
+        { value: 'eur', label: 'EUR - Euro' },
+        { value: 'USD', label: '' },
+        { value: '', label: 'Broken' },
+      ],
+    })
+    const options = await capturedFetchOptions!()
+
+    expect(mockReadApiResultOrThrow).toHaveBeenLastCalledWith(
+      '/api/currencies/currencies/options?limit=100',
+      undefined,
+      { errorMessage: 'Unable to load currencies.' },
+    )
+    const requestedUrls = mockReadApiResultOrThrow.mock.calls.map(([url]) => String(url))
+    expect(requestedUrls.some((url) => url.includes('/api/customers/'))).toBe(false)
+    expect(options).toEqual([
+      { value: 'EUR', label: 'EUR - Euro', color: null, icon: null },
+      { value: 'USD', label: 'USD', color: null, icon: null },
+    ])
+  })
+
+  it('surfaces a failed currency lookup instead of returning a fallback list', async () => {
+    render(<PriceKindSettings />)
+    await waitFor(() => {
+      expect(screen.getByTestId('data-count')).toHaveTextContent('2')
+    })
+    await openCreateDialog()
+
+    mockReadApiResultOrThrow.mockRejectedValueOnce(new Error('Forbidden'))
+    await expect(capturedFetchOptions!()).rejects.toThrow('Forbidden')
   })
 })

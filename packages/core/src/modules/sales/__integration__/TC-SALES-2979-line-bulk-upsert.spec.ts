@@ -249,15 +249,15 @@ test.describe('TC-SALES-2979: bulk order-line upsert over HTTP', () => {
       expect(num(updatedLine.quantity), 'the update applied').toBe(5)
       expect(num(updatedLine.total_net_amount ?? updatedLine.totalNetAmount), 'net follows the new quantity').toBeCloseTo(50, 2)
 
-      // Characterization of a pre-existing gap in the shared upsert path, not of
-      // this command: an entry that changes quantity without supplying totals
-      // carries the stored row's `totalGrossAmount` into the recalculation, and
-      // the calculation engine honours any present gross verbatim — so the
-      // line's gross stays at its pre-edit value while its net follows the new
-      // quantity. `sales.orders.lines.upsert` does exactly the same thing (the
-      // equivalence assertion above is what pins them together). This will fail
-      // — by design — once that is fixed, and both paths must move together.
-      expect(lineGrossOf(updatedLine), 'gross still reads off the stored row').toBeCloseTo(20, 2)
+      // An entry that changes quantity without supplying totals used to carry the
+      // stored row's `totalGrossAmount` into the recalculation, and the engine
+      // honours any present gross verbatim — so the line's gross stayed at its
+      // pre-edit value while its net followed the new quantity. #6459 fixed that
+      // by dropping the stored `taxAmount`/`totalGrossAmount` when the pricing
+      // moved; the shared helper carries the same call, so the batch recalculates
+      // gross exactly as the per-line path does. The equivalence assertion above
+      // is what keeps them from drifting apart again.
+      expect(lineGrossOf(updatedLine), 'gross is recalculated from the new quantity').toBeCloseTo(50, 2)
     } finally {
       await deleteSalesEntityIfExists(request, token, ORDERS_PATH, batchOrderId)
       await deleteSalesEntityIfExists(request, token, ORDERS_PATH, perLineOrderId)
