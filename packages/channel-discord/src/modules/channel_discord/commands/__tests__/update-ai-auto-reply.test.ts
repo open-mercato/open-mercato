@@ -140,6 +140,29 @@ describe('channel_discord.channel.update_ai_auto_reply', () => {
     expect(where.$or).toEqual([{ organizationId: { $in: [ORG] } }, { organizationId: null }])
   })
 
+  it('cannot load or mutate a channel when organization scope is explicitly empty', async () => {
+    const channel = channelRow({ ...gatewayState })
+    findOne.mockImplementationOnce(async (_em, _entity, where: Record<string, unknown>) => {
+      const organizationFilter = where.organizationId as { $in?: unknown } | undefined
+      return Array.isArray(organizationFilter?.$in) && organizationFilter.$in.length === 0
+        ? null
+        : channel
+    })
+
+    const result = await updateAiAutoReplyCommand.execute(
+      {
+        ...baseInput({ aiAutoReplyEnabled: false }),
+        scope: { tenantId: TENANT, organizationId: ORG, organizationIds: [] },
+      } as never,
+      makeCtx(),
+    )
+
+    const [, , where] = findOne.mock.calls[0]
+    expect(where.organizationId).toEqual({ $in: [] })
+    expect(result).toEqual({ status: 'not_found' })
+    expect(channel.channelState).toEqual(gatewayState)
+  })
+
   it('masks a channel it cannot see rather than reporting why', async () => {
     findOne.mockResolvedValueOnce(null)
 

@@ -548,6 +548,8 @@
   "auth.profile.form.success": "Perfil actualizado.",
   "auth.profile.subtitle": "Cambiar contraseña",
   "auth.profile.title": "Perfil",
+  "auth.replay.errors.credentials": "Los cambios de contraseña no se pueden repetir.",
+  "auth.replay.errors.stale": "Esta acción no se puede repetir porque el destino ha cambiado.",
   "auth.reset.backToLogin": "Volver al inicio de sesión",
   "auth.reset.description": "Ingresa tu correo para recibir un enlace de restablecimiento",
   "auth.reset.error": "Algo salió mal",
