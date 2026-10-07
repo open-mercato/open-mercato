@@ -87,7 +87,7 @@ None. No entity, column or migration changes. The new setting is one more `Modul
 ## 📝 API Contracts
 
 - **`GET/PUT /api/staff/timesheets/settings`** — additive: the `defaults` group gains `entryMode: 'task' | 'project'`. The PUT schema is built from the registry, so it accepts the key and defaults it when omitted; existing clients that send no `entryMode` keep working. The OpenAPI doc picks it up from the same registry.
-- **`TimeEntryDialogProps`** — additive optional `mode?: 'task' | 'project'`; `timeEntryDialogPropsSchema` gains `mode: z.enum(['task', 'project']).optional()`. A replacement that does not declare `mode` still validates, because `z.object` strips unknown keys.
+- **`TimeEntryDialogProps`** — additive optional `mode?: 'task' | 'project'`; `timeEntryDialogPropsSchema` gains `mode: z.enum(['task', 'project']).nullable().optional()` (the prop is `TimeEntryMode | null`, `null` meaning "use the setting"). A replacement that does not declare `mode` still validates, because `z.object` strips unknown keys.
 - **Exported schemas** — ten new named exports (table above). Per `BACKWARD_COMPATIBILITY.md` (types and import paths) they become STABLE contract: shape changes from now on are additive-only.
 - **Injection context** — the `entryFormValues` passed to injected widgets (`onFieldChange`, render spots) gain `timeProjectId`. Additive, but observable to widgets.
 - The exported schemas keep their declared type `z.ZodType<Props>`: they are for `metadata.propsSchema` of a replacement, used as is. Consumers that want to `.extend()` one must wrap it (`z.intersection`); this is documented next to the exports in EP-31.
@@ -107,7 +107,7 @@ Illustrative mockups: [project mode](assets/time-entry-dialog-project-mode/mocku
 4. Required-field error under the project field: "Pick the project this time belongs to." The task error is not shown in project mode. `FieldIssues`/`readFieldIssues` gain a `project` key, so a server field error on `timeProjectId` lands under the field instead of a toast.
 5. Keyboard loop (T7.4): the initial focus and the post-"save and add another" focus go to the project field in project mode, the task picker in task mode.
 
-**Dialog — task mode:** unchanged, except that when a task is selected the hint line becomes a read-only line "Project: {project} · {customer}" in `text-muted-foreground` (customer omitted when the project has none; the project name falls back to the code when the projects list was not readable). With no task selected the existing hint stays.
+**Dialog — task mode:** unchanged, except that when a task is selected the hint line becomes a read-only line "Project: {project} · {customer}" in `text-muted-foreground` (customer omitted when the project has none; when the projects list was not readable the original hint stays). With no task selected the existing hint stays.
 
 **Locked entry:** both fields render disabled, as today.
 
@@ -206,4 +206,5 @@ Illustrative mockups: [project mode](assets/time-entry-dialog-project-mode/mocku
 ## 📝 Changelog
 
 - 2026-10-07 — Initial spec for #6989; Open Questions Q1–Q6 resolved on the issue (all option A).
+- 2026-10-07 — Implementation review (#7001): `mode` schema accepts `null`; the task-mode line keeps the hint when the project cannot be resolved; a server `timeProjectId` field error is shown under the project field only in project mode and flashed otherwise; `TimeTrackingEntryDefaults.entryMode` is a required field on an always-normalized read type (upgrade note added).
 - 2026-10-07 — Fresh-context review applied: late setting application, project-mode-only dirty snapshot, `projectById` merge, 404 pin handling, `ComboboxInput` instead of `LookupSelect`, task filtering of recent/pinned tasks, access-scoping integration case, key-collision and "eight" wording notes, sibling i18n key names.
