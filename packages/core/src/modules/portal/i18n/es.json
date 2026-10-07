@@ -27,6 +27,7 @@
   "portal.invite.confirmPassword.placeholder": "••••••••",
   "portal.invite.description": "Crea tu cuenta del portal para aceptar esta invitación.",
   "portal.invite.displayName": "Nombre para mostrar",
+  "portal.invite.error.accountExists": "Esta dirección de correo electrónico ya tiene una cuenta del portal. Inicia sesión abajo en lugar de aceptar la invitación.",
   "portal.invite.error.displayNameRequired": "El nombre para mostrar es obligatorio.",
   "portal.invite.error.generic": "Error al aceptar la invitación. Inténtalo de nuevo.",
   "portal.invite.error.invalidToken": "Invitación no válida o expirada.",

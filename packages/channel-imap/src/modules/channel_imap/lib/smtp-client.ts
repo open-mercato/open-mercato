@@ -58,6 +58,24 @@ export interface SmtpClient {
   send(options: SmtpConnectionOptions, message: SmtpMessage): Promise<SmtpSendResult>
 }
 
+type MailComposerCtor = new (mail: Record<string, unknown>) => unknown
+
+// nodemailer 10 dropped the root `MailComposer` re-export that v9 exposed; it is
+// still published under the `nodemailer/lib/mail-composer` subpath. Without this
+// fallback the Sent-folder append silently uploads a 0-byte message.
+async function loadMailComposer(): Promise<MailComposerCtor | undefined> {
+  try {
+    const mod = (await import('nodemailer/lib/mail-composer')) as unknown as {
+      default?: MailComposerCtor
+    } & MailComposerCtor
+    const ctor = mod.default ?? mod
+    return typeof ctor === 'function' ? ctor : undefined
+  } catch (err) {
+    logger.warn('failed to load nodemailer MailComposer', { err })
+    return undefined
+  }
+}
+
 class NodemailerClient implements SmtpClient {
   async verify(options: SmtpConnectionOptions): Promise<void> {
     const { transporter } = await this.createTransporter(options)
@@ -161,7 +179,7 @@ class NodemailerClient implements SmtpClient {
     if (typeof createTransport !== 'function') {
       throw new Error('nodemailer.createTransport is unavailable')
     }
-    const MailComposer = mod.MailComposer ?? mod.default?.MailComposer
+    const MailComposer = mod.MailComposer ?? mod.default?.MailComposer ?? await loadMailComposer()
     // Resolve + pin the SMTP host to a validated public IP at connect time
     // (DNS-rebinding-safe), keeping the hostname as the TLS servername for SNI +
     // certificate hostname verification.
