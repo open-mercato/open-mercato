@@ -12,7 +12,7 @@ function build(overrides: Partial<OrderInvoiceData> = {}): Record<string, unknow
     client: { name: 'Acme Ltd', email: 'info@acme.test', company: 'Acme Billing', address: 'Main St 5, Warsaw' },
     seller: { name: 'Web shop', email: 'shop@example.test', phone: '+48 123' },
     lines: [{ title: 'Widget', description: 'Blue widget', quantity: 2, unitPrice: 50, total: 100, currency: 'EUR' }],
-    totals: { subtotal: 100, discount: 10, shipping: 5, surcharge: 2, tax: 20.7, total: 117.7, paid: 50, outstanding: 67.7, currency: 'EUR' },
+    totals: { subtotal: 100, adjustments: -10, shipping: 5, surcharge: 2, tax: 22.31, total: 119.31, paid: 50, outstanding: 69.31, currency: 'EUR' },
     notes: 'Thanks',
     ...overrides,
   }
@@ -28,7 +28,7 @@ describe('order invoice markdown', () => {
     expect(md).toContain('| L-item | L-quantity | L-unitPrice | L-total |')
     expect(md).toContain('| --- | ---: | ---: | ---: |')
     expect(md).toContain('Widget — Blue widget')
-    for (const key of ['subtotal', 'discount', 'shipping', 'surcharge', 'tax', 'grandTotal', 'paid', 'outstanding', 'notes', 'dueDate']) {
+    for (const key of ['subtotal', 'adjustments', 'shipping', 'surcharge', 'tax', 'grandTotal', 'paid', 'outstanding', 'notes', 'dueDate']) {
       expect(md).toContain(`L-${key}`)
     }
     expect(md.endsWith('\n')).toBe(true)
@@ -50,10 +50,10 @@ describe('order invoice markdown', () => {
         seller: undefined,
         notes: undefined,
         document: { id: 'id-1', number: 'O-100', date: '2026-01-02T10:00:00.000Z' },
-        totals: { subtotal: 100, discount: 0, shipping: 0, surcharge: 0, tax: 20, total: 120, paid: 0, outstanding: 120, currency: 'EUR' },
+        totals: { subtotal: 100, adjustments: 0, shipping: 0, surcharge: 0, tax: 20, total: 120, paid: 0, outstanding: 120, currency: 'EUR' },
       }),
     )
-    for (const key of ['seller', 'discount', 'shipping', 'surcharge', 'paid', 'outstanding', 'notes', 'dueDate']) {
+    for (const key of ['seller', 'adjustments', 'shipping', 'surcharge', 'paid', 'outstanding', 'notes', 'dueDate']) {
       expect(md).not.toContain(`L-${key}`)
     }
   })

@@ -55,7 +55,7 @@ export function render(data: Record<string, unknown>): string {
   const row = (label: string, amount: number) =>
     out.push(`- **${escapeInline(label)}:** ${money(amount, totals.currency)}`)
   row(labels.subtotal, totals.subtotal)
-  if (totals.discount !== 0) row(labels.discount, -Math.abs(totals.discount))
+  if (totals.adjustments !== 0) row(labels.adjustments, totals.adjustments)
   if (totals.shipping !== 0) row(labels.shipping, totals.shipping)
   if (totals.surcharge !== 0) row(labels.surcharge, totals.surcharge)
   row(labels.tax, totals.tax)

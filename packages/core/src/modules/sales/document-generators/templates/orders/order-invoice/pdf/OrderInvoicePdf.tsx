@@ -149,10 +149,10 @@ export default function OrderInvoicePdf({ data }: { data: Record<string, unknown
             <Text>{labels.subtotal}</Text>
             <Text>{formatMoney(totals.subtotal, totals.currency, locale)}</Text>
           </View>
-          {totals.discount !== 0 ? (
+          {totals.adjustments !== 0 ? (
             <View style={styles.totalRow}>
-              <Text>{labels.discount}</Text>
-              <Text>{formatMoney(-Math.abs(totals.discount), totals.currency, locale)}</Text>
+              <Text>{labels.adjustments}</Text>
+              <Text>{formatMoney(totals.adjustments, totals.currency, locale)}</Text>
             </View>
           ) : null}
           {totals.shipping !== 0 ? (

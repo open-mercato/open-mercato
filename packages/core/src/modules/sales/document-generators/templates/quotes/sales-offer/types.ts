@@ -10,6 +10,7 @@ export const SALES_OFFER_LABEL_KEYS = [
   'unitPrice',
   'total',
   'subtotal',
+  'adjustments',
   'tax',
   'grandTotal',
   'notes',
@@ -53,6 +54,7 @@ export interface SalesOfferData {
   lines: SalesOfferLine[]
   totals: {
     subtotal: number
+    adjustments: number
     tax: number
     total: number
     currency: string
