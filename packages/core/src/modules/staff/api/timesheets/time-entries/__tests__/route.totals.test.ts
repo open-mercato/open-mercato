@@ -27,6 +27,9 @@ const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const USER_ID = '33333333-3333-4333-8333-333333333333'
 const MEMBER_ID = '44444444-4444-4444-8444-444444444444'
 const PROJECT_ID = '55555555-5555-4555-8555-555555555555'
+const TAG_ID = '88888888-8888-4888-8888-000000000001'
+const TAGGED_ENTRY_ID = '77777777-7777-4777-8777-777777777771'
+const OTHER_TAGGED_ENTRY_ID = '77777777-7777-4777-8777-777777777772'
 
 type World = { canSeeRates: boolean; failQueries?: boolean }
 
@@ -47,7 +50,11 @@ function buildCtx(query: Record<string, unknown>, world: World) {
     if (compiled.sql.includes('currency_code')) return { rows: [{ currency_code: 'PLN', amount: '900.00' }] }
     return { rows: [{ entry_count: '120', duration_minutes: '7200', rounded_minutes: '7230' }] }
   }
-  const em = { fork: () => em, getKysely: () => db }
+  const em = {
+    fork: () => em,
+    getKysely: () => db,
+    find: async () => [{ timeEntryId: TAGGED_ENTRY_ID }, { timeEntryId: OTHER_TAGGED_ENTRY_ID }],
+  }
   const ctx = {
     auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID },
     selectedOrganizationId: ORG_ID,
@@ -120,5 +127,33 @@ describe('time-entries list totals', () => {
     await expect(attachTimeEntryTotals(payload, ctx)).resolves.toBeUndefined()
     expect(payload).not.toHaveProperty('totals')
     expect(payload.items).toEqual([{ id: 'row-1' }])
+  })
+
+  it('intersects ?ids= with the tag narrowing exactly like the list does', async () => {
+    const { ctx, queries } = buildCtx({ includeTotals: 'true', tagIds: TAG_ID, ids: TAGGED_ENTRY_ID }, { canSeeRates: false })
+    await attachTimeEntryTotals(listPayload(), ctx)
+    const [query] = queries
+    expect(query.parameters).toContain(TAGGED_ENTRY_ID)
+    expect(query.parameters).not.toContain(OTHER_TAGGED_ENTRY_ID)
+  })
+
+  it('matches nothing for a malformed ?ids= instead of totalling the unfiltered set', async () => {
+    const { ctx, queries } = buildCtx({ includeTotals: 'true', ids: 'not-a-uuid' }, { canSeeRates: false })
+    await attachTimeEntryTotals(listPayload(), ctx)
+    expect(queries[0].sql).toContain('false')
+    expect(queries[0].parameters).not.toContain('not-a-uuid')
+  })
+
+  it('includes soft-deleted entries only for withDeleted=true, like the list', async () => {
+    const { ctx, queries } = buildCtx({ includeTotals: 'true', withDeleted: 'true' }, { canSeeRates: false })
+    await attachTimeEntryTotals(listPayload(), ctx)
+    expect(queries[0].sql).not.toContain('deleted_at')
+  })
+
+  it('drops totals carried over from a cached payload when the aggregate fails', async () => {
+    const { ctx } = buildCtx({ includeTotals: 'true' }, { canSeeRates: true, failQueries: true })
+    const payload = { ...listPayload(), totals: { entryCount: 1, durationMinutes: 1, roundedMinutes: 1, money: [] } }
+    await attachTimeEntryTotals(payload, ctx)
+    expect(payload).not.toHaveProperty('totals')
   })
 })

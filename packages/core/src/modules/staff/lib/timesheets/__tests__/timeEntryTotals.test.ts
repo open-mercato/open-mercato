@@ -118,7 +118,7 @@ describe('computeTimeEntryTotals', () => {
     expect(moneySql).toContain('"p"."deleted_at" is null')
     expect(moneySql).toContain('"e"."is_billable" = $')
     expect(moneySql).toContain('round(coalesce(e.rounded_minutes, 0)::numeric / 60 * coalesce(e.rate_override_amount, p.hourly_rate), 2)')
-    expect(moneySql).toContain('group by coalesce(e.rate_currency_code, p.currency_code)')
+    expect(moneySql).toContain("group by coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)")
   })
 
   it('never queries money for a caller without the rates feature', async () => {
@@ -126,5 +126,15 @@ describe('computeTimeEntryTotals', () => {
     const totals = await computeTimeEntryTotals(db, {}, scope)
     expect(totals).not.toHaveProperty('money')
     expect(queries).toHaveLength(1)
+  })
+
+  it('counts soft-deleted entries only when the list itself includes them', async () => {
+    const live = recordingDb()
+    await computeTimeEntryTotals(live.db, {}, scope)
+    expect(live.queries[0].sql).toContain('"e"."deleted_at" is null')
+
+    const withDeleted = recordingDb()
+    await computeTimeEntryTotals(withDeleted.db, {}, { ...scope, includeDeleted: true })
+    expect(withDeleted.queries[0].sql).not.toContain('deleted_at')
   })
 })

@@ -151,6 +151,8 @@ export type TimeEntryTotalsScope = {
   /** Organizations the list itself is scoped to; an empty list matches nothing. */
   organizationIds: string[]
   canSeeRates: boolean
+  /** Mirrors the list's `withDeleted=true`: soft-deleted entries are counted too. */
+  includeDeleted?: boolean
 }
 
 function toNumber(value: unknown): number {
@@ -159,12 +161,12 @@ function toNumber(value: unknown): number {
 }
 
 function baseQuery(db: Kysely<TotalsDb>, filters: Record<string, unknown>, scope: TimeEntryTotalsScope) {
-  return db
+  const scoped = db
     .selectFrom('staff_time_entries as e')
     .where('e.tenant_id', '=', scope.tenantId)
     .where('e.organization_id', 'in', scope.organizationIds)
-    .where('e.deleted_at', 'is', null)
-    .where((eb) => compileTimeEntryFilters(eb as unknown as EntryExpressionBuilder, filters))
+  const live = scope.includeDeleted ? scoped : scoped.where('e.deleted_at', 'is', null)
+  return live.where((eb) => compileTimeEntryFilters(eb as unknown as EntryExpressionBuilder, filters))
 }
 
 export function buildTimeEntryTotalsQuery(
@@ -195,11 +197,11 @@ export function buildTimeEntryMoneyTotalsQuery(
     .where('e.is_billable', '=', true)
     .where(sql<SqlBool>`coalesce(e.rate_override_amount, p.hourly_rate) is not null`)
     .select([
-      sql<string | null>`coalesce(e.rate_currency_code, p.currency_code)`.as('currency_code'),
+      sql<string | null>`coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)`.as('currency_code'),
       sql<string>`sum(round(coalesce(e.rounded_minutes, 0)::numeric / 60 * coalesce(e.rate_override_amount, p.hourly_rate), 2))`.as('amount'),
     ])
-    .groupBy(sql`coalesce(e.rate_currency_code, p.currency_code)`)
-    .orderBy(sql`coalesce(e.rate_currency_code, p.currency_code)`)
+    .groupBy(sql`coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)`)
+    .orderBy(sql`coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)`)
 }
 
 export async function computeTimeEntryTotals(

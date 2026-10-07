@@ -33,6 +33,8 @@ import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shar
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
+import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { sanitizeSearchTerm } from '../../helpers'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject } from '../../../data/entities'
@@ -413,9 +415,11 @@ function resolveListOrganizationIds(ctx: CrudCtx): string[] {
 
 /**
  * Adds `totals` for the whole filtered set when the caller asked for them with
- * `?includeTotals=true`. Reuses the exact scoped filters of the list, so the
- * totals never count a row the list would not return. A failure leaves the list
- * intact and simply omits `totals`.
+ * `?includeTotals=true`. Reuses the list's scoped filters and merges them the
+ * way the CRUD factory does (advanced filters, then `?ids=`, then `withDeleted`),
+ * so the totals never count a row the list would not return. A failure leaves
+ * the list intact and omits `totals`. The aggregate runs on every request that
+ * asks for it, list-cache hits included, because totals are not cached.
  */
 export async function attachTimeEntryTotals(
   payload: unknown,
@@ -423,11 +427,18 @@ export async function attachTimeEntryTotals(
 ): Promise<void> {
   if (parseBooleanToken(ctx.query?.includeTotals ?? null) !== true) return
   if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { items?: unknown }).items)) return
+  delete (payload as Record<string, unknown>).totals
   const tenantId = ctx.auth?.tenantId ?? null
   if (!tenantId) return
   try {
     const { organizationId } = resolveCtxScope(ctx)
-    const filters = await buildScopedTimeEntryListFilters(ctx.query, ctx)
+    const query = ctx.query as Record<string, unknown>
+    const scopedFilters = await buildScopedTimeEntryListFilters(ctx.query, ctx)
+    const filters = mergeIdFilter(
+      mergeAdvancedFilters(scopedFilters, query),
+      parseIdsParam(query.ids),
+      { idsParamProvided: isIdsParamProvided(query.ids) },
+    ) as Record<string, unknown>
     const rates = await resolveFeatureAccess(ctx.container, ctx.auth?.sub ?? null, [RATES_FEATURE], {
       tenantId,
       organizationId,
@@ -437,6 +448,7 @@ export async function attachTimeEntryTotals(
       tenantId,
       organizationIds: resolveListOrganizationIds(ctx),
       canSeeRates: rates.allowed,
+      includeDeleted: parseBooleanToken(typeof query.withDeleted === 'string' ? query.withDeleted : null) === true,
     })
   } catch (err) {
     logger.error('staff.timesheets.time-entries totals failed', { err })
