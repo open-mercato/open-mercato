@@ -255,6 +255,25 @@ describe('attachments file route', () => {
       security.canRenderInlineAttachment.mockReturnValue(true)
     })
 
+    it.each([
+      ['an encoded path segment', 'http://localhost/api/attachments/%66ile/att-1'],
+      ['encoded slashes', 'http://localhost/api/attachments%2Ffile%2Fatt-1'],
+      ['an encoded module segment', 'http://localhost/api/%61ttachments/file/att-1'],
+      ['an encoded id', 'http://localhost/api/attachments/file/%61tt-1'],
+    ])('downloads a recorded vector image requested through %s, which the sandboxing header rule does not match', async (_label, url) => {
+      const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
+      security.canRenderInlineAttachment.mockReturnValue(false)
+      serveAttachment({ storageMetadata: { vectorImage: vectorRecord } })
+
+      const response = await request(url)
+
+      expect(response.headers.get('Content-Type')).toBe('application/octet-stream')
+      expect(response.headers.get('Content-Security-Policy')).toBe("default-src 'none'; sandbox")
+      expect(security.buildAttachmentContentDisposition).toHaveBeenCalledWith('logo.svg', 'attachment')
+      expect(security.buildAttachmentContentDisposition).not.toHaveBeenCalledWith('logo.svg', 'inline')
+      security.canRenderInlineAttachment.mockReturnValue(true)
+    })
+
     it('forces a download of a recorded vector image on ?download=1', async () => {
       const security = jest.mocked(await import('@open-mercato/core/modules/attachments/lib/security'))
       serveAttachment({ storageMetadata: { vectorImage: vectorRecord } })

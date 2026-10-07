@@ -50,7 +50,15 @@ test('standalone template keeps integration and attachment security policies', a
     assert.equal(
       configCspFor(headers, pathname),
       vectorCsp,
-      `${pathname}: every response under the file path, including the dispatcher's, gets one sandboxing CSP from config`,
+      `${pathname}: every response under the canonical file path, including the dispatcher's, gets one sandboxing CSP from config`,
+    )
+  }
+
+  for (const pathname of ['/api/attachments/%66ile/abc', '/api/%61ttachments/file/abc']) {
+    assert.notEqual(
+      configCspFor(headers, pathname),
+      vectorCsp,
+      `${pathname}: header sources match the undecoded path, so the file route must not rely on this rule for encoded spellings`,
     )
   }
 

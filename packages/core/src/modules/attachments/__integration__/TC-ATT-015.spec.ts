@@ -18,10 +18,13 @@ import type { AttachmentService } from '@open-mercato/core/modules/attachments'
  * `attachmentService.createScoped({ allowVectorImage: true })` does — so the
  * upload runs in this process against the app's database and storage root,
  * the same way TC-CRM-028 drives server code. The serving half is plain HTTP
- * against the running app. `next.config.ts` gives every response under the
- * file path one sandboxing CSP (`FILE_PATH_CSP`), which Next.js keeps over the
- * route's own header, so downloads and errors carry it too; the inline SVG is
- * the response that needs its style and data: allowances.
+ * against the running app. `next.config.ts` gives responses whose raw path
+ * starts with `/api/attachments/file/` one sandboxing CSP (`FILE_PATH_CSP`),
+ * which Next.js keeps over the route's own header, so downloads and errors
+ * carry it too; the inline SVG is the response that needs its style and data:
+ * allowances. Percent-encoded spellings of the path reach the route without
+ * matching that rule, so the route serves the SVG inline only on the canonical
+ * path and this test checks that the encoded spellings never get inline SVG.
  */
 
 const TEST_APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
@@ -118,6 +121,16 @@ test.describe('TC-ATT-015: sanitised vector images over HTTP', () => {
       expect(body).toMatch(/^<svg[\s>]/)
       expect(body).not.toContain('exported by a vector editor')
       expect(body).toContain('.mark{fill:url(#brand)}')
+
+      for (const encodedPath of [
+        `/api/attachments/%66ile/${encodeURIComponent(attachmentId)}`,
+        `/api/attachments%2Ffile%2F${encodeURIComponent(attachmentId)}`,
+        `/api/%61ttachments/file/${encodeURIComponent(attachmentId)}`,
+      ]) {
+        const encoded = await request.fetch(`${BASE_URL}${encodedPath}`, { headers: authorization })
+        expect(encoded.headers()['content-type'] ?? '').not.toContain('image/svg+xml')
+        expect(encoded.headers()['content-disposition'] ?? '').not.toMatch(/^inline;/)
+      }
 
       const forced = await request.fetch(`${fileUrl}?download=1`, { headers: authorization })
       expect(forced.status()).toBe(200)

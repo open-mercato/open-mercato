@@ -122,12 +122,15 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
         ],
       },
       {
-        // Every response under the attachment file path — the route's own and
-        // the API dispatcher's (unknown sub-paths, errors) — gets a sandboxing
-        // CSP from here, and Next.js keeps it over the route's header. It also
-        // allows inline styles and data: images, which only a sanitised SVG
-        // served inline uses; every other file is a raster image or an
-        // octet-stream download, which no CSP directive affects.
+        // Responses whose raw path starts with the attachment file path — the
+        // route's own and the API dispatcher's (unknown sub-paths, errors) —
+        // get a sandboxing CSP from here, and Next.js keeps it over the
+        // route's header. Sources match the undecoded path, so a
+        // percent-encoded spelling (`/api/attachments/%66ile/<id>`) still
+        // reaches the route under the app CSP; the route therefore serves a
+        // sanitised SVG inline only on the canonical path. The extra inline
+        // style and data: image allowances are used only by that SVG; every
+        // other file is a raster image or an octet-stream download.
         source: '/api/attachments/file/:path*',
         headers: [
           { key: 'Content-Security-Policy', value: "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox" },

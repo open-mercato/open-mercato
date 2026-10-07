@@ -33,6 +33,19 @@ function jsonResponse(body: { error: string }, init: { status: number }) {
   });
 }
 
+/**
+ * `next.config.ts` gives this path its sandboxing CSP by matching the raw,
+ * still percent-encoded pathname, and that header wins over the route's own.
+ * The API dispatcher decodes segments, so `/api/attachments/%66ile/{id}` or
+ * `/api/%61ttachments/file/{id}` reach this route while the header rule does
+ * not match them and the app CSP applies instead. A sanitised SVG is served
+ * inline only when the request used the exact canonical path; any other
+ * spelling gets a download.
+ */
+function isCanonicalFilePath(url: URL, id: string): boolean {
+  return url.pathname === `/api/attachments/file/${encodeURIComponent(id)}`;
+}
+
 export const metadata = {
   GET: { requireAuth: false },
 };
@@ -105,7 +118,8 @@ export async function GET(
 
   const url = new URL(req.url);
   const forceDownload = url.searchParams.get("download") === "1";
-  const vectorImage = isTrustedVectorImage(attachment, buffer);
+  const vectorImage =
+    isCanonicalFilePath(url, id) && isTrustedVectorImage(attachment, buffer);
   const renderInline =
     !forceDownload && (vectorImage || canRenderInlineAttachment(attachment.mimeType));
   const inlineContentType = vectorImage
