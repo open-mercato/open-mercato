@@ -69,6 +69,7 @@ const MARKABLE_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon'])
 const NON_INHERITED_REFERENCE_PROPERTIES = new Set(['clip-path', 'mask', 'filter'])
 const SIMPLE_SELECTOR_NAME = '-?[_a-zA-Z\\u0080-\\uffff][-_a-zA-Z0-9\\u0080-\\uffff]*'
 const CSS_IDENTIFIER_PATTERN = new RegExp(`^${SIMPLE_SELECTOR_NAME}$`)
+const PLAIN_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/
 const NON_RENDERING_PROPERTY_SOURCES = new Set(['lineargradient', 'radialgradient', 'stop', 'filter'])
 
 const NODE_ELEMENT = 1
@@ -156,19 +157,9 @@ type DomDocument = DomNode & {
   getElementsByTagName(name: string): { length: number }
 }
 
-type CssomStyleElement = {
-  textContent: string | null
-  sheet: { cssRules: ArrayLike<{ type: number; selectorText?: string }> } | null
-  remove(): void
-}
-
 type DomWindow = {
   DOMParser: new () => { parseFromString(text: string, type: string): DomDocument }
   XMLSerializer: new () => { serializeToString(node: DomNode): string }
-  document: {
-    head: { appendChild(node: CssomStyleElement): unknown } | null
-    createElement(name: 'style'): CssomStyleElement
-  }
   close(): void
 }
 
@@ -191,10 +182,10 @@ let runtimePromise: Promise<SanitizerRuntime> | null = null
 async function loadSanitizerRuntime(): Promise<SanitizerRuntime> {
   if (!runtimePromise) {
     runtimePromise = (async (): Promise<SanitizerRuntime> => {
-      const [{ JSDOM, VirtualConsole }, purifyModule] = await Promise.all([import('jsdom'), import('dompurify')])
+      const [{ JSDOM }, purifyModule] = await Promise.all([import('jsdom'), import('dompurify')])
       const createPurify = (purifyModule.default ?? purifyModule) as unknown as (window: unknown) => PurifyInstance
       return {
-        createWindow: () => new JSDOM('', { virtualConsole: new VirtualConsole() }).window as unknown as DomWindow,
+        createWindow: () => new JSDOM('').window as unknown as DomWindow,
         createPurify: (window: DomWindow) => createPurify(window),
       }
     })().catch((error) => {
@@ -406,9 +397,15 @@ function isAllowedRasterDataUri(value: string): boolean {
  * Classifies a reference exactly as given: callers strip only what their own
  * syntax strips (C0 controls and spaces for an attribute URL, ASCII whitespace
  * for an unquoted CSS `url(`, nothing inside a quoted CSS string).
+ *
+ * A fragment is allowed only as `#` and a plain id (`PLAIN_ID_PATTERN`, which
+ * every `id` must also match). A browser percent-decodes a fragment
+ * (`#%61` names `id="a"`); with plain ids on both sides there is no encoding
+ * for the sanitiser and a browser to read differently, and lookups use the id
+ * verbatim.
  */
 function classifyReference(value: string, allowRasterData: boolean): VectorImageFindingKind | null {
-  if (/^#[^\s#]+$/.test(value)) return null
+  if (value.startsWith('#')) return PLAIN_ID_PATTERN.test(value.slice(1)) ? null : 'active_content'
   if (allowRasterData && isAllowedRasterDataUri(value)) return null
   if (ACTIVE_SCHEME_PATTERN.test(normaliseUrlValue(value))) return 'active_content'
   return 'external_reference'
@@ -448,9 +445,10 @@ type CssToken = { type: CssTokenType; value: string }
  * Returns null — refused as active content — for what could make it disagree
  * with a browser and logos never need: an escape (`\`), a string ended by a
  * newline or by the end of the text, an unterminated comment or `url(`, a
- * malformed unquoted URL (quote, `(` or inner whitespace), a CDO or CDC token
- * (`<!--`, `-->`), and a vendor-prefixed `url(` (a plain function to a
- * browser, in which `/*` opens a comment).
+ * malformed unquoted URL (quote, `(` or inner whitespace), and a
+ * vendor-prefixed `url(` (a plain function to a browser, in which `/*` opens a
+ * comment). CDO and CDC (`<!--`, `-->`) tokenise here as a `--` identifier,
+ * which the policy refuses as a custom property.
  */
 function tokenizeCss(css: string): CssToken[] | null {
   const tokens: CssToken[] = []
@@ -464,7 +462,6 @@ function tokenizeCss(css: string): CssToken[] | null {
       continue
     }
     if (character === '\\') return null
-    if (css.startsWith('<!--', index) || css.startsWith('-->', index)) return null
     if (character === '"' || character === "'") {
       let end = index + 1
       while (end < css.length && css[end] !== character) {
@@ -903,6 +900,12 @@ function findReferenceViolation(
     if (finding || !isElement(node)) return false
     const tag = node.localName.toLowerCase()
     const attributes = attributesOf(node)
+    const id = node.getAttribute('id')
+    const xmlId = attributes.some((attribute) => attribute.namespaceURI === XML_NAMESPACE && attribute.localName === 'id')
+    if (xmlId || (id !== null && !PLAIN_ID_PATTERN.test(id))) {
+      finding = { kind: 'active_content', target: `${describeElement(node)}@id` }
+      return false
+    }
     if (hasConflictingHrefs(attributes)) {
       finding = { kind: 'active_content', target: `${describeElement(node)}@href` }
       return false
@@ -1068,45 +1071,18 @@ function parseStyleRules(tokens: CssToken[]): StyleRule[] | null {
 }
 
 /**
- * True when jsdom's own CSSOM, an independent parser, reads the stylesheet as
- * the same style rules with the same selectors. A disagreement means one of
- * the two readers splits the text differently, so the document is refused.
+ * Reads one `<style>` once: one tokenization, then the CSS policy and the
+ * rules over the same tokens. jsdom's CSSOM (rrweb-cssom) is never used on
+ * untrusted CSS: it is quadratic on `@`, `!` and `(` and reads `url(/*` as a
+ * comment, unlike browsers.
  */
-function cssomAgrees(window: DomWindow, css: string, rules: StyleRule[]): boolean {
-  const style = window.document.createElement('style')
-  style.textContent = css
-  try {
-    window.document.head?.appendChild(style)
-    const parsed = style.sheet?.cssRules
-    if (!parsed || parsed.length !== rules.length) return false
-    for (let index = 0; index < rules.length; index += 1) {
-      const rule = parsed[index]
-      if (!rule || rule.type !== 1) return false
-      const selectorText = (rule.selectorText ?? '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/[\t\n\f\r ]+/g, '')
-      if (selectorText !== rules[index]!.selectors.join(',')) return false
-    }
-    return true
-  } catch {
-    return false
-  } finally {
-    style.remove()
-  }
-}
-
-/**
- * Reads one `<style>` once: one tokenization, the CSS policy and the rules
- * over the same tokens, then jsdom's CSSOM as an independent cross-check
- * (skipped past the rule cap, which refuses the document anyway).
- */
-function readStylesheet(css: string, agreesWithCssom: (rules: StyleRule[]) => boolean): StylesheetReading {
+function readStylesheet(css: string): StylesheetReading {
   const tokens = tokenizeCss(css)
   if (!tokens) return { kind: 'active_content' }
   const verdict = inspectCssTokens(tokens, null, null)
   if (verdict) return { kind: verdict }
   const rules = parseStyleRules(tokens)
-  if (!rules) return { kind: 'active_content' }
-  if (rules.length <= VECTOR_IMAGE_MAX_STYLE_RULES && !agreesWithCssom(rules)) return { kind: 'active_content' }
-  return { rules }
+  return rules ? { rules } : { kind: 'active_content' }
 }
 
 function addToBucket(buckets: Map<string, ReferenceBucket>, key: string, reference: FragmentReference): void {
@@ -1463,7 +1439,7 @@ export async function sanitizeVectorImage(buffer: Buffer): Promise<VectorImageSa
     const stylesheetRules: StyleRule[] = []
     const referenceFinding = findReferenceViolation(
       sanitised,
-      (css) => readStylesheet(css, (rules) => cssomAgrees(window, css, rules)),
+      readStylesheet,
       stylesheetRules,
     )
     if (referenceFinding) return refuse(referenceFinding)

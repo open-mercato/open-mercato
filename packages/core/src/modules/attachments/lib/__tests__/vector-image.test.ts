@@ -158,8 +158,6 @@ describe('sanitizeVectorImage — benign logos', () => {
   })
 
   it.each([
-    ['{ and } inside an unquoted url()', '.a{fill:url(#x}path{y)} .b{fill:#123456}'],
-    ['; inside an unquoted url()', '.a{fill:url(#x;y)} .b{fill:#123456}'],
     ['comment openers and closers inside quoted strings', '.a{font-family:"/*"} .b{fill:url(#g)} .c{font-family:"*/"}'],
     ['/* and */ in two separate stylesheets', '.a{fill:#123456}</style><style>.b{fill:url(#g)} .c{fill:#654321}'],
     ['!important and an upper-case property', '.a{FILL:url(#g)!important}'],
@@ -400,6 +398,11 @@ describe('sanitizeVectorImage — bounded cost', () => {
     ['900 stylesheet rules referencing 900 targets from every rect', wrap(`<style>${Array.from({ length: 900 }, (_, index) => `rect{marker-start:url(#g${index})}`).join('')}</style><defs>${Array.from({ length: 900 }, (_, index) => `<linearGradient id="g${index}"/>`).join('')}</defs>${'<rect/>'.repeat(elements - 902)}`), true],
     ['a 1 MiB stylesheet of url() rules (refused by the rule cap)', wrap(`<defs><linearGradient id="g"/></defs><style>${'.a{fill:url(#g)}'.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 16))}</style><rect class="a"/>`), false],
     ['stylesheet rules at the selector-times-reference work cap', wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 1250 }, (_, rule) => `${Array.from({ length: 16 }, (_, index) => `.r${rule}s${index}`).join(',')}{fill:url(#g)}`).join('')}</style>${'<rect class="r0s0"/>'.repeat(elements - 4)}`), true],
+    ['1 MiB of empty functions in one declaration', wrap(`<style>a{fill:${'x() '.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 4))}}</style><rect/>`), true],
+    ['1 MiB of @ in one declaration', wrap(`<style>a{fill:${'@'.repeat(VECTOR_IMAGE_MAX_BYTES - 400)}}</style><rect/>`), true],
+    ['1 MiB of @ inside a url() (refused)', wrap(`<style>a{fill:url(#a${'@'.repeat(VECTOR_IMAGE_MAX_BYTES - 400)})}</style><rect/>`), false],
+    ['1 MiB of ! in one declaration', wrap(`<style>a{fill:x${'!'.repeat(VECTOR_IMAGE_MAX_BYTES - 400)}}</style><rect/>`), true],
+    ['1 MiB of url() in one declaration (refused)', wrap(`<defs><linearGradient id="g"/></defs><style>a{fill:${'url(#g) '.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 8))}}</style><rect/>`), false],
     ['2,000 selectors by 2,000 custom-property references (refused)', wrap(`<style>${Array.from({ length: 2000 }, (_, index) => `.c${index}`).join(',')}{${Array.from({ length: 2000 }, (_, index) => `--v${index}:url(#i${index})`).join(';')}}</style><rect/>`), false],
     ['8,000 selectors by 8,000 custom-property references (refused)', wrap(`<style>${Array.from({ length: 8000 }, (_, index) => `.c${index}`).join(',')}{${Array.from({ length: 8000 }, (_, index) => `--v${index}:url(#i${index})`).join(';')}}</style><rect/>`), false],
     ['20,000 nested @media blocks (refused)', wrap(`<style>${'@media{'.repeat(20000)}${'}'.repeat(20000)}</style><rect/>`), false],
@@ -427,6 +430,12 @@ describe('inspectVectorImageCss', () => {
     [`background:url(data:image/png;base64,${TINY_PNG_BASE64})`, null],
     ['fill:#123456;stroke-width:2', null],
     ['marker-mid:var(--m)', 'active_content'],
+    ['fill:-webkit-url(#a)', 'active_content'],
+    ['fill:-moz-url(#a)', 'active_content'],
+    ['<!-- fill:#123456', 'active_content'],
+    ['fill:#123456 -->', 'active_content'],
+    ['fill:url(#%61)', 'active_content'],
+    ['fill:url("#a b")', 'active_content'],
     ['--m:url(#marker)', 'active_content'],
     ['fill:url(https://example.com/p.svg#p)', 'external_reference'],
     ['fill:url(//example.com/p.svg#p)', 'external_reference'],

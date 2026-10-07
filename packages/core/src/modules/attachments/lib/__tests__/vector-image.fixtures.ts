@@ -299,7 +299,7 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
   {
     name: 'external url() hidden after a quoted url() containing a comment opener',
     svg: wrap('<style>rect{fill:url("#a/*")} circle{fill:url(https://evil.example/p.svg#p)} /*")*/</style><rect id="a" width="10" height="10"/><circle r="2"/>'),
-    code: 'vector_image_external_reference',
+    code: 'vector_image_unsafe_content',
   },
   {
     name: 'DOCTYPE whose public id contains > ahead of an internal subset',
@@ -603,7 +603,7 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
   {
     name: '@import hidden by /* inside an unquoted url()',
     svg: wrap(`<style>.a{fill:url(#x/*)} @import 'https://evil.example/x.css'; .z{fill:url(#y*/)}</style><rect width="1" height="1"/>`),
-    code: 'vector_image_external_reference',
+    code: 'vector_image_unsafe_content',
   },
   {
     name: '@font-face hidden by /* inside an unquoted url()',
@@ -637,11 +637,50 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
     ['a rule left open to the end', '.a{fill:red'],
     ['@charset', '@charset "utf-8"; .a{fill:red}'],
     ['a } inside parentheses', '.a{fill:rgb(1}2)} .b{fill:red}'],
+    ['a rule closed while a parenthesis is open', '.a{fill:rgb(1;} .b{fill:red}'],
   ].map(([label, css]): MaliciousFixture => ({
     name: `a stylesheet parse differential: ${label}`,
     svg: wrap(`<style>${css}</style><rect class="a" width="1" height="1"/>`),
     code: 'vector_image_unsafe_content',
   })),
+  ...[
+    ['percent-encoded', '%61'],
+    ['entity-encoded percent', '&#x25;61'],
+    ['non-ASCII', '\u00e1'],
+    ['with a { and a }', 'a}x{y'],
+    ['with a ;', 'a;b'],
+  ].flatMap(([form, fragment]): MaliciousFixture[] => [
+    ['an href', `<defs><g id="a"><rect width="1" height="1"/></g></defs><use href="#${fragment}"/>`],
+    ['an xlink:href', `<defs><g id="a"><rect width="1" height="1"/></g></defs><use xlink:href="#${fragment}"/>`],
+    ['a stylesheet url()', `<defs><linearGradient id="a"/></defs><style>rect{fill:url(#${fragment})}</style><rect width="1" height="1"/>`],
+    ['a style attribute url()', `<defs><linearGradient id="a"/></defs><rect style="fill:url(#${fragment})" width="1" height="1"/>`],
+    ['a presentation attribute url()', `<defs><linearGradient id="a"/></defs><rect fill="url(#${fragment})" width="1" height="1"/>`],
+  ].map(([channel, body]) => ({
+    name: `a ${form} fragment in ${channel}`,
+    svg: wrap(body!),
+    code: 'vector_image_unsafe_content' as const,
+  }))),
+  ...[
+    ['a percent sign', 'a%61'],
+    ['an entity-encoded non-ASCII letter', '&#xe9;'],
+    ['a space', 'a b'],
+    ['a colon', 'a:b'],
+    ['a leading digit', '1a'],
+  ].map(([label, id]): MaliciousFixture => ({
+    name: `an id with ${label}`,
+    svg: wrap(`<defs><linearGradient id="${id}"/></defs><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  {
+    name: 'an xml:id referenced by <use>, which the id lookup would not see',
+    svg: wrap('<defs><rect xml:id="b" width="1" height="1"/></defs><use href="#b"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'ten-wide <use> chain eight levels deep written with percent-encoded fragments',
+    svg: wrap(`<defs><g id="a0"><rect width="1" height="1"/></g>${Array.from({ length: 8 }, (_, index) => `<g id="a${index + 1}">${`<use href="#%61${index}"/>`.repeat(10)}</g>`).join('')}</defs><use href="#a8"/>`),
+    code: 'vector_image_unsafe_content',
+  },
   {
     name: 'a stylesheet rule with more selectors than the cap',
     svg: wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 33 }, (_, index) => `.c${index}`).join(',')}{fill:url(#g)}</style><rect class="c0" width="1" height="1"/>`),
