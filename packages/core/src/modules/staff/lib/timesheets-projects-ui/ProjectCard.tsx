@@ -139,7 +139,7 @@ const projectCardLabelsSchema: z.ZodType<ProjectCardLabels> = z.object({
   statuses: z.record(z.string(), z.string()),
 })
 
-const projectCardPropsSchema: z.ZodType<ProjectCardProps> = z.object({
+export const projectCardPropsSchema: z.ZodType<ProjectCardProps> = z.object({
   data: projectCardDataSchema,
   labels: projectCardLabelsSchema,
   showTeam: z.boolean(),

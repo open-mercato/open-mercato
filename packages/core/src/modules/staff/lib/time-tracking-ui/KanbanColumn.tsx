@@ -269,7 +269,7 @@ function KanbanColumnImpl({
 
 const DefaultKanbanColumn = React.memo(KanbanColumnImpl)
 
-const kanbanColumnPropsSchema: z.ZodType<KanbanColumnProps> = z.object({
+export const kanbanColumnPropsSchema: z.ZodType<KanbanColumnProps> = z.object({
   status: opaqueProp<BoardStatus>(),
   tasks: z.array(opaqueProp<BoardTask>()),
   total: z.number(),

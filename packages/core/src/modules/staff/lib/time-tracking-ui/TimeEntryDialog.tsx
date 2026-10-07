@@ -1898,7 +1898,7 @@ function DefaultTimeEntryDialog({
   )
 }
 
-const timeEntryDialogPropsSchema: z.ZodType<TimeEntryDialogProps> = z.object({
+export const timeEntryDialogPropsSchema: z.ZodType<TimeEntryDialogProps> = z.object({
   open: z.boolean(),
   onOpenChange: callbackProp<(open: boolean) => void>(),
   entryId: z.string().nullable().optional(),
