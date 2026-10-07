@@ -1,12 +1,16 @@
 "use client"
 
 import * as React from 'react'
-import { Label } from './label'
+import { Label, FieldLabel } from './label'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 export type FormFieldProps = {
   /** Visible label text */
   label?: string
+  labelSublabel?: React.ReactNode
+  labelInformation?: React.ReactNode
+  labelAction?: React.ReactNode
+  sourceLabel?: boolean
   /** Auto-generated if not provided. Links label → input via htmlFor/id */
   id?: string
   /** Show required indicator (*) next to label */
@@ -27,6 +31,10 @@ export type FormFieldProps = {
 
 export function FormField({
   label,
+  labelSublabel,
+  labelInformation,
+  labelAction,
+  sourceLabel = false,
   id: idProp,
   required = false,
   description,
@@ -60,13 +68,16 @@ export function FormField({
       className={cn(
         isHorizontal
           ? 'flex items-center justify-between gap-4'
-          : 'flex flex-col gap-1.5',
-        disabled && 'opacity-50',
+          : 'flex flex-col gap-1',
         className,
       )}
       data-slot="form-field"
     >
-      {label ? (
+      {label && (sourceLabel || labelSublabel || labelInformation || labelAction) ? (
+        <FieldLabel htmlFor={fieldId} required={required} sublabel={labelSublabel} information={labelInformation} action={labelAction} disabled={disabled} className={cn(isHorizontal && 'min-w-0 shrink-0')}>
+          {label}
+        </FieldLabel>
+      ) : label ? (
         <Label
           htmlFor={fieldId}
           className={cn(
@@ -96,7 +107,7 @@ export function FormField({
       ) : description ? (
         <p
           id={descriptionId}
-          className="text-xs text-muted-foreground"
+          className={cn('text-xs', disabled ? 'text-text-disabled' : 'text-muted-foreground')}
         >
           {description}
         </p>

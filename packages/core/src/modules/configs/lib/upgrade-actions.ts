@@ -12,6 +12,7 @@ export type UpgradeActionContext = {
   organizationId: string
   container: AppContainer
   em: EntityManager
+  deferAfterCommit?: (callback: () => void | Promise<void>) => void
 }
 
 export type UpgradeActionDefinition = {
@@ -21,6 +22,12 @@ export type UpgradeActionDefinition = {
   ctaKey: string
   successKey: string
   loadingKey?: string
+  /**
+   * Modules that must be enabled for this action to be offered/executed.
+   * Mirrors `InjectionWidgetMetadata.requiredModules` — omit for actions
+   * owned by `configs` itself.
+   */
+  requiredModules?: string[]
   run: (ctx: UpgradeActionContext) => Promise<void>
 }
 
@@ -75,12 +82,23 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     // of which fields to encrypt; the tenant DEK still drives the actual crypto, so seeding it is safe
     // even when encryption is currently disabled — it only takes effect once encryption is on).
     // Lazy-imported so configs stays decoupled from devices/entities (mirrors the customers action).
-    run: async ({ em, tenantId, organizationId }) => {
-      const [{ default: devicesEncryptionMaps }, { upsertEncryptionMapSpecs }] = await Promise.all([
+    run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
+      const [{ default: devicesEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
         import('@open-mercato/core/modules/devices/encryption'),
         import('@open-mercato/core/modules/entities/cli'),
       ])
-      await upsertEncryptionMapSpecs(em, tenantId, organizationId ?? null, devicesEncryptionMaps)
+      const materializedScopes = await upsertEncryptionMapSpecs(
+        em,
+        tenantId,
+        organizationId ?? null,
+        devicesEncryptionMaps,
+      )
+      const invalidate = async () => {
+        const encryptionService = container.resolve('tenantEncryptionService') as Parameters<typeof invalidateEncryptionMapScopes>[0]
+        await invalidateEncryptionMapScopes(encryptionService, materializedScopes)
+      }
+      if (deferAfterCommit) deferAfterCommit(invalidate)
+      else await invalidate()
     },
   },
   {
@@ -119,11 +137,43 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.cta',
     successKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.success',
     loadingKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.loading',
+    requiredModules: ['payment_gateways'],
     run: async ({ container, tenantId, organizationId }) => {
       const { registerSessionInitializationPruneSchedule } = await import(
         '@open-mercato/core/modules/payment_gateways/setup'
       )
       await registerSessionInitializationPruneSchedule(container, { tenantId, organizationId })
+    },
+  },
+  {
+    id: 'phone_calls.seed-call-encryption-maps',
+    version: '0.7.1',
+    messageKey: 'phone_calls.config.upgradeActions.encryptionMaps.message',
+    ctaKey: 'phone_calls.config.upgradeActions.encryptionMaps.cta',
+    successKey: 'phone_calls.config.upgradeActions.encryptionMaps.success',
+    loadingKey: 'phone_calls.config.upgradeActions.encryptionMaps.loading',
+    // `Migration20260822120000` backfills these maps, but only for scopes that had active maps when
+    // it ran. A tenant that upgraded with encryption disabled and turned it on afterwards is left
+    // without a map, so ingest writes call PII as plaintext with nothing to signal it. This is the
+    // heal for that case, and the same re-assert path devices exposes for its own map.
+    // Lazy-imported so configs stays decoupled from phone_calls/entities (mirrors the devices action).
+    run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
+      const [{ default: phoneCallsEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
+        import('@open-mercato/core/modules/phone_calls/encryption'),
+        import('@open-mercato/core/modules/entities/cli'),
+      ])
+      const materializedScopes = await upsertEncryptionMapSpecs(
+        em,
+        tenantId,
+        organizationId ?? null,
+        phoneCallsEncryptionMaps,
+      )
+      const invalidate = async () => {
+        const encryptionService = container.resolve('tenantEncryptionService') as Parameters<typeof invalidateEncryptionMapScopes>[0]
+        await invalidateEncryptionMapScopes(encryptionService, materializedScopes)
+      }
+      if (deferAfterCommit) deferAfterCommit(invalidate)
+      else await invalidate()
     },
   },
 ]

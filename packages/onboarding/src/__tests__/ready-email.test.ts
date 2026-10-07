@@ -47,6 +47,7 @@ function makeReadyRequest(overrides: Record<string, unknown> = {}) {
     organizationName: 'Acme Corp',
     locale: 'en',
     tenantId: 'tenant-uuid',
+    organizationId: 'organization-uuid',
     readyEmailSentAt: null,
     ...overrides,
   })
@@ -80,6 +81,10 @@ describe('sendWorkspaceReadyEmail', () => {
     expect(props.loginUrl).toBe('https://app.openmercato.com/login?tenant=tenant-uuid')
     expect(props.loginUrl).not.toContain('evil.com')
     expect(sendEmailMock).toHaveBeenCalledTimes(1)
+    expect(sendEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-uuid',
+      organizationId: 'organization-uuid',
+    }))
     expect(markReadyEmailSentMock).toHaveBeenCalledTimes(1)
   })
 

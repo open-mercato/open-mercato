@@ -35,7 +35,7 @@ describe('directory/invalidateOrgScopeCache subscriber', () => {
     })
     await handler({ tenantId: 'tenant-123', id: 'org-xyz' }, makeCtx({ deleteByTags }))
     expect(deleteByTags).toHaveBeenCalledTimes(1)
-    expect(deleteByTags).toHaveBeenCalledWith(['org-scope:tenant:tenant-123'])
+    expect(deleteByTags).toHaveBeenCalledWith(['org-scope:v2:tenant:tenant-123'])
     expect(cacheTenants).toEqual(['tenant-123'])
   })
 

@@ -38,6 +38,7 @@ yarn workspace @open-mercato/shared build
 | `auth/organizationScope` | When an organization-scoped API route must resolve the caller's organization — falls back to `actorOrgId` for an "all organizations" selection, but only while the effective tenant is still the actor's tenant. On `null` for an authenticated caller answer with `organizationScopeRequiredResponse()` (400, code `organization_scope_required`) — never 401 | `@open-mercato/shared/lib/auth/organizationScope` — `resolveActiveOrganizationId(auth)`, `organizationScopeRequiredResponse()` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `browser/` | When persisting client UI state to `localStorage` — use the safe wrappers and the versioned-envelope helper instead of raw `localStorage` reads/writes | `@open-mercato/shared/lib/browser/safeLocalStorage`, `@open-mercato/shared/lib/browser/versionedPreference` |
+| `catalog-visibility/` | When combining buyer-facing catalog assortment grants (group-level, channel-level) into one effective visibility check — `AssortmentScope`/`EffectiveAssortmentScope` types plus the pure `matchesOne`/`matchesScope`/`unionScopes`/`intersectScopes` algebra. Imports nothing from `catalog`, `customer_groups`, `ecommerce`, or `cart` by construction; `customer_groups`'s `resolveAssortmentScope()` and `ecommerce`'s `BuyerContext.assortmentScope` composition build on top of it | `@open-mercato/shared/lib/catalog-visibility` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
 | `commands/flush` | When a command mutates entities across multiple phases (scalar + relation syncs) — wraps phases in a single atomic flush | `@open-mercato/shared/lib/commands/flush` — `withAtomicFlush(em, phases, { transaction? })` |
 | `commands/runCrudCommandWrite` | When a command writes an entity + custom fields + CRUD/index side effects in one logical operation — composes fork → atomic flush → custom-field write → side-effect queue in the only correct order. **Prefer this over composing the primitives by hand for new commands.** | `@open-mercato/shared/lib/commands/runCrudCommandWrite` — `runCrudCommandWrite({ ctx, entityId, action, scope, phases, customFields?, events?, indexer?, sideEffect })` |
@@ -52,7 +53,7 @@ yarn workspace @open-mercato/shared build
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
 | `logger/` | When emitting diagnostics — `createLogger(namespace)` instead of raw `console.*` (migrate incrementally, Boy Scout rule). Message-first with structured fields (`logger.warn('Payload too large', { event, maxBytes })`), errors under `err`, `child(bindings)` for context, `getLogLevel()`/`isLevelEnabled()` to gate expensive fields; level via `OM_LOG_LEVEL`. Never log credentials, PII, or payload bodies | `@open-mercato/shared/lib/logger` |
 | `modules/` | When registering or listing modules; `onModulesRegistered(listener)` subscribes to (re-)registrations so a cache derived from the module list can drop what it built from an incomplete one — bootstrap may register an i18n-only set before the full module list merges in, and listeners fire only when the registered set actually changed, so nothing is added to the request path. Its governing contract — notification timing, fail-soft handling of a throwing or rejecting listener, snapshot-based change detection, listener lifetime under HMR, and the globals a test MUST clear — is [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](../../.ai/specs/2026-08-12-module-registry-registration-listeners.md); `surfaceFingerprint` gives a deploy-time hash of the enabled modules, their declared ACL features, and the backend route manifest — mix it into any cache key whose payload is derived from those (no DB write exists to tag-invalidate on, so an omitted fingerprint serves the pre-deploy payload forever). It cannot see React-element fields such as a route `icon`, so callers MUST still pass a `ttl` | `@open-mercato/shared/lib/modules/registry`, `@open-mercato/shared/lib/modules/surfaceFingerprint` |
-| `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
+| `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint (`parseNumberWithDefault`), or when parsing a number a USER TYPED, which carries the application locale's decimal/group separators (`parseLocaleNumber`, returns `null` — never a silent `0` — on unparseable input). MUST NOT run API/DB values through `parseLocaleNumber`; those are already numbers | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
 | `search/` | When resolving record ids from the `search_tokens` index — MUST use instead of hand-rolling the Kysely lookup, and MUST be unioned into (or replace) any `$ilike` filter on a column an encryption map covers | `@open-mercato/shared/lib/search/tokenLookup` |
@@ -124,9 +125,12 @@ index stores hashes of the plaintext, so it keeps matching. Issue #2990.
 - `matched: true` with `ids: []` is a real empty result.
 - Queries that go through the query engine get this routing automatically; raw
   `em.find` / Kysely list routes must wire it themselves. One carve-out: with
-  `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` (default false), a base-column
-  `like`/`ilike` on a **plaintext** column runs as exact SQL ILIKE instead of the token
-  rewrite — encrypted columns keep the token path either way. When the fallback would run
+  `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` (**off by default per #5383**, opt in ahead
+  of it to fix #5803), a base-column `like`/`ilike` on a **plaintext** column runs as SQL ILIKE —
+  one containment predicate per word of the term, ANDed (`lib/search/containment`), so word-order
+  independence survives the reroute — instead of the token rewrite; encrypted columns keep the
+  token path either way. Leaving the var unset keeps the legacy rewrite-everything behavior. When
+  the fallback would run
   `ILIKE` against an encrypted column, both query engines now log a warning
   (`lib/query/ciphertext-search-warning`) instead of degrading silently.
 - The `…WithDecryption` helpers log the same warning outside production when the `where`
@@ -272,6 +276,7 @@ A command's `buildLog()` returns `payload: { undo: { before, after } }`, but the
 
 MUST rules:
 - Inside `undo()`, read the snapshot **only** through `extractUndoPayload<UndoPayload<TSnapshot>>(logEntry)` from `@open-mercato/shared/lib/commands/undo`. It unwraps `commandPayload` (and the redo envelope) and falls back to `snapshotBefore`/`snapshotAfter`.
+- Snapshot `Date`s come back as ISO strings: pass `{ dateFields: [...] }` (or `datePaths`) to `extractUndoPayload` before assigning them to entities (#6336).
 - NEVER access `logEntry.payload` in an undo handler. The `logEntry` parameter is typed as `CommandUndoLogEntry`, which intentionally omits `payload` so this footgun is a compile-time error.
 - Delete-undo should be robust to either deletion strategy: clear `deletedAt` when the row survives (soft delete), otherwise re-create the entity from the snapshot (mirror `packages/core/src/modules/sales/commands/configuration.ts`).
 

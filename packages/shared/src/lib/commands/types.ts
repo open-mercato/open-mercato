@@ -1,8 +1,10 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { ZodTypeAny } from 'zod'
 import { randomUUID } from 'crypto'
 import type { AuthContext } from '../auth/server'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { TransactionLifetime } from './transaction-lifetime'
 
 /**
  * Bulk-import / backfill deferral flags. When a command runs under a context that
@@ -57,13 +59,73 @@ export type CommandRuntimeContext = {
    * surrounding work as a single atomic, single-locked operation.
    */
   transactionalEm?: EntityManager
+  /**
+   * Identifies the owner of an already-active {@link transactionalEm} lifetime.
+   * Atomic replay accepts an ambient EntityManager only when this is the exact
+   * token returned by `getTransactionLifetime(transactionalEm)` from the outer
+   * `withAtomicFlush` phase. The owner completes the token after its real commit
+   * or rollback, allowing replay leases and post-commit work to follow that
+   * boundary. Omit when the command bus opens and owns the transaction itself.
+   */
+  transactionLifetime?: TransactionLifetime
+  /**
+   * Optional request-level replay authorization that the command bus binds to
+   * its replay EntityManager. Atomic handlers run this guard in the same
+   * transaction as the source-log transition and domain mutation; legacy
+   * handlers run it in a dedicated read transaction before preserving their
+   * existing replay lifecycle.
+   */
+  replayTransactionGuard?: (args: {
+    operation: CommandReplayOperation
+    logEntry: CommandUndoLogEntry
+    transactionalEm: EntityManager
+  }) => Promise<void> | void
+  /**
+   * On-behalf-of attribution for non-human principals (Agent Identity &
+   * On-Behalf-Of, Wave 4 P2). When an agent runs on behalf of a human, the
+   * orchestrator's `runAs` wrapper sets this so every `ActionLog` the command
+   * path writes records `actorUserId = runAs.actorUserId` (the agent principal's
+   * `auth.User` id), `onBehalfOfUserId = runAs.onBehalfOfUserId` (the invoking
+   * human, or null for system-invoked agents), and `sourceKey = runAs.source`
+   * (`'agent'`). Additive + optional: callers that omit it keep the existing
+   * `ctx.auth.sub`-derived attribution unchanged. This threads agent attribution
+   * through the SAME audited Command/CRUD path as a human action — not a parallel
+   * audit path.
+   */
+  runAs?: CommandRunAsContext
+}
+
+export type CommandRunAsContext = {
+  /** The actor stamped on every ActionLog this context produces (agent `auth.User` id). */
+  actorUserId: string
+  /** The human (or system) principal the actor acts on behalf of; null when system-invoked. */
+  onBehalfOfUserId?: string | null
+  /** The audit source key for the attributed writes; `'agent'` for agent runs. */
+  source: 'agent'
 }
 
 export type CommandLogMetadata = {
   skipLog?: boolean
+  /**
+   * Per-execution replay policy. `false` records the audit entry without an undo
+   * token or command payload, so neither undo nor redo can replay sensitive input.
+   * Omitted preserves the command handler's existing replay behavior.
+   */
+  replayable?: boolean
+  /**
+   * Overrides the command input persisted in the audit entry's redo envelope.
+   * The default is the raw input, which for credential-bearing commands would put
+   * a plaintext secret at rest in `action_logs`. A handler that still wants its
+   * operation to be undoable supplies a redacted projection here instead of
+   * switching the whole entry to `replayable: false` — suppressing the undo token
+   * removes the operator's ability to revert a write that carries no secret of its
+   * own (undoing a user create only deletes a row).
+   */
+  redoInput?: unknown
   tenantId?: string | null
   organizationId?: string | null
   actorUserId?: string | null
+  onBehalfOfUserId?: string | null
   actionLabel?: string | null
   resourceKind?: string | null
   resourceId?: string | null
@@ -82,6 +144,16 @@ export type CommandLogMetadata = {
 export type CommandExecuteResult<TResult> = {
   result: TResult
   logEntry: any | null
+  /**
+   * True when an atomic redo finalized its source action log in the same
+   * transaction as the domain mutation and the newly persisted log entry, and
+   * that transaction has committed. An ambient replay returns this as false
+   * while its caller-owned transaction is still active; the returned result
+   * object is updated to true by the owner's commit callback. It remains false
+   * on rollback. Callers that historically finalized redo themselves can use
+   * this additive signal to avoid a redundant post-commit write.
+   */
+  replaySourceFinalized?: boolean
 }
 
 /**
@@ -126,13 +198,55 @@ export type CommandLogBuilderArgs<TInput, TResult> = {
   }
 }
 
+export type CommandReplayOperation = 'undo' | 'redo'
+
+export type CommandReplayAuthorizationArgs<TInput> = {
+  operation: CommandReplayOperation
+  input: TInput
+  ctx: CommandRuntimeContext
+  logEntry: CommandUndoLogEntry
+}
+
 export interface CommandHandler<TInput = unknown, TResult = unknown> {
   readonly id: string
   readonly isUndoable?: boolean
+  /**
+   * Opts replay into the command bus's transaction-bound lifecycle. The source
+   * action-log transition, handler mutation, and any new replay log share one
+   * EntityManager and commit or roll back together. Handlers that enable this
+   * MUST reuse `ctx.transactionalEm` for every replay-time database operation.
+   * Omitted preserves the legacy non-atomic replay path.
+   */
+  readonly atomicReplay?: boolean
+  /**
+   * Acquires every authorization-state lock needed by an atomic replay before
+   * request-level replay authorization and feature-gated interceptors run.
+   * Implementations MUST discover their complete actor/target/destination set
+   * before taking the first lock and MUST reuse `ctx.transactionalEm`.
+   * Omitted preserves the existing lifecycle for handlers that do not need
+   * domain-specific authorization stabilization.
+   */
+  stabilizeReplay?(params: CommandReplayAuthorizationArgs<TInput>): Promise<void> | void
+  /**
+   * Optional Zod schema describing the command's return value. Feeds the
+   * workflows context ledger so downstream activities can reason about the
+   * shape a command produces; when absent the ledger renders the output as
+   * unknown.
+   */
+  readonly outputSchema?: ZodTypeAny
   prepare?(input: TInput, ctx: CommandRuntimeContext): Promise<{ before?: unknown } | null> | { before?: unknown } | null
   execute(input: TInput, ctx: CommandRuntimeContext): Promise<TResult> | TResult
   buildLog?(args: CommandLogBuilderArgs<TInput, TResult>): Promise<CommandLogMetadata | null | undefined> | CommandLogMetadata | null | undefined
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown
+  /**
+   * Re-authorizes a stored command against the actor and resource state that
+   * exist at replay time. Legacy handlers are checked before claiming an undo
+   * log or beginning redo processing. Atomic handlers are checked inside their
+   * replay transaction before the guarded source transition; their mutation
+   * path can repeat the check after taking domain locks. Throwing aborts replay
+   * without committed domain side effects.
+   */
+  authorizeReplay?(params: CommandReplayAuthorizationArgs<TInput>): Promise<void> | void
   undo?(params: { input: TInput; ctx: CommandRuntimeContext; logEntry: CommandUndoLogEntry }): Promise<void> | void
   /**
    * Optional redo handler. When defined, the command bus calls this instead of

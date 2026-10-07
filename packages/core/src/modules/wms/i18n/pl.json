@@ -1,4 +1,8 @@
 {
+  "search.entityType.wms.inventory_lot": "Partia zapasu",
+  "search.entityType.wms.product_inventory_profile": "Profil zapasu",
+  "search.entityType.wms.warehouse": "Magazyn",
+  "search.entityType.wms.warehouse_location": "Lokalizacja",
   "wms.audit.inventory.receive": "Przyjmij zapas",
   "wms.audit.salesOrder.assignWarehouse": "Przypisz magazyn do zamówienia",
   "wms.audit.salesOrder.reRunReservation": "Ponów rezerwację dla zamówienia",
@@ -279,6 +283,7 @@
   "wms.backend.inventory.cycleCount.errors.ambiguousLot": "Znaleziono wiele partii w tej lokalizacji — wybierz partię, aby kontynuować.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Włącz auto-korektę, aby zaksięgować rozbieżność.",
   "wms.backend.inventory.cycleCount.errors.balance": "Nie udało się odczytać stanu systemowego.",
+  "wms.backend.inventory.cycleCount.errors.belowCommitted": "Policzona ilość jest mniejsza niż {committed} szt. zarezerwowanych lub przydzielonych w tym miejscu. Zwolnij te rezerwacje przed zaksięgowaniem tego liczenia.",
   "wms.backend.inventory.cycleCount.errors.scope": "Uzupełnij konfigurację i wybierz lokalizację do liczenia.",
   "wms.backend.inventory.cycleCount.errors.scopeEstimate": "Nie udało się oszacować zakresu inwentaryzacji.",
   "wms.backend.inventory.cycleCount.errors.submit": "Nie udało się zaksięgować inwentaryzacji.",

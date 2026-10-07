@@ -2,6 +2,9 @@ const resolveMessageContextMock = jest.fn()
 const canUseMessageEmailFeatureMock = jest.fn(async () => true)
 const isCrudCacheEnabledMock = jest.fn(() => false)
 const findWithDecryptionMock = jest.fn()
+const canUseChannelThreadFallbackMock = jest.fn(async () => true)
+const resolveMessageChannelThreadAccessMock = jest.fn()
+const delegateComposeToSenderMock = jest.fn()
 
 jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async <T>(_tenantId: string | null, callback: () => Promise<T> | T) => callback(),
@@ -22,6 +25,18 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
   canUseMessageEmailFeature: (...args: unknown[]) => canUseMessageEmailFeatureMock(...args),
+  canUseChannelThreadFallback: (...args: unknown[]) => canUseChannelThreadFallbackMock(...args),
+  canPostToChannelThread: jest.fn(async () => true),
+}))
+
+jest.mock('@open-mercato/core/modules/messages/lib/channelThreadAccess', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/messages/lib/channelThreadAccess'),
+  resolveMessageChannelThreadAccess: (...args: unknown[]) => resolveMessageChannelThreadAccessMock(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/messages/lib/composeSenderDelegation', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/messages/lib/composeSenderDelegation'),
+  delegateComposeToSender: (...args: unknown[]) => delegateComposeToSenderMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () => ({
@@ -29,6 +44,7 @@ jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () =
 }))
 
 import { GET, POST } from '@open-mercato/core/modules/messages/api/route'
+import { EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE } from '@open-mercato/core/modules/messages/lib/channelThreadAccess'
 
 const tenantId = '7fb7fe47-ddf6-4f65-b5ae-b08e2df2fdb7'
 const organizationId = '2045013f-8977-4f57-a1cc-9bb7d2f42a0e'
@@ -123,7 +139,7 @@ function mockListContext(options: {
   return { em, cache }
 }
 
-function mockMessageRows() {
+function mockMessageRows(actionData: unknown = null) {
   findWithDecryptionMock.mockImplementation(async (_em, entity) => {
     if (entity?.name === 'Message') {
       return [{
@@ -138,7 +154,7 @@ function mockMessageRows() {
         subject: 'Subject',
         senderUserId: userId,
         priority: 'normal',
-        actionData: null,
+        actionData,
         actionTaken: null,
         sentAt: new Date('2026-06-18T06:00:00.000Z'),
         threadId: messageId,
@@ -234,6 +250,72 @@ describe('messages /api/messages POST', () => {
 
     expect(response.status).toBe(201)
     expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('threads a delegated mailbox send onto the conversation thread the server resolved', async () => {
+    const conversationId = '0f3c2a9e-6f0e-4d0a-9a5c-2f8c6d1b7e41'
+    const senderChannelId = '22222222-2222-4222-8222-222222222222'
+    const resolvedThreadId = '9d4c1e5b-3a7f-4c28-b6d1-8e2f0a7c5b13'
+    resolveMessageChannelThreadAccessMock.mockResolvedValue({
+      messageThreadId: resolvedThreadId,
+      canAccess: true,
+    })
+    delegateComposeToSenderMock.mockResolvedValue({
+      ok: true,
+      messageId,
+      threadId: resolvedThreadId,
+    })
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        visibility: 'public',
+        externalEmail: 'client@example.com',
+        subject: 'Re: Quote',
+        body: 'Body',
+        senderChannelId,
+        sourceEntityType: EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+        sourceEntityId: conversationId,
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(delegateComposeToSenderMock).toHaveBeenCalledTimes(1)
+    expect(delegateComposeToSenderMock.mock.calls[0][2]).toMatchObject({
+      senderChannelId,
+      parentMessageId: resolvedThreadId,
+    })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+})
+
+describe('messages /api/messages GET hasActions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    isCrudCacheEnabledMock.mockReturnValue(false)
+  })
+
+  it('reports hasActions true when actionData round-trips as an encrypted JSON string', async () => {
+    mockMessageRows(JSON.stringify({ actions: [{ id: 'approve', label: 'Approve' }] }))
+    mockListContext()
+
+    const response = await GET(new Request('http://localhost/api/messages?folder=inbox'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items[0].hasActions).toBe(true)
+  })
+
+  it('reports hasActions false when actionData has no actions', async () => {
+    mockMessageRows(null)
+    mockListContext()
+
+    const response = await GET(new Request('http://localhost/api/messages?folder=inbox'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items[0].hasActions).toBe(false)
   })
 })
 

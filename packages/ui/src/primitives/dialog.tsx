@@ -189,6 +189,10 @@ const DIALOG_HEADER_TONE_CLASS: Record<DialogHeaderTone, string> = {
 }
 
 export type DialogHeaderProps = React.HTMLAttributes<HTMLDivElement> & {
+  /** Stack the leading status badge above centered text. */
+  alignment?: 'horizontal' | 'vertical'
+  /** Compact headers use a bare 24px icon instead of the 40px badge. */
+  compact?: boolean
   /** Optional leading icon — rendered inside a size-10 rounded-full
    * badge to the left of the title block. Matches Figma `Modal
    * Header [1.1]` icon-prefixed variants and `Status Modals [1.1]`
@@ -208,13 +212,18 @@ const DialogHeader = ({
   className,
   leading,
   leadingTone = 'default',
+  alignment = 'horizontal',
+  compact = false,
   children,
   ...props
 }: DialogHeaderProps) => (
   <div
     data-slot="dialog-header"
+    data-alignment={alignment}
     className={cn(
-      leading ? 'flex items-start gap-3 text-left' : 'flex flex-col space-y-1.5 text-center sm:text-left',
+      alignment === 'vertical'
+        ? 'flex flex-col items-center gap-4 text-center'
+        : leading ? 'flex items-start gap-3 text-left' : 'flex flex-col space-y-1.5 text-center sm:text-left',
       className,
     )}
     {...props}
@@ -225,8 +234,10 @@ const DialogHeader = ({
         data-tone={leadingTone}
         aria-hidden="true"
         className={cn(
-          'inline-flex size-10 shrink-0 items-center justify-center rounded-full',
-          DIALOG_HEADER_TONE_CLASS[leadingTone],
+          'inline-flex shrink-0 items-center justify-center',
+          compact ? 'size-6' : 'size-10',
+          compact ? DIALOG_HEADER_TONE_CLASS[leadingTone].split(' ').filter(token => token.startsWith('text-')).join(' ') : DIALOG_HEADER_TONE_CLASS[leadingTone],
+          !compact && (leadingTone === 'default' ? 'rounded-full' : 'rounded-lg'),
         )}
       >
         {leading}
@@ -235,7 +246,7 @@ const DialogHeader = ({
     {leading ? (
       <div
         data-slot="dialog-header-text"
-        className="flex min-w-0 flex-1 flex-col gap-1 text-left"
+        className={cn('flex min-w-0 flex-col gap-1', alignment === 'vertical' ? 'w-full text-center' : 'flex-1 text-left')}
       >
         {children}
       </div>

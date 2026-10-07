@@ -4,11 +4,12 @@ import { randomUUID } from "crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
-import type { CommandHandler } from "@open-mercato/shared/lib/commands";
+import type { CommandHandler, CommandRuntimeContext } from "@open-mercato/shared/lib/commands";
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import {
   buildChanges,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   requireId,
   type CrudEventsConfig,
 } from "@open-mercato/shared/lib/commands/helpers";
@@ -27,7 +28,10 @@ import { buildFeatureNotificationFromType } from "../../notifications/lib/notifi
 import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
-import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
+import {
+  normalizeCustomFieldResponse,
+  normalizeCustomFieldValues,
+} from "@open-mercato/shared/lib/custom-fields/normalize";
 import { E } from "#generated/entities.ids.generated";
 import { findWithDecryption, findOneWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import {
@@ -53,6 +57,7 @@ import {
   SalesPaymentMethod,
   SalesDocumentTag,
   SalesDocumentTagAssignment,
+  SalesReturn,
   type SalesLineKind,
   type SalesAdjustmentKind,
   type SalesSettings,
@@ -134,6 +139,8 @@ import {
   mapOrderLineEntityToSnapshot,
   mapQuoteLineEntityToSnapshot,
   resolveUpsertDiscountFields,
+  resolveUpsertTotalsOrigin,
+  resolveUpsertCalculatedAmounts,
 } from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
@@ -691,6 +698,17 @@ type DocumentAdjustmentCreateInput =
 function cloneJson<T>(value: T): T {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Graph snapshots load custom fields through `loadCustomFieldValues`, which keys
+ * them `cf_<key>`. Writing those keys back verbatim stores a new `cf_<key>` row
+ * instead of restoring `<key>`, so restores strip the prefix first.
+ */
+function toSnapshotCustomFieldWriteValues(
+  values: Record<string, unknown>,
+): ReturnType<typeof normalizeCustomFieldValues> {
+  return normalizeCustomFieldValues(normalizeCustomFieldResponse(values) ?? {});
 }
 
 /**
@@ -1516,12 +1534,14 @@ async function applyDocumentUpdate({
       !Array.isArray(input.customFields)
         ? (input.customFields as Record<string, unknown>)
         : {};
+    // Same normalize path as create (`setDocumentCustomFieldsIfSupplied`) so
+    // update and create agree on key/value shapes written to EAV.
     await setRecordCustomFields(em, {
       entityId: kind === "order" ? E.sales.sales_order : E.sales.sales_quote,
       recordId: entity.id,
       organizationId,
       tenantId,
-      values,
+      values: normalizeCustomFieldValues(values),
     });
   }
 }
@@ -3038,6 +3058,13 @@ function isStoredRowSourcedLine(line: DocumentLineCreateInput): boolean {
   );
 }
 
+function isStoredRowSourcedTotalsLine(line: DocumentLineCreateInput): boolean {
+  return (
+    (line as Pick<SalesLineSnapshot, "totalsFromStoredRow">)
+      .totalsFromStoredRow === true
+  );
+}
+
 function createLineSnapshotFromInput(
   line: DocumentLineCreateInput,
   lineNumber: number,
@@ -3079,6 +3106,10 @@ function createLineSnapshotFromInput(
     ...(isStoredRowSourcedLine(line)
       ? { discountAmountFromStoredRow: true }
       : { discountAmountBasis: line.discountAmountBasis ?? "unit" }),
+    // Carried independently of the discount origin above: a line upsert can
+    // take its discount from the caller while its totals still come off the
+    // stored row, and only the caller half is worth reconciling (#5644).
+    ...(isStoredRowSourcedTotalsLine(line) ? { totalsFromStoredRow: true } : {}),
     discountPercent: line.discountPercent ?? null,
     taxRate: line.taxRate ?? null,
     taxAmount: line.taxAmount ?? null,
@@ -4042,9 +4073,65 @@ function applyOrderSnapshot(
   order.lineItemCount = snapshot.lineItemCount;
 }
 
+async function assertQuoteGraphUndoCurrent(
+  em: EntityManager,
+  quoteId: string,
+  expected: QuoteGraphSnapshot,
+): Promise<void> {
+  const current = await loadQuoteSnapshot(em, quoteId);
+  const unchanged =
+    !!current &&
+    sameIds(current.lines, expected.lines) &&
+    sameIds(current.adjustments, expected.adjustments) &&
+    sameRecords(current.notes, expected.notes) &&
+    sameRecords(current.tags, expected.tags) &&
+    sameRecords(current.addresses, expected.addresses);
+  if (!unchanged) return throwDocumentUndoStale("quote");
+}
+
+async function undoQuoteGraph(
+  ctx: CommandRuntimeContext,
+  before: QuoteGraphSnapshot,
+  after: QuoteGraphSnapshot | null | undefined,
+): Promise<void> {
+  ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
+  const em = (ctx.container.resolve("em") as EntityManager).fork();
+  let restored: SalesQuote | undefined;
+  await em.transactional(async (tx) => {
+    const quote = await findOneWithDecryption(
+      tx,
+      SalesQuote,
+      { id: before.quote.id },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+      { tenantId: before.quote.tenantId, organizationId: before.quote.organizationId },
+    );
+    if (after) {
+      if (!quote) return throwDocumentUndoStale("quote");
+      await assertQuoteGraphUndoCurrent(tx, quote.id, after);
+      tx.clear();
+    }
+    restored = await restoreQuoteGraph(tx, before, quote && after ? after : null);
+    await tx.flush();
+  });
+  if (!restored) return;
+  const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action: "updated",
+    entity: restored,
+    identifiers: {
+      id: restored.id,
+      organizationId: restored.organizationId,
+      tenantId: restored.tenantId,
+    },
+    indexer: { entityType: E.sales.sales_quote },
+  });
+}
+
 async function restoreQuoteGraph(
   em: EntityManager,
   snapshot: QuoteGraphSnapshot,
+  verified: QuoteGraphSnapshot | null = null,
 ): Promise<SalesQuote> {
   let quote = await findOneWithDecryption(
     em,
@@ -4156,17 +4243,22 @@ async function restoreQuoteGraph(
     : [];
   const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : [];
   const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : [];
+  const verifiedIds = (entries: ReadonlyArray<{ id: string }> | undefined) =>
+    verified ? { id: { $in: (entries ?? []).map((entry) => entry.id) } } : {};
   await em.nativeDelete(SalesDocumentAddress, {
     documentId: quote.id,
     documentKind: "quote",
+    ...verifiedIds(verified?.addresses),
   });
   await em.nativeDelete(SalesNote, {
     contextType: "quote",
     contextId: quote.id,
+    ...verifiedIds(verified?.notes),
   });
   await em.nativeDelete(SalesDocumentTagAssignment, {
     documentId: quote.id,
     documentKind: "quote",
+    ...verifiedIds(verified?.tags),
   });
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
   await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
@@ -4316,7 +4408,7 @@ async function restoreQuoteGraph(
       recordId: quote.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(snapshot.quote.customFields),
+      values: toSnapshotCustomFieldWriteValues(snapshot.quote.customFields),
     });
   }
   for (const line of snapshot.lines) {
@@ -4326,7 +4418,7 @@ async function restoreQuoteGraph(
       recordId: line.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(line.customFields),
+      values: toSnapshotCustomFieldWriteValues(line.customFields),
     });
   }
   for (const adjustment of snapshot.adjustments) {
@@ -4336,16 +4428,222 @@ async function restoreQuoteGraph(
       recordId: adjustment.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(adjustment.customFields),
+      values: toSnapshotCustomFieldWriteValues(adjustment.customFields),
     });
   }
 
   return quote;
 }
 
+async function throwDocumentUndoStale(kind: "order" | "quote"): Promise<never> {
+  const { translate } = await resolveTranslations();
+  throw new CrudHttpError(409, {
+    error:
+      kind === "order"
+        ? translate(
+            "sales.documents.errors.undoStaleOrder",
+            "This change can no longer be undone because the order was changed afterwards.",
+          )
+        : translate(
+            "sales.documents.errors.undoStaleQuote",
+            "This change can no longer be undone because the quote was changed afterwards.",
+          ),
+  });
+}
+
+function canonicalizeForComparison(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map(canonicalizeForComparison)
+      .map((entry) => ({ entry, key: JSON.stringify(entry) }))
+      .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0))
+      .map(({ entry }) => entry);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+        .map((key) => [key, canonicalizeForComparison((value as Record<string, unknown>)[key])]),
+    );
+  }
+  return value;
+}
+
+function toComparableRecords(
+  entries: ReadonlyArray<{ id: string }> | null | undefined,
+): Map<string, unknown> {
+  const records = new Map<string, unknown>();
+  for (const entry of entries ?? []) {
+    records.set(entry.id, canonicalizeForComparison(JSON.parse(JSON.stringify(entry))));
+  }
+  return records;
+}
+
+function withoutAllocationIds(
+  payments: ReadonlyArray<PaymentSnapshot> | null | undefined,
+): Array<PaymentSnapshot> {
+  return (payments ?? []).map((payment) => ({
+    ...payment,
+    allocations: (payment.allocations ?? []).map((allocation) =>
+      Object.fromEntries(Object.entries(allocation).filter(([key]) => key !== "id")),
+    ),
+  }));
+}
+
+function sameRecords(
+  current: ReadonlyArray<{ id: string }> | null | undefined,
+  expected: ReadonlyArray<{ id: string }> | null | undefined,
+): boolean {
+  const currentRecords = toComparableRecords(current);
+  const expectedRecords = toComparableRecords(expected);
+  if (currentRecords.size !== expectedRecords.size) return false;
+  for (const [id, record] of expectedRecords) {
+    if (!currentRecords.has(id)) return false;
+    if (!isDeepStrictEqual(currentRecords.get(id), record)) return false;
+  }
+  return true;
+}
+
+function sameIds(
+  current: ReadonlyArray<{ id: string }> | null | undefined,
+  expected: ReadonlyArray<{ id: string }> | null | undefined,
+): boolean {
+  const currentIds = new Set((current ?? []).map((entry) => entry.id));
+  const expectedIds = (expected ?? []).map((entry) => entry.id);
+  return (
+    currentIds.size === expectedIds.length &&
+    expectedIds.every((id) => currentIds.has(id))
+  );
+}
+
+function sameLineProgress(
+  current: ReadonlyArray<SalesLineSnapshot>,
+  expected: ReadonlyArray<SalesLineSnapshot> | null | undefined,
+): boolean {
+  if (!sameIds(current, expected)) return false;
+  const expectedById = new Map((expected ?? []).map((line) => [line.id, line]));
+  return current.every((line) => {
+    const target = expectedById.get(line.id);
+    return (
+      !!target &&
+      Number(line.fulfilledQuantity ?? 0) === Number(target.fulfilledQuantity ?? 0) &&
+      Number(line.returnedQuantity ?? 0) === Number(target.returnedQuantity ?? 0)
+    );
+  });
+}
+
+async function assertOrderGraphUndoCurrent(
+  em: EntityManager,
+  orderId: string,
+  expected: OrderGraphSnapshot,
+): Promise<void> {
+  const current = await loadOrderSnapshot(em, orderId);
+  if (!current) return throwDocumentUndoStale("order");
+  const lineIds = current.lines.map((line) => line.id);
+  const [returnCount, invoiceLineCount, creditMemoLineCount] = await Promise.all([
+    em.count(SalesReturn, { order: orderId }),
+    lineIds.length
+      ? em.count(SalesInvoiceLine, { orderLine: { $in: lineIds } })
+      : Promise.resolve(0),
+    lineIds.length
+      ? em.count(SalesCreditMemoLine, { orderLine: { $in: lineIds } })
+      : Promise.resolve(0),
+  ]);
+  if (returnCount > 0 || invoiceLineCount > 0 || creditMemoLineCount > 0) {
+    return throwDocumentUndoStale("order");
+  }
+  const unchanged =
+    sameLineProgress(current.lines, expected.lines) &&
+    sameIds(current.adjustments, expected.adjustments) &&
+    sameRecords(current.shipments, expected.shipments) &&
+    sameRecords(withoutAllocationIds(current.payments), withoutAllocationIds(expected.payments)) &&
+    sameRecords(current.notes, expected.notes) &&
+    sameRecords(current.tags, expected.tags) &&
+    sameRecords(current.addresses, expected.addresses);
+  if (!unchanged) return throwDocumentUndoStale("order");
+}
+
+async function lockOrderForUndo(
+  em: EntityManager,
+  orderId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<boolean> {
+  const order = await findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: orderId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  );
+  if (!order) return false;
+  await em.find(
+    SalesOrderLine,
+    { order: orderId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: "asc" } },
+  );
+  return true;
+}
+
+async function withVerifiedOrderGraph(
+  ctx: CommandRuntimeContext,
+  expected: OrderGraphSnapshot | null | undefined,
+  scope: { orderId: string; tenantId: string; organizationId: string },
+  work: (tx: EntityManager, exists: boolean) => Promise<void>,
+): Promise<void> {
+  const em = (ctx.container.resolve("em") as EntityManager).fork();
+  await em.transactional(async (tx) => {
+    const exists = await lockOrderForUndo(tx, scope.orderId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    });
+    if (exists && expected) {
+      await assertOrderGraphUndoCurrent(tx, scope.orderId, expected);
+      tx.clear();
+    }
+    await work(tx, exists);
+  });
+}
+
+async function undoOrderGraph(
+  ctx: CommandRuntimeContext,
+  before: OrderGraphSnapshot,
+  after: OrderGraphSnapshot | null | undefined,
+): Promise<void> {
+  ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
+  let restored: SalesOrder | undefined;
+  await withVerifiedOrderGraph(
+    ctx,
+    after,
+    {
+      orderId: before.order.id,
+      tenantId: before.order.tenantId,
+      organizationId: before.order.organizationId,
+    },
+    async (tx, exists) => {
+      if (!exists && after) await throwDocumentUndoStale("order");
+      restored = await restoreOrderGraph(tx, before, exists ? after : null);
+      await tx.flush();
+    },
+  );
+  if (!restored) return;
+  const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action: "updated",
+    entity: restored,
+    identifiers: {
+      id: restored.id,
+      organizationId: restored.organizationId,
+      tenantId: restored.tenantId,
+    },
+    indexer: { entityType: E.sales.sales_order },
+  });
+}
+
 async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
+  verified: OrderGraphSnapshot | null = null,
 ): Promise<SalesOrder> {
   let order = await findOneWithDecryption(
     em,
@@ -4500,17 +4798,22 @@ async function restoreOrderGraph(
   }
   await em.nativeDelete(SalesPaymentAllocation, { order: order.id });
   await em.nativeDelete(SalesPayment, { order: order.id });
+  const verifiedIds = (entries: ReadonlyArray<{ id: string }> | undefined) =>
+    verified ? { id: { $in: (entries ?? []).map((entry) => entry.id) } } : {};
   await em.nativeDelete(SalesDocumentAddress, {
     documentId: order.id,
     documentKind: "order",
+    ...verifiedIds(verified?.addresses),
   });
   await em.nativeDelete(SalesNote, {
     contextType: "order",
     contextId: order.id,
+    ...verifiedIds(verified?.notes),
   });
   await em.nativeDelete(SalesDocumentTagAssignment, {
     documentId: order.id,
     documentKind: "order",
+    ...verifiedIds(verified?.tags),
   });
   await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
   await em.nativeDelete(SalesOrderLine, { order: order.id });
@@ -4664,7 +4967,7 @@ async function restoreOrderGraph(
       recordId: order.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(snapshot.order.customFields),
+      values: toSnapshotCustomFieldWriteValues(snapshot.order.customFields),
     });
   }
   for (const line of snapshot.lines) {
@@ -4674,7 +4977,7 @@ async function restoreOrderGraph(
       recordId: line.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(line.customFields),
+      values: toSnapshotCustomFieldWriteValues(line.customFields),
     });
   }
   for (const adjustment of snapshot.adjustments) {
@@ -4684,7 +4987,7 @@ async function restoreOrderGraph(
       recordId: adjustment.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(adjustment.customFields),
+      values: toSnapshotCustomFieldWriteValues(adjustment.customFields),
     });
   }
 
@@ -5071,23 +5374,26 @@ const createQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const after = payload?.after;
     if (!after) return;
+    ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await findOneWithDecryption(
-      em,
-      SalesQuote,
-      { id: after.quote.id },
-      {},
-      {
-        tenantId: after.quote.tenantId,
-        organizationId: after.quote.organizationId,
-      },
-    );
-    if (!quote) return;
-    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
-    await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
-    em.remove(quote);
-    await em.flush();
+    await em.transactional(async (tx) => {
+      const quote = await findOneWithDecryption(
+        tx,
+        SalesQuote,
+        { id: after.quote.id },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        {
+          tenantId: after.quote.tenantId,
+          organizationId: after.quote.organizationId,
+        },
+      );
+      if (!quote) return;
+      await assertQuoteGraphUndoCurrent(tx, quote.id, after);
+      await tx.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
+      await tx.nativeDelete(SalesQuoteLine, { quote: quote.id });
+      tx.remove(quote);
+      await tx.flush();
+    });
   },
 };
 
@@ -5211,10 +5517,7 @@ const deleteQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -5387,6 +5690,21 @@ const updateQuoteCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    // Same as sales.orders.update (#6217): refresh the query-index projection so
+    // customFields written in applyDocumentUpdate are visible on the next list GET.
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: quote,
+      identifiers: {
+        id: quote.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_quote },
+      actorUserId: ctx.auth?.sub ?? null,
+    });
     const resourceKind =
       deriveResourceFromCommandId(updateQuoteCommand.id) ?? "sales.quote";
     await invalidateCrudCache(
@@ -5444,18 +5762,59 @@ const updateQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
+
+/**
+ * Output contracts for the order commands, consumed by the workflows context
+ * ledger through `commandRegistry.outputSchemaOf`.
+ *
+ * `sales.orders.update` genuinely returns the mutated `SalesOrder` entity, not
+ * an id — so the schema describes the entity's own scalar columns. It is a
+ * curated subset, not the whole entity: relation properties (`channel`,
+ * `shippingMethod`, `lines`) are ORM references that do not survive the JSON
+ * context column, and the jsonb snapshot blobs carry no pickable shape. Zod
+ * objects do not claim exhaustiveness, so naming a subset stays honest while
+ * keeping the variable picker readable.
+ */
+const orderEntityOutputSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  orderNumber: z.string(),
+  channelId: z.string().uuid().nullable().optional(),
+  customerEntityId: z.string().uuid().nullable().optional(),
+  currencyCode: z.string(),
+  status: z.string().nullable().optional(),
+  statusEntryId: z.string().uuid().nullable().optional(),
+  fulfillmentStatus: z.string().nullable().optional(),
+  paymentStatus: z.string().nullable().optional(),
+  subtotalNetAmount: z.string(),
+  subtotalGrossAmount: z.string(),
+  discountTotalAmount: z.string(),
+  taxTotalAmount: z.string(),
+  grandTotalNetAmount: z.string(),
+  grandTotalGrossAmount: z.string(),
+  paidTotalAmount: z.string(),
+  outstandingAmount: z.string(),
+  lineItemCount: z.number(),
+  placedAt: z.date().nullable().optional(),
+  dueAt: z.date().nullable().optional(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+const orderUpdateOutputSchema = z.object({ order: orderEntityOutputSchema });
+
+const orderIdOutputSchema = z.object({ orderId: z.string().uuid() });
 
 const updateOrderCommand: CommandHandler<
   DocumentUpdateInput,
   { order: SalesOrder }
 > = {
   id: "sales.orders.update",
+  outputSchema: orderUpdateOutputSchema,
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
     const em = ctx.container.resolve("em") as EntityManager;
@@ -5617,8 +5976,24 @@ const updateOrderCommand: CommandHandler<
       { transaction: true },
     );
     emitOrderLifecycleEventsForTransition({ order, previousStatus });
+    // Refresh the query-index projection (including customValues). Create already
+    // did this; update used to only invalidate the HTTP CRUD cache, so a PUT that
+    // wrote EAV custom fields still returned the pre-update values on the next
+    // GET `/api/sales/orders?id=` (list reads cf_* from the index, #6217).
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: order,
+      identifiers: {
+        id: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_order },
+      actorUserId: ctx.auth?.sub ?? null,
+    });
     if (statusChangeNote) {
-      const dataEngine = ctx.container.resolve("dataEngine");
       await emitCrudSideEffects({
         dataEngine,
         action: "created",
@@ -5688,10 +6063,7 @@ const updateOrderCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -5700,6 +6072,7 @@ const createOrderCommand: CommandHandler<
   { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
 > = {
   id: "sales.orders.create",
+  outputSchema: orderIdOutputSchema,
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
@@ -6118,23 +6491,34 @@ const createOrderCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const after = payload?.after;
     if (!after) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(
-      em,
-      SalesOrder,
-      { id: after.order.id },
-      {},
+    ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId);
+    await withVerifiedOrderGraph(
+      ctx,
+      after,
       {
+        orderId: after.order.id,
         tenantId: after.order.tenantId,
         organizationId: after.order.organizationId,
       },
+      async (tx, exists) => {
+        if (!exists) return;
+        const order = await findOneWithDecryption(
+          tx,
+          SalesOrder,
+          { id: after.order.id },
+          {},
+          {
+            tenantId: after.order.tenantId,
+            organizationId: after.order.organizationId,
+          },
+        );
+        if (!order) return;
+        await tx.nativeDelete(SalesOrderAdjustment, { order: order.id });
+        await tx.nativeDelete(SalesOrderLine, { order: order.id });
+        tx.remove(order);
+        await tx.flush();
+      },
     );
-    if (!order) return;
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
-    await em.nativeDelete(SalesOrderLine, { order: order.id });
-    em.remove(order);
-    await em.flush();
   },
 };
 
@@ -6143,6 +6527,7 @@ const deleteOrderCommand: CommandHandler<
   { orderId: string }
 > = {
   id: "sales.orders.delete",
+  outputSchema: orderIdOutputSchema,
   async prepare(input, ctx) {
     const id = requireId(input, "Order id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -6294,10 +6679,7 @@ const deleteOrderCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -6725,56 +7107,74 @@ const convertQuoteToOrderCommand: CommandHandler<
     const quoteSnapshot = payload?.quote;
     const orderSnapshot = payload?.order;
     if (!quoteSnapshot) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
     ensureQuoteScope(
       ctx,
       quoteSnapshot.quote.organizationId,
       quoteSnapshot.quote.tenantId,
     );
-    if (orderSnapshot) {
-      const orderId = orderSnapshot.order.id;
-      const orderLineIds = orderSnapshot.lines.map((line) => line.id);
-      const existingOrder = await findOneWithDecryption(em, SalesOrder, { id: orderId }, undefined, { tenantId: quoteSnapshot.quote.tenantId, organizationId: quoteSnapshot.quote.organizationId });
-      if (existingOrder) {
-        const shipments = await em.find(SalesShipment, { order: orderId });
-        const shipmentIds = shipments.map((entry) => entry.id);
-        if (shipmentIds.length) {
-          await em.nativeDelete(SalesShipmentItem, {
-            shipment: { $in: shipmentIds },
+    const revertConversion = async (em: EntityManager, orderExists: boolean) => {
+      if (orderSnapshot) {
+        const orderId = orderSnapshot.order.id;
+        const orderLineIds = orderSnapshot.lines.map((line) => line.id);
+        const existingOrder = orderExists
+          ? await findOneWithDecryption(em, SalesOrder, { id: orderId }, undefined, { tenantId: quoteSnapshot.quote.tenantId, organizationId: quoteSnapshot.quote.organizationId })
+          : null;
+        if (existingOrder) {
+          const shipments = await em.find(SalesShipment, { order: orderId });
+          const shipmentIds = shipments.map((entry) => entry.id);
+          if (shipmentIds.length) {
+            await em.nativeDelete(SalesShipmentItem, {
+              shipment: { $in: shipmentIds },
+            });
+            await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } });
+          }
+          await em.nativeDelete(SalesPaymentAllocation, { order: orderId });
+          await em.nativeDelete(SalesPayment, { order: orderId });
+          await em.nativeDelete(SalesDocumentAddress, {
+            documentId: orderId,
+            documentKind: "order",
           });
-          await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } });
+          await em.nativeDelete(SalesDocumentTagAssignment, {
+            documentId: orderId,
+            documentKind: "order",
+          });
+          await em.nativeDelete(SalesOrderAdjustment, { order: orderId });
+          await em.nativeDelete(SalesOrderLine, { order: orderId });
+          em.remove(existingOrder);
         }
-        await em.nativeDelete(SalesPaymentAllocation, { order: orderId });
-        await em.nativeDelete(SalesPayment, { order: orderId });
-        await em.nativeDelete(SalesDocumentAddress, {
-          documentId: orderId,
-          documentKind: "order",
-        });
-        await em.nativeDelete(SalesDocumentTagAssignment, {
-          documentId: orderId,
-          documentKind: "order",
-        });
-        await em.nativeDelete(SalesOrderAdjustment, { order: orderId });
-        await em.nativeDelete(SalesOrderLine, { order: orderId });
-        em.remove(existingOrder);
-      }
-      await em.nativeDelete(CustomFieldValue, {
-        entityId: E.sales.sales_order,
-        recordId: orderId,
-      });
-      if (orderLineIds.length) {
         await em.nativeDelete(CustomFieldValue, {
-          entityId: E.sales.sales_order_line,
-          recordId: { $in: orderLineIds } as any,
+          entityId: E.sales.sales_order,
+          recordId: orderId,
         });
+        if (orderLineIds.length) {
+          await em.nativeDelete(CustomFieldValue, {
+            entityId: E.sales.sales_order_line,
+            recordId: { $in: orderLineIds } as any,
+          });
+        }
       }
+      const noteIds = quoteSnapshot.notes.map((note) => note.id);
+      if (noteIds.length) {
+        await em.nativeDelete(SalesNote, { id: { $in: noteIds } });
+      }
+      await restoreQuoteGraph(em, quoteSnapshot);
+      await em.flush();
+    };
+    if (orderSnapshot) {
+      await withVerifiedOrderGraph(
+        ctx,
+        orderSnapshot,
+        {
+          orderId: orderSnapshot.order.id,
+          tenantId: orderSnapshot.order.tenantId,
+          organizationId: orderSnapshot.order.organizationId,
+        },
+        revertConversion,
+      );
+      return;
     }
-    const noteIds = quoteSnapshot.notes.map((note) => note.id);
-    if (noteIds.length) {
-      await em.nativeDelete(SalesNote, { id: { $in: noteIds } });
-    }
-    await restoreQuoteGraph(em, quoteSnapshot);
-    await em.flush();
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    await em.transactional((tx) => revertConversion(tx, false));
   },
 };
 
@@ -7235,11 +7635,9 @@ const orderLineUpsertCommand: CommandHandler<
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
       totalNetAmount:
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
       promotionCode:
@@ -7252,6 +7650,10 @@ const orderLineUpsertCommand: CommandHandler<
           ? cloneJson(parsed.customFields)
           : ((existingSnapshot as any)?.customFields ?? null),
     };
+    Object.assign(
+      updatedSnapshot,
+      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
+    );
     (updatedSnapshot as any).statusEntryId = statusEntryId;
     (updatedSnapshot as any).catalogSnapshot =
       parsed.catalogSnapshot ??
@@ -7369,10 +7771,7 @@ const orderLineUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -7551,10 +7950,7 @@ const orderLineDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -7732,11 +8128,9 @@ const quoteLineUpsertCommand: CommandHandler<
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
       totalNetAmount:
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
       promotionCode:
@@ -7749,6 +8143,10 @@ const quoteLineUpsertCommand: CommandHandler<
           ? cloneJson(parsed.customFields)
           : ((existingSnapshot as any)?.customFields ?? null),
     };
+    Object.assign(
+      updatedSnapshot,
+      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
+    );
     (updatedSnapshot as any).statusEntryId = statusEntryId;
     (updatedSnapshot as any).catalogSnapshot =
       parsed.catalogSnapshot ??
@@ -7865,10 +8263,7 @@ const quoteLineUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8019,10 +8414,7 @@ const quoteLineDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8313,10 +8705,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8478,10 +8867,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8770,10 +9156,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8934,10 +9317,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 

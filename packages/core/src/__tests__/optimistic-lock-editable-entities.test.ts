@@ -29,6 +29,11 @@ import { join } from 'node:path'
 
 const moduleEntities: Record<string, string[]> = {
   auth: ['User', 'Role'],
+  // The three user-editable forms aggregates. Submissions and revisions are
+  // append-only (revisions carry their own `base_revision_id` concurrency
+  // check), actors are an assignment row, and consent/audit rows are
+  // projections — all outside this guard's remit.
+  forms: ['Form', 'FormVersion', 'FormDistribution'],
   catalog: [
     'CatalogProduct',
     'CatalogProductVariant',
@@ -48,7 +53,15 @@ const moduleEntities: Record<string, string[]> = {
     'CustomerPipelineStage',
   ],
   sales: ['SalesOrder', 'SalesQuote', 'SalesChannel', 'SalesPaymentMethod', 'SalesShippingMethod'],
-  staff: ['StaffTeam', 'StaffTeamRole'],
+  staff: [
+    'StaffTeam',
+    'StaffTeamRole',
+    'StaffTimeTaskStatus',
+    'StaffTimeTask',
+    'StaffTimeTag',
+    'StaffTimeTaskComment',
+    'StaffTimeReport',
+  ],
   resources: ['ResourcesResource', 'ResourcesResourceType'],
   dictionaries: ['Dictionary', 'DictionaryEntry'],
   currencies: ['Currency'],
@@ -75,6 +88,8 @@ const moduleEntities: Record<string, string[]> = {
   ],
   messages: ['Message'],
   notifications: ['NotificationTypeOverride', 'NotificationPreference'],
+  availability: ['AvailabilityPolicy'],
+  customer_groups: ['CustomerGroup', 'CustomerGroupTerms'],
 }
 
 function readEntitySource(moduleId: string): string {
@@ -161,6 +176,12 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   SalesShippingMethod: ['sales/api/shipping-methods/route.ts'],
   StaffTeam: ['staff/api/teams.ts'],
   StaffTeamRole: ['staff/api/team-roles.ts'],
+  StaffTimeTaskStatus: ['staff/api/timesheets/task-statuses/route.ts'],
+  StaffTimeTask: ['staff/api/timesheets/tasks/route.ts'],
+  StaffTimeTag: ['staff/api/timesheets/tags/route.ts'],
+  StaffTimeReport: ['staff/api/timesheets/reports/route.ts'],
+  // StaffTimeTaskComment — hand-written thread route; the lock is enforced at the
+  // command layer via `assertOptimisticLock` (case c).
   ResourcesResource: ['resources/api/resources.ts'],
   ResourcesResourceType: ['resources/api/resource-types.ts'],
   // Dictionary / BusinessRule / RuleSet — command-layer guard (case c).
@@ -170,6 +191,8 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   WorkflowDefinition: ['workflows/api/definitions/[id]/route.ts'],
   Organization: ['directory/api/organizations/route.ts'],
   Tenant: ['directory/api/tenants/route.ts'],
+  // CustomerGroupTerms — hand-written upsert route; the lock is enforced via
+  // `enforceCommandOptimisticLock` (case c).
 }
 
 function entityHasDeletedAt(moduleId: string, className: string): boolean {

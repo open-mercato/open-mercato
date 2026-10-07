@@ -332,10 +332,10 @@ export default function SalesChannelOffersListPage() {
 
   const tableTitle = (
     <div className="flex flex-col gap-1">
-      <span>{t('sales.channels.offers.listTitle', 'Sales channel offers')}</span>
-      <span className="text-sm font-normal text-muted-foreground">
+      <h1>{t('sales.channels.offers.listTitle', 'Sales channel offers')}</h1>
+      <p className="text-sm font-normal text-muted-foreground">
         {t('sales.channels.offers.listSubtitle', 'Review product overrides across every sales channel.')}
-      </span>
+      </p>
     </div>
   )
 

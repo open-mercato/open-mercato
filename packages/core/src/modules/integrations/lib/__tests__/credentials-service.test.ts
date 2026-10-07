@@ -6,19 +6,22 @@ import type { IntegrationScope } from '@open-mercato/shared/modules/integrations
 import { decryptWithAesGcm, encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
-import { EncryptionMap } from '../../../entities/data/entities'
 import { IntegrationCredentials } from '../../data/entities'
 import {
   buildCredentialsFilter,
   createCredentialsService,
   CredentialsEncryptionUnavailableError,
+  ensureCredentialsEncryptionMap,
 } from '../credentials-service'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+// `resolveEncryptionMode` stays real: it is the function under test on the disabled/unavailable
+// split, and it reads only the env toggle plus the mocked KMS's `isHealthy()`.
 jest.mock('@open-mercato/shared/lib/encryption/kms', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/kms'),
   createKmsService: jest.fn(),
 }))
 
@@ -45,6 +48,7 @@ function createMockEntityManager() {
       return em
     }),
     flush: jest.fn(async () => undefined),
+    execute: jest.fn(async () => [{ id: 'map-1', updated_at: new Date() }]),
   }
   return { em, persisted }
 }
@@ -109,7 +113,6 @@ describe('integration credentials service encryption', () => {
     const dek = generateDek()
     mockKms(dek)
     mockFindOneWithDecryption.mockImplementation(async (_em, entity) => {
-      if (entity === EncryptionMap) return null
       if (entity === IntegrationCredentials) return null
       return null
     })
@@ -194,6 +197,152 @@ describe('integration credentials service encryption', () => {
       'utf8',
     )
     expect(source).not.toContain('om-emergency-fallback-rotate-me')
+  })
+})
+
+describe('integration credentials encryption-map materialization', () => {
+  it('uses conflict-safe upserts and invalidates the canonical scope under concurrent first saves', async () => {
+    const rows = new Map<string, { id: string; updated_at: Date }>()
+    let arrivals = 0
+    let release: (() => void) | undefined
+    const bothArrived = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const execute = jest.fn(async (_sql: string, params: readonly unknown[]) => {
+      arrivals += 1
+      if (arrivals === 2) release?.()
+      await bothArrived
+      const key = `${String(params[0])}:${String(params[1])}:${String(params[2])}`
+      const saved = rows.get(key) ?? { id: 'canonical-map', updated_at: new Date() }
+      rows.set(key, saved)
+      return [saved]
+    })
+    const em = { execute } as never
+    const invalidateMap = jest.fn(async () => undefined)
+
+    await Promise.all([
+      ensureCredentialsEncryptionMap(em, scope, { invalidateMap }),
+      ensureCredentialsEncryptionMap(em, scope, { invalidateMap }),
+    ])
+
+    expect(rows.size).toBe(1)
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute.mock.calls.every(([sql]) => String(sql).includes('on conflict'))).toBe(true)
+    expect(invalidateMap).toHaveBeenCalledTimes(2)
+    expect(invalidateMap).toHaveBeenCalledWith(
+      'integrations:integration_credentials',
+      scope.tenantId,
+      scope.organizationId,
+    )
+  })
+
+  it('exposes additive post-commit deferral without invalidating inside the caller transaction', async () => {
+    const { em } = createMockEntityManager()
+    const invalidateMap = jest.fn(async () => undefined)
+    const afterCommitCallbacks: Array<() => void | Promise<void>> = []
+
+    await ensureCredentialsEncryptionMap(em as never, scope, { invalidateMap }, {
+      deferAfterCommit: (callback) => afterCommitCallbacks.push(callback),
+    })
+
+    expect(invalidateMap).not.toHaveBeenCalled()
+    expect(afterCommitCallbacks).toHaveLength(1)
+
+    await afterCommitCallbacks[0]?.()
+
+    expect(invalidateMap).toHaveBeenCalledWith(
+      'integrations:integration_credentials',
+      scope.tenantId,
+      scope.organizationId,
+    )
+  })
+})
+
+/**
+ * `TENANT_DATA_ENCRYPTION=no` is a supported deployment, not an outage.
+ *
+ * Both states hand the KMS factory a service that produces no DEK, which is why this path used to
+ * answer 503 for an operator who had simply opted out: `getTenantDek` returning null looks the
+ * same either way. The distinction is the env toggle, and only the outage half may fail closed —
+ * degrading a secret to plaintext because Vault blinked is the downgrade the fail-closed rule
+ * exists to prevent (spec 2026-05-29, security finding #7).
+ */
+describe('integration credentials with tenant data encryption disabled', () => {
+  const previousToggle = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+  })
+
+  afterEach(() => {
+    if (previousToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = previousToggle
+  })
+
+  it('stores credentials as plaintext instead of answering 503', async () => {
+    mockKms(null)
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const { em, persisted } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    await service.save('gateway_test', { apiKey: 'sk_test_secret' }, scope)
+
+    const credentialsRow = persisted.find((row) =>
+      typeof row === 'object'
+      && row !== null
+      && (row as { integrationId?: unknown }).integrationId === 'gateway_test'
+    ) as { credentials?: Record<string, unknown> } | undefined
+
+    expect(credentialsRow?.credentials).toEqual({ apiKey: 'sk_test_secret' })
+    expect(credentialsRow?.credentials).not.toHaveProperty(encryptedBlobKey)
+  })
+
+  it('round-trips a plaintext blob through getRaw', async () => {
+    mockKms(null)
+    mockFindOneWithDecryption.mockResolvedValue({
+      credentials: { apiKey: 'sk_test_secret' },
+    } as never)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    await expect(service.getRaw('gateway_test', scope)).resolves.toEqual({ apiKey: 'sk_test_secret' })
+  })
+
+  it('still refuses to guess at a blob sealed before the toggle was flipped', async () => {
+    const dek = generateDek()
+    const encrypted = encryptWithAesGcm(JSON.stringify({ apiKey: 'sk_test_secret' }), dek).value
+    mockKms(null)
+    mockFindOneWithDecryption.mockResolvedValue({
+      credentials: { [encryptedBlobKey]: encrypted },
+    } as never)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    // Returning the envelope, or an empty credential set, would hand the adapter a silently broken
+    // secret. Say what happened instead -- and name a remedy that exists: `decrypt-database` does
+    // NOT unseal this blob (it decrypts the columns an encryption map covers, and this envelope
+    // sits inside the decrypted value), so an operator who follows that advice lands right back
+    // here. Re-entering the credentials is what actually works.
+    const error = await service.getRaw('gateway_test', scope).catch((err: unknown) => err)
+    expect(error).toBeInstanceOf(CredentialsEncryptionUnavailableError)
+    expect((error as CredentialsEncryptionUnavailableError).reason).toBe('sealed-while-disabled')
+    expect((error as Error).message).toContain('re-enter the credentials')
+    expect((error as Error).message).toContain('does not reach this blob')
+  })
+
+  it('keeps failing closed when encryption is ON but the KMS is merely unreachable', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    mockKms(null)
+    const { em, persisted } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    const error = await service
+      .save('gateway_test', { apiKey: 'sk_test_secret' }, scope)
+      .catch((err: unknown) => err)
+    expect(error).toBeInstanceOf(CredentialsEncryptionUnavailableError)
+    expect((error as CredentialsEncryptionUnavailableError).reason).toBe('no-dek')
+    expect(persisted).toEqual([])
   })
 })
 

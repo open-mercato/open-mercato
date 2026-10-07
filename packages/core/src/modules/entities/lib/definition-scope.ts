@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { createVisibleDefinitionScopeClause } from './definition-scope-where'
 
 type AuthScope = {
   tenantId?: string | null
@@ -15,6 +17,8 @@ export type DefinitionMutationScope = {
 type OrganizationScopeLike = {
   tenantId?: string | null
   selectedId?: string | null
+  filterIds?: readonly string[] | null
+  allowedIds?: readonly string[] | null
 }
 
 type DefinitionKeySelector = string | { $in: string[] }
@@ -43,12 +47,13 @@ export function resolveDefinitionScopeFromOrganizationScope(
   const authTenantId = auth.tenantId ?? null
   const scopeTenantId = scope.tenantId ?? null
   const tenantMismatch = Boolean(authTenantId && scopeTenantId && authTenantId !== scopeTenantId)
+  const scopedOrganizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
   return {
     tenantId: tenantMismatch ? authTenantId : (scopeTenantId ?? authTenantId),
     organizationId: tenantMismatch
       ? (auth.orgId ?? null)
-      : (scope.selectedId ?? auth.orgId ?? null),
+      : scopedOrganizationId,
   }
 }
 
@@ -84,20 +89,11 @@ export function createVisibleDefinitionWhere(
   scope: DefinitionMutationScope,
   options: DefinitionVisibilityOptions = {},
 ) {
-  const organizationCandidates = [{ organizationId: null as string | null }]
-  if (scope.organizationId) organizationCandidates.unshift({ organizationId: scope.organizationId })
-
-  const tenantCandidates = [{ tenantId: null as string | null }]
-  if (scope.tenantId) tenantCandidates.unshift({ tenantId: scope.tenantId })
-
   return {
     entityId,
     key,
     ...options,
-    $and: [
-      { $or: organizationCandidates },
-      { $or: tenantCandidates },
-    ],
+    ...createVisibleDefinitionScopeClause(scope),
   }
 }
 

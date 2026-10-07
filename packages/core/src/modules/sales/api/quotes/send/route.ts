@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
@@ -18,6 +19,7 @@ import crypto from 'node:crypto'
 import { withScopedPayload } from '../../utils'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { SalesQuote } from '../../../data/entities'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -92,7 +94,7 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
@@ -112,8 +114,16 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
 }
 
 function resolveQuoteEmail(quote: SalesQuote): string | null {
-  const snapshot = quote.customerSnapshot && typeof quote.customerSnapshot === 'object' ? (quote.customerSnapshot as Record<string, unknown>) : null
-  const metadata = quote.metadata && typeof quote.metadata === 'object' ? (quote.metadata as Record<string, unknown>) : null
+  const normalizeRecord = (value: unknown): Record<string, unknown> | null => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+    if (typeof value !== 'string') return null
+    const parsed = parseDecryptedFieldValue(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  }
+  const snapshot = normalizeRecord(quote.customerSnapshot)
+  const metadata = normalizeRecord(quote.metadata)
   const contact = snapshot?.contact as Record<string, unknown> | undefined
   const customer = snapshot?.customer as Record<string, unknown> | undefined
   const candidate =
@@ -148,7 +158,9 @@ export async function POST(req: Request) {
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const tenantScope = ctx.auth?.tenantId ? { tenantId: ctx.auth.tenantId } : undefined
+    const tenantScope = ctx.auth?.tenantId
+      ? { tenantId: ctx.auth.tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null }
+      : undefined
     const quote = await findOneWithDecryption(em, SalesQuote, { id: input.quoteId, deletedAt: null }, {}, tenantScope)
     if (!quote) {
       throw notFound(translate('sales.documents.detail.error', 'Document not found or inaccessible.'))
@@ -216,6 +228,8 @@ export async function POST(req: Request) {
       to: email,
       subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       react: QuoteSentEmail({ url, copy }),
+      tenantId: quote.tenantId,
+      organizationId: quote.organizationId,
     })
 
     if (guardResult.afterSuccessCallbacks.length) {

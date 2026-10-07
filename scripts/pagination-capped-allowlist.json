@@ -12,16 +12,24 @@
     "reason": "single unpaginated fetch, client-side filter; total = rows.length"
   },
   {
-    "file": "packages/enterprise/src/modules/security/backend/security/enforcement/page.tsx",
-    "reason": "one fetch, client-side filter; total = filteredPolicies.length"
+    "file": "packages/core/src/modules/forms/backend/forms/[id]/submissions/page.tsx",
+    "reason": "submission list totals come from em.findAndCount in submission-service.ts:1063 \u2014 exact, never capped"
   },
   {
-    "file": "packages/enterprise/src/modules/security/backend/security/users/page.tsx",
-    "reason": "one fetch, client-side filter; total = filteredItems.length"
+    "file": "packages/core/src/modules/forms/backend/forms/page.tsx",
+    "reason": "GET /api/forms counts with em.findAndCount (api/route.ts:113) \u2014 an exact total, not a capped query-engine count; the response schema has no totalIsCapped field to forward"
   },
   {
-    "file": "packages/search/src/modules/search/frontend/components/HybridSearchTable.tsx",
-    "reason": "pseudo-pagination over in-memory rows; totalPages fixed at 1"
+    "file": "packages/core/src/modules/forms/ui/admin/forms/[id]/distributions/DistributionsPanel.tsx",
+    "reason": "distribution list counts with em.findAndCount (api/[id]/distributions/route.ts:103) \u2014 exact, never capped"
+  },
+  {
+    "file": "packages/core/src/modules/forms/ui/admin/forms/[id]/distributions/RecipientsTable.tsx",
+    "reason": "invitations are returned unpaginated with total = items.length (api/distributions/[distributionId]/invitations/route.ts:132) \u2014 exact by construction"
+  },
+  {
+    "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
+    "reason": "claim-line picker over a locally filtered array; totalPages = ceil(filteredRows.length / LINE_PAGE_SIZE), never a server total"
   },
   {
     "file": "packages/core/src/modules/wms/components/backend/WmsLocationDetailPage.tsx",
@@ -36,7 +44,19 @@
     "reason": "single pageSize=100 fetch, local slice; never reads a server total"
   },
   {
-    "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
-    "reason": "claim-line picker over a locally filtered array; totalPages = ceil(filteredRows.length / LINE_PAGE_SIZE), never a server total"
+    "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/page.tsx",
+    "reason": "one unpaginated fetch, client-side filter and slice; total = filteredRows.length"
+  },
+  {
+    "file": "packages/enterprise/src/modules/security/backend/security/enforcement/page.tsx",
+    "reason": "one fetch, client-side filter; total = filteredPolicies.length"
+  },
+  {
+    "file": "packages/enterprise/src/modules/security/backend/security/users/page.tsx",
+    "reason": "one fetch, client-side filter; total = filteredItems.length"
+  },
+  {
+    "file": "packages/search/src/modules/search/frontend/components/HybridSearchTable.tsx",
+    "reason": "pseudo-pagination over in-memory rows; totalPages fixed at 1"
   }
 ]

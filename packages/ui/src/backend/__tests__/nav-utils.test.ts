@@ -1,9 +1,12 @@
 import {
   buildAdminNav,
+  buildProfileSections,
   buildSettingsSections,
   computeSettingsPathPrefixes,
   convertToSectionNavGroups,
+  mergeSectionsWithDiscovered,
   type AdminNavItem,
+  type SettingsSection,
 } from '../utils/nav'
 
 describe('settings navigation helpers', () => {
@@ -340,5 +343,182 @@ describe('settings navigation helpers', () => {
       '/backend/config/sales',
       '/backend/config/wms',
     ])
+  })
+})
+
+describe('profile navigation helpers', () => {
+  const profileEntry = (overrides: Partial<AdminNavItem>): AdminNavItem => ({
+    group: 'Account',
+    groupId: 'profile.sections.account',
+    groupKey: 'profile.sections.account',
+    groupDefaultName: 'Account',
+    title: 'Notification Preferences',
+    defaultTitle: 'Notification Preferences',
+    titleKey: 'notifications.preferences.pageTitle',
+    href: '/backend/profile/notification-preferences',
+    enabled: true,
+    order: 30,
+    pageContext: 'profile',
+    ...overrides,
+  })
+
+  const accountBaseline = (): SettingsSection[] => [
+    {
+      id: 'profile.sections.account',
+      label: 'Account',
+      labelKey: 'profile.sections.account',
+      order: 1,
+      items: [
+        {
+          id: 'change-password',
+          label: 'Change Password',
+          labelKey: 'auth.changePassword.title',
+          href: '/backend/profile/change-password',
+          order: 1,
+        },
+      ],
+    },
+  ]
+
+  it('includes only profile-context entries', () => {
+    const entries: AdminNavItem[] = [
+      profileEntry({}),
+      profileEntry({
+        group: 'System',
+        groupId: 'settings.sections.system',
+        groupKey: 'settings.sections.system',
+        title: 'Audit Logs',
+        defaultTitle: 'Audit Logs',
+        href: '/backend/audit-logs',
+        pageContext: 'settings',
+      }),
+      profileEntry({
+        group: 'Customers',
+        groupId: 'customers.nav.group',
+        groupKey: undefined,
+        title: 'People',
+        defaultTitle: 'People',
+        href: '/backend/customers/people',
+        pageContext: undefined,
+      }),
+    ]
+
+    const sections = buildProfileSections(entries, { 'profile.sections.account': 1 })
+
+    expect(sections).toHaveLength(1)
+    expect(sections[0].id).toBe('profile.sections.account')
+    expect(sections[0].items.map((item) => item.href)).toEqual([
+      '/backend/profile/notification-preferences',
+    ])
+  })
+
+  it('folds discovered profile pages into the matching baseline section, ordered by weight', () => {
+    const discovered = buildProfileSections(
+      [
+        profileEntry({}),
+        profileEntry({
+          title: 'My communication channels',
+          defaultTitle: 'My communication channels',
+          titleKey: 'communication_channels.profile.title',
+          href: '/backend/profile/communication-channels',
+          order: 20,
+        }),
+      ],
+      { 'profile.sections.account': 1 },
+    )
+
+    const merged = mergeSectionsWithDiscovered(accountBaseline(), discovered)
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].items.map((item) => item.href)).toEqual([
+      '/backend/profile/change-password',
+      '/backend/profile/communication-channels',
+      '/backend/profile/notification-preferences',
+    ])
+  })
+
+  it('keeps the baseline entry when a discovered page repeats its href', () => {
+    const discovered = buildProfileSections(
+      [
+        profileEntry({
+          title: 'Password',
+          defaultTitle: 'Password',
+          titleKey: undefined,
+          href: '/backend/profile/change-password',
+          order: 99,
+        }),
+      ],
+      { 'profile.sections.account': 1 },
+    )
+
+    const merged = mergeSectionsWithDiscovered(accountBaseline(), discovered)
+
+    expect(merged[0].items).toHaveLength(1)
+    expect(merged[0].items[0].labelKey).toBe('auth.changePassword.title')
+  })
+
+  it('appends a section a module declares under its own group id', () => {
+    const discovered = buildProfileSections(
+      [
+        profileEntry({
+          group: 'Security',
+          groupId: 'security.profile.section',
+          groupKey: 'security.profile.section',
+          title: 'Security & MFA',
+          defaultTitle: 'Security & MFA',
+          titleKey: 'security.profile.pageTitle',
+          href: '/backend/profile/security',
+          order: 10,
+        }),
+      ],
+      { 'profile.sections.account': 1 },
+    )
+
+    const merged = mergeSectionsWithDiscovered(accountBaseline(), discovered)
+
+    expect(merged.map((section) => section.id)).toEqual([
+      'profile.sections.account',
+      'security.profile.section',
+    ])
+  })
+
+  it('leaves the baseline untouched when nothing is discovered', () => {
+    const baseline = accountBaseline()
+
+    const merged = mergeSectionsWithDiscovered(baseline, [])
+
+    expect(merged).toEqual(baseline)
+    expect(merged[0]).not.toBe(baseline[0])
+  })
+
+  // The baseline is a module-level constant (`profileSections`) reused across every request, so
+  // sorting a nested `children` array in place would permanently reorder shared state.
+  it('sorts nested children into a copy rather than reordering the baseline array', () => {
+    const children = [
+      { id: 'mfa', label: 'MFA', href: '/backend/profile/security/mfa', order: 20 },
+      { id: 'sessions', label: 'Sessions', href: '/backend/profile/security/sessions', order: 10 },
+    ]
+    const baseline: SettingsSection[] = [
+      {
+        id: 'profile.sections.account',
+        label: 'Account',
+        labelKey: 'profile.sections.account',
+        order: 1,
+        items: [
+          {
+            id: 'security',
+            label: 'Security',
+            href: '/backend/profile/security',
+            order: 1,
+            children,
+          },
+        ],
+      },
+    ]
+
+    const merged = mergeSectionsWithDiscovered(baseline, [])
+
+    expect(merged[0].items[0].children?.map((child) => child.id)).toEqual(['sessions', 'mfa'])
+    expect(children.map((child) => child.id)).toEqual(['mfa', 'sessions'])
   })
 })

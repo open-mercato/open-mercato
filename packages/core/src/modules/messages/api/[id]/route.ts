@@ -5,6 +5,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
@@ -13,7 +14,12 @@ import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
-import { hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
+import {
+  canPostToChannelThread,
+  hasChannelThreadReadAccess,
+  hasOrganizationAccess,
+  resolveMessageContext,
+} from '../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
@@ -22,6 +28,7 @@ import {
   updateDraftSchema as updateDraftOpenApiSchema,
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('messages').child({ component: 'api' })
 
@@ -105,7 +112,38 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const isSender = message.senderUserId === scope.userId
   const isRecipient = Boolean(recipient)
 
-  if (!isSender && !isRecipient) {
+  // #5535: a message that arrived over a communication channel has the channel
+  // system user as its sender and, on an unassigned conversation, no recipient
+  // rows — so the participant test below denies every operator and the reply
+  // button is unreachable. For a thread the channels hub owns, that hub's access
+  // rule applies instead; an internal thread resolves to `null` and keeps the
+  // participant rule unchanged.
+  //
+  // `hasChannelThreadReadAccess` feature-gates the fallback before consulting the
+  // hub, because `assertCanAccessChannel` — the rule behind it — deliberately
+  // ignores features and returns for EVERY shared channel; its documented
+  // precondition is a caller the route already feature-gated, and this route is
+  // `requireAuth` only so that a participant can always read their own message.
+  // The gate goes through RBAC, not through `ctx.auth.features` — the session JWT
+  // carries no `features` claim at all, so reading it would deny everyone.
+  const hasChannelThreadAccess = await hasChannelThreadReadAccess(ctx, scope, message)
+
+  if (!isSender && !isRecipient && !hasChannelThreadAccess) {
+    return Response.json({ error: 'Access denied' }, { status: 403 })
+  }
+
+  // Channel access says "you may work this conversation", not "you may read what
+  // other operators kept off it". An internal note stays participant-only however
+  // the caller reached the thread.
+  //
+  // The test is "not explicitly public" rather than "explicitly internal":
+  // `data/validators.ts` refines a compose under `value.visibility ?? 'internal'`
+  // and `composeMessageCommand` persists `input.visibility ?? null`, so a caller
+  // that omits the field files a message the module itself validated as internal
+  // yet stored as `null`. `ingest-inbound-message.ts` stamps the inbound message
+  // `'public'` and the reply/forward commands copy it forward, so the journey
+  // this route exists for is unaffected.
+  if (!isSender && !isRecipient && message.visibility !== 'public') {
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
@@ -152,9 +190,24 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     })
     : []
   const visibleRecipientMessageIds = new Set(visibleRecipientRows.map((item) => item.messageId))
-  const actorVisibleThreadMessages = threadMessages.filter((threadMessage) => (
+  // On a channel-linked thread the conversation IS the thread: the correspondent
+  // is not a platform user, so filtering by participation would hide the inbound
+  // messages and every other operator's answer, leaving the operator looking at
+  // half a conversation (#5535).
+  //
+  // Internal notes are the exception: they are addressed to platform
+  // participants, so they keep the participant rule even on a channel thread.
+  // Same polarity as the direct-read gate above — an absent visibility is
+  // internal by the messages module's own convention, so only an explicitly
+  // public message is shown to a non-participant.
+  const isThreadMessageParticipant = (threadMessage: { id: string; senderUserId?: string | null }) => (
     threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
-  ))
+  )
+  const actorVisibleThreadMessages = hasChannelThreadAccess
+    ? threadMessages.filter((threadMessage) => (
+      threadMessage.visibility === 'public' || isThreadMessageParticipant(threadMessage)
+    ))
+    : threadMessages.filter(isThreadMessageParticipant)
 
   const actorRecipientStatusByMessageId = new Map<string, string>()
   for (const row of visibleRecipientRows) {
@@ -351,6 +404,33 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
 
+  // `sendAsUser` composes a fresh message rather than updating an existing
+  // one, so sending a saved draft through a connected mailbox is not
+  // implemented yet. Refuse explicitly instead of silently stripping the
+  // field and falling back to the platform sender.
+  if (input.senderChannelId) {
+    const { t } = await resolveTranslations()
+    const errorMessage = t(
+      'messages.errors.senderDraftSendUnsupported',
+      'Sending a saved draft through a connected mailbox is not supported yet.',
+    )
+    return Response.json(
+      { error: errorMessage, fieldErrors: { senderChannelId: errorMessage } },
+      { status: 422 },
+    )
+  }
+
+  // A draft is filed on its parent's thread and skips the compose route's
+  // channel gate, so sending it publicly must pass the same gate (#6432).
+  const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
+  if (
+    input.isDraft === false &&
+    finalVisibility === 'public' &&
+    !(await canPostToChannelThread(ctx, scope, message.threadId ?? message.id))
+  ) {
+    return Response.json({ error: 'Access denied' }, { status: 403 })
+  }
+
   const guardResult = await runMessageMutationGuards(
     ctx.container,
     {
@@ -420,6 +500,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   } catch (error) {
     if (isCrudHttpError(error)) {
       return Response.json(error.body, { status: error.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     if (error instanceof Error) {
       if (error.message === 'Message type cannot be created by users') {
@@ -545,6 +629,10 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   } catch (error) {
     if (isCrudHttpError(error)) {
       return Response.json(error.body, { status: error.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     if (error instanceof Error && error.message === 'Access denied') {
       return Response.json({ error: 'Access denied' }, { status: 403 })

@@ -10,6 +10,7 @@ import { SalesOrderWarehouseAssignment, Warehouse } from '../data/entities'
 import type { SalesOrderWarehouseAssignInput, SalesOrderWarehouseUnassignInput } from '../data/validators'
 import { z } from 'zod'
 import { reserveInventoryForConfirmedOrder } from '../lib/salesOrderInventoryAutomation'
+import { invalidateWmsInventoryEnricherCache } from '../lib/invalidateInventoryEnricherCache'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 
 type AssignmentSnapshot = {
@@ -28,6 +29,17 @@ type AssignWarehouseUndoPayload = {
 
 type UnassignWarehouseUndoPayload = {
   before: AssignmentSnapshot | null
+}
+
+// These commands emit no WMS event, so the enricher-cache subscribers never see
+// them. `wms.sales-order-inventory` surfaces the assigned warehouse, so every
+// path here that writes an assignment — including the undo handlers — drops the
+// warehouse tag itself.
+async function invalidateAssignmentEnricherCache(
+  ctx: CommandRuntimeContext,
+  tenantId: string | null | undefined,
+): Promise<void> {
+  await invalidateWmsInventoryEnricherCache(ctx.container, tenantId, 'warehouse')
 }
 
 function resolveScope(
@@ -125,6 +137,7 @@ const assignWarehouseHandler: CommandHandler<
       existing.assignedBy = ctx.auth?.sub ?? null
       existing.updatedAt = new Date()
       await em.flush()
+      await invalidateAssignmentEnricherCache(ctx, scope.tenantId)
       return { assignmentId: existing.id, warehouseId: warehouse.id }
     }
 
@@ -138,6 +151,7 @@ const assignWarehouseHandler: CommandHandler<
     })
     em.persist(assignment)
     await em.flush()
+    await invalidateAssignmentEnricherCache(ctx, scope.tenantId)
     return { assignmentId: assignment.id, warehouseId: warehouse.id }
   },
 
@@ -187,6 +201,7 @@ const assignWarehouseHandler: CommandHandler<
       if (!before) {
         assignment.deletedAt = new Date()
         await em.flush()
+        await invalidateAssignmentEnricherCache(ctx, scope.tenantId)
         return
       }
 
@@ -205,12 +220,14 @@ const assignWarehouseHandler: CommandHandler<
       if (!previousWarehouse) {
         assignment.deletedAt = new Date()
         await em.flush()
+        await invalidateAssignmentEnricherCache(ctx, scope.tenantId)
         return
       }
 
       assignment.warehouse = previousWarehouse
       assignment.notes = before.notes ?? null
       await em.flush()
+      await invalidateAssignmentEnricherCache(ctx, scope.tenantId)
     }
   },
 }
@@ -239,6 +256,7 @@ const unassignWarehouseHandler: CommandHandler<
     if (existing) {
       existing.deletedAt = new Date()
       await em.flush()
+      await invalidateAssignmentEnricherCache(ctx, scope.tenantId)
     }
 
     return { ok: true as const }
@@ -278,6 +296,7 @@ const unassignWarehouseHandler: CommandHandler<
     if (existingDeleted) {
       existingDeleted.deletedAt = null
       await em.flush()
+      await invalidateAssignmentEnricherCache(ctx, scope.tenantId)
       return
     }
 
@@ -304,6 +323,7 @@ const unassignWarehouseHandler: CommandHandler<
     })
     em.persist(restored)
     await em.flush()
+    await invalidateAssignmentEnricherCache(ctx, scope.tenantId)
   },
 }
 
