@@ -617,10 +617,14 @@ in one rule, or 20,000 selector × reference pairs in total, with `vector_image_
 reference (`href="#…"`, `url(#…)`) must name a plain ASCII id — a letter, digit or `_`, then
 letters, digits, `_`, `-` or `.`; other ids are kept but cannot be referenced, and `xml:id` is not
 accepted. `url()` is allowed only in `fill`, `stroke`, `clip-path`, `mask`, `filter` and the marker
-properties; the CSS `d` property, `if()`, SMIL animation, `feConvolveMatrix`, an `feMorphology`
-radius over 4, more than 32 filter primitives and embedded rasters over 4,096 px a side are
-refused, and documents whose estimated drawing work exceeds the bound are
-`vector_image_too_complex`.
+properties, and the only CSS functions are `url()`, `rgb()`, `rgba()`, `hsl()` and `hsla()` (a
+`filter` is one `url()` or `none`). The CSS `d` property, `if()`, SMIL animation, `feMorphology`,
+the lighting primitives, `feConvolveMatrix`, `feDisplacementMap`, `feDropShadow`,
+`primitiveUnits="objectBoundingBox"`, more than 32 filter primitives or 8 blurs, blur deviations
+over 10% of the viewport, blurs next to a stretching transform or nested `viewBox`, and embedded
+rasters other than single-frame PNG or JPEG of at most 4,096 px a side are refused, and documents
+whose estimated drawing work exceeds the bound are `vector_image_too_complex`. Client render cost
+is best effort: see the Threat Model in the spec.
 
 `attachmentService.readScoped()` returns a sanitised SVG as an `application/octet-stream` download,
 like any other SVG: a module route outside the file path gets the app-wide CSP, which Next.js keeps

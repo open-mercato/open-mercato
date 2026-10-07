@@ -112,9 +112,13 @@ write time.
   escape the rendered-size bound.
 - Allow `url()` only in `URL_PROPERTIES`; never default an unknown property to
   a multiplier. Change a declaration's property only at function depth 0.
-- Keep the render-work bound measured: when adding a weight, a filter primitive
-  or a cap, time the largest accepted variant in Chrome on CPU canvas at 800 px
-  (target about 2 s) and record it in the spec. Never accept SMIL animation.
+- Render cost is best effort (spec, Threat Model): prefer refusing a construct
+  logos do not need over modelling its cost. When a weight, primitive or cap
+  changes, time the largest accepted variant in Chrome on CPU canvas at 800 px
+  (target about 2 s) and record it in the spec. Never accept SMIL animation, CSS
+  functions beyond `url()` and the colour functions, filter primitives whose
+  cost grows with user units, blurs under scale-up, or rasters other than
+  single-frame PNG and JPEG.
 - Keep stylesheets to the exporter subset `parseStyleRules` accepts (flat rules,
   simple selectors, no at-rules, custom properties or `var()`) and keep its
   rule/selector/reference/work caps. Narrow what a stylesheet may contain rather

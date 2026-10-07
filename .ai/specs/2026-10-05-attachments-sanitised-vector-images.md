@@ -148,8 +148,9 @@ count plus one) before any parsing happens.
 | attributes on one element / in the document | 64 / 6,000 | `vector_image_too_complex` |
 | render work (§ 4): every rendered element's drawing work, plus every in-document reference's target again, recursively and weighted by how often it renders; any reference cycle | 10,000 units | `vector_image_too_complex` |
 | filter primitives in the document | 32 | `vector_image_too_complex` |
-| `feMorphology` radius / `feConvolveMatrix` | 4 / refused | `vector_image_too_complex` |
-| embedded raster (`data:` URI) declared width or height, read from its header | 4,096 px | `vector_image_unsafe_content` |
+| blurs in the document / blur deviation | 8 / 10% of the root viewport's smaller side | `vector_image_too_complex` |
+| `feMorphology`, lighting, `feConvolveMatrix`, `feDisplacementMap`, `feDropShadow`, `primitiveUnits="objectBoundingBox"`, a blur where any `transform`/`patternTransform` stretches or a nested `viewBox` exists | refused | `vector_image_too_complex` |
+| embedded raster (`data:` URI): PNG or JPEG only, one frame, width and height from every header | 4,096 px | `vector_image_unsafe_content` |
 | stylesheet rules, across every `<style>` | 2,000 | `vector_image_too_complex` |
 | selectors in one rule / in-document references in one rule | 32 / 16 | `vector_image_too_complex` |
 | stylesheet work: Σ over rules of selectors × references, checked before indexing | 20,000 | `vector_image_too_complex` |
@@ -267,9 +268,13 @@ icons whose stylesheets use `@keyframes` and `@media` (§ 3, stylesheet subset);
      elements, and lookups use the id verbatim. Every id the corpus and exporter fixtures reference
      (`SVGID_1_`, `linearGradient1234`, `paint0_linear_1_2`, `path-1`, `id0`, `_Linear1`,
      `7f1a2b3c4d`) matches; a fragment that does not is `active_content`. On `<image>`/`<feImage>` a
-     `data:image/(png|jpeg|gif|webp);base64,…` URI is also accepted, and its decoded bytes must
-     carry the matching raster signature and a header (PNG `IHDR`, GIF screen, JPEG start-of-frame,
-     WebP `VP8`/`VP8L`/`VP8X`) no larger than 4,096 px on either side: a 762 KB PNG declaring
+     `data:image/(png|jpeg);base64,…` URI is also accepted — the only raster formats in the corpus
+     and the exporter fixtures are PNG — and its decoded bytes must carry the matching signature and
+     a single frame no larger than 4,096 px on either side. Every PNG chunk is walked: the first and
+     only `IHDR` gives the size, and an animated PNG (`acTL`, `fcTL`) is refused. Every JPEG marker
+     up to the first scan is walked: exactly one baseline, extended or progressive start-of-frame,
+     and no hierarchical, lossless or arithmetic frame. GIF and WebP are refused: a 16 × 16 GIF
+     screen hid a 20,000 × 20,000 frame that took 3.1 s to decode, and a 762 KB PNG declaring
      14,000 × 14,000 pixels was accepted before. `javascript:`/`vbscript:`/other `data:` →
      `active_content`; anything else → `external_reference`;
    - a `<style>` is checked again for text-only children, and the CSS rule is applied to exactly the
@@ -321,6 +326,15 @@ does in any case.
   - `@import`;
   - any of `image()`, `image-set()`, `cross-fade()`, `element()`, `src()`, `attr()`, with or without
     a vendor prefix (these accept a bare string URL);
+  - any CSS function other than `url()` and the colour functions `rgb()`, `rgba()`, `hsl()`,
+    `hsla()` — gradients, image functions, `path()`, `color-mix()`, and the CSS filter functions
+    (`blur()`, `drop-shadow()`, …), whose cost the bound did not count: `rect{filter:blur(40px)
+    blur(40px) drop-shadow(…) blur(40px)}` over 1,000 rects took over 45 s at 800 px. The corpus
+    and exporters use only `url()` and `rgb()`;
+  - a `filter` value other than one `url()` or `none` (with `!important` allowed), in a stylesheet,
+    a `style` attribute or the `filter` attribute. `backdrop-filter` and `mask-image` need no rule of
+    their own: a `url()` in them is outside `URL_PROPERTIES`, and a function in them is outside the
+    allowlist;
   - a `url()` in any property other than `fill`, `stroke`, `clip-path`, `mask`, `filter`,
     `marker`, `marker-start`, `marker-mid`, `marker-end`, and Inkscape's `shape-inside` and
     `shape-subtract` (`URL_PROPERTIES`). Before, an unknown property counted as inherited paint, so
@@ -410,9 +424,18 @@ Three sources of super-linear cost were found by profiling and are removed:
    800 px (0.19 ms on CPU canvas in Chrome): one, plus one per 128 characters of path data,
    points or text (measured at about 316 characters per unit for paths and 264 for text, so 128 is
    conservative), and a filter primitive counts its measured class weight each time the filter is
-   applied (`FILTER_PRIMITIVE_WORK`: morphology 600, lighting and turbulence 300, composite 125,
-   displacement 100, blend, drop shadow and blur 75, merge 50, colour matrix, component transfer and
-   image 25, offset, flood and tile 10, anything else 600). Elements that render only through a
+   applied (`FILTER_PRIMITIVE_WORK`: blur 640, turbulence 300, composite 125, blend 75, merge 50,
+   colour matrix, component transfer and image 25, offset, flood and tile 10, anything else 600),
+   and a gradient stop counts 2. Filters are further limited by what logos need rather than
+   modelled: no primitive whose cost grows with a size in user units (`feMorphology`, lighting,
+   `feConvolveMatrix` — a radius-4 morphology under `viewBox="0 0 1 1"` took 2 s), no
+   `feDisplacementMap` or `feDropShadow`, no `primitiveUnits="objectBoundingBox"`, at most eight
+   blurs with deviations up to 10% of the root viewport's smaller side, and no blur in a document
+   that can scale content up (a `transform` or `patternTransform` stretching by more than 1, by the
+   largest singular value of its composed linear part, or a `viewBox` below the root): eight
+   chained blurs took 3.4 s under `scale(10)`, 3.3 s at a 50% deviation, and 0.95 s at 10%.
+   The corpus and exporters use at most five blurs, deviations up to 3.3%, and no stretching
+   transform next to a blur. Elements that render only through a
    reference — `defs`, `symbol`, filters, paint servers, markers, masks, clip paths — add nothing
    where they are defined, so a definition is not counted twice. SMIL animation (`animate`,
    `animateTransform`, `animateMotion`, `animateColor`, `set`, `mpath`, `discard`) is refused as
@@ -681,14 +704,33 @@ has the same problem.
 - No client module imports `lib/vector-image.ts`; client code reaches only
   `lib/vector-image-record.ts`, which has no dependencies.
 
+## Threat Model
+
+What the sanitiser guarantees, and what it only reduces:
+
+- **Server: bounded.** Sanitiser time and memory are bounded by the byte, markup, node, element,
+  depth, attribute, stylesheet and render-work caps, with one linear tokenizer and linear passes.
+  Measured worst case at the bounds: 381 ms (median under 0.34 s), 28–30 MB heap per call.
+- **No active content: guaranteed.** No script, no external fetch, no navigation: DOMPurify's
+  allowlist, the reference and CSS policy, and plain fragments only. A stored SVG is served inline
+  only from `GET /api/attachments/file/{id}` at the canonical path, under
+  `default-src 'none'; … sandbox` and `nosniff`; everywhere else it is an `<img>` or a download.
+- **Client render cost: best effort.** Constructs logos do not need are refused — CSS functions
+  beyond `url()` and colours, CSS `d`, SMIL, user-unit-scaled and region-scaled filter primitives,
+  blurs under scale-up, animated and non-PNG/JPEG rasters — and a work-weighted bound, calibrated
+  in Chrome on CPU canvas at 800 px, limits the rest: the largest accepted variant of each costly
+  shape draws in about 2 s or less on the machine measured. A stored logo is shown only on the
+  uploading tenant's own pages, so a slow logo can only affect that tenant's users; browsers render
+  arbitrary SVG from any site, and closing the tab ends it. Residual risk: Low.
+
 ## Risks & Impact Review
 
 | Risk | Severity | Area | Mitigation | Residual |
 |---|---|---|---|---|
 | Sanitiser bypass yields script in a stored SVG | High | XSS on direct navigation | DOMPurify allowlist; refusal at the first non-inert finding; reference and tokenised CSS policy on exactly what browsers apply; serving CSP `sandbox`/`default-src 'none'`; `nosniff`; `<img>` embedding disables script regardless | Low: requires a DOMPurify bypass *and* a CSP bypass |
 | Parser differential (CSS strings, `<style>` children, `href` precedence, DOCTYPE lexing) hides a reference | Medium | privacy | CSS Syntax Level 3 tokenisation; text-only `<style>`; conflicting `href`s refused; XML-aware DTD scan; `default-src 'none'` at serve | Low |
-| Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute, stylesheet and render-work bounds; one linear CSS tokenizer and no second CSS parser (jsdom's CSSOM was quadratic); linear passes; first-finding stop; DOMPurify on a copy; cost test | medians under 0.32 s and maxima under 0.51 s per upload at the bounds, measured under concurrent load (up to 0.72 s in earlier, heavier runs) |
-| Render DoS (whoever opens the logo) | Medium | client | a render-work bound (§ 4) over every in-document reference — `<use>`, `href`s, paint servers, clip paths, masks, filters, markers (per vertex for `marker-mid`), inherited paint and stylesheet rules — weighting each rendered element by its path, points or text length and each filter primitive by its measured class; reference-only definitions not double-counted; 10,000-unit cap; at most 32 filter primitives; `feMorphology` radius at most 4; no `feConvolveMatrix`; no SMIL; `url()` only in the paint, clip, mask, filter and marker properties; no CSS `d`, `if()` or `var()`; one CSS tokenizer; plain fragments; embedded rasters at most 4,096 px a side. Measured in Chrome (CPU canvas, 800 px, the review's `drawTime`): the largest accepted variant of each costly shape draws in 0.12–1.47 s — full-canvas rects through `<use>` 0.90 s, 30-stop gradient rects 1.29 s, 16 `feMorphology` radius 4 1.40 s, 32 specular lightings 1.35 s, 2 × 32 arithmetic composites 0.97 s, 4 × 32 blurs 0.92 s, a 550-segment path through 222 `<use>` 0.90 s, a 63 KB text through 20 `<use>` 0.28 s, full-size mid-markers 0.12 s; the review's accepted cost files that are still accepted draw in 0.006–0.61 s (median of three; worst single run 0.72 s). Before this round `long-path-x10` took 6.5 s, `blur-x1k` 25.8 s and `morph-chain-1900` over 45 s; all are now refused | Low: the units are calibrated on one machine's CPU canvas; a slower client scales every figure. Pattern tiles repeat with the painted area, which a browser bounds by resolution. Ordinary raster uploads served inline by the file route are not header-checked (follow-up) |
+| Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute, stylesheet and render-work bounds; one linear CSS tokenizer and no second CSS parser (jsdom's CSSOM was quadratic); linear passes; first-finding stop; DOMPurify on a copy; cost test | worst 381 ms, medians under 0.34 s per upload at the bounds, measured under concurrent load (up to 0.72 s in earlier, heavier runs) |
+| Render DoS (whoever opens the logo) | Low (Threat Model: best effort) | client, the uploading tenant's own pages | refusing what logos do not need (CSS functions beyond `url()` and colours, CSS `d`, `if()`, `var()`, SMIL, `feMorphology`, lighting, `feConvolveMatrix`, `feDisplacementMap`, `feDropShadow`, object-bounding-box primitive units, more than eight blurs, blur deviations over 10% of the viewport, blurs under scale-up, GIF/WebP/animated rasters, rasters over 4,096 px) plus the render-work bound (§ 4, 10,000 units). Measured in Chrome (CPU canvas, 800 px, `drawTime`), largest accepted variants: full-canvas rects 0.86–1.24 s, 30-stop gradient rects 0.89–1.00 s, 2 × 32 arithmetic composites 0.95–1.38 s, eight blurs at 10% over a region ten times the canvas 0.95–1.21 s and with the rest of the budget in rects 1.78–2.05 s, a 550-segment path × 222 0.75–1.20 s, text 0.24–0.39 s, mid-markers 0.09–0.16 s (ranges span runs on a machine whose speed varied by about 30% during the round). Every review repro is refused | A shape or primitive combination not yet measured could exceed 2 s; a slower client scales every figure; ordinary raster uploads served inline by the file route are not header-checked (follow-up) |
 | Sandbox lost on an encoded path or a module route | Medium | XSS defence in depth | inline SVG only from the file route at the canonical path; `readScoped` never inline; encoded spellings tested against Next's matchers and over HTTP | Requires a sanitiser bypass as well; an `<img>`-embedded SVG runs no script either way |
 | Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 220 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts and animated spinners) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, CSS animation or media queries, selectors beyond type/class/id, custom properties, or more than 2,000 elements or 6,000 attributes need re-exporting |
 | Forged `vectorImage` record on an unsanitised row | Low | XSS | no endpoint writes arbitrary metadata keys; SHA-256 binding to stored bytes; CSP still applies | Requires DB write access |
@@ -752,9 +794,9 @@ it always asks for a raster rendition and refuses any non-raster content type, w
 Every bullet below is a test that exists.
 
 - `lib/__tests__/vector-image.test.ts` (fixtures in `vector-image.fixtures.ts`)
-  - **Hostile documents** — 158 fixtures. For each, `sanitizeVectorImage` refuses with the listed
+  - **Hostile documents** — 187 fixtures. For each, `sanitizeVectorImage` refuses with the listed
     code and returns no document, and `prepareVectorImageUpload` refuses with the same code:
-    - `vector_image_unsafe_content` (114):
+    - `vector_image_unsafe_content` (129):
       - script and handlers: `<script>`; XHTML-namespaced `<html:script>`; a script hidden inside
         a foreign-namespace wrapper; a script hidden inside `<metadata>`; `onload` on the root;
         `onclick` on a shape;
@@ -792,6 +834,12 @@ Every bullet below is a test that exists.
         `style` attribute, a `cursor` attribute; a fragment `href` on `<image>`;
         `<animateTransform>`, `<animateMotion>` and `<animateColor>`; an embedded PNG whose header
         declares 14,000 × 14,000 pixels;
+      - the ninth round: CSS `blur()`/`drop-shadow()` in a stylesheet filter over 1,000 rects, in a
+        `filter` attribute and in a `style` attribute; a filter `url()` followed by a function; two
+        filter `url()`s; `backdrop-filter`; a gradient in `mask-image` and in a background;
+        `color-mix()`; a GIF whose frame is 20,000 × 20,000 behind a 16 × 16 screen; a WebP; a PNG
+        with a second, larger `IHDR`; an animated PNG; a hierarchical JPEG; a `;` inside a function
+        ahead of a mid-marker `url()`;
       - outside the stylesheet subset: 20,000 nested `@media` blocks, closed and unclosed; nested
         patterns through classes inside `@media`; a child combinator, a descendant combinator, a
         pseudo-class (`:root`), a pseudo-element, an attribute selector, a namespace selector; a
@@ -817,10 +865,15 @@ Every bullet below is a test that exists.
       DOCTYPE whose double-quoted public id contains `>` ahead of an internal subset carrying
       `<!ATTLIST … onload …>`; the same with a single-quoted system id; a DOCTYPE quote opened
       inside a comment ahead of a real internal subset.
-    - `vector_image_too_complex` (22):
+    - `vector_image_too_complex` (36):
+      - the ninth round: `feMorphology` under a 1 × 1 `viewBox` (once and eight times) and with
+        object-bounding-box primitive units; a blur with object-bounding-box units;
+        `feSpecularLighting`; `feDiffuseLighting`; a chain of blurs under `scale(10)`; a blur under a
+        stretching matrix, under a skew, inside a nested viewport, and next to an unparseable
+        transform; a blur deviation over 10%; nine blurs; `feDisplacementMap`; `feDropShadow`;
       - the stylesheet caps: 33 selectors in one rule; 17 references in one rule; 1,251 rules of 16
         selectors × 1 reference (20,016 against the work cap of 20,000); 2,001 rules;
-      - the filter limits: 33 primitives; an `feMorphology` radius of 5, and of `1 5`;
+      - the filter limits: 33 primitives; `feMorphology` with a radius of 5, and of `1 5`;
       - render work: a `;` inside a function ahead of a mid-marker `url()` on a 20,000-segment path
         (counted per vertex, as the property stays `marker-mid`); a blurred rect drawn 1,000 times
         through `<use>`; a 200,000-character path drawn ten times; 10,000 full-size rects through
@@ -843,6 +896,9 @@ Every bullet below is a test that exists.
     - an `<feImage>` filter carrying an embedded PNG with a real PNG signature;
     - stylesheets a browser reads as we do: comment markers inside quoted strings; rules in two
       stylesheets; `!important` with an upper-case property;
+    - a filter attribute and a stylesheet filter with one `url()` (and `!important`); `filter:none`;
+      `rgb()` and `hsl()` colours; an embedded baseline JPEG; a blur in a document whose transforms
+      only shrink, rotate or translate; stretching transforms in a document without a blur;
     - ids that are not plain and so stay unreachable (Korean and Cyrillic layer ids, `Layer 1`,
       `a%61`); a digit-first id named by `url(#7f1a2b3c4d)`; an eight-primitive drop-shadow filter;
     - a gradient applied by `*`, `svg`, `path` and a compound comma list (`path.a, #b, *.a`),
@@ -1004,7 +1060,14 @@ Regression proofs run during implementation:
   newline — all refused — and `{ }` and `;` inside an unquoted `url()`, comment markers inside
   strings, an upper-case property with `!important`, and comments between rules and inside
   declarations — all accepted, as a browser reads them. All 104 pass, at most 427 ms outside the
-  first call under load. In the eighth round it grew to 188 inputs with a render-cost section of 21:
+  first call under load. In the ninth round it grew to 209 inputs with 21 render-cost cases (CSS
+  `blur()` ×4 over 1,000 rects, `blur()` in the attribute, a `url()` then `blur()`,
+  `backdrop-filter`, a `mask-image` gradient, a conic gradient fill, `feMorphology` at viewBox 1,
+  object-bounding-box units, lighting, a blur chain under `scale(10)`, a blur under a nested
+  `viewBox`, a 50% deviation, nine blurs, `feDropShadow`, `feDisplacementMap`, the GIF, two-`IHDR`
+  PNG and WebP repros — refused; a single filter `url()` with `!important`, `rgb()`/`hsl()`, a 2%
+  blur under a shrinking matrix — accepted). All 209 pass, at most 206 ms outside the first call.
+  In the eighth round it grew to 188 inputs with a render-cost section of 21:
   the CSS `d` property, `d` in a `style` attribute, `if(supports())` and `else:` inside `if()`,
   `mask-image`, `border-image`, `animateTransform`, `animateMotion` with `mpath`, `feMorphology`
   radius 5, `feConvolveMatrix`, 33 primitives, a blurred rect ×1,000, 10,000 full rects, a 200 KB
@@ -1043,6 +1106,16 @@ Regression proofs run during implementation:
 
 ## Changelog
 
+- 2026-10-07 — Ninth review round:
+  - A Threat Model section: server cost bounded, no active content guaranteed, client render cost
+    best effort (Low), with the risk rows graded against it.
+  - CSS functions limited to `url()` and the colour functions; a `filter` is one `url()` or `none`.
+  - `feMorphology`, lighting, `feDisplacementMap`, `feDropShadow` and object-bounding-box primitive
+    units refused; at most eight blurs, deviations up to 10% of the viewport, none under scale-up;
+    blur weight 640, gradient stops 2, both measured in Chrome.
+  - Embedded rasters are PNG or JPEG only, with every chunk or marker walked: one `IHDR`, no
+    animation, one baseline/extended/progressive frame.
+  - Corpus unchanged at 220 of 230; every exporter variant accepted except the SMIL spinner.
 - 2026-10-07 — Eighth review round:
   - Merge order re-verified with a trial merge: the same five conflicting files and hunks.
   - `url()` only in the paint, clip, mask, filter and marker properties (and Inkscape's
