@@ -11,7 +11,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/attachments/lib/requestScope', () => ({
-  resolveAttachmentOrganizationId: jest.fn(async () => null),
+  resolveAttachmentRequestScope: jest.fn(async () => ({ denied: false, organizationId: null })),
 }))
 
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
