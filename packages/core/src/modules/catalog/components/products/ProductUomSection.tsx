@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
+import { parseLocaleNumber } from "@open-mercato/shared/lib/number";
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Checkbox } from "@open-mercato/ui/primitives/checkbox";
@@ -56,19 +57,15 @@ const REFERENCE_UNIT_OPTIONS = REFERENCE_UNIT_CODES.map((code) => ({
   fallback: REFERENCE_UNIT_DISPLAY[code] ?? code,
 }));
 
-function normalizeDecimalInput(value: string): string {
-  return value.replace(/,/g, ".");
-}
-
-function toPositiveNumber(value: unknown): number | null {
+export function toPositiveNumber(value: unknown, locale?: string): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) && value > 0 ? value : null;
   }
   if (typeof value !== "string") return null;
   const normalized = toTrimmedOrNull(value);
   if (!normalized) return null;
-  const numeric = Number(normalized.replace(",", "."));
-  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  const numeric = parseLocaleNumber(normalized, locale);
+  return numeric !== null && numeric > 0 ? numeric : null;
 }
 
 function toSortValue(value: string): number {
@@ -76,10 +73,12 @@ function toSortValue(value: string): number {
   return Number.isFinite(numeric) ? numeric : Number.MAX_SAFE_INTEGER;
 }
 
-function formatPreviewNumber(value: number): string {
+function formatPreviewNumber(value: number, locale?: string): string {
   if (!Number.isFinite(value)) return "0";
-  const rounded = Math.round(value * 1_000_000) / 1_000_000;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 6,
+    useGrouping: false,
+  }).format(value);
 }
 
 function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
@@ -91,9 +90,9 @@ function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
       return {
         id: toTrimmedOrNull(row.id) ?? null,
         unitCode: toTrimmedOrNull(row.unitCode) ?? "",
-        toBaseFactor: toTrimmedOrNull(row.toBaseFactor)
-          ? normalizeDecimalInput(toTrimmedOrNull(row.toBaseFactor) as string)
-          : "",
+        // Stays raw while editing (issue #5828) — re-serializing on every render would drop
+        // an in-progress decimal separator the instant it's typed.
+        toBaseFactor: toTrimmedOrNull(row.toBaseFactor) ?? "",
         sortOrder: toTrimmedOrNull(row.sortOrder) ?? "",
         isActive: row.isActive !== false,
       } satisfies ProductUnitConversionDraft;
@@ -135,6 +134,7 @@ export function ProductUomSection({
   embedded = false,
 }: ProductUomSectionProps) {
   const t = useT();
+  const locale = useLocale();
   const { enabled: unitPriceDisplayEnabled } = useUnitPriceDisplayEnabled();
   const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
   const [loadingUnits, setLoadingUnits] = React.useState(false);
@@ -236,15 +236,13 @@ export function ProductUomSection({
 
   const defaultUnit = toTrimmedOrNull(values.defaultUnit) ?? "";
   const defaultSalesUnit = toTrimmedOrNull(values.defaultSalesUnit) ?? "";
-  const defaultSalesQuantityRaw =
+  const defaultSalesQuantity =
     toTrimmedOrNull(values.defaultSalesUnitQuantity) ?? "1";
-  const defaultSalesQuantity = normalizeDecimalInput(defaultSalesQuantityRaw);
   const unitPriceEnabled = Boolean(values.unitPriceEnabled);
   const unitPriceReferenceUnit =
     toTrimmedOrNull(values.unitPriceReferenceUnit) ?? "";
-  const unitPriceBaseQuantityRaw =
+  const unitPriceBaseQuantity =
     toTrimmedOrNull(values.unitPriceBaseQuantity) ?? "";
-  const unitPriceBaseQuantity = normalizeDecimalInput(unitPriceBaseQuantityRaw);
 
   const baseUnitLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
   const salesUnitLabel =
@@ -261,34 +259,17 @@ export function ProductUomSection({
       (entry) =>
         entry.isActive &&
         entry.unitCode.toLowerCase() === defaultSalesKey &&
-        toPositiveNumber(entry.toBaseFactor) !== null,
+        toPositiveNumber(entry.toBaseFactor, locale) !== null,
     );
-    return row ? toPositiveNumber(row.toBaseFactor) : null;
-  }, [conversions, defaultSalesUnit, defaultUnit]);
+    return row ? toPositiveNumber(row.toBaseFactor, locale) : null;
+  }, [conversions, defaultSalesUnit, defaultUnit, locale]);
 
-  const defaultSalesQuantityNumber = toPositiveNumber(defaultSalesQuantity);
+  const defaultSalesQuantityNumber = toPositiveNumber(defaultSalesQuantity, locale);
   const defaultSalesQuantityNormalized =
     defaultSalesQuantityNumber && defaultSalesFactor
       ? defaultSalesQuantityNumber * defaultSalesFactor
       : null;
-  const unitPriceBaseQuantityNumber = toPositiveNumber(unitPriceBaseQuantity);
-
-  const validConversions = conversions.filter(
-    (entry) =>
-      toTrimmedOrNull(entry.unitCode) && toTrimmedOrNull(entry.toBaseFactor),
-  );
-  const conversionPreviewItems = validConversions
-    .slice(0, 3)
-    .map((entry) => {
-      const label = findUnitLabel(entry.unitCode) ?? entry.unitCode;
-      const baseLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
-      const factor = toTrimmedOrNull(entry.toBaseFactor) ?? "1";
-      return `1 ${label} = ${factor} ${baseLabel || t("catalog.products.uom.baseUnit", "base unit")}`;
-    });
-  const conversionPreview =
-    validConversions.length > 3
-      ? `${conversionPreviewItems.join(" • ")} (+${validConversions.length - 3})`
-      : conversionPreviewItems.join(" • ");
+  const unitPriceBaseQuantityNumber = toPositiveNumber(unitPriceBaseQuantity, locale);
 
   return (
     <div
@@ -386,10 +367,7 @@ export function ProductUomSection({
             inputMode="decimal"
             value={defaultSalesQuantity}
             onChange={(event) =>
-              setValue(
-                "defaultSalesUnitQuantity",
-                normalizeDecimalInput(event.target.value),
-              )
+              setValue("defaultSalesUnitQuantity", event.target.value)
             }
             placeholder="1"
           />
@@ -406,10 +384,11 @@ export function ProductUomSection({
                     "catalog.products.uom.defaultSalesQuantityPreviewWithNormalization",
                     "Default line: {{quantity}} {{salesUnit}} (= {{normalized}} {{baseUnit}}).",
                     {
-                      quantity: formatPreviewNumber(defaultSalesQuantityNumber),
+                      quantity: formatPreviewNumber(defaultSalesQuantityNumber, locale),
                       salesUnit: salesUnitLabel,
                       normalized: formatPreviewNumber(
                         defaultSalesQuantityNormalized,
+                        locale,
                       ),
                       baseUnit: baseUnitLabel,
                     },
@@ -418,7 +397,7 @@ export function ProductUomSection({
                     "catalog.products.uom.defaultSalesQuantityPreview",
                     "Default line: {{quantity}} {{salesUnit}}.",
                     {
-                      quantity: formatPreviewNumber(defaultSalesQuantityNumber),
+                      quantity: formatPreviewNumber(defaultSalesQuantityNumber, locale),
                       salesUnit: salesUnitLabel,
                     },
                   )}
@@ -539,10 +518,7 @@ export function ProductUomSection({
                 inputMode="decimal"
                 value={unitPriceBaseQuantity}
                 onChange={(event) =>
-                  setValue(
-                    "unitPriceBaseQuantity",
-                    normalizeDecimalInput(event.target.value),
-                  )
+                  setValue("unitPriceBaseQuantity", event.target.value)
                 }
                 placeholder="1"
               />
@@ -556,7 +532,7 @@ export function ProductUomSection({
                   "catalog.products.unitPrice.hintWithPreview",
                   "Show calculated price per {{quantity}} {{unit}}. For most products use 1 (for example: 1 kg, 1 l, 1 m²).",
                   {
-                    quantity: formatPreviewNumber(unitPriceBaseQuantityNumber),
+                    quantity: formatPreviewNumber(unitPriceBaseQuantityNumber, locale),
                     unit: unitPriceReferenceUnit,
                   },
                 )
@@ -595,7 +571,7 @@ export function ProductUomSection({
         ) : (
           <div className="space-y-2">
             {conversions.map((entry, index) => {
-              const conversionFactor = toPositiveNumber(entry.toBaseFactor);
+              const conversionFactor = toPositiveNumber(entry.toBaseFactor, locale);
               const conversionPreviewText =
                 entry.unitCode && conversionFactor !== null
                   ? t(
@@ -603,7 +579,7 @@ export function ProductUomSection({
                       "1 {{fromUnit}} = {{factor}} {{baseUnit}}",
                       {
                         fromUnit: findUnitLabel(entry.unitCode) ?? entry.unitCode,
-                        factor: formatPreviewNumber(conversionFactor),
+                        factor: formatPreviewNumber(conversionFactor, locale),
                         baseUnit:
                           findUnitLabel(defaultUnit) ??
                           defaultUnit ??
@@ -653,7 +629,7 @@ export function ProductUomSection({
                     value={entry.toBaseFactor}
                     onChange={(event) =>
                       updateConversion(index, {
-                        toBaseFactor: normalizeDecimalInput(event.target.value),
+                        toBaseFactor: event.target.value,
                       })
                     }
                     placeholder="1"
@@ -740,10 +716,6 @@ export function ProductUomSection({
               "Use arrows to reorder conversion priority.",
             )}
           </p>
-        ) : null}
-
-        {conversionPreview ? (
-          <p className="text-xs text-muted-foreground">{conversionPreview}</p>
         ) : null}
       </div>
     </div>

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -10,14 +11,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
+import { assertTimeEntryUnlocked } from '../../../../../commands/timesheets-entries'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
 import {
-  resolveUserFeatures,
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
 import { emitStaffEvent } from '../../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../../lib/timesheets/timeEntryCacheInvalidation'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -46,10 +49,18 @@ export async function POST(req: Request) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const tenantId = scope?.tenantId ?? auth.tenantId ?? null
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
     if (!tenantId || !organizationId) {
       throw new CrudHttpError(400, { error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.') })
     }
+
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
 
     const em = (container.resolve('em') as EntityManager).fork()
     const scopeCtx = { tenantId, organizationId }
@@ -75,6 +86,10 @@ export async function POST(req: Request) {
       throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.') })
     }
 
+    // Running a timer on a frozen entry is only ever the first half of changing
+    // its duration, so it is refused at the same gate the entries command uses.
+    assertTimeEntryUnlocked(entry, translate)
+
     if (entry.startedAt) {
       return NextResponse.json(
         { error: translate('staff.timesheets.errors.timerAlreadyStarted', 'Timer is already started for this entry.') },
@@ -88,13 +103,12 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
         resourceId: entry.id,
         operation: 'update',
         requestMethod: req.method,
         requestHeaders: req.headers,
       },
-      resolveUserFeatures(auth),
     )
     if (!guardResult.ok) {
       return NextResponse.json(
@@ -118,6 +132,9 @@ export async function POST(req: Request) {
       if (!lockedEntry) {
         throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
       }
+      // Re-checked under the row lock: a report close committed between the
+      // pre-flight read and this transaction would otherwise slip through.
+      assertTimeEntryUnlocked(lockedEntry, translate)
       if (lockedEntry.startedAt) {
         throw new CrudHttpError(409, {
           error: translate('staff.timesheets.errors.timerAlreadyStarted', 'Timer is already started for this entry.'),
@@ -193,7 +210,7 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
         resourceId: entry.id,
         operation: 'update',
         requestMethod: req.method,
@@ -201,7 +218,7 @@ export async function POST(req: Request) {
       })
     }
 
-    return NextResponse.json({ ok: true }, { status: 200 })
+    return session.respond(200, { ok: true })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
@@ -225,7 +242,12 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Timer started', schema: z.object({ ok: z.literal(true) }) },
         { status: 404, description: 'Time entry not found', schema: z.object({ error: z.string() }) },
-        { status: 409, description: 'Timer already started, or another timer is already running for this staff member', schema: z.object({ error: z.string() }) },
+        {
+          status: 409,
+          description:
+            'Timer already started, another timer is already running for this staff member, or the entry is locked in a closed report (code time_entry_locked)',
+          schema: z.object({ error: z.string(), code: z.string().optional(), lockedReportId: z.string().uuid().nullable().optional() }),
+        },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
       ],
     },

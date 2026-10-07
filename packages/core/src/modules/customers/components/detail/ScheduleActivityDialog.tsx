@@ -21,6 +21,8 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   useScheduleFormState,
   FIELD_VISIBILITY,
+  isDateRequired,
+  isTimeRequired,
   getFieldLabel,
   DateTimeFields,
   ParticipantsField,
@@ -29,6 +31,7 @@ import {
   LinkedEntitiesField,
 } from './schedule'
 import type { ActivityType, ScheduleActivityEditData } from './schedule'
+import { PRIORITY_NUMBER, priorityFromNumber, type EditorPriority } from '../../lib/calendar/editorPayload'
 
 const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ className?: string }>; labelKey: string; fallback: string }> = [
   { type: 'meeting', icon: Users, labelKey: 'customers.schedule.types.meeting', fallback: 'Meeting' },
@@ -81,12 +84,33 @@ const CALL_OUTCOMES: Array<{ key: string; labelKey: string; labelFallback: strin
   { key: 'badnumber', labelKey: 'customers.schedule.call.outcome.badNumber', labelFallback: 'Bad number', dot: 'bg-status-error-icon' },
 ]
 
-const TASK_PRIORITIES: Array<{ key: string; labelKey: string; labelFallback: string; dot: string }> = [
-  { key: 'low', labelKey: 'customers.schedule.task.priority.low', labelFallback: 'Low', dot: 'bg-muted-foreground' },
-  { key: 'medium', labelKey: 'customers.schedule.task.priority.medium', labelFallback: 'Medium', dot: 'bg-status-info-icon' },
-  { key: 'high', labelKey: 'customers.schedule.task.priority.high', labelFallback: 'High', dot: 'bg-status-warning-icon' },
-  { key: 'urgent', labelKey: 'customers.schedule.task.priority.urgent', labelFallback: 'Urgent', dot: 'bg-status-error-icon' },
+// Task priority is the interaction's own nullable `priority` column (0-100), not a
+// custom field — the same scale `CalendarEventEditor` writes through
+// `PRIORITY_NUMBER` / `priorityFromNumber`. `null` means "no priority set", which the
+// column allows (#5943). Dot colours mirror the calendar editor's `PRIORITY_META` so
+// both controls render the same value identically.
+type TaskPriorityValue = EditorPriority | null
+
+const TASK_PRIORITIES: Array<{ key: TaskPriorityValue; labelKey: string; labelFallback: string; dot: string }> = [
+  { key: null, labelKey: 'customers.schedule.task.priority.none', labelFallback: 'None', dot: 'bg-muted' },
+  { key: 'low', labelKey: 'customers.schedule.task.priority.low', labelFallback: 'Low', dot: 'bg-status-info-icon' },
+  { key: 'medium', labelKey: 'customers.schedule.task.priority.medium', labelFallback: 'Medium', dot: 'bg-muted-foreground' },
+  { key: 'high', labelKey: 'customers.schedule.task.priority.high', labelFallback: 'High', dot: 'bg-status-error-icon' },
 ]
+
+function readTaskPriorityNumber(raw: { priority?: unknown } | null | undefined): number | null {
+  return typeof raw?.priority === 'number' && !Number.isNaN(raw.priority) ? raw.priority : null
+}
+
+// `TaskForm` writes any 0-100 value while these chips only offer three buckets, so a
+// save that did not touch the control must keep the stored number rather than snap it
+// to the bucket midpoint — `priority` is a sortable column, so rewriting 100 as 90
+// would silently reorder tasks the user never edited.
+function buildTaskPriorityPayload(level: TaskPriorityValue, seeded: number | null): number | null {
+  if (!level) return null
+  if (seeded !== null && priorityFromNumber(seeded) === level) return seeded
+  return PRIORITY_NUMBER[level]
+}
 
 interface ScheduleActivityDialogProps {
   open: boolean
@@ -126,7 +150,8 @@ export function ScheduleActivityDialog({
   const [callOutcome, setCallOutcome] = React.useState<string | null>(null)
   const [callPhoneNumber, setCallPhoneNumber] = React.useState('')
   const [callPhoneError, setCallPhoneError] = React.useState<string | null>(null)
-  const [taskPriority, setTaskPriority] = React.useState<string>('medium')
+  const [taskPriority, setTaskPriority] = React.useState<TaskPriorityValue>(null)
+  const [seededTaskPriority, setSeededTaskPriority] = React.useState<number | null>(null)
   const callPhoneInvalidMessage = React.useMemo(
     () =>
       t(
@@ -145,7 +170,7 @@ export function ScheduleActivityDialog({
 
   React.useEffect(() => {
     if (!open) return
-    const raw = editData as (Record<string, unknown> & { customValues?: unknown; phoneNumber?: unknown }) | null | undefined
+    const raw = editData as (Record<string, unknown> & { customValues?: unknown; phoneNumber?: unknown; priority?: unknown }) | null | undefined
     const cv = (raw?.customValues && typeof raw.customValues === 'object' ? raw.customValues : null) as Record<string, unknown> | null
     setCallDirection(typeof cv?.callDirection === 'string' && cv.callDirection === 'inbound' ? 'inbound' : 'outbound')
     setCallOutcome(typeof cv?.callOutcome === 'string' ? cv.callOutcome : null)
@@ -160,7 +185,9 @@ export function ScheduleActivityDialog({
           : ''
     setCallPhoneNumber(seededPhone)
     setCallPhoneError(null)
-    setTaskPriority(typeof cv?.taskPriority === 'string' ? cv.taskPriority : 'medium')
+    const seededPriority = readTaskPriorityNumber(raw)
+    setSeededTaskPriority(seededPriority)
+    setTaskPriority(seededPriority === null ? null : priorityFromNumber(seededPriority))
   }, [open, editData])
 
   // Reset per-type chip state when the user switches activity type in create mode.
@@ -171,7 +198,8 @@ export function ScheduleActivityDialog({
     setCallOutcome(null)
     setCallPhoneNumber('')
     setCallPhoneError(null)
-    setTaskPriority('medium')
+    setTaskPriority(null)
+    setSeededTaskPriority(null)
   }, [state.activityType, open, isEditing])
 
   const handleCallPhoneChange = React.useCallback((next: string | undefined) => {
@@ -339,8 +367,10 @@ export function ScheduleActivityDialog({
   const trimmedDate = state.date.trim()
   const trimmedStartTime = state.startTime.trim()
   const trimmedCallPhone = callPhoneNumber.trim()
-  const isDateMissing = !trimmedDate
-  const isTimeMissing = !state.allDay && !trimmedStartTime
+  // Only calendar-bound types must be scheduled; a task may stay an undated
+  // backlog item, so blocking its save on an empty date was wrong (#5941).
+  const isDateMissing = isDateRequired(state.activityType) && !trimmedDate
+  const isTimeMissing = isTimeRequired(state.activityType) && !state.allDay && !trimmedStartTime
   const isSubmitDisabled =
     state.saving ||
     !state.title.trim() ||
@@ -373,9 +403,13 @@ export function ScheduleActivityDialog({
     }
     state.setSaving(true)
     try {
-      const scheduledAt = state.allDay
-        ? new Date(`${state.date}T00:00:00`).toISOString()
-        : new Date(`${state.date}T${state.startTime}:00`).toISOString()
+      // An undated activity (a backlog task) has no moment to compute — sending
+      // an explicit null clears `scheduled_at` instead of posting an
+      // `Invalid Date` built from an empty date string (#5941).
+      const timeForPayload = state.allDay ? '00:00' : trimmedStartTime
+      const scheduledAt = trimmedDate
+        ? new Date(`${trimmedDate}T${timeForPayload || '00:00'}:00`).toISOString()
+        : null
 
       const recurrenceRule = state.recurrenceEnabled
         ? buildRecurrenceRule(state.recurrenceDays, state.recurrenceEndType, state.recurrenceCount, state.recurrenceEndDate)
@@ -388,20 +422,26 @@ export function ScheduleActivityDialog({
         if (callOutcome) customValues.callOutcome = callOutcome
         if (phoneNumberForPayload) customValues.callPhoneNumber = phoneNumberForPayload
       }
-      if (state.activityType === 'task') {
-        customValues.taskPriority = taskPriority
-      }
+      // On edit, pin the payload to the activity's own linked entity when the
+      // caller provided one (`editData.entityId`) rather than the `entityId` prop,
+      // which tracks the host page's currently-selected entity and can differ from
+      // the activity's record on multi-entity pages like the deal detail view. This
+      // dialog has no entity picker, so an edit must never silently re-link (#6050).
+      const payloadEntityId = isSaveEdit && editData?.entityId ? editData.entityId : entityId
       const payload = {
         ...(isSaveEdit ? { id: editData!.id } : {}),
-        entityId,
+        entityId: payloadEntityId,
         dealId,
         interactionType: state.activityType,
         title: state.title.trim(),
         body: state.description.trim() || null,
         status: 'planned',
-        date: trimmedDate,
-        time: state.allDay ? '00:00' : trimmedStartTime,
+        date: trimmedDate || null,
+        time: trimmedDate ? timeForPayload || null : null,
         phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
+        // Only tasks expose the priority control, so other types leave the column
+        // untouched rather than clearing it on a type switch (#5943).
+        priority: state.activityType === 'task' ? buildTaskPriorityPayload(taskPriority, seededTaskPriority) : undefined,
         scheduledAt,
         durationMinutes: visibleFields.has('duration') && !state.allDay ? state.duration : null,
         location: visibleFields.has('location') ? (state.location.trim() || null) : null,
@@ -469,7 +509,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
@@ -658,7 +698,7 @@ export function ScheduleActivityDialog({
                 const isActive = taskPriority === opt.key
                 return (
                   <button
-                    key={opt.key}
+                    key={opt.key ?? 'none'}
                     type="button"
                     aria-pressed={isActive}
                     onClick={() => setTaskPriority(opt.key)}
@@ -733,6 +773,17 @@ export function ScheduleActivityDialog({
               value={state.description}
               onChange={state.setDescription}
               isMarkdownEnabled={state.markdownEnabled}
+              // Email bodies are plain text from other mail clients, not Markdown; `<address>`
+              // or `<url>` tokens in them break the MDX editor (#5903).
+              disableMarkdown={state.activityType === 'email'}
+              // The plain textarea defaults to 3 hidden-overflow rows, which
+              // would cut off quoted replies; give email bodies room and a scrollbar.
+              rows={state.activityType === 'email' ? 8 : undefined}
+              textareaClassName={
+                state.activityType === 'email'
+                  ? 'w-full resize-y overflow-y-auto rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                  : undefined
+              }
               height={120}
               placeholder={t('customers.schedule.descriptionPlaceholder', 'Add details...')}
             />

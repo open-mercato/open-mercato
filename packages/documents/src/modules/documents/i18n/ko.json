@@ -518,5 +518,6 @@
   "documents.versions.snapshot.defaultLabel": "스냅샷",
   "documents.versions.snapshot.labelPlaceholder": "라벨 (선택 사항)",
   "documents.versions.snapshotTooLarge": "이 버전은 너무 커서 안전하게 처리할 수 없습니다.",
-  "documents.versions.title": "버전 기록"
+  "documents.versions.title": "버전 기록",
+  "search.entityType.documents.document": "문서"
 }

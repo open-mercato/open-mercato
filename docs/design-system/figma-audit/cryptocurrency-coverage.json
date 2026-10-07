@@ -1,0 +1,1535 @@
+{
+  "fileKey": "qCq9z6q1if0mpoRstV5OEA",
+  "pageId": "6696:81120",
+  "sourceSetCount": 18,
+  "sourceVariantCount": 107,
+  "examples": [
+    {
+      "id": "navigation-item-default-28",
+      "nodeId": "192886:19537",
+      "setId": "192886:19540",
+      "props": {
+        "part": "navigation-item",
+        "state": "default",
+        "size": 28
+      },
+      "width": 87,
+      "height": 28
+    },
+    {
+      "id": "navigation-item-hover-28",
+      "nodeId": "192886:19538",
+      "setId": "192886:19540",
+      "props": {
+        "part": "navigation-item",
+        "state": "hover",
+        "size": 28
+      },
+      "width": 87,
+      "height": 28
+    },
+    {
+      "id": "navigation-item-active-28",
+      "nodeId": "192886:19539",
+      "setId": "192886:19540",
+      "props": {
+        "part": "navigation-item",
+        "state": "active",
+        "size": 28
+      },
+      "width": 87,
+      "height": 28
+    },
+    {
+      "id": "navigation-item-default-24",
+      "nodeId": "192887:24941",
+      "setId": "192886:19540",
+      "props": {
+        "part": "navigation-item",
+        "state": "default",
+        "size": 24
+      },
+      "width": 83,
+      "height": 24
+    },
+    {
+      "id": "navigation-item-hover-24",
+      "nodeId": "192887:24943",
+      "setId": "192886:19540",
+      "props": {
+        "part": "navigation-item",
+        "state": "hover",
+        "size": 24
+      },
+      "width": 83,
+      "height": 24
+    },
+    {
+      "id": "navigation-item-active-24",
+      "nodeId": "192887:24945",
+      "setId": "192886:19540",
+      "props": {
+        "part": "navigation-item",
+        "state": "active",
+        "size": 24
+      },
+      "width": 83,
+      "height": 24
+    },
+    {
+      "id": "navigation-search-default",
+      "nodeId": "192886:24579",
+      "setId": "192886:24580",
+      "props": {
+        "part": "navigation-search",
+        "state": "default"
+      },
+      "width": 364,
+      "height": 32
+    },
+    {
+      "id": "navigation-search-hover",
+      "nodeId": "192886:24578",
+      "setId": "192886:24580",
+      "props": {
+        "part": "navigation-search",
+        "state": "hover"
+      },
+      "width": 364,
+      "height": 32
+    },
+    {
+      "id": "navigation-wallet-default",
+      "nodeId": "192886:24619",
+      "setId": "192886:24620",
+      "props": {
+        "part": "navigation-wallet",
+        "state": "default"
+      },
+      "width": 153,
+      "height": 28
+    },
+    {
+      "id": "navigation-wallet-hover",
+      "nodeId": "192886:24618",
+      "setId": "192886:24620",
+      "props": {
+        "part": "navigation-wallet",
+        "state": "hover"
+      },
+      "width": 153,
+      "height": 28
+    },
+    {
+      "id": "navigation-wallet-active",
+      "nodeId": "192886:24617",
+      "setId": "192886:24620",
+      "props": {
+        "part": "navigation-wallet",
+        "state": "active"
+      },
+      "width": 153,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-favorite-default",
+      "nodeId": "192887:24664",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "favorite",
+        "state": "default"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-notification-default",
+      "nodeId": "192887:24661",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "notification",
+        "state": "default"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-hamburger-default",
+      "nodeId": "193018:44063",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "hamburger",
+        "state": "default"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-favorite-hover",
+      "nodeId": "192887:24663",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "favorite",
+        "state": "hover"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-notification-hover",
+      "nodeId": "192887:24660",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "notification",
+        "state": "hover"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-hamburger-hover",
+      "nodeId": "193018:44067",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "hamburger",
+        "state": "hover"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-favorite-active",
+      "nodeId": "192887:24662",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "favorite",
+        "state": "active"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-notification-active",
+      "nodeId": "192887:24659",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "notification",
+        "state": "active"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "navigation-action-hamburger-active",
+      "nodeId": "193018:44071",
+      "setId": "192887:24665",
+      "props": {
+        "part": "navigation-action",
+        "kind": "hamburger",
+        "state": "active"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "chart-item-default",
+      "nodeId": "192887:24830",
+      "setId": "192887:24831",
+      "props": {
+        "part": "chart-item",
+        "state": "default"
+      },
+      "width": 40,
+      "height": 18
+    },
+    {
+      "id": "chart-item-hover",
+      "nodeId": "192887:24829",
+      "setId": "192887:24831",
+      "props": {
+        "part": "chart-item",
+        "state": "hover"
+      },
+      "width": 40,
+      "height": 18
+    },
+    {
+      "id": "chart-item-active",
+      "nodeId": "192887:24828",
+      "setId": "192887:24831",
+      "props": {
+        "part": "chart-item",
+        "state": "active"
+      },
+      "width": 40,
+      "height": 18
+    },
+    {
+      "id": "swap-select-lighter-default",
+      "nodeId": "192891:25079",
+      "setId": "192891:25080",
+      "props": {
+        "part": "swap-select",
+        "kind": "lighter",
+        "state": "default"
+      },
+      "width": 80,
+      "height": 28
+    },
+    {
+      "id": "swap-select-lighter-hover",
+      "nodeId": "192891:25081",
+      "setId": "192891:25080",
+      "props": {
+        "part": "swap-select",
+        "kind": "lighter",
+        "state": "hover"
+      },
+      "width": 80,
+      "height": 28
+    },
+    {
+      "id": "swap-select-lighter-active",
+      "nodeId": "192891:25103",
+      "setId": "192891:25080",
+      "props": {
+        "part": "swap-select",
+        "kind": "lighter",
+        "state": "active"
+      },
+      "width": 80,
+      "height": 28
+    },
+    {
+      "id": "swap-select-stroke-default",
+      "nodeId": "192996:46071",
+      "setId": "192891:25080",
+      "props": {
+        "part": "swap-select",
+        "kind": "stroke",
+        "state": "default"
+      },
+      "width": 80,
+      "height": 28
+    },
+    {
+      "id": "swap-select-stroke-hover",
+      "nodeId": "192996:46076",
+      "setId": "192891:25080",
+      "props": {
+        "part": "swap-select",
+        "kind": "stroke",
+        "state": "hover"
+      },
+      "width": 80,
+      "height": 28
+    },
+    {
+      "id": "swap-select-stroke-active",
+      "nodeId": "192996:46081",
+      "setId": "192891:25080",
+      "props": {
+        "part": "swap-select",
+        "kind": "stroke",
+        "state": "active"
+      },
+      "width": 80,
+      "height": 28
+    },
+    {
+      "id": "chart-switch-1d",
+      "nodeId": "192887:24855",
+      "setId": "192903:28242",
+      "props": {
+        "part": "chart-switch",
+        "kind": "1D"
+      },
+      "width": 206,
+      "height": 24
+    },
+    {
+      "id": "chart-switch-1w",
+      "nodeId": "192903:28243",
+      "setId": "192903:28242",
+      "props": {
+        "part": "chart-switch",
+        "kind": "1W"
+      },
+      "width": 206,
+      "height": 24
+    },
+    {
+      "id": "chart-switch-1m",
+      "nodeId": "192903:28254",
+      "setId": "192903:28242",
+      "props": {
+        "part": "chart-switch",
+        "kind": "1M"
+      },
+      "width": 206,
+      "height": 24
+    },
+    {
+      "id": "chart-switch-3m",
+      "nodeId": "192903:28265",
+      "setId": "192903:28242",
+      "props": {
+        "part": "chart-switch",
+        "kind": "3M"
+      },
+      "width": 206,
+      "height": 24
+    },
+    {
+      "id": "chart-switch-1y",
+      "nodeId": "192903:28276",
+      "setId": "192903:28242",
+      "props": {
+        "part": "chart-switch",
+        "kind": "1Y"
+      },
+      "width": 206,
+      "height": 24
+    },
+    {
+      "id": "table-button-explorer-default",
+      "nodeId": "192926:13074",
+      "setId": "192926:13075",
+      "props": {
+        "part": "table-button",
+        "kind": "explorer",
+        "state": "default"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "table-button-detail-default",
+      "nodeId": "192926:13070",
+      "setId": "192926:13075",
+      "props": {
+        "part": "table-button",
+        "kind": "detail",
+        "state": "default"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "table-button-explorer-hover",
+      "nodeId": "192926:13073",
+      "setId": "192926:13075",
+      "props": {
+        "part": "table-button",
+        "kind": "explorer",
+        "state": "hover"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "table-button-detail-hover",
+      "nodeId": "192926:13071",
+      "setId": "192926:13075",
+      "props": {
+        "part": "table-button",
+        "kind": "detail",
+        "state": "hover"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "table-button-explorer-active",
+      "nodeId": "192926:13072",
+      "setId": "192926:13075",
+      "props": {
+        "part": "table-button",
+        "kind": "explorer",
+        "state": "active"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "table-button-detail-active",
+      "nodeId": "192926:13069",
+      "setId": "192926:13075",
+      "props": {
+        "part": "table-button",
+        "kind": "detail",
+        "state": "active"
+      },
+      "width": 28,
+      "height": 28
+    },
+    {
+      "id": "table-switch-item-default",
+      "nodeId": "192903:28232",
+      "setId": "192903:28235",
+      "props": {
+        "part": "table-switch-item",
+        "state": "default"
+      },
+      "width": 80,
+      "height": 24
+    },
+    {
+      "id": "table-switch-item-hover",
+      "nodeId": "192903:28233",
+      "setId": "192903:28235",
+      "props": {
+        "part": "table-switch-item",
+        "state": "hover"
+      },
+      "width": 80,
+      "height": 24
+    },
+    {
+      "id": "table-switch-item-active",
+      "nodeId": "192903:28234",
+      "setId": "192903:28235",
+      "props": {
+        "part": "table-switch-item",
+        "state": "active"
+      },
+      "width": 80,
+      "height": 24
+    },
+    {
+      "id": "table-tab-transaction-default",
+      "nodeId": "192903:28133",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "transaction",
+        "state": "default"
+      },
+      "width": 110,
+      "height": 36
+    },
+    {
+      "id": "table-tab-open-orders-default",
+      "nodeId": "192903:28132",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "open-orders",
+        "state": "default"
+      },
+      "width": 109,
+      "height": 36
+    },
+    {
+      "id": "table-tab-earn-rewards-default",
+      "nodeId": "192903:28130",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "earn-rewards",
+        "state": "default"
+      },
+      "width": 82,
+      "height": 36
+    },
+    {
+      "id": "table-tab-transaction-hover",
+      "nodeId": "192903:28138",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "transaction",
+        "state": "hover"
+      },
+      "width": 110,
+      "height": 36
+    },
+    {
+      "id": "table-tab-open-orders-hover",
+      "nodeId": "192903:28134",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "open-orders",
+        "state": "hover"
+      },
+      "width": 109,
+      "height": 36
+    },
+    {
+      "id": "table-tab-earn-rewards-hover",
+      "nodeId": "192903:28131",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "earn-rewards",
+        "state": "hover"
+      },
+      "width": 82,
+      "height": 36
+    },
+    {
+      "id": "table-tab-transaction-active",
+      "nodeId": "192903:28136",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "transaction",
+        "state": "active"
+      },
+      "width": 110,
+      "height": 36
+    },
+    {
+      "id": "table-tab-open-orders-active",
+      "nodeId": "192903:28137",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "open-orders",
+        "state": "active"
+      },
+      "width": 109,
+      "height": 36
+    },
+    {
+      "id": "table-tab-earn-rewards-active",
+      "nodeId": "192903:28135",
+      "setId": "192903:28139",
+      "props": {
+        "part": "table-tab",
+        "kind": "earn-rewards",
+        "state": "active"
+      },
+      "width": 82,
+      "height": 36
+    },
+    {
+      "id": "table-filter-type-default",
+      "nodeId": "192907:29513",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "type",
+        "state": "default"
+      },
+      "width": 104,
+      "height": 24
+    },
+    {
+      "id": "table-filter-date-default",
+      "nodeId": "192907:29558",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "date",
+        "state": "default"
+      },
+      "width": 130,
+      "height": 24
+    },
+    {
+      "id": "table-filter-token-default",
+      "nodeId": "192907:29614",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "token",
+        "state": "default"
+      },
+      "width": 110,
+      "height": 24
+    },
+    {
+      "id": "table-filter-status-default",
+      "nodeId": "192910:29682",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "status",
+        "state": "default"
+      },
+      "width": 113,
+      "height": 24
+    },
+    {
+      "id": "table-filter-date-hover",
+      "nodeId": "192907:29564",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "date",
+        "state": "hover"
+      },
+      "width": 130,
+      "height": 24
+    },
+    {
+      "id": "table-filter-type-hover",
+      "nodeId": "192907:29511",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "type",
+        "state": "hover"
+      },
+      "width": 104,
+      "height": 24
+    },
+    {
+      "id": "table-filter-date-active",
+      "nodeId": "192907:29570",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "date",
+        "state": "active"
+      },
+      "width": 130,
+      "height": 24
+    },
+    {
+      "id": "table-filter-token-hover",
+      "nodeId": "192907:29620",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "token",
+        "state": "hover"
+      },
+      "width": 110,
+      "height": 24
+    },
+    {
+      "id": "table-filter-status-hover",
+      "nodeId": "192910:29688",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "status",
+        "state": "hover"
+      },
+      "width": 113,
+      "height": 24
+    },
+    {
+      "id": "table-filter-date-selected",
+      "nodeId": "192907:29576",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "date",
+        "state": "selected"
+      },
+      "width": 166,
+      "height": 24
+    },
+    {
+      "id": "table-filter-type-active",
+      "nodeId": "192907:29510",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "type",
+        "state": "active"
+      },
+      "width": 104,
+      "height": 24
+    },
+    {
+      "id": "table-filter-token-active",
+      "nodeId": "192907:29626",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "token",
+        "state": "active"
+      },
+      "width": 110,
+      "height": 24
+    },
+    {
+      "id": "table-filter-status-active",
+      "nodeId": "192910:29694",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "status",
+        "state": "active"
+      },
+      "width": 113,
+      "height": 24
+    },
+    {
+      "id": "table-filter-type-selected",
+      "nodeId": "192907:29523",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "type",
+        "state": "selected"
+      },
+      "width": 121,
+      "height": 24
+    },
+    {
+      "id": "table-filter-token-selected",
+      "nodeId": "192907:29632",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "token",
+        "state": "selected"
+      },
+      "width": 171,
+      "height": 24
+    },
+    {
+      "id": "table-filter-status-selected",
+      "nodeId": "192910:29700",
+      "setId": "192907:29514",
+      "props": {
+        "part": "table-filter",
+        "kind": "status",
+        "state": "selected"
+      },
+      "width": 163,
+      "height": 24
+    },
+    {
+      "id": "table-switch-compact-24",
+      "nodeId": "192903:28241",
+      "setId": "192903:28295",
+      "props": {
+        "part": "table-switch",
+        "kind": "compact",
+        "size": 24
+      },
+      "width": 160,
+      "height": 24
+    },
+    {
+      "id": "table-switch-detailed-24",
+      "nodeId": "192903:28296",
+      "setId": "192903:28295",
+      "props": {
+        "part": "table-switch",
+        "kind": "detailed",
+        "size": 24
+      },
+      "width": 160,
+      "height": 24
+    },
+    {
+      "id": "table-switch-compact-28",
+      "nodeId": "193102:6285",
+      "setId": "192903:28295",
+      "props": {
+        "part": "table-switch",
+        "kind": "compact",
+        "size": 28
+      },
+      "width": 160,
+      "height": 28
+    },
+    {
+      "id": "table-switch-detailed-28",
+      "nodeId": "193102:6288",
+      "setId": "192903:28295",
+      "props": {
+        "part": "table-switch",
+        "kind": "detailed",
+        "size": 28
+      },
+      "width": 160,
+      "height": 28
+    },
+    {
+      "id": "swap-input-selling-default",
+      "nodeId": "192899:26796",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "selling",
+        "state": "default"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-receive-default",
+      "nodeId": "192899:26795",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "receive",
+        "state": "default"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-selling-hover",
+      "nodeId": "192932:74021",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "selling",
+        "state": "hover"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-receive-hover",
+      "nodeId": "192932:74032",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "receive",
+        "state": "hover"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-selling-active",
+      "nodeId": "192899:26794",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "selling",
+        "state": "active"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-receive-active",
+      "nodeId": "192899:26793",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "receive",
+        "state": "active"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-selling-filled",
+      "nodeId": "192899:26817",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "selling",
+        "state": "filled"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-receive-filled",
+      "nodeId": "192899:26835",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "receive",
+        "state": "filled"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-selling-disabled",
+      "nodeId": "192899:27672",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "selling",
+        "state": "disabled"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-receive-disabled",
+      "nodeId": "192899:27683",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "receive",
+        "state": "disabled"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-selling-error",
+      "nodeId": "192899:27738",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "selling",
+        "state": "error"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-input-receive-error",
+      "nodeId": "192899:27749",
+      "setId": "192899:26797",
+      "props": {
+        "part": "swap-input",
+        "kind": "receive",
+        "state": "error"
+      },
+      "width": 376,
+      "height": 128
+    },
+    {
+      "id": "swap-1",
+      "nodeId": "192932:74061",
+      "setId": "192932:74062",
+      "props": {
+        "part": "swap",
+        "step": 1
+      },
+      "width": 376,
+      "height": 516
+    },
+    {
+      "id": "swap-2",
+      "nodeId": "192932:74137",
+      "setId": "192932:74062",
+      "props": {
+        "part": "swap",
+        "step": 2
+      },
+      "width": 376,
+      "height": 516
+    },
+    {
+      "id": "swap-3",
+      "nodeId": "192932:74232",
+      "setId": "192932:74062",
+      "props": {
+        "part": "swap",
+        "step": 3
+      },
+      "width": 376,
+      "height": 516
+    },
+    {
+      "id": "search-modal-default",
+      "nodeId": "192910:30086",
+      "setId": "192932:75862",
+      "props": {
+        "part": "search-modal",
+        "state": "default"
+      },
+      "width": 480,
+      "height": 548
+    },
+    {
+      "id": "search-modal-searching",
+      "nodeId": "192932:79199",
+      "setId": "192932:75862",
+      "props": {
+        "part": "search-modal",
+        "state": "searching"
+      },
+      "width": 480,
+      "height": 396
+    },
+    {
+      "id": "search-modal-empty",
+      "nodeId": "192932:79412",
+      "setId": "192932:75862",
+      "props": {
+        "part": "search-modal",
+        "state": "empty"
+      },
+      "width": 480,
+      "height": 396
+    },
+    {
+      "id": "search-input-default",
+      "nodeId": "192932:78706",
+      "setId": "192932:78707",
+      "props": {
+        "part": "search-input",
+        "state": "default"
+      },
+      "width": 480,
+      "height": 48
+    },
+    {
+      "id": "search-input-hover",
+      "nodeId": "192932:78705",
+      "setId": "192932:78707",
+      "props": {
+        "part": "search-input",
+        "state": "hover"
+      },
+      "width": 480,
+      "height": 48
+    },
+    {
+      "id": "search-input-active",
+      "nodeId": "192932:78704",
+      "setId": "192932:78707",
+      "props": {
+        "part": "search-input",
+        "state": "active"
+      },
+      "width": 480,
+      "height": 48
+    },
+    {
+      "id": "navigation-false",
+      "nodeId": "192887:24681",
+      "setId": "193018:44118",
+      "props": {
+        "part": "navigation",
+        "profile": false
+      },
+      "width": 1440,
+      "height": 64
+    },
+    {
+      "id": "navigation-true",
+      "nodeId": "193018:44119",
+      "setId": "193018:44118",
+      "props": {
+        "part": "navigation",
+        "profile": true
+      },
+      "width": 1440,
+      "height": 64
+    },
+    {
+      "id": "social-button-phantom-default-true",
+      "nodeId": "193082:11195",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "phantom",
+        "state": "default",
+        "onlyIcon": true
+      },
+      "width": 120,
+      "height": 36
+    },
+    {
+      "id": "social-button-walletconnect-default-true",
+      "nodeId": "193082:11194",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "walletconnect",
+        "state": "default",
+        "onlyIcon": true
+      },
+      "width": 120,
+      "height": 36
+    },
+    {
+      "id": "social-button-metamask-default-true",
+      "nodeId": "193082:11191",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "metamask",
+        "state": "default",
+        "onlyIcon": true
+      },
+      "width": 120,
+      "height": 36
+    },
+    {
+      "id": "social-button-phantom-hover-true",
+      "nodeId": "193082:11190",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "phantom",
+        "state": "hover",
+        "onlyIcon": true
+      },
+      "width": 120,
+      "height": 36
+    },
+    {
+      "id": "social-button-walletconnect-hover-true",
+      "nodeId": "193082:11192",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "walletconnect",
+        "state": "hover",
+        "onlyIcon": true
+      },
+      "width": 120,
+      "height": 36
+    },
+    {
+      "id": "social-button-metamask-hover-true",
+      "nodeId": "193082:11189",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "metamask",
+        "state": "hover",
+        "onlyIcon": true
+      },
+      "width": 120,
+      "height": 36
+    },
+    {
+      "id": "social-button-phantom-default-false",
+      "nodeId": "193082:11188",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "phantom",
+        "state": "default",
+        "onlyIcon": false
+      },
+      "width": 376,
+      "height": 36
+    },
+    {
+      "id": "social-button-phantom-hover-false",
+      "nodeId": "193082:11187",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "phantom",
+        "state": "hover",
+        "onlyIcon": false
+      },
+      "width": 376,
+      "height": 36
+    },
+    {
+      "id": "social-button-walletconnect-default-false",
+      "nodeId": "193082:11185",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "walletconnect",
+        "state": "default",
+        "onlyIcon": false
+      },
+      "width": 376,
+      "height": 36
+    },
+    {
+      "id": "social-button-walletconnect-hover-false",
+      "nodeId": "193082:11186",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "walletconnect",
+        "state": "hover",
+        "onlyIcon": false
+      },
+      "width": 376,
+      "height": 36
+    },
+    {
+      "id": "social-button-metamask-default-false",
+      "nodeId": "193082:11193",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "metamask",
+        "state": "default",
+        "onlyIcon": false
+      },
+      "width": 376,
+      "height": 36
+    },
+    {
+      "id": "social-button-metamask-hover-false",
+      "nodeId": "193082:11184",
+      "setId": "193082:11196",
+      "props": {
+        "part": "social-button",
+        "kind": "metamask",
+        "state": "hover",
+        "onlyIcon": false
+      },
+      "width": 376,
+      "height": 36
+    },
+    {
+      "id": "menu-dropdown",
+      "nodeId": "193018:61670",
+      "props": {
+        "part": "menu-dropdown"
+      }
+    },
+    {
+      "id": "favorites-dropdown",
+      "nodeId": "193005:51866",
+      "props": {
+        "part": "favorites-dropdown"
+      }
+    },
+    {
+      "id": "profile-dropdown",
+      "nodeId": "193005:50062",
+      "props": {
+        "part": "profile-dropdown"
+      }
+    },
+    {
+      "id": "wallet-dropdown",
+      "nodeId": "193005:50061",
+      "props": {
+        "part": "wallet-dropdown"
+      }
+    },
+    {
+      "id": "swap-token-dropdown",
+      "nodeId": "193018:43526",
+      "props": {
+        "part": "swap-token-dropdown"
+      }
+    },
+    {
+      "id": "notifications-dropdown",
+      "nodeId": "193016:36543",
+      "props": {
+        "part": "notifications-dropdown"
+      }
+    },
+    {
+      "id": "connect-wallet",
+      "nodeId": "193073:159876",
+      "props": {
+        "part": "connect-wallet"
+      }
+    },
+    {
+      "id": "banner",
+      "nodeId": "192886:19474",
+      "props": {
+        "part": "banner"
+      }
+    },
+    {
+      "id": "filter-type",
+      "nodeId": "193016:37500",
+      "props": {
+        "part": "filter-type"
+      }
+    },
+    {
+      "id": "filter-date",
+      "nodeId": "193016:37525",
+      "props": {
+        "part": "filter-date"
+      }
+    },
+    {
+      "id": "filter-status",
+      "nodeId": "193016:37643",
+      "props": {
+        "part": "filter-status"
+      }
+    },
+    {
+      "id": "filter-token",
+      "nodeId": "193016:37560",
+      "props": {
+        "part": "filter-token"
+      }
+    },
+    {
+      "id": "mobile-navigation",
+      "nodeId": "193102:6081",
+      "props": {
+        "part": "mobile-navigation"
+      }
+    },
+    {
+      "id": "mobile-bottom-navigation",
+      "nodeId": "193101:6870",
+      "props": {
+        "part": "mobile-bottom-navigation"
+      }
+    },
+    {
+      "id": "token-icon-btc",
+      "nodeId": "192727:9292",
+      "props": {
+        "part": "token-icon",
+        "kind": "btc"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-eth",
+      "nodeId": "192727:9289",
+      "props": {
+        "part": "token-icon",
+        "kind": "eth"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-xrp",
+      "nodeId": "192727:9288",
+      "props": {
+        "part": "token-icon",
+        "kind": "xrp"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-usdt",
+      "nodeId": "192727:9291",
+      "props": {
+        "part": "token-icon",
+        "kind": "usdt"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-bnb",
+      "nodeId": "192727:9284",
+      "props": {
+        "part": "token-icon",
+        "kind": "bnb"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-sol",
+      "nodeId": "192727:9282",
+      "props": {
+        "part": "token-icon",
+        "kind": "sol"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-usdc",
+      "nodeId": "192727:9286",
+      "props": {
+        "part": "token-icon",
+        "kind": "usdc"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-trx",
+      "nodeId": "192727:9285",
+      "props": {
+        "part": "token-icon",
+        "kind": "trx"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-ada",
+      "nodeId": "192727:9283",
+      "props": {
+        "part": "token-icon",
+        "kind": "ada"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-avax",
+      "nodeId": "192727:9287",
+      "props": {
+        "part": "token-icon",
+        "kind": "avax"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-hbar",
+      "nodeId": "192727:9290",
+      "props": {
+        "part": "token-icon",
+        "kind": "hbar"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "token-icon-dot",
+      "nodeId": "192727:9281",
+      "props": {
+        "part": "token-icon",
+        "kind": "dot"
+      },
+      "width": 24,
+      "height": 24
+    },
+    {
+      "id": "status-icon-success",
+      "nodeId": "192910:29766",
+      "props": {
+        "part": "status-icon",
+        "kind": "success"
+      },
+      "width": 12,
+      "height": 12
+    },
+    {
+      "id": "status-icon-pending",
+      "nodeId": "192910:29765",
+      "props": {
+        "part": "status-icon",
+        "kind": "pending"
+      },
+      "width": 12,
+      "height": 12
+    },
+    {
+      "id": "status-icon-warning",
+      "nodeId": "192910:29764",
+      "props": {
+        "part": "status-icon",
+        "kind": "warning"
+      },
+      "width": 12,
+      "height": 12
+    },
+    {
+      "id": "status-icon-cancelled",
+      "nodeId": "192926:13067",
+      "props": {
+        "part": "status-icon",
+        "kind": "cancelled"
+      },
+      "width": 12,
+      "height": 12
+    }
+  ]
+}

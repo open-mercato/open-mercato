@@ -9,6 +9,19 @@ import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { quotePostgresIdentifier } from './identifiers'
+import {
+  checkEncryptionMapBackfills,
+  isEncryptionBackfillCheckEnabled,
+  readDeclaredEncryptionMaps,
+  type DeclaredEncryptionMap,
+  type EncryptionMapRow,
+} from './encryption-backfill-check'
+import {
+  collectQueryIndexReindexEntityTypes,
+  isMigrationReindexEnabled,
+  requestQueryIndexReindex,
+  type AppliedMigration,
+} from './migration-reindex'
 
 const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
 const PROGRESS_EMOJI = ''
@@ -222,6 +235,72 @@ function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): strin
   return path.join(roots.pkgBase, 'migrations').replace(/\\/g, '/')
 }
 
+async function loadModuleEncryptionMaps(entry: ModuleEntry, resolver: PackageResolver): Promise<DeclaredEncryptionMap[]> {
+  const roots = resolver.getModulePaths(entry)
+  const appFile = path.join(roots.appBase, 'encryption.ts')
+  const pkgFile = path.join(roots.pkgBase, 'encryption.ts')
+  try {
+    if (fs.existsSync(appFile)) return readDeclaredEncryptionMaps(entry.id, await importWithTypeScriptFile(appFile))
+    if (entry.from === '@app' || resolver.isMonorepo()) {
+      return fs.existsSync(pkgFile) ? readDeclaredEncryptionMaps(entry.id, await importWithTypeScriptFile(pkgFile)) : []
+    }
+    return readDeclaredEncryptionMaps(entry.id, await import(`${resolver.getModuleImportBase(entry).pkgBase}/encryption`))
+  } catch {
+    return []
+  }
+}
+
+function readModuleMigrationSources(modules: ModuleEntry[], resolver: PackageResolver): string[] {
+  const sources: string[] = []
+  for (const entry of modules) {
+    const migrationsPath = getMigrationsPath(entry, resolver)
+    if (!fs.existsSync(migrationsPath)) continue
+    for (const file of fs.readdirSync(migrationsPath)) {
+      if (!/^Migration.*\.(ts|js)$/.test(file) || file.endsWith('.d.ts')) continue
+      sources.push(fs.readFileSync(path.join(migrationsPath, file), 'utf8'))
+    }
+  }
+  return sources
+}
+
+async function queryEncryptionMapRows(): Promise<EncryptionMapRow[] | null> {
+  const { Client } = await import('pg')
+  const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig(), connectionTimeoutMillis: 5000 })
+  await client.connect()
+  try {
+    const table = await client.query(`select to_regclass('encryption_maps') is not null as "exists"`)
+    if (!table.rows[0]?.exists) return null
+    const result = await client.query(
+      `select "tenant_id", "organization_id", "entity_id", "fields_json", "is_active" from "encryption_maps" where "deleted_at" is null`,
+    )
+    return result.rows.map((row) => ({
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      entityId: String(row.entity_id),
+      fieldsJson: row.fields_json,
+      isActive: row.is_active === true,
+    }))
+  } finally {
+    try {
+      await client.end()
+    } catch { }
+  }
+}
+
+export async function warnAboutMissingEncryptionMapBackfills(modules: ModuleEntry[], resolver: PackageResolver): Promise<void> {
+  if (!isEncryptionBackfillCheckEnabled()) return
+  await checkEncryptionMapBackfills({
+    loadDeclaredMaps: async () => {
+      const declared: DeclaredEncryptionMap[] = []
+      for (const entry of modules) declared.push(...(await loadModuleEncryptionMaps(entry, resolver)))
+      return declared
+    },
+    loadMigrationSources: () => readModuleMigrationSources(modules, resolver),
+    queryEncryptionMaps: queryEncryptionMapRows,
+    warn: (message) => console.warn(message),
+  })
+}
+
 export interface DbOptions {
   quiet?: boolean
 }
@@ -332,93 +411,148 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
   }
 
   console.log(results.join('\n'))
+  await warnAboutMissingEncryptionMapBackfills(ordered, resolver)
 }
 
 export async function dbMigrate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
   const modules = resolver.loadEnabledModules()
   const ordered = sortModules(modules)
   const results: string[] = []
+  const appliedMigrations: AppliedMigration[] = []
 
-  for (const entry of ordered) {
-    const modId = entry.id
-    const sanitizedModId = sanitizeModuleId(modId)
-    const entities = await loadModuleEntities(entry, resolver)
+  try {
+    for (const entry of ordered) {
+      const modId = entry.id
+      const sanitizedModId = sanitizeModuleId(modId)
+      const entities = await loadModuleEntities(entry, resolver)
 
-    const migrationsPath = getMigrationsPath(entry, resolver)
+      const migrationsPath = getMigrationsPath(entry, resolver)
 
-    // Skip if no entities AND no migrations directory exists
-    // (allows @app modules to run migrations even if entities can't be dynamically imported)
-    if (!entities.length && !fs.existsSync(migrationsPath)) continue
-    fs.mkdirSync(migrationsPath, { recursive: true })
+      // Skip if no entities AND no migrations directory exists
+      // (allows @app modules to run migrations even if entities can't be dynamically imported)
+      if (!entities.length && !fs.existsSync(migrationsPath)) continue
+      fs.mkdirSync(migrationsPath, { recursive: true })
 
-    const tableName = `mikro_orm_migrations_${sanitizedModId}`
-    validateTableName(tableName)
+      const tableName = `mikro_orm_migrations_${sanitizedModId}`
+      validateTableName(tableName)
 
-    // dbMigrate only runs existing migration files — entities are intentionally
-    // omitted so MikroORM does not compare them against the snapshot and
-    // auto-generate a phantom diff migration (that would duplicate tables
-    // already created by committed migrations).
-    const sslConfig = getSslConfig()
-    const orm = await MikroORM.init<PostgreSqlDriver>({
-      driver: PostgreSqlDriver,
-      clientUrl: getClientUrl(),
-      loggerFactory: () => createMinimalLogger(),
-      dynamicImportProvider,
-      entities: [],
-      metadataProvider: ReflectMetadataProvider,
-      discovery: { warnWhenNoEntities: false },
-      migrations: {
-        path: migrationsPath,
-        glob: '!(*.d).{ts,js}',
-        tableName,
-        snapshot: false,
-        dropTables: false,
-      },
-      schemaGenerator: {
-        disableForeignKeys: true,
-      },
-      pool: {
-        min: 1,
-        max: 3,
-        idleTimeoutMillis: 30000,
-        // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
-      },
-      driverOptions: sslConfig ? {
-        ssl: sslConfig,
-      } : undefined,
-    })
+      // dbMigrate only runs existing migration files — entities are intentionally
+      // omitted so MikroORM does not compare them against the snapshot and
+      // auto-generate a phantom diff migration (that would duplicate tables
+      // already created by committed migrations).
+      const sslConfig = getSslConfig()
+      const orm = await MikroORM.init<PostgreSqlDriver>({
+        driver: PostgreSqlDriver,
+        clientUrl: getClientUrl(),
+        loggerFactory: () => createMinimalLogger(),
+        dynamicImportProvider,
+        entities: [],
+        metadataProvider: ReflectMetadataProvider,
+        discovery: { warnWhenNoEntities: false },
+        migrations: {
+          path: migrationsPath,
+          glob: '!(*.d).{ts,js}',
+          tableName,
+          snapshot: false,
+          dropTables: false,
+        },
+        schemaGenerator: {
+          disableForeignKeys: true,
+        },
+        pool: {
+          min: 1,
+          max: 3,
+          idleTimeoutMillis: 30000,
+          // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
+        },
+        driverOptions: sslConfig ? {
+          ssl: sslConfig,
+        } : undefined,
+      })
 
-    const migrator = orm.migrator as Migrator
-    const pending = await migrator.getPending()
-    if (!pending.length) {
-      results.push(formatResult(modId, 'no pending migrations', ''))
-    } else {
-      const renderProgress = createProgressRenderer(pending.length)
-      let applied = 0
-      if (!QUIET_MODE) {
-        process.stdout.write(`   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
-      }
-      for (const migration of pending) {
-        const migrationName =
-          typeof migration === 'string'
-            ? migration
-            : (migration as any).name ?? (migration as any).fileName
-        await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
-        applied += 1
-        if (!QUIET_MODE) {
-          process.stdout.write(`\r   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+      try {
+        const migrator = orm.migrator as Migrator
+        const pending = await migrator.getPending()
+        if (!pending.length) {
+          results.push(formatResult(modId, 'no pending migrations', ''))
+        } else {
+          const renderProgress = createProgressRenderer(pending.length)
+          let applied = 0
+          if (!QUIET_MODE) {
+            process.stdout.write(`   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+          }
+          for (const migration of pending) {
+            const migrationName =
+              typeof migration === 'string'
+                ? migration
+                : (migration as any).name ?? (migration as any).fileName
+            await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
+            if (migrationName) {
+              appliedMigrations.push({
+                moduleId: modId,
+                migrationsPath,
+                name: String(migrationName),
+                filePath: typeof migration === 'string' ? null : (migration as any).path ?? null,
+              })
+            }
+            applied += 1
+            if (!QUIET_MODE) {
+              process.stdout.write(`\r   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+            }
+          }
+          if (!QUIET_MODE) process.stdout.write('\n')
+          results.push(
+            formatResult(modId, `${pending.length} migration${pending.length === 1 ? '' : 's'} applied`, '')
+          )
         }
+      } finally {
+        await orm.close(true)
       }
-      if (!QUIET_MODE) process.stdout.write('\n')
-      results.push(
-        formatResult(modId, `${pending.length} migration${pending.length === 1 ? '' : 's'} applied`, '')
-      )
     }
-
-    await orm.close(true)
+  } finally {
+    console.log(results.join('\n'))
+    await dischargeQueryIndexReindexRequests(appliedMigrations)
   }
+}
 
-  console.log(results.join('\n'))
+/**
+ * Runs after every module migrated and after `orm.close()`, so the rewrites the declarations
+ * refer to are committed before the reindex is queued.
+ *
+ * Reached from a `finally`, so it also runs when a later migration threw: the migrations that
+ * did apply already committed, and their declarations are the only record that their projections
+ * are stale — a re-run cannot recover them, because `getPending()` no longer lists them. It must
+ * therefore never throw, or it would replace the migration failure the operator needs to see.
+ */
+export async function dischargeQueryIndexReindexRequests(
+  applied: readonly AppliedMigration[],
+): Promise<void> {
+  if (!applied.length || !isMigrationReindexEnabled()) return
+
+  try {
+    const entityTypes = await collectQueryIndexReindexEntityTypes(applied, {
+      importModule: dynamicImportProvider,
+      onWarn: (message) => console.warn(message),
+    })
+    if (!entityTypes.length) return
+
+    await requestQueryIndexReindex(entityTypes, {
+      createContainer: async () => {
+        const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+        return (await createRequestContainer()) as any
+      },
+      onInfo: (message) => {
+        if (!QUIET_MODE) console.log(message)
+      },
+      onWarn: (message) => console.warn(message),
+    })
+  } catch (error) {
+    console.warn(
+      `[query_index] Could not determine which projections the migrations invalidated: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  }
 }
 
 export async function dbGreenfield(resolver: PackageResolver, options: GreenfieldOptions): Promise<void> {

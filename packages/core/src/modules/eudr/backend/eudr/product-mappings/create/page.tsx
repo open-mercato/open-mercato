@@ -138,6 +138,7 @@ export default function CreateEudrProductMappingPage() {
       <PageBody>
         <CrudForm<ProductMappingFormValues>
           title={translate('eudr.productMappings.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/product-mappings"
           cancelHref="/backend/eudr/product-mappings"
           submitLabel={translate('eudr.productMappings.form.submitCreate')}

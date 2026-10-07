@@ -258,12 +258,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     openScheduleEdit({
       id: activity.id,
       updatedAt: typeof rawActivity.updatedAt === 'string' ? rawActivity.updatedAt as string : typeof rawActivity.updated_at === 'string' ? rawActivity.updated_at as string : null,
+      // Pin the edit payload to the activity's own entity — the deal page can
+      // show activities from more than one linked entity, and the dialog has
+      // no entity picker, so it must never silently re-link on save (#6050).
+      entityId: activity.entityId ?? selectedActivityEntityId ?? null,
       interactionType: activity.interactionType,
       title: activity.title ?? null,
       body: activity.body ?? null,
       scheduledAt: activity.scheduledAt ?? null,
       occurredAt: activity.occurredAt ?? null,
       durationMinutes: activity.duration ?? null,
+      priority: activity.priority ?? null,
       location: activity.location ?? null,
       allDay: activity.allDay ?? null,
       recurrenceRule: activity.recurrenceRule ?? null,
@@ -280,7 +285,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         ? { phoneNumber: rawActivity.phoneNumber as string }
         : {}),
     } as ScheduleActivityEditData & { customValues?: Record<string, unknown> | null; phoneNumber?: string | null })
-  }, [activityEntities, openScheduleEdit])
+  }, [activityEntities, openScheduleEdit, selectedActivityEntityId])
 
   const handleViewDashboard = React.useCallback(() => {
     closeWonPopup()
@@ -399,6 +404,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         onDirtyChange={setIsDirty}
         initialPipelineOptions={formPipelineOptions}
         initialPipelineStageOptions={data.pipelineStages}
+        initialOwnerOption={data.owner ? { id: data.owner.id, name: data.owner.name, email: data.owner.email } : null}
         collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'right' }}
         sortableGroups={{ pageType: 'deal-detail-v3' }}
         initialValues={{

@@ -37,6 +37,22 @@ describe('enricher-registry', () => {
       expect(result[0].enricher.id).toBe('a.tier')
     })
 
+    it('includes wildcard enrichers in priority order for a concrete entity', () => {
+      registerResponseEnrichers([
+        {
+          moduleId: 'mod-a',
+          enrichers: [
+            makeEnricher({ id: 'a.exact', targetEntity: 'customers.person', priority: 10 }),
+            makeEnricher({ id: 'a.wildcard', targetEntity: '*', priority: 50 }),
+            makeEnricher({ id: 'a.other', targetEntity: 'sales.order', priority: 100 }),
+          ],
+        },
+      ])
+
+      const result = getEnrichersForEntity('customers.person')
+      expect(result.map((entry) => entry.enricher.id)).toEqual(['a.wildcard', 'a.exact'])
+    })
+
     it('returns enrichers regardless of queryEngine config', () => {
       registerResponseEnrichers([
         {

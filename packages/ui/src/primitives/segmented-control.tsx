@@ -7,9 +7,9 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 /**
- * iOS-style segmented control per Figma `Switch / Chart / Cryptocurrency`
- * (component set id `199963:1442` in DS Open Mercato). Renders a single
- * track with N items where exactly one is selected at a time. Selecting
+ * Segmented control per Figma DS Open Mercato (node `2604:114`): a muted
+ * rounded-rectangle track with a raised white card for the selected segment.
+ * Renders a single track with N items where exactly one is selected at a time. Selecting
  * a new item fires `onValueChange`.
  *
  * Use for **mutually-exclusive view state** — list page filters like
@@ -47,8 +47,8 @@ const SegmentedControlContext = React.createContext<SegmentedControlContextValue
 })
 
 const trackVariants = cva(
-  // Pill-shaped track with subtle inner padding so selected items render
-  // a smaller inner pill (the iOS slide-thumb effect). Track is muted —
+  // Rounded-rectangle track (DS Open Mercato node 2604:114) with subtle inner
+  // padding so the selected item renders as a smaller inner card. Track is muted —
   // selected item raises with bg-background + shadow-sm. We use full
   // `bg-muted` (not /40) so the contrast between track and a selected
   // bg-background item stays visible in the light theme; in dark mode
@@ -59,7 +59,7 @@ const trackVariants = cva(
   //   sm      → track h-7 (28px) − 2px border − 2px padding (p-px ×2) = 24px → matches item h-6
   // Using `p-0.5` (2px each side = 4px total) instead breaks both sizes by
   // 2px so the selected pill clips top and bottom against the track border.
-  'inline-flex w-fit gap-0 rounded-full border border-input bg-muted p-px transition-colors',
+  'inline-flex w-fit gap-0 rounded-lg border border-input bg-muted p-px transition-colors',
   {
     variants: {
       size: {
@@ -85,7 +85,7 @@ const itemVariants = cva(
   // shadow, important when the surrounding theme is high-key and the
   // shadow alone is hard to read). Unselected text is muted; hover
   // only nudges color (no bg change — keeps the track flat).
-  'inline-flex items-center justify-center rounded-full font-medium ' +
+  'inline-flex items-center justify-center rounded-md font-medium ' +
     'transition-all outline-none focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-50 ' +
     'data-[state=checked]:bg-background data-[state=checked]:text-foreground data-[state=checked]:font-semibold data-[state=checked]:shadow-sm ' +
