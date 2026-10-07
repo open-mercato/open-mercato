@@ -27,16 +27,29 @@ const productCommandIds = [
 ]
 
 describe('product command outputSchema', () => {
-  const validOutput = { productId: '9c1e4b8a-6d2f-4a1b-8c3d-5e7f0a2b4c6d' }
+  const productId = '9c1e4b8a-6d2f-4a1b-8c3d-5e7f0a2b4c6d'
+  const updatedAt = '2026-09-30T10:00:00.000Z'
+  const validOutputs: Record<string, Record<string, string>> = {
+    'catalog.products.create': { productId },
+    'catalog.products.update': { productId, updatedAt },
+    'catalog.products.delete': { productId },
+  }
 
   it.each(productCommandIds)('declares an outputSchema on %s that parses a valid output', (commandId) => {
     const outputSchema = commandRegistry.outputSchemaOf(commandId)
 
     expect(outputSchema).not.toBeNull()
-    expect(outputSchema!.safeParse(validOutput).success).toBe(true)
+    expect(outputSchema!.safeParse(validOutputs[commandId]).success).toBe(true)
   })
 
-  it.each(productCommandIds)('rejects payloads that are not a { productId: uuid } object on %s', (commandId) => {
+  it('requires the persisted updatedAt on catalog.products.update', () => {
+    const outputSchema = commandRegistry.outputSchemaOf('catalog.products.update')
+
+    expect(outputSchema).not.toBeNull()
+    expect(outputSchema!.safeParse({ productId }).success).toBe(false)
+  })
+
+  it.each(productCommandIds)('rejects payloads without a valid { productId: uuid } on %s', (commandId) => {
     const outputSchema = commandRegistry.outputSchemaOf(commandId)
 
     expect(outputSchema).not.toBeNull()
@@ -51,7 +64,10 @@ describe('product command outputSchema', () => {
 
     expect(outputSchema).not.toBeNull()
     expect(flattenSchemaToContract(outputSchema!)).toEqual({
-      entries: [{ path: 'productId', type: 'text' }],
+      entries: [
+        { path: 'productId', type: 'text' },
+        { path: 'updatedAt', type: 'text' },
+      ],
     })
   })
 })

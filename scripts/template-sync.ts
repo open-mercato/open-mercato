@@ -285,6 +285,20 @@ function stripTemplateDisabledModules(content: string, rel: string): string {
 // replacement goes in as a function so a `$` in a template body stays literal instead of being
 // read as a String.replace substitution pattern.
 export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; template: string }> = {
+  customer_groups: {
+    source: `  { id: 'customer_groups', from: '@open-mercato/core' },`,
+    template: `  // customer_groups (Release 2 part 1 — .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md
+  // §14 Phase 1-2). The package ships with the scaffold but stays disabled by default:
+  // enabling it here makes the scaffold ship the module's fact-sheet, which the
+  // \`every module fact-sheet a scaffold ships is required by at least one catalog case\`
+  // guard (packages/create-app/src/lib/module-facts-build.test.ts) then requires a
+  // dedicated AI-harness case for — authoring one means running the full
+  // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
+  // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
+  // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
+  // work, same as channel_discord's byte-budget call below.
+  // { id: 'customer_groups', from: '@open-mercato/core' },`,
+  },
   channel_discord: {
     source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
   // provider-owned Gateway worker + a signed Interactions endpoint, plus an
@@ -301,6 +315,48 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // ('one more template module still fits the root budget with its inline index
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+  forms: {
+    source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
+  // submissions, role-sliced rendering, public runner + portal + embed surfaces.
+  // Listed after customer_accounts/portal because its portal pages and public
+  // runner resolve customer auth through them.
+  { id: 'forms', from: '@open-mercato/core' },`,
+    template: `  // Audit-grade questionnaire/form primitive. The module ships with the scaffold
+  // but stays disabled by default, because enabling it here is a governed change
+  // rather than a one-line edit: a module enabled in the template gets a
+  // generated fact sheet, which \`selectModuleFactSheets\` then requires an
+  // evaluation case for in the standalone AI harness
+  // (src/lib/module-facts-build.test.ts, 'every default-controller module fact is
+  // exercised by the evaluation catalog'). Adding that case means re-pinning the
+  // catalog count in cases.schema.json, validators.json, two test literals and
+  // three docs, and re-running the live \`harness:release\` certification whose
+  // results those docs record — see
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
+  // therefore a maintainer call that follows that skill.
+  // { id: 'forms', from: '@open-mercato/core' },`,
+  },
+  availability: {
+    source: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  { id: 'availability', from: '@open-mercato/core' },`,
+    template: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  // { id: 'availability', from: '@open-mercato/core' },`,
   },
 }
 

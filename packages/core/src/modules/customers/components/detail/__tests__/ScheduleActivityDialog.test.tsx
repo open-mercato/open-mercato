@@ -144,6 +144,10 @@ jest.mock('@open-mercato/ui/backend/inputs', () => ({
 
 jest.mock('../schedule', () => ({
   useScheduleFormState: () => mockScheduleState,
+  // Requiredness is the behavior under test in the #5941 cases below, so it
+  // keeps the real per-type rules rather than a stub.
+  isDateRequired: jest.requireActual('../schedule/fieldConfig').isDateRequired,
+  isTimeRequired: jest.requireActual('../schedule/fieldConfig').isTimeRequired,
   FIELD_VISIBILITY: {
     meeting: new Set(['duration']),
     call: new Set(['duration']),
@@ -270,6 +274,140 @@ describe('ScheduleActivityDialog', () => {
     ).not.toThrow()
 
     expect(screen.getByText('Update activity')).toBeInTheDocument()
+  })
+
+  describe('undated backlog task (regression #5941)', () => {
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    function renderDialog() {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+    }
+
+    it('saves a task with no due date and posts an explicit null instead of an invalid timestamp', async () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'task' as const,
+        title: 'Call back after their vacation',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save task$/ }))
+      })
+
+      expect(apiCallOrThrowMock).toHaveBeenCalled()
+      const payload = lastSavedPayload()
+      expect(payload.scheduledAt).toBeNull()
+      expect(payload.date).toBeNull()
+      expect(payload.time).toBeNull()
+      expect(flashMock).not.toHaveBeenCalledWith('Date is required', 'error')
+    })
+
+    it('leaves the save button enabled for a dateless task', () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'task' as const,
+        title: 'Call back after their vacation',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      expect(screen.getByRole('button', { name: /^Save task$/ })).not.toBeDisabled()
+    })
+
+    it('still blocks a calendar-bound meeting that has no date', async () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'meeting' as const,
+        title: 'Quarterly review',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      const saveButton = screen.getByRole('button', { name: /^Save activity$/ })
+      expect(saveButton).toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('activity status on save (regression #6481)', () => {
+    function lastSavedRequest() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { method?: string; body?: string } | undefined
+      return {
+        method: requestInit?.method,
+        payload: JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>,
+      }
+    }
+
+    it('omits status when editing a completed meeting so it is not re-opened as planned', async () => {
+      mockScheduleState = createScheduleState({ activityType: 'meeting' as const, title: 'Renamed review' })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={{
+            id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            interactionType: 'meeting',
+            title: 'Quarterly review',
+            status: 'done',
+            occurredAt: '2026-09-22T10:00:00.000Z',
+          } as ScheduleActivityEditData}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      const { method, payload } = lastSavedRequest()
+      expect(method).toBe('PUT')
+      expect(payload.title).toBe('Renamed review')
+      expect(payload).not.toHaveProperty('status')
+      expect(payload).not.toHaveProperty('occurredAt')
+    })
+
+    it('still creates a new activity as planned', async () => {
+      mockScheduleState = createScheduleState({ activityType: 'meeting' as const, title: 'Kick-off' })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save activity$/ }))
+      })
+
+      const { method, payload } = lastSavedRequest()
+      expect(method).toBe('POST')
+      expect(payload.status).toBe('planned')
+    })
   })
 
   it('renders an ingested email body as plain text instead of Markdown (#5903)', () => {
@@ -425,6 +563,68 @@ describe('ScheduleActivityDialog', () => {
       await save(/^Save activity$/)
 
       expect(lastSavedPayload()).not.toHaveProperty('priority')
+    })
+  })
+
+  describe('entityId on edit (regression #6050)', () => {
+    const ACTIVITY_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    it('pins the payload to editData.entityId instead of the currently-selected entity prop', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="company-2"
+          entityType="company"
+          editData={{ id: ACTIVITY_ID, interactionType: 'meeting', title: 'Quarterly review', entityId: 'person-1' }}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
+    })
+
+    it('falls back to the entityId prop on edit when editData has no entityId', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={{ id: ACTIVITY_ID, interactionType: 'meeting', title: 'Quarterly review' }}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
+    })
+
+    it('uses the entityId prop when creating a new activity', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
     })
   })
 

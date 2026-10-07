@@ -26,6 +26,26 @@ export type AttachmentListResponse = {
 
 export type MessageComposerVariant = 'compose' | 'reply' | 'forward'
 
+/**
+ * One entry of the composer's "Send from" list, in provider-agnostic terms.
+ *
+ * The composer never learns what backs an option — the host module supplies the
+ * list and the API route decides how a selected id is routed. An empty list
+ * hides the control entirely, which is what a host without any configured
+ * sender renders.
+ */
+export type MessageSenderOption = {
+  id: string
+  label: string
+  description?: string | null
+  /**
+   * The option to reach for first when the user opts out of the platform
+   * sender. It orders the list; it does not preselect, because the platform
+   * sender stays the default.
+   */
+  isDefault?: boolean
+}
+
 export type MessageComposerContextObject = {
   entityModule: string
   entityType: string
@@ -60,6 +80,12 @@ export type MessageComposerProps = {
   contextObject?: MessageComposerContextObject | null
   requiredActionConfig?: MessageComposerRequiredActionConfig | null
   contextPreview?: React.ReactNode
+  /**
+   * Alternative senders offered next to the default platform sender. Rendered
+   * only in the compose variant addressing an external recipient, and only when
+   * non-empty.
+   */
+  senderOptions?: MessageSenderOption[]
   /**
    * Expected `updated_at` of the existing draft being edited. When present, the
    * composer attaches the OSS optimistic-lock header to the draft save/send

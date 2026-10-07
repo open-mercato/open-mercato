@@ -1,7 +1,7 @@
 import { type Kysely, sql } from 'kysely'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
-import { buildIndexDocument, type IndexCustomFieldValue } from './document'
+import { buildIndexDocument, rebuildAggregateSearchField, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
@@ -304,7 +304,13 @@ export async function upsertIndexBatch(
           tenantId: scopeTenant ?? null,
         })
         if (decrypted && typeof decrypted === 'object') {
-          tokenDoc = decrypted
+          // Rebuilt on the decrypted copy: `search_text` is on no encryption map, so the
+          // aggregate composed at document-build time still concatenates the ciphertext
+          // values the row carries at rest and tokenizes into rows nothing matches (#5625).
+          // The copy keeps `doc` — the encrypted row written to `entity_indexes` — untouched.
+          // A caller that passes no `decryptDoc` keeps the build-time aggregate by design:
+          // without a decryption step there is no plaintext to recompose it from.
+          tokenDoc = rebuildAggregateSearchField(decrypted, { entityType, config: searchConfig })
         }
       } catch (decryptError) {
         // Only affects the search tokens built below; the indexed document itself is

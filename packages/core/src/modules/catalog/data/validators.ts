@@ -328,6 +328,15 @@ export const productCreateSchema = productBaseSchema
   .superRefine(productUomCrossFieldRefinement)
   .superRefine(productComplianceCrossFieldRefinement)
 
+export const productBulkCreateRowSchema = productBaseSchema
+  .omit({ organizationId: true, tenantId: true })
+  .superRefine(productUomCrossFieldRefinement)
+  .superRefine(productComplianceCrossFieldRefinement)
+
+export const productsBulkCreateSchema = z.object({
+  items: z.array(productBulkCreateRowSchema).min(1).max(2000),
+})
+
 export const productUpdateSchema = z
   .object({
     id: uuid(),
@@ -459,7 +468,8 @@ export const priceKindUpdateSchema = z
   })
   .merge(priceKindCreateSchema.partial())
 
-export const priceCreateSchema = scoped.extend({
+// Base schema without refinements (used for .partial() in the update schema).
+const priceBaseSchema = scoped.extend({
   variantId: uuid().optional(),
   productId: uuid().optional(),
   offerId: uuid().optional(),
@@ -481,11 +491,51 @@ export const priceCreateSchema = scoped.extend({
   endsAt: z.coerce.date().optional(),
 })
 
+// Both checks only fire when both sides of the comparison are present in this
+// payload — a partial update touching only one side is not re-validated against
+// the stored record here (same limitation the GTIN cross-field check documents
+// above: zod cannot see the merged state, only the command layer can).
+const priceQuantityRangeRefinement = (
+  input: { minQuantity?: number; maxQuantity?: number },
+  ctx: z.RefinementCtx,
+) => {
+  if (
+    input.minQuantity != null &&
+    input.maxQuantity != null &&
+    input.maxQuantity < input.minQuantity
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['maxQuantity'],
+      message: 'catalog.prices.validation.quantityRange',
+    })
+  }
+}
+
+const priceValidityWindowRefinement = (
+  input: { startsAt?: Date; endsAt?: Date },
+  ctx: z.RefinementCtx,
+) => {
+  if (input.startsAt && input.endsAt && input.endsAt < input.startsAt) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endsAt'],
+      message: 'catalog.prices.validation.validityWindow',
+    })
+  }
+}
+
+export const priceCreateSchema = priceBaseSchema
+  .superRefine(priceQuantityRangeRefinement)
+  .superRefine(priceValidityWindowRefinement)
+
 export const priceUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(priceCreateSchema.partial())
+  .merge(priceBaseSchema.partial())
+  .superRefine(priceQuantityRangeRefinement)
+  .superRefine(priceValidityWindowRefinement)
 
 export const categoryCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -500,6 +550,15 @@ export const categoryUpdateSchema = z
     id: uuid(),
   })
   .merge(categoryCreateSchema.partial())
+
+export const categoryBulkCreateRowSchema = categoryCreateSchema.omit({
+  organizationId: true,
+  tenantId: true,
+})
+
+export const categoriesBulkCreateSchema = z.object({
+  items: z.array(categoryBulkCreateRowSchema).min(1).max(10000),
+})
 
 export const productUnitConversionCreateSchema = scoped.extend({
   productId: uuid(),
@@ -522,6 +581,8 @@ export const productUnitConversionDeleteSchema = scoped.extend({
 
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
+export type ProductBulkCreateRow = z.infer<typeof productBulkCreateRowSchema>
+export type ProductsBulkCreateInput = z.infer<typeof productsBulkCreateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
 export type VariantUpdateInput = z.infer<typeof variantUpdateSchema>
 export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>
@@ -532,6 +593,8 @@ export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
 export type CategoryCreateInput = z.infer<typeof categoryCreateSchema>
 export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>
+export type CategoryBulkCreateRow = z.infer<typeof categoryBulkCreateRowSchema>
+export type CategoriesBulkCreateInput = z.infer<typeof categoriesBulkCreateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>
 export type OfferCreateInput = z.infer<typeof offerCreateSchema>
 export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>
