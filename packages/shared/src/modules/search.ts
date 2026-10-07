@@ -332,17 +332,25 @@ export type SearchDeletePayload = {
 // Global Registry for Search Module Configs
 // =============================================================================
 
-let _searchModuleConfigs: SearchModuleConfig[] | null = null
+// Persisted on `globalThis` rather than in a module-local variable: bootstrap
+// writes this registry from `@open-mercato/shared` while `@open-mercato/search`,
+// `@open-mercato/core` and the query-index projection policy read it, and
+// standalone builds can evaluate `shared` through more than one server chunk.
+// A reader landing in a second instance would see no searchable entity at all.
+// See `.ai/lessons.md`, "Global registries in publishable packages must use
+// `globalThis`".
+const GLOBAL_SEARCH_MODULE_CONFIGS_KEY = '__openMercatoSearchModuleConfigs__'
 
 /**
  * Register search module configurations globally.
  * Called during app bootstrap with configs from search.generated.ts.
  */
 export function registerSearchModuleConfigs(configs: SearchModuleConfig[]): void {
-  if (_searchModuleConfigs !== null && process.env.NODE_ENV === 'development') {
+  const scope = globalThis as Record<string, unknown>
+  if (scope[GLOBAL_SEARCH_MODULE_CONFIGS_KEY] != null && process.env.NODE_ENV === 'development') {
     logger.debug('Search module configs re-registered (this may occur during HMR)')
   }
-  _searchModuleConfigs = configs
+  scope[GLOBAL_SEARCH_MODULE_CONFIGS_KEY] = configs
 }
 
 /**
@@ -350,5 +358,6 @@ export function registerSearchModuleConfigs(configs: SearchModuleConfig[]): void
  * Returns empty array if not registered (search module may not be enabled).
  */
 export function getSearchModuleConfigs(): SearchModuleConfig[] {
-  return _searchModuleConfigs ?? []
+  const registered = (globalThis as Record<string, unknown>)[GLOBAL_SEARCH_MODULE_CONFIGS_KEY]
+  return Array.isArray(registered) ? (registered as SearchModuleConfig[]) : []
 }

@@ -13,6 +13,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
+import { isEntityTypeProjected } from '@open-mercato/shared/modules/query-index'
 
 const logger = createLogger('query_index').child({ component: 'indexer' })
 
@@ -257,6 +258,13 @@ export async function upsertIndexRow(
   em: EntityManager,
   args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null; deferSearchTokens?: boolean; trx?: QueryIndexExecutor }
 ): Promise<UpsertIndexResult> {
+  // Last line of defence for the per-record write path: an entity type the app
+  // does not project never gets a row, whichever caller asks for one. Reported as
+  // "nothing existed, nothing was created" so a caller's coverage arithmetic sees
+  // a no-op rather than a delete.
+  if (!isEntityTypeProjected(args.entityType)) {
+    return { doc: null, existed: false, wasDeleted: false, created: false, revived: false }
+  }
   const db = (em as any).getKysely()
   const executor = args.trx ?? db
 

@@ -25,6 +25,7 @@ import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
 import { refreshCoverageSnapshot } from './lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
+import { filterProjectedEntityTypes, isEntityTypeProjected } from '@open-mercato/shared/modules/query-index'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 
 type ParsedArgs = Record<string, string | boolean>
@@ -515,6 +516,13 @@ const rebuild: ModuleCli = {
       return
     }
 
+    if (!isEntityTypeProjected(entity)) {
+      console.error(
+        `${entity} is not projected into entity_indexes (queryIndex.project = false); nothing to do.`,
+      )
+      return
+    }
+
     const globalFlag = flagEnabled(args, 'global')
     const includeDeleted = flagEnabled(args, 'withDeleted')
     const orgId = stringOption(args, 'org', 'organizationId')
@@ -634,7 +642,11 @@ const rebuildAll: ModuleCli = {
       const db = em.getKysely<any>()
 
       const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
-      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
+      // A whole-account run must respect the projection policy, or it silently
+      // refills every entity type the app switched off.
+      const entityIds = filterProjectedEntityTypes(
+        flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>),
+      )
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return
@@ -761,6 +773,12 @@ const reindex: ModuleCli = {
     }
 
     try {
+      if (entity && !isEntityTypeProjected(entity)) {
+        console.error(
+          `${entity} is not projected into entity_indexes (queryIndex.project = false); nothing to do.`,
+        )
+        return
+      }
       if (entity) {
         await recordIndexerLog(
           { em: baseEm },
@@ -902,7 +920,11 @@ const reindex: ModuleCli = {
       }
 
       const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
-      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
+      // A whole-account run must respect the projection policy, or it silently
+      // refills every entity type the app switched off.
+      const entityIds = filterProjectedEntityTypes(
+        flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>),
+      )
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return
