@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { QueuedJob } from '@open-mercato/queue'
+import type { JobContext, QueuedJob } from '@open-mercato/queue'
 import handler, { metadata } from '../inbound-dispatch'
 import { WEBHOOK_INBOUND_DISPATCH_QUEUE } from '../../lib/queue'
 import type { InboundDispatchJob } from '../../lib/inbound-dispatch'
@@ -22,10 +22,32 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
   return { createLogger: () => mocked }
 })
 
+type DispatchDeps = { resolve: <T = unknown>(name: string) => T }
+
 function makeEm() {
   const forked = { id: 'forked-em' } as unknown as EntityManager
   const em = { fork: jest.fn(() => forked) } as unknown as EntityManager
   return { em, forked }
+}
+
+function makeCtx(em: EntityManager) {
+  const resolved: string[] = []
+  const ctx: JobContext & DispatchDeps & { resolved: string[] } = {
+    jobId: 'job-1',
+    attemptNumber: 1,
+    queueName: WEBHOOK_INBOUND_DISPATCH_QUEUE,
+    resolved,
+    resolve: <T,>(name: string): T => {
+      resolved.push(name)
+      return (name === 'em' ? em : `resolved:${name}`) as T
+    },
+  }
+  return ctx
+}
+
+function depsFromLastCall(): DispatchDeps {
+  const call = mockProcessInboundDispatchJob.mock.calls[0] as [EntityManager, InboundDispatchJob, DispatchDeps]
+  return call[2]
 }
 
 describe('webhooks inbound dispatch worker', () => {
@@ -41,12 +63,6 @@ describe('webhooks inbound dispatch worker', () => {
     id: 'job-1',
     payload,
     createdAt: '2026-10-07T00:00:00.000Z',
-  }
-
-  function makeCtx(em: EntityManager) {
-    return {
-      resolve: jest.fn(<T,>(name: string): T => (name === 'em' ? em : (`resolved:${name}` as T))),
-    }
   }
 
   afterEach(() => {
@@ -80,9 +96,8 @@ describe('webhooks inbound dispatch worker', () => {
 
     await handler(job, ctx)
 
-    const [, , deps] = mockProcessInboundDispatchJob.mock.calls[0]
-    expect(deps.resolve('eventBus')).toBe('resolved:eventBus')
-    expect(ctx.resolve).toHaveBeenCalledWith('eventBus')
+    expect(depsFromLastCall().resolve('eventBus')).toBe('resolved:eventBus')
+    expect(ctx.resolved).toContain('eventBus')
   })
 
   it('re-throws the original error so the queue can retry', async () => {
@@ -105,8 +120,23 @@ describe('webhooks inbound dispatch worker', () => {
         ingestionId: 'ingestion-1',
         sourceKey: 'stripe',
         tenantId: 'tenant-1',
+        organizationId: 'org-1',
         err: cause,
       }),
+    )
+  })
+
+  it('surfaces the original error even when the envelope carries no payload', async () => {
+    const { em } = makeEm()
+    const cause = new Error('handler blew up')
+    mockProcessInboundDispatchJob.mockRejectedValue(cause)
+    const payloadless = { id: 'job-1', createdAt: '2026-10-07T00:00:00.000Z' } as QueuedJob<InboundDispatchJob>
+
+    await expect(handler(payloadless, makeCtx(em))).rejects.toBe(cause)
+
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Inbound dispatch job processing failed',
+      expect.objectContaining({ ingestionId: undefined, err: cause }),
     )
   })
 })
