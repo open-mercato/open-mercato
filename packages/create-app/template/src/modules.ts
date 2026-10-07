@@ -115,6 +115,12 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
+  // General Ledger core engine — ships with the scaffold but stays disabled
+  // here until its module fact-sheet gains catalog coverage (run the
+  // om-refresh-standalone-harness skill to add it, then enable this line).
+  // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
+  // deliberate divergence, not drift.
+  // { id: 'ledger', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
