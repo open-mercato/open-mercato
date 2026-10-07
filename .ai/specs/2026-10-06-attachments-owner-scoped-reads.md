@@ -207,14 +207,19 @@ Verified with a trial merge of this branch into the vector images branch:
 - Five files conflict, all textually:
   - `.ai/specs/README.md`, `UPGRADE_NOTES.md`, `apps/docs/docs/api/attachments.mdx` and
     `packages/core/src/modules/attachments/AGENTS.md`: keep both sides; they add different entries.
-  - `lib/__tests__/attachment-service.test.ts`: keep both appended `describe` blocks (and both
-    harness additions, `readBuffer` and the `imageRendition` mock). Add the closing `})` of the
-    vector block, which the two sides share in the conflict hunk, between them.
-- The merged tree passes:
-  - core typecheck;
-  - `attachment-service.test.ts` (64), `vector-image.test.ts` and the attachments route suites
-    (240);
-  - checkout's pay route suites (45).
+  - `lib/__tests__/attachment-service.test.ts`: keep both appended `describe` blocks. Add the
+    closing `})` of the vector block, which the two sides share in the conflict hunk, between them.
+    The harness additions (`readBuffer`, identical on both sides, and the `imageRendition` mock)
+    merge automatically.
+  - `packages/core/src/modules/attachments/AGENTS.md` has two hunks; in the `Never` list, keep this
+    branch's `checkAttachmentAccess` exception and `readScopedForOwner` rule, then the vector
+    rules.
+- The merged tree (re-verified on 2026-10-07 after the third review round) passes:
+  - core and checkout typecheck;
+  - `attachment-service.test.ts` (66) and every attachments suite (513 tests). The only failures
+    are six in `storage.test.ts` and `localDriver.test.ts`, suites neither branch touches, which
+    fail on the Windows machine used because they expect POSIX absolute paths;
+  - checkout's pay route suites (46).
 
 After both merge, `readScopedForOwner` without `rendition` serves trusted vector images inline. The
 logo route is unaffected: it always asks for a raster rendition and refuses any non-raster content
@@ -300,6 +305,7 @@ Regression proofs:
 ## Changelog
 
 - 2026-10-07 — Third review round:
+  - merge order re-verified with a trial merge;
   - a corrupt image that Sharp cannot decode is a 422 from `readScopedForOwner` (a 404 from the logo
     route) instead of a 500;
   - `expectedPartitionCode` is optional and defaults to the owner entity's default partition, so the

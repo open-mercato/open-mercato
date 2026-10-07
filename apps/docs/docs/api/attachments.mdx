@@ -214,12 +214,12 @@ const result = await attachmentService.readScopedForOwner({
   tenantId,
   organizationId,
   expectedOwner: { entityId, recordId },
-  expectedPartitionCode: 'privateAttachments',
+  expectedPartitionCode,   // optional: defaults to the owner entity's upload partition
   rendition: { width: 640, height: 240, cropType: 'contain' },
 })
 ```
 
-It returns the same result as `readScoped` (bytes, content type, inline or download disposition), but only for an attachment owned by that record, in that tenant, organization and partition. With `rendition` it returns a resized raster from the same pipeline as the image route below; anything that is not an inline-safe raster image is a `404`. Anything else — including an id that is not a UUID — is a `404`, so the module's own ownership record is the authorization. No attachments route exposes it.
+It returns the same result as `readScoped` (bytes, content type, inline or download disposition), but only for an attachment owned by that record, in that tenant, organization and partition. Without `expectedPartitionCode` the partition is the one `POST /api/attachments` uses for the owner entity when the upload names none. With `rendition` it returns a resized raster from the same pipeline as the image route below; anything that is not an inline-safe raster image is a `404`, and an image that cannot be decoded is a `422`. Anything else — including an id that is not a UUID — is a `404`, so the module's own ownership record is the authorization. No attachments route exposes it.
 
 ## File delivery and imaging
 
