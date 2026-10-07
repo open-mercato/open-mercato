@@ -16,6 +16,7 @@ type CapturedForm = {
   optimisticLockUpdatedAt?: string | null
   hideFooterActions?: boolean
   embedded?: boolean
+  extraActions?: unknown
   onSubmit: (values: never) => Promise<void>
 }
 
@@ -96,6 +97,7 @@ describe('StoreSeoTab', () => {
     const form = forms[0]
     expect(form.fields.map((f) => f.id)).toEqual(['siteName', 'defaultMetaDescription', 'googleSiteVerification', 'robotsTxt'])
     expect(form.embedded).toBe(true)
+    expect(form.extraActions).toBeUndefined()
   })
 
   it('loads initial values from store settings', async () => {

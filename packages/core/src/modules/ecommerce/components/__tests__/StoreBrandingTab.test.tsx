@@ -21,6 +21,7 @@ type CapturedForm = {
   optimisticLockUpdatedAt?: string | null
   hideFooterActions?: boolean
   embedded?: boolean
+  extraActions?: unknown
   onSubmit: (values: Record<string, string>) => Promise<void>
 }
 
@@ -109,6 +110,7 @@ describe('StoreBrandingTab', () => {
     renderTab()
     const form = lastForm()
     expect(form.embedded).toBe(true)
+    expect(form.extraActions).toBeUndefined()
     expect(form.optimisticLockUpdatedAt).toBe('2026-10-02T10:00:00.000Z')
     expect(form.initialValues.primaryColor).toBe('#112233')
     expect(form.initialValues.accentColor).toBe('oklch(0.97 0 0)')

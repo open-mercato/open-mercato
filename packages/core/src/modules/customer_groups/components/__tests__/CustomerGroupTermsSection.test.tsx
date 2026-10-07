@@ -12,6 +12,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 type MockCrudFormProps = {
+  disableInitialFocus?: boolean
   readOnly?: boolean
   readOnlyOverlay?: React.ReactNode
   submitLabel?: string
@@ -122,6 +123,11 @@ describe('CustomerGroupTermsSection assortment scope', () => {
     await waitFor(() => expect(updateCrudMock).toHaveBeenCalledTimes(1))
     return updateCrudMock.mock.calls[0][1] as Record<string, unknown>
   }
+
+  it('does not auto-focus the first field so no suggestion list opens on load', () => {
+    renderSection(storedTerms, true)
+    expect(lastFormProps?.disableInitialFocus).toBe(true)
+  })
 
   it('seeds the pickers from the stored scope', () => {
     renderSection(

@@ -64,6 +64,7 @@ export function LookupMultiPicker({ source, value, onChange, placeholder, disabl
       suggestions={suggestions}
       loadSuggestions={search}
       allowCustomValues={false}
+      closeSuggestionsOnSelect
       resolveLabel={(id) => options[id]?.label ?? id}
       resolveDescription={(id) => options[id]?.description ?? null}
       placeholder={placeholder}

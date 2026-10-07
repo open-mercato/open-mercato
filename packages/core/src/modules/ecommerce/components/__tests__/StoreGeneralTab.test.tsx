@@ -16,6 +16,7 @@ type CapturedForm = {
   optimisticLockUpdatedAt?: string | null
   hideFooterActions?: boolean
   embedded?: boolean
+  extraActions?: unknown
   onSubmit: (values: never) => Promise<void>
 }
 
@@ -118,6 +119,7 @@ describe('StoreGeneralTab', () => {
       await screen.findByTestId('availability-form')
       const form = formWithField('name')
       expect(form.embedded).toBe(true)
+      expect(form.extraActions).toBeUndefined()
       expect(form.fields.map((field) => field.id)).toEqual([
         'name',
         'code',
@@ -216,6 +218,7 @@ describe('StoreGeneralTab', () => {
       const form = formWithField('hideWhenOutOfStock')
       expect(form.fields.map((field) => field.id)).toEqual(['hideWhenOutOfStock', 'allowBackorder', 'backorderLeadTimeDays'])
       expect(form.fields[2].visibleWhen).toEqual({ field: 'allowBackorder', equals: true })
+      expect(form.extraActions).toBeUndefined()
       expect(form.fields.every((field) => !field.disabled)).toBe(true)
     })
 

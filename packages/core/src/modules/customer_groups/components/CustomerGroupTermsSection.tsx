@@ -369,6 +369,7 @@ export function CustomerGroupTermsSection({
         <CrudForm<CustomerGroupTermsFormValues>
           key={terms?.updatedAt ?? 'new'}
           embedded
+          disableInitialFocus
           schema={schema}
           fields={fields}
           groups={groups}

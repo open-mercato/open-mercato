@@ -343,16 +343,18 @@ export function StoreChannelsTab({ store, reload }: StoreChannelsTabProps) {
             </AlertDescription>
           </Alert>
         )}
-        <DataTable<ChannelBindingRecord>
-          columns={columns}
-          data={bindings}
-          isLoading={bindingsQuery.isLoading}
-          error={bindingsQuery.isError ? t('ecommerce.backend.store.channels.errors.load', 'Failed to load the channel bindings.') : null}
-          actions={addAction}
-          rowActions={(row) => <RowActions items={buildRowActions(row)} />}
-          emptyState={emptyState}
-          embedded
-        />
+        <div className="overflow-x-auto">
+          <DataTable<ChannelBindingRecord>
+            columns={columns}
+            data={bindings}
+            isLoading={bindingsQuery.isLoading}
+            error={bindingsQuery.isError ? t('ecommerce.backend.store.channels.errors.load', 'Failed to load the channel bindings.') : null}
+            actions={addAction}
+            rowActions={(row) => <RowActions items={buildRowActions(row)} />}
+            emptyState={emptyState}
+            embedded
+          />
+        </div>
         {dialog.mode !== 'closed' && (canManageChannels || dialog.mode === 'edit') ? (
           <StoreChannelBindingDialog
             open

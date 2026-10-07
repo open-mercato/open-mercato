@@ -88,7 +88,8 @@
 | 7 | 7.11 | setup.ts draft-store seed + Upgrade Action for existing tenants | dispatch:standard | done | 0f3354ea17 |
 | 7 | 7.12 | Integration tests: admin UI paths (SPEC-029 Phases 2–3 gates) | dispatch:capable | done | 9435edbb3d |
 | 7 | 7.12-gate-fix | Document the ecommerce notification types in notification-delivery.mdx (docs registry test) | inline | done | ffe3a3dceb |
-| 7 | 7.12-ds-fix | Design-system fixes from the final-gate style pass | inline | done | pending |
+| 7 | 7.12-ds-fix | Design-system fixes from the final-gate style pass | inline | done | 2547c77055 |
+| 7 | 7.12-ui-fix | UI polish from checkpoints 13–14 | inline | done | pending |
 
 ## Goal
 
@@ -189,6 +190,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **7.12 Integration tests** — §16 UI paths incl. optimistic-lock conflict.
 - **7.12-gate-fix Document the ecommerce notification types** — found by the final gate (`yarn test`): `apps/docs/__tests__/notification-registry.test.mjs` requires every registered notification type in `notification-delivery.mdx` and the stated ratio (now 2 of 76).
 - **7.12-ds-fix Design-system fixes** — final-gate style pass (om-ds-guardian): StoreEditPage subtitle uses an em dash instead of a middot; OmnibusSettings price-kind/channel fields use `FormField` (label/description/error) instead of bare `<p>` labels.
+- **7.12-ui-fix UI polish from checkpoints 13–14** — embedded store forms drop the duplicate Cancel (`extraActions`, Escape reset kept); archive clears the stale "Last operation" undo banner; `TagsInput` gains additive `closeSuggestionsOnSelect` (used by `LookupMultiPicker`); channels table scrolls in an `overflow-x-auto` wrapper; group-terms `CrudForm` sets `disableInitialFocus`.
 
 ## Risks
 

@@ -161,12 +161,6 @@ export function StoreAvailabilityDefaultsSection({ store }: StoreAvailabilityDef
     setFormKey((current) => current + 1)
   }, [])
 
-  const cancelAction = (
-    <Button type="button" variant="outline" onClick={() => setFormKey((current) => current + 1)}>
-      {t('ui.forms.actions.cancel', 'Cancel')}
-    </Button>
-  )
-
   const renderBody = () => {
     if (!canViewAvailability) return null
     if (policyQuery.isLoading) {
@@ -194,7 +188,6 @@ export function StoreAvailabilityDefaultsSection({ store }: StoreAvailabilityDef
           optimisticLockUpdatedAt={policy?.updatedAt ?? null}
           submitLabel={t('ecommerce.backend.store.availability.save', 'Save availability defaults')}
           onSubmit={handleSubmit}
-          extraActions={cancelAction}
           hideFooterActions={!editable}
           embedded
         />

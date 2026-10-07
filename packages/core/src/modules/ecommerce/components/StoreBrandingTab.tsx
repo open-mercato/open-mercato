@@ -6,7 +6,6 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ECOMMERCE_BRANDING_FONTS } from '../lib/brandingStyles'
@@ -233,11 +232,6 @@ export function StoreBrandingTab({ store, reload }: StoreBrandingTabProps) {
             optimisticLockUpdatedAt={store.updatedAt}
             submitLabel={t('ecommerce.backend.store.branding.save', 'Save branding')}
             onSubmit={handleSubmit}
-            extraActions={
-              <Button type="button" variant="outline" onClick={resetForm}>
-                {t('ui.forms.actions.cancel', 'Cancel')}
-              </Button>
-            }
             hideFooterActions={!canManageBranding}
             embedded
           />

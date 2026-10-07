@@ -6,7 +6,6 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError, type CrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STORES_API_PATH, type StoreAdminRecord } from './storeAdmin'
@@ -142,11 +141,6 @@ export function StoreSeoTab({ store, reload }: StoreSeoTabProps) {
               optimisticLockUpdatedAt={store.updatedAt}
               submitLabel={t('ecommerce.backend.store.seo.save', 'Save SEO settings')}
               onSubmit={handleSubmit}
-              extraActions={
-                <Button type="button" variant="outline" onClick={resetForm}>
-                  {t('ui.forms.actions.cancel', 'Cancel')}
-                </Button>
-              }
               hideFooterActions={!canManage}
               embedded
             />

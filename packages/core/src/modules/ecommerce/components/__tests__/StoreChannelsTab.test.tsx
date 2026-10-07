@@ -243,6 +243,13 @@ describe('StoreChannelsTab', () => {
     await waitFor(() => expect(cell('b', 'count').textContent).toBe('0 (25 without the sign-in requirement)'))
   })
 
+  it('scrolls the bindings table horizontally inside its card instead of overflowing it', async () => {
+    mockApi([binding('a', { isDefault: true })], {})
+    renderTab()
+    await screen.findByTestId('row-a')
+    expect(screen.getByTestId('data-table').parentElement).toHaveClass('overflow-x-auto')
+  })
+
   it('makes a binding the default with its own version as the lock', async () => {
     mockApi([binding('a', { isDefault: true }), binding('b')])
     renderTab()

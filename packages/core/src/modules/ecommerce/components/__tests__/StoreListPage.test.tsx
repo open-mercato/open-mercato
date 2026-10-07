@@ -11,6 +11,7 @@ import type { StoreAdminRecord } from '../storeAdmin'
 const apiCallMock = jest.fn()
 const confirmMock = jest.fn()
 const flashMock = jest.fn()
+const clearAllOperationsMock = jest.fn()
 const scopedHeaderCalls: Array<Record<string, string>> = []
 const routerPush = jest.fn()
 let grantedFeatures: string[] | undefined = ['ecommerce.stores.view']
@@ -54,6 +55,10 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: (...args: unknown[]) => flashMock(...args) }))
+
+jest.mock('@open-mercato/ui/backend/operations/store', () => ({
+  clearAllOperations: () => clearAllOperationsMock(),
+}))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: confirmMock, ConfirmDialogElement: null }),
@@ -148,6 +153,7 @@ describe('StoreListPage', () => {
     apiCallMock.mockReset()
     confirmMock.mockReset()
     flashMock.mockReset()
+    clearAllOperationsMock.mockReset()
     routerPush.mockReset()
     scopedHeaderCalls.length = 0
     tableProps = null
@@ -258,6 +264,7 @@ describe('StoreListPage', () => {
     expect(scopedHeaderCalls).toContainEqual({ [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-10-02T10:00:00.000Z' })
     const listCalls = apiCallMock.mock.calls.filter(([, init]) => init?.method !== 'PUT')
     expect(listCalls.length).toBeGreaterThanOrEqual(2)
+    expect(clearAllOperationsMock).toHaveBeenCalledTimes(1)
   })
 
   it('leaves a 409 conflict to the shared conflict bar instead of flashing a generic error', async () => {
@@ -287,5 +294,6 @@ describe('StoreListPage', () => {
     await waitFor(() => expect(confirmMock).toHaveBeenCalled())
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'error')
+    expect(clearAllOperationsMock).not.toHaveBeenCalled()
   })
 })

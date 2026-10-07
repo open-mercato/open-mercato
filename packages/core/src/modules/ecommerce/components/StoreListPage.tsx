@@ -13,6 +13,7 @@ import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActi
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -147,6 +148,7 @@ export function StoreListPage() {
           context: { retryLastMutation },
           mutationPayload: { id: row.id, status: 'archived' },
         })
+        clearAllOperations()
         flash(t('ecommerce.backend.stores.flash.archived', 'Store archived'), 'success')
         await refresh()
       } catch (error) {

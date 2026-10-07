@@ -5,7 +5,6 @@ import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { STORE_STATUS_LABELS } from './StoreStatusBadge'
@@ -178,11 +177,6 @@ export function StoreGeneralTab({ store, reload }: StoreGeneralTabProps) {
               optimisticLockUpdatedAt={store.updatedAt}
               submitLabel={t('ecommerce.backend.store.general.save', 'Save changes')}
               onSubmit={handleSubmit}
-              extraActions={
-                <Button type="button" variant="outline" onClick={resetForm}>
-                  {t('ui.forms.actions.cancel', 'Cancel')}
-                </Button>
-              }
               hideFooterActions={!canManage}
               embedded
             />
