@@ -1798,6 +1798,7 @@
   "staff.timesheets.errors.noStaffMember": "Ihrem Konto ist kein Mitarbeiter zugeordnet.",
   "staff.timesheets.errors.notAssigned": "Sie sind diesem Projekt nicht zugewiesen.",
   "staff.timesheets.errors.notOwner": "Sie können nur Ihre eigenen Zeiteinträge verwalten.",
+  "staff.timesheets.errors.outsideAssignmentWindow": "Dieses Datum liegt außerhalb Ihrer Zuweisung zu diesem Projekt.",
   "staff.timesheets.errors.projectCodeDuplicate": "Ein Projekt mit diesem Code existiert bereits.",
   "staff.timesheets.errors.projectCurrencyLocked": "Dieses Projekt hat Zeiteinträge, die in einem abgeschlossenen Bericht eingefroren sind. Entsperren Sie diese Berichte, bevor Sie die Währung ändern.",
   "staff.timesheets.errors.projectNotFound": "Zeitprojekt nicht gefunden oder nicht zugänglich.",

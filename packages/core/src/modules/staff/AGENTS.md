@@ -47,11 +47,17 @@ type TimeTrackingAccessResolver = {
     assignmentGraceDays?: number | null
     /** Injectable clock for the assignment window; defaults to now. */
     now?: Date
-  }): Promise<{ canManageAll: boolean; projectIds: string[]; staffMemberId: string | null }>
+  }): Promise<{
+    canManageAll: boolean
+    projectIds: string[]
+    staffMemberId: string | null
+    /** Additive (#6988): per project, the granting membership windows as day indexes, end already + grace. */
+    assignmentWindows?: Record<string, Array<{ startIndex: number | null; endIndex: number | null }>>
+  }>
 }
 ```
 
-**Assignment window (spec D-12).** Membership alone is not access: a non-manager reaches a project only while `assigned_start_date <= today <= assigned_end_date + assignmentGraceDays` (a null end date is open-ended). Pass `assignmentGraceDays` from `readTimeTrackingSettings(...).access.assignmentGraceDays` — the resolver deliberately does not read `ModuleConfigService` itself, so it stays testable and a caller that already loaded settings avoids a second lookup. Both extra fields are optional and default safely; existing callers are unaffected. An unparseable date bound or an unusable clock fails **closed**.
+**Assignment window (spec D-12).** Membership alone is not access: a non-manager reaches a project only while `assigned_start_date <= today <= assigned_end_date + assignmentGraceDays` (a null end date is open-ended). Pass `assignmentGraceDays` from `readTimeTrackingSettings(...).access.assignmentGraceDays` — the resolver deliberately does not read `ModuleConfigService` itself, so it stays testable and a caller that already loaded settings avoids a second lookup. Both extra fields are optional and default safely; existing callers are unaffected. An unparseable date bound or an unusable clock fails **closed**. **Entry-date bound (#6988):** a time-entry write also requires the entry's own date inside one of those windows — use `isProjectAccessibleOnDate(access, projectId, date)` (a hand-built access without `assignmentWindows` places no date bound). Entry writes go through `resolveTimeEntryWriteAccess` + `resolveTimeEntryWriteDenial` in `commands/timesheets-entries.ts`, shared by the commands and the grid bulk save so both screens give the same answer.
 
 `AvailabilityWriteAccess.unregistered?: boolean` is an additive sentinel field (BC surface #2 — STABLE) set to `true` only when staff DI is missing. Existing required fields MUST NOT be removed.
 

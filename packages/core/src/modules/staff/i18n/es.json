@@ -1798,6 +1798,7 @@
   "staff.timesheets.errors.noStaffMember": "Ningún miembro del personal vinculado a tu cuenta.",
   "staff.timesheets.errors.notAssigned": "No estás asignado a este proyecto.",
   "staff.timesheets.errors.notOwner": "Solo puedes gestionar tus propios registros de tiempo.",
+  "staff.timesheets.errors.outsideAssignmentWindow": "Esta fecha está fuera de tu asignación a este proyecto.",
   "staff.timesheets.errors.projectCodeDuplicate": "Ya existe un proyecto con este código.",
   "staff.timesheets.errors.projectCurrencyLocked": "Este proyecto tiene entradas de tiempo congeladas en un informe cerrado. Desbloquea esos informes antes de cambiar la moneda.",
   "staff.timesheets.errors.projectNotFound": "Proyecto de tiempo no encontrado o no accesible.",

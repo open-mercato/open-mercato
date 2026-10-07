@@ -1798,6 +1798,7 @@
   "staff.timesheets.errors.noStaffMember": "Brak pracownika powiązanego z Twoim kontem.",
   "staff.timesheets.errors.notAssigned": "Nie jesteś przypisany do tego projektu.",
   "staff.timesheets.errors.notOwner": "Możesz zarządzać tylko własnymi wpisami czasu.",
+  "staff.timesheets.errors.outsideAssignmentWindow": "Ta data wykracza poza Twoje przypisanie do tego projektu.",
   "staff.timesheets.errors.projectCodeDuplicate": "Projekt o tym kodzie już istnieje.",
   "staff.timesheets.errors.projectCurrencyLocked": "Ten projekt ma wpisy czasu zamrożone w zamkniętym raporcie. Odblokuj te raporty przed zmianą waluty.",
   "staff.timesheets.errors.projectNotFound": "Projekt czasowy nie został znaleziony lub jest niedostępny.",
