@@ -111,7 +111,7 @@ describe('sanitizeVectorImage — benign logos', () => {
     const output = prepared.buffer.toString('utf8')
     expect(output).toContain('.st0{fill:#E30613;}')
     expect(output).toContain('.st1{fill:#1D1D1B;}')
-    expect(output).toMatch(/g &gt; \.st1\{stroke:none;\}|g > \.st1\{stroke:none;\}/)
+    expect(output).toContain('path.st1, rect.st1{stroke:none;}')
     expect(output).toContain('class="st0"')
   })
 
@@ -144,6 +144,17 @@ describe('sanitizeVectorImage — benign logos', () => {
     expect(output).toContain('.st1{clip-path:url(#SVGID_3_);}')
     expect(output).toContain('marker-end="url(#arrow)"')
     expect(output.match(/class="st2"/g)).toHaveLength(40)
+  })
+
+  it.each([
+    ['the universal selector', '*'],
+    ['a type selector on the root', 'svg'],
+    ['a type selector', 'path'],
+    ['a compound selector and a comma list', 'path.a, #b, *.a'],
+  ])('keeps a gradient applied through %s, without a false reference cycle through its stops', async (_label, selector) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><style>${selector}{fill:url(#g)}</style><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/></linearGradient></defs><path id="b" class="a" d="M0 0h10v10z"/></svg>`
+    const prepared = await prepareVectorImageUpload(svgBuffer(svg))
+    expect(prepared.ok).toBe(true)
   })
 
   it('keeps an XLink reference written with a prefix other than xlink', async () => {
@@ -375,7 +386,13 @@ describe('sanitizeVectorImage — bounded cost', () => {
     ['text interleaved with foreign editor elements at the element bound', wrap('a<x:a/>'.repeat(Math.min(pairs, elements))), true],
     ['whitespace-formatted elements at the node bound', wrap('\n<rect/>'.repeat(Math.floor(VECTOR_IMAGE_MAX_NODES / 2) - 12)), true],
     ['900 stylesheet rules referencing 900 targets from every rect', wrap(`<style>${Array.from({ length: 900 }, (_, index) => `rect{marker-start:url(#g${index})}`).join('')}</style><defs>${Array.from({ length: 900 }, (_, index) => `<linearGradient id="g${index}"/>`).join('')}</defs>${'<rect/>'.repeat(elements - 902)}`), true],
-    ['a 1 MiB stylesheet of url() rules', wrap(`<defs><linearGradient id="g"/></defs><style>${'.a{fill:url(#g)}'.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 16))}</style><rect class="a"/>`), true],
+    ['a 1 MiB stylesheet of url() rules (refused by the rule cap)', wrap(`<defs><linearGradient id="g"/></defs><style>${'.a{fill:url(#g)}'.repeat(Math.floor((VECTOR_IMAGE_MAX_BYTES - 400) / 16))}</style><rect class="a"/>`), false],
+    ['stylesheet rules at the selector-times-reference work cap', wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 1250 }, (_, rule) => `${Array.from({ length: 16 }, (_, index) => `.r${rule}s${index}`).join(',')}{fill:url(#g)}`).join('')}</style>${'<rect class="r0s0"/>'.repeat(elements - 4)}`), true],
+    ['2,000 selectors by 2,000 custom-property references (refused)', wrap(`<style>${Array.from({ length: 2000 }, (_, index) => `.c${index}`).join(',')}{${Array.from({ length: 2000 }, (_, index) => `--v${index}:url(#i${index})`).join(';')}}</style><rect/>`), false],
+    ['8,000 selectors by 8,000 custom-property references (refused)', wrap(`<style>${Array.from({ length: 8000 }, (_, index) => `.c${index}`).join(',')}{${Array.from({ length: 8000 }, (_, index) => `--v${index}:url(#i${index})`).join(';')}}</style><rect/>`), false],
+    ['20,000 nested @media blocks (refused)', wrap(`<style>${'@media{'.repeat(20000)}${'}'.repeat(20000)}</style><rect/>`), false],
+    ['40,000 nested @media blocks (refused)', wrap(`<style>${'@media{'.repeat(40000)}${'}'.repeat(40000)}</style><rect/>`), false],
+    ['20,000 unclosed nested @media blocks (refused)', wrap(`<style>${'@media{'.repeat(20000)}</style><rect/>`), false],
   ]
 
   beforeAll(async () => {
@@ -397,6 +414,8 @@ describe('inspectVectorImageCss', () => {
     ['fill:url("#gradient")', null],
     [`background:url(data:image/png;base64,${TINY_PNG_BASE64})`, null],
     ['fill:#123456;stroke-width:2', null],
+    ['marker-mid:var(--m)', 'active_content'],
+    ['--m:url(#marker)', 'active_content'],
     ['fill:url(https://example.com/p.svg#p)', 'external_reference'],
     ['fill:url(//example.com/p.svg#p)', 'external_reference'],
     ['fill:url(p.svg#p)', 'external_reference'],

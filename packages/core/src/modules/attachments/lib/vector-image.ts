@@ -26,6 +26,10 @@ export const VECTOR_IMAGE_MAX_DEPTH = 64
 export const VECTOR_IMAGE_MAX_NODES = 4_000
 export const VECTOR_IMAGE_MAX_MARKUP = 4_000
 export const VECTOR_IMAGE_MAX_RENDERED_ELEMENTS = 50_000
+export const VECTOR_IMAGE_MAX_STYLE_RULES = 2_000
+export const VECTOR_IMAGE_MAX_SELECTORS_PER_RULE = 32
+export const VECTOR_IMAGE_MAX_REFERENCES_PER_RULE = 16
+export const VECTOR_IMAGE_MAX_STYLE_WORK = 20_000
 export const VECTOR_IMAGE_CONTENT_SECURITY_POLICY =
   "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
 export const DEFAULT_ATTACHMENT_CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox"
@@ -54,7 +58,7 @@ const CSS_PARSED_ATTRIBUTES = new Set([
   'cursor',
 ])
 const CSS_STRING_URL_FUNCTIONS = new Set(['image', 'image-set', 'cross-fade', 'element', 'src', 'attr'])
-const CSS_ACTIVE_FUNCTIONS = new Set(['expression'])
+const CSS_ACTIVE_FUNCTIONS = new Set(['expression', 'var'])
 const CSS_ACTIVE_IDENTIFIERS = new Set(['behavior', '-moz-binding', 'javascript', 'vbscript'])
 const RASTER_DATA_URI_PATTERN = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=\t\n\f\r ]+)$/i
 const ACTIVE_SCHEME_PATTERN = /^(?:javascript|vbscript|data):/i
@@ -63,8 +67,9 @@ const VENDOR_PREFIX_PATTERN = /^-[a-z0-9]+-/
 const PAINTED_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon', 'rect', 'circle', 'ellipse', 'text', 'tspan', 'textpath'])
 const MARKABLE_ELEMENTS = new Set(['path', 'line', 'polyline', 'polygon'])
 const NON_INHERITED_REFERENCE_PROPERTIES = new Set(['clip-path', 'mask', 'filter'])
-const STYLESHEET_GROUPING_RULES = new Set(['media', 'supports', 'layer', 'container', 'scope', 'document', '-moz-document', 'starting-style'])
-const SELECTOR_COMBINATORS = new Set([' ', '\t', '\n', '\r', '\f', '>', '+', '~'])
+const SIMPLE_SELECTOR_NAME = '-?[_a-zA-Z\\u0080-\\uffff][-_a-zA-Z0-9\\u0080-\\uffff]*'
+const SIMPLE_SELECTOR_PATTERN = new RegExp(`^(?:\\*|${SIMPLE_SELECTOR_NAME})?(?:[.#]${SIMPLE_SELECTOR_NAME})*$`)
+const NON_RENDERING_PROPERTY_SOURCES = new Set(['lineargradient', 'radialgradient', 'stop', 'filter'])
 
 const NODE_ELEMENT = 1
 const NODE_TEXT = 3
@@ -427,7 +432,9 @@ function readCssName(css: string, start: number): number {
  * Deliberately stricter than a browser: any escape (`\`), any string ended by
  * a newline or by the end of the stylesheet, any unterminated comment or
  * `url(` token and any malformed unquoted URL are refused as active content,
- * because each is a way to make two parsers disagree and logos need none.
+ * because each is a way to make two parsers disagree and logos need none. So
+ * are custom properties (`--*`) and `var()`, which would let a value reach a
+ * property the reference policy did not see it in.
  */
 export function inspectVectorImageCss(css: string): VectorImageFindingKind | null {
   return scanCss(css, null, null)
@@ -503,6 +510,7 @@ function scanCss(
     if (isCssNameCharacter(css.charCodeAt(index))) {
       const end = readCssName(css, index)
       const name = css.slice(index, end).toLowerCase()
+      if (name.startsWith('--')) return 'active_content'
       if (css[end] !== '(') {
         if (CSS_ACTIVE_IDENTIFIERS.has(name)) return 'active_content'
         pendingName = name
@@ -814,6 +822,7 @@ function inspectAttribute(tag: string, attribute: DomAttribute): VectorImageFind
   if (isHrefAttribute(attribute)) return classifyReference(trimUrlBoundary(attribute.value), RASTER_DATA_URI_ELEMENTS.has(tag))
   if (attribute.namespaceURI !== null) return null
   const name = attribute.localName.toLowerCase()
+  if (!name.startsWith('aria-') && /var\s*\(/i.test(attribute.value)) return 'active_content'
   if (CSS_PARSED_ATTRIBUTES.has(name) || /url\s*\(/i.test(attribute.value)) {
     return inspectVectorImageCss(attribute.value)
   }
@@ -836,7 +845,11 @@ function findReferenceViolation(root: DomElement): VectorImageFinding | null {
       return false
     }
     if (tag === 'style') {
-      const verdict = hasOnlyTextChildren(node) ? inspectVectorImageCss(styleSheetText(node)) : 'active_content'
+      let verdict: VectorImageFindingKind | null = 'active_content'
+      if (hasOnlyTextChildren(node)) {
+        const css = styleSheetText(node)
+        verdict = inspectVectorImageCss(css) ?? (parseStylesheet(css) ? null : 'active_content')
+      }
       if (verdict) finding = { kind: verdict, target: describeElement(node) }
       return false
     }
@@ -859,8 +872,6 @@ function referencedId(element: DomElement): string | null {
 type ReferenceMultiplier = 'once' | 'painted' | 'markables' | 'vertices'
 
 type FragmentReference = { id: string; multiplier: ReferenceMultiplier }
-
-type SelectorSubject = { key: 'id' | 'class' | 'type'; value: string } | null
 
 /**
  * The references every element a selector could match picks up from the
@@ -898,136 +909,60 @@ function collectFragmentReferences(css: string, property: string | null, into: F
   })
 }
 
-/** Index just past a comment or quoted string starting at `index`, or `index`. */
-function skipCssCommentOrString(css: string, index: number): number {
-  if (css[index] === '/' && css[index + 1] === '*') {
-    const end = css.indexOf('*/', index + 2)
-    return end < 0 ? css.length : end + 2
-  }
-  const quote = css[index]
-  if (quote !== '"' && quote !== "'") return index
-  const end = css.indexOf(quote, index + 1)
-  return end < 0 ? css.length : end + 1
-}
-
-function matchingBrace(css: string, open: number, limit: number): number {
-  let depth = 0
-  let index = open
-  while (index < limit) {
-    const skipped = skipCssCommentOrString(css, index)
-    if (skipped !== index) {
-      index = skipped
-      continue
-    }
-    if (css[index] === '{') depth += 1
-    else if (css[index] === '}') {
-      depth -= 1
-      if (depth === 0) return index
-    }
-    index += 1
-  }
-  return limit
-}
+type StyleRule = { selectors: string[]; body: string }
 
 /**
- * The subject compound of one selector, reduced to the single most selective
- * constraint it carries (an id, else a class, else a type), or null when it
- * could match any element. Dropping every other constraint — combinators,
- * further classes, attributes, pseudo-classes — only widens the match, which
- * keeps the rendered-size estimate an upper bound.
+ * Parses a stylesheet in one linear pass into flat rules whose selectors are
+ * simple: a type or `*`, then any `.class` and `#id`, in a comma list. That is
+ * the subset logo exporters write (`.st0{…}`, `path.st1, #a{…}`). Anything
+ * else — an at-rule, a combinator, a pseudo-class or pseudo-element, an
+ * attribute or namespace selector, a nested or unclosed block, a stray `;` or
+ * `}` — returns null and refuses the document. Comments may sit between
+ * rules and inside declarations; `inspectVectorImageCss` has already checked
+ * strings, escapes and `url()`s.
  */
-function selectorSubject(selector: string): SelectorSubject {
-  let depth = 0
-  let compoundStart = 0
+function parseStylesheet(css: string): StyleRule[] | null {
+  const rules: StyleRule[] = []
+  let prelude = ''
+  let bodyStart = -1
   let index = 0
-  while (index < selector.length) {
-    const skipped = skipCssCommentOrString(selector, index)
-    if (skipped !== index) {
-      if (depth === 0) compoundStart = skipped
-      index = skipped
+  while (index < css.length) {
+    const character = css[index]!
+    if (character === '/' && css[index + 1] === '*') {
+      const end = css.indexOf('*/', index + 2)
+      if (end < 0) return null
+      if (bodyStart < 0) prelude += ' '
+      index = end + 2
       continue
     }
-    const character = selector[index]!
-    if (character === '(' || character === '[') depth += 1
-    else if (character === ')' || character === ']') depth = Math.max(0, depth - 1)
-    else if (depth === 0 && SELECTOR_COMBINATORS.has(character)) compoundStart = index + 1
-    index += 1
-  }
-  const compound = selector.slice(compoundStart)
-  let id: string | null = null
-  let className: string | null = null
-  let type: string | null = null
-  depth = 0
-  index = 0
-  while (index < compound.length) {
-    const skipped = skipCssCommentOrString(compound, index)
-    if (skipped !== index) {
-      index = skipped
+    if (character === '"' || character === "'") {
+      if (bodyStart < 0) return null
+      const end = css.indexOf(character, index + 1)
+      if (end < 0) return null
+      index = end + 1
       continue
     }
-    const character = compound[index]!
-    if (character === '(' || character === '[') {
-      depth += 1
-      index += 1
-      continue
-    }
-    if (character === ')' || character === ']') {
-      depth = Math.max(0, depth - 1)
-      index += 1
-      continue
-    }
-    if (depth > 0) {
-      index += 1
-      continue
-    }
-    if (character === '#' || character === '.' || character === ':') {
-      const end = readCssName(compound, index + 1)
-      const name = compound.slice(index + 1, end).toLowerCase()
-      if (character === '#' && name) id = id ?? name
-      if (character === '.' && name) className = className ?? name
-      index = Math.max(end, index + 1)
-      continue
-    }
-    if (isCssNameCharacter(compound.charCodeAt(index))) {
-      const end = readCssName(compound, index)
-      const name = compound.slice(index, end).toLowerCase()
-      if (compound[end] === '|') {
-        index = end + 1
-        continue
+    if (bodyStart < 0) {
+      if (character === '@' || character === '}' || character === ';') return null
+      if (character === '{') {
+        const selectors = prelude.split(',').map(trimCssWhitespace)
+        if (!selectors.every((selector) => selector && SIMPLE_SELECTOR_PATTERN.test(selector))) return null
+        rules.push({ selectors, body: '' })
+        bodyStart = index + 1
+        prelude = ''
+      } else {
+        prelude += character
       }
-      type = type ?? name
-      index = end
-      continue
+    } else if (character === '{') {
+      return null
+    } else if (character === '}') {
+      rules[rules.length - 1]!.body = css.slice(bodyStart, index)
+      bodyStart = -1
     }
     index += 1
   }
-  if (id) return { key: 'id', value: id }
-  if (className) return { key: 'class', value: className }
-  if (type) return { key: 'type', value: type }
-  return null
-}
-
-function selectorSubjects(selectorList: string): SelectorSubject[] {
-  const subjects: SelectorSubject[] = []
-  let depth = 0
-  let start = 0
-  let index = 0
-  while (index <= selectorList.length) {
-    const skipped = index < selectorList.length ? skipCssCommentOrString(selectorList, index) : index
-    if (skipped !== index) {
-      index = skipped
-      continue
-    }
-    const character = selectorList[index]
-    if (character === '(' || character === '[') depth += 1
-    else if (character === ')' || character === ']') depth = Math.max(0, depth - 1)
-    else if (index === selectorList.length || (character === ',' && depth === 0)) {
-      subjects.push(selectorSubject(selectorList.slice(start, index).trim()))
-      start = index + 1
-    }
-    index += 1
-  }
-  return subjects
+  if (bodyStart >= 0 || trimCssWhitespace(prelude)) return null
+  return rules
 }
 
 function addToBucket(buckets: Map<string, ReferenceBucket>, key: string, reference: FragmentReference): void {
@@ -1040,55 +975,56 @@ function addToBucket(buckets: Map<string, ReferenceBucket>, key: string, referen
 }
 
 /**
- * Indexes every in-document `url()` a stylesheet holds under the selectors
- * that could apply it. Grouping at-rules (`@media`, `@supports`, …) are
- * entered; anything else with a block (`@keyframes`, nested rules) applies to
- * any element.
+ * The single key a simple selector is indexed under: its id, else its first
+ * class, else its type, else null for `*` (any element). Further classes only
+ * narrow the match, so dropping them keeps the estimate an upper bound.
  */
-function indexStylesheetReferences(stylesheets: string[]): StylesheetReferenceIndex {
+function selectorKey(selector: string): { key: 'id' | 'class' | 'type'; value: string } | null {
+  const lower = selector.toLowerCase()
+  const id = /#([^.#]+)/.exec(lower)
+  if (id) return { key: 'id', value: id[1]! }
+  const className = /\.([^.#]+)/.exec(lower)
+  if (className) return { key: 'class', value: className[1]! }
+  const type = /^[^.#*]+/.exec(lower)
+  return type ? { key: 'type', value: type[0] } : null
+}
+
+/**
+ * Indexes every in-document `url()` the stylesheets hold under the selectors
+ * that could apply it, or returns null when the stylesheets exceed the rule,
+ * selector, reference or work caps. The work cap bounds Σ selectors ×
+ * references, which is exactly the number of index writes, before any is made.
+ */
+function indexStylesheetReferences(stylesheets: string[]): StylesheetReferenceIndex | null {
   const index: StylesheetReferenceIndex = { any: { references: new Map() }, byId: new Map(), byClass: new Map(), byType: new Map() }
+  const parsed: Array<{ selectors: string[]; references: FragmentReference[] }> = []
+  let rules = 0
+  let work = 0
   for (const css of stylesheets) {
-    const ranges: Array<[number, number]> = [[0, css.length]]
-    while (ranges.length) {
-      const [rangeStart, rangeEnd] = ranges.pop()!
-      let preludeStart = rangeStart
-      let position = rangeStart
-      while (position < rangeEnd) {
-        const skipped = skipCssCommentOrString(css, position)
-        if (skipped !== position) {
-          position = skipped
-          continue
-        }
-        const character = css[position]
-        if (character === ';' || character === '}') {
-          position += 1
-          preludeStart = position
-          continue
-        }
-        if (character !== '{') {
-          position += 1
-          continue
-        }
-        const close = matchingBrace(css, position, rangeEnd)
-        const prelude = css.slice(preludeStart, position).trim()
-        const body = css.slice(position + 1, close)
-        if (prelude.startsWith('@') && STYLESHEET_GROUPING_RULES.has(prelude.slice(1, readCssName(prelude, 1)).toLowerCase())) {
-          ranges.push([position + 1, close])
-        } else {
-          const references: FragmentReference[] = []
-          collectFragmentReferences(body, null, references)
-          const subjects = prelude.startsWith('@') || body.includes('{') ? [null] : selectorSubjects(prelude)
-          for (const reference of references) {
-            for (const subject of subjects) {
-              if (!subject) index.any.references.set(`${reference.multiplier}|${reference.id}`, reference)
-              else if (subject.key === 'id') addToBucket(index.byId, subject.value, reference)
-              else if (subject.key === 'class') addToBucket(index.byClass, subject.value, reference)
-              else addToBucket(index.byType, subject.value, reference)
-            }
-          }
-        }
-        position = close + 1
-        preludeStart = position
+    for (const rule of parseStylesheet(css) ?? []) {
+      rules += 1
+      const references: FragmentReference[] = []
+      collectFragmentReferences(rule.body, null, references)
+      work += rule.selectors.length * references.length
+      if (
+        rules > VECTOR_IMAGE_MAX_STYLE_RULES
+        || rule.selectors.length > VECTOR_IMAGE_MAX_SELECTORS_PER_RULE
+        || references.length > VECTOR_IMAGE_MAX_REFERENCES_PER_RULE
+        || work > VECTOR_IMAGE_MAX_STYLE_WORK
+      ) {
+        return null
+      }
+      if (references.length) parsed.push({ selectors: rule.selectors, references })
+    }
+  }
+  for (const rule of parsed) {
+    for (const selector of rule.selectors) {
+      const subject = selectorKey(selector)
+      for (const reference of rule.references) {
+        if (!subject) index.any.references.set(`${reference.multiplier}|${reference.id}`, reference)
+        else if (subject.key === 'id') addToBucket(index.byId, subject.value, reference)
+        else if (subject.key === 'class') addToBucket(index.byClass, subject.value, reference)
+        else addToBucket(index.byType, subject.value, reference)
       }
     }
   }
@@ -1154,6 +1090,7 @@ function exceedsRenderedSize(root: DomElement): boolean {
     return true
   })
   const stylesheetIndex = indexStylesheetReferences(stylesheets)
+  if (!stylesheetIndex) return true
   type RenderNode = DomElement | ReferenceBucket
   type Edge =
     | { kind: 'tree'; target: DomElement }
@@ -1183,6 +1120,7 @@ function exceedsRenderedSize(root: DomElement): boolean {
     const linked = hrefTarget ? byId.get(hrefTarget) : undefined
     if (linked && tag === 'use') edges.push({ kind: 'tree', target: linked })
     if (linked && tag !== 'use' && tag !== 'a') edges.push({ kind: 'reference', target: linked, multiplier: 'once' })
+    if (NON_RENDERING_PROPERTY_SOURCES.has(tag) || tag.startsWith('fe')) return edges
     const references: FragmentReference[] = []
     for (const attribute of attributesOf(node)) {
       if (attribute.namespaceURI !== null || isHrefAttribute(attribute) || !/url\s*\(/i.test(attribute.value)) continue

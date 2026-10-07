@@ -65,7 +65,7 @@ export const CDATA_STYLED_LOGO = `<?xml version="1.0" encoding="utf-8"?>
 <style type="text/css"><![CDATA[
 	.st0{fill:#E30613;}
 	.st1{fill:#1D1D1B;}
-	g > .st1{stroke:none;}
+	path.st1, rect.st1{stroke:none;}
 ]]></style>
 <rect class="st0" width="40" height="40"/>
 <g><rect class="st1" x="50" width="50" height="40"/></g>
@@ -526,6 +526,78 @@ export const MALICIOUS_FIXTURES: MaliciousFixture[] = [
   {
     name: 'nested patterns through stylesheet classes inside @media',
     svg: nestedPaintServers('pattern', (level) => `class="c${level}"`, `@media all{${Array.from({ length: 8 }, (_, level) => `.c${level}{fill:url(#p${level})}`).join('')}}`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a mid-path marker fed through a custom property and var()',
+    svg: wrap(`<defs><marker id="m">${'<rect width="1" height="1"/>'.repeat(200)}</marker></defs><g style="--m:url(#m)"><path style="marker-mid:var(--m)" d="M0 0${'l1 1'.repeat(2000)}"/></g>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a custom property declared in a stylesheet',
+    svg: wrap('<style>svg{--m:url(#m)}</style><defs><marker id="m"><rect width="1" height="1"/></marker></defs><path d="M0 0l1 1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'var() in a presentation attribute',
+    svg: wrap('<defs><marker id="m"><rect width="1" height="1"/></marker></defs><path marker-mid="var(--m)" d="M0 0l1 1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '2,000 selectors by 2,000 custom-property references in one rule',
+    svg: wrap(`<style>${Array.from({ length: 2000 }, (_, index) => `.c${index}`).join(',')}{${Array.from({ length: 2000 }, (_, index) => `--v${index}:url(#i${index})`).join(';')}}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '20,000 nested @media blocks',
+    svg: wrap(`<style>${'@media{'.repeat(20000)}${'}'.repeat(20000)}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: '20,000 unclosed nested @media blocks',
+    svg: wrap(`<style>${'@media{'.repeat(20000)}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  },
+  ...[
+    ['a child combinator', 'g > .a'],
+    ['a descendant combinator', 'g .a'],
+    ['a pseudo-class', ':root'],
+    ['a pseudo-element', '.a::before'],
+    ['an attribute selector', '[class~=a]'],
+    ['a namespace selector', 'svg|rect'],
+  ].map(([label, selector]): MaliciousFixture => ({
+    name: `a stylesheet selector with ${label}`,
+    svg: wrap(`<defs><linearGradient id="g"/></defs><style>${selector}{fill:url(#g)}</style><rect class="a" width="1" height="1"/>`),
+    code: 'vector_image_unsafe_content',
+  })),
+  {
+    name: 'a nested stylesheet rule',
+    svg: wrap('<defs><linearGradient id="g"/></defs><style>g{.a{fill:url(#g)}}</style><rect class="a" width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'an unclosed stylesheet rule',
+    svg: wrap('<defs><linearGradient id="g"/></defs><style>.a{fill:url(#g)</style><rect class="a" width="1" height="1"/>'),
+    code: 'vector_image_unsafe_content',
+  },
+  {
+    name: 'a stylesheet rule with more selectors than the cap',
+    svg: wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 33 }, (_, index) => `.c${index}`).join(',')}{fill:url(#g)}</style><rect class="c0" width="1" height="1"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'a stylesheet rule with more references than the cap',
+    svg: wrap(`<defs><linearGradient id="g"/></defs><style>.a{${Array.from({ length: 17 }, () => 'fill:url(#g)').join(';')}}</style><rect class="a" width="1" height="1"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'stylesheet rules whose selectors times references exceed the work cap',
+    svg: wrap(`<defs><linearGradient id="g"/></defs><style>${Array.from({ length: 1251 }, (_, rule) => `${Array.from({ length: 16 }, (_, index) => `.r${rule}s${index}`).join(',')}{fill:url(#g)}`).join('')}</style><rect width="1" height="1"/>`),
+    code: 'vector_image_too_complex',
+  },
+  {
+    name: 'more stylesheet rules than the cap',
+    svg: wrap(`<style>${'.a{fill:#123456}'.repeat(2001)}</style><rect class="a" width="1" height="1"/>`),
     code: 'vector_image_too_complex',
   },
   {
