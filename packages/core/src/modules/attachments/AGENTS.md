@@ -63,7 +63,9 @@ write time.
   `resolveDefaultPartitionCode(owner entity)`) rather than hard-coding a partition
   code. Pass `rendition`
   to get a resized raster from the shared image pipeline (`lib/imageRendition.ts`),
-  never call Sharp directly. See
+  never call Sharp directly. Only `isUndecodableImageError` turns a Sharp failure
+  into a refusal (422); never catch the pipeline's other errors into a 4xx, which
+  would hide I/O or memory faults as missing images. See
   `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`.
 
 ## Never

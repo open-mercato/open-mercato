@@ -219,7 +219,7 @@ const result = await attachmentService.readScopedForOwner({
 })
 ```
 
-It returns the same result as `readScoped` (bytes, content type, inline or download disposition), but only for an attachment owned by that record, in that tenant, organization and partition. Without `expectedPartitionCode` the partition is the one `POST /api/attachments` uses for the owner entity when the upload names none. With `rendition` it returns a resized raster from the same pipeline as the image route below; anything that is not an inline-safe raster image is a `404`, and an image that cannot be decoded is a `422`. Anything else — including an id that is not a UUID — is a `404`, so the module's own ownership record is the authorization. No attachments route exposes it.
+It returns the same result as `readScoped` (bytes, content type, inline or download disposition), but only for an attachment owned by that record, in that tenant, organization and partition. Without `expectedPartitionCode` the partition is the one `POST /api/attachments` uses for the owner entity when the upload names none. With `rendition` it returns a resized raster from the same pipeline as the image route below; anything that is not an inline-safe raster image is a `404`, and an image Sharp cannot decode is a `422`; storage, cache and memory failures are a `500`. Anything else — including an id that is not a UUID — is a `404`, so the module's own ownership record is the authorization. No attachments route exposes it.
 
 ## File delivery and imaging
 
@@ -231,4 +231,4 @@ These routes stream files and thumbnails. Access depends on partition visibility
 - Download original file — `GET /attachments/file/{id}`  
   Add `?download=1` to force a download response. Respects partition cache headers.
 - Serve/rescale image — `GET /attachments/image/{id}/{slug?}?width=<n>&height=<n>&cropType=cover|contain`  
-  Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place.
+  Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place. A stored image that cannot be decoded returns `422`.

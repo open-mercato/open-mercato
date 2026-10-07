@@ -83,7 +83,12 @@ Behaviour, in order:
    now shared with `GET /api/attachments/image/{id}`: the per-size thumbnail cache, magic-byte and
    dimension checks, and Sharp with a source pixel limit. A refusal from that pipeline keeps its
    status (400 or 413). An image that passes those checks but that Sharp cannot decode (a corrupt
-   file with a valid header) is a 422 (`Image could not be rendered`), not an unhandled 500. Vector
+   file with a valid header) is a 422 (`Image could not be rendered`). Only Sharp's decode errors
+   count: `isUndecodableImageError` matches a libvips loader error (`vipspng:`, `VipsJpeg:`,
+   `gifload_buffer:`, …) or Sharp's input error on the message's first line, and not memory
+   exhaustion. Every other failure — thumbnail-cache or storage I/O, memory, encoding — is logged,
+   reported (`attachments.image_rendition_failed`) and rethrown, so the caller answers it as a 500
+   rather than hiding an operational fault as a missing logo. Vector
    input never reaches Sharp.
 
 Every refusal after step 1 is a 404, apart from a rendition pipeline refusal, so the method does not
@@ -126,7 +131,12 @@ It then reads the link's own `logoAttachmentId` — never an id from the request
 - pinned to the link's tenant and organization;
 - pinned to the default partition of the owner entity: the route passes no partition, so the
   attachments module resolves it the same way its upload route does for the link editor's uploads,
-  which never name a partition;
+  which never name a partition. Evidence: `LogoUploadField` posts only `entityId`, `recordId` and
+  `file` to `POST /api/attachments`, with no `partitionCode` and no `fieldKey`, so the upload route
+  takes `resolveDefaultPartitionCode(entityId)` (`api/route.ts`, `defaultPartitionCode`) — the same
+  function `readScopedForOwner` calls at read time. The row stores the partition it was written to,
+  so if a later release changed that function's mapping for checkout entities, logos stored before
+  the change would be a 404 until re-uploaded;
 - with the link as owner, or, when that is a 404 and the link has a `templateId`, the template.
 
 The read asks for the `{ width: 640, height: 240, cropType: 'contain' }` rendition, so the served
@@ -165,7 +175,7 @@ staff keep the resized image-route preview.
 | `AttachmentService.readScopedForOwner?(input)` | new optional method | ADDITIVE |
 | `ReadScopedAttachmentForOwnerInput` (exported from `@open-mercato/core/modules/attachments`), including `rendition` | new type | ADDITIVE |
 | `lib/imageRendition.ts` (`renderImageRendition`, `ImageRenditionSize`) | new module, extracted from the image route | ADDITIVE |
-| `GET /api/attachments/image/{id}` | uses the extracted pipeline | unchanged behaviour |
+| `GET /api/attachments/image/{id}` | uses the extracted pipeline | a stored image Sharp cannot decode is a `422` instead of the `500` `Failed to render image`; every other failure is still a `500`, now also reported |
 | `GET /api/checkout/pay/{slug}/logo` | new public route | ADDITIVE |
 | `GET /api/checkout/pay/{slug}` → `logoPreviewUrl` | value changes from the image route to the logo route when a logo attachment is set | public pay-page API value change (Ask First in `packages/checkout/AGENTS.md`; requested in the PR) |
 | `buildCheckoutPublicLogoUrl`, `CHECKOUT_LOGO_ATTACHMENT_PARTITION` (checkout lib) | new helpers | ADDITIVE |
@@ -181,14 +191,16 @@ staff keep the resized image-route preview.
 | Oversized logo served publicly | Low | bandwidth | 640×240 rendition; per-size thumbnail cache | — |
 | Extra request per pay page view | Low | load | separate rate-limit namespace, fail-open; 5-minute cache for published links | — |
 | Logo uploaded to a non-default partition | Low | UX | the partition is the attachments module's default for the owner entity, the one the upload route uses when no partition is named; the editor never names one. A logo uploaded with an explicit `partitionCode`, or after an operator maps checkout entities to another default, is a 404 rather than served from an unexpected partition | Re-upload through the editor |
-| Corrupt logo | Low | availability | a file Sharp cannot decode is a 422 from the service and a 404 from the route, not a 500 | — |
+| Corrupt logo | Low | availability | a file Sharp cannot decode is a 422 from the service and a 404 from the route | — |
+| An operational fault hidden as a missing logo | Low | operability | only Sharp decode errors become 422; cache, storage, memory and encoder failures are logged, reported and answered 500 | A new libvips loader message format would be answered 500 until the classifier learns it, which fails loud, not silent |
 
 ## Migration & Backward Compatibility
 
 The service and type changes are additive and optional (BACKWARD_COMPATIBILITY.md § 2).
 `readScoped` was refactored to share its owner, partition and serving checks with
-`readScopedForOwner`, and the image route to use the extracted rendition pipeline. The behaviour of
-both is unchanged, and their existing tests pass unmodified. The pay payload keeps every field.
+`readScopedForOwner`, and the image route to use the extracted rendition pipeline. Their behaviour is
+unchanged, and their existing tests pass unmodified, with one exception made in the third review
+round: the image route answers a stored image Sharp cannot decode with `422` instead of `500`. The pay payload keeps every field.
 `logoPreviewUrl` is a URL clients already render as-is, and the new URL works for exactly the
 visitors the old one failed for. `UPGRADE_NOTES.md` records the change.
 
@@ -244,7 +256,15 @@ type, which a test pins.
     - passes on the pipeline's refusal of a damaged image;
     - refuses a corrupt PNG (valid signature and header, unreadable pixel data) with a 422, through
       the real pipeline and Sharp. Before the fix the raw Sharp error (`vipspng: libpng read error`)
-      escaped and the route answered 500.
+      escaped and the route answered 500;
+    - rethrows an operational rendition failure (`EACCES`) unchanged instead of answering 422.
+- `core: lib/__tests__/imageRendition.test.ts`:
+  - renders a valid PNG; answers a corrupt PNG with 422 and reports nothing;
+  - rethrows a thumbnail-cache `EACCES` and a storage `EIO`, each logged and reported with
+    `attachments.image_rendition_failed`; passes a caller's `CrudHttpError` through unreported;
+  - `isUndecodableImageError` accepts the messages Sharp 0.34 gives for a corrupt PNG, a truncated
+    JPEG, a corrupt WebP header, a truncated GIF and an unknown format, and rejects `EACCES`,
+    libvips out-of-memory errors, an encoder (`pngsave`) error and a generic error.
 - `core: api/__tests__/image.route.anonymous.test.ts` — with the real `checkAttachmentAccess`, an
   anonymous request for a tenant-scoped image is a 401 on a private and on a public partition and
   never reaches Sharp: the reason the old `logoPreviewUrl` could not work.
@@ -267,6 +287,7 @@ type, which a test pins.
       attachments service would serve it inline;
     - answers refusals, including a pipeline refusal of a damaged image and a 422 for one Sharp
       cannot decode, with the translation key;
+    - answers an operational failure behind the logo (`EACCES`) with a 500, not a 404;
   - previews:
     - passes the rate limiter's response through, and requires (and is refused without) the
       preview context for previews;
@@ -304,6 +325,10 @@ Regression proofs:
 
 ## Changelog
 
+- 2026-10-07 — Fourth review round:
+  - only Sharp decode errors are a 422; cache, storage, memory and encoder failures are logged,
+    reported and answered 500 (the image route now answers an undecodable stored image with 422);
+  - the derived logo partition kept, with the upload-path evidence recorded.
 - 2026-10-07 — Third review round:
   - merge order re-verified with a trial merge;
   - a corrupt image that Sharp cannot decode is a 422 from `readScopedForOwner` (a 404 from the logo

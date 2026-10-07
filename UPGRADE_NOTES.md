@@ -583,8 +583,9 @@ switch to `logoPreviewUrl`.
 signed-in user. It is pinned to `expectedPartitionCode`, or, when that is omitted, to the
 partition the upload route uses by default for the owner entity. Its optional `rendition` returns a
 resized raster through the same pipeline as
-`GET /api/attachments/image/{id}`, which now lives in `attachments/lib/imageRendition`; the image
-route's behaviour is unchanged. A third-party `AttachmentService` implementation does not need to add it; the pay
+`GET /api/attachments/image/{id}`, which now lives in `attachments/lib/imageRendition`. The image
+route behaves as before except for a stored image Sharp cannot decode, which is now `422` instead of
+`500`; other rendering failures are still `500` and are now reported to telemetry. A third-party `AttachmentService` implementation does not need to add it; the pay
 link logo route returns `404` when the method is absent. See
 [the spec](.ai/specs/2026-10-06-attachments-owner-scoped-reads.md).
 
