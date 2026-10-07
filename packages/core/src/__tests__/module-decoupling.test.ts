@@ -5,7 +5,7 @@
  * (catalog, sales, api_keys) are disabled — removed from the generated
  * module registry and entity IDs.
  *
- * `journal_entry_line_dimension` (OM-37) is checked the same way, but more
+ * `journal_entry_line_dimension` is checked the same way, but more
  * narrowly: it has zero real consumers in Phase 1 (`posting_rules`,
  * `fixed_assets` are still future work), so the only thing worth asserting
  * is that it is absent without anything else crashing — there is no
@@ -230,7 +230,7 @@ describe('Module Decoupling', () => {
       expect(entityIds).not.toHaveProperty('api_keys')
     })
 
-    // OM-37: journal_entry_line_dimension has zero consumers in Phase 1
+    // journal_entry_line_dimension has zero consumers in Phase 1
     // (posting_rules/fixed_assets are still future work), so disabling it
     // is expected to be a pure no-op — nothing else in `reducedModules`/
     // `reducedE` references it, unlike catalog (see sections 2-3 below).
