@@ -30,11 +30,15 @@ export default function ProjectBoardPage({ params }: { params?: { id?: string | 
     queryKey: ['staff', 'time-tracking', 'board', 'project', `scope:${scopeVersion}`, projectKey],
     enabled: !!projectId,
     staleTime: 60_000,
-    // A scope change re-keys the query. For the same project, keep the screen
-    // already shown until the new answer arrives: the loading branch below would
+    // The organization switcher settles the scope just after mount, bumping the
+    // scope version from 0 and re-keying this query. Keep the screen resolved
+    // before that until the new answer arrives: the loading branch below would
     // unmount it and drop its local state, such as an access request just sent.
+    // A switch between two known scopes still goes through the loader.
     placeholderData: (previous, previousQuery) => (
-      previousQuery?.queryKey.at(-1) === projectKey ? previous : undefined
+      previousQuery?.queryKey.at(-2) === 'scope:0' && previousQuery.queryKey.at(-1) === projectKey
+        ? previous
+        : undefined
     ),
     queryFn: async () => {
       if (!projectId) return null

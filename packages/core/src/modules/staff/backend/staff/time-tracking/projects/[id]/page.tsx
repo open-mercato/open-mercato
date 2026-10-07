@@ -380,19 +380,23 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   )
 
   // --- Load project ---
-  // A reload of the project already on screen — most often the organization
-  // switcher settling its scope just after mount — keeps that screen until the
-  // answer arrives. Falling back to the full-page loader would unmount it and
-  // drop its local state, such as an access request the user has just sent.
-  const resolvedProjectIdRef = React.useRef<string | null>(null)
+  // The organization switcher settles the scope just after mount, bumping the
+  // scope version from 0 and reloading the project. A screen resolved before
+  // that stays up until the answer arrives: falling back to the full-page
+  // loader would unmount it and drop its local state, such as an access request
+  // the user has just sent. A switch between two known scopes still goes
+  // through the loader, so no screen outlives the scope it was loaded for.
+  const resolvedRef = React.useRef<{ projectId: string; scopeVersion: number } | null>(null)
   React.useEffect(() => {
     if (!projectId) return
     let cancelled = false
     async function loadProject() {
-      if (resolvedProjectIdRef.current !== projectId) setLoading(true)
+      const resolved = resolvedRef.current
+      const keepScreen = resolved?.projectId === projectId && resolved.scopeVersion === 0
+      if (!keepScreen) setLoading(true)
       const settle = (outcome: { project?: ProjectRecord; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
-        if (cancelled) return
-        resolvedProjectIdRef.current = projectId ?? null
+        if (cancelled || !projectId) return
+        resolvedRef.current = { projectId, scopeVersion }
         setAccessDenied(outcome.accessDenied === true)
         setIsNotFound(outcome.isNotFound === true)
         setError(outcome.error ?? null)

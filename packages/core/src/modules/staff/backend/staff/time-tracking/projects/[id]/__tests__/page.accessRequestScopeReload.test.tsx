@@ -2,10 +2,11 @@
  * @jest-environment jsdom
  */
 // The organization switcher settles its scope shortly after mount, which bumps
-// the scope version and reloads the project. When that reload lands after the
-// user has requested access, it must not fall back to the full-page loader: that
-// unmounts the guard state and resets "Request sent" to an enabled "Request
-// access", inviting a second request for one already sent.
+// the scope version from 0 and reloads the project. When that reload lands after
+// the user has requested access, it must not fall back to the full-page loader:
+// that unmounts the guard state and resets "Request sent" to an enabled "Request
+// access", inviting a second request for one already sent. A switch between two
+// known scopes is different — nothing loaded for the old scope may stay up.
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -13,7 +14,7 @@ import TimesheetProjectDetailPage from '../page'
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111'
 
-let mockScopeVersion = 1
+let mockScopeVersion = 0
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
@@ -69,7 +70,7 @@ function projectRequests(): unknown[][] {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockScopeVersion = 1
+  mockScopeVersion = 0
   apiCallMock.mockImplementation(async (url: string) => {
     if (url.startsWith('/api/staff/timesheets/time-projects?')) {
       return { ok: false, status: 404, result: { error: 'Not found', reason: 'no_project_access' }, response: {} }
@@ -79,16 +80,20 @@ beforeEach(() => {
   apiCallOrThrowMock.mockResolvedValue({ ok: true, status: 200, result: { ok: true }, response: {} })
 })
 
+async function renderAndRequestAccess() {
+  const view = render(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+  const requestButton = await screen.findByRole('button', { name: 'Request access' })
+  await act(async () => { fireEvent.click(requestButton) })
+  expect((await screen.findByRole('button', { name: 'Request sent' })).hasAttribute('disabled')).toBe(true)
+  expect(projectRequests()).toHaveLength(1)
+  return view
+}
+
 describe('project detail — access request survives a scope reload', () => {
   it('keeps "Request sent" after the organization scope settles', async () => {
-    const view = render(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+    const view = await renderAndRequestAccess()
 
-    const requestButton = await screen.findByRole('button', { name: 'Request access' })
-    await act(async () => { fireEvent.click(requestButton) })
-    expect((await screen.findByRole('button', { name: 'Request sent' })).hasAttribute('disabled')).toBe(true)
-    expect(projectRequests()).toHaveLength(1)
-
-    mockScopeVersion = 2
+    mockScopeVersion = 1
     view.rerender(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
 
     await waitFor(() => expect(projectRequests()).toHaveLength(2))
@@ -96,5 +101,18 @@ describe('project detail — access request survives a scope reload', () => {
     await act(async () => { await Promise.resolve() })
     expect(screen.getByRole('button', { name: 'Request sent' }).hasAttribute('disabled')).toBe(true)
     expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reloads through the loader when switching between two known scopes', async () => {
+    mockScopeVersion = 1
+    const view = await renderAndRequestAccess()
+
+    mockScopeVersion = 2
+    view.rerender(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+
+    expect(screen.getByText('Loading project...')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Request sent' })).toBeNull()
+    await waitFor(() => expect(projectRequests()).toHaveLength(2))
+    expect(await screen.findByRole('button', { name: 'Request access' })).toBeTruthy()
   })
 })
