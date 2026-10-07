@@ -160,6 +160,8 @@ docker/opencode/opencode.jsonc
 # entrypoint scripts om-prepare-test-env compiles are bound to the machine that
 # generated them (shell, ports, process tools) — keep them local, never commit
 .ai/scripts/test-env-*
+# Local demo/recording scripts — notes for a person at a keyboard, not source.
+.ai/demo/
 # Local agent-runner state (its own .ai/cezar/.gitignore covers the launch key
 # and run data; this keeps the remaining per-machine UI state out of git too).
 .ai/cezar/

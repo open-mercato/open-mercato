@@ -71,6 +71,7 @@
     "@open-mercato/events": "{{PACKAGE_VERSION}}",
     "@open-mercato/onboarding": "{{PACKAGE_VERSION}}",
     "@open-mercato/queue": "{{PACKAGE_VERSION}}",
+    "@open-mercato/marketing-automation": "{{PACKAGE_VERSION}}",
     "@open-mercato/scheduler": "{{PACKAGE_VERSION}}",
     "@open-mercato/search": "{{PACKAGE_VERSION}}",
     "@open-mercato/shared": "{{PACKAGE_VERSION}}",
