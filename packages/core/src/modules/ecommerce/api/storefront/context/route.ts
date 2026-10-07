@@ -14,6 +14,7 @@ import { isStorefrontResolutionError } from '../../../lib/storeContext'
 import { enforceStorefrontRateLimit } from '../../../lib/storefrontRateLimit'
 import type { StoreContextService } from '../../../lib/storeContextService'
 import type { StoreContext } from '../../../lib/types'
+import { runInStoreCacheTenant } from '../storefrontRouteSupport'
 
 export const metadata = {
   path: '/ecommerce/storefront/context',
@@ -133,16 +134,18 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: parsed.data.path ?? '/' })
-    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'context')
-    if (rateLimited) return rateLimited
-    const em = container.resolve('em') as EntityManager
-    const names = await loadBuyerNames(em, context)
-    const body = projectStorefrontContext(context, names)
-    return NextResponse.json(body, {
-      headers: {
-        'Cache-Control': context.buyer.isAuthenticated ? PRIVATE_CACHE_CONTROL : ANONYMOUS_CACHE_CONTROL,
-        Vary: VARY_HEADER,
-      },
+    return await runInStoreCacheTenant(context, async () => {
+      const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'context')
+      if (rateLimited) return rateLimited
+      const em = container.resolve('em') as EntityManager
+      const names = await loadBuyerNames(em, context)
+      const body = projectStorefrontContext(context, names)
+      return NextResponse.json(body, {
+        headers: {
+          'Cache-Control': context.buyer.isAuthenticated ? PRIVATE_CACHE_CONTROL : ANONYMOUS_CACHE_CONTROL,
+          Vary: VARY_HEADER,
+        },
+      })
     })
   } catch (error) {
     if (isStorefrontResolutionError(error)) return errorResponse(error.status, error.code)

@@ -1,5 +1,6 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -208,13 +209,15 @@ const omnibusBackfillCommand: ModuleCli = {
     }
     const container = await createRequestContainer()
     try {
-      const result = await runOmnibusBackfill(
-        {
-          em: container.resolve<EntityManager>('em'),
-          moduleConfigService: container.resolve<ModuleConfigService>('moduleConfigService'),
-          cache: resolveOmnibusCache(container),
-        },
-        parsed.data,
+      const result = await runWithCacheTenant(parsed.data.tenantId, () =>
+        runOmnibusBackfill(
+          {
+            em: container.resolve<EntityManager>('em'),
+            moduleConfigService: container.resolve<ModuleConfigService>('moduleConfigService'),
+            cache: resolveOmnibusCache(container),
+          },
+          parsed.data,
+        ),
       )
       printOmnibusBackfillResult(result)
     } finally {

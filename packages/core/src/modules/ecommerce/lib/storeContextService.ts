@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { composeStoreContext, resolveBuyerContext } from './buyerContext'
 import { buyerContextCache, ecommerceResolutionCache, ecommerceStoreTag, type CacheContainer } from './cacheKeys'
 import {
@@ -51,13 +52,13 @@ export function createStoreContextService(container: CacheContainer): StoreConte
   return {
     async resolve(request, opts) {
       const store = await resolveStoreFromRequest(container, request, opts)
-      const buyer = await resolveBuyerContext(container, store, request)
+      const buyer = await runWithCacheTenant(store.tenantId, () => resolveBuyerContext(container, store, request))
       return composeStoreContext(store, buyer)
     },
     async resolveBySlug(slug, opts = {}) {
       const { request = null, ...slugOptions } = opts
       const store = await resolveStoreBySlug(container, slug, slugOptions)
-      const buyer = await resolveBuyerContext(container, store, request)
+      const buyer = await runWithCacheTenant(store.tenantId, () => resolveBuyerContext(container, store, request))
       return composeStoreContext(store, buyer)
     },
     async invalidate(storeId, opts = {}) {

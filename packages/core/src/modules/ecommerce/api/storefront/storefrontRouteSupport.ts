@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { isStorefrontResolutionError } from '../../lib/storeContext'
@@ -54,4 +55,14 @@ export function storefrontRouteErrorResponse(error: unknown, failure: Storefront
   logger.error(failure.message, { err: error })
   getTelemetryRuntime()?.reportError(error, { module: 'ecommerce', code: failure.code })
   return storefrontErrorResponse(500, { error: 'internal_error' })
+}
+
+/**
+ * Runs the rest of a storefront request in the resolved store's cache tenant. Admin writes invalidate
+ * cached values (module config, Omnibus results, CRUD lists) in their tenant's namespace; an
+ * unauthenticated storefront request would otherwise read the global namespace and keep serving a
+ * copy those invalidations never reach.
+ */
+export function runInStoreCacheTenant<T>(context: Pick<StoreContext, 'tenantId'>, fn: () => Promise<T>): Promise<T> {
+  return runWithCacheTenant(context.tenantId, fn)
 }

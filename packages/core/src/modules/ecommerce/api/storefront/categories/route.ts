@@ -12,6 +12,7 @@ import {
   storefrontInvalidQueryErrorSchema,
   storefrontRouteErrorResponse,
   storefrontSuccessHeaders,
+  runInStoreCacheTenant,
 } from '../storefrontRouteSupport'
 import { storefrontCategoryTreeResponseSchema } from './openapiSchemas'
 
@@ -30,10 +31,12 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: query.path ?? '/' })
-    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'categories')
-    if (rateLimited) return rateLimited
-    const body = await cachedGetStorefrontCategoryTree(container, context, query)
-    return NextResponse.json(body, { headers: storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL) })
+    return await runInStoreCacheTenant(context, async () => {
+      const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'categories')
+      if (rateLimited) return rateLimited
+      const body = await cachedGetStorefrontCategoryTree(container, context, query)
+      return NextResponse.json(body, { headers: storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL) })
+    })
   } catch (error) {
     return storefrontRouteErrorResponse(error, {
       message: 'Storefront category tree failed',

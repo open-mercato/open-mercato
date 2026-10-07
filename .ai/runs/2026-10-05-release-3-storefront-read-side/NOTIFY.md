@@ -309,3 +309,23 @@
 - `validation.commands` gate on HEAD 8dc28f8468: green except the host-only `create-mercato-app` bwrap failures (80, baseline 81). The first gate run's docs failure was fixed in 7.12-gate-fix.
 - Full integration suite (1.3h): 2411 passed, 8 failed, 4 flaky. All failures triaged as environmental. One-shot harness re-runs: TC-PHONE-HUB-006 and TC-WEBHOOK-009 pass; TC-SX-001 passes with the attachments-root env. TC-START-001, TC-ONBOARDING-EMAIL-001 and TC-DOCUMENTS-009/013 need CI-only env (onboarding, system email, documents collaboration). 0 regressions. See `final-gate-checks.md`.
 - Lesson: attached-mode `yarn test:integration` (BASE_URL against a separately started env) does not hand the app's runtime env to the Playwright process. Specs that run commands in-process or share cache/storage paths fail there, so re-run them with `yarn test:integration:ephemeral <regex>` before calling a regression.
+
+## 2026-10-07 — om-auto-review-pr (autofix)
+- Review posted as a comment review, because GitHub blocks review verdicts on your own PR. Verdict: CHANGES REQUESTED. Findings: 1 blocker (Omnibus history mixed individualized prices into the public reference), 6 majors, 7 minors, 4 nits, plus 3 warn-level DS-lint heuristic misses (no change).
+- Delegated 2 parallel capable-tier executors on disjoint paths, both told to stage explicit paths only:
+  - catalog/Omnibus: 7.13 (a88d2e2ece), 7.14 (116e43d19d)
+  - ecommerce/ui: 7.15 (2b5351a088), 7.16 (eb0537c398), 7.17 (c17c43d4aa)
+- Spec-sync items:
+  - `2026-06-30-omnibus-price-tracking.md`: individualized and tier prices are not tracked; the resolution excludes delete and undo-of-create tombstones; channel-less history rows match every channel; an org-scoped backfill records no coverage; the trigger function was renamed to `catalog_price_history_prevent_modification`.
+  - `storefront-public-api.md` §6.3: `priceRange` is null past the cap unless a price sort or filter is requested.
+  - The detail query budget rose to ≤11 because of the public-partition query (spec §10 says ≤7, already exceeded before this change).
+- Re-gate on c17c43d4aa:
+  - full `validation.commands` green except the identical `create-mercato-app` bwrap set (80/897, same as gate2);
+  - core 20069, ui 2511, shared 2643 and search 376 passed.
+- Touched-module integration, one-shot mode: 218/219 passed.
+- **TC-ECOM-013 failed.** It also fails one-shot on the pre-fix code (I reverted the fixes in the working tree only, rebuilt and re-ran), so the review fixes didn't cause it. It never ran one-shot before; every earlier green was in attached mode.
+- **Root cause (a real bug):**
+  - Unauthenticated storefront requests and the CLI read the GLOBAL cache namespace, because the API catch-all calls `runWithCacheTenant` only for authenticated requests.
+  - Admin writes invalidate the tenant namespace. So module config (Omnibus enable), and any other implicitly cached value, stayed stale for the storefront for up to the TTL.
+  - In one-shot mode the backfill CLI warms the stale global copy before the PATCH.
+- **Fix:** 7.18-review-fix (`runInStoreCacheTenant` + buyer resolution under `runWithCacheTenant(store.tenantId)`).

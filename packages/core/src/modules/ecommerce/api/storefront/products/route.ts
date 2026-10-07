@@ -12,6 +12,7 @@ import {
   storefrontInvalidQueryErrorSchema,
   storefrontRouteErrorResponse,
   storefrontSuccessHeaders,
+  runInStoreCacheTenant,
 } from '../storefrontRouteSupport'
 import { storefrontProductListResponseSchema } from './openapiSchemas'
 
@@ -30,13 +31,15 @@ export async function GET(req: Request) {
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: query.path ?? '/' })
-    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'products')
-    if (rateLimited) return rateLimited
-    const body = await cachedListStorefrontProducts(container, context, query)
-    const headers = storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL)
-    if (body.sortApproximate) headers['X-Sort-Approximate'] = 'true'
-    if (body.sortUnavailable) headers['X-Sort-Unavailable'] = 'true'
-    return NextResponse.json(body, { headers })
+    return await runInStoreCacheTenant(context, async () => {
+      const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'products')
+      if (rateLimited) return rateLimited
+      const body = await cachedListStorefrontProducts(container, context, query)
+      const headers = storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL)
+      if (body.sortApproximate) headers['X-Sort-Approximate'] = 'true'
+      if (body.sortUnavailable) headers['X-Sort-Unavailable'] = 'true'
+      return NextResponse.json(body, { headers })
+    })
   } catch (error) {
     return storefrontRouteErrorResponse(error, {
       message: 'Storefront product listing failed',

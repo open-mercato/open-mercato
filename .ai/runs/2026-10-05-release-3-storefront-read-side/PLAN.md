@@ -90,6 +90,12 @@
 | 7 | 7.12-gate-fix | Document the ecommerce notification types in notification-delivery.mdx (docs registry test) | inline | done | ffe3a3dceb |
 | 7 | 7.12-ds-fix | Design-system fixes from the final-gate style pass | inline | done | 2547c77055 |
 | 7 | 7.12-ui-fix | UI polish from checkpoints 13–14 | inline | done | 8dc28f8468 |
+| 7 | 7.13-review-fix | Omnibus history correctness: skip individualized/tier rows, capture only on price changes, exclude tombstones, match channel-less prices, invalidate before-state scope | dispatch:capable | done | a88d2e2ece |
+| 7 | 7.14-review-fix | Omnibus operability: org-scoped backfill coverage, declare the idempotency index, module-prefixed trigger function, UPGRADE_NOTES | dispatch:capable | done | 116e43d19d |
+| 7 | 7.15-review-fix | Storefront listing: price only with cache-key customer ids, bound the past-cap load, requestedLocale cache key | dispatch:capable | done | 2b5351a088 |
+| 7 | 7.16-review-fix | Storefront eviction + media: evict previous store/mapping on binding moves, default-group create eviction, public image media only | dispatch:capable | done | eb0537c398 |
+| 7 | 7.17-review-fix | i18n for admin route errors; lookup sources resolve by id within pageSize 100 | dispatch:standard | done | c17c43d4aa |
+| 7 | 7.18-review-fix | Storefront requests run in the store's cache tenant (admin invalidations reach unauthenticated readers) | inline | done | pending |
 
 ## Goal
 
@@ -191,6 +197,7 @@ Ship the storefront read side (roadmap Phase 1 + visibility Phase 2): a resolved
 - **7.12-gate-fix Document the ecommerce notification types** — found by the final gate (`yarn test`): `apps/docs/__tests__/notification-registry.test.mjs` requires every registered notification type in `notification-delivery.mdx` and the stated ratio (now 2 of 76).
 - **7.12-ds-fix Design-system fixes** — final-gate style pass (om-ds-guardian): StoreEditPage subtitle uses an em dash instead of a middot; OmnibusSettings price-kind/channel fields use `FormField` (label/description/error) instead of bare `<p>` labels.
 - **7.12-ui-fix UI polish from checkpoints 13–14** — embedded store forms drop the duplicate Cancel (`extraActions`, Escape reset kept); archive clears the stale "Last operation" undo banner; `TagsInput` gains additive `closeSuggestionsOnSelect` (used by `LookupMultiPicker`); channels table scrolls in an `overflow-x-auto` wrapper; group-terms `CrudForm` sets `disableInitialFocus`.
+- **7.13–7.17-review-fix** — findings from the `om-auto-review-pr` pass (review comment on PR #12): blocker #1, majors #2–#7, minors #8–#14, nits #15–#18. See NOTIFY 2026-10-07 review entry.
 
 ## Risks
 

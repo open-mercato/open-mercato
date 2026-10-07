@@ -16,6 +16,7 @@ import {
   storefrontInvalidQueryErrorSchema,
   storefrontRouteErrorResponse,
   storefrontSuccessHeaders,
+  runInStoreCacheTenant,
 } from '../../storefrontRouteSupport'
 import { storefrontProductDetailResponseSchema } from '../openapiSchemas'
 
@@ -39,16 +40,18 @@ export async function GET(req: Request, routeContext: ProductRouteContext = {}) 
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: query.path ?? '/' })
-    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'productDetail')
-    if (rateLimited) return rateLimited
-    const params = ecommerceStorefrontProductParamsSchema.safeParse((await routeContext.params) ?? {})
-    if (!params.success) return storefrontErrorResponse(404, { ...PRODUCT_NOT_FOUND })
-    const detail = await cachedGetStorefrontProductDetail(container, context, params.data.idOrHandle, {
-      variantId: query.variantId ?? null,
-      locale: query.locale ?? null,
+    return await runInStoreCacheTenant(context, async () => {
+      const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'productDetail')
+      if (rateLimited) return rateLimited
+      const params = ecommerceStorefrontProductParamsSchema.safeParse((await routeContext.params) ?? {})
+      if (!params.success) return storefrontErrorResponse(404, { ...PRODUCT_NOT_FOUND })
+      const detail = await cachedGetStorefrontProductDetail(container, context, params.data.idOrHandle, {
+        variantId: query.variantId ?? null,
+        locale: query.locale ?? null,
+      })
+      if (!detail) return storefrontErrorResponse(404, { ...PRODUCT_NOT_FOUND })
+      return NextResponse.json(detail, { headers: storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL) })
     })
-    if (!detail) return storefrontErrorResponse(404, { ...PRODUCT_NOT_FOUND })
-    return NextResponse.json(detail, { headers: storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL) })
   } catch (error) {
     return storefrontRouteErrorResponse(error, {
       message: 'Storefront product detail failed',

@@ -1,4 +1,4 @@
-import type { CacheStrategy } from '@open-mercato/cache'
+import { getCurrentCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { ecommerceStoreSettingsSchema } from '../../data/validators'
 import { resolveBuyerContext } from '../buyerContext'
 import { resolveStoreBySlug, resolveStoreFromRequest, type ResolvedStore } from '../storeContext'
@@ -107,6 +107,21 @@ describe('storeContextService', () => {
 
     expect(mockedBySlug).toHaveBeenCalledWith(container, 'main', { locale: 'en' })
     expect(mockedBuyer).toHaveBeenCalledWith(container, store, null)
+  })
+
+  it('resolves the buyer layer inside the store tenant cache namespace', async () => {
+    const seenTenants: Array<string | null> = []
+    mockedBuyer.mockImplementation(async () => {
+      seenTenants.push(getCurrentCacheTenant())
+      return buyer
+    })
+    const service = createStoreContextService(createContainer({}))
+
+    await service.resolve(new Request('https://shop.example.com/'), { pathname: '/' })
+    await service.resolveBySlug('main')
+
+    expect(seenTenants).toEqual([TENANT_ID, TENANT_ID])
+    expect(getCurrentCacheTenant()).toBeNull()
   })
 
   it('invalidates the store tag in the resolution and tenant-scoped buyer caches', async () => {

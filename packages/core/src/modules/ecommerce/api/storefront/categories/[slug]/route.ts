@@ -16,6 +16,7 @@ import {
   storefrontInvalidQueryErrorSchema,
   storefrontRouteErrorResponse,
   storefrontSuccessHeaders,
+  runInStoreCacheTenant,
 } from '../../storefrontRouteSupport'
 import { storefrontCategoryLandingResponseSchema } from '../openapiSchemas'
 
@@ -39,16 +40,18 @@ export async function GET(req: Request, routeContext: CategoryRouteContext = {})
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
     const context = await service.resolve(req, { pathname: query.path ?? '/' })
-    const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'categoryLanding')
-    if (rateLimited) return rateLimited
-    const params = ecommerceStorefrontCategoryParamsSchema.safeParse((await routeContext.params) ?? {})
-    if (!params.success) return storefrontErrorResponse(404, { ...CATEGORY_NOT_FOUND })
-    const landing = await cachedGetStorefrontCategoryLanding(container, context, params.data.slug, query)
-    if (!landing) return storefrontErrorResponse(404, { ...CATEGORY_NOT_FOUND })
-    const headers = storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL)
-    if (landing.products.sortApproximate) headers['X-Sort-Approximate'] = 'true'
-    if (landing.products.sortUnavailable) headers['X-Sort-Unavailable'] = 'true'
-    return NextResponse.json(landing, { headers })
+    return await runInStoreCacheTenant(context, async () => {
+      const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'categoryLanding')
+      if (rateLimited) return rateLimited
+      const params = ecommerceStorefrontCategoryParamsSchema.safeParse((await routeContext.params) ?? {})
+      if (!params.success) return storefrontErrorResponse(404, { ...CATEGORY_NOT_FOUND })
+      const landing = await cachedGetStorefrontCategoryLanding(container, context, params.data.slug, query)
+      if (!landing) return storefrontErrorResponse(404, { ...CATEGORY_NOT_FOUND })
+      const headers = storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL)
+      if (landing.products.sortApproximate) headers['X-Sort-Approximate'] = 'true'
+      if (landing.products.sortUnavailable) headers['X-Sort-Unavailable'] = 'true'
+      return NextResponse.json(landing, { headers })
+    })
   } catch (error) {
     return storefrontRouteErrorResponse(error, {
       message: 'Storefront category landing failed',
