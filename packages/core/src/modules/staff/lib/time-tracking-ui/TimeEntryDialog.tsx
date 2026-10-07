@@ -31,6 +31,8 @@ import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { TagPicker, tagChipStyle } from './TagPicker'
 import { TaskPicker, type TaskPickerItem, type TaskPickerStatus } from './TaskPicker'
+import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
+import type { TimeEntryMode } from '../time-tracking/settings'
 import { slugifyProjectName } from '../time-tracking/projectCode'
 import { autoColorFromName } from '../timesheets-ui/colors'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -67,6 +69,7 @@ import {
   resetIntervalState,
   readRowItems,
   readRowString,
+  resolveTimeEntryDialogMode,
   shiftIsoDate,
   todayIsoDate,
   toOverlapEntry,
@@ -134,17 +137,23 @@ export type TimeEntryDialogProps = {
   onSaved?: (result: { id: string | null; keptOpen: boolean }) => void
   /** "Show that entry" on the overlap warning; falls back to the entries list. */
   onShowEntry?: (entryId: string) => void
+  /**
+   * Log against a task (`task`) or a project with an optional task (`project`).
+   * Omitted → the tenant's `defaults.entryMode` setting. An entry that has a
+   * project and no task always opens in project mode.
+   */
+  mode?: TimeEntryMode | null
 }
 
 type SettingsPayload = {
   rounding: RoundingSettings
-  defaults: { billable: boolean; chainStartFromPreviousEnd: boolean }
+  defaults: { billable: boolean; chainStartFromPreviousEnd: boolean; entryMode: TimeEntryMode }
   warnings: { overlap: boolean }
 }
 
 const FALLBACK_SETTINGS: SettingsPayload = {
   rounding: { ...DEFAULT_ROUNDING_SETTINGS },
-  defaults: { billable: true, chainStartFromPreviousEnd: true },
+  defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
   warnings: { overlap: true },
 }
 
@@ -165,6 +174,7 @@ function readSettings(payload: unknown): SettingsPayload {
       billable: typeof defaults.billable === 'boolean' ? defaults.billable : true,
       chainStartFromPreviousEnd:
         typeof defaults.chainStartFromPreviousEnd === 'boolean' ? defaults.chainStartFromPreviousEnd : true,
+      entryMode: defaults.entryMode === 'project' ? 'project' : 'task',
     },
     warnings: { overlap: typeof warnings.overlap === 'boolean' ? warnings.overlap : true },
   }
@@ -184,6 +194,7 @@ function parseRateText(value: string): number | null {
  */
 type FormValues = {
   taskId: string | null
+  timeProjectId: string | null
   description: string
   date: string
   startText: string
@@ -197,13 +208,14 @@ type FormValues = {
 
 type SaveMode = 'close' | 'again'
 
-/** The two controls a failed save can point at, empty when nothing is wrong. */
+/** The controls a failed save can point at, empty when nothing is wrong. */
 type FieldIssues = {
   task: string | null
+  project: string | null
   duration: string | null
 }
 
-const NO_FIELD_ISSUES: FieldIssues = { task: null, duration: null }
+const NO_FIELD_ISSUES: FieldIssues = { task: null, project: null, duration: null }
 
 /**
  * A server complaint that names a field belongs under that field, not in a
@@ -214,14 +226,16 @@ function readFieldIssues(error: unknown): FieldIssues | null {
   const { fieldErrors } = normalizeCrudServerError(error)
   if (!fieldErrors) return null
   const task = fieldErrors.taskId ?? fieldErrors.task ?? null
+  const project = fieldErrors.timeProjectId ?? fieldErrors.project ?? null
   const duration = fieldErrors.durationMinutes ?? fieldErrors.duration ?? null
-  if (!task && !duration) return null
-  return { task, duration }
+  if (!task && !project && !duration) return null
+  return { task, project, duration }
 }
 
-function formSnapshot(values: FormValues): string {
+function formSnapshot(values: FormValues, includeProject: boolean): string {
   return JSON.stringify([
     values.taskId,
+    includeProject ? values.timeProjectId : null,
     values.description.trim(),
     values.date,
     values.startText,
@@ -243,13 +257,14 @@ function formSnapshot(values: FormValues): string {
  * the answers. This is what makes task 400 of 900 findable: the directory the
  * picker opens on is only ever its first page.
  */
-async function fetchTaskOptions(term: string): Promise<TaskOption[]> {
+async function fetchTaskOptions(term: string, timeProjectId: string | null): Promise<TaskOption[]> {
   const params = new URLSearchParams({
     page: '1',
     pageSize: String(TASK_SEARCH_PAGE_SIZE),
     sortField: 'title',
     sortDir: 'asc',
   })
+  if (timeProjectId) params.set('timeProjectId', timeProjectId)
   const responses = await Promise.all(
     [
       `/api/staff/timesheets/tasks?${params.toString()}&q=${encodeURIComponent(term)}`,
@@ -275,6 +290,38 @@ async function fetchTaskById(id: string): Promise<TaskOption | null> {
   if (!call.ok) return null
   const row = readRowItems(call.result)[0]
   return row ? toTaskOption(row) : null
+}
+
+const PROJECT_SEARCH_PAGE_SIZE = 50
+
+/** The project field's search: active projects the caller may log to, by name. */
+async function fetchProjectOptions(term: string): Promise<ProjectOption[]> {
+  const params = new URLSearchParams({
+    page: '1',
+    pageSize: String(PROJECT_SEARCH_PAGE_SIZE),
+    sortField: 'name',
+    sortDir: 'asc',
+    status: 'active',
+  })
+  if (term) params.set('q', term)
+  const call = await apiCall<Record<string, unknown>>(`/api/staff/timesheets/time-projects?${params.toString()}`)
+  if (!call.ok) return []
+  return readRowItems(call.result)
+    .map(toProjectOption)
+    .filter((project): project is ProjectOption => project !== null)
+}
+
+/**
+ * Resolves one project by id. The route answers 404 for a project the caller
+ * cannot see, which here simply means "unresolved" — never an error to flash.
+ */
+async function fetchProjectById(id: string): Promise<ProjectOption | null> {
+  const call = await apiCall<Record<string, unknown>>(
+    `/api/staff/timesheets/time-projects?ids=${encodeURIComponent(id)}&pageSize=1`,
+  ).catch(() => null)
+  if (!call?.ok) return null
+  const row = readRowItems(call.result)[0]
+  return row ? toProjectOption(row) : null
 }
 
 function readErrorCode(error: unknown): string | null {
@@ -316,6 +363,7 @@ function DefaultTimeEntryDialog({
   headerHint,
   onSaved,
   onShowEntry,
+  mode: modeProp,
 }: TimeEntryDialogProps): React.ReactElement {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
@@ -325,6 +373,10 @@ function DefaultTimeEntryDialog({
   const isEdit = typeof entryId === 'string' && entryId.length > 0
 
   const [taskId, setTaskId] = React.useState<string | null>(null)
+  const [mode, setMode] = React.useState<TimeEntryMode>('task')
+  const [projectSelection, setProjectSelection] = React.useState<string | null>(null)
+  /** Projects the project field found beyond the first directory page, so rate and currency still resolve. */
+  const [lookupProjects, setLookupProjects] = React.useState<ReadonlyMap<string, ProjectOption>>(() => new Map())
   const [description, setDescription] = React.useState('')
   const [date, setDate] = React.useState(() => todayIsoDate())
   const [interval, setIntervalState] = React.useState<TimeIntervalState>(() => createIntervalState({}))
@@ -375,8 +427,22 @@ function DefaultTimeEntryDialog({
     return true
   }, [])
 
+  /** In project mode the loop starts at the project field, otherwise at the task picker. */
+  const focusFirstField = React.useCallback(() => {
+    const host = mode === 'project' ? projectTriggerRef.current : null
+    const focusable = host?.querySelector('input') as HTMLElement | null
+    if (focusable) {
+      focusable.focus()
+      return true
+    }
+    return focusTaskPicker()
+  }, [focusTaskPicker, mode])
+
+  const projectTriggerRef = React.useRef<HTMLDivElement | null>(null)
+
   const seedKeyRef = React.useRef<string | null>(null)
   const billableDefaultRef = React.useRef<string | null>(null)
+  const modeDefaultRef = React.useRef<string | null>(null)
   const versionRef = React.useRef<string | null>(null)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -418,13 +484,17 @@ function DefaultTimeEntryDialog({
    * The first page of tasks, which is what the picker opens on. It is a head
    * start, not the corpus — anything past it is reached through the search below.
    */
+  const taskScopeProjectId = mode === 'project' ? projectSelection : null
+  const tasksEnabled = open && (mode !== 'project' || !!projectSelection)
+
   const tasksQuery = useQuery<TaskOption[]>({
-    queryKey: [...DIALOG_QUERY_ROOT, 'tasks', `scope:${scopeVersion}`],
-    enabled: open,
+    queryKey: [...DIALOG_QUERY_ROOT, 'tasks', `scope:${scopeVersion}`, taskScopeProjectId ?? 'all'],
+    enabled: tasksEnabled,
     staleTime: 60_000,
     queryFn: async () => {
+      const projectFilter = taskScopeProjectId ? `&timeProjectId=${encodeURIComponent(taskScopeProjectId)}` : ''
       const call = await apiCall<Record<string, unknown>>(
-        `/api/staff/timesheets/tasks?page=1&pageSize=${DIRECTORY_PAGE_SIZE}&sortField=title&sortDir=asc`,
+        `/api/staff/timesheets/tasks?page=1&pageSize=${DIRECTORY_PAGE_SIZE}&sortField=title&sortDir=asc${projectFilter}`,
       )
       if (!call.ok) return []
       return readRowItems(call.result)
@@ -444,10 +514,16 @@ function DefaultTimeEntryDialog({
   }, [open, taskSearch])
 
   const taskSearchQuery = useQuery<TaskOption[]>({
-    queryKey: [...DIALOG_QUERY_ROOT, 'task-search', `scope:${scopeVersion}`, debouncedTaskSearch],
-    enabled: open && debouncedTaskSearch.length > 0,
+    queryKey: [
+      ...DIALOG_QUERY_ROOT,
+      'task-search',
+      `scope:${scopeVersion}`,
+      taskScopeProjectId ?? 'all',
+      debouncedTaskSearch,
+    ],
+    enabled: tasksEnabled && debouncedTaskSearch.length > 0,
     staleTime: 60_000,
-    queryFn: () => fetchTaskOptions(debouncedTaskSearch),
+    queryFn: () => fetchTaskOptions(debouncedTaskSearch, taskScopeProjectId),
   })
 
   const projectsQuery = useQuery<ProjectOption[]>({
@@ -592,7 +668,9 @@ function DefaultTimeEntryDialog({
    * either, so that one row is fetched by id.
    */
   const unresolvedTaskId =
-    taskId && !pinnedTask && !tasksQuery.isPending && !taskSearchQuery.isFetching ? taskId : null
+    taskId && !pinnedTask && (!tasksEnabled || !tasksQuery.isPending) && !taskSearchQuery.isFetching
+      ? taskId
+      : null
 
   const unresolvedTaskQuery = useQuery<TaskOption | null>({
     queryKey: [...DIALOG_QUERY_ROOT, 'task', `scope:${scopeVersion}`, unresolvedTaskId ?? 'none'],
@@ -617,20 +695,24 @@ function DefaultTimeEntryDialog({
   const projectById = React.useMemo(() => {
     const map = new Map<string, ProjectOption>()
     for (const project of projects) map.set(project.id, project)
+    for (const [id, project] of lookupProjects) if (!map.has(id)) map.set(id, project)
     return map
-  }, [projects])
+  }, [lookupProjects, projects])
 
   const selectedTask = React.useMemo(
     () => tasks.find((task) => task.id === taskId) ?? null,
     [taskId, tasks],
   )
 
-  const projectId = selectedTask?.timeProjectId ?? entry?.timeProjectId ?? defaults?.timeProjectId ?? null
+  const derivedProjectId = selectedTask?.timeProjectId ?? entry?.timeProjectId ?? defaults?.timeProjectId ?? null
+  const projectId = mode === 'project' ? projectSelection : derivedProjectId
   const project = projectId ? projectById.get(projectId) ?? null : null
 
   const resetForm = React.useCallback(
     (seed: {
       taskId: string | null
+      timeProjectId: string | null
+      mode: TimeEntryMode
       description: string
       date: string
       start: string | null
@@ -641,6 +723,8 @@ function DefaultTimeEntryDialog({
       tagIds: string[]
     }) => {
       setTaskId(seed.taskId)
+      setProjectSelection(seed.timeProjectId)
+      setMode(seed.mode)
       setDescription(seed.description)
       setDate(seed.date || todayIsoDate())
       setIntervalState((current) =>
@@ -666,6 +750,7 @@ function DefaultTimeEntryDialog({
       })
       setBaseline({
         taskId: seed.taskId,
+        timeProjectId: seed.timeProjectId,
         description: seed.description,
         date: seed.date || todayIsoDate(),
         startText: derived.startText,
@@ -684,7 +769,9 @@ function DefaultTimeEntryDialog({
     if (!open) {
       seedKeyRef.current = null
       billableDefaultRef.current = null
+      modeDefaultRef.current = null
       setBaseline(null)
+      setLookupProjects(new Map())
       setTaskSearch('')
       setPinnedTask(null)
       return
@@ -694,9 +781,12 @@ function DefaultTimeEntryDialog({
     if (seedKeyRef.current === key) return
     seedKeyRef.current = key
     versionRef.current = entry?.updatedAt ?? null
+    const settingMode = settingsQuery.data?.defaults.entryMode ?? null
     if (entry) {
       resetForm({
         taskId: entry.taskId,
+        timeProjectId: entry.timeProjectId,
+        mode: resolveTimeEntryDialogMode({ entry, propMode: modeProp, settingMode }),
         description: entry.description,
         date: entry.date,
         start: entry.startText,
@@ -710,6 +800,8 @@ function DefaultTimeEntryDialog({
     }
     resetForm({
       taskId: defaults?.taskId ?? null,
+      timeProjectId: defaults?.timeProjectId ?? null,
+      mode: resolveTimeEntryDialogMode({ entry: null, propMode: modeProp, settingMode }),
       description: defaults?.description ?? '',
       date: defaults?.date ?? todayIsoDate(),
       start: defaults?.startClock ?? null,
@@ -719,7 +811,7 @@ function DefaultTimeEntryDialog({
       rateOverrideAmount: null,
       tagIds: defaults?.tagIds ?? [],
     })
-  }, [defaults, entry, entryId, isEdit, open, resetForm])
+  }, [defaults, entry, entryId, isEdit, modeProp, open, resetForm, settingsQuery.data])
 
   /**
    * The tenant's billable default lands separately, and only on the one field it
@@ -800,6 +892,7 @@ function DefaultTimeEntryDialog({
   const entryFormValues = React.useMemo<FormValues>(
     () => ({
       taskId,
+      timeProjectId: projectId,
       description,
       date,
       startText: startClock,
@@ -816,6 +909,7 @@ function DefaultTimeEntryDialog({
       durationMinutes,
       endClock,
       isBillable,
+      projectId,
       rateOverrideAmount,
       rateOverrideEnabled,
       startClock,
@@ -855,6 +949,10 @@ function DefaultTimeEntryDialog({
       case 'taskId':
         injectedFieldWritesRef.current.add(fieldId)
         setTaskId(typeof value === 'string' && value.length > 0 ? value : null)
+        return
+      case 'timeProjectId':
+        injectedFieldWritesRef.current.add(fieldId)
+        setProjectSelection(typeof value === 'string' && value.length > 0 ? value : null)
         return
       case 'description':
         injectedFieldWritesRef.current.add(fieldId)
@@ -981,18 +1079,29 @@ function DefaultTimeEntryDialog({
     setFieldIssues((current) => (current.duration ? { ...current, duration: null } : current))
   }, [durationMinutes])
 
+  React.useEffect(() => {
+    if (!projectSelection) return
+    setFieldIssues((current) => (current.project ? { ...current, project: null } : current))
+  }, [projectSelection])
+
   const validateRequired = React.useCallback(() => {
+    const projectMode = mode === 'project'
     const next: FieldIssues = {
-      task: taskId
-        ? null
-        : t('staff.time_tracking.entryDialog.errors.taskRequired', 'Pick the task this time belongs to.'),
+      task:
+        projectMode || taskId
+          ? null
+          : t('staff.time_tracking.entryDialog.errors.taskRequired', 'Pick the task this time belongs to.'),
+      project:
+        !projectMode || projectSelection
+          ? null
+          : t('staff.time_tracking.entryDialog.errors.projectRequired', 'Pick the project this time belongs to.'),
       duration: durationMinutes
         ? null
         : t('staff.time_tracking.entryDialog.errors.durationRequired', 'Enter how long the work took.'),
     }
     setFieldIssues(next)
-    return !next.task && !next.duration
-  }, [durationMinutes, t, taskId])
+    return !next.task && !next.project && !next.duration
+  }, [durationMinutes, mode, projectSelection, t, taskId])
 
   /**
    * A locked entry has nothing editable in it, and a form that has not been
@@ -1001,10 +1110,12 @@ function DefaultTimeEntryDialog({
    */
   const isDirty = React.useMemo(() => {
     if (locked || !baseline) return false
+    const includeProject = mode === 'project'
     return (
-      formSnapshot(baseline) !==
+      formSnapshot(baseline, includeProject) !==
       formSnapshot({
         taskId,
+        timeProjectId: projectSelection,
         description,
         date,
         startText: startClock,
@@ -1014,7 +1125,7 @@ function DefaultTimeEntryDialog({
         rateOverrideEnabled,
         rateOverrideAmount,
         tagIds,
-      })
+      }, includeProject)
     )
   }, [
     baseline,
@@ -1024,12 +1135,107 @@ function DefaultTimeEntryDialog({
     endClock,
     isBillable,
     locked,
+    mode,
+    projectSelection,
     rateOverrideAmount,
     rateOverrideEnabled,
     startClock,
     tagIds,
     taskId,
   ])
+
+  /**
+   * The tenant's entry mode can answer after the form was seeded (the settings
+   * request is cached, so this is the first open of a session). It is applied
+   * once per seed and only while nothing was typed, so the form never changes
+   * shape under someone who already started.
+   */
+  React.useEffect(() => {
+    if (!open || !baseline || settingsQuery.isPending) return
+    if (modeDefaultRef.current === seedKeyRef.current) return
+    modeDefaultRef.current = seedKeyRef.current
+    if (isDirty) return
+    setMode(
+      resolveTimeEntryDialogMode({
+        entry,
+        propMode: modeProp,
+        settingMode: settings.defaults.entryMode,
+      }),
+    )
+  }, [baseline, entry, isDirty, modeProp, open, settings.defaults.entryMode, settingsQuery.isPending])
+
+  /**
+   * In project mode a task can only come from the chosen project, so a task that
+   * names another one (a seeded `defaults.taskId`) moves the project with it.
+   * When the project was not known yet this is still the seed, so the baseline
+   * follows and the form does not open dirty.
+   */
+  React.useEffect(() => {
+    if (mode !== 'project') return
+    const taskProjectId = selectedTask?.timeProjectId ?? null
+    if (!taskProjectId || taskProjectId === projectSelection) return
+    const wasUnset = projectSelection === null
+    setProjectSelection(taskProjectId)
+    if (wasUnset) {
+      setBaseline((current) =>
+        current && current.taskId === selectedTask?.id && current.timeProjectId === null
+          ? { ...current, timeProjectId: taskProjectId }
+          : current,
+      )
+    }
+  }, [mode, projectSelection, selectedTask])
+
+  const handleProjectChange = React.useCallback(
+    (next: string) => {
+      const nextProjectId = next.trim().length > 0 ? next.trim() : null
+      setProjectSelection(nextProjectId)
+      if (selectedTask && selectedTask.timeProjectId !== nextProjectId) setTaskId(null)
+    },
+    [selectedTask],
+  )
+
+  const rememberProjects = React.useCallback((found: ProjectOption[]) => {
+    if (found.length === 0) return
+    setLookupProjects((current) => {
+      let changed = false
+      const next = new Map(current)
+      for (const project of found) {
+        if (next.has(project.id)) continue
+        next.set(project.id, project)
+        changed = true
+      }
+      return changed ? next : current
+    })
+  }, [])
+
+  const loadProjectSuggestions = React.useCallback(
+    async (query?: string): Promise<ComboboxOption[]> => {
+      const found = await fetchProjectOptions((query ?? '').trim())
+      rememberProjects(found)
+      return found.map((option) => ({ value: option.id, label: option.name, description: option.customerName }))
+    },
+    [rememberProjects],
+  )
+
+  const projectUnavailableLabel = t('staff.time_tracking.entryDialog.projectUnavailable', 'Project not available')
+
+  const resolveProjectLabel = React.useCallback(
+    async (id: string): Promise<string> => {
+      const known = projectById.get(id)
+      if (known) return known.name
+      const found = await fetchProjectById(id)
+      if (!found) return projectUnavailableLabel
+      rememberProjects([found])
+      return found.name
+    },
+    [projectById, projectUnavailableLabel, rememberProjects],
+  )
+
+  const projectSeedOptions = React.useMemo<ComboboxOption[]>(() => {
+    if (!projectSelection) return []
+    const known = projectById.get(projectSelection)
+    return known ? [{ value: known.id, label: known.name, description: known.customerName }] : []
+  }, [projectById, projectSelection])
 
   /**
    * Every way out of the dialog — Escape, the ×, the overlay, Cancel — lands
@@ -1135,9 +1341,12 @@ function DefaultTimeEntryDialog({
       if (!beforeSave.ok) {
         if (beforeSave.fieldErrors) {
           const taskIssue = beforeSave.fieldErrors.taskId ?? beforeSave.fieldErrors.task ?? null
+          const projectIssue = beforeSave.fieldErrors.timeProjectId ?? beforeSave.fieldErrors.project ?? null
           const durationIssue =
             beforeSave.fieldErrors.durationMinutes ?? beforeSave.fieldErrors.duration ?? null
-          if (taskIssue || durationIssue) setFieldIssues({ task: taskIssue, duration: durationIssue })
+          if (taskIssue || projectIssue || durationIssue) {
+            setFieldIssues({ task: taskIssue, project: projectIssue, duration: durationIssue })
+          }
         }
         flash(
           beforeSave.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
@@ -1203,6 +1412,7 @@ function DefaultTimeEntryDialog({
           // dialog would still be holding the one that was just written.
           setBaseline({
             taskId,
+            timeProjectId: projectSelection,
             description: '',
             date: nextDate,
             startText: nextStart ?? '',
@@ -1215,7 +1425,7 @@ function DefaultTimeEntryDialog({
           })
           onSaved?.({ id: savedId, keptOpen: true })
           // Back to the top of the loop: pick task → duration → save → next.
-          focusTaskPicker()
+          focusFirstField()
           return
         }
         onSaved?.({ id: savedId, keptOpen: false })
@@ -1234,12 +1444,14 @@ function DefaultTimeEntryDialog({
       entryFormValues,
       entryId,
       entryInjectionContext,
+      focusFirstField,
       interval.crossesMidnight,
       isBillable,
       isEdit,
       midnightEndDate,
       onOpenChange,
       onSaved,
+      projectSelection,
       rateOverrideAmount,
       rateOverrideEnabled,
       reportFailure,
@@ -1273,7 +1485,9 @@ function DefaultTimeEntryDialog({
    */
   const pickerItems = React.useMemo<TaskPickerItem[]>(
     () =>
-      tasks.map((task) => {
+      tasks
+        .filter((task) => mode !== 'project' || (!!projectSelection && task.timeProjectId === projectSelection))
+        .map((task) => {
         const project = task.timeProjectId ? projectById.get(task.timeProjectId) : undefined
         return {
           id: task.id,
@@ -1288,8 +1502,15 @@ function DefaultTimeEntryDialog({
           loggedMinutes: task.loggedMinutes ?? null,
         }
       }),
-    [projectById, tasks],
+    [mode, projectById, projectSelection, tasks],
   )
+
+  const pickerRecentTaskIds = React.useMemo(() => {
+    const recent = recentQuery.data ?? []
+    if (mode !== 'project') return recent
+    const offered = new Set(pickerItems.map((item) => item.id))
+    return recent.filter((id) => offered.has(id))
+  }, [mode, pickerItems, recentQuery.data])
 
   const queryClient = useQueryClient()
   /**
@@ -1399,10 +1620,47 @@ function DefaultTimeEntryDialog({
           </Alert>
         ) : null}
 
+        {mode === 'project' ? (
+          <div className="flex flex-col gap-1.5">
+            <Label>
+              {t('staff.time_tracking.entryDialog.project', 'Project')}
+              <span aria-hidden="true"> *</span>
+            </Label>
+            <div
+              data-testid="entry-dialog-project"
+              ref={projectTriggerRef}
+              aria-invalid={fieldIssues.project ? true : undefined}
+              aria-describedby={fieldIssues.project ? 'entry-dialog-project-message' : undefined}
+            >
+              <ComboboxInput
+                value={projectSelection ?? ''}
+                onChange={handleProjectChange}
+                placeholder={t('staff.time_tracking.entryDialog.projectPlaceholder', 'Search projects')}
+                seedOptions={projectSeedOptions}
+                loadSuggestions={loadProjectSuggestions}
+                resolveLabel={resolveProjectLabel}
+                resolveDescription={(id) => projectById.get(id)?.customerName ?? null}
+                allowCustomValues={false}
+                disabled={locked}
+              />
+            </div>
+            {fieldIssues.project ? (
+              <p
+                id="entry-dialog-project-message"
+                className="text-xs text-status-error-text"
+                role="alert"
+                data-testid="entry-dialog-project-error"
+              >
+                {fieldIssues.project}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="entry-dialog-task">
             {t('staff.time_tracking.entryDialog.task', 'Task')}
-            <span aria-hidden="true"> *</span>
+            {mode === 'project' ? null : <span aria-hidden="true"> *</span>}
           </Label>
           <div
             data-testid="entry-dialog-task"
@@ -1414,12 +1672,13 @@ function DefaultTimeEntryDialog({
               value={taskId}
               onChange={(next) => setTaskId(next || null)}
               items={pickerItems}
-              recentTaskIds={recentQuery.data ?? []}
+              recentTaskIds={pickerRecentTaskIds}
               statuses={statusesQuery.data ?? {}}
               onQueryChange={setTaskSearch}
               searching={taskSearchQuery.isFetching}
               loading={tasksQuery.isLoading}
-              disabled={locked}
+              disabled={locked || (mode === 'project' && !projectSelection)}
+              scopedProjectName={mode === 'project' ? project?.name ?? null : undefined}
             />
           </div>
           {fieldIssues.task ? (
@@ -1432,11 +1691,27 @@ function DefaultTimeEntryDialog({
               {fieldIssues.task}
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              {t(
-                'staff.time_tracking.entryDialog.taskHint',
-                'The project and the customer follow from the task — you do not pick them separately.',
-              )}
+            <p className="text-xs text-muted-foreground" data-testid="entry-dialog-task-hint">
+              {mode === 'project'
+                ? projectSelection
+                  ? t(
+                      'staff.time_tracking.entryDialog.taskOptionalHint',
+                      'Optional — leave empty to log the time to the project.',
+                    )
+                  : t('staff.time_tracking.entryDialog.taskPickProjectFirst', 'Pick a project first')
+                : selectedTask && project
+                  ? project.customerName
+                    ? t('staff.time_tracking.entryDialog.projectReadOnlyWithCustomer', 'Project: {project} · {customer}', {
+                        project: project.name,
+                        customer: project.customerName,
+                      })
+                    : t('staff.time_tracking.entryDialog.projectReadOnly', 'Project: {project}', {
+                        project: project.name,
+                      })
+                  : t(
+                      'staff.time_tracking.entryDialog.taskHint',
+                      'The project and the customer follow from the task — you do not pick them separately.',
+                    )}
             </p>
           )}
         </div>
@@ -1807,7 +2082,7 @@ function DefaultTimeEntryDialog({
           // close button) is the right one there.
           if (locked || !taskTriggerRef.current) return
           event.preventDefault()
-          focusTaskPicker()
+          focusFirstField()
         }}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -1906,6 +2181,7 @@ export const timeEntryDialogPropsSchema: z.ZodType<TimeEntryDialogProps> = z.obj
   headerHint: z.string().nullable().optional(),
   onSaved: optionalCallbackProp<(result: { id: string | null; keptOpen: boolean }) => void>(),
   onShowEntry: optionalCallbackProp<(entryId: string) => void>(),
+  mode: z.enum(['task', 'project']).nullable().optional(),
 })
 
 registerComponent<TimeEntryDialogProps>({

@@ -118,6 +118,64 @@ jest.mock('../TaskPicker', () => {
   return { TaskPicker, __esModule: true }
 })
 
+/**
+ * The project field is a `ComboboxInput` — a typeahead with its own tests in
+ * `packages/ui`. Here it is a native select over what `loadSuggestions` returns,
+ * plus the label `resolveLabel` gives a selected value, which is the contract the
+ * dialog relies on.
+ */
+jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => {
+  const ReactModule = jest.requireActual('react') as typeof React
+  type Option = { value: string; label: string; description?: string | null }
+  type Props = {
+    value: string
+    onChange: (next: string) => void
+    seedOptions?: Option[]
+    loadSuggestions?: (query?: string) => Promise<Option[]>
+    resolveLabel?: (value: string) => string | Promise<string>
+    disabled?: boolean
+  }
+  const ComboboxInput = ({ value, onChange, seedOptions, loadSuggestions, resolveLabel, disabled }: Props) => {
+    const [loaded, setLoaded] = ReactModule.useState<Option[]>([])
+    const [label, setLabel] = ReactModule.useState<string>('')
+    ReactModule.useEffect(() => {
+      void loadSuggestions?.('').then((items) => setLoaded(items))
+    }, [loadSuggestions])
+    ReactModule.useEffect(() => {
+      if (!value || !resolveLabel) {
+        setLabel('')
+        return
+      }
+      void Promise.resolve(resolveLabel(value)).then((next) => setLabel(next))
+    }, [resolveLabel, value])
+    const options = new Map<string, Option>()
+    for (const option of [...(seedOptions ?? []), ...loaded]) options.set(option.value, option)
+    return ReactModule.createElement(ReactModule.Fragment, null, [
+      ReactModule.createElement(
+        'select',
+        {
+          key: '__select',
+          'data-testid': 'project-select',
+          value,
+          disabled,
+          onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onChange(event.target.value),
+        },
+        [
+          ReactModule.createElement('option', { key: '__empty', value: '' }, ''),
+          ...[...options.values()].map((option) =>
+            ReactModule.createElement('option', { key: option.value, value: option.value }, option.label),
+          ),
+          ...(value && !options.has(value)
+            ? [ReactModule.createElement('option', { key: value, value }, label || value)]
+            : []),
+        ],
+      ),
+      ReactModule.createElement('span', { key: '__label', 'data-testid': 'project-label' }, label),
+    ])
+  }
+  return { __esModule: true, ComboboxInput }
+})
+
 /** Radix' Select needs pointer geometry jsdom lacks; a native select keeps the contract. */
 jest.mock('@open-mercato/ui/primitives/select', () => {
   const ReactModule = jest.requireActual('react') as typeof React
@@ -1189,5 +1247,221 @@ describe('TimeEntryDialog — crud-form host lifecycle', () => {
     expect(
       mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'description'),
     ).toBe(true)
+  })
+})
+
+
+describe('TimeEntryDialog — project mode (#6989)', () => {
+  const OTHER_PROJECT_ID = '99999999-9999-4999-8999-999999999999'
+  const HIDDEN_PROJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const FAR_PROJECT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const FAR_TASK_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  const otherProject: Row = {
+    id: OTHER_PROJECT_ID,
+    name: 'Support retainer',
+    customer_snapshot: { name: 'Globex' },
+    hourly_rate: 200,
+    currency_code: 'EUR',
+  }
+  const farProject: Row = { id: FAR_PROJECT_ID, name: 'Far project', hourly_rate: 500, currency_code: 'PLN' }
+  const farTask: Row = { id: FAR_TASK_ID, title: 'Far task', time_project_id: FAR_PROJECT_ID }
+  let taskUrls: string[]
+
+  function projectSelect(): HTMLSelectElement {
+    return screen.getByTestId('project-select') as HTMLSelectElement
+  }
+
+  async function pickProject(projectId: string) {
+    const select = await screen.findByTestId('project-select')
+    await waitFor(() => expect(select.querySelector(`option[value="${projectId}"]`)).not.toBeNull())
+    fireEvent.change(select, { target: { value: projectId } })
+  }
+
+  beforeEach(() => {
+    taskUrls = []
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/timesheets/time-projects')) {
+        const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
+        const ids = query.get('ids')
+        const all = [...projectRows, otherProject, farProject]
+        if (ids === HIDDEN_PROJECT_ID) {
+          return { ok: false, status: 404, result: { error: 'no_project_access' }, response: {} as Response, cacheStatus: null } as never
+        }
+        if (ids) {
+          const rows = all.filter((row) => ids.split(',').includes(String(row.id)))
+          return ok({ items: rows, total: rows.length }) as never
+        }
+        if (query.get('status') === 'active') {
+          const term = (query.get('q') ?? '').toLowerCase()
+          const rows = all.filter((row) => String(row.name).toLowerCase().includes(term))
+          return ok({ items: rows, total: rows.length }) as never
+        }
+        return ok({ items: [...projectRows, otherProject], total: 2 }) as never
+      }
+      if (url.includes('/timesheets/tasks')) {
+        taskUrls.push(url)
+        const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
+        const scoped = query.get('timeProjectId')
+        const ids = query.get('ids')
+        const all = [...taskRows, farTask]
+        if (ids) {
+          const rows = all.filter((row) => ids.split(',').includes(String(row.id)))
+          return ok({ items: rows, total: rows.length }) as never
+        }
+        const rows = scoped ? all.filter((row) => row.time_project_id === scoped) : taskRows
+        return ok({ items: rows, total: rows.length }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+  })
+
+  it('saves a project-only entry when the tenant setting is project mode', async () => {
+    settingsPayload = { ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }
+    renderDialog()
+
+    await pickProject(OTHER_PROJECT_ID)
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(
+      expect.objectContaining({ taskId: null, timeProjectId: OTHER_PROJECT_ID, durationMinutes: 60 }),
+    )
+    expect(screen.queryByTestId('entry-dialog-task-error')).toBeNull()
+  })
+
+  it('switches to project mode when the settings answer after the dialog opened', async () => {
+    let releaseSettings: () => void = () => {}
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/settings')) {
+        await new Promise<void>((resolve) => {
+          releaseSettings = resolve
+        })
+        return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    renderDialog()
+
+    await screen.findByTestId('entry-dialog-task')
+    expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
+
+    releaseSettings()
+    await screen.findByTestId('entry-dialog-project')
+  })
+
+  it('requires the project, not the task, in project mode', async () => {
+    renderDialog({ mode: 'project' })
+
+    await screen.findByTestId('entry-dialog-project')
+    fireEvent.change(durationInput(), { target: { value: '30m' } })
+    fireEvent.click(saveButton())
+
+    const message = await screen.findByTestId('entry-dialog-project-error')
+    expect(message.textContent).toBe('Pick the project this time belongs to.')
+    expect(screen.queryByTestId('entry-dialog-task-error')).toBeNull()
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('lets the mode prop override the tenant setting', async () => {
+    settingsPayload = { ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }
+    renderDialog({ mode: 'task' })
+
+    await pickTask()
+    expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
+  })
+
+  it('asks for the chosen project tasks only and keeps a picked task with its project', async () => {
+    renderDialog({ mode: 'project' })
+
+    expect(taskSelect().disabled).toBe(true)
+    expect(screen.getByTestId('entry-dialog-task-hint').textContent).toBe('Pick a project first')
+
+    await pickProject(PROJECT_ID)
+    await waitFor(() =>
+      expect(taskUrls.some((url) => url.includes(`timeProjectId=${PROJECT_ID}`))).toBe(true),
+    )
+    await pickTask(TASK_ID)
+    expect(screen.getByTestId('entry-dialog-task-hint').textContent).toBe(
+      'Optional — leave empty to log the time to the project.',
+    )
+
+    await pickProject(OTHER_PROJECT_ID)
+    await waitFor(() => expect(taskSelect().value).toBe(''))
+  })
+
+  it('moves the project to the project of a seeded task', async () => {
+    renderDialog({ mode: 'project', defaults: { taskId: FAR_TASK_ID } })
+
+    await waitFor(() => expect(projectSelect().value).toBe(FAR_PROJECT_ID))
+  })
+
+  it('opens an entry without a task in project mode even when the tenant logs against tasks', async () => {
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 90,
+        description: 'Warsztat',
+        task_id: null,
+        time_project_id: OTHER_PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await screen.findByTestId('entry-dialog-project')
+    await waitFor(() => expect(projectSelect().value).toBe(OTHER_PROJECT_ID))
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(
+      expect.objectContaining({ id: ENTRY_ID, taskId: null, timeProjectId: OTHER_PROJECT_ID }),
+    )
+  })
+
+  it('labels a project the caller can no longer see without flashing an error', async () => {
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 30,
+        description: 'Stary wpis',
+        task_id: null,
+        time_project_id: HIDDEN_PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await waitFor(() => expect(screen.getByTestId('project-label').textContent).toBe('Project not available'))
+    expect(mockFlash).not.toHaveBeenCalled()
+  })
+
+  it('prices the entry with a project found beyond the first directory page', async () => {
+    renderDialog({ mode: 'project' })
+
+    await pickProject(FAR_PROJECT_ID)
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+
+    await waitFor(() => expect(screen.getByTestId('entry-dialog').textContent).toContain('500'))
+  })
+
+  it('shows the project of the picked task in task mode', async () => {
+    renderDialog()
+
+    await pickTask()
+    await waitFor(() =>
+      expect(screen.getByTestId('entry-dialog-task-hint').textContent).toBe('Project: migracja B2B · Nordvik'),
+    )
   })
 })
