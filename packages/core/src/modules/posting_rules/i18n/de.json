@@ -18,6 +18,8 @@
   "posting_rules.cost_centers.form.field.code": "Code",
   "posting_rules.cost_centers.form.field.isActive": "Aktiv",
   "posting_rules.cost_centers.form.field.name": "Name",
+  "posting_rules.cost_centers.form.group.details": "Details",
+  "posting_rules.cost_centers.form.loading": "Kostenstelle wird geladen…",
   "posting_rules.cost_centers.form.success.created": "Kostenstelle angelegt",
   "posting_rules.cost_centers.form.success.updated": "Kostenstelle aktualisiert",
   "posting_rules.cost_centers.list.actions.create": "Anlegen",
@@ -40,6 +42,8 @@
   "posting_rules.default_account_posting_rules.form.field.defaultCostCentrePlaceholder": "Keine (Rückfall auf „UNALLOCATED“)",
   "posting_rules.default_account_posting_rules.form.field.sourceAccount": "Quellkonto (zespół 4)",
   "posting_rules.default_account_posting_rules.form.field.targetAccount": "Zielkonto (zespół 5)",
+  "posting_rules.default_account_posting_rules.form.group.details": "Details",
+  "posting_rules.default_account_posting_rules.form.loading": "Regel wird geladen…",
   "posting_rules.default_account_posting_rules.form.success.created": "Standard-Kontierungsregel für Konten angelegt",
   "posting_rules.default_account_posting_rules.form.success.updated": "Standard-Kontierungsregel für Konten aktualisiert",
   "posting_rules.default_account_posting_rules.list.actions.create": "Anlegen",
@@ -81,6 +85,8 @@
   "posting_rules.settings.field.clearingAccount": "Verrechnungskonto (entspricht Konto 490)",
   "posting_rules.settings.field.placeholder": "Keines",
   "posting_rules.settings.field.unallocatedCostAccount": "Konto für nicht zugeordnete Kosten",
+  "posting_rules.settings.group.details": "Konten",
+  "posting_rules.settings.loading": "Einstellungen der Kontierungsregeln werden geladen…",
   "posting_rules.settings.page.title": "Einstellungen der Kontierungsregeln",
   "posting_rules.settings.success.save": "Einstellungen der Kontierungsregeln gespeichert"
 }

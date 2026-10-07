@@ -18,6 +18,8 @@
   "posting_rules.cost_centers.form.field.code": "Kod",
   "posting_rules.cost_centers.form.field.isActive": "Aktywny",
   "posting_rules.cost_centers.form.field.name": "Nazwa",
+  "posting_rules.cost_centers.form.group.details": "Szczegóły",
+  "posting_rules.cost_centers.form.loading": "Wczytywanie MPK…",
   "posting_rules.cost_centers.form.success.created": "MPK utworzony",
   "posting_rules.cost_centers.form.success.updated": "MPK zaktualizowany",
   "posting_rules.cost_centers.list.actions.create": "Utwórz",
@@ -40,6 +42,8 @@
   "posting_rules.default_account_posting_rules.form.field.defaultCostCentrePlaceholder": "Brak (użyty zostanie „UNALLOCATED”)",
   "posting_rules.default_account_posting_rules.form.field.sourceAccount": "Konto źródłowe (zespół 4)",
   "posting_rules.default_account_posting_rules.form.field.targetAccount": "Konto docelowe (zespół 5)",
+  "posting_rules.default_account_posting_rules.form.group.details": "Szczegóły",
+  "posting_rules.default_account_posting_rules.form.loading": "Wczytywanie reguły…",
   "posting_rules.default_account_posting_rules.form.success.created": "Domyślna reguła przeksięgowania konta utworzona",
   "posting_rules.default_account_posting_rules.form.success.updated": "Domyślna reguła przeksięgowania konta zaktualizowana",
   "posting_rules.default_account_posting_rules.list.actions.create": "Utwórz",
@@ -81,6 +85,8 @@
   "posting_rules.settings.field.clearingAccount": "Konto rozliczeniowe (odpowiednik konta 490)",
   "posting_rules.settings.field.placeholder": "Brak",
   "posting_rules.settings.field.unallocatedCostAccount": "Konto kosztów nieprzypisanych",
+  "posting_rules.settings.group.details": "Konta",
+  "posting_rules.settings.loading": "Wczytywanie ustawień reguł księgowania…",
   "posting_rules.settings.page.title": "Ustawienia reguł księgowania",
   "posting_rules.settings.success.save": "Ustawienia reguł księgowania zapisane"
 }

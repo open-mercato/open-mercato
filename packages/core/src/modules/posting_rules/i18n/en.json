@@ -18,6 +18,8 @@
   "posting_rules.cost_centers.form.field.code": "Code",
   "posting_rules.cost_centers.form.field.isActive": "Active",
   "posting_rules.cost_centers.form.field.name": "Name",
+  "posting_rules.cost_centers.form.group.details": "Details",
+  "posting_rules.cost_centers.form.loading": "Loading cost centre…",
   "posting_rules.cost_centers.form.success.created": "Cost centre created",
   "posting_rules.cost_centers.form.success.updated": "Cost centre updated",
   "posting_rules.cost_centers.list.actions.create": "Create",
@@ -40,6 +42,8 @@
   "posting_rules.default_account_posting_rules.form.field.defaultCostCentrePlaceholder": "None (falls back to \"UNALLOCATED\")",
   "posting_rules.default_account_posting_rules.form.field.sourceAccount": "Source account (zespół 4)",
   "posting_rules.default_account_posting_rules.form.field.targetAccount": "Target account (zespół 5)",
+  "posting_rules.default_account_posting_rules.form.group.details": "Details",
+  "posting_rules.default_account_posting_rules.form.loading": "Loading rule…",
   "posting_rules.default_account_posting_rules.form.success.created": "Default account posting rule created",
   "posting_rules.default_account_posting_rules.form.success.updated": "Default account posting rule updated",
   "posting_rules.default_account_posting_rules.list.actions.create": "Create",
@@ -81,6 +85,8 @@
   "posting_rules.settings.field.clearingAccount": "Clearing account (account 490 equivalent)",
   "posting_rules.settings.field.placeholder": "None",
   "posting_rules.settings.field.unallocatedCostAccount": "Unallocated-cost account",
+  "posting_rules.settings.group.details": "Accounts",
+  "posting_rules.settings.loading": "Loading posting rules settings…",
   "posting_rules.settings.page.title": "Posting rules settings",
   "posting_rules.settings.success.save": "Posting rules settings saved"
 }

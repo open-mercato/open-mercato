@@ -18,6 +18,8 @@
   "posting_rules.cost_centers.form.field.code": "Código",
   "posting_rules.cost_centers.form.field.isActive": "Activo",
   "posting_rules.cost_centers.form.field.name": "Nombre",
+  "posting_rules.cost_centers.form.group.details": "Detalles",
+  "posting_rules.cost_centers.form.loading": "Cargando el centro de costes…",
   "posting_rules.cost_centers.form.success.created": "Centro de costes creado",
   "posting_rules.cost_centers.form.success.updated": "Centro de costes actualizado",
   "posting_rules.cost_centers.list.actions.create": "Crear",
@@ -40,6 +42,8 @@
   "posting_rules.default_account_posting_rules.form.field.defaultCostCentrePlaceholder": "Ninguno (se usa \"UNALLOCATED\")",
   "posting_rules.default_account_posting_rules.form.field.sourceAccount": "Cuenta de origen (zespół 4)",
   "posting_rules.default_account_posting_rules.form.field.targetAccount": "Cuenta de destino (zespół 5)",
+  "posting_rules.default_account_posting_rules.form.group.details": "Detalles",
+  "posting_rules.default_account_posting_rules.form.loading": "Cargando la regla…",
   "posting_rules.default_account_posting_rules.form.success.created": "Regla de contabilización por defecto de cuentas creada",
   "posting_rules.default_account_posting_rules.form.success.updated": "Regla de contabilización por defecto de cuentas actualizada",
   "posting_rules.default_account_posting_rules.list.actions.create": "Crear",
@@ -81,6 +85,8 @@
   "posting_rules.settings.field.clearingAccount": "Cuenta de compensación (equivalente a la cuenta 490)",
   "posting_rules.settings.field.placeholder": "Ninguna",
   "posting_rules.settings.field.unallocatedCostAccount": "Cuenta de costes no asignados",
+  "posting_rules.settings.group.details": "Cuentas",
+  "posting_rules.settings.loading": "Cargando la configuración de las reglas de contabilización…",
   "posting_rules.settings.page.title": "Configuración de las reglas de contabilización",
   "posting_rules.settings.success.save": "Configuración de las reglas de contabilización guardada"
 }

@@ -18,6 +18,8 @@
   "posting_rules.cost_centers.form.field.code": "코드",
   "posting_rules.cost_centers.form.field.isActive": "활성",
   "posting_rules.cost_centers.form.field.name": "이름",
+  "posting_rules.cost_centers.form.group.details": "상세 정보",
+  "posting_rules.cost_centers.form.loading": "원가 센터를 불러오는 중…",
   "posting_rules.cost_centers.form.success.created": "원가 센터를 생성했습니다",
   "posting_rules.cost_centers.form.success.updated": "원가 센터를 수정했습니다",
   "posting_rules.cost_centers.list.actions.create": "생성",
@@ -40,6 +42,8 @@
   "posting_rules.default_account_posting_rules.form.field.defaultCostCentrePlaceholder": "없음(\"UNALLOCATED\"로 대체)",
   "posting_rules.default_account_posting_rules.form.field.sourceAccount": "원천 계정(zespół 4)",
   "posting_rules.default_account_posting_rules.form.field.targetAccount": "대상 계정(zespół 5)",
+  "posting_rules.default_account_posting_rules.form.group.details": "상세 정보",
+  "posting_rules.default_account_posting_rules.form.loading": "규칙을 불러오는 중…",
   "posting_rules.default_account_posting_rules.form.success.created": "기본 계정 전기 규칙을 생성했습니다",
   "posting_rules.default_account_posting_rules.form.success.updated": "기본 계정 전기 규칙을 수정했습니다",
   "posting_rules.default_account_posting_rules.list.actions.create": "생성",
@@ -81,6 +85,8 @@
   "posting_rules.settings.field.clearingAccount": "정산 계정(계정 490에 해당)",
   "posting_rules.settings.field.placeholder": "없음",
   "posting_rules.settings.field.unallocatedCostAccount": "미배분 원가 계정",
+  "posting_rules.settings.group.details": "계정",
+  "posting_rules.settings.loading": "전기 규칙 설정을 불러오는 중…",
   "posting_rules.settings.page.title": "전기 규칙 설정",
   "posting_rules.settings.success.save": "전기 규칙 설정을 저장했습니다"
 }
