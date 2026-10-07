@@ -369,6 +369,7 @@ function DefaultTimeEntryDialog({
   const scopeVersion = useOrganizationScopeVersion()
   const { payload } = useBackendChrome()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const queryClient = useQueryClient()
   const canSeeMoney = hasFeature(payload?.grantedFeatures, RATES_FEATURE)
   const isEdit = typeof entryId === 'string' && entryId.length > 0
 
@@ -432,7 +433,7 @@ function DefaultTimeEntryDialog({
   /** In project mode the loop starts at the project field, otherwise at the task picker. */
   const focusFirstField = React.useCallback(() => {
     const host = mode === 'project' ? projectTriggerRef.current : null
-    const focusable = host?.querySelector('input') as HTMLElement | null
+    const focusable = host?.querySelector('input, select, button') as HTMLElement | null
     if (focusable) {
       focusable.focus()
       return true
@@ -1232,16 +1233,27 @@ function DefaultTimeEntryDialog({
 
   const projectUnavailableLabel = t('staff.time_tracking.entryDialog.projectUnavailable', 'Project not available')
 
+  const loadPinnedProject = React.useCallback(
+    async (id: string): Promise<ProjectOption | null> => {
+      const found = await fetchProjectById(id)
+      if (found) rememberProjects([found])
+      return found
+    },
+    [rememberProjects],
+  )
+
   const resolveProjectLabel = React.useCallback(
     async (id: string): Promise<string> => {
       const known = projectById.get(id)
       if (known) return known.name
-      const found = await fetchProjectById(id)
-      if (!found) return projectUnavailableLabel
-      rememberProjects([found])
-      return found.name
+      const found = await queryClient.fetchQuery({
+        queryKey: [...DIALOG_QUERY_ROOT, 'project', `scope:${scopeVersion}`, id],
+        queryFn: () => loadPinnedProject(id),
+        staleTime: 60_000,
+      })
+      return found ? found.name : projectUnavailableLabel
     },
-    [projectById, projectUnavailableLabel, rememberProjects],
+    [loadPinnedProject, projectById, projectUnavailableLabel, queryClient, scopeVersion],
   )
 
   const unresolvedProjectId =
@@ -1253,11 +1265,7 @@ function DefaultTimeEntryDialog({
     queryKey: [...DIALOG_QUERY_ROOT, 'project', `scope:${scopeVersion}`, unresolvedProjectId ?? 'none'],
     enabled: open && !!unresolvedProjectId,
     staleTime: 60_000,
-    queryFn: async () => {
-      const found = await fetchProjectById(unresolvedProjectId as string)
-      if (found) rememberProjects([found])
-      return found
-    },
+    queryFn: () => loadPinnedProject(unresolvedProjectId as string),
   })
 
   const projectSeedOptions = React.useMemo<ComboboxOption[]>(() => {
@@ -1549,7 +1557,6 @@ function DefaultTimeEntryDialog({
     return recent.filter((id) => offered.has(id))
   }, [mode, pickerItems, recentQuery.data])
 
-  const queryClient = useQueryClient()
   /**
    * Creates the tag, then hands it back so the caller can assign it.
    *

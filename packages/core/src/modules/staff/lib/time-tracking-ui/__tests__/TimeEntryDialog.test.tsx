@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -142,12 +142,12 @@ jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => {
       void loadSuggestions?.('').then((items) => setLoaded(items))
     }, [loadSuggestions])
     ReactModule.useEffect(() => {
-      if (!value || !resolveLabel) {
+      if (!value || !resolveLabel || disabled) {
         setLabel('')
         return
       }
       void Promise.resolve(resolveLabel(value)).then((next) => setLabel(next))
-    }, [resolveLabel, value])
+    }, [disabled, resolveLabel, value])
     const options = new Map<string, Option>()
     for (const option of [...(seedOptions ?? []), ...loaded]) options.set(option.value, option)
     return ReactModule.createElement(ReactModule.Fragment, null, [
@@ -1351,6 +1351,7 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
 
     releaseSettings()
     await screen.findByTestId('entry-dialog-project')
+    await waitFor(() => expect(document.activeElement).toBe(projectSelect()))
   })
 
   it('requires the project, not the task, in project mode', async () => {
@@ -1447,6 +1448,34 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
     expect(mockFlash).not.toHaveBeenCalled()
   })
 
+  it.each([
+    [FAR_PROJECT_ID, 'Far project'],
+    [HIDDEN_PROJECT_ID, 'Project not available'],
+  ])('labels the project of a locked project-only entry outside the directory (%s)', async (projectId, label) => {
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 45,
+        description: 'Zamknięty wpis',
+        task_id: null,
+        time_project_id: projectId,
+        is_billable: true,
+        isLocked: true,
+        lockedReportId: REPORT_ID,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await screen.findByTestId('entry-dialog-project')
+    await waitFor(() =>
+      expect(projectSelect().querySelector(`option[value="${projectId}"]`)?.textContent).toBe(label),
+    )
+    expect(projectSelect().disabled).toBe(true)
+  })
+
   it('prices the entry with a project found beyond the first directory page', async () => {
     renderDialog({ mode: 'project' })
 
@@ -1493,12 +1522,14 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
 
   it('keeps the mode when the settings answer after the user started typing', async () => {
     let releaseSettings: () => void = () => {}
+    let settingsAnswered = false
     const base = mockApiCall.getMockImplementation()
     mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes('/timesheets/settings')) {
         await new Promise<void>((resolve) => {
           releaseSettings = resolve
         })
+        settingsAnswered = true
         return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
       }
       return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
@@ -1509,8 +1540,8 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
     fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Already typing' } })
     releaseSettings()
 
-    await waitFor(() => expect(mockApiCall.mock.calls.some(([url]) => String(url).includes('/timesheets/settings'))).toBe(true))
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await waitFor(() => expect(settingsAnswered).toBe(true))
+    await act(async () => {})
     expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
   })
 
