@@ -33,6 +33,7 @@ function mockKms(dek: string | null) {
 function buildEm() {
   const created: Array<Record<string, unknown>> = []
   const flush = jest.fn().mockResolvedValue(undefined)
+  let inTransaction = false
   const em = {
     create: jest.fn((_Entity: unknown, data: Record<string, unknown>) => {
       const row = { id: `key-${created.length + 1}`, ...data }
@@ -41,8 +42,13 @@ function buildEm() {
     }),
     persist: jest.fn(() => ({ flush })),
     flush,
+    find: jest.fn(async () => []),
     // `findApiKeyBySessionToken` reads the row back through the plain EntityManager.
     findOne: jest.fn(async () => created[0] ?? null),
+    isInTransaction: () => inTransaction,
+    begin: jest.fn(async () => { inTransaction = true }),
+    commit: jest.fn(async () => { inTransaction = false }),
+    rollback: jest.fn(async () => { inTransaction = false }),
   }
   return { em, created }
 }
