@@ -50,8 +50,8 @@ Let people log time to a project without a task from the time entry dialog (tena
 
 ### Phase 2: Setting
 
-- [ ] 2.1 Register the built-in defaults.entryMode key
-- [ ] 2.2 Settings page control, form mapping, locale keys
+- [x] 2.1 Register the built-in defaults.entryMode key — e19f3ebbb
+- [x] 2.2 Settings page control, form mapping, locale keys — b0d3d66f8
 
 ### Phase 3: Dialog
 
