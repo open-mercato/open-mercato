@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/gateway-autopay",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "MIT",
   "description": "Autopay Online v1.1 hosted PLN payment gateway provider for Open Mercato",
   "type": "module",
