@@ -12,7 +12,7 @@ import { DEFAULT_TIME_TRACKING_SETTINGS, type TimeTrackingSettings } from '../..
 
 const settings: TimeTrackingSettings = {
   rounding: { unitMinutes: 15, direction: 'up' },
-  defaults: { billable: true, chainStartFromPreviousEnd: true },
+  defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
   targets: { dailyHours: 8 },
   warnings: { overlap: true, runningTimer: true },
   access: { assignmentGraceDays: 14 },
@@ -116,6 +116,8 @@ describe('settings draft', () => {
     expect(isSettingsDraftDirty({ ...baseline, roundingUnitMinutes: 5 }, baseline)).toBe(true)
     expect(isSettingsDraftDirty({ ...baseline, roundingDirection: 'nearest' }, baseline)).toBe(true)
     expect(isSettingsDraftDirty({ ...baseline, defaultsBillable: false }, baseline)).toBe(true)
+    expect(isSettingsDraftDirty({ ...baseline, defaultsEntryMode: 'project' }, baseline)).toBe(true)
+    expect(toSettingsPayload({ ...baseline, defaultsEntryMode: 'project' })?.defaults.entryMode).toBe('project')
     expect(isSettingsDraftDirty({ ...baseline, warningsOverlap: false }, baseline)).toBe(true)
     expect(isSettingsDraftDirty({ ...baseline, assignmentGraceDaysText: '0' }, baseline)).toBe(true)
   })
