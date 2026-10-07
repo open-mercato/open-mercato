@@ -121,7 +121,7 @@ refuse it) and keeps every pass linear however much hostile content the input ca
 | more than 1 MiB | `vector_image_too_large` (413) |
 | not valid UTF-8 | `vector_image_malformed` |
 | `<!ENTITY`, `<!ATTLIST`, `<!ELEMENT` or `<!NOTATION` anywhere, or a DOCTYPE with an internal subset | `vector_image_entity_declaration` |
-| more than 6,000 `<` characters (markup) | `vector_image_too_complex` |
+| more than 4,000 `<` characters (markup) | `vector_image_too_complex` |
 
 The DOCTYPE gate (`hasDtdDeclarations`) scans markup the way an XML parser reads it:
 - comments, CDATA sections and processing instructions are skipped as units, so text inside them
@@ -139,18 +139,22 @@ count plus one) before any parsing happens.
 | Bound | Value | Code |
 |---|---|---|
 | parse error, or root not `<svg>` in the SVG namespace | — | `vector_image_malformed` |
-| nodes of every type (elements, text, comments, processing instructions, CDATA, the DOCTYPE), prolog included | 6,000 | `vector_image_too_complex` |
-| elements | 3,000 | `vector_image_too_complex` |
+| nodes of every type (elements, text, comments, processing instructions, CDATA, the DOCTYPE), prolog included | 4,000 | `vector_image_too_complex` |
+| elements | 2,000 | `vector_image_too_complex` |
 | nesting depth | 64 | `vector_image_too_complex` |
-| attributes on one element / in the document | 64 / 15,000 | `vector_image_too_complex` |
+| attributes on one element / in the document | 64 / 6,000 | `vector_image_too_complex` |
 | rendered elements: every element once, plus each `<use>`'s referenced subtree again, recursively; any `<use>` reference cycle | 50,000 | `vector_image_too_complex` |
 
-Real logos are typically 2–150 KB with tens to low thousands of paths and under 20 attributes per
-element. Every node type counts because jsdom removes a node in time linear in its preceding
+Real logos are typically 2–150 KB with tens to hundreds of paths and a handful of attributes per
+element (a 1,000-path logo with `d`, `fill` and `id` uses 3,000 attributes). Every node type counts because jsdom removes a node in time linear in its preceding
 siblings (`symbol-tree`'s `index()` after any change to the parent), so removal cost grows with
 removed × kept nodes whatever their type (§ 4). The rendered-element bound weights each `<use>` by
-the size of what it references: counting `<use>` elements alone accepted a 2,000-rect group reused
+the size of what it references: counting `<use>` elements alone accepted a large group reused
 1,000 times through three levels of ten `<use>`s.
+
+The bounds are sized from measurement (§ 4). Real exports stay well inside them: of the 230 SVG
+files in this repository's dependencies, 224 are accepted, at most 267 ms each. The six refused
+are SVG web fonts (`<font-face>` is outside DOMPurify's SVG profile), not logos.
 
 **Sanitisation**
 
@@ -158,8 +162,12 @@ the size of what it references: counting `<use>` elements alone accepted a 2,000
    - **removed as inert** (they never render): comments, processing instructions other than
      `xml-stylesheet`, `<metadata>`, elements outside the SVG/XHTML/MathML namespaces (editor data
      such as Inkscape/Sodipodi/RDF), attributes outside the null/XLink/XML/XMLNS namespaces, and
-     namespace declarations other than the SVG and XLink ones (kept so the serialiser does not
-     invent `ns1:` prefixes);
+     every namespace declaration except the default SVG one and `xmlns:xlink`. The serialiser
+     re-declares any prefix it needs, and DOMPurify allows no other declaration: Inkscape writes
+     `xmlns:svg` in both of its SVG formats;
+   - **rewritten**: XLink attributes under another prefix (`xmlns:x` + `x:href`) become `xlink:`, the
+     only XLink spelling DOMPurify allows. `xmlns:xlink` is declared on the root when that happens,
+     so the output uses the `xlink:` prefix rather than an invented one;
    - **turned into text**: every CDATA section. Design tools wrap stylesheets in CDATA; CDATA is
      text, and DOMPurify drops CDATA nodes;
    - **refusals**:
@@ -167,7 +175,13 @@ the size of what it references: counting `<use>` elements alone accepted a 2,000
        refuses anyway, it never renders as intended and an XHTML `<script>` would execute);
      - `active_content` for a foreign or `<metadata>` wrapper that hides a rendering element;
      - `active_content` for a `<style>` holding anything but text and CDATA;
-     - `external_reference` for an `xml-stylesheet` processing instruction.
+     - `external_reference` for an `xml-stylesheet` processing instruction;
+     - a reference-bearing attribute (`href`, a CSS-parsed attribute, any value with `url(`) whose
+       value DOMPurify would rewrite. DOMPurify re-sets every attribute value through JavaScript
+       `trim()`, which also strips non-ASCII spaces that browsers keep: `href="\u3000#a"` is a
+       relative URL to a browser but `#a` after DOMPurify. That is `external_reference` for
+       `href`-like names and `active_content` otherwise. Elsewhere the trim changes nothing that
+       renders or fetches.
 
    A parent with removals is rebuilt linearly (§ 4) rather than having nodes removed one by one.
    Nodes outside the root element (DOCTYPE, prolog comments and PIs) are classified but not
@@ -179,7 +193,8 @@ the size of what it references: counting `<use>` elements alone accepted a 2,000
    `<style><g>/*</g>rect{fill:url(https://…)}<g>*/</g></style>` hides an external `url()` behind a
    comment that only exists in the concatenated text.
 2. *DOMPurify* (`USE_PROFILES: { svg: true, svgFilters: true }`, `ADD_TAGS: ['use']`,
-   `ADD_DATA_URI_TAGS: ['feimage']`, `KEEP_CONTENT: false`, `RETURN_DOM`; fresh window per call).
+   `ADD_DATA_URI_TAGS: ['feimage']`, `ADD_ATTR: ['role']`, `KEEP_CONTENT: false`,
+   `SANITIZE_DOM: false`, `RETURN_DOM`; fresh window per call).
    - It runs on an imported copy of the document, not `IN_PLACE`. A `beforeSanitizeElements` hook
      inspects DOMPurify's `removed` list as it grows, and throws at the first removal that is not
      inert. On the `IN_PLACE` path DOMPurify answers a throw by stripping the root through a live
@@ -192,17 +207,35 @@ the size of what it references: counting `<use>` elements alone accepted a 2,000
    - `feImage` joins the `data:` URI list; step 3 still limits those URIs to base64
      PNG/JPEG/GIF/WebP with a matching signature.
    - `KEEP_CONTENT: false`: nothing of a removed element is hoisted.
+   - `SANITIZE_DOM: false`. DOMPurify's DOM-clobbering guard removes any `id` or `name` that
+     matches a property of `document` or a form (`title`, `body`, `images`, `links`, `fonts`,
+     `style`, `name`, `action`, …). It guards markup about to be inserted into a live HTML document,
+     where such an id would shadow `document.title` for the page's own scripts. Here the output is
+     serialised into a standalone SVG file: it is served as its own document under
+     `sandbox`/`default-src 'none'` (no script runs), or embedded with `<img>` (no script, no shared
+     DOM), and it carries no script of its own (refused). Clobbering needs a script that reads the
+     clobbered property, and there is none. With the guard on, `<linearGradient id="title">` lost its
+     id and the stored logo silently lost its paint, and the accessible pattern
+     `<title id="title">` + `aria-labelledby` broke.
+   - `ADD_ATTR: ['role']`. `aria-*` is already allowed (`ALLOW_ARIA_ATTR`); `role` is not in the SVG
+     profile. Neither can fetch or execute anything, and `role="img"` with `aria-labelledby` is how
+     an SVG logo gets an accessible name.
    - DOMPurify's allowlist refuses `<script>`, `<foreignObject>`, `<iframe>`, `<embed>`, `<object>`,
      `<set>`, `<animate>`, every `on*` handler and `javascript:` URLs. Every DOMPurify removal is
-     `active_content`, except an attribute it does not know whose name is not `on*`/`href`-like and
-     whose value carries no URL or scheme (`enable-background`, editor presentation hints), which is
-     `inert`.
+     `active_content`, with two exceptions that are `inert`:
+     - a namespace declaration;
+     - an attribute DOMPurify does not know whose value carries no URL or scheme
+       (`enable-background`, editor presentation hints) — unless its name is `on*`/`href`-like, or is
+       one other content depends on: `id`, `name`, `class`, `attributeName`. DOMPurify drops an
+       `attributeName` naming `href` from an otherwise allowed animation element, which must refuse
+       rather than store a changed animation.
 3. *Reference and CSS policy* on the sanitised copy (`findReferenceViolation`). It returns the first
    violation and removes nothing, because a violation refuses the document:
    - an element carrying both `href` and `xlink:href` with different values → `active_content`.
      Browsers follow SVG 2 `href` over `xlink:href`, so a decoy `xlink:href` must not be what the
      policy reads; when they agree, `href` is the one followed;
-   - `href` / `xlink:href` must be an in-document fragment (`#id`). On `<image>`/`<feImage>` a
+   - `href` / `xlink:href` must be an in-document fragment (`#id`) after stripping only what the URL
+     parser strips (leading and trailing C0 controls and spaces). On `<image>`/`<feImage>` a
      `data:image/(png|jpeg|gif|webp);base64,…` URI is also accepted, and its decoded bytes must
      carry the matching raster signature. `javascript:`/`vbscript:`/other `data:` →
      `active_content`; anything else → `external_reference`;
@@ -226,13 +259,15 @@ and a comment inside an unquoted `url(` stays part of the URL. The result is:
     and logos need none);
   - a string ended by a newline or by the end of the text;
   - an unterminated comment or `url(` token;
-  - a malformed unquoted URL (quote, `(`, or inner whitespace);
+  - a malformed unquoted URL (quote, `(`, or inner ASCII whitespace);
   - `expression()`, and the identifiers `behavior`, `-moz-binding`, `javascript`, `vbscript`;
 - `external_reference` for:
   - `@import`;
   - any of `image()`, `image-set()`, `cross-fade()`, `element()`, `src()`, `attr()`, with or without
     a vendor prefix (these accept a bare string URL);
-  - a `url()` whose target is neither `#id` nor an allowed raster `data:` URI;
+  - a `url()` whose target is neither `#id` nor an allowed raster `data:` URI. An unquoted target loses
+    only the ASCII whitespace the tokenizer drops, and a quoted one loses nothing. So `url(\u3000#a)`
+    and `url(" #a")` are relative URLs, as browsers read them;
 - nothing otherwise.
 
 The rule is deliberately stricter than a browser: anything that could make two CSS parsers disagree
@@ -268,50 +303,58 @@ Three sources of super-linear cost were found by profiling and are removed:
 3. **`<use>` expansion.** One pre-order pass and an iterative post-order over the element graph
    (tree children plus each `<use>` target) compute each element's rendered size once.
 
-Measured on an Intel i5-1235U laptop (Windows 11, Node 24) while another build was running. Each
-case is the maximum of three warm runs. Each run gets its own macrotask and a forced GC, as separate
-uploads do:
+Measured on an Intel i5-1235U laptop (Windows 11, Node 24) while another agent's build was running
+on the same machine. Each case was run seven times, each run in its own macrotask after a forced GC,
+as separate uploads are. The table gives the median and the maximum. Run-to-run variance from the
+concurrent build was large: the same shape measured a 173 ms maximum in one run and a 478 ms median in
+another.
 
-| Document (just under every bound unless stated) | Before these fixes | After |
+| Document (just under every bound unless stated) | Before these fixes | After: median / max |
 |---|---|---|
-| `<text>` filled with `a<!---->`, 128 KiB | 16,216 ms, accepted | 1 ms, refused by the markup bound |
-| `<style>` filled with `<?a?>`, 64 KiB | 12,471 ms | 1 ms, refused by the markup bound |
-| 1 MiB of flat `<!---->` | 2,482 ms, accepted | 10 ms, refused by the markup bound |
-| 1 MiB of `a<g/>` | not measured (minutes) | 23 ms, refused by the markup bound |
-| 4,000 rects × 3 levels of 10 `<use>` (4 million rendered) | accepted | 111 ms, refused by the rendered bound |
-| text with a comment between every character | — | 127 ms |
-| text with a PI between every character | — | 190 ms |
-| text with a CDATA section between every character | — | 257 ms |
-| flat comments / flat PIs / prolog comments | — | 84 / 60 / 33 ms |
-| text alternating with allowed elements | — | 189 ms |
-| text alternating with disallowed elements (refused) | — | 122 ms |
-| text alternating with XHTML elements (refused) | — | 62 ms |
-| text alternating with foreign editor elements | — | 152 ms |
-| `<metadata>` holding foreign elements | — | 31 ms |
-| elements at the element and attribute bounds | — | 289 ms |
-| elements at the per-element attribute bound | — | 149 ms |
-| editor-namespaced attributes at the bounds | — | 211 ms |
-| paths with `url()` paint at the attribute bound | — | 333 ms |
-| `<use>` at the element bound | — | 209 ms |
-| `<use>` rendering just under the rendered bound | — | 56 ms |
-| nesting at the depth bound | — | 262 ms |
-| a 1 MiB stylesheet / 1 MiB of text | — | 71 / 52 ms |
-| whitespace-formatted rects at the node bound | — | 223 ms |
+| `<text>` filled with `a<!---->`, 128 KiB | 16,216 ms, accepted | refused by the markup bound in 3 ms |
+| `<style>` filled with `<?a?>`, 64 KiB | 12,471 ms | refused by the markup bound in 2 ms |
+| 1 MiB of flat `<!---->` | 2,482 ms, accepted | refused by the markup bound in 15 ms |
+| 1 MiB of `a<g/>` | not measured (minutes) | refused by the markup bound in 52 ms |
+| 1,000 rects × 3 levels of 10 `<use>` (1 million rendered) | accepted | refused by the rendered bound |
+| text with a comment between every character | — | 201 / 247 ms |
+| text with a PI between every character | — | 194 / 279 ms |
+| text with a CDATA section between every character | — | 240 / 273 ms |
+| flat comments / flat PIs / prolog comments | — | 130 / 223, 83 / 103, 52 / 71 ms |
+| text alternating with allowed elements | — | 262 / 289 ms |
+| text alternating with disallowed elements (refused) | — | 217 / 327 ms |
+| text alternating with XHTML elements (refused) | — | 162 / 202 ms |
+| text alternating with foreign editor elements | — | 156 / 236 ms |
+| `<metadata>` holding foreign elements | — | 50 / 76 ms |
+| elements at the element and attribute bounds | — | 328 / 412 ms |
+| elements at the per-element attribute bound | — | 187 / 408 ms |
+| editor-namespaced attributes at the bounds | — | 298 / 339 ms |
+| rects with five kept presentation attributes at the attribute bound | — | 401 / 483 ms |
+| paths with `url()` paint at the attribute bound | — | 426 / 715 ms |
+| `<use>` at the element bound | — | 338 / 580 ms |
+| `<use>` rendering just under the rendered bound | — | 187 / 255 ms |
+| nesting at the depth bound | — | 283 / 368 ms |
+| a 1 MiB stylesheet / 1 MiB of text | — | 243 / 410, 145 / 365 ms |
+| whitespace-formatted rects at the node bound | — | 478 / 655 ms |
 | first call in a process (loads `jsdom` and `dompurify`) | — | 0.5–1.6 s, once |
 
-The warm worst case at the bounds is 333 ms. Benchmarks that keep calls inside one macrotask
-measure up to three times more and a growing heap: jsdom tracks NodeIterators through `WeakRef`s,
-which keep their targets alive until the current job ends. With one call per macrotask, as in a
-server, the heap stays flat (28–30 MB over 12 consecutive calls on the largest shape).
+Every median at the bounds is under 0.5 s. The maxima, up to 0.72 s, coincide with spikes from the
+concurrent build. The previous bounds (3,000 elements, 15,000 attributes) measured 1.0–1.65 s on
+attribute-heavy shapes under the same conditions, which is why they were lowered.
 
-The `bounded cost` test sanitises fifteen shapes at the bounds (the above plus the node floods) and
-asserts each finishes under 5 s. That is about fifteen times the measured worst case, so a slow CI
+Benchmarks that keep calls inside one macrotask measure up to three times more and a growing heap:
+jsdom tracks NodeIterators through `WeakRef`s, which keep their targets alive until the current job
+ends. With one call per macrotask, as in a server, the heap stays flat (28–30 MB over 12 consecutive
+calls on the largest shape).
+
+The `bounded cost` test sanitises sixteen shapes at the bounds (the above plus the node floods) and
+asserts each finishes under 5 s. That is more than ten times the measured worst case, so a slow CI
 runner cannot make it flaky, while the pre-fix behaviour (2.5–27 s at sizes the bounds now refuse)
 would fail it.
 
 **Why sanitising stays on the request's event loop rather than in a worker thread:**
-- **The cost is small and bounded.** It is at most about a third of a second, on an upload path that
-  is authenticated, module-initiated and rare (a logo per record).
+- **The cost is small and bounded.** It is under half a second at the median and under three
+  quarters of a second at worst, on an upload path that is authenticated, module-initiated and rare
+  (a logo per record).
 - **A worker would cost more than it saves.** A worker per call reloads `jsdom` (0.5 s or more cold),
   which is more than the work it would move.
 - **A pool is a lifecycle problem for a library.** Start, crash recovery and shutdown would live
@@ -480,9 +523,9 @@ has the same problem.
 |---|---|---|---|---|
 | Sanitiser bypass yields script in a stored SVG | High | XSS on direct navigation | DOMPurify allowlist; refusal at the first non-inert finding; reference and tokenised CSS policy on exactly what browsers apply; serving CSP `sandbox`/`default-src 'none'`; `nosniff`; `<img>` embedding disables script regardless | Low: requires a DOMPurify bypass *and* a CSP bypass |
 | Parser differential (CSS strings, `<style>` children, `href` precedence, DOCTYPE lexing) hides a reference | Medium | privacy | CSS Syntax Level 3 tokenisation; text-only `<style>`; conflicting `href`s refused; XML-aware DTD scan; `default-src 'none'` at serve | Low |
-| Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute and rendered bounds; linear passes; first-finding stop; DOMPurify on a copy; cost test | ~0.3 s worst case per upload |
+| Event-loop stall | Medium | availability | byte, markup, node, element, depth, attribute and rendered bounds; linear passes; first-finding stop; DOMPurify on a copy; cost test | under 0.5 s median and 0.72 s maximum per upload at the bounds, measured under concurrent load |
 | Render DoS via `<use>` amplification | Low | client | rendered-element bound weighted by referenced subtree size, with cycle detection | Pattern tiles repeat with the painted area, which a browser bounds by resolution |
-| Legitimate logos refused | Low | UX | editor namespaces, metadata, comments, DOCTYPE, CDATA and unknown presentation attributes are accepted; codes name the problem | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, or more than 3,000 elements need re-exporting |
+| Legitimate logos refused | Low | UX | editor namespaces and declarations (Inkscape's `xmlns:svg`), any XLink prefix, metadata, comments, DOCTYPE, CDATA, unknown presentation attributes, ids such as `title`, `role` and `aria-*` are accepted; codes name the problem; 224 of 230 SVGs in the dependency tree accepted (the rest are SVG fonts) | Exports with `foreignObject` fallbacks, web fonts, CSS escapes, or more than 2,000 elements or 6,000 attributes need re-exporting |
 | Forged `vectorImage` record on an unsanitised row | Low | XSS | no endpoint writes arbitrary metadata keys; SHA-256 binding to stored bytes; CSP still applies | Requires DB write access |
 | A non-SVG response under the file path gets the vector CSP's extra allowances | Low | headers | they only affect a document rendered inline, and the route renders only sanitised SVG inline; `default-src 'none'` and `sandbox` stay | — |
 | `jsdom` weight | Low | memory/startup | lazy load; server-external; heap flat across requests (measured) | 0.5–1.6 s first-call load per process |
@@ -530,14 +573,17 @@ Verified with a trial merge of the owner-scoped reads branch into this one:
 Every bullet below is a test that exists.
 
 - `lib/__tests__/vector-image.test.ts` (fixtures in `vector-image.fixtures.ts`)
-  - **Hostile documents** — 55 fixtures. For each, `sanitizeVectorImage` refuses with the listed
+  - **Hostile documents** — 61 fixtures. For each, `sanitizeVectorImage` refuses with the listed
     code and returns no document, and `prepareVectorImageUpload` refuses with the same code:
-    - `vector_image_unsafe_content` (33):
+    - `vector_image_unsafe_content` (36):
       - script and handlers: `<script>`; XHTML-namespaced `<html:script>`; a script hidden inside
         a foreign-namespace wrapper; a script hidden inside `<metadata>`; `onload` on the root;
         `onclick` on a shape;
       - embedded and animated content: `<foreignObject>` with HTML; `<iframe>`; `<embed>`;
         `<object>`; `<set attributeName="href">`; `<animate attributeName="xlink:href">`;
+        `<animateTransform attributeName="href">` (DOMPurify drops the `attributeName`);
+        `<animateMotion attributeName="xlink:href">`; a paint attribute starting with U+3000 that
+        DOMPurify would trim away;
       - unsafe URLs: a `javascript:` link, plain and obfuscated with a character reference;
         non-raster `data:image/svg+xml` on `<image>`; a `data:image/png` URI on `<image>` whose
         bytes are not a PNG; an `<feImage>` `data:image/png` URI whose bytes are not a PNG; an
@@ -550,9 +596,10 @@ Every bullet below is a test that exists.
         comment, and by a processing instruction; CDATA and an element mixed;
       - `href` decoys: a `<use>` chain whose `href` differs from an `xlink:href` decoy; a `<use>`
         self-cycle hidden behind an `xlink:href` decoy.
-    - `vector_image_external_reference` (15):
+    - `vector_image_external_reference` (18):
       - links: external `xlink:href` on `<image>`; external `href` on `<feImage>`;
-        `<use href="https://…">`;
+        `<use href="https://…">`; an `href` whose target starts with U+3000;
+      - whitespace that browsers keep: `fill="url(\u3000#a)"`; `url(" #a")` in a stylesheet;
       - CSS comment and string tricks: a comment opener hidden in a double-quoted CSS string before
         an external `url()`, and before an external `@font-face`; the same in a `style=""`
         attribute; the same in a single-quoted CSS string; a comment inside an unquoted `url()`; an
@@ -564,8 +611,9 @@ Every bullet below is a test that exists.
       DOCTYPE whose double-quoted public id contains `>` ahead of an internal subset carrying
       `<!ATTLIST … onload …>`; the same with a single-quoted system id; a DOCTYPE quote opened
       inside a comment ahead of a real internal subset.
-    - `vector_image_too_complex` (2): a 2,000-rect group amplified by three levels of ten `<use>`,
-      through `href` and through `xlink:href`.
+    - `vector_image_too_complex` (2): a 1,000-rect group amplified by three levels of ten `<use>`,
+      through `href` and through `xlink:href` (inside every other bound, so the rendered-element
+      bound is what refuses it).
   - **Benign documents** that are stored, with the structures named here present in the output:
     - a combined logo: `<style>` block, linear and radial gradients, clip path, mask, in-document
       `<use>` via both `href` and `xlink:href`, embedded base64 PNG on `<image>`,
@@ -577,7 +625,19 @@ Every bullet below is a test that exists.
     - an editor export (comment, plain DOCTYPE, Inkscape/Sodipodi/RDF metadata);
     - a `<style>` that mentions a DOCTYPE inside a CSS comment in CDATA;
     - CDATA text outside `<style>`, kept as text;
-    - `href` and `xlink:href` that agree.
+    - `href` and `xlink:href` that agree;
+    - an Inkscape 1.3.2 "Inkscape SVG" export (`xmlns:svg`, `xmlns:inkscape`, `xmlns:sodipodi`,
+      `sodipodi:namedview`, `inkscape:*` attributes) and an Inkscape "Plain SVG" export
+      (`xmlns:svg`). Only editor data is dropped and the drawing is kept. The fixtures reproduce
+      Inkscape 1.3.2's standard root element and named view, as no Inkscape export exists in this
+      repository;
+    - an XLink reference under the prefix `x` (`xmlns:x` + `x:href`), stored as `xlink:href`;
+    - ids that clash with document properties (`title`, `body`, `images`, `links`, `fonts`,
+      `style`, `name`, `action`) together with the `url(#…)` references to them;
+    - the accessible-name pattern: `role="img"`, `aria-labelledby` and the `<title id>`/`<desc id>`
+      it points at;
+    - an unquoted `url( #a )` with ASCII whitespace;
+    - a non-ASCII space at the edge of an attribute that carries no reference.
 
     A stored document reports only inert removals.
   - **Idempotence**: sanitising the sanitised output of the four main benign documents removes
@@ -588,24 +648,25 @@ Every bullet below is a test that exists.
     - `too_large`: over 1 MiB, and a document under 1 MiB whose serialised form exceeds it;
     - `too_complex`: more markup than the markup bound (refused before parsing); more nodes than the
       node bound (text and comments); more elements; nesting over 64; an element with more than 64
-      attributes; more than 15,000 attributes in total; exponential `<use>` expansion; a `<use>`
+      attributes; more than 6,000 attributes in total; exponential `<use>` expansion; a `<use>`
       cycle;
     - accepted: modest `<use>` reuse;
     - `malformed`: not well-formed XML, an HTML document, an `<svg>` root outside the SVG namespace,
       plain text, and non-UTF-8 bytes.
-  - **Bounded cost**: fifteen documents at the bounds sanitise (or are refused) in under 5 s each
+  - **Bounded cost**: sixteen documents at the bounds sanitise (or are refused) in under 5 s each
     (§ 4):
-    - elements at the element and attribute bounds; paths with `url()` paint; elements at the
-      per-element attribute bound; editor-namespaced attributes;
+    - elements at the element and attribute bounds; paths with `url()` paint; rects with five kept
+      presentation attributes; elements at the per-element attribute bound; editor-namespaced
+      attributes;
     - `<use>` at the element bound; nesting at the depth bound;
     - text interleaved with comments, with PIs and with CDATA; flat comments; flat PIs; prolog
       comments;
     - text interleaved with disallowed elements (refused) and with foreign editor elements;
     - whitespace-formatted elements at the node bound.
-  - **`inspectVectorImageCss`**: a 15-case table:
+  - **`inspectVectorImageCss`**: a 17-case table:
     - pass: fragment and raster `data:` `url()`s, plain declarations, a commented `url(#…)`;
     - external: external, protocol-relative and relative `url()`, `@import` (any case),
-      `-webkit-image-set()`;
+      `-webkit-image-set()`, `url(\u3000#a)`, `url(" #a")`;
     - unsafe: an unterminated `url(`, a CSS escape, `expression()`, `javascript:` inside `url()`.
   - **`isVectorImageUploadCandidate`**: `.svg` accepted; extension-less accepted by declared or
     sniffed type; `.html`, `.xhtml`, `.xml`, `.htm` never accepted.
@@ -682,8 +743,8 @@ Regression proofs run during implementation:
     amplification and decoy cases, and the comment-hidden DOCTYPE.
   - The rest are the change from stripping to refusing.
   - The template header test failed on the round-one config (`actual: undefined`).
-- **A red-team probe** (36 inputs: every class above plus the floods at 128 KiB–1 MiB) refused or
-  accepted each as expected, in at most 116 ms per input outside the first-load call.
+- **A red-team probe** (46 inputs: every class above, the floods at 128 KiB–1 MiB and the third-round cases) refused or
+  accepted each as expected, in at most 52 ms per input outside the first-load call.
 
 ## Final Compliance Report
 
@@ -698,6 +759,17 @@ Regression proofs run during implementation:
 
 ## Changelog
 
+- 2026-10-07 — Third review round:
+  - Inkscape exports accepted: every namespace declaration except the default and `xmlns:xlink` is
+    dropped as inert, and other XLink prefixes are rewritten as `xlink:`.
+  - `SANITIZE_DOM: false` (justified in § 3) and `role` allowed, so ids such as `title` and the
+    accessible-name pattern survive; DOMPurify removals of `id`, `name`, `class` or
+    `attributeName` refuse.
+  - References are trimmed only as their own syntax trims; attributes DOMPurify would trim
+    differently from a browser are refused.
+  - Bounds lowered to 2,000 elements, 4,000 nodes and markup, and 6,000 attributes after
+    re-measuring under load (§ 4).
+  - Dependency corpus: 224 of 230 accepted, the rest SVG fonts.
 - 2026-10-06 — Second review round:
   - `<style>` restricted to text children and inspected as browsers read it.
   - Every node type counted, plus a pre-parse markup bound and lower measured bounds.

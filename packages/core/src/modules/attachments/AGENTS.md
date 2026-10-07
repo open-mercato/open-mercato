@@ -91,6 +91,10 @@ write time.
 - A `<style>` may contain only text: check its children, and inspect exactly the
   concatenation of its direct text children (what browsers apply), never
   `textContent`.
+- Trim a reference only as its own syntax does: C0 controls and spaces for an
+  `href`, ASCII CSS whitespace for an unquoted `url()`, nothing for a quoted one.
+  Never use JavaScript `trim()` on a reference, and refuse a reference-bearing
+  attribute that DOMPurify's `trim()` would change.
 
 ## Never
 

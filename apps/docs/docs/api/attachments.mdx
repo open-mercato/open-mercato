@@ -228,7 +228,7 @@ With `allowVectorImage: true`, an `.svg` file (or an extension-less file declare
 | `vector_image_too_large` | 413 | over 1 MiB, before or after sanitising |
 | `vector_image_malformed` | 400 | not UTF-8, not well-formed XML, or the root is not `<svg>` |
 | `vector_image_entity_declaration` | 400 | a DTD declaration (`<!ENTITY>`, `<!ATTLIST>`, `<!ELEMENT>`, `<!NOTATION>`) or a DOCTYPE internal subset |
-| `vector_image_too_complex` | 400 | over 6,000 markup tags or nodes, 3,000 elements, nesting deeper than 64, 64 attributes on one element or 15,000 in total, or over 50,000 rendered elements once `<use>` references are expanded (or a `<use>` cycle) |
+| `vector_image_too_complex` | 400 | over 4,000 markup tags or nodes, 2,000 elements, nesting deeper than 64, 64 attributes on one element or 6,000 in total, or over 50,000 rendered elements once `<use>` references are expanded (or a `<use>` cycle) |
 | `vector_image_unsafe_content` | 400 | scripts, event handlers, `foreignObject`, embedded documents, XHTML elements, `javascript:`/non-raster `data:` URLs, `<set>`/`<animate>`, a `<style>` containing anything but text, `href` and `xlink:href` that disagree, or CSS with escapes, expressions, or unterminated strings, comments or `url(` |
 | `vector_image_external_reference` | 400 | links, `url()`, `@import` or stylesheets pointing outside the document |
 | `vector_image_sanitizer_unavailable` | 500 | the sanitiser could not be loaded |
