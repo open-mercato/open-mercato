@@ -4,6 +4,7 @@ import {
   createIntervalState,
   describeTaskOption,
   reduceIntervalState,
+  resolveTimeEntryDialogMode,
   shiftIsoDate,
   toTaskOption,
   toTimeEntryRecord,
@@ -169,5 +170,29 @@ describe('task option references', () => {
   it('falls back to the plain label when a task has no reference', () => {
     const option = toTaskOption({ id: 't1', title: 'Untracked' })!
     expect(describeTaskOption(option, null)).toBe('Untracked')
+  })
+})
+
+describe('resolveTimeEntryDialogMode', () => {
+  const projectOnly = { taskId: null, timeProjectId: 'project-1' }
+  const withTask = { taskId: 'task-1', timeProjectId: 'project-1' }
+
+  it('opens a project-only entry in project mode whatever the prop or setting says', () => {
+    expect(resolveTimeEntryDialogMode({ entry: projectOnly, propMode: 'task', settingMode: 'task' })).toBe('project')
+  })
+
+  it('lets the prop override the tenant setting', () => {
+    expect(resolveTimeEntryDialogMode({ entry: withTask, propMode: 'task', settingMode: 'project' })).toBe('task')
+    expect(resolveTimeEntryDialogMode({ entry: null, propMode: 'project', settingMode: 'task' })).toBe('project')
+  })
+
+  it('follows the tenant setting when no prop is passed', () => {
+    expect(resolveTimeEntryDialogMode({ entry: null, propMode: undefined, settingMode: 'project' })).toBe('project')
+    expect(resolveTimeEntryDialogMode({ entry: withTask, propMode: null, settingMode: 'project' })).toBe('project')
+  })
+
+  it('falls back to task mode while the setting is unknown', () => {
+    expect(resolveTimeEntryDialogMode({ entry: null, propMode: undefined, settingMode: null })).toBe('task')
+    expect(resolveTimeEntryDialogMode({ entry: { taskId: null, timeProjectId: null }, propMode: undefined, settingMode: undefined })).toBe('task')
   })
 })

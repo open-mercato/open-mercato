@@ -5,6 +5,7 @@ import {
   type ComputedIntervalField,
   type IntervalInput,
 } from '../time-tracking/interval'
+import type { TimeEntryMode } from '../time-tracking/settings'
 
 export type IntervalField = 'start' | 'end' | 'duration'
 
@@ -397,4 +398,21 @@ export function toOverlapEntry(row: ApiRow): OverlapEntry | null {
     projectName: readRowString(row, 'project_name', 'projectName'),
     description: readRowString(row, 'notes', 'description'),
   }
+}
+
+/**
+ * Which way the dialog logs time. An entry that already has a project and no task
+ * can only be edited as a project entry, whatever the host or the tenant asks for;
+ * otherwise an explicit `mode` prop wins over the tenant's `defaults.entryMode`,
+ * and task mode is the fallback while the settings are unknown.
+ */
+export function resolveTimeEntryDialogMode(input: {
+  entry: Pick<TimeEntryRecord, 'taskId' | 'timeProjectId'> | null
+  propMode: TimeEntryMode | null | undefined
+  settingMode: TimeEntryMode | null | undefined
+}): TimeEntryMode {
+  if (input.entry && !input.entry.taskId && input.entry.timeProjectId) return 'project'
+  if (input.propMode === 'task' || input.propMode === 'project') return input.propMode
+  if (input.settingMode === 'project') return 'project'
+  return 'task'
 }
