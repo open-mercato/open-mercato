@@ -1,4 +1,5 @@
 {
+  "notifications.categories.wms": "Warehouse",
   "search.entityType.wms.inventory_lot": "Inventory lot",
   "search.entityType.wms.product_inventory_profile": "Inventory profile",
   "search.entityType.wms.warehouse": "Warehouse",

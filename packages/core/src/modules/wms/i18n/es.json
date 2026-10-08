@@ -1,4 +1,5 @@
 {
+  "notifications.categories.wms": "Almacén",
   "search.entityType.wms.inventory_lot": "Lote de inventario",
   "search.entityType.wms.product_inventory_profile": "Perfil de inventario",
   "search.entityType.wms.warehouse": "Almacén",
