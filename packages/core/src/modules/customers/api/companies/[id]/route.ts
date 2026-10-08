@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerEntity,
@@ -455,7 +456,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     { populate: ['companyProfile'] },
     {
       tenantId: auth.tenantId ?? null,
-      organizationId: scope?.selectedId ?? auth.orgId ?? null,
+      organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     },
   )
   if (!company) return notFound('Company not found')
@@ -473,7 +474,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   const companyScope = {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
-    organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
+    organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
   }
 
   // Per-user email privacy (CRM email integration): exclude private email
@@ -513,7 +514,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         tenantId: cacheTenantId,
         organizationId: companyScope.organizationId,
         companyId: company.id,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         filterIds: scope?.filterIds ?? null,
         allowedIds: scope?.allowedIds ?? null,
         isSuperAdmin: auth.isSuperAdmin === true,
@@ -633,7 +634,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         em,
         container,
         auth,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         interactions: canonicalActiveInteractions,
         enrich: includeInteractions,
       })
@@ -670,7 +671,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         em,
         container,
         auth,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         interactions: plannedPreviewRows,
         enrich: true,
       })
@@ -819,7 +820,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   const peopleUnionScope = {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
-    organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
+    organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
   }
   let relatedPeople: CompanyPersonUnionEntry[] = []
   if (includePeople) {
