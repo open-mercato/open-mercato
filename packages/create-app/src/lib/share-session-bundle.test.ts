@@ -513,7 +513,7 @@ test('session-share preparer fails closed for incomplete sessions and unsafe fil
     }
   })
 
-  await t.test('symlink', () => {
+  await t.test('symlink', { skip: process.platform === 'win32' && 'file symlinks need Developer Mode on Windows' }, () => {
     const fixture = createFixture()
     try {
       fs.writeFileSync(fixture.sessionPath, JSON.stringify([{ type: 'user' }, { type: 'assistant' }]))

@@ -57,6 +57,10 @@ function run(root: string, ...args: string[]): ReturnType<typeof spawnSync> {
   })
 }
 
+function linkTarget(link: string): string {
+  return path.resolve(path.dirname(link), fs.readlinkSync(link))
+}
+
 function removeFixture(root: string): void {
   fs.rmSync(root, { recursive: true, force: true })
 }
@@ -107,8 +111,8 @@ test('standalone installer needs only Node and creates the canonical plus Claude
   try {
     const result = run(root, '--no-external')
     assert.equal(result.status, 0, result.stderr)
-    assert.equal(fs.readlinkSync(path.join(root, '.agents', 'skills', 'om-alpha')), '../../.ai/skills/om-alpha')
-    assert.equal(fs.readlinkSync(path.join(root, '.claude', 'skills', 'om-alpha')), '../../.agents/skills/om-alpha')
+    assert.equal(linkTarget(path.join(root, '.agents', 'skills', 'om-alpha')), path.join(root, '.ai', 'skills', 'om-alpha'))
+    assert.equal(linkTarget(path.join(root, '.claude', 'skills', 'om-alpha')), path.join(root, '.agents', 'skills', 'om-alpha'))
     assert.equal(fs.existsSync(path.join(root, '.codex', 'skills')), false)
     assert.equal(fs.existsSync(path.join(root, '.cursor', 'skills')), false)
     assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-code-review')), false)
@@ -138,7 +142,7 @@ test('legacy directory links migrate safely and clean preserves unknown user pat
   const root = fixture()
   try {
     fs.mkdirSync(path.join(root, '.claude'), { recursive: true })
-    fs.symlinkSync(path.join('..', '.ai', 'skills'), path.join(root, '.claude', 'skills'))
+    fs.symlinkSync(path.join('..', '.ai', 'skills'), path.join(root, '.claude', 'skills'), process.platform === 'win32' ? 'junction' : 'dir')
     fs.mkdirSync(path.join(root, '.agents', 'skills', 'user-skill'), { recursive: true })
     fs.writeFileSync(path.join(root, '.agents', 'skills', 'user-skill', 'README.md'), 'mine\n')
 
@@ -673,7 +677,7 @@ test('verified regular external skills reinstall idempotently with matching owne
     assert.equal(downloadCount, 2)
     assert.equal(installer.hashSkillDirectory(installed), pinnedHash)
     assert.equal(fs.lstatSync(installed).isSymbolicLink(), false)
-    assert.equal(fs.readlinkSync(path.join(root, '.claude', 'skills', 'om-code-review')), '../../.agents/skills/om-code-review')
+    assert.equal(linkTarget(path.join(root, '.claude', 'skills', 'om-code-review')), path.join(root, '.agents', 'skills', 'om-code-review'))
     const ledger = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'skills', '.om-external-ownership.json'), 'utf8')) as {
       skills: Record<string, string>
     }

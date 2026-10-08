@@ -630,7 +630,8 @@ test('family 5: symlink escapes, generated caches, and sensitive paths fail clos
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-example-outside-')))
   try {
     fs.writeFileSync(path.join(outside, 'stolen.ts'), 'export const secret = "must-not-be-read"\n')
-    fs.symlinkSync(path.join(outside, 'stolen.ts'), path.join(root, EXAMPLE_ROOT, 'escape.ts'))
+    const fileSymlinks = process.platform !== 'win32'
+    if (fileSymlinks) fs.symlinkSync(path.join(outside, 'stolen.ts'), path.join(root, EXAMPLE_ROOT, 'escape.ts'))
     fs.symlinkSync(outside, path.join(root, EXAMPLE_ROOT, 'escape-dir'), linkType)
     fs.mkdirSync(path.join(root, EXAMPLE_ROOT, '.mercato', 'generated'), { recursive: true })
     fs.writeFileSync(path.join(root, EXAMPLE_ROOT, '.mercato', 'generated', 'modules.js'), 'generated\n')
@@ -641,7 +642,7 @@ test('family 5: symlink escapes, generated caches, and sensitive paths fail clos
 
     const caseRecord = declaredCase({})
     const cases: Array<[string, RegExp]> = [
-      [`${EXAMPLE_ROOT}/escape.ts`, /follows a symbolic link/],
+      ...(fileSymlinks ? [[`${EXAMPLE_ROOT}/escape.ts`, /follows a symbolic link/] as [string, RegExp]] : []),
       [`${EXAMPLE_ROOT}/escape-dir/stolen.ts`, /resolves outside its declared path/],
       [`${EXAMPLE_ROOT}/.mercato/generated/modules.js`, /generated or protected directory/],
       [`${EXAMPLE_ROOT}/dist/bundle.js`, /generated or protected directory/],

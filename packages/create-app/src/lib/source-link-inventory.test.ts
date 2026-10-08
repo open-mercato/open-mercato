@@ -132,8 +132,8 @@ test('the regenerate-and-diff gate fails on a stale checked inventory', () => {
   try {
     const createApp = path.join(root, 'packages/create-app')
     fs.mkdirSync(path.join(createApp, 'scripts/source-links'), { recursive: true })
-    fs.symlinkSync(path.join(packageRoot, 'agentic'), path.join(createApp, 'agentic'), 'dir')
-    fs.symlinkSync(path.join(packageRoot, 'template'), path.join(createApp, 'template'), 'dir')
+    fs.symlinkSync(path.join(packageRoot, 'agentic'), path.join(createApp, 'agentic'), process.platform === 'win32' ? 'junction' : 'dir')
+    fs.symlinkSync(path.join(packageRoot, 'template'), path.join(createApp, 'template'), process.platform === 'win32' ? 'junction' : 'dir')
     for (const relativePath of [generator.TOPICS_RELATIVE_PATH, generator.BASELINE_RELATIVE_PATH]) {
       fs.copyFileSync(path.join(repoRoot, relativePath), path.join(root, relativePath))
     }
@@ -653,7 +653,7 @@ test('a stale projection fails the same regenerate-and-diff gate as a stale inve
     const createApp = path.join(root, 'packages/create-app')
     fs.mkdirSync(path.join(createApp, 'scripts/source-links'), { recursive: true })
     fs.cpSync(path.join(packageRoot, 'agentic'), path.join(createApp, 'agentic'), { recursive: true })
-    fs.symlinkSync(path.join(packageRoot, 'template'), path.join(createApp, 'template'), 'dir')
+    fs.symlinkSync(path.join(packageRoot, 'template'), path.join(createApp, 'template'), process.platform === 'win32' ? 'junction' : 'dir')
     for (const relativePath of [generator.TOPICS_RELATIVE_PATH, generator.BASELINE_RELATIVE_PATH]) {
       fs.copyFileSync(path.join(repoRoot, relativePath), path.join(root, relativePath))
     }

@@ -44,7 +44,7 @@ test('resolves null when ps exits with a non-zero code', async () => {
   assert.equal(await result, null)
 })
 
-test('sums RSS of the process subtree on the happy path', async () => {
+test('sums RSS of the process subtree on the happy path', { skip: process.platform === 'win32' && 'ps-based process sampling is disabled on Windows' }, async () => {
   const child = createFakeChild()
   const result = getProcessTreeMemoryBytes(100, { spawn: () => child })
 
@@ -55,7 +55,7 @@ test('sums RSS of the process subtree on the happy path', async () => {
   assert.equal(await result, (2048 + 1024) * 1024)
 })
 
-test('returns a rich process-tree memory sample for injected ps output', async () => {
+test('returns a rich process-tree memory sample for injected ps output', { skip: process.platform === 'win32' && 'ps-based process sampling is disabled on Windows' }, async () => {
   const child = createFakeChild()
   const result = getProcessTreeMemorySample(100, { spawn: () => child })
 
