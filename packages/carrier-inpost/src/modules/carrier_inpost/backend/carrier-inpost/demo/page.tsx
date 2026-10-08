@@ -5,6 +5,7 @@ import { match } from 'ts-pattern'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type ProviderStatus = 'idle' | 'loading' | 'found' | 'not_found' | 'error'
@@ -185,8 +186,13 @@ function AddressForm({
   )
 }
 
+const DEMO_MUTATION_CONTEXT_ID = 'carrier_inpost.demo'
+
 export default function InpostDemoPage() {
   const t = useT()
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: DEMO_MUTATION_CONTEXT_ID,
+  })
 
   const [origin, setOrigin] = React.useState<AddressFields>(DEFAULT_ORIGIN)
   const [destination, setDestination] = React.useState<AddressFields>(DEFAULT_DESTINATION)
@@ -359,28 +365,43 @@ export default function InpostDemoPage() {
     if (!selectedRate) return
     setShipmentStatus('loading')
     setShipmentError(null)
-    const res = await apiCall(
-      '/api/shipping-carriers/shipments',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          providerKey: INPOST_PROVIDER_KEY,
-          orderId: DEMO_ORDER_ID,
-          origin,
-          destination,
-          packages: [buildPackagePayload()],
-          serviceCode: selectedRate.serviceCode,
-          labelFormat: 'pdf',
-          ...(receiverPhone.trim() !== '' ? { receiverPhone: receiverPhone.trim() } : {}),
-          ...(receiverEmail.trim() !== '' ? { receiverEmail: receiverEmail.trim() } : {}),
-          ...(senderPhone.trim() !== '' ? { senderPhone: senderPhone.trim() } : {}),
-          ...(senderEmail.trim() !== '' ? { senderEmail: senderEmail.trim() } : {}),
-          ...(targetPoint.trim() !== '' ? { targetPoint: targetPoint.trim() } : {}),
-          ...(selectedRate.serviceCode === 'courier_c2c' && c2cSendingMethod !== '' ? { c2cSendingMethod } : {}),
-        }),
-      },
-      {},
-    )
+    const payload = {
+      providerKey: INPOST_PROVIDER_KEY,
+      orderId: DEMO_ORDER_ID,
+      origin,
+      destination,
+      packages: [buildPackagePayload()],
+      serviceCode: selectedRate.serviceCode,
+      labelFormat: 'pdf',
+      ...(receiverPhone.trim() !== '' ? { receiverPhone: receiverPhone.trim() } : {}),
+      ...(receiverEmail.trim() !== '' ? { receiverEmail: receiverEmail.trim() } : {}),
+      ...(senderPhone.trim() !== '' ? { senderPhone: senderPhone.trim() } : {}),
+      ...(senderEmail.trim() !== '' ? { senderEmail: senderEmail.trim() } : {}),
+      ...(targetPoint.trim() !== '' ? { targetPoint: targetPoint.trim() } : {}),
+      ...(selectedRate.serviceCode === 'courier_c2c' && c2cSendingMethod !== '' ? { c2cSendingMethod } : {}),
+    }
+    let res: Awaited<ReturnType<typeof apiCall>>
+    try {
+      res = await runMutation({
+        operation: () => apiCall(
+          '/api/shipping-carriers/shipments',
+          { method: 'POST', body: JSON.stringify(payload) },
+          {},
+        ),
+        mutationPayload: payload,
+        context: {
+          formId: DEMO_MUTATION_CONTEXT_ID,
+          operation: 'create',
+          actionId: 'create-shipment',
+          resourceKind: 'shipping_carriers.shipment',
+          retryLastMutation,
+        },
+      })
+    } catch {
+      setShipmentStatus('error')
+      setShipmentError(t('carrier_inpost.demo.shipmentFailed', 'Failed to create shipment'))
+      return
+    }
     if (!res.ok || !res.result) {
       setShipmentStatus('error')
       setShipmentError(
@@ -419,17 +440,33 @@ export default function InpostDemoPage() {
     setCancelStatus('loading')
     setCancelError(null)
     setCancelMessage(null)
-    const res = await apiCall(
-      '/api/shipping-carriers/cancel',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          providerKey: INPOST_PROVIDER_KEY,
-          shipmentId: shipment.shipmentId,
-        }),
-      },
-      {},
-    )
+    const payload = {
+      providerKey: INPOST_PROVIDER_KEY,
+      shipmentId: shipment.shipmentId,
+    }
+    let res: Awaited<ReturnType<typeof apiCall>>
+    try {
+      res = await runMutation({
+        operation: () => apiCall(
+          '/api/shipping-carriers/cancel',
+          { method: 'POST', body: JSON.stringify(payload) },
+          {},
+        ),
+        mutationPayload: payload,
+        context: {
+          formId: DEMO_MUTATION_CONTEXT_ID,
+          operation: 'update',
+          actionId: 'cancel-shipment',
+          resourceKind: 'shipping_carriers.shipment',
+          resourceId: shipment.shipmentId,
+          retryLastMutation,
+        },
+      })
+    } catch {
+      setCancelStatus('error')
+      setCancelError(t('carrier_inpost.demo.cancelFailed', 'Failed to cancel shipment'))
+      return
+    }
     if (!res.ok) {
       setCancelStatus('error')
       setCancelError(
