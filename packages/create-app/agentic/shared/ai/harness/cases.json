@@ -21761,5 +21761,88 @@
       "OMH-046",
       "OMH-161"
     ]
+  },
+  {
+    "id": "OMH-240",
+    "title": "Explain why a record holds its value through installed causation instead of a bespoke reason log",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, support staff keep asking why a record field holds its current value, for example why a deal is marked lost or why an order total changed, and whether a person, an API key, a workflow, a business rule, or a scheduled job last set it. The team also wants the records of a module it is building in this app to be explainable the same way. Before proposing any schema, establish whether an installed module already owns this explanation capability and name it together with the installed module whose recorded history it reads, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide: how the team's own module declares which of its fields can be explained instead of storing a reason column or its own change log, and what must run after adding that declaration so it is picked up. Keep tenant and organization boundaries intact, state the access-control posture for explaining a value versus seeing the detailed reasons behind an access denial, and identify the smallest relevant validation. Do not add your own reason, cause, or change-history table before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "record-explanation",
+      "causation"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/insights/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04",
+        "BC-10"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/insights/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/extensions.md",
+        ".ai/guides/modules/audit_logs/index.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "discovered-convention-files",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 53248,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-087",
+      "OMH-204"
+    ]
   }
 ]

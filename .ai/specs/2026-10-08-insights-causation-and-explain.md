@@ -360,7 +360,7 @@ Each phase is one independently reviewable change set (stacked branches).
 |-------|--------|------|-------|
 | 1a — Causation core | Done | 2026-10-08 | Library, command bus, ActionLogService stamping, audit API filters, migrations (columns + concurrent indexes); TC-AUD-009..012 pass |
 | 1b — Propagation | Done | 2026-10-08 | Dispatcher + CLI, queue, events, workflows, business rules, api_keys origin, AI, scheduler, data_sync; TC-WF-066 and TC-BR-013 pass (person events carry the profile id as `id`, the customer entity id as `entityId`; rule logs use the payload `id`) |
-| 2 — Explain core | Not Started | — | — |
+| 2 — Explain core | Done | 2026-10-08 | Module, contract + generator, engine, service, 3 routes, coverage CLI, 11 module declarations; review fixes (record-org feature binding, exact custom-field comparison, continuation caps, envelope verification, synthesized undo values, collection item kinds); TC-INS-010..019 pass |
 | 3 — Price and access | Not Started | — | — |
 | 4a — UI and AI | Not Started | — | — |
 | 4b — Field spots | Not Started | — | — |
@@ -369,6 +369,7 @@ Each phase is one independently reviewable change set (stacked branches).
 
 - 2026-10-08: Spec created; open questions resolved with recommended defaults (owner decision: implement end-to-end without further questions).
 - 2026-10-08: Revised after `om-spec-writing` review and `om-pre-implement-spec` audit: phasing and implementation plan, MVP resources, viewer visibility matrix, field-level authorization, scan budget and cache strategy, field-spot resolution rule (bare `crud-form:*` excluded), corrected D4/D10/D11 and propagation paths, correlation fallback in the command bus, kill switch, BC rows for §3/§4/§5/§9/§11/§13, non-partial concurrent indexes mapped to queries.
+- 2026-10-08: Phase 2 implemented. Contract additions: `itemResourceKinds` on collections, `listRecordIds` on resources, verdict/confidence/gap constant sets, optional history-entry fields; response additions: `causedBy`, `stale`, `orderUncertain`, value `source` (`synthesized` for undo traces), `labelKey`, `dependencies`, `page.continuation`, `viewer.canSeeOwnValues`, summary `logId`.
 
 ### Review — 2026-10-08
 - **Reviewer**: Agent (om-spec-writing fresh-context review) + Agent (om-pre-implement-spec audit)

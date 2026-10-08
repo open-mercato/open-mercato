@@ -47,6 +47,7 @@ The following file names, their expected export names, and their role in module 
 | `notifications.client.ts` | — | MUST NOT change renderer props contract |
 | `ai-agents.ts` | `aiAgents: AiAgentDefinition[]` | MUST NOT change `AiAgentDefinition` required fields; optional sibling exports `aiAgentOverrides` and `aiAgentExtensions` are stable |
 | `ai-tools.ts` | `aiTools: AiToolDefinition[]` | MUST NOT change `AiToolDefinition` / inherited `McpToolDefinition` required fields; optional sibling export `aiToolOverrides` is stable |
+| `insights.explain.ts` | `explainConfig: ExplainModuleConfig` (or default export) built with `defineExplainConfig({ version: 1, ... })` | MUST NOT change the `version: 1` shape or the required fields of `ExplainResourceDescriptor` / field / collection / resolver / provider descriptors; may add optional fields; incompatible shapes require a new `version` |
 | `di.ts` | `register(container)` | MUST NOT change function signature |
 | `cli.ts` | default export | MUST NOT change expected signature |
 | `data/entities.ts` | Entity class exports | See Database Schema rules below |
@@ -277,6 +278,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - MUST NOT remove AI generated registry exports: `aiAgentConfigEntries`, `allAiAgents`, `aiAgentOverrideEntries`, `aiAgentExtensionEntries`, `allAiAgentExtensions`, `aiToolConfigEntries`, `allAiTools`, `aiToolOverrideEntries`
 - MUST NOT change generated AI entry shapes: agent entries keep `{ moduleId, agents, overrides, extensions }`; tool entries keep `{ moduleId, tools, overrides }`
 - MAY add new generated files and new optional fields to `BootstrapData`
+- MUST NOT rename `insights-explain.generated.ts` or its `explainConfigEntries` export (`{ moduleId, config }` entries registered at bootstrap through `registerExplainConfigEntries`)
 - MAY add new generated AI registry exports additively
 - Generated `.ai/guides/module-facts.json` is the v1 compatibility projection. It keeps its existing top-level module record and legacy sections; optional per-module `extensionSurfaces` is ADDITIVE. Its `hosts`, `contributions`, and `unresolved` arrays, correlation-resolution values, exact public IDs, and published classification modes are STABLE.
 - Generated `.ai/guides/module-facts.v2.json` is the additive corrected projection and keeps the same `Record<moduleId, ModuleFactsJsonEntry>` top-level shape. New harness consumers prefer v2 and fall back to v1. Once published, v2 values follow the same generated-facts stability rules; future incompatible corrections require another explicit version boundary.
@@ -590,3 +592,24 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Event IDs, ACL features, DI names, CLI commands, generated files | No change | ✓ n/a |
 
 **Migration path for existing modules**: none. DI overrides and test doubles of `actionLogService` must accept the optional extra argument (see UPGRADE_NOTES.md).
+
+---
+
+## Insights "Why?" Explain Core (2026-10-08)
+
+Phase 2 of [`.ai/specs/2026-10-08-insights-causation-and-explain.md`](.ai/specs/2026-10-08-insights-causation-and-explain.md) adds the `insights` module, which explains why a record value is what it is from audit history and the recorded causation. Every surface below is new; once shipped it follows the classification shown.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery convention `insights.explain.ts` | New convention file (row added to the §1 table). Registration validates declarations: a resource, cause resolver or reference resolver without a non-empty `requiredFeatures` list is skipped with a warning (fail closed), and a duplicate `resourceKind` / resolver kind / provider id keeps the first registration. `ExplainCollectionDescriptor.itemResourceKinds` (optional) opts a collection into reading its child rows (`parent_resource_kind` = the resource) | ✓ ADDITIVE; FROZEN once shipped (`version` gates future shapes) |
+| §2 Types (`@open-mercato/shared/modules/insights/explain`) | `ExplainModuleConfig`, `ExplainResourceDescriptor`, `ExplainFieldDescriptor`, `ExplainCollectionDescriptor`, `ExplainCustomFieldsDescriptor`, cause/reference resolver and provider types, `ExplainLoadContext`, `ExplainHistoryEntry`; persisted/response value sets `EXPLAIN_VERDICTS`, `EXPLAIN_CONFIDENCES`, `EXPLAIN_GAP_REASONS`, `EXPLAIN_VALUE_KINDS` | ✓ ADDITIVE; STABLE (optional fields only; value sets additive-only) |
+| §3 Function signatures (`ActionLogService`) | New methods `findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, `countHistoryByCause`, `findResourceIdsWithHistory` — tenant and organization scoped, decrypted where payloads are read, run under a 5 s statement timeout | ✓ ADDITIVE (existing methods unchanged) |
+| §4 Import paths | `@open-mercato/shared/modules/insights/explain` (contract types, `defineExplainConfig`), `@open-mercato/shared/modules/insights/helpers` (scope, id, custom-field and resolver helpers for declarations) | ✓ ADDITIVE; STABLE |
+| §7 API routes | `GET /api/insights/explain`, `GET /api/insights/explain/descriptors`, `GET /api/insights/explain/log` (all `requireFeatures: ['insights.explain.view']`, identical `404 { "error": "not_found" }` for unknown, invisible and out-of-scope records) | ✓ ADDITIVE; STABLE |
+| §9 DI service names | `explainService` (request-scoped) | ✓ ADDITIVE; STABLE |
+| §10 ACL feature IDs | `insights.explain.view`, `insights.explain.access_detail` (depends on `insights.explain.view`) | ✓ ADDITIVE; FROZEN |
+| §13 CLI commands | `mercato insights explain:coverage [--tenant <id>] [--org <id>] [--since <iso>] [--limit N]` (read-only) | ✓ ADDITIVE; STABLE |
+| §14 Generated files | `insights-explain.generated.ts` exporting `explainConfigEntries`, registered at bootstrap | ✓ ADDITIVE; STABLE |
+| Database schema, event IDs, widget spot IDs, notification IDs, AI tool IDs | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A module opts in by adding `insights.explain.ts` and running `yarn generate`. Operators run `yarn generate` and `yarn mercato auth sync-role-acls` so existing roles receive the new features (see UPGRADE_NOTES.md).
