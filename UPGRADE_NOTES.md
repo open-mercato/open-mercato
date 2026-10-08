@@ -24,6 +24,20 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
+
+The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so
+the command's tenant check was a no-op. `deleteCatalogProductsWithProgress`
+(`@open-mercato/core/modules/catalog/lib/bulkDelete`) now runs the command as the enqueueing user,
+bound to the job's tenant and organization, so a product from another tenant is rejected with 403.
+The bulk delete is also recorded in the action log under that user.
+
+**Action for module authors:** if you enqueue jobs on `CATALOG_PRODUCT_BULK_DELETE_QUEUE` or call
+`deleteCatalogProductsWithProgress` yourself, always pass `scope.tenantId`, `scope.organizationId`
+and `scope.userId`. A job missing any of them now fails before deleting anything instead of running
+without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
+needed if you only use the API.
+
 ### Redoing an `auth.users.create` no longer restores the account's password
 
 Creating a user writes an audit entry, and that entry used to carry the credential twice: the
@@ -152,6 +166,12 @@ accent-insensitive predicate — in that case build it from
 `@open-mercato/shared/lib/db/accentInsensitiveSearch` so your expression matches the index verbatim.
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
+
+`buildAccentInsensitivePatternSql()` is deprecated (#6465): `unaccent` folds fullwidth `％ ＿ ＼`
+into the ASCII LIKE metacharacters, so a pattern escaped with `escapeLikePattern` before that call
+regains live wildcards. Bind the **raw** search term to `buildAccentInsensitiveContainsPatternSql()`
+instead — it unaccents first, then escapes, and adds the surrounding `%`. The deprecated helper is
+unchanged and will be removed no earlier than 0.9.0.
 
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
