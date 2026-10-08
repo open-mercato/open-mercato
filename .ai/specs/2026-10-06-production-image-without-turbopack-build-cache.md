@@ -2,11 +2,11 @@
 
 ## TLDR
 
-`next build` with Turbopack (the Next.js 16 default) leaves its persistent build cache in `<distDir>/cache/turbopack`. The production `Dockerfile` copies the whole `apps/mercato/.mercato/next` distDir into the `runner` stage, so every production image ships that cache although the running server never reads it. On `develop` at `b4938566b` the cache is about 1.4 GB of a 2.2 GB distDir. Deleting `cache/turbopack` in the same `RUN` step as the build removes it from the image, with no change to runtime behavior.
+`next build` with Turbopack (the Next.js 16 default) leaves its persistent build cache in `<distDir>/cache/turbopack`. The production `Dockerfile` copies the whole `apps/mercato/.mercato/next` distDir into the `runner` stage, so every production image ships that cache although the running server never reads it. On `develop` at `b4938566b` the cache is about 1.4 GB of a 2.2 GB distDir. Deleting `cache/turbopack` in the same `RUN` step as the build, and excluding the distDir from the Docker build context, keeps it out of every image layer, with no change to runtime behavior.
 
 ## Overview
 
-- Scope: the root `Dockerfile` (`builder` → `runner`) and the standalone app template `packages/create-app/template/Dockerfile`, which has the same build/copy pattern.
+- Scope: the root `Dockerfile` (`builder` → `runner`) and the standalone app template `packages/create-app/template/Dockerfile`, which has the same build/copy pattern, plus their build-context ignore files `.dockerignore` and `packages/create-app/template/.dockerignore`.
 - Out of scope: the `dev`/`dev-build` stages, `docker/preview/Dockerfile` (its runner does not copy the builder's distDir), local development, and other `cache/*` subdirectories.
 
 ## Problem Statement
@@ -23,7 +23,19 @@ A larger image means more registry storage and slower push, pull and cold-start 
 
 ## Proposed Solution
 
-In each affected builder stage, remove the Turbopack cache in the same `RUN` instruction as the build, so no layer ever contains it:
+Two changes keep the cache out of every layer:
+
+1. Exclude the configured distDir from the Docker build context. A checkout that was built locally already has `.mercato/next`, including `cache/turbopack`. The ignore files exclude `.next` but not `.mercato/next`, so the root `COPY apps/ ./apps/` and the template `COPY . .` copy that local build output into a `builder` layer before `yarn build` runs. The build regenerates the distDir, so the copied output is never needed:
+
+```gitignore
+# .dockerignore
+apps/mercato/.mercato/next
+
+# packages/create-app/template/.dockerignore
+.mercato/next
+```
+
+2. In each affected builder stage, remove the Turbopack cache in the same `RUN` instruction as the build, so the layer produced by the build does not contain it:
 
 ```dockerfile
 # Dockerfile (builder stage)
@@ -37,14 +49,16 @@ Only `cache/turbopack` is removed. Other `cache/*` content that Next.js may read
 
 ## Architecture
 
-There are no new components. The change affects one build step per Dockerfile:
+There are no new components. The change affects the build context and one build step per Dockerfile:
 
-1. `builder`: `yarn build` produces `<distDir>` including `cache/turbopack`, and the same `RUN` deletes `cache/turbopack`.
-2. `runner`: the existing `COPY --from=builder …/.mercato/next …` copies the distDir, which no longer contains the cache.
-3. Runtime: `next start` reads `server/`, `static/`, manifests and `BUILD_ID` as before. It does not read `cache/turbopack`.
+1. Build context: `.mercato/next` from the host checkout is not sent to the builder, so the source `COPY` layers never contain a local distDir or its cache.
+2. `builder`: `yarn build` produces `<distDir>` including `cache/turbopack`, and the same `RUN` deletes `cache/turbopack`.
+3. `runner`: the existing `COPY --from=builder …/.mercato/next …` copies the distDir, which no longer contains the cache.
+4. Runtime: `next start` reads `server/`, `static/`, manifests and `BUILD_ID` as before. It does not read `cache/turbopack`.
 
 Rejected alternatives:
 
+- **Removing the cache only after the build:** without the ignore rule, a locally built checkout still puts its distDir and cache into the source `COPY` layer of the `builder` stage.
 - **A separate `RUN rm` step:** the runner image shrinks as well, but the builder layer keeps the cache and the extra instruction adds no value.
 - **BuildKit cache mount (`RUN --mount=type=cache,target=…/cache/turbopack yarn build`):** keeps the cache out of the image and can speed up rebuilds on a persistent builder, but it depends on builder-host state and does nothing on ephemeral CI runners. It can be added later on top of this change.
 - **Copying only selected distDir entries into `runner`:** this ties the Dockerfile to Next.js internal layout, which is brittle across Next.js upgrades.
@@ -70,11 +84,11 @@ No new environment variables or flags. `distDir` remains `.mercato/next`.
 | Boundary | Contract | Evidence | Visibility | Status |
 | --- | --- | --- | --- | --- |
 | `runtime_trace` | `yarn build` → `<distDir>` → same-step removal of `cache/turbopack` → `runner` `COPY` of the distDir → `next start` serves `server/`, `static/` and manifests. No runtime code path reads `cache/turbopack`. | Built image starts, migrations and the existing entrypoint run, and `/login` returns 200 on the candidate image. | `public-text` | `covered` |
-| `authority_ownership` | `next build` owns the distDir. The Dockerfile only deletes the build-reuse cache subdirectory and changes no other generated or manual file. | Dockerfile guard test (Verification Map). | `public-test/code` | `covered` |
+| `authority_ownership` | `next build` inside the `builder` stage owns the distDir. Host build output is excluded from the build context, and the Dockerfile only deletes the build-reuse cache subdirectory and changes no other generated or manual file. Other builds that use the root context (`docker/preview/Dockerfile` and the compose `dev` target) build or mount their own output and do not use a host distDir. | Dockerfile and ignore-file guard test (Verification Map). | `public-test/code` | `covered` |
 | `transformation_order` | The removal runs after `yarn build` succeeds (`&&`) and before the `runner` `COPY`. A failed build fails the step as today and is not masked. | Dockerfile guard test asserts that the removal is chained to the build command. | `public-test/code` | `covered` |
 | `boundedness` | The change only lowers image size. No limit, page size or payload bound is introduced or changed. | Size comparison in the Verification Map. | `public-text` | `not-applicable: no runtime limits involved; the change only removes bytes from the image` |
-| `compatibility` | Runtime output, entrypoints, environment and `distDir` are unchanged. Existing images keep working, and rollback is a revert of one line per Dockerfile. Standalone apps generated before this change keep their current Dockerfile until they adopt the template update. | Candidate image boot check and existing Dockerfile tests. | `public-text` | `covered` |
-| `security_scope` | No tenant, auth, secret or network behavior changes. The image contains less build residue. | Diff review: only the two `RUN` lines and the test change. | `public-text` | `not-applicable: no authorization, secret or data-scope surface is touched` |
+| `compatibility` | Runtime output, entrypoints, environment and `distDir` are unchanged. Existing images keep working, and rollback is a revert of one line per Dockerfile and one line per ignore file. Standalone apps generated before this change keep their current Dockerfile and `.dockerignore` until they adopt the template update. | Candidate image boot check and existing Dockerfile tests. | `public-text` | `covered` |
+| `security_scope` | No tenant, auth, secret or network behavior changes. The image contains less build residue. | Diff review: only the two `RUN` lines, the two ignore entries and the test change. | `public-text` | `not-applicable: no authorization, secret or data-scope surface is touched` |
 | `verification_map` | Every requirement maps to a verifier below. | Verification Map. | `public-text` | `covered` |
 
 ## Verification Map
@@ -83,15 +97,18 @@ No new environment variables or flags. `distDir` remains `.mercato/next`.
 | --- | --- | --- | --- | --- |
 | Root `Dockerfile` removes `apps/mercato/.mercato/next/cache/turbopack` in the build step | `authority_ownership`, `transformation_order` | New assertion in `scripts/__tests__/dockerfile-runtime-copy.test.mjs` (`yarn test:scripts`) | Test passes on the candidate and fails without the change | `public-test/code` |
 | Template Dockerfile removes `.mercato/next/cache/turbopack` in the build step | `authority_ownership`, `transformation_order` | Same test file, assertion against `packages/create-app/template/Dockerfile` | Test passes on the candidate and fails without the change | `public-test/code` |
+| Build contexts exclude the distDir | `authority_ownership` | Same test file, assertions that `.dockerignore` lists `apps/mercato/.mercato/next` and `packages/create-app/template/.dockerignore` lists `.mercato/next` | Test passes on the candidate and fails without the change | `public-test/code` |
+| A locally built checkout does not put its cache into any layer | `runtime_trace` | Create `apps/mercato/.mercato/next/cache/turbopack/marker.txt` in the checkout, build the candidate with `docker build --target builder`, export it with `docker image save`, and list every layer archive | No layer archive contains `marker.txt` (without the ignore entry, the `COPY apps/ ./apps/` layer does) | `public-text` |
 | Production image no longer contains the cache | `runtime_trace` | `docker build` of the candidate and `docker run --rm --entrypoint sh <image> -c 'test ! -e /app/apps/mercato/.mercato/next/cache/turbopack'` | Exit 0. The `.mercato/next` layer is smaller than the baseline built from the same base commit | `public-text` |
 | Runtime behavior unchanged | `runtime_trace`, `compatibility` | Start the candidate image with the existing compose setup and request `/login` | Container healthy, `/login` returns 200 | `public-text` |
 
 ## Implementation Approach
 
-1. Add `&& rm -rf apps/mercato/.mercato/next/cache/turbopack` to the root `Dockerfile` builder `RUN yarn build`.
-2. Add `&& rm -rf .mercato/next/cache/turbopack` to the template builder `RUN NODE_ENV=production yarn build`.
-3. Extend `scripts/__tests__/dockerfile-runtime-copy.test.mjs` with assertions for both Dockerfiles.
-4. Build baseline and candidate images from the same base commit, then compare sizes and run the boot check.
+1. Add `apps/mercato/.mercato/next` to `.dockerignore` and `.mercato/next` to `packages/create-app/template/.dockerignore`.
+2. Add `&& rm -rf apps/mercato/.mercato/next/cache/turbopack` to the root `Dockerfile` builder `RUN yarn build`.
+3. Add `&& rm -rf .mercato/next/cache/turbopack` to the template builder `RUN NODE_ENV=production yarn build`.
+4. Extend `scripts/__tests__/dockerfile-runtime-copy.test.mjs` with assertions for both Dockerfiles and both ignore files.
+5. Build baseline and candidate images from the same base commit, compare sizes, run the boot check, and repeat the candidate build from a checkout with a pre-existing local cache.
 
 ## Migration Path
 
@@ -103,11 +120,12 @@ None. Rebuilding an image applies the change, and existing images and deployment
 |---|---|---|---|---|
 | A future Next.js version reads `cache/turbopack` at runtime | Low | Production server start | The boot check would fail; today the cache is build-reuse state written by `next build` | Low |
 | Docker builds that relied on the cache being in the image for later in-image rebuilds | Low | Custom downstream Dockerfiles that build `FROM` the runner and rebuild | No supported flow rebuilds inside the runner image | Low |
-| Template users miss the improvement | Low | Standalone apps | Applies to newly generated apps; existing apps can copy the one-line change | Low |
+| A build relies on a host `.mercato/next` being copied into the image | Low | Custom Dockerfiles that use the repository context | Supported Dockerfiles build the app or mount their own output; the ignore entry only skips local build output that the build regenerates | Low |
+| Template users miss the improvement | Low | Standalone apps | Applies to newly generated apps; existing apps can copy the two one-line changes | Low |
 
 ## Success Metrics
 
-- The production image built from `develop` no longer contains `.mercato/next/cache/turbopack`.
+- The production image built from `develop` no longer contains `.mercato/next/cache/turbopack`, and no layer contains it even when the checkout was built locally.
 - The `.mercato/next` layer shrinks by about the size of that cache (about 1.4 GB on `develop` at `b4938566b`).
 
 ## Open Questions
@@ -120,6 +138,9 @@ None.
 - No module, entity, API, event, ACL or generated-file change.
 
 ## Changelog
+
+### 2026-10-08
+- Review: exclude the distDir from the Docker build contexts so a locally built checkout cannot copy its cache into a `builder` layer, and add verifiers for the ignore entries and a pre-existing local cache.
 
 ### 2026-10-06
 - Initial specification.
