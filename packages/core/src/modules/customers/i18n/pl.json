@@ -1780,6 +1780,7 @@
   "customers.insights.fields.status": "Status",
   "customers.insights.fields.valueAmount": "Wartość szansy",
   "customers.insights.fields.valueCurrency": "Waluta",
+  "customers.insights.process.deal": "Cykl życia szansy sprzedaży",
   "customers.insights.resources.company": "Firma",
   "customers.insights.resources.deal": "Szansa sprzedaży",
   "customers.insights.resources.person": "Osoba",

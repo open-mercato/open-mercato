@@ -1145,6 +1145,68 @@ create the global boolean toggle `insights_field_explain` with default `false` (
 
 **Action for operators.** Run `yarn generate` so the generated module facts mark the `fieldAfter`
 surface as bound.
+### Insights Process X-Ray: migrate, sync role ACLs, optionally backfill
+
+Process X-Ray (data layer) projects audited changes of declared processes — the deal lifecycle,
+the order and quote lifecycles with payment and shipment milestones — into new
+`insights_process_*` tables. Spec:
+[`2026-10-08-insights-process-xray`](.ai/specs/2026-10-08-insights-process-xray.md).
+
+**Action for operators.**
+
+- Run `yarn db:migrate` before the new version serves traffic. `Migration20261008180752_insights`
+  creates the seven empty X-Ray tables, including the erasure ledger (transactional, indexes
+  included).
+  `Migration20261008160939_audit_logs` adds the partial index `action_logs_state_change_idx` with
+  `CREATE INDEX CONCURRENTLY` (non-transactional, drops a possibly INVALID stub first), so a
+  retried deploy is safe; on a very large `action_logs` it takes a while but blocks no writes.
+- Run `yarn generate`: the new `insights.process.ts` convention is aggregated into
+  `insights-process.generated.ts`, and the new `bootstrap-registrations.cli.generated.ts` lets
+  CLI and worker processes see the X-Ray (and "Why?") declarations. Until it has run, the X-Ray
+  workers find no process and project nothing.
+- Run `yarn mercato auth sync-role-acls`. New features: `insights.xray.view` and
+  `insights.xray.manage` (admin), `insights.xray.view_individuals` (super administrators only —
+  the `admin` default no longer uses `insights.*`, it lists the insights features explicitly; an
+  existing admin role that already holds `insights.*` keeps it, remove it by hand if per-person
+  breakdowns must stay restricted).
+- New tenants (`setup.ts`) and organizations created later (`directory.organization.created`)
+  get the per-organization ingest schedule (every 120 s, queue `insights-xray-ingest`).
+  **Organizations that already exist get no schedule until you run**
+  `yarn mercato insights xray:backfill [--tenant <id>] [--org <id>]` once (or
+  `POST /api/insights/xray/backfill` per organization): it registers the schedule and projects the
+  retention window (365 days by default). Add `--inline` to run the backfill in the CLI process
+  instead of the `insights-xray-backfill` worker. Workers must run for both queues.
+- Kill switch: the feature toggle `insights_xray_ingest` (default on; when the `feature_toggles`
+  module is absent ingest stays on). Per organization, `PUT /api/insights/xray/settings`
+  `{ "enabled": false }` stops ingest.
+- When a module changes its `insights.process.ts` declarations, affected organizations report
+  `rebuild_required` (`yarn mercato insights xray:status`) and ingest pauses until
+  `yarn mercato insights xray:rebuild` clears and re-projects them (refused while ingest is
+  disabled).
+- Pseudonym key: with tenant data encryption on, actor pseudonyms are keyed by the tenant data
+  key; ingest fails (and retries) while the KMS is unhealthy, and an organization whose rows were
+  written under another key pauses with `last error` "…written under another key…". After a
+  deliberate key change (`entities rotate-encryption-key`) run `yarn mercato insights xray:rebuild`
+  for the tenant's organizations. With encryption off the installation `LOOKUP_HASH_PEPPER` keys
+  the pseudonyms; without encryption and without a pepper no actor is recorded at all.
+
+**Action for module authors.** To add a process, export
+`processConfig = defineProcessConfig({ version: 1, ... })` from `insights.process.ts`
+(`@open-mercato/shared/modules/insights/process`) and run `yarn generate`. Declare identifier-like
+fields only (enum/dictionary values, UUIDs; user ids as `valueKind: 'user'` follow-up fields, stored
+pseudonymized); a declaration touching a field listed in your module's `encryption.ts` is rejected
+at boot. A generator plugin whose registry is needed by workers or CLI commands may set
+`bootstrapRegistration.cli: true` (its entries must import no Next.js/React code). A DI override or
+test double of `actionLogService` used by X-Ray must provide `scanDecrypted` and `scanStateChanges`.
+
+**Behavior notes.** The projection stores identifiers only: values that are not UUIDs and do not
+match `^[a-z0-9_.:-]{1,64}$` become `other`, each field keeps at most 200 distinct values per
+organization, actors are per-tenant HMAC pseudonyms, and audit rows written before causation
+tracking are bucketed as cause `legacy`. Deleting a user (`auth.user.deleted`) records the user in
+the erasure ledger and re-pseudonymizes that user's projected rows with a random value; every later
+re-projection (backfill, reconciliation, rebuild) applies the ledger. Audit rows whose encrypted
+columns cannot be opened are skipped (logged), never projected as ciphertext. Retention removes
+cases inactive for longer than `retentionDays`.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 

@@ -1780,6 +1780,7 @@
   "customers.insights.fields.status": "Estado",
   "customers.insights.fields.valueAmount": "Valor de la oportunidad",
   "customers.insights.fields.valueCurrency": "Moneda",
+  "customers.insights.process.deal": "Ciclo de vida de la oportunidad",
   "customers.insights.resources.company": "Empresa",
   "customers.insights.resources.deal": "Oportunidad",
   "customers.insights.resources.person": "Persona",

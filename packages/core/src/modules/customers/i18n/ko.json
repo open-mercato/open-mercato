@@ -1780,6 +1780,7 @@
   "customers.insights.fields.status": "상태",
   "customers.insights.fields.valueAmount": "거래 금액",
   "customers.insights.fields.valueCurrency": "통화",
+  "customers.insights.process.deal": "거래 수명 주기",
   "customers.insights.resources.company": "회사",
   "customers.insights.resources.deal": "거래",
   "customers.insights.resources.person": "사람",

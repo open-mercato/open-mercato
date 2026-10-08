@@ -7,8 +7,22 @@ export const setup: ModuleSetupConfig = {
   },
   defaultRoleFeatures: {
     superadmin: ['insights.*'],
-    admin: ['insights.*'],
+    admin: [
+      'insights.explain.view',
+      'insights.explain.access_detail',
+      'insights.xray.view',
+      'insights.xray.manage',
+    ],
     employee: ['insights.explain.view'],
+  },
+
+  async seedDefaults(ctx) {
+    const [{ seedXrayIngestToggle }, { ensureXrayIngestSchedule }] = await Promise.all([
+      import('./lib/projection/killSwitch'),
+      import('./lib/projection/queue'),
+    ])
+    await seedXrayIngestToggle(ctx.em, ctx.container)
+    await ensureXrayIngestSchedule(ctx.container, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
   },
 }
 
