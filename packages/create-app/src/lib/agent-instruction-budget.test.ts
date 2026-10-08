@@ -17,7 +17,7 @@ const CREATE_APP_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const CODEX_DEFAULT_PROJECT_DOC_BYTES = 32 * 1024
 // `example` is no longer listed here: the classic scaffold ships its source but keeps
 // it unregistered in src/modules.ts, so it never reaches the enabled-module fact index.
-const CLASSIC_APP_ONLY_MODULES = new Set(['ratelimit_probe'])
+const CLASSIC_APP_ONLY_MODULES = new Set(['ratelimit_probe', 'module_availability_probe'])
 
 const ROOT_SOURCES = [
   'template/AGENTS.md',

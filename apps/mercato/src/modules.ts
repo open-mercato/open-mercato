@@ -196,6 +196,7 @@ export const enabledModules: ModuleEntry[] = [
     },
   },
   { id: 'ratelimit_probe', from: '@app' },
+  { id: 'module_availability_probe', from: '@app' },
 ]
 
 // Official modules activated via official-modules.json / official-modules.local.json
