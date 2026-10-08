@@ -473,12 +473,12 @@ export default function InpostDemoPage() {
                 </p>
               ))
               .with('found', () => (
-                <p className="mt-3 text-sm text-green-600">
+                <p className="mt-3 text-sm text-status-success-text">
                   {t('carrier_inpost.demo.providerFound', 'InPost is registered as a provider.')}
                 </p>
               ))
               .with('not_found', () => (
-                <p className="mt-3 text-sm text-yellow-600">
+                <p className="mt-3 text-sm text-status-warning-text">
                   {t('carrier_inpost.demo.providerNotFound', 'InPost provider not found in registry.')}
                 </p>
               ))
@@ -737,7 +737,7 @@ export default function InpostDemoPage() {
                   <option value="any_point">{t('carrier_inpost.demo.c2cSendingMethod.any_point', 'Any point')}</option>
                 </select>
                 {(c2cSendingMethod === 'parcel_locker' || c2cSendingMethod === 'pop') && (
-                  <p className="mt-1.5 text-xs text-amber-600">
+                  <p className="mt-1.5 text-xs text-status-warning-text">
                     {t(
                       'carrier_inpost.demo.c2cSendingMethod.sandboxWarning',
                       'Note: the InPost sandbox does not configure any parcel locker or POP points with the courier_c2c function, so shipment creation with this method will return invalid_box_machine_function. This works correctly in production.',
@@ -931,7 +931,7 @@ export default function InpostDemoPage() {
                 <p className="mt-3 text-sm text-destructive">{cancelError}</p>
               ))
               .with('done', () => (
-                <p className="mt-3 text-sm text-green-600">{cancelMessage}</p>
+                <p className="mt-3 text-sm text-status-success-text">{cancelMessage}</p>
               ))
               .with('idle', () => null)
               .exhaustive()}
