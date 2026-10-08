@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { getAuthToken } from './helpers/api'
+import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { listProviders } from './helpers/fixtures'
 
 /**

@@ -1,5 +1,5 @@
 import type { APIRequestContext } from '@playwright/test'
-import { apiRequest } from './api'
+import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 
 const MOCK_ORIGIN = {
   countryCode: 'US',

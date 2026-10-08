@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import Chance from 'chance'
-import { getAuthToken, apiRequest } from './helpers/api'
+import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { createShipment } from './helpers/fixtures'
 
 const chance = new Chance()
