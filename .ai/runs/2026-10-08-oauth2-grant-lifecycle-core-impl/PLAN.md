@@ -12,8 +12,8 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | P1a — advisory transaction lock helper in shared | dispatch:capable | done | 7bcbf9d0f |
-| 1 | 1.2 | P1b — real-Postgres lock suite and CI step | dispatch | done | pending |
-| 2 | 2.1 | P2a — OAuth protocol helpers and provider descriptor | dispatch:capable | todo | — |
+| 1 | 1.2 | P1b — real-Postgres lock suite and CI step | dispatch | done | 68caa78ff |
+| 2 | 2.1 | P2a — OAuth protocol helpers and provider descriptor | dispatch:capable | done | pending |
 | 2 | 2.2 | P2b — fake authorization server and fixtures re-export | dispatch | todo | — |
 | 3 | 3.1 | P3 — credentials erase, kms and map options, layered read, log query, core real-Postgres gate | dispatch:capable | todo | — |
 | 4 | 4.1 | P4a — test-only route, test integration, Playwright helper | dispatch | todo | — |
