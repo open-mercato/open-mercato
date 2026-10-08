@@ -80,6 +80,44 @@ actually followed through — see Changelog for which):
   new Q4 (`S_12_1` field gap) are both proposed only; the file as
   pushed still has the old, size-based Q2 wording and only Q1–Q3.
 
+**New 2026-10-08 — what belongs to `financial_pl`, mapped from our own
+specs (#6061 map) and the real module code.** Recorded here so the next
+spec does not redo it.
+
+- **Already in code** (`official-modules`, branch
+  `feat/financial-pl-invoice-ux`, last commits 2026-07-27): KSeF 2.0
+  FA(3) send/receive, JPK_V7 from its own register tables
+  (`PurchaseVatRecord`, `ReceivedInvoice`, `SalesInvoicePlMeta`), invoice
+  authoring UI and PDF. No `requires`, no `ledger` dependency; imports from
+  core are only `directory`, `progress` and `sales`. The package README
+  positions it for standalone installs.
+- **Assigned to it by our specs, not yet in code:** the Poland VAT/CIT/PIT
+  engines and the tax-payment instruction (`2026-09-16-tax-management.md`,
+  #6168), Bilans/RZiS templates, line mapping and closing resolution
+  (`2026-09-17-annual-financial-statements.md`, #6188), JPK_KR_PD
+  (SPEC-010, `official-modules#54`, blocked on #6038). No other spec in the
+  family (AP, AP Payments, Contractor Registry, Posting Rules, JELD,
+  Default Chart of Accounts, Fixed Assets, Cash & Bank, Deferred Revenue)
+  assigns anything to `financial_pl`.
+- **Gaps closed as working decisions (pending maintainer review):**
+  Contractor Registry gets a read-only `contractorLookupByNip` DI service
+  (#5955); AP gets a partial unique index on `(vendor, normalized invoice
+  number)` and a note that other modules create invoices through
+  `createVendorInvoice` (#5962); the VAT engine reads `financial_pl`'s VAT
+  register, CIT/PIT read GL balances, and GL balances only reconcile the
+  register (#6168).
+- **Still open, owned by the `financial_pl` authors:** whether GL-dependent
+  Poland features live in a separate package with a hard
+  `requires: ['ledger']` (working proposal: yes, because KSeF and JPK_V7
+  work without a ledger and `packages/core/AGENTS.md` reserves hard
+  `requires` for non-optional dependencies) or in `financial_pl` itself
+  (SPEC-010's current wording); and the KSeF received invoice →
+  Accounts Payable draft bridge, which no spec covers yet and which would
+  need its own `official-modules` spec. If the separate package is chosen,
+  SPEC-010's reuse of `submitJpk`/`pollJpkStatus` becomes a cross-module
+  call and needs a public DI transport service in `financial_pl`, with the
+  signing certificate staying inside it.
+
 ---
 
 ## 2. Cross-cutting conventions already settled (the real source of truth)
