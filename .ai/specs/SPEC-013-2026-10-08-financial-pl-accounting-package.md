@@ -17,6 +17,16 @@
 - Hard dependencies on four modules that live in `open-mercato` and are not merged yet (`ledger` #6340, `tax_management` #6168, `financial_statements` #6188, bulk read #6038). Nothing here is buildable before they merge.
 - Needs two services from `financial_pl` first (SPEC-012).
 
+
+## Open items
+
+Decisions in this document are a proposed current state. The points below are marked **⚠ NEEDS HUMAN CONFIRMATION** in the body:
+
+1. **Peer packages.** The exact package names and version ranges of `ledger`, `tax_management` and `financial_statements`, once those modules are released (see Architecture, Manifest and dependencies).
+2. **VAT account settings.** Whether `ModuleConfigService` accepts a list value for `financial_pl_accounting.vatInputAccountIds` / `vatOutputAccountIds`; otherwise one config row per account (see the VAT reconciliation report).
+
+Items that belong to the `financial_pl` side (gateway part size, `AuthData` for natural persons, `PurchaseVatRecord` period, empty `fa3Xml`, source of the VAT figure) are listed in SPEC-012.
+
 ## Overview
 
 `financial_pl` is installed standalone for KSeF 2.0 and JPK_V7 and must not require a general ledger (its README positions it for standalone installs; its code imports from core only `directory`, `progress` and `sales`). The features that read the ledger are the opposite case: they are useless without one. Putting them in a sibling package lets each install what it needs, and lets the ledger-dependent features declare their `requires` honestly.
