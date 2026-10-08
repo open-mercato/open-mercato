@@ -9,10 +9,34 @@ import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
   authorizeFeatures,
+  filterGrantsByModuleAvailability,
   resolveEffectiveFeatures,
 } from '@open-mercato/shared/security/featurePolicy'
 import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
+import {
+  getTenantModuleAvailabilityGeneration,
+  type TenantModuleAvailability,
+} from '@open-mercato/shared/security/tenantModuleAvailability'
 import { resolveRoleOrganizationScope, roleAclAllowsOrganization } from './roleOrganizationScope'
+
+const UNAVAILABLE_MODULES_MEMO_TTL_MS = 1_000
+const MAX_MEMOIZED_TENANT_ENTRIES = 256
+
+type UnavailableModulesMemo = {
+  pending: Promise<ReadonlySet<string>>
+  generation: string
+  expiresAt: number
+}
+
+function rememberBounded<K, V>(entries: Map<K, V>, key: K, value: V): void {
+  entries.delete(key)
+  entries.set(key, value)
+  while (entries.size > MAX_MEMOIZED_TENANT_ENTRIES) {
+    const leastRecent = entries.keys().next().value
+    if (leastRecent === undefined) break
+    entries.delete(leastRecent)
+  }
+}
 
 interface AclData {
   isSuperAdmin: boolean
@@ -178,6 +202,7 @@ function roleAclsAuthorizeFeatures(
   required: readonly string[],
   organization: FeatureOrganizationCandidate,
   emptyOrganizationsAreUnrestricted: boolean,
+  unavailableModuleIds?: ReadonlySet<string>,
 ): boolean {
   const organizationScope = buildFeatureOrganizationScope(organization)
   const grantedFeatures = new Set<string>()
@@ -199,6 +224,7 @@ function roleAclsAuthorizeFeatures(
     grantedFeatures: Array.from(grantedFeatures),
     unrestricted,
     scopeAllowed: scopeAllowed || unrestricted,
+    unavailableModuleIds,
   })
 }
 
@@ -206,6 +232,7 @@ function roleAclsAuthorizeFeaturesGlobally(
   roleAcls: readonly FeatureOrganizationRoleGrant[],
   required: readonly string[],
   emptyOrganizationsAreUnrestricted: boolean,
+  unavailableModuleIds?: ReadonlySet<string>,
 ): boolean {
   const grantedFeatures = new Set<string>()
   let unrestricted = false
@@ -226,6 +253,7 @@ function roleAclsAuthorizeFeaturesGlobally(
     grantedFeatures: Array.from(grantedFeatures),
     unrestricted,
     scopeAllowed: scopeAllowed || unrestricted,
+    unavailableModuleIds,
   })
 }
 
@@ -233,13 +261,75 @@ export class RbacService {
   private cacheTtlMs: number = 5 * 60 * 1000 // 5 minutes default
   private cache: CacheStrategy | null = null
   private globalSuperAdminCache = new Map<string, boolean>()
+  private principalTenantCache = new Map<string, string | null>()
+  private unavailableModulesByTenant = new Map<string, UnavailableModulesMemo>()
 
   constructor(
     private em: EntityManager,
     cache?: CacheStrategy,
     private readonly organizationHierarchyService?: OrganizationHierarchyService,
+    private readonly tenantModuleAvailability?: TenantModuleAvailability | null,
   ) {
     this.cache = cache || null
+  }
+
+  /**
+   * Module ids unavailable to a tenant through the optional per-tenant module
+   * availability provider. Empty when no provider is registered or no tenant
+   * is given. ACL-snapshot consumers pass the result to `authorizeFeatures` as
+   * `unavailableModuleIds`.
+   */
+  async getUnavailableModuleIds(
+    tenantId: string | null | undefined,
+    userId?: string | null,
+  ): Promise<string[]> {
+    if (!this.tenantModuleAvailability) return []
+    const unavailable = await this.resolveUnavailableModules(userId ?? null, tenantId)
+    return unavailable ? Array.from(unavailable) : []
+  }
+
+  private async resolveUnavailableModules(
+    userId: string | null,
+    tenantId: string | null | undefined,
+  ): Promise<ReadonlySet<string> | undefined> {
+    const availability = this.tenantModuleAvailability
+    if (!availability) return undefined
+    const effectiveTenantId = tenantId || (userId ? await this.resolvePrincipalTenantId(userId) : null)
+    if (!effectiveTenantId) return undefined
+    const generation = getTenantModuleAvailabilityGeneration(effectiveTenantId)
+    const now = Date.now()
+    let memo = this.unavailableModulesByTenant.get(effectiveTenantId)
+    if (memo && memo.generation === generation && memo.expiresAt > now) {
+      rememberBounded(this.unavailableModulesByTenant, effectiveTenantId, memo)
+    } else {
+      memo = {
+        pending: availability.getUnavailableModuleIds({ tenantId: effectiveTenantId }),
+        generation,
+        expiresAt: now + UNAVAILABLE_MODULES_MEMO_TTL_MS,
+      }
+      rememberBounded(this.unavailableModulesByTenant, effectiveTenantId, memo)
+    }
+    const unavailable = await memo.pending
+    return unavailable.size > 0 ? unavailable : undefined
+  }
+
+  private async resolvePrincipalTenantId(userId: string): Promise<string | null> {
+    if (this.principalTenantCache.has(userId)) {
+      const known = this.principalTenantCache.get(userId) ?? null
+      rememberBounded(this.principalTenantCache, userId, known)
+      return known
+    }
+    const em = this.em.fork()
+    let tenantId: string | null = null
+    if (userId.startsWith('api_key:')) {
+      const key = await em.findOne(ApiKey, { id: userId.slice('api_key:'.length), deletedAt: null })
+      tenantId = key?.tenantId ?? null
+    } else {
+      const user = await em.findOne(User, { id: userId })
+      tenantId = user?.tenantId ?? null
+    }
+    rememberBounded(this.principalTenantCache, userId, tenantId)
+    return tenantId
   }
 
   /**
@@ -816,6 +906,9 @@ export class RbacService {
       grantedFeatures: acl.features,
       unrestricted: acl.isSuperAdmin,
       scopeAllowed: organizationAllowed,
+      unavailableModuleIds: this.tenantModuleAvailability
+        ? await this.resolveUnavailableModules(userId, scope.tenantId)
+        : undefined,
     })
   }
 
@@ -825,7 +918,12 @@ export class RbacService {
     scope: { tenantId: string | null; organizationId: string | null },
   ): Promise<string[]> {
     const acl = await this.loadAclWithEntityManager(em, userId, scope)
-    if (acl.isSuperAdmin) return filterGrantsByEnabledModules(['*'])
+    if (acl.isSuperAdmin) {
+      const superAdminGrants = filterGrantsByEnabledModules(['*'])
+      return this.tenantModuleAvailability
+        ? this.narrowGrantsToAvailableModules(userId, scope.tenantId, superAdminGrants)
+        : superAdminGrants
+    }
     if (
       acl.organizations
       && scope.organizationId
@@ -834,7 +932,10 @@ export class RbacService {
     ) {
       return []
     }
-    return filterGrantsByEnabledModules(acl.features)
+    const grants = filterGrantsByEnabledModules(acl.features)
+    return this.tenantModuleAvailability
+      ? this.narrowGrantsToAvailableModules(userId, scope.tenantId, grants)
+      : grants
   }
 
   /**
@@ -858,6 +959,9 @@ export class RbacService {
     )
     const roleAcls = await em.find(RoleAcl, { tenantId, deletedAt: null } as any, {})
     const list = Array.isArray(roleAcls) ? roleAcls : []
+    const unavailableModuleIds = this.tenantModuleAvailability
+      ? await this.resolveUnavailableModules(null, tenantId)
+      : undefined
 
     for (const acl of list) {
       if (!roleAclAllowsOrganization(acl, roleOrganizationScope)) continue
@@ -865,6 +969,7 @@ export class RbacService {
       if (authorizeFeatures([feature], {
         grantedFeatures: grants,
         unrestricted: acl.isSuperAdmin,
+        unavailableModuleIds,
       })) {
         return true
       }
@@ -920,6 +1025,9 @@ export class RbacService {
       grantedFeatures: acl.features,
       unrestricted: acl.isSuperAdmin,
       scopeAllowed: organizationAllowed,
+      unavailableModuleIds: this.tenantModuleAvailability
+        ? await this.resolveUnavailableModules(userId, scope.tenantId)
+        : undefined,
     })
   }
 
@@ -933,10 +1041,13 @@ export class RbacService {
     const denyAll = () => []
     if (!required.length) return { unrestricted: true, filterOrganizationIds: allowAll }
     if (!input.tenantId) return { unrestricted: false, filterOrganizationIds: denyAll }
+    const unavailableModuleIds = this.tenantModuleAvailability
+      ? await this.resolveUnavailableModules(userId, input.tenantId)
+      : undefined
     if (
       !userId.startsWith('api_key:')
       && await this.isGlobalSuperAdmin(userId)
-      && authorizeFeatures(required, { grantedFeatures: ['*'], unrestricted: true })
+      && authorizeFeatures(required, { grantedFeatures: ['*'], unrestricted: true, unavailableModuleIds })
     ) {
       return { unrestricted: true, filterOrganizationIds: allowAll }
     }
@@ -947,7 +1058,7 @@ export class RbacService {
     if (grants.kind === 'api_key') {
       const keyOrganizationId = grants.organizationId
       const unrestricted = keyOrganizationId === null
-        && roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, true)
+        && roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, true, unavailableModuleIds)
       if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
 
       return {
@@ -955,7 +1066,7 @@ export class RbacService {
         filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
           .filter((organization) => (
             (!keyOrganizationId || organization.id === keyOrganizationId)
-            && roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, true)
+            && roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, true, unavailableModuleIds)
           ))
           .map((organization) => organization.id),
       }
@@ -971,6 +1082,7 @@ export class RbacService {
         grantedFeatures,
         unrestricted: grants.isSuperAdmin,
         scopeAllowed: hasGlobalScope,
+        unavailableModuleIds,
       })
       if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
 
@@ -986,20 +1098,21 @@ export class RbacService {
               grantedFeatures,
               unrestricted: grants.isSuperAdmin,
               scopeAllowed,
+              unavailableModuleIds,
             })
           })
           .map((organization) => organization.id),
       }
     }
 
-    if (roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, false)) {
+    if (roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, false, unavailableModuleIds)) {
       return { unrestricted: true, filterOrganizationIds: allowAll }
     }
 
     return {
       unrestricted: false,
       filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
-        .filter((organization) => roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, false))
+        .filter((organization) => roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, false, unavailableModuleIds))
         .map((organization) => organization.id),
     }
   }
@@ -1097,7 +1210,12 @@ export class RbacService {
     scope: { tenantId: string | null; organizationId: string | null },
   ): Promise<string[]> {
     const acl = await this.loadAcl(userId, scope)
-    if (acl.isSuperAdmin) return filterGrantsByEnabledModules(['*'])
+    if (acl.isSuperAdmin) {
+      const superAdminGrants = filterGrantsByEnabledModules(['*'])
+      return this.tenantModuleAvailability
+        ? this.narrowGrantsToAvailableModules(userId, scope.tenantId, superAdminGrants)
+        : superAdminGrants
+    }
     if (
       acl.organizations &&
       scope.organizationId &&
@@ -1106,7 +1224,19 @@ export class RbacService {
     ) {
       return []
     }
-    return filterGrantsByEnabledModules(acl.features)
+    const grants = filterGrantsByEnabledModules(acl.features)
+    return this.tenantModuleAvailability
+      ? this.narrowGrantsToAvailableModules(userId, scope.tenantId, grants)
+      : grants
+  }
+
+  private async narrowGrantsToAvailableModules(
+    userId: string,
+    tenantId: string | null,
+    grants: string[],
+  ): Promise<string[]> {
+    const unavailableModuleIds = await this.resolveUnavailableModules(userId, tenantId)
+    return unavailableModuleIds ? filterGrantsByModuleAvailability(grants, unavailableModuleIds) : grants
   }
 
   /** Returns concrete active feature IDs for browser capability payloads. */
@@ -1121,6 +1251,12 @@ export class RbacService {
       || acl.organizations.includes(scope.organizationId)
       || acl.organizations.includes('__all__')
     if (!organizationAllowed) return []
-    return resolveEffectiveFeatures(acl.isSuperAdmin ? ['*'] : acl.features)
+    const unavailableModuleIds = this.tenantModuleAvailability
+      ? await this.resolveUnavailableModules(userId, scope.tenantId)
+      : undefined
+    const grantedFeatures = acl.isSuperAdmin ? ['*'] : acl.features
+    return unavailableModuleIds
+      ? resolveEffectiveFeatures(grantedFeatures, { unavailableModuleIds })
+      : resolveEffectiveFeatures(grantedFeatures)
   }
 }
