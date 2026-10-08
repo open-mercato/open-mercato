@@ -783,6 +783,18 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         if (parsed.annualRevenue !== undefined) {
           profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
         }
+
+        // Profile columns and custom fields live outside CustomerEntity, so a save
+        // that only touches them never dirties the entity and its `updated_at` (the
+        // optimistic-lock version) would stay put — letting a stale second tab
+        // overwrite the change without a 409 (#7033). Bump it explicitly.
+        const profileFieldsUpdated = [
+          parsed.legalName, parsed.brandName, parsed.domain, parsed.websiteUrl,
+          parsed.industry, parsed.sizeBucket, parsed.annualRevenue,
+        ].some((value) => value !== undefined)
+        if (profileFieldsUpdated || Object.keys(custom).length > 0) {
+          record.updatedAt = new Date()
+        }
       },
       () => syncEntityTags(em, record, parsed.tags),
     ], { transaction: true })
@@ -883,6 +895,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      // Undo may only restore profile/custom fields, which never dirty the entity;
+      // advance the optimistic-lock version so a stale tab cannot overwrite it (#7033).
+      entity.updatedAt = new Date()
     }
     await em.flush()
 
