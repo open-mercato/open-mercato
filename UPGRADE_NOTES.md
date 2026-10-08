@@ -604,7 +604,8 @@ serve traffic.
 - The index migrations (`Migration20261008080138_*` in `audit_logs`, `business_rules`) are
   non-transactional and use `CREATE INDEX CONCURRENTLY`, dropping a possibly INVALID index from an
   interrupted build first, so a retried deploy is safe.
-- `yarn mercato auth sync-role-acls` is **not** needed for this change: it adds no ACL features.
+- `yarn mercato auth sync-role-acls` is **not** needed for the causation foundation itself (Phase 1
+  adds no ACL features). The "Why?" explain core below adds features and **does** need it.
 
 **Action for standalone apps.** The API catch-all dispatcher must open the request's causation
 scope. If your app's `src/app/api/[...slug]/route.ts` predates this release, wrap the handler call
@@ -640,6 +641,41 @@ cause and gets its own correlation id instead of sharing the request's.
 **Kill switch.** Set `OM_CAUSATION=off` to stop capturing and propagating causation: new rows keep
 the cause columns `null` and the request, queue and workflow paths behave as before (a caller's
 `context.causation` and a client's workflow `metadata.causation` are still discarded).
+
+### Insights "Why?" explainer: regenerate and sync role ACLs
+
+The new `insights` module explains why a record value is what it is, from audit history and the
+recorded causation (`GET /api/insights/explain`, `/api/insights/explain/descriptors`,
+`/api/insights/explain/log`, CLI `yarn mercato insights explain:coverage`). Spec:
+[`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md).
+
+**Action for operators.**
+
+- Run `yarn generate`. Modules contribute explain support through the new `insights.explain.ts`
+  convention file, aggregated into `insights-explain.generated.ts`; until the generator has run,
+  every explain request answers `404 not_found` because no resource is registered.
+- Run `yarn mercato auth sync-role-acls`. The module adds `insights.explain.view` (granted by default
+  to `superadmin`, `admin` and `employee`) and `insights.explain.access_detail` (granted through
+  `insights.*` to `superadmin` and `admin`). New tenants receive them from `setup.ts`; existing
+  tenants receive nothing until this command runs.
+- Optional: `OM_INSIGHTS_EXPLAIN_SCAN_MAX` (default `500`, capped at `5000`) bounds how many audit
+  rows one explain request reads.
+
+**Action for module authors.** To make a resource explainable, export
+`explainConfig = defineExplainConfig({ version: 1, ... })` from `insights.explain.ts`
+(`@open-mercato/shared/modules/insights/explain`) and run `yarn generate`. Every resource, cause
+resolver and reference resolver MUST declare a non-empty `requiredFeatures` list — declarations
+without one are skipped with a warning. A collection reads its child rows only when it declares
+`itemResourceKinds`. A DI override or test double of `actionLogService` used by explain must also
+provide the new read methods (`findFieldHistory`, `findHistoryEntryById`, `findLogScopes`, and for
+the coverage CLI `countHistoryByCause` and `findResourceIdsWithHistory`).
+
+**Behavior notes.** Explain never caches responses. Feature checks (resource, field, custom-field,
+audit visibility and resolver features) are evaluated at the organization of the explained record,
+so a feature granted by a role limited to another organization does not apply. Cause and reference
+resolvers are queried only within the record's organization; a tenant-level detail (no organization,
+other than a code identifier such as an AI tool id) is shown only to tenant-wide viewers. Past values
+and actor identities of other users stay hidden without `audit_logs.view_tenant`.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
