@@ -430,35 +430,49 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
 
 export { resolvePageRouteMetadata } from './pageRouteMetadata'
 
-let _backendRouteManifests: BackendRouteManifestEntry[] | null = null
+// Route manifests live on globalThis for the same reason as the modules registry
+// (`../lib/modules/registry.ts`): Next.js and tsx can load this file as several module
+// instances. The API catch-all registers the API manifest in its own bundle, while code
+// running from a page bundle (a backend page render that started the in-process queue,
+// a persistent subscriber executing a CALL_OPEN_MERCATO business rule) reads it from
+// another; with module-local state that read was empty.
+const BACKEND_ROUTE_MANIFESTS_KEY = '__openMercatoBackendRouteManifests__'
+const FRONTEND_ROUTE_MANIFESTS_KEY = '__openMercatoFrontendRouteManifests__'
+const API_ROUTE_MANIFESTS_KEY = '__openMercatoApiRouteManifests__'
+
+type RouteManifestGlobalScope = typeof globalThis & {
+  [BACKEND_ROUTE_MANIFESTS_KEY]?: BackendRouteManifestEntry[] | null
+  [FRONTEND_ROUTE_MANIFESTS_KEY]?: FrontendRouteManifestEntry[] | null
+  [API_ROUTE_MANIFESTS_KEY]?: ApiRouteManifestEntry[] | null
+}
+
+function routeManifestGlobals(): RouteManifestGlobalScope {
+  return globalThis as RouteManifestGlobalScope
+}
 
 export function registerBackendRouteManifests(routes: BackendRouteManifestEntry[]) {
   const pageOverrides = composePageRouteOverrides()
   const finalRoutes = Object.keys(pageOverrides).length === 0
     ? routes
     : applyPageOverridesToManifests(routes, pageOverrides, 'backend')
-  _backendRouteManifests = sortRoutesBySpecificity(finalRoutes)
+  routeManifestGlobals()[BACKEND_ROUTE_MANIFESTS_KEY] = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
-  return _backendRouteManifests ?? []
+  return routeManifestGlobals()[BACKEND_ROUTE_MANIFESTS_KEY] ?? []
 }
-
-let _frontendRouteManifests: FrontendRouteManifestEntry[] | null = null
 
 export function registerFrontendRouteManifests(routes: FrontendRouteManifestEntry[]) {
   const pageOverrides = composePageRouteOverrides()
   const finalRoutes = Object.keys(pageOverrides).length === 0
     ? routes
     : applyPageOverridesToManifests(routes, pageOverrides, 'frontend')
-  _frontendRouteManifests = sortRoutesBySpecificity(finalRoutes)
+  routeManifestGlobals()[FRONTEND_ROUTE_MANIFESTS_KEY] = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getFrontendRouteManifests(): FrontendRouteManifestEntry[] {
-  return _frontendRouteManifests ?? []
+  return routeManifestGlobals()[FRONTEND_ROUTE_MANIFESTS_KEY] ?? []
 }
-
-let _apiRouteManifests: ApiRouteManifestEntry[] | null = null
 
 export function registerApiRouteManifests(routes: ApiRouteManifestEntry[]) {
   // Apply any `entry.overrides.routes.api` overrides registered through the
@@ -469,11 +483,11 @@ export function registerApiRouteManifests(routes: ApiRouteManifestEntry[]) {
   const finalRoutes = Object.keys(routeOverrides).length === 0
     ? routes
     : applyApiOverridesToManifests(routes, routeOverrides)
-  _apiRouteManifests = sortRoutesBySpecificity(finalRoutes)
+  routeManifestGlobals()[API_ROUTE_MANIFESTS_KEY] = sortRoutesBySpecificity(finalRoutes)
 }
 
 export function getApiRouteManifests(): ApiRouteManifestEntry[] {
-  return _apiRouteManifests ?? []
+  return routeManifestGlobals()[API_ROUTE_MANIFESTS_KEY] ?? []
 }
 
 // CLI modules registry - populated ONLY by the `mercato` bin (packages/cli/src/bin.ts
