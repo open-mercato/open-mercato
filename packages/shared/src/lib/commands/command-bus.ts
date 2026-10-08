@@ -9,9 +9,9 @@ import type {
   CommandLogBuilderArgs,
   CommandLogMetadata,
   CommandRuntimeContext,
+  CommandUndoLogEntry,
 } from './types'
 import { defaultUndoToken } from './types'
-import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { AwilixContainer } from 'awilix'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import {
@@ -33,8 +33,56 @@ import type { CommandInterceptorContext } from './command-interceptor'
 import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
+import { withAtomicFlush } from './flush'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+  ownsTransactionLifetime,
+  type TransactionLifetime,
+} from './transaction-lifetime'
 
 const logger = createLogger('shared').child({ component: 'commands' })
+
+type CommandActionLogService = {
+  findByUndoToken(undoToken: string): Promise<ActionLog | null>
+  claimForUndo(id: string, transactionalEm?: EntityManager): Promise<boolean>
+  releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean>
+  markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
+  claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
+  log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
+}
+
+type AtomicReplayTransaction = {
+  em: EntityManager
+  joinsAmbient: boolean
+}
+
+function isInTransaction(em: EntityManager): boolean {
+  const probe = (em as { isInTransaction?: () => boolean }).isInTransaction
+  return typeof probe === 'function' && probe.call(em)
+}
+
+function resolveAtomicReplayTransaction(ctx: CommandRuntimeContext): AtomicReplayTransaction {
+  const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
+  const joinsAmbient = isInTransaction(em)
+  if (joinsAmbient && !ownsTransactionLifetime(em, ctx.transactionLifetime)) {
+    throw new Error('[internal] Ambient atomic replay requires its outer transaction lifetime owner')
+  }
+  return { em, joinsAmbient }
+}
+
+function bindReplayTransactionContext(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  expectedLifetime?: TransactionLifetime,
+): CommandRuntimeContext {
+  const transactionLifetime = getTransactionLifetime(em)
+  if (!transactionLifetime || (expectedLifetime && transactionLifetime !== expectedLifetime)) {
+    throw new Error('[internal] Atomic replay transaction lifetime owner changed before replay')
+  }
+  return { ...ctx, transactionalEm: em, transactionLifetime }
+}
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
@@ -227,160 +275,277 @@ export class CommandBus {
   ): Promise<CommandExecuteResult<TResult>> {
     const handler = await this.resolveHandler<TInput, TResult>(commandId)
 
-    // Run beforeExecute command interceptors
+    const replayLogEntry = options.redoLogEntry ?? null
+    const isAtomicReplay = replayLogEntry !== null && handler.atomicReplay === true
     const allInterceptors = getAllCommandInterceptorInstances()
     let interceptorMetadata = new Map<string, Record<string, unknown>>()
     let effectiveOptions = options
-    const userFeatures = allInterceptors.length
-      ? await this.resolveUserFeaturesForInterceptors(options.ctx)
-      : []
-    if (allInterceptors.length) {
+    let userFeatures: string[] = []
+    const runBeforeExecuteInterceptors = async (baseOptions: CommandExecutionOptions<TInput>) => {
+      const resolvedUserFeatures = allInterceptors.length
+        ? await this.resolveUserFeaturesForInterceptors(baseOptions.ctx)
+        : []
+      if (!allInterceptors.length) {
+        return {
+          effectiveOptions: baseOptions,
+          metadata: new Map<string, Record<string, unknown>>(),
+          userFeatures: resolvedUserFeatures,
+        }
+      }
       const interceptorCtx: CommandInterceptorContext = {
         commandId,
-        auth: options.ctx.auth ?? null,
-        selectedOrganizationId: options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null,
-        container: options.ctx.container,
-        organizationScope: options.ctx.organizationScope ?? null,
-        request: options.ctx.request ?? null,
+        auth: baseOptions.ctx.auth ?? null,
+        selectedOrganizationId: baseOptions.ctx.selectedOrganizationId ?? baseOptions.ctx.auth?.orgId ?? null,
+        container: baseOptions.ctx.container,
+        organizationScope: baseOptions.ctx.organizationScope ?? null,
+        request: baseOptions.ctx.request ?? null,
       }
       const beforeResult = await runCommandInterceptorsBefore(
-        allInterceptors, commandId, options.input, interceptorCtx, userFeatures,
+        allInterceptors, commandId, baseOptions.input, interceptorCtx, resolvedUserFeatures,
       )
       if (!beforeResult.ok) {
         const blocked = beforeResult.error!
         throw new CommandInterceptorError(blocked.message, { status: blocked.status, body: blocked.body })
       }
-      interceptorMetadata = beforeResult.metadataByInterceptor
-      if (beforeResult.modifiedInput) {
-        effectiveOptions = {
-          ...options,
-          input: { ...(options.input as object), ...beforeResult.modifiedInput } as TInput,
+      const preparedOptions = beforeResult.modifiedInput
+        ? {
+            ...baseOptions,
+            input: { ...(baseOptions.input as object), ...beforeResult.modifiedInput } as TInput,
+          }
+        : baseOptions
+      return {
+        effectiveOptions: preparedOptions,
+        metadata: beforeResult.metadataByInterceptor,
+        userFeatures: resolvedUserFeatures,
+      }
+    }
+
+    if (replayLogEntry && !isAtomicReplay) {
+      await this.runReplayTransactionGuard(options.ctx, 'redo', replayLogEntry)
+      if (handler.authorizeReplay) {
+        await handler.authorizeReplay({
+          operation: 'redo',
+          input: options.input,
+          ctx: options.ctx,
+          logEntry: replayLogEntry,
+        })
+      }
+    }
+
+    if (!isAtomicReplay) {
+      const prepared = await runBeforeExecuteInterceptors(options)
+      effectiveOptions = prepared.effectiveOptions
+      interceptorMetadata = prepared.metadata
+      userFeatures = prepared.userFeatures
+    }
+
+    const executeCore = async (coreOptions: CommandExecutionOptions<TInput>) => {
+      const snapshots: { before?: unknown } = {}
+      let executionOptions = coreOptions
+      if (handler.prepareSnapshotInsideTransaction && handler.prepare) {
+        const prepare = handler.prepare
+        const originalCtx = coreOptions.ctx
+        const originalBeforeTransactionalWrite = originalCtx.beforeTransactionalWrite
+        let prepared = false
+        let transactionalCtx: CommandRuntimeContext
+        transactionalCtx = {
+          ...originalCtx,
+          beforeTransactionalWrite: async (em, input) => {
+            await originalBeforeTransactionalWrite?.(em, input)
+            if (prepared) return
+            Object.assign(
+              snapshots,
+              (await prepare(coreOptions.input, { ...transactionalCtx, transactionalEm: em })) ?? {},
+            )
+            prepared = true
+          },
+        }
+        executionOptions = { ...coreOptions, ctx: transactionalCtx }
+      } else {
+        Object.assign(snapshots, await this.prepareSnapshots(handler, coreOptions))
+      }
+      effectiveOptions = executionOptions
+      const sourceLog = executionOptions.redoLogEntry ?? null
+      const result =
+        sourceLog && typeof handler.redo === 'function'
+          ? await handler.redo({ input: executionOptions.input, ctx: executionOptions.ctx, logEntry: sourceLog })
+          : await handler.execute(executionOptions.input, executionOptions.ctx)
+      const afterSnapshot = await this.captureAfter(handler, executionOptions, result)
+      const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
+      const logMeta = await this.buildLog(handler, executionOptions, result, snapshotsWithAfter)
+      let mergedMeta = this.mergeMetadata(executionOptions.metadata, logMeta)
+      // Interceptors opt into audit-log enrichment with a reserved `logContext` key rather
+      // than the generic `context` one, so the metadata an interceptor already passes to its
+      // own afterExecute hook is never silently promoted into audit storage.
+      // Map iteration order is interceptor priority order (see collectMatching), so a
+      // later-priority interceptor overrides an earlier one on key collisions.
+      let interceptorContextMerged: Record<string, unknown> = {}
+      for (const meta of interceptorMetadata.values()) {
+        const logContextRecord = asRecord(asRecord(meta)?.logContext)
+        if (!logContextRecord) continue
+        interceptorContextMerged = {
+          ...interceptorContextMerged,
+          ...logContextRecord,
         }
       }
+      const baseContext = asRecord(executionOptions.metadata?.context) ?? {}
+      const logMetaContext = asRecord(logMeta?.context) ?? {}
+      if (Object.keys(interceptorContextMerged).length > 0 || Object.keys(baseContext).length > 0 || Object.keys(logMetaContext).length > 0) {
+        mergedMeta = mergedMeta ?? {}
+        mergedMeta.context = {
+          ...baseContext,
+          ...interceptorContextMerged,
+          ...logMetaContext,
+        }
+      }
+      const undoable = this.isUndoable(handler)
+      if (undoable && mergedMeta?.replayable !== false) {
+        mergedMeta = mergedMeta ?? {}
+        if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
+        if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = executionOptions.ctx.auth?.sub ?? null
+      } else if (mergedMeta?.replayable === false) {
+        mergedMeta.undoToken = null
+      }
+      if (afterSnapshot !== undefined && afterSnapshot !== null) {
+        if (!mergedMeta) {
+          mergedMeta = { snapshotAfter: afterSnapshot }
+        } else if (!mergedMeta.snapshotAfter) {
+          mergedMeta.snapshotAfter = afterSnapshot
+        }
+      }
+      if (snapshots.before) {
+        if (!mergedMeta) {
+          mergedMeta = { snapshotBefore: snapshots.before }
+        } else if (!mergedMeta.snapshotBefore) {
+          mergedMeta.snapshotBefore = snapshots.before
+        }
+      }
+      if (mergedMeta?.snapshotBefore !== undefined && mergedMeta?.snapshotAfter !== undefined) {
+        const currentChanges = mergedMeta.changes
+        const shouldInfer =
+          currentChanges === undefined ||
+          currentChanges === null ||
+          (typeof currentChanges === 'object' && !Array.isArray(currentChanges) && Object.keys(currentChanges).length === 0)
+        if (shouldInfer) {
+          const inferred = deriveChangesFromSnapshots(mergedMeta.snapshotBefore, mergedMeta.snapshotAfter)
+          if (inferred) mergedMeta.changes = inferred
+        }
+      }
+      const logEntry = await this.persistLog(commandId, executionOptions, mergedMeta)
+      return { result, mergedMeta, logEntry }
     }
 
-    const snapshots: { before?: unknown } = {}
-    if (handler.prepareSnapshotInsideTransaction && handler.prepare) {
-      const prepare = handler.prepare
-      const originalCtx = effectiveOptions.ctx
-      const originalBeforeTransactionalWrite = originalCtx.beforeTransactionalWrite
-      let prepared = false
-      let transactionalCtx: CommandRuntimeContext
-      transactionalCtx = {
-        ...originalCtx,
-        beforeTransactionalWrite: async (em, input) => {
-          await originalBeforeTransactionalWrite?.(em, input)
-          if (prepared) return
-          Object.assign(
-            snapshots,
-            (await prepare(effectiveOptions.input, { ...transactionalCtx, transactionalEm: em })) ?? {},
-          )
-          prepared = true
-        },
-      }
-      effectiveOptions = { ...effectiveOptions, ctx: transactionalCtx }
+    let replaySourceFinalized = false
+    let coreResult: Awaited<ReturnType<typeof executeCore>>
+    const atomicSourceLog = options.redoLogEntry ?? null
+    let ambientReplay: AtomicReplayTransaction | null = null
+    let replayTransactionLifetime: TransactionLifetime | null = null
+    if (atomicSourceLog && isAtomicReplay) {
+      ambientReplay = resolveAtomicReplayTransaction(options.ctx)
+      const replayEm = ambientReplay.em
+      await withAtomicFlush(replayEm, [async () => {
+        const replayCtx = bindReplayTransactionContext(
+          options.ctx,
+          replayEm,
+          ambientReplay?.joinsAmbient ? options.ctx.transactionLifetime : undefined,
+        )
+        replayTransactionLifetime = replayCtx.transactionLifetime ?? null
+        const transactionalBaseOptions: CommandExecutionOptions<TInput> = {
+          ...options,
+          ctx: replayCtx,
+        }
+        if (!atomicSourceLog.id) throw new Error('[internal] Atomic redo source log id is required')
+        if (handler.stabilizeReplay) {
+          await handler.stabilizeReplay({
+            operation: 'redo',
+            input: transactionalBaseOptions.input,
+            ctx: transactionalBaseOptions.ctx,
+            logEntry: atomicSourceLog,
+          })
+        }
+        await this.runReplayTransactionGuard(
+          transactionalBaseOptions.ctx,
+          'redo',
+          atomicSourceLog,
+          replayEm,
+        )
+        const prepared = await runBeforeExecuteInterceptors(transactionalBaseOptions)
+        effectiveOptions = prepared.effectiveOptions
+        interceptorMetadata = prepared.metadata
+        userFeatures = prepared.userFeatures
+        const service = effectiveOptions.ctx.container.resolve('actionLogService') as CommandActionLogService
+        if (handler.authorizeReplay) {
+          await handler.authorizeReplay({
+            operation: 'redo',
+            input: effectiveOptions.input,
+            ctx: effectiveOptions.ctx,
+            logEntry: atomicSourceLog,
+          })
+        }
+        const claimed = await service.claimForRedo(atomicSourceLog.id, replayEm)
+        if (!claimed) throw new Error('[internal] Redo source already consumed')
+        coreResult = await executeCore(effectiveOptions)
+      }], { transaction: true, label: `${commandId}.redo` })
+      replaySourceFinalized = !ambientReplay.joinsAmbient
     } else {
-      Object.assign(snapshots, await this.prepareSnapshots(handler, effectiveOptions))
+      coreResult = await executeCore(effectiveOptions)
     }
-    const redoLogEntry = effectiveOptions.redoLogEntry ?? null
-    const result =
-      redoLogEntry && typeof handler.redo === 'function'
-        ? await handler.redo({ input: effectiveOptions.input, ctx: effectiveOptions.ctx, logEntry: redoLogEntry })
-        : await handler.execute(effectiveOptions.input, effectiveOptions.ctx)
-    const afterSnapshot = await this.captureAfter(handler, effectiveOptions, result)
-    const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
-    const logMeta = await this.buildLog(handler, effectiveOptions, result, snapshotsWithAfter)
-    let mergedMeta = this.mergeMetadata(effectiveOptions.metadata, logMeta)
-    // Interceptors opt into audit-log enrichment with a reserved `logContext` key rather
-    // than the generic `context` one, so the metadata an interceptor already passes to its
-    // own afterExecute hook is never silently promoted into audit storage.
-    // Map iteration order is interceptor priority order (see collectMatching), so a
-    // later-priority interceptor overrides an earlier one on key collisions.
-    let interceptorContextMerged: Record<string, unknown> = {}
-    for (const meta of interceptorMetadata.values()) {
-      const logContextRecord = asRecord(asRecord(meta)?.logContext)
-      if (!logContextRecord) continue
-      interceptorContextMerged = {
-        ...interceptorContextMerged,
-        ...logContextRecord,
-      }
-    }
-    const baseContext = asRecord(effectiveOptions.metadata?.context) ?? {}
-    const logMetaContext = asRecord(logMeta?.context) ?? {}
-    if (Object.keys(interceptorContextMerged).length > 0 || Object.keys(baseContext).length > 0 || Object.keys(logMetaContext).length > 0) {
-      mergedMeta = mergedMeta ?? {}
-      mergedMeta.context = {
-        ...baseContext,
-        ...interceptorContextMerged,
-        ...logMetaContext,
-      }
-    }
-    const undoable = this.isUndoable(handler)
-    if (undoable) {
-      mergedMeta = mergedMeta ?? {}
-      if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
-      if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = effectiveOptions.ctx.auth?.sub ?? null
-    }
-    if (afterSnapshot !== undefined && afterSnapshot !== null) {
-      if (!mergedMeta) {
-        mergedMeta = { snapshotAfter: afterSnapshot }
-      } else if (!mergedMeta.snapshotAfter) {
-        mergedMeta.snapshotAfter = afterSnapshot
-      }
-    }
-    if (snapshots.before) {
-      if (!mergedMeta) {
-        mergedMeta = { snapshotBefore: snapshots.before }
-      } else if (!mergedMeta.snapshotBefore) {
-        mergedMeta.snapshotBefore = snapshots.before
-      }
-    }
-    if (mergedMeta?.snapshotBefore !== undefined && mergedMeta?.snapshotAfter !== undefined) {
-      const currentChanges = mergedMeta.changes
-      const shouldInfer =
-        currentChanges === undefined ||
-        currentChanges === null ||
-        (typeof currentChanges === 'object' && !Array.isArray(currentChanges) && Object.keys(currentChanges).length === 0)
-      if (shouldInfer) {
-        const inferred = deriveChangesFromSnapshots(mergedMeta.snapshotBefore, mergedMeta.snapshotAfter)
-        if (inferred) mergedMeta.changes = inferred
-      }
-    }
-    const logEntry = await this.persistLog(commandId, effectiveOptions, mergedMeta)
+    const { result, mergedMeta, logEntry } = coreResult!
 
-    // Run afterExecute command interceptors
-    let finalResult = result
-    if (allInterceptors.length) {
-      const interceptorCtx: CommandInterceptorContext = {
-        commandId,
-        auth: effectiveOptions.ctx.auth ?? null,
-        selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
-        container: effectiveOptions.ctx.container,
-        request: effectiveOptions.ctx.request ?? null,
-        organizationScope: effectiveOptions.ctx.organizationScope ?? null,
+    const runPostCommit = async () => {
+      let finalResult = result
+      if (allInterceptors.length) {
+        const interceptorCtx: CommandInterceptorContext = {
+          commandId,
+          auth: effectiveOptions.ctx.auth ?? null,
+          selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
+          container: effectiveOptions.ctx.container,
+          organizationScope: effectiveOptions.ctx.organizationScope ?? null,
+          request: effectiveOptions.ctx.request ?? null,
+        }
+        const afterResult = await runCommandInterceptorsAfter(
+          allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
+          userFeatures, interceptorMetadata,
+        )
+        if (afterResult.modifiedResult && typeof result === 'object' && result) {
+          finalResult = { ...(result as object), ...afterResult.modifiedResult } as Awaited<TResult>
+        }
       }
-      const afterResult = await runCommandInterceptorsAfter(
-        allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
-        userFeatures, interceptorMetadata,
-      )
-      if (afterResult.modifiedResult && typeof result === 'object' && result) {
-        finalResult = { ...(result as object), ...afterResult.modifiedResult } as Awaited<TResult>
+
+      if (!effectiveOptions.skipCacheInvalidation) {
+        await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
       }
+      // Bulk-import backfills defer heavy per-record side effects: the ctx flags are read here and
+      // threaded as a local into the flush (never stored on the shared dataEngine), so a concurrent
+      // command with different flags can't observe them. Reindex is restored by the caller's
+      // end-of-run `query_index rebuild`. Mirrors `skipCacheInvalidation` above.
+      await this.flushCrudSideEffects(effectiveOptions.ctx.container, effectiveOptions.ctx?.bulkImport)
+      return finalResult
     }
 
-    if (!effectiveOptions.skipCacheInvalidation) {
-      await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
+    const executionResult: CommandExecuteResult<TResult> = {
+      result,
+      logEntry,
+      replaySourceFinalized,
     }
-    // Bulk-import backfills defer heavy per-record side effects: the ctx flags are read here and
-    // threaded as a local into the flush (never stored on the shared dataEngine), so a concurrent
-    // command with different flags can't observe them. Reindex is restored by the caller's
-    // end-of-run `query_index rebuild`. Mirrors `skipCacheInvalidation` above.
-    await this.flushCrudSideEffects(effectiveOptions.ctx.container, effectiveOptions.ctx?.bulkImport)
-    return { result: finalResult, logEntry }
+    if (ambientReplay?.joinsAmbient) {
+      if (!replayTransactionLifetime || !ownsTransactionLifetime(ambientReplay.em, replayTransactionLifetime)) {
+        throw new Error('[internal] Ambient atomic replay lost its outer transaction lifetime owner')
+      }
+      onTransactionLifetimeComplete(ambientReplay.em, async (outcome) => {
+        if (outcome !== 'committed') return
+        executionResult.result = await runPostCommit()
+        executionResult.replaySourceFinalized = true
+      })
+      return executionResult
+    }
+
+    executionResult.result = await runPostCommit()
+    return executionResult
   }
 
   async undo(undoToken: string, ctx: CommandRuntimeContext): Promise<void> {
-    const service = (ctx.container.resolve('actionLogService') as ActionLogService)
+    const service = (ctx.container.resolve('actionLogService') as CommandActionLogService)
     const log = await service.findByUndoToken(undoToken)
     if (!log) throw new Error('Undo token expired or not found')
     const handler = await this.resolveHandler(log.commandId)
@@ -388,48 +553,135 @@ export class CommandBus {
       throw new Error(`Command ${log.commandId} is not undoable`)
     }
 
-    // Atomically claim the action-log row before running any undo side effects.
-    // Two concurrent requests holding the same undo token can both pass
-    // findByUndoToken/executionState checks; the compare-and-set below ensures
-    // only one transitions `done` -> `undoing` and proceeds, the other bails out.
-    const claimed = await service.claimForUndo(log.id)
-    if (!claimed) throw new Error('Undo token already consumed')
-
-    try {
-      // Run beforeUndo command interceptors
-      const allInterceptors = getAllCommandInterceptorInstances()
-      let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
-      const userFeatures = allInterceptors.length
-        ? await this.resolveUserFeaturesForInterceptors(ctx)
+    const isAtomicReplay = handler.atomicReplay === true
+    const allInterceptors = getAllCommandInterceptorInstances()
+    let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
+    let userFeatures: string[] = []
+    const runBeforeUndoInterceptors = async (replayCtx: CommandRuntimeContext) => {
+      const resolvedUserFeatures = allInterceptors.length
+        ? await this.resolveUserFeaturesForInterceptors(replayCtx)
         : []
-      if (allInterceptors.length) {
-        const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
-        const interceptorCtx: CommandInterceptorContext = {
-          commandId: log.commandId,
-          auth: ctx.auth ?? null,
-          selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-          container: ctx.container,
-          request: ctx.request ?? null,
-          organizationScope: ctx.organizationScope ?? null,
+      if (!allInterceptors.length) {
+        return {
+          metadata: new Map<string, Record<string, unknown>>(),
+          userFeatures: resolvedUserFeatures,
         }
-        const beforeResult = await runCommandInterceptorsBeforeUndo(
-          allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
-        )
-        if (!beforeResult.ok) {
-          const blocked = beforeResult.error!
-          throw new CommandInterceptorError(blocked.message, { status: blocked.status, body: blocked.body })
-        }
-        undoInterceptorMetadata = beforeResult.metadataByInterceptor
       }
+      const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
+      const interceptorCtx: CommandInterceptorContext = {
+        commandId: log.commandId,
+        auth: replayCtx.auth ?? null,
+        selectedOrganizationId: replayCtx.selectedOrganizationId ?? replayCtx.auth?.orgId ?? null,
+        container: replayCtx.container,
+        organizationScope: replayCtx.organizationScope ?? null,
+        request: replayCtx.request ?? null,
+      }
+      const beforeResult = await runCommandInterceptorsBeforeUndo(
+        allInterceptors, log.commandId, undoCtx, interceptorCtx, resolvedUserFeatures,
+      )
+      if (!beforeResult.ok) {
+        const blocked = beforeResult.error!
+        throw new CommandInterceptorError(blocked.message, { status: blocked.status, body: blocked.body })
+      }
+      return {
+        metadata: beforeResult.metadataByInterceptor,
+        userFeatures: resolvedUserFeatures,
+      }
+    }
 
-      await handler.undo({
+    if (!isAtomicReplay) {
+      await this.runReplayTransactionGuard(ctx, 'undo', log)
+      if (handler.authorizeReplay) {
+        await handler.authorizeReplay({
+          operation: 'undo',
+          input: log.commandPayload as Parameters<NonNullable<typeof handler.authorizeReplay>>[0]['input'],
+          ctx,
+          logEntry: log,
+        })
+      }
+    }
+
+    const claimUndo = async (replayEm?: EntityManager) => {
+      // Two contenders can both pass the initial lookup; only the compare-and-set
+      // below may proceed. On the atomic path this state is still uncommitted and
+      // rolls back with every handler/log write if anything later fails.
+      const claimed = replayEm
+        ? await service.claimForUndo(log.id, replayEm)
+        : await service.claimForUndo(log.id)
+      if (!claimed) throw new Error('[internal] Undo token already consumed')
+    }
+    const finishUndo = async (replayCtx: CommandRuntimeContext, replayEm?: EntityManager) => {
+      await handler.undo!({
         input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
-        ctx,
+        ctx: replayCtx,
         logEntry: log,
       })
-      await service.markUndone(log.id, this.buildUndoTraceLog(log, ctx))
+      const traceLog = this.buildUndoTraceLog(log, replayCtx)
+      if (replayEm) {
+        await service.markUndone(log.id, traceLog, replayEm)
+      } else {
+        await service.markUndone(log.id, traceLog)
+      }
+    }
 
-      // Run afterUndo command interceptors
+    let ambientReplay: AtomicReplayTransaction | null = null
+    let replayTransactionLifetime: TransactionLifetime | null = null
+    if (isAtomicReplay) {
+      ambientReplay = resolveAtomicReplayTransaction(ctx)
+      const replayEm = ambientReplay.em
+      await withAtomicFlush(replayEm, [async () => {
+        const replayCtx = bindReplayTransactionContext(
+          ctx,
+          replayEm,
+          ambientReplay?.joinsAmbient ? ctx.transactionLifetime : undefined,
+        )
+        replayTransactionLifetime = replayCtx.transactionLifetime ?? null
+        if (handler.stabilizeReplay) {
+          await handler.stabilizeReplay({
+            operation: 'undo',
+            input: log.commandPayload as Parameters<NonNullable<typeof handler.stabilizeReplay>>[0]['input'],
+            ctx: replayCtx,
+            logEntry: log,
+          })
+        }
+        await this.runReplayTransactionGuard(replayCtx, 'undo', log, replayEm)
+        const prepared = await runBeforeUndoInterceptors(replayCtx)
+        undoInterceptorMetadata = prepared.metadata
+        userFeatures = prepared.userFeatures
+        if (handler.authorizeReplay) {
+          await handler.authorizeReplay({
+            operation: 'undo',
+            input: log.commandPayload as Parameters<NonNullable<typeof handler.authorizeReplay>>[0]['input'],
+            ctx: replayCtx,
+            logEntry: log,
+          })
+        }
+        await claimUndo(replayEm)
+        await finishUndo(replayCtx, replayEm)
+      }], {
+        transaction: true,
+        label: `${log.commandId}.undo`,
+      })
+    } else {
+      try {
+        // Preserve the established non-atomic lifecycle exactly: authorization,
+        // source claim, before-undo interceptors, handler, then finalization.
+        await claimUndo()
+        const prepared = await runBeforeUndoInterceptors(ctx)
+        undoInterceptorMetadata = prepared.metadata
+        userFeatures = prepared.userFeatures
+        await finishUndo(ctx)
+      } catch (err) {
+        // Legacy handlers retain their compensating release behavior because
+        // their domain mutation may not share the action-log transaction.
+        await service.releaseUndoClaim(log.id).catch(() => {})
+        throw err
+      }
+    }
+
+    const runPostCommit = async () => {
+      // Post-commit hooks and side effects run only after an atomic replay has
+      // durably committed both the domain state and source/trace log state.
       if (allInterceptors.length) {
         const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
         const interceptorCtx: CommandInterceptorContext = {
@@ -437,8 +689,8 @@ export class CommandBus {
           auth: ctx.auth ?? null,
           selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
           container: ctx.container,
-          request: ctx.request ?? null,
           organizationScope: ctx.organizationScope ?? null,
+          request: ctx.request ?? null,
         }
         await runCommandInterceptorsAfterUndo(
           allInterceptors, log.commandId, undoCtx, interceptorCtx,
@@ -448,12 +700,19 @@ export class CommandBus {
 
       await this.invalidateCacheAfterUndo(log, ctx)
       await this.flushCrudSideEffects(ctx.container)
-    } catch (err) {
-      // Undo failed after claiming the row — release the claim so the action
-      // remains retryable instead of being stranded in the `undoing` state.
-      await service.releaseUndoClaim(log.id).catch(() => {})
-      throw err
     }
+
+    if (ambientReplay?.joinsAmbient) {
+      if (!replayTransactionLifetime || !ownsTransactionLifetime(ambientReplay.em, replayTransactionLifetime)) {
+        throw new Error('[internal] Ambient atomic replay lost its outer transaction lifetime owner')
+      }
+      onTransactionLifetimeComplete(ambientReplay.em, async (outcome) => {
+        if (outcome === 'committed') await runPostCommit()
+      })
+      return
+    }
+
+    await runPostCommit()
   }
 
   private buildUndoTraceLog(log: ActionLog, ctx: CommandRuntimeContext): ActionLogCreateInput | undefined {
@@ -493,20 +752,64 @@ export class CommandBus {
 
   private async resolveUserFeaturesForInterceptors(ctx: CommandRuntimeContext): Promise<string[]> {
     if (!ctx.auth) return []
+    type RbacLike = {
+      getGrantedFeatures: (
+        userId: string,
+        opts: { tenantId: string | null; organizationId: string | null },
+      ) => Promise<string[]>
+      getGrantedFeaturesWithEntityManager?: (
+        em: EntityManager,
+        userId: string,
+        opts: { tenantId: string | null; organizationId: string | null },
+      ) => Promise<string[]>
+    }
+    let rbac: RbacLike | undefined
     try {
-      type RbacLike = { getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]> }
-      const rbac = ctx.container.resolve('rbacService') as RbacLike | undefined
-      if (rbac?.getGrantedFeatures) {
-        return await rbac.getGrantedFeatures(ctx.auth.sub, {
-          tenantId: ctx.auth.tenantId,
-          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
-        })
-      }
+      rbac = ctx.container.resolve('rbacService') as RbacLike | undefined
     } catch {
       // Intentional: rbacService is not registered in all runtime contexts (CLI, tests, bootstrap).
-      // Falling through to return [] is safe — interceptors without feature gating still run.
+      return []
+    }
+    const scope = {
+      tenantId: ctx.auth.tenantId,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
+    }
+    if (ctx.transactionalEm) {
+      if (!rbac?.getGrantedFeaturesWithEntityManager) return []
+      return await rbac.getGrantedFeaturesWithEntityManager(
+        ctx.transactionalEm,
+        ctx.auth.sub,
+        scope,
+      )
+    }
+    try {
+      if (rbac?.getGrantedFeatures) {
+        return await rbac.getGrantedFeatures(ctx.auth.sub, scope)
+      }
+    } catch {
+      // Outside a transaction a failed lookup cannot poison anything; interceptors without
+      // feature gating still run. Inside one the error is rethrown above, because the failed
+      // query has already aborted the transaction.
     }
     return []
+  }
+
+  private async runReplayTransactionGuard(
+    ctx: CommandRuntimeContext,
+    operation: 'undo' | 'redo',
+    logEntry: CommandUndoLogEntry,
+    transactionalEm?: EntityManager,
+  ): Promise<void> {
+    if (!ctx.replayTransactionGuard) return
+    if (transactionalEm) {
+      await ctx.replayTransactionGuard({ operation, logEntry, transactionalEm })
+      return
+    }
+    const requestEm = ctx.container.resolve('em') as EntityManager
+    const guardEm = typeof requestEm.fork === 'function' ? requestEm.fork() : requestEm
+    await withAtomicFlush(guardEm, [async () => {
+      await ctx.replayTransactionGuard!({ operation, logEntry, transactionalEm: guardEm })
+    }], { transaction: true, label: `${logEntry.commandId}.${operation}.request-guard` })
   }
 
   private async resolveHandler<TInput, TResult>(commandId: string): Promise<CommandHandler<TInput, TResult>> {
@@ -570,6 +873,10 @@ export class CommandBus {
     if (!primary && !secondary) return null
     return {
       skipLog: secondary?.skipLog ?? primary?.skipLog ?? false,
+      replayable:
+        secondary?.replayable === false || primary?.replayable === false
+          ? false
+          : secondary?.replayable ?? primary?.replayable,
       tenantId: secondary?.tenantId ?? primary?.tenantId ?? null,
       organizationId: secondary?.organizationId ?? primary?.organizationId ?? null,
       actorUserId: secondary?.actorUserId ?? primary?.actorUserId ?? null,
@@ -582,6 +889,9 @@ export class CommandBus {
       relatedResourceKind: secondary?.relatedResourceKind ?? primary?.relatedResourceKind ?? null,
       relatedResourceId: secondary?.relatedResourceId ?? primary?.relatedResourceId ?? null,
       undoToken: secondary?.undoToken ?? primary?.undoToken ?? null,
+      // A redacted redo input always wins: it exists precisely because the raw
+      // input carries a secret that must not reach `action_logs`.
+      redoInput: secondary?.redoInput !== undefined ? secondary.redoInput : primary?.redoInput,
       payload: secondary?.payload ?? primary?.payload ?? null,
       snapshotBefore: secondary?.snapshotBefore ?? primary?.snapshotBefore ?? null,
       snapshotAfter: secondary?.snapshotAfter ?? primary?.snapshotAfter ?? null,
@@ -602,9 +912,9 @@ export class CommandBus {
     if (resourceKind && SKIPPED_ACTION_LOG_RESOURCE_KINDS.has(resourceKind)) {
       return null
     }
-    let service: ActionLogService | null = null
+    let service: CommandActionLogService | null = null
     try {
-      service = (options.ctx.container.resolve('actionLogService') as ActionLogService)
+      service = (options.ctx.container.resolve('actionLogService') as CommandActionLogService)
     } catch {
       service = null
     }
@@ -658,10 +968,17 @@ export class CommandBus {
       payload.context = { ...baseContext, source: runAs.source }
     }
 
-    const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, options.input)
-    payload.commandPayload = redoEnvelope
+    if (metadata.replayable === false) {
+      delete payload.commandPayload
+    } else {
+      const redoInput = metadata.redoInput !== undefined ? metadata.redoInput : options.input
+      const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, redoInput)
+      payload.commandPayload = redoEnvelope
+    }
 
-    return await service.log(payload as ActionLogCreateInput)
+    return options.ctx.transactionalEm
+      ? await service.log(payload as ActionLogCreateInput, options.ctx.transactionalEm)
+      : await service.log(payload as ActionLogCreateInput)
   }
 
   private isUndoable(handler: CommandHandler<unknown, unknown>): boolean {

@@ -551,17 +551,18 @@ export function PhoneNumberField({
     () => buildPhoneCountryOptions(countriesProp, t, locale),
     [countriesProp, t, locale],
   )
-  // Radix keeps every item mounted while the list is closed. Reusing the same
-  // elements lets React skip all of them when this field re-renders, which a
-  // host form does on every keystroke in any other field.
   const countryItems = React.useMemo(
-    () => countryOptions.map(({ country: c, label }) => (
-      <SelectItem key={`${c.iso2}-${c.dialCode}`} value={c.iso2}>
+    () => countryOptions.map(({ country: optionCountry, label }) => (
+      <SelectItem
+        key={`${optionCountry.iso2}-${optionCountry.dialCode}`}
+        value={optionCountry.iso2}
+        textValue={label}
+      >
         <SelectItemLeading>
-          <span className="text-base leading-none">{c.flag}</span>
+          <span className="text-base leading-none">{optionCountry.flag}</span>
         </SelectItemLeading>
         <span className="flex-1 truncate">{label}</span>
-        <span className="ml-2 text-xs text-muted-foreground tabular-nums">{c.dialCode}</span>
+        <span className="ml-2 text-xs text-muted-foreground tabular-nums">{optionCountry.dialCode}</span>
       </SelectItem>
     )),
     [countryOptions],

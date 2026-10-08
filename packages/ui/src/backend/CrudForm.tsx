@@ -2000,6 +2000,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     () => new Set(injectedFieldDefinitions.map((definition) => definition.id)),
     [injectedFieldDefinitions],
   )
+  // An injected field may reuse a host-declared field id to replace the host's built-in
+  // input for that field (the later, injected entry wins in `fieldById`) — e.g.
+  // `customer_groups`' `GroupPickerField` replacing catalog's plain-text `customerGroupId`.
+  // Such a field is still a host schema field, so its value must reach `coreValues` and the
+  // host `onSubmit` payload. Only an injected field with NO host-declared counterpart is an
+  // "extra" field that is stripped before schema validation/submission (widgets still see
+  // it via `onBeforeSave`/`onSave`). See UPGRADE_NOTES.md (0.8.1). Host fields declared
+  // inline in `groups[].fields` count as host-declared too.
+  const hostFieldIdSet = React.useMemo(() => {
+    const ids = new Set(fields.map((field) => field.id))
+    for (const group of groups ?? []) {
+      for (const entry of group.fields ?? []) {
+        if (typeof entry !== 'string') ids.add(entry.id)
+      }
+    }
+    return ids
+  }, [fields, groups])
+  const injectedOnlyFieldIdSet = React.useMemo(
+    () => new Set(Array.from(injectedFieldIdSet).filter((id) => !hostFieldIdSet.has(id))),
+    [injectedFieldIdSet, hostFieldIdSet],
+  )
 
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
     return injectedFieldDefinitions.map((definition) => {
@@ -2052,8 +2073,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [allFields])
 
   // Declared base fields whose id is a dot-path (e.g. `metadata.category`).
-  // Injected and custom (cf) fields already get dot-path/cf-path hydration and
-  // are excluded here so their dedicated handling is preserved. CrudForm hydrates
+  // Injected-only and custom (cf) fields already get dot-path/cf-path hydration and
+  // are excluded here so their dedicated handling is preserved; an injected field
+  // that reuses a host field id stays a host field and is collapsed. CrudForm hydrates
   // these flat keys from nested initial values on load and projects them back into
   // nested objects before schema.safeParse on submit. See issue #2503.
   const dotPathBaseFieldIds = React.useMemo(() => {
@@ -2062,13 +2084,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const field of allFields) {
       const fieldId = field.id
       if (!fieldId.includes('.')) continue
-      if (injectedFieldIdSet.has(fieldId)) continue
+      if (injectedOnlyFieldIdSet.has(fieldId)) continue
       if (fieldId.startsWith('cf_') || fieldId.startsWith('cf:')) continue
       if (cfFieldIds.has(fieldId)) continue
       ids.add(fieldId)
     }
     return ids
-  }, [allFields, injectedFieldIdSet, cfFields])
+  }, [allFields, injectedOnlyFieldIdSet, cfFields])
 
   const validateFieldOnBlur = React.useCallback(async (
     fieldId: string,
@@ -2141,7 +2163,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         delete widgetValues[hiddenId]
       }
       const coreValues = { ...widgetValues }
-      for (const injectedId of injectedFieldIdSet) {
+      for (const injectedId of injectedOnlyFieldIdSet) {
         delete coreValues[injectedId]
       }
       const result = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
@@ -2190,7 +2212,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     hiddenBaseFieldIds,
     hiddenGroupFieldIds,
     hiddenInjectedFieldIds,
-    injectedFieldIdSet,
+    injectedOnlyFieldIdSet,
     mapDefsForValidation,
     schema,
     t,
@@ -3070,7 +3092,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       delete widgetValues[hiddenId]
     }
     const coreValues = { ...widgetValues }
-    for (const injectedId of injectedFieldIdSet) {
+    for (const injectedId of injectedOnlyFieldIdSet) {
       delete coreValues[injectedId]
     }
     if (customEntity) {
@@ -3109,7 +3131,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (result.data) {
           submitValues = result.data as TValues
           const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
-          for (const injectedId of injectedFieldIdSet) {
+          for (const injectedId of injectedOnlyFieldIdSet) {
             delete projectedCoreValues[injectedId]
           }
           if (customEntity) {

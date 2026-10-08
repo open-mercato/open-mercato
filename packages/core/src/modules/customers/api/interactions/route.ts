@@ -15,6 +15,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -342,12 +343,12 @@ function applyInteractionListFilters(
   baseQuery: any,
   params: {
     tenantId: string
-    organizationIds: string[]
+    organizationIds: string[] | undefined
     query: z.infer<typeof listSchema>
   },
 ): any {
   let q = baseQuery.where('deleted_at', 'is', null).where('tenant_id', '=', params.tenantId)
-  if (params.organizationIds.length > 0) q = q.where('organization_id', 'in', params.organizationIds)
+  if (params.organizationIds !== undefined) q = q.where('organization_id', 'in', params.organizationIds)
   const { query } = params
   if (query.entityId) q = q.where('entity_id', '=', query.entityId)
   if (query.dealId) q = q.where('deal_id', '=', query.dealId)
@@ -454,14 +455,7 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationIds = Array.isArray(scope?.filterIds) && scope.filterIds.length > 0
-      ? scope.filterIds
-      : auth.orgId
-        ? [auth.orgId]
-        : []
-    const selectedOrganizationId = scope?.selectedId ?? auth.orgId ?? organizationIds[0] ?? null
-    const em = (container.resolve('em') as EntityManager).fork()
-    const db = em.getKysely<any>() as any
+    const { organizationIds, rbacOrganizationId: selectedOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
 
     const requestedSortField = query.sortField ?? 'scheduledAt'
     const sortConfig = interactionSortConfig[requestedSortField]
@@ -473,6 +467,12 @@ export async function GET(req: Request) {
         error: translate('customers.interactions.cursor.invalid', 'Invalid cursor'),
       })
     }
+    if (organizationIds?.length === 0) {
+      return NextResponse.json({ items: [] })
+    }
+
+    const em = (container.resolve('em') as EntityManager).fork()
+    const db = em.getKysely<any>() as any
 
     // ── Email visibility filter (2026-05-27) ──────────────────────────────
     // Non-email interactions pass through; email rows with visibility='private'

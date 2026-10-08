@@ -4,20 +4,25 @@ import type { Locale } from '../config'
 // mock has to be in place before the module under test is loaded.
 const cookieStore = { value: undefined as string | undefined }
 const headerStore = { acceptLanguage: '' }
+const nextHeadersCalls = { cookies: 0, headers: 0 }
+let caseReadsTheRequest = true
 
-jest.mock(
-  'next/headers',
-  () => ({
-    cookies: async () => ({
+jest.mock('next/headers', () => ({
+  cookies: async () => {
+    nextHeadersCalls.cookies += 1
+    return {
       get: (name: string) =>
         name === 'locale' && cookieStore.value ? { value: cookieStore.value } : undefined,
-    }),
-    headers: async () => ({
+    }
+  },
+  headers: async () => {
+    nextHeadersCalls.headers += 1
+    return {
       get: (name: string) =>
         name.toLowerCase() === 'accept-language' ? headerStore.acceptLanguage : null,
-    }),
-  }),
-)
+    }
+  },
+}))
 
 import { detectLocale } from '../server'
 import { clearRegisteredLocales, registerLocales } from '../locale-registry'
@@ -29,9 +34,14 @@ describe('detectLocale with a narrowed supported set', () => {
     cookieStore.value = undefined
     headerStore.acceptLanguage = ''
     delete process.env.OM_FORCE_LOCALE
+    nextHeadersCalls.cookies = 0
+    nextHeadersCalls.headers = 0
+    caseReadsTheRequest = true
+    clearRegisteredLocales()
   })
 
   afterEach(() => {
+    if (caseReadsTheRequest) expect(nextHeadersCalls.cookies + nextHeadersCalls.headers).toBeGreaterThan(0)
     clearRegisteredLocales()
   })
 
@@ -90,6 +100,7 @@ describe('detectLocale with a narrowed supported set', () => {
   })
 
   it('still lets OM_FORCE_LOCALE win over the narrowed set', async () => {
+    caseReadsTheRequest = false
     process.env.OM_FORCE_LOCALE = 'ko'
 
     try {
