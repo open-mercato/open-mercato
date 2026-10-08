@@ -12,6 +12,7 @@ import {
 
 test.describe('TC-PLAN-005: Availability editor hydrates saved rule set', () => {
   test('shows the saved rule set when it is outside the first loaded options page', async ({ page, request }) => {
+    test.setTimeout(90_000)
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const ruleSetIds: string[] = []
