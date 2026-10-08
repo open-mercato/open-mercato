@@ -10,8 +10,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { getProjectAccessScopeKey } from './projectAccessScope'
+import { useProjectAccessScope } from './projectAccessScope'
 
 export const MY_WORK_HREF = '/backend/staff/time-tracking'
 export const ACCESS_REQUEST_ENDPOINT = '/api/staff/timesheets/access-requests'
@@ -30,9 +29,8 @@ export type AccessRequestButtonProps = {
 }
 
 export function AccessRequestButton(props: AccessRequestButtonProps) {
-  useOrganizationScopeVersion()
-  const scopeKey = getProjectAccessScopeKey(props.timeProjectId)
-  return <ScopedAccessRequestButton key={scopeKey} {...props} scopeKey={scopeKey} />
+  const { scopeKey, isCurrentScope } = useProjectAccessScope(props.timeProjectId)
+  return <ScopedAccessRequestButton key={scopeKey} {...props} isCurrentScope={isCurrentScope} />
 }
 
 function ScopedAccessRequestButton({
@@ -40,8 +38,8 @@ function ScopedAccessRequestButton({
   label,
   sentLabel,
   variant = 'outline',
-  scopeKey,
-}: AccessRequestButtonProps & { scopeKey: string }) {
+  isCurrentScope,
+}: AccessRequestButtonProps & { isCurrentScope: () => boolean }) {
   const t = useT()
   const [submitting, setSubmitting] = React.useState(false)
   const [sent, setSent] = React.useState(false)
@@ -56,14 +54,14 @@ function ScopedAccessRequestButton({
   })
 
   const requestAccess = React.useCallback(async () => {
-    const isCurrentScope = () => mounted.current && getProjectAccessScopeKey(timeProjectId) === scopeKey
-    if (!isCurrentScope()) return
+    const isCurrent = () => mounted.current && isCurrentScope()
+    if (!isCurrent()) return
     const payload = timeProjectId ? { timeProjectId } : {}
     setSubmitting(true)
     try {
       await runMutation({
         operation: () => {
-          if (!isCurrentScope()) throw new Error('[internal] Access request scope changed')
+          if (!isCurrent()) throw new Error('[internal] Access request scope changed')
           return apiCallOrThrow(ACCESS_REQUEST_ENDPOINT, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -77,7 +75,7 @@ function ScopedAccessRequestButton({
         },
         mutationPayload: payload,
       })
-      if (!isCurrentScope()) return
+      if (!isCurrent()) return
       setSent(true)
       flash(
         t(
@@ -87,15 +85,15 @@ function ScopedAccessRequestButton({
         'success',
       )
     } catch {
-      if (!isCurrentScope()) return
+      if (!isCurrent()) return
       flash(
         t('staff.time_tracking.access.request.error', 'Could not send the access request.'),
         'error',
       )
     } finally {
-      if (isCurrentScope()) setSubmitting(false)
+      if (isCurrent()) setSubmitting(false)
     }
-  }, [retryLastMutation, runMutation, t, timeProjectId, scopeKey])
+  }, [isCurrentScope, retryLastMutation, runMutation, t, timeProjectId])
 
   return (
     <Button type="button" variant={variant} onClick={requestAccess} disabled={submitting || sent}>

@@ -37,11 +37,13 @@ export const integrationMeta = {
  */
 
 const ACCESS_REQUEST_ENDPOINT = '/api/staff/timesheets/access-requests'
+const SCOPE_COOKIE = /^om_selected_(org|tenant)$/
 
 test.describe('TC-TT-017: No access to a project', () => {
   for (const scenario of [
-    { name: 'detail', delayedScope: false },
-    { name: 'detail during organization bootstrap', delayedScope: true },
+    { name: 'detail', delayedScope: false, freshSession: false },
+    { name: 'detail during organization bootstrap', delayedScope: true, freshSession: false },
+    { name: 'detail during a fresh session\'s first organization bootstrap', delayedScope: true, freshSession: true },
   ]) {
     test(`shows the guard state without leaking the customer or project, and the request-access action works (${scenario.name})`, async ({ page, request }) => {
       test.setTimeout(120_000)
@@ -66,6 +68,11 @@ test.describe('TC-TT-017: No access to a project', () => {
         })
 
         await login(page, 'employee')
+        if (scenario.freshSession) {
+          // `login()` seeds the scope cookies; a real fresh session has none until the
+          // organization switcher persists the scope the server resolved from the session.
+          await page.context().clearCookies({ name: SCOPE_COOKIE })
+        }
         if (scenario.delayedScope) {
           await page.route('**/api/directory/organization-switcher*', async (route) => {
             await scopeGate
@@ -119,6 +126,11 @@ test.describe('TC-TT-017: No access to a project', () => {
           )
           releaseScope()
           expect((await reloadedProject).status()).toBe(404)
+          if (scenario.freshSession) {
+            await expect
+              .poll(async () => (await page.context().cookies()).some((cookie) => cookie.name === 'om_selected_org'))
+              .toBe(true)
+          }
           await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled()
         }
         await expect(page.getByText('Could not send the access request.')).toHaveCount(0)

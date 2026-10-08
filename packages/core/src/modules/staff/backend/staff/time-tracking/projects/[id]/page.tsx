@@ -31,7 +31,7 @@ import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { KpiCard, Sparkline } from '@open-mercato/ui/backend/charts'
 import { ProjectTeamDrawer } from '../../../../../lib/time-tracking-ui/ProjectTeamDrawer'
 import { NoProjectAccess } from '../../../../../lib/time-tracking-ui/NoProjectAccess'
-import { getProjectAccessScopeKey } from '../../../../../lib/time-tracking-ui/projectAccessScope'
+import { useProjectAccessScope } from '../../../../../lib/time-tracking-ui/projectAccessScope'
 import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
 import { computeBudgetBurn } from '../../../../../lib/timesheets-projects/budgetBurn'
 import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
@@ -169,7 +169,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const projectId = params?.id
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
-  const projectAccessScopeKey = getProjectAccessScopeKey(projectId)
+  const { scopeKey: projectAccessScopeKey } = useProjectAccessScope(projectId)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()

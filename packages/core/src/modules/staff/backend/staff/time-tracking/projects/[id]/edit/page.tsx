@@ -15,7 +15,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DEFAULT_BUDGET_WARN_AT_PERCENT, type ProjectBudgetKind } from '../../../../../../lib/time-tracking-ui/ProjectFormSections'
 import { NoProjectAccess } from '../../../../../../lib/time-tracking-ui/NoProjectAccess'
-import { getProjectAccessScopeKey } from '../../../../../../lib/time-tracking-ui/projectAccessScope'
+import { useProjectAccessScope } from '../../../../../../lib/time-tracking-ui/projectAccessScope'
 import {
   buildProjectPayload,
   createProjectFormFields,
@@ -106,7 +106,7 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
-  const projectAccessScopeKey = getProjectAccessScopeKey(projectId)
+  const { scopeKey: projectAccessScopeKey } = useProjectAccessScope(projectId)
 
   const [initialValues, setInitialValues] = React.useState<ProjectFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)

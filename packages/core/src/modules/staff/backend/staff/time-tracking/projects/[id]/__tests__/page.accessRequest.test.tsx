@@ -92,6 +92,11 @@ function setScope(organization = 'org-a', tenant = 'tenant-a') {
   document.cookie = `om_selected_tenant=${tenant}; path=/`
 }
 
+function clearScope() {
+  document.cookie = 'om_selected_org=; max-age=0; path=/'
+  document.cookie = 'om_selected_tenant=; max-age=0; path=/'
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockScopeVersion = 0
@@ -106,8 +111,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  document.cookie = 'om_selected_org=; max-age=0; path=/'
-  document.cookie = 'om_selected_tenant=; max-age=0; path=/'
+  clearScope()
 })
 
 describe.each([
@@ -137,6 +141,57 @@ describe.each([
     expect(screen.getByRole('button', { name: 'Request sent' })).toBeDisabled()
     await act(async () => { reload.resolve(denied) })
     expect(screen.getByRole('button', { name: 'Request sent' })).toBeDisabled()
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains the acknowledgement when a fresh session first persists its scope', async () => {
+    clearScope()
+    const { refresh } = renderProject()
+    await sendRequest()
+    const reload = deferred<typeof denied>()
+    apiCallMock.mockImplementation(async (url) => url.toString().includes('/time-projects?') ? reload.promise : {} as never)
+    setScope()
+    mockScopeVersion += 1
+    refresh()
+    expect(screen.getByRole('button', { name: 'Request sent' })).toBeDisabled()
+    await act(async () => { reload.resolve(denied) })
+    expect(screen.getByRole('button', { name: 'Request sent' })).toBeDisabled()
+    expect(requestMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('completes a request started before a fresh session persists its scope', async () => {
+    clearScope()
+    const guard = deferred<void>()
+    mockGuard = guard.promise
+    const { refresh } = renderProject()
+    fireEvent.click(await screen.findByRole('button', { name: 'Request access' }))
+    setScope()
+    mockScopeVersion += 1
+    refresh()
+    await act(async () => { guard.resolve() })
+    expect(requestMock).toHaveBeenCalledTimes(1)
+    expect(flash).toHaveBeenCalledWith('Your request has been sent to the Team Leaders.', 'success')
+    expect(await screen.findByRole('button', { name: 'Request sent' })).toBeDisabled()
+  })
+
+  it('resets the acknowledgement when the scope a fresh session persisted later changes', async () => {
+    clearScope()
+    const { refresh } = renderProject()
+    await sendRequest()
+    setScope()
+    mockScopeVersion += 1
+    refresh()
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: 'Request sent' })).toBeDisabled()
+    const reload = deferred<typeof denied>()
+    apiCallMock.mockImplementation(async (url) => url.toString().includes('/time-projects?') ? reload.promise : {} as never)
+    setScope('org-b')
+    mockScopeVersion += 1
+    refresh()
+    expect(screen.queryByRole('button', { name: 'Request sent' })).not.toBeInTheDocument()
+    expect(screen.getByText('Loading project...')).toBeInTheDocument()
+    await act(async () => { reload.resolve(denied) })
+    expect(await screen.findByRole('button', { name: 'Request access' })).toBeEnabled()
     expect(requestMock).toHaveBeenCalledTimes(1)
   })
 
