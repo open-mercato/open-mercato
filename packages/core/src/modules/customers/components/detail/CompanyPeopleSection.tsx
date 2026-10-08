@@ -199,17 +199,9 @@ export function CompanyPeopleSection({
   )
 
   React.useEffect(() => {
-    const action: SectionAction = {
-      label: addActionLabel,
-      onClick: () => {
-        setCreateDialogOpen(true)
-      },
-    }
-    onActionChange?.(action)
-    return () => {
-      onActionChange?.(null)
-    }
-  }, [addActionLabel, onActionChange])
+    onActionChange?.(null)
+    return () => onActionChange?.(null)
+  }, [onActionChange])
 
   React.useEffect(() => {
     pendingPeopleChangeRef.current = false

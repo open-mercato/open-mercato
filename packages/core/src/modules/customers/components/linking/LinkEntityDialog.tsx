@@ -26,6 +26,7 @@ import {
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
 
@@ -467,15 +468,13 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
         linkSettings,
       })
       onOpenChange(false)
-    } catch {
-      // Deliberately swallowed, and deliberately not closing the dialog.
-      //
-      // Hosts re-throw from `onConfirm` after they have already reported the failure (a flash,
-      // or the conflict bar on a 409). The throw is what keeps this dialog open so the user's
-      // whole selection survives — `onOpenChange(false)` above is skipped. But both call sites
-      // invoke this as `void handleSave()`, so letting the rejection escape would additionally
-      // fire `unhandledrejection`: a dev-overlay popup and a phantom entry in any error
-      // reporter, for a failure the user has already been told about.
+    } catch (error) {
+      try {
+        getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.link_confirmation_failed' })
+      } catch (reportingError) {
+        logger.warn('Failed to report link confirmation error', { err: reportingError })
+      }
+      return
     } finally {
       setSaving(false)
     }

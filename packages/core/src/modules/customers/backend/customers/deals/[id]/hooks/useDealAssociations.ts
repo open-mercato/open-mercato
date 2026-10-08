@@ -119,14 +119,12 @@ export function useDealAssociations({
               }
             : prev,
         )
-        // runMutationWithContext already surfaces the conflict bar on a 409; only
-        // fall back to the generic flash when this is not a record conflict.
         if (!surfaceRecordConflict(error, t, { onRefresh })) {
-          flash(t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.'), 'error')
+          const message = error instanceof Error && error.message
+            ? error.message
+            : t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.')
+          flash(message, 'error')
         }
-        // Re-throw after reporting. The link dialog closes as soon as its confirm handler
-        // resolves, so swallowing here would drop the user's whole selection on a 409 while
-        // the conflict bar appears behind the closing dialog.
         throw error
       } finally {
         setPeopleSaving(false)
@@ -164,12 +162,12 @@ export function useDealAssociations({
               }
             : prev,
         )
-        // runMutationWithContext already surfaces the conflict bar on a 409; only
-        // fall back to the generic flash when this is not a record conflict.
         if (!surfaceRecordConflict(error, t, { onRefresh })) {
-          flash(t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.'), 'error')
+          const message = error instanceof Error && error.message
+            ? error.message
+            : t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.')
+          flash(message, 'error')
         }
-        // See the people handler: the dialog must stay open when the save failed.
         throw error
       } finally {
         setCompaniesSaving(false)
