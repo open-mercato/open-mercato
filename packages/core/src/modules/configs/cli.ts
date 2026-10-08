@@ -4,7 +4,7 @@ import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ModuleConfigService } from './lib/module-config-service'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, NOTIFICATIONS_DELIVERY_CONFIG_KEY } from '../notifications/lib/deliveryConfig'
+import { STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG, NOTIFICATIONS_DELIVERY_CONFIG_KEY } from '../notifications/lib/deliveryConfig'
 import { Tenant } from '../directory/data/entities'
 import {
   collectCacheStats,
@@ -325,7 +325,7 @@ const restoreDefaults: ModuleCli = {
           {
             moduleId: 'notifications',
             name: NOTIFICATIONS_DELIVERY_CONFIG_KEY,
-            value: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+            value: STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
           },
         ],
         { force: true },
