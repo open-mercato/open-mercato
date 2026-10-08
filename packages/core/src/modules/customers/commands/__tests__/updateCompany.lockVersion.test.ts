@@ -135,4 +135,24 @@ describe('customers.companies.update — optimistic-lock version (#7033)', () =>
 
     expect(company.updatedAt).toBe(LOADED_VERSION)
   })
+
+  it('advances updatedAt when undo restores only company-profile fields', async () => {
+    const company = makeCompany()
+    const profile = { ...makeProfile(), annualRevenue: '300' } as CustomerCompanyProfile
+    const ctx = makeCtx(makeEm(company, profile))
+    const handler = commandRegistry.get('customers.companies.update') as CommandHandler
+    const before = {
+      entity: { ...company },
+      profile: { ...makeProfile() },
+      tagIds: [],
+      deals: [],
+      members: [],
+      custom: {},
+    }
+
+    await handler.undo!({ logEntry: { commandPayload: { undo: { before, after: null } } }, ctx } as never)
+
+    expect(profile.annualRevenue).toBeNull()
+    expect(company.updatedAt.getTime()).toBeGreaterThan(LOADED_VERSION.getTime())
+  })
 })

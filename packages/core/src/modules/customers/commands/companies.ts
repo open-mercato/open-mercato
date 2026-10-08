@@ -895,6 +895,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      // Undo may only restore profile/custom fields, which never dirty the entity;
+      // advance the optimistic-lock version so a stale tab cannot overwrite it (#7033).
+      entity.updatedAt = new Date()
     }
     await em.flush()
 
