@@ -18,7 +18,14 @@ import {
   type EcommerceStoreSettingsPatch,
   type EcommerceStoreUpdateInput,
 } from '../../data/validators'
-import { fieldError, hasOwn, resolveWriteScope, type Translate } from '../../lib/crudSupport'
+import {
+  assertRecordInWriteScope,
+  fieldError,
+  hasOwn,
+  resolveScopeOrganizationId,
+  resolveWriteScope,
+  type Translate,
+} from '../../lib/crudSupport'
 import { clearCreateConflictRecheck, registerCreateConflictRecheck } from '../../lib/createConflictRecheck'
 import {
   assignExclusiveFlag,
@@ -261,6 +268,8 @@ export function toStoreListItem(row: StoreListRow): Record<string, unknown> {
   }
 }
 
+const NOT_FOUND = { key: 'ecommerce.errors.storeNotFound', fallback: 'The selected store does not exist in this organization.' }
+
 export const storeCrud = makeCrudRoute<RawStoreInput, RawStoreInput, StoreListQuery>({
   metadata: storeRouteMetadata,
   orm: {
@@ -301,8 +310,10 @@ export const storeCrud = makeCrudRoute<RawStoreInput, RawStoreInput, StoreListQu
     },
     defaultSort: { field: 'name', dir: 'asc' },
     tiebreakSortField: F.id,
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
+      const scopeOrganizationId = resolveScopeOrganizationId(ctx)
+      if (scopeOrganizationId) filters[F.organization_id] = { $eq: scopeOrganizationId }
       if (query.id) filters[F.id] = { $eq: query.id }
       if (query.search) {
         const pattern = buildIlikeTerm(query.search)
@@ -366,6 +377,12 @@ export const storeCrud = makeCrudRoute<RawStoreInput, RawStoreInput, StoreListQu
   },
   del: { idFrom: 'query', softDelete: true, response: () => ({ ok: true }) },
   hooks: {
+    beforeUpdate: async (input, ctx) => {
+      await assertRecordInWriteScope(ctx, EcommerceStore, (input as { id?: unknown }).id, NOT_FOUND)
+    },
+    beforeDelete: async (id, ctx) => {
+      await assertRecordInWriteScope(ctx, EcommerceStore, id, NOT_FOUND)
+    },
     beforeCreate: async (input, ctx) => {
       const result = ecommerceStoreCreateSchema.safeParse({ ...input, ...resolveWriteScope(ctx) })
       if (!result.success) return

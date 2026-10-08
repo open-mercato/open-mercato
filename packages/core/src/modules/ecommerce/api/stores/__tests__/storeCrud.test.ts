@@ -158,6 +158,27 @@ describe('ecommerce store CRUD route', () => {
     expect(item).toMatchObject({ id: STORE_ID, isPrimary: true, updatedAt: '2026-01-02T00:00:00.000Z' })
   })
 
+  describe('organization scope', () => {
+    const CHILD_ORG_ID = '55555555-5555-4555-8555-555555555555'
+
+    it('lists only the selected organization, not its descendants', async () => {
+      const filters = await opts.list!.buildFilters!({} as Record<string, unknown>, createCtx(createFakeEm().em))
+      expect(filters).toMatchObject({ organization_id: { $eq: ORG_ID } })
+    })
+
+    it('answers 404 for an update or delete of a descendant organization store', async () => {
+      const { em } = createFakeEm({ findOne: () => makeStore({ organizationId: CHILD_ORG_ID }) })
+      await expect(opts.hooks!.beforeUpdate!({ id: STORE_ID, name: 'X' }, createCtx(em))).rejects.toMatchObject({ status: 404 })
+      await expect(opts.hooks!.beforeDelete!(STORE_ID, createCtx(em))).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('lets an update or delete of a store in the selected organization through', async () => {
+      const { em } = createFakeEm({ findOne: () => makeStore() })
+      await expect(opts.hooks!.beforeUpdate!({ id: STORE_ID, name: 'X' }, createCtx(em))).resolves.toBeUndefined()
+      await expect(opts.hooks!.beforeDelete!(STORE_ID, createCtx(em))).resolves.toBeUndefined()
+    })
+  })
+
   describe('create', () => {
     it('rejects a duplicate code and slug with field-level 409 errors', async () => {
       const { em } = createFakeEm({ counts: () => 1 })

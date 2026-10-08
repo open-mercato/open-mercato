@@ -286,6 +286,7 @@
   "ecommerce.errors.codeDuplicate": "A store with this code already exists.",
   "ecommerce.errors.defaultChannelConflict": "Another channel binding of this store was made the default at the same time. Reload and try again.",
   "ecommerce.errors.domainBindingDuplicate": "This domain and path prefix already serve a store.",
+  "ecommerce.errors.domainBindingNotFound": "The selected domain binding does not exist in this organization.",
   "ecommerce.errors.domainMappingNotFound": "The selected domain does not belong to this organization.",
   "ecommerce.errors.domainMappingsUnavailable": "Domains are unavailable right now. Try again later.",
   "ecommerce.errors.internal": "Something went wrong. Try again.",

@@ -14,7 +14,15 @@ import {
   type EcommerceStoreChannelBindingCreateInput,
   type EcommerceStoreChannelBindingUpdateInput,
 } from '../../data/validators'
-import { fieldError, hasOwn, resolveWriteScope, type EcommerceWriteScope, type Translate } from '../../lib/crudSupport'
+import {
+  assertRecordInWriteScope,
+  fieldError,
+  hasOwn,
+  resolveScopeOrganizationId,
+  resolveWriteScope,
+  type EcommerceWriteScope,
+  type Translate,
+} from '../../lib/crudSupport'
 import { assignExclusiveFlag, promoteExclusiveFlag, type ExclusiveFlagConfig } from '../../lib/exclusiveFlag'
 import { assertPriceKindInScope, assertSalesChannelInScope, assertStoreInScope } from '../../lib/references'
 import {
@@ -105,6 +113,8 @@ export function toChannelBindingListItem(row: ChannelBindingListRow): Record<str
   }
 }
 
+const NOT_FOUND = { key: 'ecommerce.errors.channelBindingNotFound', fallback: 'The selected channel binding does not exist in this organization.' }
+
 export const channelBindingCrud = makeCrudRoute<RawChannelBindingInput, RawChannelBindingInput, ChannelBindingListQuery>({
   metadata: channelBindingRouteMetadata,
   orm: {
@@ -139,8 +149,10 @@ export const channelBindingCrud = makeCrudRoute<RawChannelBindingInput, RawChann
     },
     defaultSort: { field: 'createdAt', dir: 'asc' },
     tiebreakSortField: F.id,
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
+      const scopeOrganizationId = resolveScopeOrganizationId(ctx)
+      if (scopeOrganizationId) filters[F.organization_id] = { $eq: scopeOrganizationId }
       if (query.id) filters[F.id] = { $eq: query.id }
       if (query.storeId) filters[F.store_id] = { $eq: query.storeId }
       if (query.salesChannelId) filters[F.sales_channel_id] = { $eq: query.salesChannelId }
@@ -227,6 +239,12 @@ export const channelBindingCrud = makeCrudRoute<RawChannelBindingInput, RawChann
   },
   del: { idFrom: 'query', softDelete: true, response: () => ({ ok: true }) },
   hooks: {
+    beforeUpdate: async (input, ctx) => {
+      await assertRecordInWriteScope(ctx, EcommerceStoreChannelBinding, (input as { id?: unknown }).id, NOT_FOUND)
+    },
+    beforeDelete: async (id, ctx) => {
+      await assertRecordInWriteScope(ctx, EcommerceStoreChannelBinding, id, NOT_FOUND)
+    },
     beforeCreate: async (input, ctx) => {
       const result = ecommerceStoreChannelBindingCreateSchema.safeParse({ ...input, ...resolveWriteScope(ctx) })
       if (!result.success) return

@@ -286,6 +286,7 @@
   "ecommerce.errors.codeDuplicate": "Sklep z tym kodem już istnieje.",
   "ecommerce.errors.defaultChannelConflict": "W tym samym czasie inne powiązanie kanału tego sklepu zostało ustawione jako domyślne. Odśwież i spróbuj ponownie.",
   "ecommerce.errors.domainBindingDuplicate": "Ta domena i prefiks ścieżki obsługują już sklep.",
+  "ecommerce.errors.domainBindingNotFound": "Wybrane powiązanie domeny nie istnieje w tej organizacji.",
   "ecommerce.errors.domainMappingNotFound": "Wybrana domena nie należy do tej organizacji.",
   "ecommerce.errors.domainMappingsUnavailable": "Domeny są teraz niedostępne. Spróbuj ponownie później.",
   "ecommerce.errors.internal": "Coś poszło nie tak. Spróbuj ponownie.",

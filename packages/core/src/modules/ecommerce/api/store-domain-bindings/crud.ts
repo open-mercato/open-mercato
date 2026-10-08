@@ -14,7 +14,15 @@ import {
   type EcommerceStoreDomainBindingCreateInput,
   type EcommerceStoreDomainBindingUpdateInput,
 } from '../../data/validators'
-import { fieldError, hasOwn, resolveWriteScope, type EcommerceWriteScope, type Translate } from '../../lib/crudSupport'
+import {
+  assertRecordInWriteScope,
+  fieldError,
+  hasOwn,
+  resolveScopeOrganizationId,
+  resolveWriteScope,
+  type EcommerceWriteScope,
+  type Translate,
+} from '../../lib/crudSupport'
 import { clearCreateConflictRecheck, registerCreateConflictRecheck } from '../../lib/createConflictRecheck'
 import { assignExclusiveFlag, promoteExclusiveFlag, type ExclusiveFlagConfig } from '../../lib/exclusiveFlag'
 import { assertDomainMappingInScope, assertStoreInScope } from '../../lib/references'
@@ -138,6 +146,8 @@ export function toDomainBindingListItem(row: DomainBindingListRow): Record<strin
   }
 }
 
+const NOT_FOUND = { key: 'ecommerce.errors.domainBindingNotFound', fallback: 'The selected domain binding does not exist in this organization.' }
+
 export const domainBindingCrud = makeCrudRoute<RawDomainBindingInput, RawDomainBindingInput, DomainBindingListQuery>({
   metadata: domainBindingRouteMetadata,
   orm: {
@@ -171,8 +181,10 @@ export const domainBindingCrud = makeCrudRoute<RawDomainBindingInput, RawDomainB
     },
     defaultSort: { field: 'createdAt', dir: 'asc' },
     tiebreakSortField: F.id,
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
+      const scopeOrganizationId = resolveScopeOrganizationId(ctx)
+      if (scopeOrganizationId) filters[F.organization_id] = { $eq: scopeOrganizationId }
       if (query.id) filters[F.id] = { $eq: query.id }
       if (query.storeId) filters[F.store_id] = { $eq: query.storeId }
       if (query.domainMappingId) filters[F.domain_mapping_id] = { $eq: query.domainMappingId }
@@ -258,6 +270,12 @@ export const domainBindingCrud = makeCrudRoute<RawDomainBindingInput, RawDomainB
   },
   del: { idFrom: 'query', softDelete: true, response: () => ({ ok: true }) },
   hooks: {
+    beforeUpdate: async (input, ctx) => {
+      await assertRecordInWriteScope(ctx, EcommerceStoreDomainBinding, (input as { id?: unknown }).id, NOT_FOUND)
+    },
+    beforeDelete: async (id, ctx) => {
+      await assertRecordInWriteScope(ctx, EcommerceStoreDomainBinding, id, NOT_FOUND)
+    },
     beforeCreate: async (input, ctx) => {
       const result = ecommerceStoreDomainBindingCreateSchema.safeParse({ ...input, ...resolveWriteScope(ctx) })
       if (!result.success) return

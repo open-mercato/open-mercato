@@ -898,6 +898,11 @@ Open:
 
 ## 21) Changelog
 
+### 2026-10-08 — v4.7 (review fixes)
+
+- Admin store, channel-binding and domain-binding routes work in the **selected organization only** (the organization writes, reference checks, enrichers and the branding routes already use). Lists no longer include descendant organizations, and an update or delete of a descendant organization's record answers 404; switch the organization selector to manage a child organization's stores.
+- Storefront: a category under an inactive ancestor is hidden from facets, product cards, the `categoryId`/`categorySlug` filter and the detail categories/breadcrumb, matching the category tree. A category slug or `parentId` that matches no visible category costs one categories query (no catalogue load).
+
 ### 2026-10-05 — v4.6 (Phase 0 reconciliation, owner decisions)
 
 Reconciles the spec with the Phase 0 code that landed after it was written (#6709 `customer_groups`/`availability`/`catalog-visibility`, #6268 pricing engine phases 1–2), per `/om-pre-implement-spec` analysis `ANALYSIS-2026-10-05-spec-029-ecommerce-store-module-v4.5.md`, and applies the owner's decisions recorded in `ANALYSIS-2026-10-05-storefront-release-decisions.md`.

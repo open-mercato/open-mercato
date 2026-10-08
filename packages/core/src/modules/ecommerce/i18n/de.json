@@ -286,6 +286,7 @@
   "ecommerce.errors.codeDuplicate": "Ein Shop mit diesem Code existiert bereits.",
   "ecommerce.errors.defaultChannelConflict": "Gleichzeitig wurde eine andere Kanalzuordnung dieses Shops zum Standard gemacht. Laden Sie neu und versuchen Sie es erneut.",
   "ecommerce.errors.domainBindingDuplicate": "Diese Domain und dieses Pfadpräfix bedienen bereits einen Shop.",
+  "ecommerce.errors.domainBindingNotFound": "Die ausgewählte Domain-Bindung existiert in dieser Organisation nicht.",
   "ecommerce.errors.domainMappingNotFound": "Die ausgewählte Domain gehört nicht zu dieser Organisation.",
   "ecommerce.errors.domainMappingsUnavailable": "Domains sind derzeit nicht verfügbar. Versuchen Sie es später erneut.",
   "ecommerce.errors.internal": "Etwas ist schiefgelaufen. Versuchen Sie es erneut.",

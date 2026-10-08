@@ -286,6 +286,7 @@
   "ecommerce.errors.codeDuplicate": "Ya existe una tienda con este código.",
   "ecommerce.errors.defaultChannelConflict": "Otra vinculación de canal de esta tienda se convirtió en predeterminada al mismo tiempo. Recarga e inténtalo de nuevo.",
   "ecommerce.errors.domainBindingDuplicate": "Este dominio y prefijo de ruta ya sirven una tienda.",
+  "ecommerce.errors.domainBindingNotFound": "La vinculación de dominio seleccionada no existe en esta organización.",
   "ecommerce.errors.domainMappingNotFound": "El dominio seleccionado no pertenece a esta organización.",
   "ecommerce.errors.domainMappingsUnavailable": "Los dominios no están disponibles en este momento. Inténtalo más tarde.",
   "ecommerce.errors.internal": "Algo salió mal. Inténtalo de nuevo.",
