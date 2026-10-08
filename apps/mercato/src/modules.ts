@@ -157,6 +157,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },
   { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   // Same-origin OTLP proxy for browser RUM spans; inert unless

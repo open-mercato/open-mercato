@@ -51,6 +51,7 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY packages/channel-apns/package.json ./packages/channel-apns/
 COPY packages/channel-discord/package.json ./packages/channel-discord/
 COPY packages/channel-expo/package.json ./packages/channel-expo/
@@ -163,6 +164,7 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY packages/channel-apns/package.json ./packages/channel-apns/
 COPY packages/channel-discord/package.json ./packages/channel-discord/
 COPY packages/channel-expo/package.json ./packages/channel-expo/
@@ -350,6 +352,7 @@ COPY --from=builder /app/.yarn ./.yarn
 COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 COPY --from=builder /app/packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY --from=builder /app/packages/cache/package.json ./packages/cache/
+COPY --from=builder /app/packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY --from=builder /app/packages/channel-apns/package.json ./packages/channel-apns/
 COPY --from=builder /app/packages/channel-discord/package.json ./packages/channel-discord/
 COPY --from=builder /app/packages/channel-expo/package.json ./packages/channel-expo/
