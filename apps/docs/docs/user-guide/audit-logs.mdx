@@ -56,6 +56,6 @@ When telemetry is enabled, the following low-cardinality metrics expose pressure
 
 | Metric | Meaning |
 | --- | --- |
-| `om.audit_logs.pending_writes` | Current accepted tasks, labelled by `stage=crud_dispatch|service_write` |
+| `om.audit_logs.pending_writes` | Current accepted tasks, labelled by `stage` (`crud_dispatch` or `service_write`) |
 | `om.audit_logs.oldest_pending_age` | Age in seconds of the oldest accepted task at that stage; zero when empty |
 | `om.audit_logs.dropped` | Capacity rejections, labelled by stage and fixed `reason=capacity` |

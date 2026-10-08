@@ -159,11 +159,49 @@ describe('logCrudAccess', () => {
     const rejected = await logCrudAccess(options)
 
     expect(accepted.mode).toBe('batch')
-    expect(rejected).toEqual({ mode: 'skipped', count: 0, pending: 1 })
+    expect(accepted.dropped).toBeUndefined()
+    expect(rejected).toEqual({ mode: 'skipped', count: 0, pending: 1, dropped: true })
     expect(service.logMany).toHaveBeenCalledTimes(1)
 
     releaseFirst()
     await flushPendingCrudAccessLogs()
+  })
+
+  it('does not flag skipped results that had nothing to log as dropped', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '1'
+    process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '0'
+    let releaseFirst: () => void = () => {}
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const service = {
+      log: jest.fn(async () => {}),
+      logMany: jest.fn(async () => {
+        await firstWrite
+      }),
+    }
+    const container = makeContainer(service)
+    const base = { container, idField: 'id', resourceKind: 'example.todo' }
+
+    try {
+      await logCrudAccess({ ...base, auth, items: makeItems(1) })
+
+      const results = [
+        await logCrudAccess({ ...base, auth: null, items: makeItems(1) }),
+        await logCrudAccess({ ...base, auth, items: [] }),
+        await logCrudAccess({ ...base, auth, items: [{ id: '' }] }),
+        await logCrudAccess({ ...base, container: { resolve: () => undefined } as any, auth, items: makeItems(1) }),
+      ]
+
+      for (const result of results) {
+        expect(result).toEqual({ mode: 'skipped', count: 0, pending: 1 })
+        expect(result.dropped).toBeUndefined()
+      }
+      expect(service.logMany).toHaveBeenCalledTimes(1)
+    } finally {
+      releaseFirst()
+      await flushPendingCrudAccessLogs()
+    }
   })
 
   it('reports counted capacity warnings without a telemetry provider', async () => {

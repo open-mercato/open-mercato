@@ -940,6 +940,8 @@ export type LogCrudAccessResult = {
   mode: 'batch' | 'fanout' | 'blocking' | 'skipped'
   count: number
   pending: number
+  /** `true` only when a `skipped` result rejected loggable work because the dispatch backlog was full. */
+  dropped?: boolean
 }
 
 export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogCrudAccessResult> {
@@ -1021,7 +1023,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
     }
   })
   if (!admission.accepted) {
-    return { mode: 'skipped', count: 0, pending: admission.pending }
+    return { mode: 'skipped', count: 0, pending: admission.pending, dropped: true }
   }
   const writePromise = admission.promise
   if (blocking) {

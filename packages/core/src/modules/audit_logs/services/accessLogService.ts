@@ -107,6 +107,7 @@ export async function flushAccessLog(): Promise<void> {
   await accessLogWriteTrackerStore().tracker?.flush()
 }
 
+/** Test-only: dispose the write tracker and clear retention-rotation state. */
 export function resetAccessLogRuntimeStateForTests(): void {
   const trackerState = accessLogWriteTrackerStore()
   trackerState.tracker?.dispose()

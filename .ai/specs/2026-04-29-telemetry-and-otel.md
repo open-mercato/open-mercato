@@ -356,9 +356,9 @@ Built-in metrics — prefer **OpenTelemetry semantic-convention** instruments wh
 | `nodejs.eventloop.delay.p50/p90/p99` | gauge (`s`) | none | event-loop delay percentiles over the sampling interval |
 | `process.memory.usage` | gauge (`By`) | none | process RSS |
 | `v8js.memory.heap.used` | gauge (`By`) | `v8js.heap.space.name` | used bytes per bounded V8 heap space |
-| `om.audit_logs.pending_writes` | gauge (`{task}`) | `stage=crud_dispatch|service_write` | sampled accepted access-log tasks at each independently bounded stage |
-| `om.audit_logs.oldest_pending_age` | gauge (`s`) | `stage=crud_dispatch|service_write` | monotonic age of the oldest accepted task; zero when empty |
-| `om.audit_logs.dropped` | counter (`{task}`) | `stage=crud_dispatch|service_write`, `reason=capacity` | immediate capacity rejections before async work starts |
+| `om.audit_logs.pending_writes` | gauge (`{task}`) | `stage=crud_dispatch` or `stage=service_write` | sampled accepted access-log tasks at each independently bounded stage |
+| `om.audit_logs.oldest_pending_age` | gauge (`s`) | `stage=crud_dispatch` or `stage=service_write` | monotonic age of the oldest accepted task; zero when empty |
+| `om.audit_logs.dropped` | counter (`{task}`) | `stage=crud_dispatch` or `stage=service_write`, `reason=capacity` | immediate capacity rejections before async work starts |
 | `om.queue.jobs` / `om.queue.duration` | counter / histogram | queue, status | partial — RED is also derivable by the backend from queue spans |
 | `om.queue.depth` | gauge | queue | needs a core queue hook |
 | `om.event.subscribers.duration` | histogram | event_id | |
@@ -495,9 +495,9 @@ For packages that must not depend on `@open-mercato/telemetry` (see S2, "Emittin
 |---|---|
 | `withTelemetrySpan(name, fn, options?)` | runs `fn` inside a span via the active bridge; `fn` runs untraced when telemetry is off |
 | `captureTelemetryTrace()` | active trace as a carrier for `links`, or `undefined` when nothing is active |
+| `TelemetryRuntime.recordHistogram?` | optional metric bridge for packages that cannot depend on telemetry; absent while telemetry is off or when an older bootstrap is active |
 | `recordTelemetryMetric(point)` | forwards through the optional active metric bridge and returns `false` while unavailable |
 | `registerTelemetryMetricCollector(fn)` / `collectTelemetryMetrics()` | registers shared state owners for the telemetry package's enabled-only periodic sampler |
-| `TelemetryRuntime.recordHistogram?` | optional metric bridge for packages that cannot depend on telemetry; absent while telemetry is off or when an older bootstrap is active |
 | Types: `TelemetrySpan`, `TelemetrySpanOptions`, `TelemetrySpanAttributes`, `TelemetryMetricLabels`, `TelemetrySpanKind`, `TelemetryTraceCarrier`, `TelemetryMetricPoint`, `TelemetryRuntime` | |
 
 ### HTTP API contracts

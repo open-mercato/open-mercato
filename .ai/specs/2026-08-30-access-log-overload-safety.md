@@ -70,7 +70,7 @@ Both stages read `AUDIT_LOGS_MAX_PENDING`, default `256`. Only positive integers
 - `crud_dispatch`: bounds fire-and-forget dispatch initiated by CRUD route helpers.
 - `service_write`: bounds direct and batched parsing/encryption/insert work in the access-log service.
 
-When full, reject the newest write before its async body starts. The CRUD path returns its existing `skipped` result with `count: 0`; direct service calls preserve their `null`/`0` result shapes. No access-log overload error escapes into the domain mutation path.
+When full, reject the newest write before its async body starts. The CRUD path returns its existing `skipped` result with `count: 0` plus the additive `dropped: true` flag, so a capacity rejection is distinguishable from "nothing to log"; direct service calls preserve their `null`/`0` result shapes. No access-log overload error escapes into the domain mutation path.
 
 ### Make retention rotation explicitly single-flight
 
@@ -117,13 +117,13 @@ The variable is mirrored in `apps/mercato/.env.example` and `packages/create-app
 
 | Metric | Kind | Unit | Labels | Meaning |
 |---|---|---:|---|---|
-| `om.audit_logs.pending_writes` | gauge | `{task}` | stage=`crud_dispatch|service_write` | Accepted writes currently in flight. |
-| `om.audit_logs.oldest_pending_age` | gauge | `s` | stage=`crud_dispatch|service_write` | Oldest accepted write age; zero when empty. |
+| `om.audit_logs.pending_writes` | gauge | `{task}` | stage=`crud_dispatch` or `service_write` | Accepted writes currently in flight. |
+| `om.audit_logs.oldest_pending_age` | gauge | `s` | stage=`crud_dispatch` or `service_write` | Oldest accepted write age; zero when empty. |
 | `om.audit_logs.dropped` | counter | `{task}` | stage, reason=`capacity` | Writes not started because the stage is full. |
 
 ### Existing return contracts
 
-- CRUD access-log dispatch still resolves to its existing result union; capacity rejection is `mode: 'skipped'`, `count: 0`.
+- CRUD access-log dispatch still resolves to its existing result union; capacity rejection is `mode: 'skipped'`, `count: 0`, `dropped: true`. `LogCrudAccessResult.dropped` is a new optional field, absent on every other result, including skipped results that had nothing to log.
 - Direct `log()` retains its nullable result shape and returns `null` on capacity rejection.
 - `logMany()` retains its numeric result and returns `0` on capacity rejection.
 - `flushPendingCrudAccessLogs()` and `flushAccessLog()` retain their promise signatures and wait until accepted pending work empties.
@@ -256,6 +256,11 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### 2026-10-08
+
+- Add the optional `dropped: true` flag to the CRUD capacity-rejection result so callers and tests can tell overload loss from "nothing to log" without changing `mode`. Optional-field addition only, per `BACKWARD_COMPATIBILITY.md`.
+- Write metric-table stage values without an unescaped `|` inside code spans, which split GFM/MDX table cells.
 
 ### 2026-09-30
 

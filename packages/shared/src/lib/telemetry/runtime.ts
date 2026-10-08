@@ -10,7 +10,7 @@ export type TelemetryMetricPoint = {
   kind: 'counter' | 'histogram' | 'gauge'
   name: string
   value: number
-  labels?: TelemetrySpanAttributes
+  labels?: TelemetryMetricLabels
   unit?: string
 }
 
