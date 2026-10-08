@@ -541,6 +541,25 @@ describe('time entries list — who may filter by person', () => {
     expect(screen.queryByTestId('filter-staffMemberId')).toBeNull()
   })
 
+  it('names the self chip from the self lookup when the team list is forbidden', async () => {
+    grantedFeatures(['staff.timesheets.view', 'staff.timesheets.manage_own'])
+    mockApiCall.mockImplementation((async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/staff/team-members/self')) {
+        return { ok: true, result: { member: { id: SELF_MEMBER_ID, displayName: 'Ada Kowalska' } } }
+      }
+      if (url.includes('/api/staff/team-members')) {
+        return { ok: false, status: 403, result: { error: 'Forbidden' } }
+      }
+      return { ok: true, result: { items: [] } }
+    }) as never)
+    await renderPage()
+
+    const chips = screen.getByTestId('table-filter-chips')
+    await waitFor(() => expect(within(chips).getByText('Ada Kowalska')).toBeTruthy())
+    expect(chips.textContent).not.toContain(SELF_MEMBER_ID)
+  })
+
   it('follows a wildcard grant the same way the server does', async () => {
     grantedFeatures(['staff.*'])
     installVocabularyRouter()
