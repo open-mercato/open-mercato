@@ -15,6 +15,18 @@ const canonicalReferences = fileURLToPath(new URL('../../../../apps/mercato/src/
 const canonicalReadme = fileURLToPath(new URL('../../../../apps/mercato/src/modules/example/README.md', import.meta.url))
 const linkType = process.platform === 'win32' ? 'junction' : 'dir'
 
+const FILE_SYMLINK_SKIP_REASON = 'creating a file symlink needs Developer Mode or administrator rights on Windows'
+
+function tryCreateFileSymlink(target: string, link: string): boolean {
+  try {
+    fs.symlinkSync(target, link, 'file')
+    return true
+  } catch (error) {
+    if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') return false
+    throw error
+  }
+}
+
 const EXAMPLE_ROOT = 'src/modules/example'
 const ENTRYPOINTS = ['README.md', 'references/surface-map.md']
 
@@ -624,14 +636,13 @@ test('family 5: both cumulative budgets are enforced independently', async () =>
   }
 })
 
-test('family 5: symlink escapes, generated caches, and sensitive paths fail closed', async () => {
+test('family 5: symlink escapes, generated caches, and sensitive paths fail closed', async (testContext) => {
   const evaluator = await loadEvaluator()
   const root = stageExampleApp()
   const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-example-outside-')))
   try {
     fs.writeFileSync(path.join(outside, 'stolen.ts'), 'export const secret = "must-not-be-read"\n')
-    const fileSymlinks = process.platform !== 'win32'
-    if (fileSymlinks) fs.symlinkSync(path.join(outside, 'stolen.ts'), path.join(root, EXAMPLE_ROOT, 'escape.ts'))
+    const fileSymlinks = tryCreateFileSymlink(path.join(outside, 'stolen.ts'), path.join(root, EXAMPLE_ROOT, 'escape.ts'))
     fs.symlinkSync(outside, path.join(root, EXAMPLE_ROOT, 'escape-dir'), linkType)
     fs.mkdirSync(path.join(root, EXAMPLE_ROOT, '.mercato', 'generated'), { recursive: true })
     fs.writeFileSync(path.join(root, EXAMPLE_ROOT, '.mercato', 'generated', 'modules.js'), 'generated\n')
@@ -642,7 +653,6 @@ test('family 5: symlink escapes, generated caches, and sensitive paths fail clos
 
     const caseRecord = declaredCase({})
     const cases: Array<[string, RegExp]> = [
-      ...(fileSymlinks ? [[`${EXAMPLE_ROOT}/escape.ts`, /follows a symbolic link/] as [string, RegExp]] : []),
       [`${EXAMPLE_ROOT}/escape-dir/stolen.ts`, /resolves outside its declared path/],
       [`${EXAMPLE_ROOT}/.mercato/generated/modules.js`, /generated or protected directory/],
       [`${EXAMPLE_ROOT}/dist/bundle.js`, /generated or protected directory/],
@@ -659,6 +669,11 @@ test('family 5: symlink escapes, generated caches, and sensitive paths fail clos
     }
     const traces = cases.map(([target]) => evaluator.evaluateExampleReadPolicy({ caseRecord, appRoot: root, reads: [...entrypointReads(), { path: target }] }))
     assert.doesNotMatch(JSON.stringify(traces), /must-not-be-read/)
+    await testContext.test('a file symlink that escapes the example root', { skip: !fileSymlinks && FILE_SYMLINK_SKIP_REASON }, () => {
+      const trace = evaluator.evaluateExampleReadPolicy({ caseRecord, appRoot: root, reads: [...entrypointReads(), { path: `${EXAMPLE_ROOT}/escape.ts` }] })
+      assert.match(trace.firstViolation ?? '', /follows a symbolic link/)
+      assert.doesNotMatch(JSON.stringify(trace), /must-not-be-read/)
+    })
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
     fs.rmSync(outside, { recursive: true, force: true })
