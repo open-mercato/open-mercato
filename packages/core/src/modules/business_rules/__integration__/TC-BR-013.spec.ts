@@ -9,7 +9,6 @@ import {
 } from '@open-mercato/core/helpers/integration/businessRulesFixtures'
 import {
   createCompanyFixture,
-  createPersonFixture,
   deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
@@ -35,12 +34,18 @@ export const integrationMeta = {
  * (`causeKind: 'business_rule'`, `causeId` = the rule UUID, never the business
  * key), share the correlation id of the person update that triggered the rule,
  * and name the rule run as its innermost frame reference. The rule execution
- * log must carry the person id as `entityId` instead of `'unknown'` and expose
- * the run id.
+ * log must carry the triggering record id from the event payload as `entityId`
+ * instead of `'unknown'` and expose the run id.
  *
- * The rule fires on `updated` for one specific person id and writes a
- * different record, so neither other specs' records nor the loopback write can
- * re-trigger it.
+ * `customers.person.*` events carry the person profile id as `id` (the
+ * `personId` of the create response) and the customer entity id as `entityId`
+ * (the `id` of the create response, used by the people API and the audit log).
+ * The rule condition and the rule log therefore match the profile id, while the
+ * person update and its audit entry use the customer entity id.
+ *
+ * The rule fires on `updated` for one specific person and writes a different
+ * record, so neither other specs' records nor the loopback write can re-trigger
+ * it.
  */
 
 const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
@@ -76,7 +81,9 @@ type AuditActionItem = {
   context?: { causation?: { frames?: AuditCausationFrame[] } | null } | null
 }
 
-async function drainEventsThen<T>(probe: () => Promise<T>): Promise<T> {
+async function probeThenDrainEvents<T>(probe: () => Promise<T | null>): Promise<T | null> {
+  const found = await probe()
+  if (found !== null) return found
   await drainIntegrationQueue('events', { appRoot: APP_ROOT })
   return probe()
 }
@@ -168,11 +175,18 @@ test.describe('TC-BR-013: business rule loopback causation', () => {
       apiKeyId = expectId(apiKeyBody?.id, 'api key profile creation should return id')
 
       companyId = await createCompanyFixture(request, token, `QA BR013 Company ${stamp}`)
-      personId = await createPersonFixture(request, token, {
-        firstName: 'Causation',
-        lastName: `Rule${stamp}`,
-        displayName: `QA BR013 Person ${stamp}`,
+      const personResponse = await apiRequest(request, 'POST', PEOPLE_PATH, {
+        token,
+        data: {
+          firstName: 'Causation',
+          lastName: `Rule${stamp}`,
+          displayName: `QA BR013 Person ${stamp}`,
+        },
       })
+      expect(personResponse.ok(), `create person failed: ${personResponse.status()}`).toBeTruthy()
+      const personBody = await readJsonSafe<{ id?: string; personId?: string }>(personResponse)
+      personId = expectId(personBody?.id, 'person creation should return the customer entity id')
+      const personProfileId = expectId(personBody?.personId, 'person creation should return the person profile id')
 
       const optionsResponse = await apiRequest(request, 'GET', '/api/business_rules/openmercato-call-options', { token })
       expect(optionsResponse.status(), 'OpenMercato options should load').toBe(200)
@@ -188,7 +202,7 @@ test.describe('TC-BR-013: business rule loopback causation', () => {
           ruleType: 'ACTION',
           entityType: 'customers.person',
           eventType: 'updated',
-          conditionExpression: { field: 'id', operator: '=', value: personId },
+          conditionExpression: { field: 'id', operator: '=', value: personProfileId },
           successActions: [
             {
               type: 'CALL_OPEN_MERCATO',
@@ -215,12 +229,12 @@ test.describe('TC-BR-013: business rule loopback causation', () => {
 
       await expect
         .poll(
-          () => drainEventsThen(() => findRuleLogForEntity(request, token, triggeredRuleUuid, triggeredPersonId)),
-          { timeout: RULE_LOG_POLL_TIMEOUT_MS, message: 'CRUD-triggered rule should log an execution for the person id' },
+          () => probeThenDrainEvents(() => findRuleLogForEntity(request, token, triggeredRuleUuid, personProfileId)),
+          { timeout: RULE_LOG_POLL_TIMEOUT_MS, message: 'CRUD-triggered rule should log an execution for the person record id' },
         )
         .not.toBeNull()
-      const ruleLog = await findRuleLogForEntity(request, token, triggeredRuleUuid, triggeredPersonId)
-      expect(ruleLog?.entityId).toBe(personId)
+      const ruleLog = await findRuleLogForEntity(request, token, triggeredRuleUuid, personProfileId)
+      expect(ruleLog?.entityId).toBe(personProfileId)
       expect(ruleLog?.entityId).not.toBe('unknown')
       expect(ruleLog?.entityType).toBe('customers.person')
       expect(
