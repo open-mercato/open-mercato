@@ -949,6 +949,24 @@ reads `contractors` to build it, so the one-way dependency is unchanged.
 `vendorId` stays the source of truth; the snapshot is only for rendering,
 and this module does not check that the two agree.
 
+**Read access for other modules (added 2026-10-08, Phase 2).** Nothing in
+this document lets another module read `VendorInvoice`, and reading its
+table directly would be an ORM-level coupling. One consumer needs it: the
+document-level VAT reconciliation planned for `financial_pl_accounting`,
+which compares the VAT on posted vendor invoices with the VAT register of
+`financial_pl` (a period-level comparison against the ledger needs only
+`ledger`). Proposed contract: a read-only DI service
+`vendorInvoiceReadService.listPostedForPeriod({ tenantId, organizationId,
+from, to, cursor? })` that returns, for invoices in status `POSTED` whose
+`invoice_date` falls in the range, plain objects `{ id, vendorId,
+invoiceNumber, invoiceDate, currencyId, totalNet, totalTax, totalGross,
+postedJournalEntryId }` (amounts as decimal strings), paginated, scoped to
+the caller's tenant and organization. It returns no lines and no
+`vendorSnapshot` (encrypted personal data); a consumer matches on
+`vendorId` and `invoiceNumber`. This module still knows no consumer.
+**⚠ NEEDS HUMAN CONFIRMATION:** the DTO shape, and whether the service
+belongs in Phase 1 or stays Phase 2; no Phase 1 consumer exists.
+
 ### Backend Pages (`backend/accounts_payable/`)
 
 - `invoices/page.tsx` — invoice `DataTable` (status, vendor from
@@ -1165,6 +1183,9 @@ report and resolve pre-existing duplicates.
 - Automatic vendor/category-to-account mapping — only once the
   Posting Rules Engine (account 490) is ready, so the same mechanism
   isn't duplicated twice.
+- `vendorInvoiceReadService` for other modules (see Cross-module
+  integration, "Read access for other modules"), when the document-level
+  VAT reconciliation in `financial_pl_accounting` is built.
 
 ### File Manifest
 
@@ -1843,4 +1864,8 @@ changes what `postVendorInvoice` sends downstream.
   `vendorSnapshot` becomes an optional, caller-supplied input of
   `createVendorInvoice` (decided 2026-10-08; Cross-module integration).
 - No change to statuses, posting, events or the approval workflow.
-
+- **Read access for other modules (Phase 2).** Gap found while specifying
+  the VAT reconciliation report for `financial_pl_accounting`: no
+  in-process way to read `VendorInvoice`. Added a proposed read-only DI
+  service `vendorInvoiceReadService.listPostedForPeriod` to Cross-module
+  integration and Phase 2; shape marked for confirmation.
