@@ -36,21 +36,21 @@ const TERMS_MANAGER_FEATURES = [
 type PriceKindOption = { id?: string; code?: string; title?: string };
 
 /**
- * TC-CGRP-025 (#7077): a terms manager without `catalog.settings.manage` can pick a
+ * TC-CGRP-030 (#7077): a terms manager without `catalog.settings.manage` can pick a
  * price kind and save a group's terms without an "Access denied" flash replacing the
  * success message. The picker reads `GET /api/customer_groups/customer-groups/price-kinds`
  * (gated by `customer_groups.terms.view`) instead of `/api/catalog/price-kinds`.
  */
-test.describe('TC-CGRP-025: terms price kind picker without catalog.settings.manage', () => {
+test.describe('TC-CGRP-030: terms price kind picker without catalog.settings.manage', () => {
   test('lists price kinds and reports a successful save as a success', async ({ page }) => {
     const adminToken = await getAuthToken(page.request, 'admin');
     const { tenantId, organizationId } = getTokenContext(adminToken);
     expectId(organizationId, 'Admin token should carry an organization');
     const stamp = uniqueStamp();
-    const email = `qa-cgrp-025-${stamp}@example.com`;
+    const email = `qa-cgrp-030-${stamp}@example.com`;
     const password = 'StrongSecret123!';
-    const priceKindCode = `qa_cgrp025_${stamp}`;
-    const priceKindTitle = `QA CGRP 025 Price Kind ${stamp}`;
+    const priceKindCode = `qa_cgrp030_${stamp}`;
+    const priceKindTitle = `QA CGRP 030 Price Kind ${stamp}`;
     let priceKindId: string | null = null;
     let groupId: string | null = null;
     let roleId: string | null = null;
@@ -67,12 +67,12 @@ test.describe('TC-CGRP-025: terms price kind picker without catalog.settings.man
         'price-kind fixture should return an id',
       );
       groupId = await createCustomerGroupFixture(page.request, adminToken, {
-        code: `qa-cgrp-025-${stamp}`,
-        name: `QA CGRP 025 Group ${stamp}`,
+        code: `qa-cgrp-030-${stamp}`,
+        name: `QA CGRP 030 Group ${stamp}`,
         kind: 'b2b',
         priority: fixturePriority(stamp, 1),
       });
-      roleId = await createRoleFixture(page.request, adminToken, { name: `qa-cgrp-025-${stamp}`, tenantId });
+      roleId = await createRoleFixture(page.request, adminToken, { name: `qa-cgrp-030-${stamp}`, tenantId });
       await setRoleAclFeatures(page.request, adminToken, {
         roleId,
         features: TERMS_MANAGER_FEATURES,
@@ -83,7 +83,7 @@ test.describe('TC-CGRP-025: terms price kind picker without catalog.settings.man
         password,
         organizationId,
         roles: [roleId],
-        name: 'QA CGRP 025 Terms Manager',
+        name: 'QA CGRP 030 Terms Manager',
       });
 
       const managerToken = await getAuthToken(page.request, email, password);
@@ -125,7 +125,7 @@ test.describe('TC-CGRP-025: terms price kind picker without catalog.settings.man
       expect(loginResponse.ok(), 'terms manager should log in').toBe(true);
 
       await page.goto(`/backend/customer-groups/${groupId}/edit`);
-      await expect(page.locator('[data-crud-field-id="code"] input')).toHaveValue(`qa-cgrp-025-${stamp}`, {
+      await expect(page.locator('[data-crud-field-id="code"] input')).toHaveValue(`qa-cgrp-030-${stamp}`, {
         timeout: 15_000,
       });
       await page.getByRole('button', { name: 'Set terms for this group' }).click();
