@@ -4,6 +4,7 @@ import { FeatureToggle } from '../../data/entities'
 
 const registerCommand = jest.fn()
 const invalidateIsEnabledCacheByIdentifierTag = jest.fn().mockResolvedValue(undefined)
+const isFeatureToggleCacheDisabled = jest.fn().mockReturnValue(false)
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
     registerCommand,
@@ -17,7 +18,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 jest.mock('../../lib/feature-flag-check', () => {
     return {
-        invalidateIsEnabledCacheByIdentifierTag
+        invalidateIsEnabledCacheByIdentifierTag,
+        isFeatureToggleCacheDisabled,
     }
 })
 
@@ -30,6 +32,7 @@ jest.mock('@open-mercato/shared/lib/commands/undo', () => ({
 describe('feature_toggles.global commands', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        isFeatureToggleCacheDisabled.mockReturnValue(false)
         jest.resetModules()
     })
 
@@ -282,6 +285,48 @@ describe('feature_toggles.global commands', () => {
                 indexer: expect.objectContaining({ entityType: 'feature_toggles:feature_toggle' }),
             }))
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('qa.redo')
+        })
+
+        it('redo skips feature toggle service resolution when the cache is disabled', async () => {
+            isFeatureToggleCacheDisabled.mockReturnValue(true)
+            let createCommand: any
+            jest.isolateModules(() => {
+                require('../global')
+                createCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.create')?.[0]
+            })
+
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(null),
+                create: jest.fn((_ctor, data) => ({ ...data })),
+                persist: jest.fn(),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = {
+                markOrmEntityChange: jest.fn(),
+            }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') throw new Error('cache service unavailable')
+                    return undefined
+                }),
+            }
+            const ctx: any = { container, auth: { isSuperAdmin: true, tenantId: 'tenant-1' } }
+            const snapshot = {
+                id: 'toggle-id',
+                identifier: 'qa.redo',
+                name: 'QA Redo',
+                description: null,
+                category: 'qa',
+                type: 'boolean',
+                defaultValue: true,
+            }
+
+            await expect(createCommand.redo({ logEntry: { snapshotAfter: snapshot }, ctx }))
+                .resolves.toEqual({ toggleId: 'toggle-id' })
+            expect(container.resolve).not.toHaveBeenCalledWith('featureTogglesService')
         })
     })
 

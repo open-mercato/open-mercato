@@ -1716,10 +1716,15 @@ function mapOutputData(
 }
 
 /**
- * Map a completed sub-workflow's child context to parent output and validate it
- * against the child's declared output ports. Shared by the synchronous
- * (inline) completion branch in `handleSubWorkflowStep` and the async parent
- * resume path so both apply identical mapping/validation rules. Returns the
+ * Validate a completed sub-workflow's child context against the child's
+ * declared output ports, then map it to parent output. Shared by the
+ * synchronous (inline) completion branch in `handleSubWorkflowStep` and the
+ * async parent resume path so both apply identical mapping/validation rules.
+ *
+ * Output ports are named in the CHILD's vocabulary, while `outputMapping` is
+ * `{ parentKey: childPath }`, so validation and coercion run on the child
+ * context before mapping — validating the mapped result would look ports up
+ * under caller-chosen parent keys and reject any renamed mapping. Returns the
  * mapped `outputData` on success or an `error` message on port-validation
  * failure (never throws).
  */
@@ -1728,15 +1733,15 @@ export function mapSubWorkflowOutput(
   outputMapping: Record<string, string>,
   ioContract?: WorkflowIoContract
 ): { outputData: Record<string, any>; error?: undefined } | { outputData?: undefined; error: string } {
-  let outputData = mapOutputData(childContext, outputMapping || {})
+  let childOutput = childContext
 
   if (ioContract?.outputs?.length) {
-    const { coerced, errors } = validateAgainstPorts(outputData, ioContract.outputs)
+    const { coerced, errors } = validateAgainstPorts(childContext, ioContract.outputs)
     if (errors.length > 0) {
       return { error: `Sub-workflow output validation failed: ${errors.map((e) => e.message).join('; ')}` }
     }
-    outputData = coerced
+    childOutput = coerced
   }
 
-  return { outputData }
+  return { outputData: mapOutputData(childOutput, outputMapping || {}) }
 }
