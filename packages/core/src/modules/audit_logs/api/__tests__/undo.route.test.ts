@@ -10,6 +10,7 @@ const mockReplayEm = {
 const mockRbac = {
   userHasAllFeatures: jest.fn(),
   userHasAllFeaturesWithEntityManager: jest.fn(),
+  getUnavailableModuleIds: jest.fn(async (): Promise<string[]> => []),
 }
 const mockLogs = {
   findByUndoToken: jest.fn(),
@@ -481,5 +482,62 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       expect(res.status).toBe(400)
       await expect(res.json()).resolves.toEqual({ error: 'Undo failed' })
     })
+  })
+
+  it('refuses to undo a command of a module unavailable to the caller tenant', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    const target = {
+      id: 'log-sales',
+      commandId: 'sales.orders.create',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'sales.order',
+      resourceId: 'order-1',
+      executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    mockRbac.getUnavailableModuleIds.mockResolvedValue(['sales'])
+    try {
+      const res = await POST(makeRequest({ undoToken: 'token-sales' }))
+      expect(res.status).toBe(400)
+      expect(mockCommandBus.undo).not.toHaveBeenCalled()
+      expect(mockRbac.getUnavailableModuleIds).toHaveBeenCalledWith('tenant-1', 'user-1')
+
+      mockRbac.getUnavailableModuleIds.mockResolvedValue(['catalog'])
+      const allowed = await POST(makeRequest({ undoToken: 'token-sales' }))
+      expect(allowed.status).toBe(200)
+      expect(mockCommandBus.undo).toHaveBeenCalledTimes(1)
+    } finally {
+      mockRbac.getUnavailableModuleIds.mockResolvedValue([])
+    }
+  })
+})
+
+describe('authorizeAuditReplayWithEntityManager module availability', () => {
+  it('rejects a replay inside the transaction when the command module became unavailable', async () => {
+    const { authorizeAuditReplayWithEntityManager } = await import('@open-mercato/core/modules/audit_logs/lib/replayAuthorization')
+    const rbac = {
+      userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
+      getUnavailableModuleIds: jest.fn(async (): Promise<string[]> => ['sales']),
+    }
+    const replay = () => authorizeAuditReplayWithEntityManager(
+      mockReplayEm as never,
+      rbac as never,
+      { commandId: 'sales.orders.create', actorUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      {
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+        organizationId: 'org-1',
+        selfFeature: 'audit_logs.undo_self',
+        tenantFeature: 'audit_logs.undo_tenant',
+        unavailableMessage: 'Undo token not available',
+      },
+    )
+
+    await expect(replay()).rejects.toMatchObject({ status: 400 })
+    rbac.getUnavailableModuleIds.mockResolvedValue([])
+    await expect(replay()).resolves.toBeUndefined()
   })
 })
