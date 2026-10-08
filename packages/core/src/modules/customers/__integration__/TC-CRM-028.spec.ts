@@ -7,7 +7,7 @@ import '@open-mercato/core/modules/customers/commands/index';
 import type { BootstrapData } from '@open-mercato/shared/lib/bootstrap';
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue';
-import { drainSyncQueue } from './helpers/syncQueueDrain';
+import { drainSyncQueue, waitForLocalQueueJobsToSettle } from './helpers/syncQueueDrain';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
   createCompanyFixture,
@@ -150,7 +150,12 @@ function hasSyncWorkers(data: BootstrapData): boolean {
 }
 
 async function drainQueue(queueName: string): Promise<number> {
-  return drainSyncQueue(queueName, (name) => drainIntegrationQueue(name, { appRoot: APP_ROOT }));
+  return drainSyncQueue(queueName, {
+    drain: (name) => drainIntegrationQueue(name, { appRoot: APP_ROOT }),
+    awaitWorkers: (name) => waitForLocalQueueJobsToSettle(name, {
+      baseDir: process.env.QUEUE_BASE_DIR?.trim() || APP_QUEUE_BASE_DIR,
+    }),
+  });
 }
 
 async function flushExampleCustomersSyncQueues(options: {
