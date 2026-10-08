@@ -1,0 +1,5 @@
+export type { AssortmentScope, EffectiveAssortmentScope, ScopedProduct } from './types'
+export { matchesOne } from './matchesOne'
+export { matchesScope } from './matchesScope'
+export { unionScopes } from './unionScopes'
+export { intersectScopes } from './intersectScopes'

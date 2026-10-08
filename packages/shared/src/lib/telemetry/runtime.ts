@@ -2,13 +2,15 @@ export type TelemetryTraceCarrier = Record<string, string>
 
 export type TelemetrySpanAttributes = Record<string, string | number | boolean | undefined>
 
+export type TelemetryMetricLabels = Record<string, string | number | boolean | undefined>
+
 export type TelemetrySpanKind = 'internal' | 'server' | 'client' | 'producer' | 'consumer'
 
 export type TelemetryMetricPoint = {
   kind: 'counter' | 'histogram' | 'gauge'
   name: string
   value: number
-  labels?: TelemetrySpanAttributes
+  labels?: TelemetryMetricLabels
   unit?: string
 }
 
@@ -54,6 +56,12 @@ export type TelemetryRuntime = {
    */
   withSpan?<T>(name: string, fn: (span: TelemetrySpan) => T, options?: TelemetrySpanOptions): T
   recordMetric?(point: TelemetryMetricPoint): void
+  recordHistogram?(
+    name: string,
+    value: number,
+    labels?: TelemetryMetricLabels,
+    unit?: string,
+  ): void
   recordHttpDuration(method: string, route: string, status: number, startedAt: number): void
   reportError(
     error: unknown,

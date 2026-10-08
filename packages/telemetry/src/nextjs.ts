@@ -11,14 +11,19 @@ export { telemetryServerExternalPackages } from './nextjs-config'
 export { recordHttpDuration } from './facade/http'
 
 const logger = createLogger('telemetry')
+const OTLP_DEPENDENCY_UNAVAILABLE = Symbol.for('open-mercato.telemetry.otlp-dependency-unavailable')
+
+function isOtlpDependencyUnavailableError(error: unknown): boolean {
+  return error instanceof Error && Reflect.get(error, OTLP_DEPENDENCY_UNAVAILABLE) === true
+}
 
 /**
  * One-line telemetry bootstrap for a Next.js `instrumentation.ts`. Initializes
- * the active backend (no-op unless `TELEMETRY_BACKEND` is set), degrades to no
- * telemetry on init failure (never bubbles a rejection out of Next's
- * `register()`), and registers a best-effort flush on `SIGTERM`/`SIGINT`. Skips
- * the edge runtime — the OTEL NodeSDK is Node-only — so callers may import it
- * unconditionally, though gating the dynamic import on
+ * the active backend (no-op unless `TELEMETRY_BACKEND` is set), propagates an
+ * explicit OTLP missing-dependency failure, degrades to no telemetry for other
+ * initialization failures, and registers a best-effort flush on
+ * `SIGTERM`/`SIGINT`. Skips the edge runtime — the OTEL NodeSDK is Node-only —
+ * so callers may import it unconditionally, though gating the dynamic import on
  * `NEXT_RUNTIME === 'nodejs'` also keeps the SDK off the edge bundle.
  */
 export async function registerTelemetryForNextjs(): Promise<void> {
@@ -28,6 +33,7 @@ export async function registerTelemetryForNextjs(): Promise<void> {
   try {
     await initTelemetry()
   } catch (error) {
+    if (isOtlpDependencyUnavailableError(error)) throw error
     logger.warn('Init from Next.js instrumentation failed', { err: error })
     return
   }

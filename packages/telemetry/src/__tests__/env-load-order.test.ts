@@ -25,7 +25,7 @@ function provider(name = 'noop'): TelemetryProvider {
     inject: () => {},
     runInRemoteSpan: (_carrier, _name, _options, fn) => fn(NOOP_SPAN),
     emitLog: () => {},
-    recordMetric: () => {},
+    recordMetric: jest.fn(),
   }
 }
 
@@ -101,5 +101,27 @@ describe('telemetry explicit opt-in boundary', () => {
     expect(customConsole.shutdown).toHaveBeenCalledTimes(1)
     expect(getTelemetryRuntime()).toBeUndefined()
     expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('wires shared runtime histograms to the active provider', async () => {
+    const customConsole = provider('console')
+    registerProvider(customConsole)
+    process.env.TELEMETRY_BACKEND = 'console'
+
+    await initTelemetry()
+    getTelemetryRuntime()?.recordHistogram?.(
+      'om.enricher.duration',
+      0.25,
+      { 'enricher.id': 'customers.people' },
+      's',
+    )
+
+    expect(customConsole.recordMetric).toHaveBeenCalledWith({
+      kind: 'histogram',
+      name: 'om.enricher.duration',
+      value: 0.25,
+      labels: { 'enricher.id': 'customers.people' },
+      unit: 's',
+    })
   })
 })
