@@ -41,6 +41,9 @@ const postSchema = z.object({
 
 const querySchema = z.object({
   organizationId: z.string().uuid().optional(),
+  labels: z.enum(['localized', 'base']).optional().describe(
+    'Label projection. `localized` (default) resolves labels for the request locale; `base` returns the stored labels that management screens edit.',
+  ),
 })
 
 export const metadata = {
@@ -53,20 +56,24 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
     const url = new URL(req.url)
     const query = querySchema.parse({
       organizationId: url.searchParams.get('organizationId') ?? undefined,
+      labels: url.searchParams.get('labels') ?? undefined,
     })
     const { translate, em, organizationId, readableOrganizationIds, tenantId, cache, container } = await resolveDictionaryRouteContext(req, {
       selectedId: query.organizationId ?? undefined,
     })
     const { kind, mappedKind } = mapDictionaryKind(ctx.params?.kind)
-    const { resolveLocale } = getTranslationOverlayPlugin()
-    const locale = resolveLocale?.(req) ?? (await resolveTranslations()).locale ?? 'en'
-    const localizeResponse = async (body: z.infer<typeof dictionaryCacheResponseSchema>) => ({
-      ...body,
-      items: sortDictionaryEntries(
-        await localizeCustomerDictionaryEntries(body.items, { kind: mappedKind, locale, tenantId, container }),
-        resolveDictionaryEntrySortMode(body.sortMode),
-      ),
-    })
+    const localizeResponse = async (body: z.infer<typeof dictionaryCacheResponseSchema>) => {
+      if (query.labels === 'base') return body
+      const { resolveLocale } = getTranslationOverlayPlugin()
+      const locale = resolveLocale?.(req) ?? (await resolveTranslations()).locale ?? 'en'
+      return {
+        ...body,
+        items: sortDictionaryEntries(
+          await localizeCustomerDictionaryEntries(body.items, { kind: mappedKind, locale, tenantId, container }),
+          resolveDictionaryEntrySortMode(body.sortMode),
+        ),
+      }
+    }
     if (!organizationId) {
       throw new CrudHttpError(400, {
         error: translate('customers.errors.organization_required', 'Organization context is required'),
@@ -86,7 +93,6 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
         mappedKind,
         sortMode,
         readableOrganizationIds: scopedOrganizationIds,
-        locale,
       })
       const cached = dictionaryCacheResponseSchema.safeParse(await cache.get(cacheKey))
       if (cached.success) {
@@ -326,7 +332,8 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List dictionary entries',
-      description: 'Returns dictionary entries for the requested kind within the currently selected organization.',
+      description: 'Returns dictionary entries for the requested kind within the currently selected organization. Labels are localized for the request locale unless `labels=base` is passed.',
+      query: querySchema,
       responses: [
         { status: 200, description: 'Dictionary entries', schema: dictionaryListResponseSchema },
         { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },

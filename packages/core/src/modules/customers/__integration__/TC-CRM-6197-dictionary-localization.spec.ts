@@ -14,6 +14,10 @@ test.describe('TC-CRM-6197: Customer dictionary localization', () => {
       const body: { items: DictionaryItem[] } = await response.json()
       expect(body.items.find((item) => item.value === 'active')?.label).toBe(label)
     }
+    const management = await apiRequest(request, 'GET', '/api/customers/dictionaries/statuses?locale=pl&labels=base', { token })
+    expect(management.ok()).toBeTruthy()
+    const managementBody: { items: DictionaryItem[] } = await management.json()
+    expect(managementBody.items.find((item) => item.value === 'active')?.label).toBe('Active')
   })
 
   test('lets TranslationManager find custom records and reflects saved labels through cached reads', async ({ request }) => {
@@ -43,6 +47,10 @@ test.describe('TC-CRM-6197: Customer dictionary localization', () => {
         const body: { items: DictionaryItem[] } = await localized.json()
         expect(body.items.find((item) => item.id === entryId)).toMatchObject({ value, label })
       }
+      const management = await apiRequest(request, 'GET', '/api/customers/dictionaries/sources?locale=pl&labels=base', { token })
+      expect(management.ok()).toBeTruthy()
+      const managementBody: { items: DictionaryItem[] } = await management.json()
+      expect(managementBody.items.find((item) => item.id === entryId)).toMatchObject({ value, label: 'Custom source' })
       const english = await apiRequest(request, 'GET', '/api/customers/dictionaries/sources?locale=en', { token })
       expect(english.ok()).toBeTruthy()
       const englishBody: { items: DictionaryItem[] } = await english.json()

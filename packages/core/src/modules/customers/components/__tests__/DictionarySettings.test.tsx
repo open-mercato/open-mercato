@@ -44,16 +44,31 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryForm', () => ({
-  DictionaryForm: () => null,
+  DictionaryForm: ({
+    initialValues,
+    onSubmit,
+  }: {
+    initialValues: { value: string; label: string; color: string | null; icon: string | null }
+    onSubmit: (values: { value: string; label: string; color: string | null; icon: string | null }) => Promise<void>
+  }) => (
+    <div>
+      <output data-testid="dictionary-form-label">{initialValues.label}</output>
+      <button type="button" onClick={() => { void onSubmit({ ...initialValues, color: '#112233' }) }}>
+        submit-color-change
+      </button>
+    </div>
+  ),
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryTable', () => ({
   DictionaryTable: ({
     entries,
+    onEdit,
     onDelete,
     translations,
   }: {
     entries: Array<Record<string, unknown>>
+    onEdit?: (entry: Record<string, unknown>) => void
     onDelete?: (entry: Record<string, unknown>) => void
     translations: { title: string }
   }) => {
@@ -62,9 +77,15 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryTable', 
       <div>
         <div>{translations.title}</div>
         {firstEntry ? (
-          <button type="button" onClick={() => onDelete?.(firstEntry)}>
-            {`delete-${translations.title}`}
-          </button>
+          <>
+            <span>{`${translations.title}-label-${String(firstEntry.label)}`}</span>
+            <button type="button" onClick={() => onEdit?.(firstEntry)}>
+              {`edit-${translations.title}`}
+            </button>
+            <button type="button" onClick={() => onDelete?.(firstEntry)}>
+              {`delete-${translations.title}`}
+            </button>
+          </>
         ) : null}
       </div>
     )
@@ -80,7 +101,7 @@ describe('DictionarySettings', () => {
     window.location.hash = originalHash
     confirmMock.mockResolvedValue(false)
     readApiResultOrThrowMock.mockImplementation(async (path: string) => {
-      if (path === '/api/customers/dictionaries/person-company-roles') {
+      if (path === '/api/customers/dictionaries/person-company-roles?labels=base') {
         return {
           items: [
             {
@@ -110,7 +131,7 @@ describe('DictionarySettings', () => {
 
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        '/api/customers/dictionaries/person-company-roles',
+        '/api/customers/dictionaries/person-company-roles?labels=base',
         undefined,
         expect.any(Object),
       )
@@ -134,7 +155,7 @@ describe('DictionarySettings', () => {
     expect((await screen.findAllByText('Interaction statuses')).length).toBeGreaterThan(0)
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        '/api/customers/dictionaries/interaction-statuses',
+        '/api/customers/dictionaries/interaction-statuses?labels=base',
         undefined,
         expect.any(Object),
       )
@@ -161,7 +182,7 @@ describe('DictionarySettings', () => {
     confirmMock.mockResolvedValue(true)
     apiCallOrThrowMock.mockResolvedValue(undefined)
     readApiResultOrThrowMock.mockImplementation(async (path: string) => {
-      if (path === '/api/customers/dictionaries/statuses') {
+      if (path === '/api/customers/dictionaries/statuses?labels=base') {
         return {
           items: [
             {
@@ -197,5 +218,51 @@ describe('DictionarySettings', () => {
       { method: 'DELETE' },
       expect.any(Object),
     )
+  })
+
+  it('edits the stored base label under a non-English locale', async () => {
+    apiCallOrThrowMock.mockResolvedValue(undefined)
+    readApiResultOrThrowMock.mockImplementation(async (path: string) => {
+      if (path === '/api/customers/dictionaries/statuses?labels=base') {
+        return {
+          items: [
+            {
+              id: 'status-1',
+              value: 'active',
+              label: 'Active',
+              color: '#3366ff',
+              icon: null,
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }
+      }
+      if (path === '/api/customers/dictionaries/statuses') {
+        return { items: [{ id: 'status-1', value: 'active', label: 'Aktywny', color: '#3366ff', icon: null }] }
+      }
+      return { items: [] }
+    })
+
+    renderWithProviders(<DictionarySettings />, { locale: 'pl' })
+
+    expect(await screen.findByText('Statuses-label-Active')).toBeInTheDocument()
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      '/api/customers/dictionaries/statuses',
+      undefined,
+      expect.any(Object),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'edit-Statuses' }))
+    expect(screen.getByTestId('dictionary-form-label')).toHaveTextContent('Active')
+
+    fireEvent.click(screen.getByRole('button', { name: 'submit-color-change' }))
+
+    await waitFor(() => {
+      expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/dictionaries/statuses/status-1',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ color: '#112233' }) }),
+        expect.any(Object),
+      )
+    })
   })
 })

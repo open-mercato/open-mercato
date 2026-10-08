@@ -235,7 +235,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
     setLoading(true)
     try {
       const data = await readApiResultOrThrow<{ items?: unknown[] }>(
-        `/api/customers/dictionaries/${kind}`,
+        `/api/customers/dictionaries/${kind}?labels=base`,
         undefined,
         { errorMessage: errorLoad },
       )
