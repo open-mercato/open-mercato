@@ -54,11 +54,12 @@ variants (porównawczy/by-nature, zespół 4; kalkulacyjny/by-function, zespół
 5) — literature-grounded via Kieso's own IAS 1 nature-vs-function
 discussion, and already structurally guaranteed in this project by Posting
 Rules Engine's zespół 4→5 mirroring through account 490. Statement
-generation is gated on `posting_rules.lockFiscalPeriod` (not a bare
-`CLOSING`-entry check) — that command already refuses to lock a period with
-unreclassified zespół-4→5 entries, which is exactly the reconciliation
-precondition a statutory statement needs, so this document reuses it
-instead of inventing a second one.
+generation requires the last `FiscalPeriod` to be locked and a `CLOSING`
+entry dated inside it. Locking through `posting_rules.lockFiscalPeriod` is
+the intended path, because that command refuses to lock a period with
+unreclassified zespół-4→5 entries; `ledger.lockFiscalPeriod` can still be
+called directly and skips that guard, so the two-variant parity check is
+the backstop (Design decisions #5).
 
 > **Maintainer-review correction (2026-09-21).** An automated specification
 > review (`om-auto-review-pr`) on this PR's `37225917652` head correctly
@@ -155,9 +156,10 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
    capturing the uchwała's profit-distribution outcome and the specific
    `CLOSING` entry it was computed against (Design decisions #5b), and
    `generateAnnualStatements` — the command that requires the fiscal
-   year's last `FiscalPeriod` to be locked via `posting_rules.
-   lockFiscalPeriod` (Design decisions #5, reusing that command's own
-   zespół-4→5 reconciliation gate rather than re-specifying one), applies
+   year's last `FiscalPeriod` to be locked and a `CLOSING` entry dated in
+   it (Design decisions #5: locking through `posting_rules.
+   lockFiscalPeriod` is the intended path, with the parity check as
+   backstop), reads both through `ledgerBulkReadService` (#6038), applies
    the mapping through both aggregation functions, runs the two-variant
    parity check, and renders both statements.
 
@@ -372,10 +374,19 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
    — `posting_rules.lockFiscalPeriod` "rejects when
    `findUnreclassifiedEntries` is non-empty, and... successfully
    delegates to `ledger.lockFiscalPeriod` when empty." Requiring
-   generation to check `FiscalPeriod.isLocked` (locked, by construction,
-   only through that command) reuses this existing reconciliation gate
-   instead of re-specifying one, per this project's own reuse
-   discipline. `generateAnnualStatements` reads the trial balance *as
+   generation to check `FiscalPeriod.isLocked` reuses that gate where it
+   was used, but it does **not** guarantee it: Posting Rules Engine's own
+   invariant 4 states that locking through `ledger.lockFiscalPeriod`
+   directly bypasses the reconciliation guard by design, so a locked period
+   is not proof that zespół 4→5 was reconciled (corrected 2026-10-08; this
+   paragraph earlier said "locked, by construction, only through that
+   command"). The preconditions are therefore: period locked, a `CLOSING`
+   entry dated within it, and the existing two-variant net-result parity
+   check as the backstop for a period locked without the guard.
+   Accounting-domain confirmation that the parity check is enough is still
+   needed. State is read through `ledgerBulkReadService.getFiscalPeriod`
+   and `findClosingEntries` (#6038), not through the entities or HTTP.
+   `generateAnnualStatements` reads the trial balance *as
    of* the `CLOSING` entry dated within that locked period — it does not
    compute or post the closing entry itself, does not call
    `lockFiscalPeriod` itself (locking is a separate, deliberate
@@ -434,7 +445,7 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
    writers) rather than its audit-specific query, so PDF/XLSX output
    renders the same section/line/subtotal structure the UI shows on
    screen — not a second, independently-drifting representation of the
-   numbers. Requires the same `financial_pl.statements.manage` scope as
+   numbers. Requires the same `financial_pl_accounting.statements.manage` scope as
    generation; no separate export permission for Phase 1.
 7. **`StatementLineMapping` concurrent-edit protection uses this
    project's canonical `updatedAt`-based optimistic lock — not a
@@ -473,13 +484,13 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
 
 ### `financial_statements` (Core, this repo)
 
-- `packages/modules/financial_statements/data/types.ts` — `ReportFormat`,
+- `packages/core/src/modules/financial_statements/data/types.ts` — `ReportFormat`,
   `ReportSection`, `ReportLine` (`{ code, name, style, sign: 1 | -1,
   isTotal?: boolean, amount }`, per Design decisions #1/#1b), `Disclosure`
   (unused in Phase 1; kept for shape-compatibility with SPEC-024 §2.4 so
   a future country plugin's Notes-to-Statements section has somewhere to
   land).
-- `packages/modules/financial_statements/lib/buildBalanceSheetData.ts` —
+- `packages/core/src/modules/financial_statements/lib/buildBalanceSheetData.ts` —
   `buildBalanceSheetData(fiscalPeriodId, lineMappings: { accountId, side:
   'debit' | 'credit', lineCode }[])`. Calls #6013's `getTrialBalance`
   internally (direct in-process read — GL/GL-balances are both upstream
@@ -491,7 +502,7 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
   buckets each row's `closingBalance` into `lineCode` per its mapped
   side, and returns `{ lineCode, amount }[]`. Pure aggregation, no
   formatting, no I/O beyond the read.
-- `packages/modules/financial_statements/lib/buildIncomeStatementData.ts`
+- `packages/core/src/modules/financial_statements/lib/buildIncomeStatementData.ts`
   — same signature and mapping-validation/pagination behavior as
   `buildBalanceSheetData`, but reads `ytdDebit`/`ytdCredit` for the
   fiscal year's last `FiscalPeriod` and subtracts the fiscal year's
@@ -499,7 +510,7 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
   by `referenceType`/`id`, not a new #6013 query) before bucketing
   (Design decisions #0). This is the RZiS-only aggregation function; it
   must never be used for Bilans lines.
-- `packages/modules/financial_statements/lib/computeDerivedTotals.ts` —
+- `packages/core/src/modules/financial_statements/lib/computeDerivedTotals.ts` —
   `computeDerivedTotals(sections: ReportSection[]): ReportSection[]`. Pure
   function; sums each section's leaf `ReportLine.amount * sign` into that
   section's `isTotal` line(s), per the template's own structure (Design
@@ -509,7 +520,7 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
 - `index.ts` — `requires: ['ledger']`, no ACL of its own (this module
   exposes no route or command; `financial_pl` is the only caller).
 
-### `financial_pl` (Poland plugin, `official-modules`)
+### `financial_pl_accounting` (Poland plugin, `official-modules`; target package, see the 2026-10-08 changelog entry)
 
 - `data/entities.ts` — `StatementLineMapping` (tenant settings,
   nullable/no-default, per Design decisions #2; concurrent-edit
@@ -559,7 +570,7 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
   state, not creation of a free-standing resource), and return
   `guardResult.errorBody`/`errorStatus` when blocked. Metadata:
   `requireAuth: true`, `requireFeatures:
-  ['financial_pl.statements.manage']`; both export `openApi`.
+  ['financial_pl_accounting.statements.manage']`; both export `openApi`.
 - `api/statement-line-mapping/route.ts` — `GET` (list) / `PUT /:id`
   (update `lineCode`) via `makeCrudRoute`'s stock `list`/`update`
   handlers (Design decisions #7 — plain field persistence with no
@@ -571,7 +582,7 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
   `updatedAt`-based optimistic lock for free (Design decisions #7); list
   results are grouped by zespół client-side for the settings UI. Same
   metadata/`openApi` requirements as above.
-- `backend/financial-pl/statements/page.tsx` — read-only Bilans/RZiS
+- `backend/financial-pl-accounting/statements/page.tsx` — read-only Bilans/RZiS
   view (rendered from the returned `ReportFormat`), a `StatementLineMapping`
   admin page (`CrudForm`'s stock conflict bar on a `409`, "someone else
   edited this row, reload" — no bespoke conflict code), and the
@@ -581,7 +592,7 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
 
 ## Data Model
 
-### `StatementLineMapping` (`financial_pl`)
+### `StatementLineMapping` (`financial_pl_accounting`)
 
 `{ id, tenantId, organizationId, accountId (FK LedgerAccount), side
 ('debit'|'credit'), statementCode ('bilans'|'rzis_porownawczy'|
@@ -596,7 +607,7 @@ antichain per `(side, statementCode)`, not merely "a row exists per
 account." Unique on `(tenantId, organizationId, accountId, side,
 statementCode)`.
 
-### `ClosingResolution` (`financial_pl`)
+### `ClosingResolution` (`financial_pl_accounting`)
 
 `{ id, tenantId, organizationId, fiscalPeriodId (FK FiscalPeriod),
 closingEntryId (FK-id → ledger.JournalEntry, the specific `CLOSING` entry
@@ -618,7 +629,7 @@ duplicate.
 (Canonical-mechanism note, added in this compliance pass —
 `packages/core/AGENTS.md` → API Routes: every route below exports
 `openApi`, every route's metadata is `requireAuth: true,
-requireFeatures: ['financial_pl.statements.manage']`. `generate` and
+requireFeatures: ['financial_pl_accounting.statements.manage']`. `generate` and
 `closing-resolution` are custom write routes wired through the
 mutation guard registry — Architecture, `api/statements/route.ts` —
 because each carries cross-entity validation `makeCrudRoute` doesn't
@@ -627,7 +638,7 @@ express; `statement-line-mapping`'s `GET`/`PUT` are plain
 mapping row's `lineCode` edit needs no such validation, Design
 decisions #7.)
 
-### `POST /api/financial-pl/statements/generate`
+### `POST /api/financial-pl-accounting/statements/generate`
 
 - **Body**: `{ fiscalPeriodId: string }`.
 - **Response 200**: `{ fiscalPeriodId, closingEntryId, bilans: ReportFormat, rzisPorownawczy: ReportFormat, rzisKalkulacyjny: ReportFormat, netResultParity: { porownawczy: number, kalkulacyjny: number, matches: boolean }, closingResolution: ClosingResolution | null }`.
@@ -641,17 +652,17 @@ decisions #7.)
 - **Response 422**: `netResultParity.matches` is `false` — generation
   still returns both variants (for debugging) but flags the mismatch
   rather than silently succeeding.
-- **Response 403**: caller lacks `financial_pl.statements.manage`.
+- **Response 403**: caller lacks `financial_pl_accounting.statements.manage`.
 
-### `GET /api/financial-pl/statement-line-mapping`
+### `GET /api/financial-pl-accounting/statement-line-mapping`
 
 - **Query**: `page?`, `pageSize?` (mirrors #6013's `getTrialBalance`
   pagination contract, Design decisions #2, and `makeCrudRoute`'s own
   stock list-query shape).
 - **Response 200**: `{ rows: StatementLineMapping[], page, pageSize, total, totalPages }`.
-- **Response 403**: caller lacks `financial_pl.statements.manage`.
+- **Response 403**: caller lacks `financial_pl_accounting.statements.manage`.
 
-### `PUT /api/financial-pl/statement-line-mapping/:id`
+### `PUT /api/financial-pl-accounting/statement-line-mapping/:id`
 
 - **Body**: `{ lineCode }`, plus the caller's optimistic-lock header
   derived from the row's `updatedAt` (`CrudForm`'s stock behavior —
@@ -661,9 +672,9 @@ decisions #7.)
   `makeCrudRoute`'s standard optimistic-lock conflict body (current
   record echoed back), surfaced by `surfaceRecordConflict`; no
   bespoke `MAPPING_VERSION_CONFLICT` code.
-- **Response 403**: caller lacks `financial_pl.statements.manage`.
+- **Response 403**: caller lacks `financial_pl_accounting.statements.manage`.
 
-### `POST /api/financial-pl/statements/closing-resolution`
+### `POST /api/financial-pl-accounting/statements/closing-resolution`
 
 - **Body**: `{ fiscalPeriodId, retainedEarnings, dividends,
   supplementaryCapital, attachmentRef? }`.
@@ -672,7 +683,7 @@ decisions #7.)
   decisions #5b).
 - **Response 400**: the three amounts don't sum to the current
   `CLOSING` entry's derived RZiS net result.
-- **Response 403**: caller lacks `financial_pl.statements.manage`.
+- **Response 403**: caller lacks `financial_pl_accounting.statements.manage`.
 - **Response 409**: a `ClosingResolution` already exists for this
   `(fiscalPeriodId, closingEntryId)` pair (immutable once recorded for
   that specific closing revision — a correction after a reopen targets a
@@ -691,7 +702,7 @@ checklist §5 requirement.) `financial_pl`'s own UI strings (the
 statements page's labels, the mapping settings page's column headers,
 error banners, the `409`/`422` user-facing messages) go through this project's standard `useT()` (client)/
 `resolveTranslations()` (server) mechanism, keyed under a
-`financial_pl.statements.*` namespace — never hard-coded Polish/English
+`financial_pl_accounting.statements.*` namespace — never hard-coded Polish/English
 strings in components. `bilansTemplate.ts`/`rzisTemplate.ts`'s actual
 statutory line *names* ("Aktywa trwałe," "Przychody netto ze sprzedaży,"
 etc.) are Poland-specific legal text, not translatable UI copy — they
@@ -711,7 +722,7 @@ not made through `CrudForm` goes through `useGuardedMutation(...)
 HTTP, surfacing the route's `409`/`422`/`400` bodies as the inline
 banners/messages described here.)
 
-- `backend/financial-pl/statements/page.tsx` — a fiscal-period picker, a
+- `backend/financial-pl-accounting/statements/page.tsx` — a fiscal-period picker, a
   "Generate" action (`useGuardedMutation` wrapping `apiCall('/generate')`
   — no list/detail entity of its own, so not a `CrudForm` case), and,
   once generated, two read-only report views (Bilans, RZiS — with a
@@ -725,7 +736,7 @@ banners/messages described here.)
   decisions #5b) versus one carried over from a now-superseded closing
   revision. The `ClosingResolution` entry form embedded here (below) is
   the page's one `CrudForm` usage.
-- `backend/financial-pl/statement-line-mapping/page.tsx` — a `DataTable`
+- `backend/financial-pl-accounting/statement-line-mapping/page.tsx` — a `DataTable`
   listing one row per `(account, side, statement)`, grouped by zespół
   for discoverability (reusing the flat, sorted-by-code presentation
   #6013 already established for its own trial-balance `DataTable` — its
@@ -912,23 +923,23 @@ cross-module fallout.
    `Disclosure`), `lib/buildBalanceSheetData.ts`,
    `lib/buildIncomeStatementData.ts`, `lib/computeDerivedTotals.ts`,
    `index.ts` (`requires: ['ledger']`).
-2. `financial_pl`: `data/entities.ts` + migration (`StatementLineMapping`
+2. `financial_pl_accounting`: `data/entities.ts` + migration (`StatementLineMapping`
    — `updatedAt` is its only concurrency column, no `version` field —
    `ClosingResolution` with `closingEntryId` and the revised unique
    constraint).
-3. `financial_pl`: `lib/bilansTemplate.ts`, `lib/rzisTemplate.ts` (both
+3. `financial_pl_accounting`: `lib/bilansTemplate.ts`, `lib/rzisTemplate.ts` (both
    variants, each line's `sign`/`isTotal` set) — the fixed Załącznik nr 1
    line structures.
-4. `financial_pl`: `commands/generateAnnualStatements.ts` (antichain
+4. `financial_pl_accounting`: `commands/generateAnnualStatements.ts` (antichain
    validation, `posting_rules.lockFiscalPeriod`-gated precondition,
    `CLOSING`-entry lookup and subtraction for RZiS),
    `commands/recordClosingResolution.ts`.
-5. `financial_pl`: `lib/exportStatementAdapter.ts` (Design decisions #6).
-6. `financial_pl`: `acl.ts` (`financial_pl.statements.manage`),
+5. `financial_pl_accounting`: `lib/exportStatementAdapter.ts` (Design decisions #6).
+6. `financial_pl_accounting`: `acl.ts` (`financial_pl_accounting.statements.manage`),
    `api/statements/route.ts` (custom, mutation-guard-wired),
    `api/statement-line-mapping/route.ts` (`makeCrudRoute` `list`/`update`).
-7. `financial_pl`: `backend/financial-pl/statements/page.tsx`,
-   `backend/financial-pl/statement-line-mapping/page.tsx` (`DataTable` +
+7. `financial_pl_accounting`: `backend/financial-pl-accounting/statements/page.tsx`,
+   `backend/financial-pl-accounting/statement-line-mapping/page.tsx` (`DataTable` +
    `CrudForm` edit dialog, antichain-violation display).
 8. Testing Strategy (below) implemented and passing.
 9. Manual QA + `yarn generate` + typecheck + full walkthrough (mirrors
@@ -994,21 +1005,21 @@ cross-module fallout.
 
 | File | Change | Purpose |
 |---|---|---|
-| `packages/modules/financial_statements/data/types.ts` | Create | `ReportFormat`/`ReportSection`/`ReportLine` (`sign`/`isTotal`)/`Disclosure` |
-| `packages/modules/financial_statements/lib/buildBalanceSheetData.ts` | Create | Closing-balance → line-bucketed aggregation (Bilans) |
-| `packages/modules/financial_statements/lib/buildIncomeStatementData.ts` | Create | Pre-closing-turnover → line-bucketed aggregation (RZiS) |
-| `packages/modules/financial_statements/lib/computeDerivedTotals.ts` | Create | Signed subtotal/net-result derivation |
-| `packages/modules/financial_statements/index.ts` | Create | Module manifest, `requires: ['ledger']` |
-| `financial_pl/data/entities.ts` | Modify | `StatementLineMapping` (`updatedAt` only), `ClosingResolution` (+`closingEntryId`) |
-| `financial_pl/lib/bilansTemplate.ts` / `rzisTemplate.ts` | Create | Załącznik nr 1 line templates (`sign`/`isTotal`) |
-| `financial_pl/lib/exportStatementAdapter.ts` | Create | Statement-compatible PDF/XLSX export |
-| `financial_pl/commands/generateAnnualStatements.ts` | Create | Generation + antichain validation + variant-parity check; custom route, mutation-guard-wired |
-| `financial_pl/commands/recordClosingResolution.ts` | Create | Uchwała-outcome input, keyed to `closingEntryId`; custom route, mutation-guard-wired |
-| `financial_pl/acl.ts` | Modify | `financial_pl.statements.manage` |
-| `financial_pl/api/statements/route.ts` | Create | `POST /generate`, `POST /closing-resolution` (custom, mutation-guard-wired, `openApi`) |
-| `financial_pl/api/statement-line-mapping/route.ts` | Create | `makeCrudRoute`: `GET` list, `PUT /:id` update (default-ON `updatedAt` lock, `openApi`) |
-| `financial_pl/backend/financial-pl/statements/page.tsx` | Create | Report view + export |
-| `financial_pl/backend/financial-pl/statement-line-mapping/page.tsx` | Create | `DataTable` + `CrudForm` edit dialog |
+| `packages/core/src/modules/financial_statements/data/types.ts` | Create | `ReportFormat`/`ReportSection`/`ReportLine` (`sign`/`isTotal`)/`Disclosure` |
+| `packages/core/src/modules/financial_statements/lib/buildBalanceSheetData.ts` | Create | Closing-balance → line-bucketed aggregation (Bilans) |
+| `packages/core/src/modules/financial_statements/lib/buildIncomeStatementData.ts` | Create | Pre-closing-turnover → line-bucketed aggregation (RZiS) |
+| `packages/core/src/modules/financial_statements/lib/computeDerivedTotals.ts` | Create | Signed subtotal/net-result derivation |
+| `packages/core/src/modules/financial_statements/index.ts` | Create | Module manifest, `requires: ['ledger']` |
+| `financial_pl_accounting/data/entities.ts` | Modify | `StatementLineMapping` (`updatedAt` only), `ClosingResolution` (+`closingEntryId`) |
+| `financial_pl_accounting/lib/bilansTemplate.ts` / `rzisTemplate.ts` | Create | Załącznik nr 1 line templates (`sign`/`isTotal`) |
+| `financial_pl_accounting/lib/exportStatementAdapter.ts` | Create | Statement-compatible PDF/XLSX export |
+| `financial_pl_accounting/commands/generateAnnualStatements.ts` | Create | Generation + antichain validation + variant-parity check; custom route, mutation-guard-wired |
+| `financial_pl_accounting/commands/recordClosingResolution.ts` | Create | Uchwała-outcome input, keyed to `closingEntryId`; custom route, mutation-guard-wired |
+| `financial_pl_accounting/acl.ts` | Modify | `financial_pl_accounting.statements.manage` |
+| `financial_pl_accounting/api/statements/route.ts` | Create | `POST /generate`, `POST /closing-resolution` (custom, mutation-guard-wired, `openApi`) |
+| `financial_pl_accounting/api/statement-line-mapping/route.ts` | Create | `makeCrudRoute`: `GET` list, `PUT /:id` update (default-ON `updatedAt` lock, `openApi`) |
+| `financial_pl_accounting/backend/financial-pl-accounting/statements/page.tsx` | Create | Report view + export |
+| `financial_pl_accounting/backend/financial-pl-accounting/statement-line-mapping/page.tsx` | Create | `DataTable` + `CrudForm` edit dialog |
 
 ## Literature & Prior Art
 
@@ -1189,7 +1200,7 @@ this report reflects the document as already revised.)
 | root AGENTS.md | Filter by `organization_id` for tenant-scoped entities | Compliant | Both `financial_pl` entities carry `tenantId`/`organizationId`; `buildBalanceSheetData`/`buildIncomeStatementData` scope through #6013's own `getTrialBalance` scoping. |
 | root AGENTS.md → UI & HTTP | Non-`CrudForm` writes use `useGuardedMutation(...).runMutation(...)` | Compliant | UI/UX: the "Generate" action and closing-resolution submit are `useGuardedMutation` + `apiCall()`; the mapping edit is a `CrudForm` dialog instead (see next row). |
 | packages/core/AGENTS.md → API Routes | Every API route file exports `openApi`; custom (non-`makeCrudRoute`) write routes wire the mutation guard registry | Compliant | API Contracts header note + Architecture: `generate`/`closing-resolution` are custom, mutation-guard-wired; `statement-line-mapping` `GET`/`PUT` are `makeCrudRoute`. All four export `openApi`. |
-| packages/core/AGENTS.md → API Routes | Route metadata declares per-method `requireAuth`/`requireFeatures` | Compliant | All four routes: `requireAuth: true, requireFeatures: ['financial_pl.statements.manage']` (API Contracts header note). Phase 1 has a single manage-only ACL feature, no separate read-only viewer role — noted as a Phase 2 candidate, not a gap, since no read-only accountant role exists yet anywhere in this module family. |
+| packages/core/AGENTS.md → API Routes | Route metadata declares per-method `requireAuth`/`requireFeatures` | Compliant | All four routes: `requireAuth: true, requireFeatures: ['financial_pl_accounting.statements.manage']` (API Contracts header note). Phase 1 has a single manage-only ACL feature, no separate read-only viewer role — noted as a Phase 2 candidate, not a gap, since no read-only accountant role exists yet anywhere in this module family. |
 | packages/core/AGENTS.md → Encryption | PII/GDPR fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | N/A | No PII/GDPR-relevant column in either entity — `StatementLineMapping` holds only account/line references, `ClosingResolution` only amounts and an attachment reference (a file pointer, not personal data). |
 | packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; lists use `<DataTable>` with stable `entityId` | Compliant | UI/UX (corrected in this pass): the mapping settings page is a `DataTable`; its row edit and the closing-resolution entry are both `CrudForm`. The original draft described a hand-rolled editable table with no named component — fixed. |
 | packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow`, never raw `fetch` | Compliant | UI/UX header note. |
@@ -1197,7 +1208,7 @@ this report reflects the document as already revised.)
 | packages/cache/AGENTS.md | Read-heavy endpoints declare a caching strategy; cache resolved via DI | N/A, justified | Annual statements are generated at most a few times per fiscal year per tenant (post-close), not a high-frequency read path; `buildBalanceSheetData`/`buildIncomeStatementData` already inherit whatever caching #6013's `getTrialBalance` itself defines (out of this document's scope to redefine). No new cache layer is introduced. |
 | packages/events/AGENTS.md | Cross-module side effects go through `createModuleEvents`, never direct imports | N/A, justified | `financial_statements`/`financial_pl` emit no event in Phase 1 — nothing outside this module needs to react to a generated statement or a recorded closing resolution; both modules only *consume* `ledger`'s and `posting_rules`' existing surface (one-way dependency direction, knowledge-base §2). Flagged as a Phase 2 candidate if a future filing/e-Sprawozdania submission module needs to react to generation. |
 | root AGENTS.md → Design System Rules | Semantic status tokens, DS text scale, shared primitives, no raw `<svg>` | N/A | This document contains no literal className/JSX snippets to audit — it describes components (`DataTable`, `CrudForm`, `Alert`-style banners) by name, not markup. Enforced at implementation time by the existing DS lint/tests, not by this spec. |
-| Spec-checklist §5 | i18n keys planned, never hard-coded strings | Compliant | Internationalization (i18n) section (added in this pass): `financial_pl.statements.*` namespace via `useT()`/`resolveTranslations()`; statutory line names are explicitly out of scope for translation (Poland-specific legal text), matching Tax Management's own precedent. |
+| Spec-checklist §5 | i18n keys planned, never hard-coded strings | Compliant | Internationalization (i18n) section (added in this pass): `financial_pl_accounting.statements.*` namespace via `useT()`/`resolveTranslations()`; statutory line names are explicitly out of scope for translation (Poland-specific legal text), matching Tax Management's own precedent. |
 | Spec-checklist §5 | Pagination `pageSize <= 100` | Compliant | `GET /statement-line-mapping` mirrors #6013's own paginated `getTrialBalance` contract (Design decisions #2). |
 | Spec-checklist §5 | Migration/backward-compatibility strategy is explicit | Compliant | Migration & Backward Compatibility section (added in the maintainer-review pass). |
 
@@ -1376,3 +1387,31 @@ itself. Re-run properly this round, in order:
 - **Commands**: Passed — `generateAnnualStatements`/`recordClosingResolution` are commands behind mutation-guard-wired custom routes; the mapping edit needs no command of its own (plain `makeCrudRoute` field update, Design decisions #7).
 - **Risks**: Passed — Risks & Impact Review's transparency entry covers all seven review findings plus this pass's optimistic-lock correction; no residual risk left undocumented.
 - **Verdict**: Approved — re-requesting review against this revision.
+
+### 2026-10-08 — target layout, path fix, gate wording
+
+- **Path.** The `financial_statements` files were listed under
+  `packages/modules/financial_statements/`, a directory that does not exist
+  in the repository. Corrected to `packages/core/src/modules/financial_statements/`,
+  where the sibling Tax Management module (#6168) already lives.
+- **Target layout (decided 2026-10-08).** The
+  Polish half of this document moves from `financial_pl` into a separate
+  package in `official-modules`, `financial_pl_accounting`,
+  with a hard `requires` on `financial_pl`, `ledger`, `tax_management` and
+  `financial_statements`. Reason: `financial_pl` is installed standalone
+  for KSeF and JPK_V7 and must not require a general ledger. Identifiers
+  in this document were renamed accordingly: feature
+  `financial_pl_accounting.statements.manage`, routes under
+  `/api/financial-pl-accounting/`, backend pages under
+  `backend/financial-pl-accounting/`, i18n namespace
+  `financial_pl_accounting.statements.*`. Narrative mentions of
+  "`financial_pl`" as the Poland plugin still mean the same
+  `official-modules` repository.
+- **Gate wording** corrected in the TLDR, Overview and Design decisions #5
+  (see #5): a locked period does not by itself prove zespół 4→5 was
+  reconciled, because `ledger.lockFiscalPeriod` bypasses the
+  `posting_rules` guard by design.
+- **Reading period state.** Generation reads `FiscalPeriod` state and the
+  `CLOSING` entry through two new `ledgerBulkReadService` methods
+  (`getFiscalPeriod`, `findClosingEntries`, added to #6038 on the same
+  date). #6038 is now a prerequisite of the generation command.
