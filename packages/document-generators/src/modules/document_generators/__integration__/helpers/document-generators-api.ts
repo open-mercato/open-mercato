@@ -36,6 +36,7 @@ export type HistoryRowDto = {
   format: string
   generatedBy: string
   generatedAt: string
+  attachmentId: string | null
 }
 
 export type HistoryPageDto = { items: HistoryRowDto[]; total: number; page: number; pageSize: number }
@@ -71,6 +72,10 @@ export function generateDocument(request: APIRequestContext, token: string, body
 
 export function listDocuments(request: APIRequestContext, token: string, query?: Record<string, string | number | undefined>) {
   return apiRequest(request, 'GET', `${BASE}/documents${toQueryString(query)}`, { token })
+}
+
+export function downloadStoredDocument(request: APIRequestContext, token: string, historyId: string) {
+  return apiRequest(request, 'GET', `${BASE}/documents/${historyId}/file`, { token })
 }
 
 export async function readTemplates(response: APIResponse): Promise<TemplateDto[]> {

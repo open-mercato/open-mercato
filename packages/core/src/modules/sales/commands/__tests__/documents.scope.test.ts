@@ -390,4 +390,38 @@ describe('SalesDocumentAddress query scoping', () => {
       })
     })
   })
+
+  describe('delete commands emit the declared CRUD deleted events', () => {
+    function deletedEventsFor(dataEngine: { markOrmEntityChange: jest.Mock }, id: string) {
+      return dataEngine.markOrmEntityChange.mock.calls
+        .map(([change]) => change)
+        .filter((change) => change.action === 'deleted' && change.identifiers.id === id)
+    }
+
+    it('emits sales.quote.deleted with the quote scope and actor', async () => {
+      const quote = makeQuote()
+      const { em } = makeEmForQuote(quote)
+      const ctx = makeCtx(em, ORG_ID, TENANT_ID)
+
+      await commandRegistry.get('sales.quotes.delete')!.execute({ id: QUOTE_ID }, ctx as any)
+
+      const [change] = deletedEventsFor(ctx.dataEngine, QUOTE_ID)
+      expect(change.events).toMatchObject({ module: 'sales', entity: 'quote', persistent: true })
+      expect(change.identifiers).toEqual({ id: QUOTE_ID, organizationId: ORG_ID, tenantId: TENANT_ID })
+      expect(change.actorUserId).toBe('user-1')
+    })
+
+    it('emits sales.order.deleted with the order scope and actor', async () => {
+      const order = makeOrder()
+      const { em } = makeEmForOrder(order)
+      const ctx = makeCtx(em, ORG_ID, TENANT_ID)
+
+      await commandRegistry.get('sales.orders.delete')!.execute({ id: ORDER_ID }, ctx as any)
+
+      const [change] = deletedEventsFor(ctx.dataEngine, ORDER_ID)
+      expect(change.events).toMatchObject({ module: 'sales', entity: 'order', persistent: true })
+      expect(change.identifiers).toEqual({ id: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID })
+      expect(change.actorUserId).toBe('user-1')
+    })
+  })
 })
