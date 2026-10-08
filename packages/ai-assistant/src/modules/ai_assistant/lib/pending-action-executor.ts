@@ -19,6 +19,7 @@
  *   unit of atomicity for the underlying data change.
  */
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withCausationFrame, type CausationFrame } from '@open-mercato/shared/lib/causation/server'
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
 import type { AiPendingAction } from '../data/entities'
 import { emitAiAssistantEvent } from '../events'
@@ -288,6 +289,14 @@ function mergeFailedRecords(
   return Array.from(seen.values())
 }
 
+export function buildPendingActionCausationFrame(
+  pendingActionId: string,
+  agentId: string,
+  toolName: string,
+): CausationFrame {
+  return { kind: 'ai_action', id: pendingActionId, meta: { agentId, toolName } }
+}
+
 function toToolHandlerContext(
   ctx: PendingActionExecuteContext,
   tool: AiToolDefinition,
@@ -363,7 +372,10 @@ export async function executePendingActionConfirm(
 
   let handlerOutput: unknown
   try {
-    handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool, action.id))
+    handlerOutput = await withCausationFrame(
+      buildPendingActionCausationFrame(action.id, agent.id, tool.name),
+      () => tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool, action.id)),
+    )
   } catch (error) {
     const failureResult: AiPendingActionExecutionResult = {
       error: buildHandlerErrorFromThrown(error, action.normalizedInput),

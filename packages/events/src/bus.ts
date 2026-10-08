@@ -21,6 +21,8 @@ import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
+import { isCausationEnabled, withCausationFrame } from '@open-mercato/shared/lib/causation/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 export { registerCrossProcessEventListener, CROSS_PROCESS_EVENT_INSTANCE_ID } from './bridge'
 import { publishCrossProcessEvent } from './bridge'
 import type {
@@ -44,6 +46,32 @@ type RegisteredSubscriber = {
   event: string
   handler: SubscriberHandler
   persistent?: boolean
+}
+
+function resolveSubscriberCausationId(subscriber: RegisteredSubscriber): string {
+  const subscriberId = subscriber.id?.trim()
+  if (subscriberId) return subscriberId
+  return subscriber.moduleId ? `${subscriber.moduleId}:${subscriber.event}` : subscriber.event
+}
+
+function reportHandlerFailure(error: unknown, event: string, subscriber: RegisteredSubscriber, persistent: boolean): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'events',
+      code: 'events.handler_failed',
+      attributes: { event, subscriber: subscriber.id ?? subscriber.event, persistent },
+    })
+  } catch (telemetryError) {
+    logger.warn('Failed to report an event handler error to telemetry', { event, err: telemetryError })
+  }
+}
+
+function runInSubscriberCausationFrame<T>(subscriber: RegisteredSubscriber, event: string, fn: () => T): T {
+  if (!isCausationEnabled()) return fn()
+  return withCausationFrame(
+    { kind: 'subscriber', id: resolveSubscriberCausationId(subscriber), ref: event },
+    fn,
+  )
 }
 
 /**
@@ -427,21 +455,23 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
               operation: `${event} -> ${subscriber.id ?? subscriber.event}`,
               resourceId: subscriber.id ?? subscriber.event,
             },
-            () => subscriber.handler(payload, {
+            () => runInSubscriberCausationFrame(subscriber, event, () => subscriber.handler(payload, {
               resolve: opts.resolve,
               eventName: event,
               tenantId: options?.tenantId ?? null,
               organizationId: options?.organizationId ?? null,
-            }),
+            })),
           )
         } catch (error) {
-          if (persistentSubscribers.has(subscriber)) {
+          const persistent = persistentSubscribers.has(subscriber)
+          if (persistent) {
             persistentFailures += 1
           }
           logger.error('Handler error', { event, pattern, err: error })
           if (options?.rethrowHandlerErrors) {
             throw error
           }
+          reportHandlerFailure(error, event, subscriber, persistent)
         }
       }
     }
@@ -520,12 +550,12 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             operation: `${event} -> ${subscriber.id ?? subscriber.event}`,
             resourceId: subscriber.id ?? subscriber.event,
           },
-          () => subscriber.handler(payload, {
+          () => runInSubscriberCausationFrame(subscriber, event, () => subscriber.handler(payload, {
             resolve: resolver,
             eventName: event,
             tenantId: options?.tenantId ?? null,
             organizationId: options?.organizationId ?? null,
-          }),
+          })),
         ),
       ),
     )

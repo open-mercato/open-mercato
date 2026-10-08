@@ -1,4 +1,5 @@
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import type { CausationEnvelope } from '@open-mercato/shared/lib/causation/types'
 
 @Entity({ tableName: 'api_keys' })
 // The unique keyPrefix bounds the bcrypt candidate loop in findApiKeyBySecret to at
@@ -58,6 +59,13 @@ export class ApiKey {
    */
   @Property({ name: 'opencode_session_id', type: 'text', nullable: true })
   opencodeSessionId?: string | null
+
+  /**
+   * Server-captured causation envelope (identifiers only) for one-time loopback keys.
+   * Stamped by `withOnetimeApiKey` from the ambient causation; never accepted from HTTP input.
+   */
+  @Property({ name: 'causation_json', type: 'json', nullable: true })
+  causationJson?: CausationEnvelope | null
 
   @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date | null

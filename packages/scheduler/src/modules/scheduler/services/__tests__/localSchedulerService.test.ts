@@ -8,6 +8,11 @@ import {
 } from '../../lib/scheduler-safe-commands'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  getAmbientCausation,
+  runEntryWithCausation,
+  type CausationEnvelope,
+} from '@open-mercato/shared/lib/causation/server'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -518,6 +523,37 @@ describe('LocalSchedulerService', () => {
         ['scheduler.jobs.manage'],
         { tenantId: null, organizationId: null }
       )
+    })
+
+    it('runs each due schedule inside its own schedule causation entry frame', async () => {
+      const schedule = createSchedule({
+        targetType: 'command',
+        targetCommand: 'test:command',
+        targetQueue: null,
+        createdByUserId: 'user-1',
+      })
+      let ambientInCommand: CausationEnvelope | null = null
+      let commandCausation: CausationEnvelope | null | undefined
+      let ambientAtLock: CausationEnvelope | null = null
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        ambientAtLock = getAmbientCausation()
+        await fn()
+        return { acquired: true }
+      })
+      mockCommandBusInstance.execute.mockImplementation(async (_commandId: string, options: { ctx: { causation?: CausationEnvelope | null } }) => {
+        ambientInCommand = getAmbientCausation()
+        commandCausation = options.ctx.causation
+        return { success: true }
+      })
+
+      await runEntryWithCausation({ kind: 'user' }, () => service.start())
+
+      expect(ambientAtLock!.frames).toEqual([{ kind: 'schedule', id: 'test-1' }])
+      expect(ambientInCommand!.frames).toEqual([{ kind: 'schedule', id: 'test-1' }])
+      expect(commandCausation).toBe(ambientInCommand)
     })
 
     it('should reject command target that is not scheduler safe', async () => {

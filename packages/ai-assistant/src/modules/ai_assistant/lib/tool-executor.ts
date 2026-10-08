@@ -1,10 +1,22 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withCausationFrame, type CausationFrame } from '@open-mercato/shared/lib/causation/server'
 import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('ai_assistant')
+
+export type ExecuteToolOptions = {
+  agentId?: string | null
+}
+
+export function buildAiToolCausationFrame(toolName: string, agentId?: string | null): CausationFrame {
+  const normalizedAgentId = typeof agentId === 'string' ? agentId.trim() : ''
+  return normalizedAgentId
+    ? { kind: 'ai_tool', id: toolName, meta: { agentId: normalizedAgentId } }
+    : { kind: 'ai_tool', id: toolName }
+}
 
 /**
  * Strip empty strings from object values so LLM-generated `""` for optional
@@ -26,7 +38,8 @@ function sanitizeEmptyStrings(input: unknown): unknown {
 export async function executeTool(
   toolName: string,
   input: unknown,
-  context: McpToolContext
+  context: McpToolContext,
+  options: ExecuteToolOptions = {},
 ): Promise<ToolExecutionResult> {
   const registry = getToolRegistry()
   const tool = registry.getTool(toolName)
@@ -85,7 +98,10 @@ export async function executeTool(
   // route-gate coverage check working.
   const handlerContext: McpToolContext = { ...context, tool }
   try {
-    const result = await tool.handler(parseResult.data, handlerContext)
+    const result = await withCausationFrame(
+      buildAiToolCausationFrame(tool.name, options.agentId),
+      () => tool.handler(parseResult.data, handlerContext),
+    )
     return { success: true, result }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
