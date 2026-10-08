@@ -229,26 +229,32 @@ function readPoolMaximum(pool: ObservablePool): number | undefined {
     : undefined
 }
 
+/**
+ * Sampled primary-pool view under the app-owned `om.db.pool.*` namespace. The
+ * semantic-convention `db.client.connection.*` names are left to
+ * `@opentelemetry/instrumentation-pg`, which emits them as UpDownCounters in
+ * OTLP mode; reusing them here would export two conflicting streams per name.
+ */
 function recordPoolState(pool: ObservablePool): void {
   const idle = Math.max(0, pool.idleCount)
   const used = Math.max(0, pool.totalCount - idle)
   recordTelemetryMetric({
     kind: 'gauge',
-    name: 'db.client.connection.count',
+    name: 'om.db.pool.connections',
     value: idle,
     labels: { pool: 'primary', state: 'idle' },
     unit: '{connection}',
   })
   recordTelemetryMetric({
     kind: 'gauge',
-    name: 'db.client.connection.count',
+    name: 'om.db.pool.connections',
     value: used,
     labels: { pool: 'primary', state: 'used' },
     unit: '{connection}',
   })
   recordTelemetryMetric({
     kind: 'gauge',
-    name: 'db.client.connection.pending_requests',
+    name: 'om.db.pool.pending_requests',
     value: Math.max(0, pool.waitingCount),
     labels: { pool: 'primary' },
     unit: '{request}',
@@ -258,7 +264,7 @@ function recordPoolState(pool: ObservablePool): void {
   if (maximum !== undefined) {
     recordTelemetryMetric({
       kind: 'gauge',
-      name: 'db.client.connection.max',
+      name: 'om.db.pool.max',
       value: maximum,
       labels: { pool: 'primary' },
       unit: '{connection}',
@@ -280,7 +286,7 @@ export function instrumentPrimaryPool(
     try {
       recordTelemetryMetric({
         kind: 'histogram',
-        name: 'db.client.connection.wait_time',
+        name: 'om.db.pool.wait_time',
         value: Math.max(0, now() - startedAt) / 1_000,
         labels: { pool: 'primary' },
         unit: 's',

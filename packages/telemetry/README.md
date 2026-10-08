@@ -294,18 +294,40 @@ without making `@open-mercato/shared` depend on this package.
 
 | Metric | Kind | Unit | Labels |
 | --- | --- | --- | --- |
-| `db.client.connection.count` | gauge | `{connection}` | `pool=primary`, `state=idle|used` |
-| `db.client.connection.pending_requests` | gauge | `{request}` | `pool=primary` |
-| `db.client.connection.max` | gauge | `{connection}` | `pool=primary` |
-| `db.client.connection.wait_time` | histogram | `s` | `pool=primary` |
+| `om.db.pool.connections` | gauge | `{connection}` | `pool=primary`, `state=idle\|used` |
+| `om.db.pool.pending_requests` | gauge | `{request}` | `pool=primary` |
+| `om.db.pool.max` | gauge | `{connection}` | `pool=primary` |
+| `om.db.pool.wait_time` | histogram | `s` | `pool=primary` |
 | `nodejs.eventloop.utilization` | gauge | `1` | none |
 | `nodejs.eventloop.delay.p50` / `p90` / `p99` | gauge | `s` | none |
 | `process.memory.usage` | gauge | `By` | none |
 | `v8js.memory.heap.used` | gauge | `By` | `v8js.heap.space.name` |
 
 Pool acquisition wait is recorded per `pool.connect` call, including failed
-promise and callback acquisitions. Connection-state values are sampled; sum
-`idle` and `used` for the current open-connection total.
+promise and callback acquisitions, and includes opening a new connection when
+the pool grows. Connection-state values are sampled; sum `idle` and `used` for
+the current open-connection total.
+
+The pool metrics use the `om.db.pool.*` namespace on purpose. Under an OTLP
+backend `@opentelemetry/instrumentation-pg` already emits the semantic-convention
+`db.client.connection.count` and `db.client.connection.pending_requests` as
+UpDownCounters labelled `db.client.connection.state` /
+`db.client.connection.pool.name`. Reusing those names would export two streams
+per name with conflicting types and label keys. Query `om.db.pool.*` for the
+sampled view, which is also available under the `console` backend.
+
+The event-loop delay percentiles come from `monitorEventLoopDelay` with a 20 ms
+resolution, which records the whole timer interval rather than the overshoot.
+An idle process therefore reports about 0.020 s, not 0. Subtract 0.020 s before
+you compare against a real-delay budget: an alert at 0.050 s fires at about
+30 ms of actual blocking.
+
+Under an OTLP backend, every histogram recorded in seconds
+(`om.db.pool.wait_time`, `http.server.request.duration`,
+`om.enricher.duration`) is exported with explicit boundaries of 1 ms, 5 ms, 10 ms, 25 ms, 50 ms, 75 ms, 100 ms, 250 ms,
+500 ms, 750 ms, 1 s, 2.5 s, 5 s, 7.5 s and 10 s, so backends can compute
+percentiles. The SDK default is millisecond-scaled and would put every
+realistic latency in its first bucket.
 
 ### Long-lived jobs: root spans
 

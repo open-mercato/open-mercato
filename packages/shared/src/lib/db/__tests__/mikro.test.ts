@@ -181,28 +181,28 @@ describe('instrumentPrimaryPool', () => {
     expect(points).toEqual([
       {
         kind: 'gauge',
-        name: 'db.client.connection.count',
+        name: 'om.db.pool.connections',
         value: 3,
         labels: { pool: 'primary', state: 'idle' },
         unit: '{connection}',
       },
       {
         kind: 'gauge',
-        name: 'db.client.connection.count',
+        name: 'om.db.pool.connections',
         value: 5,
         labels: { pool: 'primary', state: 'used' },
         unit: '{connection}',
       },
       {
         kind: 'gauge',
-        name: 'db.client.connection.pending_requests',
+        name: 'om.db.pool.pending_requests',
         value: 4,
         labels: { pool: 'primary' },
         unit: '{request}',
       },
       {
         kind: 'gauge',
-        name: 'db.client.connection.max',
+        name: 'om.db.pool.max',
         value: 20,
         labels: { pool: 'primary' },
         unit: '{connection}',
@@ -240,18 +240,18 @@ describe('instrumentPrimaryPool', () => {
     await expect(pool.connect()).resolves.toBe(client)
     await expect(pool.connect()).rejects.toBe(failure)
 
-    expect(points.filter((point) => point.name === 'db.client.connection.wait_time'))
+    expect(points.filter((point) => point.name === 'om.db.pool.wait_time'))
       .toEqual([
         {
           kind: 'histogram',
-          name: 'db.client.connection.wait_time',
+          name: 'om.db.pool.wait_time',
           value: 0.25,
           labels: { pool: 'primary' },
           unit: 's',
         },
         {
           kind: 'histogram',
-          name: 'db.client.connection.wait_time',
+          name: 'om.db.pool.wait_time',
           value: 0.5,
           labels: { pool: 'primary' },
           unit: 's',
@@ -323,18 +323,18 @@ describe('instrumentPrimaryPool', () => {
     })
 
     expect(receivedThis).toBe(pool)
-    expect(points.filter((point) => point.name === 'db.client.connection.wait_time'))
+    expect(points.filter((point) => point.name === 'om.db.pool.wait_time'))
       .toEqual([
         {
           kind: 'histogram',
-          name: 'db.client.connection.wait_time',
+          name: 'om.db.pool.wait_time',
           value: 0.25,
           labels: { pool: 'primary' },
           unit: 's',
         },
         {
           kind: 'histogram',
-          name: 'db.client.connection.wait_time',
+          name: 'om.db.pool.wait_time',
           value: 0.5,
           labels: { pool: 'primary' },
           unit: 's',
@@ -367,9 +367,9 @@ describe('instrumentPrimaryPool', () => {
     await expect(pool.connect()).resolves.toBe(client)
     collectTelemetryMetrics()
 
-    expect(points.filter((point) => point.name === 'db.client.connection.wait_time'))
+    expect(points.filter((point) => point.name === 'om.db.pool.wait_time'))
       .toHaveLength(1)
-    expect(points.filter((point) => point.name === 'db.client.connection.count'))
+    expect(points.filter((point) => point.name === 'om.db.pool.connections'))
       .toHaveLength(2)
 
     firstDispose()
@@ -405,6 +405,41 @@ describe('instrumentPrimaryPool', () => {
     const dispose = instrumentPrimaryPool(pool, () => 100)
 
     await expect(pool.connect()).resolves.toBe(client)
+
+    dispose()
+  })
+
+  it('emits pool metrics only under the app namespace, never the semconv names owned by PgInstrumentation', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const { collectTelemetryMetrics } = await import('../../telemetry/runtime')
+    const points = await registerMetricRecorder()
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 4,
+      idleCount: 1,
+      waitingCount: 2,
+      options: { max: 10 },
+      connect: () => Promise.resolve({ id: 'client' }),
+    }) as unknown as ObservablePool
+    const dispose = instrumentPrimaryPool(pool, () => 0)
+
+    await pool.connect()
+    collectTelemetryMetrics()
+
+    const signatures = new Set(points.map((point) => [
+      point.kind,
+      point.name,
+      point.unit,
+      Object.keys(point.labels ?? {}).sort().join(','),
+    ].join(' ')))
+    expect(signatures).toEqual(new Set([
+      'histogram om.db.pool.wait_time s pool',
+      'gauge om.db.pool.connections {connection} pool,state',
+      'gauge om.db.pool.pending_requests {request} pool',
+      'gauge om.db.pool.max {connection} pool',
+    ]))
+    expect(points.filter((point) => point.name.startsWith('db.client.'))).toEqual([])
+    expect(new Set(points.map((point) => point.labels?.pool))).toEqual(new Set(['primary']))
 
     dispose()
   })

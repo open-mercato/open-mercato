@@ -25,7 +25,10 @@ off by default. Spec:
 - Emit spans from packages that must not depend on this one via
   `withTelemetrySpan` / `captureTelemetryTrace` from
   `@open-mercato/shared/lib/telemetry/runtime`, never a direct import.
-- Use semantic-convention metric/attribute names when available.
+- Use semantic-convention metric/attribute names when available, unless an
+  auto-instrumentation the OTLP provider registers already emits that name
+  (`PgInstrumentation` owns `db.client.connection.*`); use `om.*` then, since
+  two instruments must never share a name.
 - Keep the built-in metric names, units, and fixed labels synchronized with the
   catalog in `packages/telemetry/README.md`.
 - Keep metric labels low-cardinality. Tenant, organization, and user IDs belong

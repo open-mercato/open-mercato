@@ -133,7 +133,7 @@ describe('telemetry metric bridge', () => {
   it('returns false without allocating a provider point when metrics are unavailable', () => {
     expect(recordTelemetryMetric({
       kind: 'gauge',
-      name: 'db.client.connection.max',
+      name: 'om.db.pool.max',
       value: 20,
       unit: '{connection}',
     })).toBe(false)
@@ -145,7 +145,7 @@ describe('telemetry metric bridge', () => {
 
     const recorded = recordTelemetryMetric({
       kind: 'histogram',
-      name: 'db.client.connection.wait_time',
+      name: 'om.db.pool.wait_time',
       value: 0.25,
       labels: { pool: 'primary' },
       unit: 's',
@@ -154,7 +154,7 @@ describe('telemetry metric bridge', () => {
     expect(recorded).toBe(true)
     expect(points).toEqual([{
       kind: 'histogram',
-      name: 'db.client.connection.wait_time',
+      name: 'om.db.pool.wait_time',
       value: 0.25,
       labels: { pool: 'primary' },
       unit: 's',

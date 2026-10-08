@@ -23,14 +23,16 @@ This is the first implementation slice for issue [#5784](https://github.com/open
 
 Open Mercato already exposes counter, histogram, and gauge recording through a default-unloaded telemetry package. Packages such as `@open-mercato/shared` cannot import the provider package directly, so they use a process-global, provider-neutral runtime bridge. This change extends that bridge additively and instruments the two runtime owners that can identify saturation accurately: the primary `pg.Pool` and the telemetry process lifecycle.
 
-OpenTelemetry defines the adopted database metric names and units, while the official Node.js runtime instrumentation and Node `perf_hooks` APIs provide the runtime naming and calculation precedent:
+OpenTelemetry's database semantic conventions define the pool signals and units this design follows, while the official Node.js runtime instrumentation and Node `perf_hooks` APIs provide the runtime naming and calculation precedent:
 
 - <https://opentelemetry.io/docs/specs/semconv/db/database-metrics/>
 - <https://github.com/open-telemetry/opentelemetry-js-contrib/tree/main/packages/instrumentation-runtime-node>
 - <https://nodejs.org/api/perf_hooks.html>
 - <https://node-postgres.com/apis/pool>
 
-The design adopts the standard names, seconds/bytes units, interval-delta utilization, and bounded labels. It rejects adding the general runtime-instrumentation dependency because this requested subset is small and the package must remain explicitly loaded.
+The design adopts the standard runtime names, seconds/bytes units, interval-delta utilization, and bounded labels. It rejects adding the general runtime-instrumentation dependency because this requested subset is small and the package must remain explicitly loaded.
+
+The pool metrics deliberately do **not** reuse the semantic-convention `db.client.connection.*` names. Under an OTLP backend the provider registers `@opentelemetry/instrumentation-pg`, which already emits `db.client.connection.count` and `db.client.connection.pending_requests` as UpDownCounters labelled `db.client.connection.state` / `db.client.connection.pool.name`. A second, sampled gauge stream under the same names would give backends that key series by name (SigNoz, Prometheus) a type conflict, a split state dimension, and doubled sums. The sampled view therefore lives in the app namespace as `om.db.pool.*`, which also keeps it available under the `console` backend where no auto-instrumentation runs.
 
 ## Problem Statement
 
@@ -112,16 +114,18 @@ export function recordTelemetryMetric(point: TelemetryMetricPoint): boolean
 
 | Metric | Kind | Unit | Labels | Meaning |
 |---|---|---:|---|---|
-| `db.client.connection.count` | gauge | `{connection}` | pool=`primary`, state=`idle|used` | Current open connections by state. |
-| `db.client.connection.pending_requests` | gauge | `{request}` | pool=`primary` | Current callers waiting for a connection. |
-| `db.client.connection.max` | gauge | `{connection}` | pool=`primary` | Configured maximum pool size. |
-| `db.client.connection.wait_time` | histogram | `s` | pool=`primary` | Caller-observed `pool.connect` duration. |
+| `om.db.pool.connections` | gauge | `{connection}` | pool=`primary`, state=`idle\|used` | Current open connections by state. |
+| `om.db.pool.pending_requests` | gauge | `{request}` | pool=`primary` | Current callers waiting for a connection. |
+| `om.db.pool.max` | gauge | `{connection}` | pool=`primary` | Configured maximum pool size. |
+| `om.db.pool.wait_time` | histogram | `s` | pool=`primary` | Caller-observed `pool.connect` duration, including new-connection establishment. |
 | `nodejs.eventloop.utilization` | gauge | `1` | none | Event-loop utilization for the previous interval. |
-| `nodejs.eventloop.delay.p50` | gauge | `s` | none | Interval p50 event-loop delay. |
-| `nodejs.eventloop.delay.p90` | gauge | `s` | none | Interval p90 event-loop delay. |
-| `nodejs.eventloop.delay.p99` | gauge | `s` | none | Interval p99 event-loop delay. |
+| `nodejs.eventloop.delay.p50` | gauge | `s` | none | Interval p50 event-loop delay, including the 20 ms monitor resolution. |
+| `nodejs.eventloop.delay.p90` | gauge | `s` | none | Interval p90 event-loop delay, including the 20 ms monitor resolution. |
+| `nodejs.eventloop.delay.p99` | gauge | `s` | none | Interval p99 event-loop delay, including the 20 ms monitor resolution. |
 | `process.memory.usage` | gauge | `By` | none | Process RSS. |
 | `v8js.memory.heap.used` | gauge | `By` | `v8js.heap.space.name` | Used bytes per bounded V8 heap space. |
+
+Under an OTLP backend every histogram recorded in seconds, including `om.db.pool.wait_time`, is created with explicit second-scaled bucket boundaries (1 ms … 10 s). The SDK's default boundaries are millisecond-scaled and would place every realistic acquisition wait in the first bucket, leaving percentiles uncomputable.
 
 There are no HTTP or UI contract changes, new i18n keys, or configuration variables. Manual UI QA is not applicable.
 
@@ -155,6 +159,7 @@ There are no HTTP or UI contract changes, new i18n keys, or configuration variab
 | `packages/shared/src/lib/db/__tests__/mikro.test.ts` | Modify | Verify the pool seam and overloads. |
 | `packages/telemetry/src/runtime-metrics.ts` | Add | Sample event loop and memory when enabled. |
 | `packages/telemetry/src/init.ts` | Modify | Wire sampler/bridge lifecycle. |
+| `packages/telemetry/src/provider/otlp-provider.ts` | Modify | Second-scaled bucket boundaries for second-unit histograms. |
 | `packages/telemetry/src/__tests__/*` | Add/modify | Provider and runtime lifecycle coverage. |
 | `packages/telemetry/{README.md,AGENTS.md}` | Modify | Document built-in metrics and guardrails. |
 | `.ai/specs/2026-04-29-telemetry-and-otel.md` | Modify | Keep the implemented catalog/changelog accurate. |
@@ -241,3 +246,7 @@ None.
 
 - Added the runtime saturation observability design for issue #5784.
 - Split access-log overload safety into its own independently shippable companion specification after fresh-context scope review.
+
+### 2026-10-08
+
+- Review follow-up: moved the sampled pool metrics to `om.db.pool.*` so they no longer collide with the `db.client.connection.*` UpDownCounters that `@opentelemetry/instrumentation-pg` emits under OTLP, added a name/label-set regression test, gave second-unit histograms explicit second-scaled buckets in the OTLP provider, and documented the 20 ms event-loop delay floor.

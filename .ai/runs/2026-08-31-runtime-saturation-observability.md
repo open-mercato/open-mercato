@@ -67,3 +67,4 @@ PR: #5801
 ### Review hardening
 
 - [x] 4.1 Make pool attachment globally single-owner, coalesce concurrent initialization, isolate collector failures, and add lifecycle regression coverage. — 10e60ba3b5
+- [ ] 4.2 Move sampled pool metrics to `om.db.pool.*` (no collision with `PgInstrumentation`), give second-unit histograms second-scaled OTLP buckets, and document the event-loop delay floor.

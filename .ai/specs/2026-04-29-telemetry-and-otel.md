@@ -342,18 +342,18 @@ When `TELEMETRY_BACKEND` is set, `initTelemetry()` registers:
 
 > **AI SDK spans are a follow-up owned by `ai-assistant`, not part of this package.** Open Mercato ships the Vercel AI SDK (`ai@^6`) across `core`/`search`/`ai-assistant`, and the OTLP provider installs a global tracer the AI SDK can emit into — but the SDK only emits `ai.*` spans when a call passes `experimental_telemetry: { isEnabled: true }`, which no call site does today. Enabling it is per-call-site (or chokepoint) opt-in, concentrates the prompt/completion PII-review burden, and is module-owned. The clean home is the **model-factory chokepoint** (`packages/ai-assistant/.../model-factory.ts` / `packages/shared/src/lib/ai/llm-provider.ts`): enable telemetry once there with `recordInputs`/`recordOutputs` **forced off** so prompts/completions never reach spans, rather than editing all 15 call sites. Tracked as a follow-up; this PR ships no AI instrumentation.
 
-Built-in metrics — prefer **OpenTelemetry semantic-convention** instruments where one exists, reserve `om.*` for what has none:
+Built-in metrics — prefer **OpenTelemetry semantic-convention** instruments where one exists, reserve `om.*` for what has none **or** for a name an auto-instrumentation registered by the OTLP provider already emits (two instruments must never share a name). Under OTLP, every histogram recorded in seconds is created with explicit second-scaled bucket boundaries (`SECONDS_HISTOGRAM_BUCKETS`, 1 ms … 10 s) so percentiles survive aggregation:
 
 | Metric | Type | Labels | Notes |
 |---|---|---|---|
 | `http.server.request.duration` | histogram (`s`) | `http.request.method`, `http.route`, `http.response.status_code`, `error.type` | semconv standard; request count derives from histogram count |
 | `om.errors` | counter | `module` | app-specific; no semconv equivalent |
-| `db.client.connection.count` | gauge (`{connection}`) | `pool=primary`, `state=idle|used` | sampled primary-pool connections by state |
-| `db.client.connection.pending_requests` | gauge (`{request}`) | `pool=primary` | sampled callers waiting to acquire a connection |
-| `db.client.connection.max` | gauge (`{connection}`) | `pool=primary` | configured primary-pool maximum |
-| `db.client.connection.wait_time` | histogram (`s`) | `pool=primary` | caller-observed promise/callback acquisition duration |
+| `om.db.pool.connections` | gauge (`{connection}`) | `pool=primary`, `state=idle\|used` | sampled primary-pool connections by state; `om.*` because `PgInstrumentation` already emits the semconv `db.client.connection.count` |
+| `om.db.pool.pending_requests` | gauge (`{request}`) | `pool=primary` | sampled callers waiting to acquire a connection; `om.*` because `PgInstrumentation` already emits the semconv `db.client.connection.pending_requests` |
+| `om.db.pool.max` | gauge (`{connection}`) | `pool=primary` | configured primary-pool maximum |
+| `om.db.pool.wait_time` | histogram (`s`) | `pool=primary` | caller-observed promise/callback acquisition duration, including new-connection establishment |
 | `nodejs.eventloop.utilization` | gauge (`1`) | none | utilization delta over the sampling interval |
-| `nodejs.eventloop.delay.p50/p90/p99` | gauge (`s`) | none | event-loop delay percentiles over the sampling interval |
+| `nodejs.eventloop.delay.p50/p90/p99` | gauge (`s`) | none | event-loop delay percentiles over the sampling interval; include the 20 ms monitor resolution (idle ≈ 0.020 s) |
 | `process.memory.usage` | gauge (`By`) | none | process RSS |
 | `v8js.memory.heap.used` | gauge (`By`) | `v8js.heap.space.name` | used bytes per bounded V8 heap space |
 | `om.queue.jobs` / `om.queue.duration` | counter / histogram | queue, status | partial — RED is also derivable by the backend from queue spans |
@@ -650,6 +650,17 @@ Touched areas (cross-package wiring, for reviewer awareness):
 
 ## Changelog
 
+- **2026-10-08 (runtime saturation metrics, review follow-up)** — Renamed the
+  sampled primary-pool metrics from `db.client.connection.*` to
+  `om.db.pool.{connections,pending_requests,max,wait_time}`: under OTLP,
+  `@opentelemetry/instrumentation-pg` already emits `db.client.connection.count`
+  and `db.client.connection.pending_requests` as UpDownCounters with semconv
+  label keys, so the shared names exported conflicting types and doubled sums.
+  The OTLP provider now gives every second-unit histogram explicit
+  second-scaled bucket boundaries instead of the SDK's millisecond defaults,
+  which fixes percentiles for `om.db.pool.wait_time`,
+  `http.server.request.duration` and `om.enricher.duration`. Documented the
+  20 ms floor in the event-loop delay percentiles.
 - **2026-08-31 (runtime saturation metrics)** — Added an optional shared metric
   bridge and collector registry, an enabled-only 10-second Node.js event-loop
   and memory sampler, primary PostgreSQL pool state gauges, and promise/callback
