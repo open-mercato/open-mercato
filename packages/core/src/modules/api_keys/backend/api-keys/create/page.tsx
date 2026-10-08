@@ -164,14 +164,14 @@ export default function CreateApiKeyPage() {
               const payload: {
                 name: string
                 description: string | null
-                organizationId: string | null
+                organizationId?: string
                 roles: string[]
                 expiresAt: string | null
                 tenantId?: string | null
               } = {
                 name: values.name,
                 description: values.description || null,
-                organizationId: values.organizationId || null,
+                ...(values.organizationId ? { organizationId: values.organizationId } : {}),
                 roles: Array.isArray(values.roles) ? values.roles : [],
                 expiresAt: values.expiresAt || null,
               }
