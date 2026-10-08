@@ -93,6 +93,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'every module-root notification catalogue under packages and apps — explicit delivery-channel eligibility (#5495)',
       },
       {
+        path: 'src/modules/notifications/__tests__/category-labels-coverage.test.ts',
+        scans: 'every non-enterprise packages/* and apps/* module notifications.ts and i18n dictionary — a translated notifications.categories.<key> heading for every resolved category (#7089)',
+      },
+      {
         path: 'src/__tests__/dictionary-key-schema-coverage.test.ts',
         scans: 'every packages/*/src/modules tree plus the apps/mercato and create-app template module roots — dictionary key literals that the create route\'s dictionaryKeySchema would reject',
       },
