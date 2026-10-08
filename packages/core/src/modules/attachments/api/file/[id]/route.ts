@@ -15,7 +15,7 @@ import {
   canRenderInlineAttachment,
 } from "@open-mercato/core/modules/attachments/lib/security";
 import { StorageDriverFactory } from '../../../lib/drivers';
-import { resolveAttachmentOrganizationId } from '@open-mercato/core/modules/attachments/lib/requestScope';
+import { resolveAttachmentRequestScope } from '@open-mercato/core/modules/attachments/lib/requestScope';
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -39,9 +39,14 @@ export async function GET(
     (container.resolve("storageDriverFactory") as StorageDriverFactory | null) ??
     new StorageDriverFactory(em);
 
-  const scopedAuth = auth
-    ? { ...auth, orgId: await resolveAttachmentOrganizationId(container, auth, req) }
-    : auth;
+  const requestScope = await resolveAttachmentRequestScope(container, auth, req);
+  if (requestScope.denied) {
+    return NextResponse.json(
+      { error: "Attachment not found" },
+      { status: 404 },
+    );
+  }
+  const scopedAuth = auth ? { ...auth, orgId: requestScope.organizationId } : auth;
   const findFilter: Record<string, unknown> = { id };
   if (scopedAuth && !isSuperAdminAuth(scopedAuth)) {
     if (scopedAuth.tenantId) findFilter.tenantId = scopedAuth.tenantId;
