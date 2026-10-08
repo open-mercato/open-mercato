@@ -3,8 +3,8 @@ import {
   listDocumentsSchema,
   listTemplatesSchema,
   previewSchema,
-  searchParamsToObject,
 } from '../validators'
+import { searchParamsToObject } from '../../utils/searchParamsToObject'
 
 const uuid = '3f6c1a2e-8b1d-4c53-9a0e-1d2f3a4b5c6d'
 

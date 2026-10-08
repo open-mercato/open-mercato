@@ -8,6 +8,7 @@ Domain-neutral PDF/Markdown engine. Spec: `.ai/specs/2026-08-10-document-generat
 - Put declaration contracts and stateless helpers in `@open-mercato/shared/modules/document-generators`.
 - `lib/` holds engine pieces; `utils/` holds stateless helpers.
 - Load templates lazily with `import()`; reach React-PDF only via `providers/react-pdf`.
+- Leave `fontFamily` off template pages; the barrel `Page` applies the font configured in `documentGeneratorsConfig` (`lib/module-config.ts`). Never bundle font files in this package.
 
 ## Ask First
 

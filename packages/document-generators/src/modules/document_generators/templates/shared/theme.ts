@@ -1,5 +1,4 @@
 export const documentTheme = {
-  fontFamily: 'Helvetica',
   colors: {
     foreground: '#0C0C0C',
     muted: '#434343',

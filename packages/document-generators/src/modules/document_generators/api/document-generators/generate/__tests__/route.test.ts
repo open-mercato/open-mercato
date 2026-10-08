@@ -44,10 +44,13 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
 
 let attachmentServiceMock: Record<string, unknown> | undefined
 
+let moduleConfig: unknown
+
 function setContext(auth: Record<string, unknown> | null) {
   const container = {
     resolve: (name: string) => {
       if (name === 'rbacService') return { userHasAllFeatures, getGrantedFeatures }
+      if (name === 'documentGeneratorsConfig' && moduleConfig !== undefined) return moduleConfig
       if (name === 'organizationScopeService') return { resolveForRequest }
       if (name === 'em') return {}
       if (name === 'attachmentService' && attachmentServiceMock) return attachmentServiceMock
@@ -91,6 +94,7 @@ beforeEach(() => {
   mockReportError.mockClear()
   registerMutationGuards([])
   renderSpy.mockReset().mockResolvedValue({ buffer: new TextEncoder().encode('# Offer'), format: 'md', mimeType: 'text/markdown' })
+  moduleConfig = undefined
   prepareSpy.mockReset().mockImplementation(async (input) => ({ entity: { ...input } as never, plaintextResourceLabel: input.resourceLabel || input.resourceId }))
   persistSpy.mockReset().mockResolvedValue({ id: 'history-1' } as never)
   attachmentServiceMock = undefined
@@ -185,6 +189,16 @@ describe('generate route', () => {
       requestMethod: 'POST',
       mutationPayload: expect.objectContaining({ source_resource_kind: 'sales.quote', source_resource_id: 'q-1' }),
     }))
+  })
+
+  it('passes the module configuration from the container to the renderer', async () => {
+    await call(valid)
+    expect(renderSpy.mock.calls[0][1]).toEqual({ config: { providers: [] } })
+
+    renderSpy.mockClear()
+    moduleConfig = { providers: [{ id: 'react-pdf', config: { fontFamily: 'Times-Roman' } }] }
+    await call(valid)
+    expect(renderSpy.mock.calls[0][1]).toEqual({ config: { providers: [{ id: 'react-pdf', config: { fontFamily: 'Times-Roman' } }] } })
   })
 
   it('records history with the canonical identity, label fallback and selected-organization scope', async () => {

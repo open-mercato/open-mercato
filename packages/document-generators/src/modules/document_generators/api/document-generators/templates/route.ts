@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { listTemplatesSchema, searchParamsToObject } from '../../../data/validators'
+import { listTemplatesSchema } from '../../../data/validators'
+import { searchParamsToObject } from '../../../utils/searchParamsToObject'
 import type { TemplateFilter } from '../../../lib/interfaces'
 import { templateRegistry } from '../../../lib/template-registry'
 import { listAuthorizedTemplates } from '../../_shared/catalogue'

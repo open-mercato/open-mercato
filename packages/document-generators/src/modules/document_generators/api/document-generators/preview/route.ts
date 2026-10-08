@@ -3,6 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { previewSchema } from '../../../data/validators'
 import { templateRegistry } from '../../../lib/template-registry'
 import { TemplateAccessPolicy, type TemplateFeatureAuthorizer } from '../../../lib/template-access-policy'
+import { resolveDocumentGeneratorsConfig } from '../../../lib/module-config'
 import { DocumentRenderer } from '../../../services/document-renderer'
 import { documentResponse } from '../../_shared/document-response'
 import { errorResponse, mapDocumentError, parseJsonBody, requireOrganization, toTemplateTranslate } from '../../_shared/http'
@@ -69,7 +70,7 @@ export async function POST(request: Request): Promise<Response> {
       { id: parsed.data.template_id, data: parsed.data.data, version: parsed.data.template_version },
       { container, auth: organization.auth, locale, translate: toTemplateTranslate(translate) },
     )
-    const rendered = await new DocumentRenderer().render(loaded.render)
+    const rendered = await new DocumentRenderer().render(loaded.render, { config: resolveDocumentGeneratorsConfig(container) })
     return documentResponse({ buffer: rendered.buffer, filename: loaded.filename, mimeType: rendered.mimeType })
   } catch (error) {
     return mapDocumentError(error, translate)

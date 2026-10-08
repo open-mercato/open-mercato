@@ -217,10 +217,10 @@ import { documentTheme, DraftWatermark } from '@open-mercato/document-generators
 import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/index'
 import type { InvoiceTemplateData } from './types'
 
-const { colors, spacing, fontSize, fontFamily } = documentTheme
+const { colors, spacing, fontSize } = documentTheme
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.xl, fontFamily, fontSize: fontSize.body, color: colors.foreground },
+  page: { padding: spacing.xl, fontSize: fontSize.body, color: colors.foreground },
   title: { fontSize: fontSize.title, fontWeight: 'bold', marginBottom: spacing.md },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xs },
   muted: { color: colors.muted },
@@ -247,7 +247,7 @@ export default function InvoicePdf({ data }: { data: Record<string, unknown> }) 
 }
 ```
 
-Templates use React-PDF's built-in Helvetica, so no font files are registered or bundled. Never import `@react-pdf/renderer` directly; use the `providers/react-pdf` barrel so the dependency stays inside the engine.
+Do not set `fontFamily` on the page. The barrel's `Page` applies the font the application configured (built-in Helvetica by default), and every `Text` inherits it, so the same template renders Polish, Czech or Cyrillic text once the application registers a Unicode font. See [Fonts](./fonts). Set `fontFamily` only on an element that must use one specific registered family. Never import `@react-pdf/renderer` directly; use the `providers/react-pdf` barrel so the dependency stays inside the engine and the configured font is applied.
 
 ### Markdown
 

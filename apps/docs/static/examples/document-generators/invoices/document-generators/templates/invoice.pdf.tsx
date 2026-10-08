@@ -3,10 +3,10 @@ import { documentTheme, DraftWatermark } from '@open-mercato/document-generators
 import { formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/index'
 import type { InvoiceTemplateData } from './types'
 
-const { colors, spacing, fontSize, fontFamily } = documentTheme
+const { colors, spacing, fontSize } = documentTheme
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.xl, fontFamily, fontSize: fontSize.body, color: colors.foreground },
+  page: { padding: spacing.xl, fontSize: fontSize.body, color: colors.foreground },
   title: { fontSize: fontSize.title, fontWeight: 'bold', marginBottom: spacing.md },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xs },
   muted: { color: colors.muted },
