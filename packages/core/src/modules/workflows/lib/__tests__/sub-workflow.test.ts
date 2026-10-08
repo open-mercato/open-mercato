@@ -1049,5 +1049,101 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
       startWorkflowSpy.mockRestore()
       executeWorkflowSpy.mockRestore()
     })
+
+    type LoggedEvent = { eventType?: string; eventData?: Record<string, unknown> }
+    const loggedEvents = () => mockEm.create.mock.calls.map((call) => call[1] as LoggedEvent)
+
+    function mockRenamedOutputChild(outputMapping: Record<string, string>) {
+      const parentRenamedDef = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: { subWorkflowId: 'child-workflow', inputMapping: {}, outputMapping },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+      const childDefWithIo = {
+        id: childDefinitionId,
+        workflowId: 'child-workflow',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [],
+          transitions: [],
+          io: { outputs: [{ name: 'childValue', type: 'text', label: 'Child Value', required: true }] },
+        },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+      mockEm.findOne.mockImplementation((_entity: any, where: any) => {
+        if (where?.workflowId === 'child-workflow') return Promise.resolve(childDefWithIo as any)
+        return Promise.resolve(parentRenamedDef as any)
+      })
+    }
+
+    test('maps a required output port to a differently named parent key', async () => {
+      mockRenamedOutputChild({ renamedValue: 'childValue' })
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow').mockResolvedValue(childInstance as WorkflowInstance)
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow').mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: { childValue: 'port-alpha' },
+        events: [],
+        executionTime: 10,
+      })
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: parentInstance.context! },
+        mockContainer
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.error).toBeUndefined()
+      expect(result.outputData).toEqual({ renamedValue: 'port-alpha' })
+      const completedEvent = loggedEvents().find((event) => event.eventType === 'SUB_WORKFLOW_COMPLETED')
+      expect(completedEvent?.eventData?.outputData).toEqual({ renamedValue: 'port-alpha' })
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('fails with OUTPUT_VALIDATION when the child omits a required port behind a renamed mapping', async () => {
+      mockRenamedOutputChild({ renamedValue: 'childValue' })
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow').mockResolvedValue(childInstance as WorkflowInstance)
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow').mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: { renamedValue: 'wrong-namespace' },
+        events: [],
+        executionTime: 10,
+      })
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: parentInstance.context! },
+        mockContainer
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.error).toBe('Sub-workflow output validation failed: Required port "childValue" is missing')
+      const failedEvent = loggedEvents().find((event) => event.eventType === 'SUB_WORKFLOW_FAILED')
+      expect(failedEvent?.eventData?.reason).toBe('OUTPUT_VALIDATION')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
   })
 })

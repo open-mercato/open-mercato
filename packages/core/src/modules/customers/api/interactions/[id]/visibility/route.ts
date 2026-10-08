@@ -11,6 +11,7 @@ import {
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CustomerInteraction } from '../../../../data/entities'
 import type { InteractionUpdateInput } from '../../../../data/validators'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
@@ -68,7 +69,7 @@ export async function PATCH(req: Request, context: RouteContext): Promise<Respon
       interactionType: 'email',
     } as any,
     undefined,
-    { tenantId: auth.tenantId as string, organizationId: scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null },
+    { tenantId: auth.tenantId as string, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null },
   )) as { id: string; organizationId?: string | null; authorUserId?: string | null; visibility?: string | null } | null
 
   if (!interaction) {

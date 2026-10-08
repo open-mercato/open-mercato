@@ -14,6 +14,7 @@
 
 import { NextResponse } from 'next/server'
 import { resolveFeatureAccess } from '../../../../../lib/time-tracking/featureAccess'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { z } from 'zod'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
@@ -103,7 +104,7 @@ export async function POST(req: Request) {
       container,
       auth,
       organizationScope,
-      selectedOrganizationId: organizationScope?.selectedId ?? auth.orgId ?? null,
+      selectedOrganizationId: resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null,
       organizationIds: organizationScope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
       request: req,
     }
