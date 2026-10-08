@@ -32,6 +32,7 @@ Extend `BaseDocumentService` from `@open-mercato/shared/modules/document-generat
 - [Overview](https://docs.open-mercato.dev/framework/document-generators/overview)
 - [Getting started](https://docs.open-mercato.dev/framework/document-generators/getting-started)
 - [Authoring templates](https://docs.open-mercato.dev/framework/document-generators/authoring)
+- [Fonts](https://docs.open-mercato.dev/framework/document-generators/fonts): PDFs use Helvetica until your application registers a Unicode font
 - [API reference](https://docs.open-mercato.dev/framework/document-generators/api)
 - [Contributing](https://docs.open-mercato.dev/framework/document-generators/contributing)
 

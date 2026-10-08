@@ -13,6 +13,7 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { generateSchema } from '../../../data/validators'
 import { templateRegistry } from '../../../lib/template-registry'
 import { TemplateAccessPolicy, type TemplateFeatureAuthorizer } from '../../../lib/template-access-policy'
+import { resolveDocumentGeneratorsConfig } from '../../../lib/module-config'
 import { DocumentRenderer } from '../../../services/document-renderer'
 import { GenerationHistoryService } from '../../../services/generation-history-service'
 import { resolveStoredDocumentAttachmentService, storeGeneratedDocument } from '../../../lib/stored-documents'
@@ -154,7 +155,7 @@ export async function POST(request: Request): Promise<Response> {
       { id: parsed.data.template_id, data: parsed.data.data, version: parsed.data.template_version },
       { container, auth: organization.auth, locale, translate: toTemplateTranslate(translate) },
     )
-    const rendered = await new DocumentRenderer().render(loaded.render)
+    const rendered = await new DocumentRenderer().render(loaded.render, { config: resolveDocumentGeneratorsConfig(container) })
 
     const { tenantId, organizationId } = organization.scope
     const userId = organization.auth.userId ?? organization.auth.sub

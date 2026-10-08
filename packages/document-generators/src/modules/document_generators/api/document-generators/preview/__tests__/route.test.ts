@@ -30,12 +30,15 @@ function makeEntry(overrides: Partial<TemplateEntry> = {}): TemplateEntry {
   }
 }
 
+let moduleConfig: unknown
+
 function setContext(auth: Record<string, unknown> | null) {
   const container = {
     resolve: (name: string) => {
       resolveSpy(name)
       if (name === 'rbacService') return { userHasAllFeatures }
       if (name === 'organizationScopeService') return { resolveForRequest }
+      if (name === 'documentGeneratorsConfig' && moduleConfig !== undefined) return moduleConfig
       throw new Error(`unknown ${name}`)
     },
   }
@@ -62,6 +65,7 @@ beforeEach(() => {
   userHasAllFeatures.mockReset().mockResolvedValue(true)
   resolveForRequest.mockReset().mockResolvedValue({ selectedId: 'org-selected', allowedIds: null, filterIds: null, tenantId: 'tenant-1' })
   resolveSpy.mockReset()
+  moduleConfig = undefined
   renderSpy.mockClear()
   renderSpy.mockImplementation(async () => ({ buffer: new TextEncoder().encode('# Offer'), format: 'md', mimeType: 'text/markdown' }))
   setContext(baseAuth)
@@ -163,9 +167,20 @@ describe('preview route', () => {
     expect(typeof context.container.resolve).toBe('function')
   })
 
-  it('has no side effects: only rbac and organization scope services are resolved', async () => {
+  it('passes the module configuration from the container to the renderer', async () => {
+    await call(valid)
+    expect(renderSpy.mock.calls[0][1]).toEqual({ config: { providers: [] } })
+
+    renderSpy.mockClear()
+    moduleConfig = { providers: [{ id: 'react-pdf', config: { fontFamily: 'Times-Roman' } }] }
+    await call(valid)
+    expect(renderSpy.mock.calls[0][1]).toEqual({ config: { providers: [{ id: 'react-pdf', config: { fontFamily: 'Times-Roman' } }] } })
+  })
+
+  it('has no side effects: only rbac, organization scope and module config are resolved', async () => {
     await call(valid)
     const resolved = new Set(resolveSpy.mock.calls.map(([name]) => name))
-    expect([...resolved].every((name) => name === 'rbacService' || name === 'organizationScopeService')).toBe(true)
+    const readOnly = new Set(['rbacService', 'organizationScopeService', 'documentGeneratorsConfig'])
+    expect([...resolved].every((name) => readOnly.has(name))).toBe(true)
   })
 })

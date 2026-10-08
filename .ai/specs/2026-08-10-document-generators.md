@@ -21,7 +21,7 @@
 - Generator plugin (`generators.ts`) enabling modules to register templates via `mercato generate registry`
 
 **Concerns:**
-- `@react-pdf/renderer` operates server-side only (`renderToBuffer`) — built-in Helvetica avoids filesystem access, font registration, and bundled font assets
+- `@react-pdf/renderer` operates server-side only (`renderToBuffer`) — PDFs default to the built-in Helvetica; an application can register a Unicode font through the `documentGeneratorsConfig` DI key without the engine bundling any font asset
 - Large documents may render slowly on the server — async queue may be needed in a later phase
 - The render pipeline supports discriminated React-PDF and Markdown sources. Format-specific renderers return neutral `RenderedDocument` values, while history stores `format` + `mime_type` without a schema change.
 
@@ -89,7 +89,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 | Service filename plus optional per-template override | Existing PDF templates keep service-level filenames; additional formats can provide the correct extension without duplicating normalization |
 | Tab widget per entity, not action button | PDF is a contextual view of the record, not a one-shot action |
 | Preview via iframe + blob URL, not PDFViewer | Server renders the PDF once (`renderToBuffer`), iframe displays the result — no client-side re-render on every change |
-| React-PDF built-in Helvetica | Requires no local assets, font registration, license file, filesystem access, or base64 bundle |
+| Built-in Helvetica by default, application-configured fonts on demand | The engine ships no font files, license or base64 bundle; applications that need characters outside WinAnsi (Polish, Czech, Cyrillic, Korean…) register static font files in the `react-pdf` entry of `documentGeneratorsConfig.providers`, and the engine's `Page` applies them to every template. A wrong font configuration fails PDF generation instead of silently falling back to Helvetica |
 | `renderToBuffer` on the server | Deterministic output, no dependency on client environment |
 | Format-specific renderers own output metadata | PDF and Markdown renderers set format and MIME type; routes only dispatch and return `RenderedDocument`. |
 | `DocumentRenderer` routes format-specific inputs to renderers | The second implemented renderer provides the concrete shared boundary that was intentionally deferred in the PDF-only phase. |
@@ -162,16 +162,26 @@ packages/document-generators/
 ├── modules/document_generators/providers/react-pdf/index.ts # React-PDF dependency adapter
 ├── modules/document_generators/templates/shared/ # Theme and components toolkit
 └── src/modules/document_generators/
+    ├── di.ts                        # registers the documentGeneratorsConfig default ({ providers: [] })
     ├── lib/
-    │   ├── interfaces.ts            # renderer, loaded-template, UI filter and registry runtime types
+    │   ├── interfaces.ts            # renderer, render context, loaded-template, UI filter and registry runtime types
+    │   ├── module-config.ts         # documentGeneratorsConfig key, default, resolver, findProviderConfig
+    │   ├── font-sources.ts          # renderer-neutral font file resolution (package/path/url) and page family preference
     │   ├── template-access-policy.ts # per-template requiredFeatures checks + catalogue filtering
     │   ├── template-errors.ts       # UnknownTemplateError, UnknownTemplateVersionError, DuplicateTemplateError, TemplateAccessDeniedError
     │   ├── template-registry.ts     # register/list/load module templates
     │   └── template-versions.ts     # current/archived version resolution and validation
     ├── data/
     │   ├── entities.ts              # GeneratedDocument history entity
-    │   └── validators.ts            # API schemas
+    │   └── validators.ts            # zod schemas and types only: API inputs, module config, react-pdf font config
     ├── migrations/                  # Generated migration + snapshot
+    ├── providers/
+    │   └── react-pdf/               # React-PDF provider; the package export templates import primitives from
+    │       ├── index.ts             # barrel: React-PDF primitives + Page that applies the configured font
+    │       ├── constants.ts         # provider id, standard PDF fonts, WinAnsi pattern
+    │       ├── config.ts            # DEFAULT_REACT_PDF_CONFIG + resolveReactPdfConfig
+    │       ├── font-registry.ts     # PdfFontRegistry + getPdfFontRegistry (process-wide)
+    │       └── utils/standardFonts.ts # usesStandardFontsOnly, hasCharactersOutsideStandardFonts
     ├── services/
     │   ├── index.ts                 # Re-exports all services and their types
     │   ├── pdf-rendering-service/   # PdfRenderInput → DocumentRenderOutput
@@ -206,7 +216,11 @@ packages/document-generators/
     │   ├── formatMoney.ts           # Intl.NumberFormat with currency placement
     │   ├── getFilenameFromResponse.ts # reads Content-Disposition on the client (sanitizer from shared utils/filename)
     │   ├── resolveErrorMessage.ts   # maps a failed render response to user-facing copy
-    │   └── groupTemplatesByModule.ts # backend-catalogue only; deliberately outside the barrel
+    │   ├── groupTemplatesByModule.ts # backend-catalogue only; deliberately outside the barrel
+    │   ├── searchParamsToObject.ts  # list query parsing for the API routes; outside the barrel
+    │   ├── fontSources.ts           # path / npm package name / WOFF2 predicates for the font schemas; outside the barrel
+    │   ├── validateConfig.ts        # zod validation of a configuration object, cached per object; outside the barrel
+    │   └── withoutInternalPrefix.ts # error message without the [internal] prefix; outside the barrel
     ├── generators.ts                # GeneratorPlugin for document_generators.templates (code-gen)
     ├── api/
     │   ├── _shared/
@@ -702,15 +716,26 @@ Preview is deliberately gated by `view`, not `generate`: it has no persisted sid
 
 ## Fonts
 
-Built-in templates use React-PDF's standard `Helvetica` family. It is available without `Font.register`, local `.ttf` files, generated base64 modules, or build-time processing:
+PDFs default to React-PDF's standard `Helvetica`, which needs no font file but only covers WinAnsi (Western European) characters: Polish, Czech, Cyrillic, Greek or Korean letters render as wrong glyphs (a pl preview showed `Do zapBaty`). The engine ships no font; the application registers one.
 
-```ts
-const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica' },
-})
-```
+**Configuration** — the `documentGeneratorsConfig` DI key holds a list of rendering providers, `{ providers: [{ id, config? }] }`, mirroring the `{ id, from }` entries of `modules.ts`. `di.ts` registers the module default `{ providers: [] }` and the application overrides it in `modules.ts` (`overrides.di.documentGeneratorsConfig`). The module (`lib/module-config.ts`) validates only the list — provider ids are required and unique — and `findProviderConfig(config, id)` hands each provider its raw `config`; the module knows nothing about fonts. Each provider owns its settings: it validates its `config` with its own schema and merges it over its own defaults, so a provider that is not listed, or has no `config`, uses its defaults. `validateConfig` validates a configuration object once (a `WeakMap`). All schemas and their types live in `data/validators.ts`, which holds only zod schemas and types; the path, npm package name and WOFF2 predicates the font schemas use are stateless helpers in `utils/fontSources.ts`. React-PDF's types are `ReactPdfConfig` (`fontFamily?`, `fonts?`), `FontFamilyConfig` (`{ family, sources }`), `FontSourceConfig` (`{ package, file }` resolved like a Node module from the application directory, `{ path }` absolute, or `{ url }`, with optional `fontWeight` / `fontStyle`) and `FontFamilyName`.
 
-External templates may register their own fonts within the owning module when their requirements and licensing justify the additional assets.
+**Strict on wrong configuration, default when unconfigured** — no font configuration means Helvetica plus one warning per process when a document contains characters outside WinAnsi. A wrong configuration never falls back silently, because a Helvetica fallback would ship documents with broken characters again (`Do zapBaty`): an invalid module or provider config, a font file that cannot be found, and a font React-PDF cannot embed each throw an `[internal]` error naming the cause, which the routes' `mapDocumentError` logs (`Document rendering failed`), reports to telemetry and answers as `500 render_failed`. Font configuration is developer-owned code, so these errors surface on the first PDF preview in development.
+
+**Flow** — the preview and generate routes pass the resolved module configuration to `DocumentRenderer.render(input, { config })`, which forwards it to the renderer for the template's format. Routes never branch on format; the Markdown renderer ignores fonts.
+
+**Shared helpers** — `lib/font-sources.ts` is stateless and renderer-neutral: `resolveFontFamily(font)` turns one configured family into resolved file locations (throwing when a file or package is missing) and `preferredFontFamilyName({ fontFamily, fonts })` returns the explicit `fontFamily`, else the configured families in order. A future DOCX or HTML-to-PDF renderer reuses them and embeds the files its own way.
+
+**React-PDF** — `providers/react-pdf/`:
+
+- `constants.ts` holds the provider id `react-pdf`, the PDF standard font families (`Helvetica`, `Times-Roman`, `Courier`, `Symbol`, `ZapfDingbats`), the default `Helvetica` and the pattern of characters outside WinAnsi.
+- `config.ts` — `resolveReactPdfConfig(moduleConfig)` takes the `react-pdf` entry's `config`, validates it with `reactPdfConfigSchema` (which rejects `.woff2` sources, `package` values that are not npm package names, and `fontFamily` names that are neither listed in `fonts` nor standard PDF fonts) and merges it over `DEFAULT_REACT_PDF_CONFIG` (`{ fonts: [] }`).
+- `font-registry.ts` — `PdfFontRegistry`, one process-wide instance (`getPdfFontRegistry()`, kept on `globalThis` because React-PDF's font store is global and Next may load the module in several server chunks). It does two things: `applyConfig(config)` registers each configured family with `Font.register` once (a family is marked registered only after it succeeds, so a missing file fails every render until it is fixed, with an error naming the family) and sets the page font family that `fontFamily` returns. Since the configuration is process-wide, every render uses the same family and no per-render state is needed.
+- `utils/standardFonts.ts` — pure checks used only by this provider: `usesStandardFontsOnly(fontFamily)` and `hasCharactersOutsideStandardFonts(data)` (the WinAnsi pattern lives in `constants.ts`). `PdfRenderingService` uses them to log one warning per process when the page font is standard and the data contains characters it cannot render.
+- `index.ts` — the barrel's `Page` prepends `{ fontFamily: getPdfFontRegistry().fontFamily }` to the page style, so templates inherit the font without forwarding it and may still set their own `fontFamily` on any element (which must be a configured family or a standard PDF font). `documentTheme` carries no `fontFamily`.
+- `PdfRenderingService` applies the configuration, warns about Helvetica when needed and renders once; when a render with configured fonts fails it rethrows with the font families in the message, without retrying.
+
+The documented recipe (`apps/docs/docs/framework/document-generators/fonts.mdx`) is the static `@fontsource/inter` package with its `latin` and `latin-ext` `.woff` files as two families; verified in a pl preview with Inter regular and bold.
 
 ---
 
@@ -814,11 +839,11 @@ Each risk below states severity, the affected area, the mitigation, and what res
 
 ### Font Loading
 
-- **Risk:** custom font dependencies (filesystem paths, registration, bundled assets) could break server rendering in a new environment.
+- **Risk:** an application-configured font may be missing, unsupported (WOFF2, variable) or unreachable (`url`), and Helvetica cannot render non-WinAnsi text when no font is configured.
 - **Severity:** Low.
 - **Affected area:** PDF template rendering.
-- **Mitigation:** Built-in templates use React-PDF's standard Helvetica family, so they do not depend on filesystem paths, generated files, runtime registration, or bundled font assets.
-- **Residual risk:** none for built-in templates. External templates that register their own fonts take on this risk themselves and are responsible for their own licensing/asset management.
+- **Mitigation:** the default configuration needs no font file. A wrong configuration fails PDF generation with an error naming the cause (invalid module or provider config, missing font file, font that cannot be embedded) instead of silently producing documents with broken characters; the errors are logged and reported through the routes' `render_failed` path. Markdown generation is unaffected by the React-PDF config.
+- **Residual risk:** without a configured font, PDFs with non-WinAnsi characters still render those characters wrongly; the application owner decides whether to install a font. Font licensing is the application's responsibility.
 
 ### Operational
 
@@ -893,7 +918,7 @@ Not required to have a dedicated test at this stage (tracked against the corresp
 3. Sales-owned `QuotesDocumentService`, local validation, and `sales.offer` registration through `sales/document-generators.ts`
 4. Generated bootstrap registration in the engine-owned registry
 5. `templates/shared/theme.ts` + `templates/shared/components/Logo.tsx` — shared design tokens and brand components exported publicly
-6. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation using React-PDF's built-in Helvetica family
+6. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation that inherits the configured page font (built-in Helvetica by default)
 
 ### Phase 3 — API (Planned)
 
@@ -1203,6 +1228,7 @@ A design-time review of Phase 6's plan against Phase 5's plan, conducted while t
 | Phase 6 — Source-scoped History in Detail Widgets | Implemented (PR #6892) | Sales order and quote `:tabs` widgets render `ResourceDocumentsPanel`; selected-organization scope service |
 | Phase 7 — Attachment Storage | Implemented (PR #6892) | `privateAttachments` partition, engine download route `GET /api/document-generators/documents/{id}/file`, `<resourceKind>.deleted` erasure subscriber and retention policy |
 | Phase 8 — Advanced Templates | Implemented (PR #6892) | Template versioning (`version`, `archivedVersions`, `template_version`) recorded in history; draft watermark primitive and draft rule |
+| Review M5 — Application-configured fonts | Implemented (PR #6892) | Provider-scoped `documentGeneratorsConfig`, React-PDF font registration, strict errors on a wrong configuration, `fonts.mdx`; see the Fonts section |
 | Phase 10.1 — Docs and examples | Implemented (PR #6892) | `apps/docs/docs/framework/document-generators/{overview,getting-started,authoring,api,contributing}.mdx`, `apps/docs/static/examples/document-generators/invoices/`, package `README.md` and `AGENTS.md`; `yarn template:sync` check passes |
 
 ### Not yet verified
@@ -1218,6 +1244,7 @@ Still pending:
 - `GenerationHistoryService` constructor-exception sign-off is pending.
 - Standalone harness coverage (`om-refresh-standalone-harness`) is not refreshed: it requires failing-first evaluations and the release suite, which were not run.
 - The docs example module is illustrative and is not compiled or tested (its translations are now shipped and checked by the i18n gate).
+- Fonts (M5) are covered by unit tests (configuration schemas, source resolution, registry, rendering service, `Page`); there is no `TC-DOCUMENT-*` case because the integration environment runs without an application font configuration and the API cannot assert which glyphs a PDF draws. Verified manually in a pl preview of the final build on 2026-10-08: without configuration the PDF uses Helvetica (Polish letters render wrongly, as expected); a `.woff2` source fails with `Invalid "react-pdf" provider config` naming both sources; the `@fontsource/inter` `latin` + `latin-ext` recipe renders Polish letters and bold text correctly.
 ---
 
 ## Changelog
@@ -1275,3 +1302,4 @@ Still pending:
 | 2026-10-04 | Claude | Expanded the Phase 10.1 documentation from one overview page to a `framework/document-generators/` section — overview, getting started, a step-by-step authoring guide built on the full `invoices` example, an API reference (routes, error codes, headers, TypeScript exports) and contributing — porting the content of the closed PR #5170 pages to the current code. Corrected the overview's claim that `/preview` requires `documents.generate` (it requires `documents.view`). Added `requiredModules` to the example widget, and a package `README.md` and `AGENTS.md` (kept within the instruction budget; no root Task Router row, since the root file has no budget left). |
 | 2026-10-07 | Claude | Applied three major findings from the 2026-10-07 `om-auto-review-pr` review of PR #6892. **M3:** `GET /documents` now applies `TemplateAccessPolicy` and lists only history rows of templates the caller is authorized for (a `template_id` outside that set answers an empty page); the policy-construction step and the endpoint section say so. **M2:** `generated_by` falls back to `auth.keyId` for an API key with no bound user, because its `sub` (`api_key:<id>`) is not a UUID and the insert failed silently inside the best-effort history write; a caller with no recordable UUID is rejected with `403` before rendering. **M4:** the Sales invoice and offer totals now reconcile — Subtotal is the sum of the rendered lines, shipping and surcharge stay separate, every other order-level change (discounts, returns, custom adjustments) is one "Discounts and adjustments" row derived from `subtotalNetAmount`, and Tax is gross minus net, so the rows always add up to the total. |
 | 2026-10-08 | Claude | Applied M1 from the 2026-10-07 `om-auto-review-pr` review of PR #6892: the Sales order and quote delete commands now emit the declared `sales.order.deleted` / `sales.quote.deleted` events, so the existing source-erasure subscriber actually runs for the shipped templates. Recorded the undo decision (erasure runs on the delete and is not reverted by undo; documents are regenerated on demand) and that quote-to-order conversion does not erase offers, and added `TC-DOCUMENT-023` to the integration coverage. |
+| 2026-10-08 | Claude | Applied M5 from the 2026-10-07 `om-auto-review-pr` review of PR #6892, confirmed by a pl preview that rendered `Do zapBaty`. Replaced the Helvetica-only font policy with application-configured fonts. **Configuration:** the `documentGeneratorsConfig` DI key (default `{ providers: [] }` in `di.ts`, overridden in `modules.ts`) lists rendering providers as `{ id, config }`; `lib/module-config.ts` validates only the list and each provider validates and defaults its own `config`; all schemas live in `data/validators.ts`, their predicates and `validateConfig` in `utils/`. **React-PDF:** `providers/react-pdf/config.ts` resolves the `react-pdf` config, `PdfFontRegistry` (`getPdfFontRegistry()`, process-wide on `globalThis`) registers each family once and holds the page family that the barrel `Page` prepends to the page style, and `utils/standardFonts.ts` holds the standard-font checks. **Strict mode:** an invalid module or provider config, a missing font file and a font React-PDF cannot embed each fail generation with an error naming the cause (`500 render_failed`); there is no Helvetica re-render and no per-render font state (React context is unavailable in the route layer, and `AsyncLocalStorage` was dropped as unnecessary once the configuration is process-wide). Without configuration PDFs use Helvetica and the server logs one warning when the data contains characters outside WinAnsi. `documentTheme` and the Sales templates drop `fontFamily`; the engine ships no font. Documented the `@fontsource/inter` recipe in the new `fonts.mdx` docs page and rewrote the Fonts and Font Loading sections. |

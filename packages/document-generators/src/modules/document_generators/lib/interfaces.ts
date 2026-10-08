@@ -3,6 +3,7 @@ import type {
   DocumentTemplateSource,
   TemplateDataContext,
 } from '@open-mercato/shared/modules/document-generators'
+import type { ResolvedDocumentGeneratorsConfig } from './module-config'
 
 export interface TemplateFilter {
   resourceKind?: string
@@ -30,8 +31,12 @@ export interface DocumentRenderOutput {
   mimeType: string
 }
 
+export interface DocumentRenderContext {
+  config: ResolvedDocumentGeneratorsConfig
+}
+
 export interface DocumentRenderingService {
-  render(input: DocumentRenderInput): Promise<DocumentRenderOutput>
+  render(input: DocumentRenderInput, context: DocumentRenderContext): Promise<DocumentRenderOutput>
 }
 
 export interface LoadedDocumentTemplateBase {

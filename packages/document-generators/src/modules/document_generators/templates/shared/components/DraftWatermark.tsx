@@ -12,7 +12,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   label: {
-    fontFamily: documentTheme.fontFamily,
     fontSize: 96,
     fontWeight: 'bold',
     color: documentTheme.colors.watermark,

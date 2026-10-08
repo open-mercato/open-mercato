@@ -19,6 +19,7 @@ describe('DraftWatermark', () => {
     const text = layer.props.children as ReactElement<ElementProps>
     expect(text.type).toBe('TEXT')
     expect(text.props.children).toBe('WERSJA ROBOCZA')
-    expect(text.props.style).toMatchObject({ color: documentTheme.colors.watermark, fontFamily: 'Helvetica' })
+    expect(text.props.style).toMatchObject({ color: documentTheme.colors.watermark })
+    expect(text.props.style).not.toHaveProperty('fontFamily')
   })
 })

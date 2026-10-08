@@ -503,6 +503,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/document-generators/getting-started",
             "framework/document-generators/authoring",
+            "framework/document-generators/fonts",
             "framework/document-generators/api",
             "framework/document-generators/contributing",
           ],

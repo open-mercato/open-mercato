@@ -7,12 +7,11 @@ import {
 import { formatDate, formatMoney } from '@open-mercato/document-generators/modules/document_generators/utils/index'
 import type { OrderInvoiceData } from '../types'
 
-const { colors, spacing, fontSize, borderWidth, fontFamily } = documentTheme
+const { colors, spacing, fontSize, borderWidth } = documentTheme
 
 const styles = StyleSheet.create({
   page: {
     padding: spacing.xl,
-    fontFamily,
     fontSize: fontSize.body,
     color: colors.foreground,
     backgroundColor: colors.background,

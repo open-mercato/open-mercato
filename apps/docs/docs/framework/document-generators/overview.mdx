@@ -11,7 +11,7 @@ The engine is domain-independent. Sales ships the reference templates (order inv
 
 ## What the module provides
 
-- Server-side rendering of PDF (React-PDF, built-in Helvetica) and Markdown, selected by each template's `format`.
+- Server-side rendering of PDF (React-PDF) and Markdown, selected by each template's `format`. PDFs use the built-in Helvetica unless the application [configures a Unicode font](./fonts).
 - A template registry filled at bootstrap from every enabled module's `document-generators.ts`.
 - Live preview without side effects, and generation that stores the file and records history.
 - Generation history scoped by tenant and organization, with the template id and version used.
