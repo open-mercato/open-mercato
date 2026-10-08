@@ -22,6 +22,10 @@ test.describe('TC-CAT-038: Markdown editor opens content with code blocks', () =
         '```text',
         `Tagged block ${stamp}`,
         '```',
+        '',
+        '```rust title="main.rs"',
+        `Meta block ${stamp}`,
+        '```',
       ].join('\n')
 
       const response = await apiRequest(request, 'POST', '/api/catalog/products', {
@@ -45,6 +49,7 @@ test.describe('TC-CAT-038: Markdown editor opens content with code blocks', () =
       await expect(editor).toBeVisible()
       await expect(editor.getByText(`Hello QA ${stamp},`)).toBeVisible()
       await expect(editor.getByText(`Tagged block ${stamp}`)).toBeVisible()
+      await expect(editor.getByText(`Meta block ${stamp}`)).toBeVisible()
       await expect(page.getByText('Parsing of the following markdown structure failed')).toHaveCount(0)
     } finally {
       await deleteCatalogProductIfExists(request, token, productId)
