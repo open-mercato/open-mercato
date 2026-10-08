@@ -200,7 +200,7 @@ describe('resolveAppAliasPath', () => {
     fs.mkdirSync(path.join(appRoot, 'modules', 'demo'), { recursive: true })
     fs.writeFileSync(path.join(appRoot, 'modules', 'demo', 'index.ts'), '')
 
-    expect(path.normalize(resolveAppAliasPath(appRoot, 'modules/demo') ?? '')).toBe(
+    expect(resolveAppAliasPath(appRoot, 'modules/demo')).toBe(
       path.join(appRoot, 'modules', 'demo', 'index.ts'),
     )
   })

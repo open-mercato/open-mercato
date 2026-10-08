@@ -171,7 +171,8 @@ export async function compileAndImportGenerated(
   )) as Record<string, unknown>
 }
 
-const APP_ALIAS_SUFFIXES = ['.ts', '.tsx', '/index.ts', '/index.tsx']
+const APP_ALIAS_EXTENSIONS = ['.ts', '.tsx']
+const APP_ALIAS_INDEX_FILES = ['index.ts', 'index.tsx']
 
 /**
  * Resolve an `@/<rest>` specifier the way the app's tsconfig maps it:
@@ -187,8 +188,12 @@ export function resolveAppAliasPath(appRoot: string, rest: string): string | nul
     : [path.join(appRoot, 'src', rest), path.join(appRoot, rest)]
   for (const base of bases) {
     if (fs.existsSync(base) && fs.statSync(base).isFile()) return base
-    for (const suffix of APP_ALIAS_SUFFIXES) {
-      if (fs.existsSync(base + suffix)) return base + suffix
+    const candidates = [
+      ...APP_ALIAS_EXTENSIONS.map((extension) => base + extension),
+      ...APP_ALIAS_INDEX_FILES.map((indexFile) => path.join(base, indexFile)),
+    ]
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate
     }
   }
   return null
