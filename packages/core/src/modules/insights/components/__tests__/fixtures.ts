@@ -144,8 +144,8 @@ export function dealDescriptor(overrides: Partial<ExplainResourceDescriptorView>
     labelKey: 'customers.insights.resources.deal',
     formEntityIds: ['customers.deal'],
     fields: [
-      { key: 'status', labelKey: 'customers.insights.fields.status', valueKind: 'dictionary', derived: false, dependsOn: [], provider: null },
-      { key: 'title', labelKey: 'customers.insights.fields.title', valueKind: 'text', derived: false, dependsOn: [], provider: null },
+      { key: 'status', labelKey: 'customers.insights.fields.status', valueKind: 'dictionary', currentPath: 'status', derived: false, dependsOn: [], provider: null },
+      { key: 'title', labelKey: 'customers.insights.fields.title', valueKind: 'text', currentPath: 'title', derived: false, dependsOn: [], provider: null },
     ],
     collections: [],
     customFields: null,

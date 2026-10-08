@@ -178,6 +178,7 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - MAY add new spot IDs to new or existing pages
 - MAY add new optional context fields to existing spots
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
+- Field-level spots (`crud-form:<entityId>:field:<fieldId>:after`) are reached only by exact keys or by wildcard patterns that name the `:field:` segment (e.g. `crud-form:customers.deal:field:*:after`); a broad wildcard such as `crud-form:*` keeps matching every form-level spot but never resolves into a field-level spot
 
 ### 7. API Route URLs (STABLE)
 
@@ -625,3 +626,29 @@ Phase 3 of the same spec explains sales line prices and access decisions. Every 
 | §7 API routes | `GET /api/insights/explain/access?features=&path=&userId=` (`requireAuth`; resolved tenant required; unknown feature ids → 400 `unknown_feature`; another user requires `insights.explain.access_detail` + `auth.users.list` → 403 `forbidden`; a user outside the caller's tenant/organization scope → 404 `not_found`). Response `{ decision, required, reasons, summary, detail, confidence }`; `detail` only with `insights.explain.access_detail`. Explain field hints gain `sales.insights.linePrice.*` facts with `params.outcome` (`matched_price_row`, `differs`, `no_catalog_link`, `unverifiable`) | ✓ ADDITIVE; STABLE |
 | §9 DI service names | `accessExplainService` (request-scoped) | ✓ ADDITIVE; STABLE |
 | Database schema, event IDs, widget spot IDs, ACL feature IDs, notification IDs, CLI commands | No change | ✓ n/a |
+
+### Insights "Why?" UI and AI (Phase 4a, 2026-10-08)
+
+| Surface | Change | Classification |
+|---|---|---|
+| §3 Component props / types | `AccessDeniedMessage` optional `path` and `requiredFeatures` props; exported `AccessDeniedInjectionContext` and the version-history entry spot context type | ✓ ADDITIVE; STABLE |
+| §6 Widget spot IDs | `version-history:entry:after` (context `{ logId, resourceKind, resourceId }`) and `backend:access-denied:after` (context `{ path, requiredFeatures }`); constants `VERSION_HISTORY_ENTRY_AFTER_INJECTION_SPOT_ID`, `BACKEND_ACCESS_DENIED_AFTER_INJECTION_SPOT_ID` | ✓ ADDITIVE; FROZEN once shipped |
+| §6 Widget IDs | `insights.injection.record-why`, `insights.injection.deal-status-why`, `insights.injection.log-cause`, `insights.injection.access-why` | ✓ ADDITIVE; STABLE |
+| §7 Backend pages | `/backend/insights/why` (requires `insights.explain.view`) | ✓ ADDITIVE; STABLE |
+| §12 AI tool IDs | `insights.explain_record` (read-only, not allowlisted by default) | ✓ ADDITIVE; FROZEN once shipped |
+
+### Insights "Why?" CrudForm field spots (Phase 4b, 2026-10-08)
+
+Phase 4b of the same spec binds the CrudForm field spot family and adds the per-field "Why?" button behind an explain mode. Every surface below is new or additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §6 Widget spot IDs | `crud-form:<entityId>:field:<fieldId>:after` (declared as `CRUD_FORM_EXTENSION_SURFACES.fieldAfter`, previously `bound: false`) is now bound: `CrudForm` renders it at the end of each field of an edit form (record id from `values.id` or `versionHistory.resourceId`) whose resolved spot id starts with `crud-form:`, and only when `hasInjectionWidgetsForSpotPrefix('crud-form:<entityId>:field:')` finds a registration (exact key or explicit pattern containing `:field:`). Context `{ entityId, recordId, fieldId, resourceKind? }` (`CrudFormFieldInjectionContext`; `entityId` is the entity segment of the form's spot id). A wildcard without `:field:` (e.g. `record_locks.injection.crud-form-locking` on `crud-form:*`) never enables or resolves into field spots. Forms without field registrations render unchanged DOM. `fieldBefore` stays unbound | ✓ ADDITIVE; FROZEN once shipped |
+| §6 Widget context | The context `CrudForm` passes to its form-level spots (base, `:header`, `:fields` handlers) gains `injectionSpotId` (resolved base spot id, or `null`) | ✓ ADDITIVE (optional context field) |
+| §3 Function signatures | `hasInjectionWidgetsForSpotPrefix(prefix): boolean` and `INJECTION_FIELD_SPOT_SEGMENT` (`':field:'`) in `@open-mercato/shared/modules/widgets/injection-loader` (`prefix` is a field prefix ending with `:field:`, any other prefix answers `false`; a key counts when its part up to its first `:field:` equals or wildcard-matches the prefix; computed from the registered tables, `false` before registration, recomputed on every registration); `useHasInjectionWidgetsForSpotPrefix(prefix)` (reactive, `false` during SSR/hydration); type `CrudFormFieldInjectionContext` from `@open-mercato/ui/backend/CrudForm`. `loadInjectionWidgetsForSpot` / `loadInjectionDataWidgetsForSpot` skip wildcard keys without `:field:` for a spot id containing `:field:` (no spot rendered before this change contains it) | ✓ ADDITIVE; STABLE |
+| §4 Import paths | `@open-mercato/ui/backend/injection/useHasInjectionWidgetsForSpotPrefix` | ✓ ADDITIVE; STABLE |
+| §7 API routes | `GET /api/insights/explain/descriptors`: each field descriptor gains `currentPath` (`string \| null`, the record property the field is read from) | ✓ ADDITIVE |
+| Widget IDs | `insights.injection.field-why` (on `crud-form:<formEntityId>:field:*:after`) and `insights.injection.field-explain-toggle` (on `crud-form:<formEntityId>:header`) for the form entity ids `customers.deal`, `customers.customer_deal`, `customers.person`, `customers.company` (no global wildcard) | ✓ ADDITIVE; STABLE (override targets) |
+| Feature toggle | `insights_field_explain` (boolean, default `true`, category `insights`), created by `insights` `seedDefaults` only when the `feature_toggles` module is registered; the UI reads it fail-open (missing toggle or disabled module = enabled) | ✓ ADDITIVE; identifier FROZEN once shipped |
+| §14 Generated files | Module facts mark every CrudForm host's `fieldAfter` surface `bound: true`; the `factCoverage` row `CrudFormExtensionSurface.fieldAfter` becomes `emitted-example` (mirrored in both example `surface-inventory.json` files) | ✓ ADDITIVE |
+| Database schema, event IDs, ACL feature IDs, notification IDs, CLI commands | No change | ✓ n/a |

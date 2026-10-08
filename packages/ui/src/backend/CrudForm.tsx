@@ -100,6 +100,9 @@ import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
+import { useHasInjectionWidgetsForSpotPrefix } from './injection/useHasInjectionWidgetsForSpotPrefix'
+import { CrudFormInjectionSpots } from './injection/spotIds'
+import { INJECTION_FIELD_SPOT_SEGMENT } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
 import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './crud/SortableGroupHandle'
 import { useGroupOrder } from './crud/useGroupOrder'
@@ -116,6 +119,7 @@ import MarkdownField from './inputs/MarkdownField'
 const logger = createLogger('ui').child({ component: 'CrudForm' })
 
 const EMPTY_OPTIONS: CrudFieldOption[] = []
+const CRUD_FORM_SPOT_ID_PREFIX = 'crud-form:'
 
 function areOptionListsEqual(a: CrudFieldOption[], b: CrudFieldOption[]): boolean {
   if (a === b) return true
@@ -961,6 +965,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const operation = recordId ? 'update' : 'create'
 
+  const fieldSpotEntityId = resolvedInjectionSpotId?.startsWith(CRUD_FORM_SPOT_ID_PREFIX)
+    ? resolvedInjectionSpotId.slice(CRUD_FORM_SPOT_ID_PREFIX.length) || undefined
+    : undefined
+  const hasFieldSpotWidgets = useHasInjectionWidgetsForSpotPrefix(
+    fieldSpotEntityId && fallbackRecordId ? `${resolvedInjectionSpotId}${INJECTION_FIELD_SPOT_SEGMENT}` : null,
+  )
+  const renderedFieldSpotEntityId = hasFieldSpotWidgets ? fieldSpotEntityId : undefined
+  const renderedFieldSpotRecordId = hasFieldSpotWidgets ? fallbackRecordId : undefined
+  const renderedFieldSpotResourceKind = hasFieldSpotWidgets ? versionHistory?.resourceKind : undefined
+
   // Resolve the optimistic-lock version used to build the extension header.
   // Explicit `optimisticLockUpdatedAt` (including `null`) always wins. When the
   // prop is absent, auto-derive from the loaded record's `updatedAt`/`updated_at`
@@ -985,13 +999,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
+    injectionSpotId: resolvedInjectionSpotId ?? null,
     resourceKind: versionHistory?.resourceKind,
     resourceId: recordId ?? versionHistory?.resourceId,
     recordId: fallbackRecordId,
     isLoading,
     pending,
     operation,
-  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
+  }), [formId, primaryEntityId, resolvedInjectionSpotId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
   const injectionContextRef = React.useRef(injectionContext)
   React.useEffect(() => {
     injectionContextRef.current = injectionContext
@@ -3518,6 +3533,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               entityIdForField={primaryEntityId ?? undefined}
               recordId={recordId}
               markRequired={widgetRequiredFieldIds.has(f.id)}
+              fieldSpotEntityId={renderedFieldSpotEntityId}
+              fieldSpotRecordId={renderedFieldSpotRecordId}
+              fieldSpotResourceKind={renderedFieldSpotResourceKind}
             />
           )
         })}
@@ -4083,6 +4101,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     entityIdForField={primaryEntityId ?? undefined}
                     recordId={recordId}
                     markRequired={widgetRequiredFieldIds.has(f.id)}
+                    fieldSpotEntityId={renderedFieldSpotEntityId}
+                    fieldSpotRecordId={renderedFieldSpotRecordId}
+                    fieldSpotResourceKind={renderedFieldSpotResourceKind}
                   />
                 )
               })}
@@ -4564,6 +4585,29 @@ type FieldControlProps = {
   entityIdForField?: string
   recordId?: string
   markRequired?: boolean
+  fieldSpotEntityId?: string
+  fieldSpotRecordId?: string
+  fieldSpotResourceKind?: string
+}
+
+/**
+ * Context passed to widgets on `crud-form:<entityId>:field:<fieldId>:after`. `entityId` is the
+ * entity segment of the form's spot id (e.g. `customers.deal`), `recordId` the edited record,
+ * `resourceKind` the form's `versionHistory.resourceKind` when it declares one.
+ */
+export type CrudFormFieldInjectionContext = {
+  entityId: string
+  recordId: string
+  fieldId: string
+  resourceKind?: string
+}
+
+function FieldAfterInjectionSpot({ entityId, recordId, fieldId, resourceKind }: CrudFormFieldInjectionContext) {
+  const context = React.useMemo<CrudFormFieldInjectionContext>(
+    () => (resourceKind ? { entityId, recordId, fieldId, resourceKind } : { entityId, recordId, fieldId }),
+    [entityId, recordId, fieldId, resourceKind],
+  )
+  return <InjectionSpot spotId={CrudFormInjectionSpots.fieldAfter(entityId, fieldId)} context={context} />
 }
 
 function supportsWrapperBlurValidation(field: CrudField): boolean {
@@ -4678,6 +4722,9 @@ const FieldControl = React.memo(function FieldControlImpl({
   entityIdForField,
   recordId,
   markRequired,
+  fieldSpotEntityId,
+  fieldSpotRecordId,
+  fieldSpotResourceKind,
 }: FieldControlProps) {
   const t = useT()
   const fieldSetValue = React.useCallback(
@@ -5030,6 +5077,14 @@ const FieldControl = React.memo(function FieldControlImpl({
       {error && !(field.type === 'custom' && field.rendersOwnError) ? (
         <div className="text-xs text-status-error-text">{error}</div>
       ) : null}
+      {fieldSpotEntityId && fieldSpotRecordId ? (
+        <FieldAfterInjectionSpot
+          entityId={fieldSpotEntityId}
+          recordId={fieldSpotRecordId}
+          fieldId={field.id}
+          resourceKind={fieldSpotResourceKind}
+        />
+      ) : null}
     </div>
   )
 },
@@ -5051,6 +5106,9 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
+  prev.fieldSpotEntityId === next.fieldSpotEntityId &&
+  prev.fieldSpotRecordId === next.fieldSpotRecordId &&
+  prev.fieldSpotResourceKind === next.fieldSpotResourceKind &&
   (prev.field.type !== 'custom' ||
     (prev.values === next.values &&
       prev.field.component === (next.field as CrudCustomField).component &&

@@ -1,5 +1,12 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
 
+/**
+ * The field explain widgets are registered per CrudForm spot, never on a global `crud-form:*`
+ * pattern: one header switch and one `field:*:after` pattern for each form entity id declared in
+ * `formEntityIds` by an `insights.explain.ts` resource with explainable fields (the customers deal,
+ * person and company forms). Injection tables are static, so a new form entity id is added here
+ * too; `widgets/injection/__tests__/fieldExplainRegistration.test.ts` keeps both lists in sync.
+ */
 export const injectionTable: ModuleInjectionTable = {
   'backend:record:current': [
     {
@@ -25,6 +32,62 @@ export const injectionTable: ModuleInjectionTable = {
   'detail:customers.deal:status-badges': [
     {
       widgetId: 'insights.injection.deal-status-why',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:customers.deal:header': [
+    {
+      widgetId: 'insights.injection.field-explain-toggle',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:customers.deal:field:*:after': [
+    {
+      widgetId: 'insights.injection.field-why',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:customers.customer_deal:header': [
+    {
+      widgetId: 'insights.injection.field-explain-toggle',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:customers.customer_deal:field:*:after': [
+    {
+      widgetId: 'insights.injection.field-why',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:customers.person:header': [
+    {
+      widgetId: 'insights.injection.field-explain-toggle',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:customers.person:field:*:after': [
+    {
+      widgetId: 'insights.injection.field-why',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:customers.company:header': [
+    {
+      widgetId: 'insights.injection.field-explain-toggle',
+      kind: 'stack',
+      priority: 100,
+    },
+  ],
+  'crud-form:customers.company:field:*:after': [
+    {
+      widgetId: 'insights.injection.field-why',
       kind: 'stack',
       priority: 100,
     },

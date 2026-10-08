@@ -64,6 +64,14 @@ describe('insights injection widgets', () => {
     expect(Object.keys(injectionTable).sort((left, right) => left.localeCompare(right))).toEqual([
       'backend:access-denied:after',
       'backend:record:current',
+      'crud-form:customers.company:field:*:after',
+      'crud-form:customers.company:header',
+      'crud-form:customers.customer_deal:field:*:after',
+      'crud-form:customers.customer_deal:header',
+      'crud-form:customers.deal:field:*:after',
+      'crud-form:customers.deal:header',
+      'crud-form:customers.person:field:*:after',
+      'crud-form:customers.person:header',
       'detail:customers.deal:status-badges',
       'version-history:entry:after',
     ])
@@ -107,7 +115,7 @@ describe('insights injection widgets', () => {
     it('renders nothing when the deal status is not explainable for the viewer', async () => {
       routeByPath({
         '/api/insights/explain/descriptors': {
-          resources: [dealDescriptor({ fields: [{ key: 'title', labelKey: 'customers.insights.fields.title', valueKind: 'text', derived: false, dependsOn: [], provider: null }] })],
+          resources: [dealDescriptor({ fields: [{ key: 'title', labelKey: 'customers.insights.fields.title', valueKind: 'text', currentPath: 'title', derived: false, dependsOn: [], provider: null }] })],
         },
       })
       const { container } = renderUi(<DealStatusWhyWidget context={{ resourceKind: 'customers.deal', resourceId: DEAL_ID }} />)

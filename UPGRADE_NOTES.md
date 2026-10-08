@@ -1110,6 +1110,37 @@ resolvers are queried only within the record's organization; a tenant-level deta
 other than a code identifier such as an AI tool id) is shown only to tenant-wide viewers. Past values
 and actor identities of other users stay hidden without `audit_logs.view_tenant`.
 
+### CrudForm renders the field spot family `crud-form:<entityId>:field:<fieldId>:after`
+
+`CrudForm` now renders the declared spot `crud-form:<entityId>:field:<fieldId>:after` at the end of
+every field of an **edit** form (a record id is present) when at least one widget is registered for
+that form's field-spot prefix: an exact key such as `crud-form:customers.deal:field:status:after` or a
+pattern that names the `:field:` segment such as `crud-form:customers.deal:field:*:after`. Widgets
+receive `{ entityId, recordId, fieldId, resourceKind? }` (`CrudFormFieldInjectionContext`). Spec:
+[`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md)
+(Phase 4b).
+
+**Action for module authors.** A widget that was already registered on a
+`crud-form:…:field:…:after` key never rendered before this release and **starts rendering now**;
+remove the registration or gate the widget if that is not intended. Broad wildcards are unaffected:
+`crud-form:*` (for example the record-locks widget) keeps matching every form-level spot and never
+resolves into a field spot, and forms without field registrations render exactly as before. Hosts
+outside `CrudForm` can use `hasInjectionWidgetsForSpotPrefix(prefix)`
+(`@open-mercato/shared/modules/widgets/injection-loader`) or `useHasInjectionWidgetsForSpotPrefix`
+(`@open-mercato/ui/backend/injection/useHasInjectionWidgetsForSpotPrefix`) to apply the same rule. The
+context `CrudForm` passes to its form-level spots gains `injectionSpotId`.
+
+**Insights field "Why?".** The `insights` module adds an "Explain fields" switch to the header of the
+customers deal, person and company edit forms and a "?" button after each explainable field, shown only
+while the switch is on (remembered per browser and form). `GET /api/insights/explain/descriptors` field
+descriptors gain `currentPath`. The kill switch is the feature toggle `insights_field_explain` (default
+on), created by `seedDefaults` for new tenants when `feature_toggles` is enabled. Existing installations
+do not get the row automatically and the UI treats a missing toggle as enabled; to turn the feature off,
+create the global boolean toggle `insights_field_explain` with default `false` (or set a tenant override).
+
+**Action for operators.** Run `yarn generate` so the generated module facts mark the `fieldAfter`
+surface as bound.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

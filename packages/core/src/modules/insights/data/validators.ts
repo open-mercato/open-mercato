@@ -228,6 +228,7 @@ const descriptorFieldSchema = z.object({
   key: z.string(),
   labelKey: z.string(),
   valueKind: z.enum(EXPLAIN_VALUE_KINDS),
+  currentPath: z.string().nullable(),
   derived: z.boolean(),
   dependsOn: z.array(z.string()),
   provider: z.string().nullable(),

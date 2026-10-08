@@ -53,6 +53,11 @@ export const CrudFormInjectionSpots = {
   sidebar: (entityId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, 'sidebar'),
   group: (entityId: string, groupId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, `group:${groupId}`),
   fieldBefore: (entityId: string, fieldId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, `field:${fieldId}:before`),
+  /**
+   * Rendered by CrudForm at the end of each field of an edit form (record id present), only when a
+   * registration names the form's `crud-form:<entityId>:field:` prefix (`hasInjectionWidgetsForSpotPrefix`).
+   * Context: `{ entityId, recordId, fieldId, resourceKind? }` (`CrudFormFieldInjectionContext`).
+   */
   fieldAfter: (entityId: string, fieldId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, `field:${fieldId}:after`),
 } as const
 

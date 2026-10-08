@@ -297,6 +297,75 @@ export function getCoreInjectionTables(): Array<{ moduleId: string; table: Modul
   return _coreInjectionTables
 }
 
+/**
+ * Segment that marks a field-level spot id, e.g. `crud-form:<entityId>:field:<fieldId>:after`.
+ * A wildcard registration resolves to a field-level spot only when its own key names this
+ * segment, so a broad pattern such as `crud-form:*` never renders inside every field.
+ */
+export const INJECTION_FIELD_SPOT_SEGMENT = ':field:'
+
+function isFieldSpotKey(spotKey: string): boolean {
+  return spotKey.includes(INJECTION_FIELD_SPOT_SEGMENT)
+}
+
+function hasRegisteredSlots(slots: ModuleInjectionSlot | ModuleInjectionSlot[] | undefined): boolean {
+  if (Array.isArray(slots)) return slots.length > 0
+  return slots !== undefined && slots !== null
+}
+
+function canSpotKeyAddressFieldPrefix(spotKey: string, fieldPrefix: string): boolean {
+  const segmentIndex = spotKey.indexOf(INJECTION_FIELD_SPOT_SEGMENT)
+  if (segmentIndex === -1) return false
+  const keyFieldPrefix = spotKey.slice(0, segmentIndex + INJECTION_FIELD_SPOT_SEGMENT.length)
+  return matchWildcardPattern(fieldPrefix, keyFieldPrefix)
+}
+
+type SpotPrefixLookupCache = {
+  tables: ReadonlyArray<{ moduleId: string; table: ModuleInjectionTable }>
+  results: Map<string, boolean>
+}
+
+let spotPrefixLookupCache: SpotPrefixLookupCache | null = null
+
+/**
+ * Reports whether any registered injection table addresses a field-level spot of the form whose
+ * field prefix is `prefix` (the form spot id followed by {@link INJECTION_FIELD_SPOT_SEGMENT}, for
+ * example `crud-form:customers.deal:field:`). A spot key counts when its part up to and including
+ * its first `:field:` equals the prefix (exact key such as `crud-form:customers.deal:field:status:after`)
+ * or matches it as a wildcard pattern (such as `crud-form:customers.deal:field:*:after` or
+ * `crud-form:*:field:*:after`). A prefix that does not end with `:field:` answers `false`.
+ *
+ * Only spot keys containing `:field:` count: a bare `crud-form:*` (or any other pattern without
+ * `:field:`) never does, mirroring how field-level spots are resolved by
+ * {@link loadInjectionWidgetsForSpot}. The answer is computed from the registered tables (no widget
+ * module is loaded), returns `false` before registration, and is recomputed whenever the tables are
+ * registered again, so hosts that subscribe to {@link subscribeToInjectionRegistryChanges} pick up a
+ * late registration.
+ */
+export function hasInjectionWidgetsForSpotPrefix(prefix: string): boolean {
+  if (typeof prefix !== 'string' || !prefix.endsWith(INJECTION_FIELD_SPOT_SEGMENT)) return false
+  const tables = readGlobalInjectionTables() ?? _coreInjectionTables
+  if (!tables || tables.length === 0) return false
+  if (!spotPrefixLookupCache || spotPrefixLookupCache.tables !== tables) {
+    spotPrefixLookupCache = { tables, results: new Map() }
+  }
+  const cached = spotPrefixLookupCache.results.get(prefix)
+  if (cached !== undefined) return cached
+  let found = false
+  for (const entry of tables) {
+    const injectionTable = entry?.table ?? {}
+    for (const [spotKey, slots] of Object.entries(injectionTable)) {
+      if (!hasRegisteredSlots(slots)) continue
+      if (!canSpotKeyAddressFieldPrefix(spotKey, prefix)) continue
+      found = true
+      break
+    }
+    if (found) break
+  }
+  spotPrefixLookupCache.results.set(prefix, found)
+  return found
+}
+
 let widgetEntriesPromise: Promise<WidgetEntry[]> | null = null
 type TableEntry = {
   widgetId: string
@@ -589,10 +658,12 @@ async function getResolvedEntriesForSpot(spotId: InjectionSpotId): Promise<Table
   const table = await loadInjectionTable()
   const exactEntries = table.get(spotId) ?? []
   const wildcardEntries: TableEntry[] = []
+  const fieldSpot = isFieldSpotKey(spotId)
 
   for (const [candidateSpotId, candidateEntries] of table.entries()) {
     if (candidateSpotId === spotId) continue
     if (!candidateSpotId.includes('*')) continue
+    if (fieldSpot && !isFieldSpotKey(candidateSpotId)) continue
     if (!matchWildcardPattern(spotId, candidateSpotId)) continue
     wildcardEntries.push(...candidateEntries)
   }

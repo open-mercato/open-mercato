@@ -516,7 +516,9 @@ describe('ExplainService.describe', () => {
       customFields: { entityId: 'test:deal', allowKeys: ['priority'] },
     }))
     expect(body.resources[0].fields.map((field) => field.key)).toEqual(['status'])
+    expect(body.resources[0].fields[0]).toEqual(expect.objectContaining({ key: 'status', currentPath: 'status' }))
     expect(body.resources[0].collections[0].fields.map((field) => field.key)).toEqual(['price'])
+    expect(body.resources[0].collections[0].fields[0].currentPath).toBeNull()
   })
 
   it('lists only dependencies the viewer may read', async () => {
