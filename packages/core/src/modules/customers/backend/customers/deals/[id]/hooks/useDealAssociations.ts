@@ -147,11 +147,13 @@ export function useDealAssociations({
               }
             : prev,
         )
-        // runMutationWithContext already surfaces the conflict bar on a 409; only
-        // fall back to the generic flash when this is not a record conflict.
         if (!surfaceRecordConflict(error, t, { onRefresh })) {
-          flash(t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.'), 'error')
+          const message = error instanceof Error && error.message
+            ? error.message
+            : t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.')
+          flash(message, 'error')
         }
+        throw error
       } finally {
         setPeopleSaving(false)
       }
@@ -188,11 +190,13 @@ export function useDealAssociations({
               }
             : prev,
         )
-        // runMutationWithContext already surfaces the conflict bar on a 409; only
-        // fall back to the generic flash when this is not a record conflict.
         if (!surfaceRecordConflict(error, t, { onRefresh })) {
-          flash(t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.'), 'error')
+          const message = error instanceof Error && error.message
+            ? error.message
+            : t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.')
+          flash(message, 'error')
         }
+        throw error
       } finally {
         setCompaniesSaving(false)
       }

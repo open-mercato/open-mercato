@@ -85,6 +85,7 @@
   "notifications.settings.types.saveSuccess": "Notification type settings saved",
   "notifications.settings.types.title": "Delivery channels per type",
   "notifications.settings.types.typeColumn": "Notification type",
+  "notifications.settings.types.uncategorized": "Other notifications",
   "notifications.title": "Notifications",
   "notifications.toast.actionError": "Failed to execute action",
   "notifications.toast.actionSuccess": "Action completed successfully",

@@ -30,12 +30,11 @@ export async function resolveLowStockVariantIds(
       ? 'coalesce(p.safety_stock, 0) > 0'
       : '(coalesce(p.reorder_point, 0) > 0 or coalesce(p.safety_stock, 0) > 0)'
 
-  params.push(scope.organizationId, scope.tenantId)
+  params.push(scope.organizationId, scope.tenantId, scope.organizationId, scope.tenantId)
 
   const sql = `
-    select distinct p.catalog_variant_id as catalog_variant_id
-    from wms_product_inventory_profiles p
-    join (
+    select distinct availability.catalog_variant_id as catalog_variant_id
+    from (
       select
         b.catalog_variant_id,
         b.warehouse_id,
@@ -51,12 +50,26 @@ export async function resolveLowStockVariantIds(
         ${warehouseJoin}
       group by b.catalog_variant_id, b.warehouse_id
     ) availability
-      on availability.catalog_variant_id = p.catalog_variant_id
-    where p.organization_id = ?
-      and p.tenant_id = ?
-      and p.deleted_at is null
-      and p.catalog_variant_id is not null
-      and ${thresholdGuard}
+    left join catalog_product_variants v
+      on v.id = availability.catalog_variant_id
+     and v.organization_id = ?
+     and v.tenant_id = ?
+     and v.is_active = true
+     and v.deleted_at is null
+    join lateral (
+      select profile.reorder_point, profile.safety_stock
+      from wms_product_inventory_profiles profile
+      where profile.organization_id = ?
+        and profile.tenant_id = ?
+        and profile.deleted_at is null
+        and (
+          profile.catalog_variant_id = availability.catalog_variant_id
+          or (profile.catalog_variant_id is null and profile.catalog_product_id = v.product_id)
+        )
+      order by (profile.catalog_variant_id is null) asc
+      limit 1
+    ) p on true
+    where ${thresholdGuard}
       and availability.available <= ${thresholdExpr}
   `
 

@@ -85,6 +85,7 @@
   "notifications.settings.types.saveSuccess": "Zapisano ustawienia typu powiadomienia",
   "notifications.settings.types.title": "Kanały dostarczania per typ",
   "notifications.settings.types.typeColumn": "Typ powiadomienia",
+  "notifications.settings.types.uncategorized": "Inne powiadomienia",
   "notifications.title": "Powiadomienia",
   "notifications.toast.actionError": "Nie udało się wykonać akcji",
   "notifications.toast.actionSuccess": "Akcja wykonana pomyślnie",
