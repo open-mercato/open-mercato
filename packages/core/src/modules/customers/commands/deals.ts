@@ -21,6 +21,7 @@ import {
   CustomerDealStageTransition,
   CustomerPipelineStage,
 } from '../data/entities'
+import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   dealCreateSchema,
   dealUpdateSchema,
@@ -1119,6 +1120,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       await deleteDealStageTransitions(em, record)
       await em.nativeDelete(CustomerDealPersonLink, { deal: record })
       await em.nativeDelete(CustomerDealCompanyLink, { deal: record })
+      await em.nativeDelete(CustomFieldValue, { entityId: DEAL_ENTITY_ID, recordId: record.id })
       em.remove(record)
       await em.flush()
 
