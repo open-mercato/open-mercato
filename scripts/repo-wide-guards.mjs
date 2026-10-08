@@ -256,6 +256,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/agent_orchestrator/__tests__/agent-run-invocation-identity.test.ts',
         scans: 'packages/core/src/modules/workflows/lib — that the activity executor and the async worker both thread `invocationId` into the agent bridge, which is what gives an agent invocation an identity instead of a creation-time guess',
       },
+      {
+        path: 'src/modules/security/__tests__/enterprise-notification-category-labels.test.ts',
+        scans: 'every packages/* and apps/* module i18n dictionary — translated notification category headings for enterprise notification types (#7095)',
+      },
     ],
   },
   {
