@@ -8,9 +8,11 @@ import {
   type AvailabilityState,
 } from '@open-mercato/shared/lib/availability'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AssortmentScope, EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { CatalogProductCategory } from '@open-mercato/core/modules/catalog/data/entities'
 import { batchLoadTranslationsMany } from '@open-mercato/core/modules/translations/lib/batch'
 import type { StorefrontPrice, StorefrontPriceRange, StorefrontProductPricing } from './storefrontPricing'
 import type { StoreContext } from './types'
@@ -131,6 +133,45 @@ export function isCategoryInAssortment(category: CategoryLineage, scope: Effecti
   const lineage = new Set([category.id, ...category.ancestorIds])
   const reach = new Set([...lineage, ...category.descendantIds])
   return scope.some((branch) => categoryBranchAdmits(branch, lineage, reach))
+}
+
+export type ActiveCategoryAncestor = { id: string; name: string; slug: string | null; ancestorIds: string[] }
+
+/**
+ * Which of the given categories have every ancestor active and not deleted — the rule the category
+ * tree applies, so a category hidden there under an inactive parent is hidden everywhere. Ancestors
+ * listed in `known` (already checked active) need no lookup; the rest cost one categories query, and
+ * none when every category is a root or has only known ancestors. `ancestors` holds the active
+ * ancestor rows, fetched and known, for callers that render them (breadcrumbs).
+ */
+export async function selectCategoriesWithActiveAncestors(
+  em: EntityManager,
+  ctx: Pick<StoreContext, 'tenantId' | 'organizationId'>,
+  categories: Array<{ id: string; ancestorIds: string[] }>,
+  known: { activeIds?: Iterable<string>; ancestors?: Map<string, ActiveCategoryAncestor> } = {},
+): Promise<{ visibleIds: Set<string>; ancestors: Map<string, ActiveCategoryAncestor> }> {
+  const ancestors = new Map(known.ancestors ?? [])
+  const active = new Set([...(known.activeIds ?? []), ...ancestors.keys()])
+  const unknown = Array.from(
+    new Set(categories.flatMap((category) => category.ancestorIds.filter((id) => !active.has(id)))),
+  )
+  if (unknown.length > 0) {
+    const rows = await findWithDecryption(
+      em,
+      CatalogProductCategory,
+      { id: { $in: unknown }, tenantId: ctx.tenantId, organizationId: ctx.organizationId, deletedAt: null, isActive: true },
+      { fields: ['id', 'name', 'slug', 'ancestorIds'] },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    for (const row of rows) {
+      active.add(row.id)
+      ancestors.set(row.id, { id: row.id, name: row.name, slug: row.slug ?? null, ancestorIds: stringList(row.ancestorIds) })
+    }
+  }
+  const visibleIds = new Set(
+    categories.filter((category) => category.ancestorIds.every((id) => active.has(id))).map((category) => category.id),
+  )
+  return { visibleIds, ancestors }
 }
 
 export function localize(

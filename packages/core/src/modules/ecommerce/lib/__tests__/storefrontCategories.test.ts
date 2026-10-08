@@ -412,6 +412,9 @@ describe('getStorefrontCategoryTree', () => {
       ),
     )
     for (const response of responses) expect(response).toEqual({ tree: [], effectiveLocale: 'en' })
+    resetCounters()
+    await getStorefrontCategoryTree(container, makeContext(null, 'en'), treeQuery({ parentId: '0b8f3f0e-1d2a-4c5b-8e6f-0000000000ff' }))
+    expect(counters).toEqual({ engine: 0, find: 1, assignments: 0, translations: 0 })
     const restricted = await getStorefrontCategoryTree(
       container,
       makeContext([{ categoryIds: [SHOES] }], 'en'),
@@ -496,6 +499,7 @@ describe('getStorefrontCategoryLanding', () => {
     const nonexistentCost = costs[0]
     for (const cost of costs.slice(1)) expect(cost.find).toBe(nonexistentCost.find)
     expect(costs.every((cost) => cost.find === 1)).toBe(true)
+    expect(costs.every((cost) => cost.engine === 0 && cost.assignments === 0 && cost.translations === 0)).toBe(true)
   })
 
   it('answers null for every slug when the assortment is deny-all', async () => {

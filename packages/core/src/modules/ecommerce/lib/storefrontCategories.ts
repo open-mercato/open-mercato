@@ -215,21 +215,43 @@ export function countProductsPerCategory(
   return counts
 }
 
-async function loadCategorySnapshot(runtime: StorefrontFacetRuntime): Promise<CategorySnapshot> {
+async function loadCategoryCounts(
+  runtime: StorefrontFacetRuntime,
+  rows: Map<string, CategoryRow>,
+  universe: Array<{ id?: unknown }>,
+): Promise<Map<string, number>> {
+  const productIds = Array.from(
+    new Set(universe.flatMap((record) => (typeof record.id === 'string' ? [record.id] : []))),
+  )
+  if (productIds.length === 0) return new Map()
+  const assigned = await loadAssignedCategoryIds(runtime, productIds)
+  return countProductsPerCategory(assigned, (categoryId) => rows.get(categoryId)?.ancestorIds ?? null)
+}
+
+/**
+ * With `targetVisible`, the categories query runs first and the product universe is loaded only
+ * when the requested category is visible, so an unknown slug or `parentId` costs one categories
+ * query instead of three catalogue-sized ones.
+ */
+async function loadCategorySnapshot(
+  runtime: StorefrontFacetRuntime,
+  targetVisible?: (visible: Map<string, CategoryRow>) => boolean,
+): Promise<CategorySnapshot> {
   if (isDenyAll(runtime.ctx)) return EMPTY_SNAPSHOT
+  if (targetVisible) {
+    const rows = await loadCategoryRows(runtime)
+    const visible = selectVisibleCategories(rows, runtime.ctx)
+    if (visible.size === 0 || !targetVisible(visible)) return { visible, counts: new Map() }
+    const universe = await queryStorefrontProductUniverse(runtime, runtime.scope.filters)
+    return { visible, counts: await loadCategoryCounts(runtime, rows, universe) }
+  }
   const [rows, universe] = await Promise.all([
     loadCategoryRows(runtime),
     queryStorefrontProductUniverse(runtime, runtime.scope.filters),
   ])
   const visible = selectVisibleCategories(rows, runtime.ctx)
   if (visible.size === 0) return { visible, counts: new Map() }
-  const productIds = Array.from(
-    new Set(universe.flatMap((record) => (typeof record.id === 'string' ? [record.id] : []))),
-  )
-  if (productIds.length === 0) return { visible, counts: new Map() }
-  const assigned = await loadAssignedCategoryIds(runtime, productIds)
-  const counts = countProductsPerCategory(assigned, (categoryId) => rows.get(categoryId)?.ancestorIds ?? null)
-  return { visible, counts }
+  return { visible, counts: await loadCategoryCounts(runtime, rows, universe) }
 }
 
 function compareNodes(left: { name: string; id: string }, right: { name: string; id: string }): number {
@@ -285,11 +307,14 @@ export async function getStorefrontCategoryTree(
   query: Pick<EcommerceStorefrontCategoryTreeQuery, 'parentId' | 'depth' | 'includeEmpty'>,
 ): Promise<StorefrontCategoryTreeResponse> {
   const runtime = resolveRuntime(container, ctx)
-  const { visible, counts } = await loadCategorySnapshot(runtime)
+  const parentKey = query.parentId ?? null
+  const { visible, counts } = await loadCategorySnapshot(
+    runtime,
+    parentKey === null ? undefined : (candidates) => candidates.has(parentKey),
+  )
+  if (parentKey !== null && !visible.has(parentKey)) return { tree: [], effectiveLocale: ctx.effectiveLocale }
   const includeEmpty = query.includeEmpty === true
   const index = childrenIndex(visible, (row) => includeEmpty || (counts.get(row.id) ?? 0) > 0)
-  const parentKey = query.parentId ?? null
-  if (parentKey !== null && !visible.has(parentKey)) return { tree: [], effectiveLocale: ctx.effectiveLocale }
   const levels = query.depth ?? Number.POSITIVE_INFINITY
   const ids: string[] = []
   collectTreeIds(index, parentKey, levels, ids)
@@ -330,8 +355,10 @@ export async function getStorefrontCategoryLanding(
   slug: string,
 ): Promise<StorefrontCategoryLandingBlock | null> {
   const runtime = resolveRuntime(container, ctx)
-  const { visible, counts } = await loadCategorySnapshot(runtime)
-  const row = Array.from(visible.values()).find((candidate) => candidate.slug === slug)
+  const findBySlug = (candidates: Map<string, CategoryRow>) =>
+    Array.from(candidates.values()).find((candidate) => candidate.slug === slug)
+  const { visible, counts } = await loadCategorySnapshot(runtime, (candidates) => findBySlug(candidates) !== undefined)
+  const row = findBySlug(visible)
   if (!row) return null
   const ancestors = row.ancestorIds.flatMap((id) => {
     const ancestor = visible.get(id)

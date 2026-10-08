@@ -50,6 +50,7 @@ import {
   STOREFRONT_TAG_ENTITY_TYPE,
   buildStorefrontListItem,
   isCategoryInAssortment,
+  selectCategoriesWithActiveAncestors,
   loadStorefrontTranslations,
   localeChain,
   nonEmptyString,
@@ -236,6 +237,8 @@ async function resolveCategoryFilter(
     descendantIds: stringList(category.descendantIds),
   }
   if (!isCategoryInAssortment(lineage, ctx.buyer.assortmentScope)) return null
+  const { visibleIds } = await selectCategoriesWithActiveAncestors(runtime.em, ctx, [lineage])
+  if (!visibleIds.has(category.id)) return null
   return { id: category.id, slug: category.slug ?? null }
 }
 
@@ -430,7 +433,7 @@ async function loadCategories(
   runtime: Runtime,
   productIds: string[],
 ): Promise<{ byProduct: Map<string, CategoryRef[]>; categoryIds: string[] }> {
-  const byProduct = new Map<string, CategoryRef[]>()
+  const candidates = new Map<string, Array<CategoryRef & { ancestorIds: string[] }>>()
   const { ctx } = runtime
   const assignments = await findWithDecryption(
     runtime.em,
@@ -450,13 +453,22 @@ async function loadCategories(
       descendantIds: stringList(category.descendantIds),
     }
     if (!isCategoryInAssortment(lineage, ctx.buyer.assortmentScope)) continue
-    const bucket = byProduct.get(productId) ?? []
+    const bucket = candidates.get(productId) ?? []
     if (bucket.some((entry) => entry.id === category.id)) continue
-    bucket.push({ id: category.id, name: category.name, slug: category.slug ?? null })
-    byProduct.set(productId, bucket)
+    bucket.push({ id: category.id, name: category.name, slug: category.slug ?? null, ancestorIds: lineage.ancestorIds })
+    candidates.set(productId, bucket)
     categoryIds.add(category.id)
   }
-  return { byProduct, categoryIds: Array.from(categoryIds) }
+  const allCandidates = Array.from(candidates.values()).flat()
+  const { visibleIds: visible } = await selectCategoriesWithActiveAncestors(runtime.em, ctx, allCandidates, {
+    activeIds: categoryIds,
+  })
+  const byProduct = new Map<string, CategoryRef[]>()
+  for (const [productId, bucket] of candidates) {
+    const refs = bucket.filter((entry) => visible.has(entry.id)).map(({ id, name, slug }) => ({ id, name, slug }))
+    if (refs.length > 0) byProduct.set(productId, refs)
+  }
+  return { byProduct, categoryIds: Array.from(categoryIds).filter((id) => visible.has(id)) }
 }
 
 async function loadTags(

@@ -773,6 +773,23 @@ describe('listStorefrontProducts — listing payload', () => {
     expect(delta?.priceRange).toMatchObject({ min: 20, max: 20 })
   })
 
+  it('hides a category under an inactive ancestor from product cards and the category filter', async () => {
+    const root = CATEGORIES.find((entry) => entry.id === CAT_ROOT)
+    if (!root) throw new Error('[internal] fixture lacks the root category')
+    root.isActive = false
+    try {
+      const response = await list('sort=title_asc')
+      expect(response.items.find((item) => item.id === 'p-alpha')?.categories).toEqual([])
+      expect(response.items.find((item) => item.id === 'p-charlie')?.categories).toEqual([
+        { id: CAT_SHOES, name: 'Shoes', slug: 'shoes' },
+      ])
+      const filtered = await list(`categoryId=${CAT_DRESS}`)
+      expect(filtered.appliedFilters.category).toBeUndefined()
+    } finally {
+      root.isActive = true
+    }
+  })
+
   it('applies the overlay fallback chain requested → store default → base and never yields an empty string', async () => {
     const response = await list('sort=title_asc')
     const byId = new Map(response.items.map((item) => [item.id, item]))
@@ -1037,16 +1054,16 @@ describe('listStorefrontProducts — page-scoped availability (D21)', () => {
 })
 
 describe('listStorefrontProducts — query budget (§10)', () => {
-  it('stays within 13 queries for a plain page', async () => {
+  it('stays within 14 queries for a plain page', async () => {
     await list('')
-    expect(totalQueries()).toBeLessThanOrEqual(13)
+    expect(totalQueries()).toBeLessThanOrEqual(14)
     expect(counters.queryEngine).toBe(3)
     expect(counters.translations).toBe(1)
   })
 
-  it('stays within 13 queries for a price-sorted page', async () => {
+  it('stays within 14 queries for a price-sorted page', async () => {
     await list('sort=price_asc')
-    expect(totalQueries()).toBeLessThanOrEqual(13)
+    expect(totalQueries()).toBeLessThanOrEqual(14)
   })
 
   it('does not issue per-item queries as the page grows', async () => {
@@ -1226,15 +1243,15 @@ describe('listStorefrontProducts — facet cache split (§9.1)', () => {
     expect(counters.assignments).toBe(0)
   })
 
-  it('stays within 13 queries with facets for a plain and a price-sorted page, fewer on a count-facet hit', async () => {
+  it('stays within 14 queries with facets for a plain and a price-sorted page, fewer on a count-facet hit', async () => {
     const cache = createMemoryStrategy()
     await list('', { cache })
-    expect(totalQueries()).toBeLessThanOrEqual(13)
+    expect(totalQueries()).toBeLessThanOrEqual(14)
     resetCounters()
     await list('sort=price_asc', { cache: createMemoryStrategy() })
-    expect(totalQueries()).toBeLessThanOrEqual(13)
+    expect(totalQueries()).toBeLessThanOrEqual(14)
     resetCounters()
     await list('', { cache })
-    expect(totalQueries()).toBeLessThanOrEqual(9)
+    expect(totalQueries()).toBeLessThanOrEqual(10)
   })
 })

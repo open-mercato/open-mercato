@@ -546,7 +546,7 @@ function productTypeRank(type: string): number {
 }
 
 /**
- * Turns raw counts into the payload: categories that are active and inside the buyer's assortment,
+ * Turns raw counts into the payload: categories that are active, under active ancestors and inside the buyer's assortment,
  * with localized names (depth, then name order); tags with localized labels (count, then label);
  * options with the template's translated option and choice labels (choices in template order;
  * values no template defines fall back to the stored value); product types with catalog labels.
@@ -566,6 +566,7 @@ export function labelStorefrontCountFacets(
   for (const [id, count] of raw.categories) {
     const category = source.categories.get(id)
     if (!category || !category.isActive || count <= 0) continue
+    if (!category.ancestorIds.every((ancestorId) => source.categories.get(ancestorId)?.isActive === true)) continue
     const lineage = { id, ancestorIds: category.ancestorIds, descendantIds: category.descendantIds }
     if (!isCategoryInAssortment(lineage, context.assortmentScope)) continue
     categories.push({

@@ -30,6 +30,8 @@ import {
   STOREFRONT_VARIANT_ENTITY_TYPE,
   buildStorefrontListItem,
   isCategoryInAssortment,
+  selectCategoriesWithActiveAncestors,
+  type ActiveCategoryAncestor,
   loadStorefrontTranslations,
   localeChain,
   localize,
@@ -211,8 +213,13 @@ async function findScopedProductId(runtime: DetailRuntime, idOrHandle: string): 
  * option schema template) in one joined query — the row count grows with variants × assignments of
  * the loaded products, the query count does not.
  */
-async function loadProducts(runtime: DetailRuntime, ids: string[], withOptionSchema: boolean): Promise<LoadedProduct[]> {
-  if (!ids.length) return []
+async function loadProducts(
+  runtime: DetailRuntime,
+  ids: string[],
+  withOptionSchema: boolean,
+  knownAncestors: Map<string, ActiveCategoryAncestor> = new Map(),
+): Promise<{ products: LoadedProduct[]; ancestors: Map<string, ActiveCategoryAncestor> }> {
+  if (!ids.length) return { products: [], ancestors: knownAncestors }
   const { ctx } = runtime
   const populate: Array<'variants' | 'categoryAssignments.category' | 'tagAssignments.tag' | 'optionSchemaTemplate'> = [
     'variants',
@@ -228,10 +235,22 @@ async function loadProducts(runtime: DetailRuntime, ids: string[], withOptionSch
     runtime.decryptionScope,
   )
   const byId = new Map(products.map((product) => [product.id, product]))
-  return ids.flatMap((id) => {
+  const loaded = ids.flatMap((id) => {
     const product = byId.get(id)
     return product ? [toLoadedProduct(runtime, product)] : []
   })
+  const categories = loaded.flatMap((entry) => entry.categories)
+  const { visibleIds, ancestors } = await selectCategoriesWithActiveAncestors(runtime.em, ctx, categories, {
+    activeIds: categories.map((category) => category.id),
+    ancestors: knownAncestors,
+  })
+  return {
+    products: loaded.map((entry) => ({
+      ...entry,
+      categories: entry.categories.filter((category) => visibleIds.has(category.id)),
+    })),
+    ancestors,
+  }
 }
 
 function toLoadedProduct(runtime: DetailRuntime, product: CatalogProduct): LoadedProduct {
@@ -289,26 +308,14 @@ async function findRelatedProductIds(runtime: DetailRuntime, product: LoadedProd
     .filter((id): id is string => typeof id === 'string' && id !== product.product.id)
 }
 
-async function loadBreadcrumbAncestors(runtime: DetailRuntime, primary: VisibleCategory | undefined): Promise<VisibleCategory[]> {
-  if (!primary?.ancestorIds.length) return []
-  const { ctx } = runtime
-  const rows = await findWithDecryption(
-    runtime.em,
-    CatalogProductCategory,
-    {
-      id: { $in: primary.ancestorIds },
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      deletedAt: null,
-      isActive: true,
-    },
-    { fields: ['id', 'name', 'slug', 'ancestorIds'] },
-    runtime.decryptionScope,
-  )
-  const byId = new Map(rows.map((row) => [row.id, row]))
+function breadcrumbAncestors(
+  primary: VisibleCategory | undefined,
+  ancestors: Map<string, ActiveCategoryAncestor>,
+): VisibleCategory[] {
+  if (!primary) return []
   return primary.ancestorIds.flatMap((id) => {
-    const row = byId.get(id)
-    return row ? [{ id: row.id, name: row.name, slug: row.slug ?? null, ancestorIds: stringList(row.ancestorIds) }] : []
+    const ancestor = ancestors.get(id)
+    return ancestor ? [ancestor] : []
   })
 }
 
@@ -464,7 +471,8 @@ function relatedListItems(
  * inactive, deleted, of another tenant or outside the buyer's effective assortment: the id/handle
  * match and the assortment invariant are one query, and nothing else runs when it is empty (R4).
  * A found product is hydrated with a constant number of batched queries regardless of its variant
- * count: one joined product load, related-product lookup and load, breadcrumb ancestors, media,
+ * count: one joined product load, its active-ancestor lookup (which also yields the breadcrumb),
+ * related-product lookup and load (plus an ancestor lookup only for ancestors not already known), media,
  * one price query (§6.1, per variant and with tiers), one translation query for every overlaid
  * entity type, one availability state and one policy resolution. `relatedProducts` are up to 8
  * products sharing a category (or a category's subtree) within the same scope.
@@ -488,17 +496,17 @@ export async function getStorefrontProductDetail(
 
   const productId = await findScopedProductId(runtime, idOrHandle)
   if (!productId) return null
-  const [main] = await loadProducts(runtime, [productId], true)
+  const mainLoad = await loadProducts(runtime, [productId], true)
+  const [main] = mainLoad.products
   if (!main) return null
   const { product } = main
   const primaryCategory = main.categories[0]
+  const ancestors = breadcrumbAncestors(primaryCategory, mainLoad.ancestors)
 
-  const [relatedIds, ancestors, media] = await Promise.all([
-    findRelatedProductIds(runtime, main),
-    loadBreadcrumbAncestors(runtime, primaryCategory),
-    loadMedia(runtime, product),
-  ])
-  const related = await loadProducts(runtime, relatedIds, false)
+  const [relatedIds, media] = await Promise.all([findRelatedProductIds(runtime, main), loadMedia(runtime, product)])
+  const knownAncestors = new Map(mainLoad.ancestors)
+  for (const category of main.categories) knownAncestors.set(category.id, category)
+  const { products: related } = await loadProducts(runtime, relatedIds, false, knownAncestors)
   const variantIds = main.variants.map((variant) => variant.id)
   const templateId = referenceId(product.optionSchemaTemplate)
 

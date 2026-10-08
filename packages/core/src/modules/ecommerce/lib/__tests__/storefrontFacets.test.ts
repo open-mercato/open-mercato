@@ -193,6 +193,23 @@ describe('labelStorefrontCountFacets', () => {
     ])
   })
 
+  it('drops an active category whose ancestor is inactive, as the category tree does', () => {
+    const facetSource = source()
+    const root = facetSource.categories.get(ROOT)
+    if (!root) throw new Error('[internal] fixture lacks the root category')
+    facetSource.categories.set(ROOT, { ...root, isActive: false })
+    const raw = countStorefrontFacets(facetSource, selection())
+    const facets = labelStorefrontCountFacets(facetSource, raw, {
+      locales: ['en'],
+      translations: new Map(),
+      assortmentScope: null,
+      productTypeLabel,
+    })
+    expect(facets.categories.map((category) => category.id)).not.toContain(ROOT)
+    expect(facets.categories.map((category) => category.id)).not.toContain(DRESS)
+    expect(facets.categories.map((category) => category.id)).toContain(SHOES)
+  })
+
   it('falls back to option codes and stored values when no template defines them', () => {
     const facetSource = source()
     facetSource.templates = new Map()

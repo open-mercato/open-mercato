@@ -752,6 +752,19 @@ describe('getStorefrontProductDetail — payload (§5.2)', () => {
     ])
   })
 
+  it('hides a category under an inactive ancestor from categories and the breadcrumb', async () => {
+    const root = CATEGORIES.find((entry) => entry.id === CAT_ROOT)
+    if (!root) throw new Error('[internal] fixture lacks the root category')
+    root.isActive = false
+    try {
+      const result = await detail(MAIN_ID)
+      expect(result?.categories).toEqual([])
+      expect(result?.breadcrumb).toEqual([])
+    } finally {
+      root.isActive = true
+    }
+  })
+
   it('returns variants with option values, default flag, per-variant price and availability', async () => {
     const variantKey = availabilityItemKey({ catalogProductId: MAIN_ID, catalogVariantId: variantId(MAIN_ID, 0) })
     world.availability[variantKey] = { state: 'out_of_stock', canFulfil: false }
