@@ -75,5 +75,4 @@ describe('notification category labels', () => {
     const missing = [...categories.keys()].filter((category) => !keys.has(`${CATEGORY_KEY_PREFIX}${category}`)).sort()
     expect(missing).toEqual([])
   })
-
 })
