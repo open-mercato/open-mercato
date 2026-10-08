@@ -8,6 +8,10 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -19,7 +23,7 @@ type Row = {
   storeId: string | null
   productId: string | null
   variantId: string | null
-  isStockManaged: boolean
+  isStockManaged: boolean | null
   allowBackorder: boolean
   isActive: boolean
   updatedAt: string | null
@@ -51,6 +55,18 @@ export default function AvailabilityPoliciesListPage() {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
+  const canManage = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, 'availability.policies.manage')
+  const mutationContextId = 'availability-policies-list:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const filters = React.useMemo<FilterDef[]>(() => [
     { id: 'productId', label: t('availability.policies.list.columns.product'), type: 'text' },
@@ -60,8 +76,8 @@ export default function AvailabilityPoliciesListPage() {
       label: t('availability.policies.list.columns.active'),
       type: 'select',
       options: [
-        { value: 'true', label: t('common.yes') },
-        { value: 'false', label: t('common.no') },
+        { value: 'true', label: t('availability.common.yes') },
+        { value: 'false', label: t('availability.common.no') },
       ],
     },
   ], [t])
@@ -112,22 +128,36 @@ export default function AvailabilityPoliciesListPage() {
     const confirmed = await confirm({ title: t('availability.policies.list.confirmDelete'), variant: 'destructive' })
     if (!confirmed) return
     try {
-      const call = await withScopedApiRequestHeaders(buildOptimisticLockHeader(row.updatedAt), () =>
-        apiCall<{ error?: string }>(`/api/availability/policies?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' }, { fallback: null }),
-      )
-      if (!call.ok) {
-        const errorPayload = call.result as { error?: string } | undefined
-        const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('availability.policies.list.error.deleteFailed')
-        flash(message, 'error')
-        return
-      }
+      await runMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(buildOptimisticLockHeader(row.updatedAt), () =>
+            apiCall<{ error?: string }>(`/api/availability/policies?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' }, { fallback: null }),
+          )
+          if (!call.ok) {
+            throw Object.assign(new Error('[internal] availability.policies.delete failed'), {
+              status: call.status,
+              ...((call.result as Record<string, unknown> | null) ?? {}),
+            })
+          }
+          return call
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'availability.policy',
+          resourceId: row.id,
+          retryLastMutation,
+        },
+        mutationPayload: { id: row.id },
+      })
       flash(t('availability.policies.list.success.deleted'), 'success')
       setReloadToken((token) => token + 1)
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('availability.policies.list.error.deleteFailed')
+      if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
+      const serverMessage = (error as { error?: unknown } | null)?.error
+      const message = typeof serverMessage === 'string' && serverMessage ? serverMessage : t('availability.policies.list.error.deleteFailed')
       flash(message, 'error')
     }
-  }, [confirm, t])
+  }, [confirm, mutationContextId, retryLastMutation, runMutation, t])
 
   const columns = React.useMemo<ColumnDef<Row>[]>(() => [
     {
@@ -148,17 +178,21 @@ export default function AvailabilityPoliciesListPage() {
     {
       accessorKey: 'isStockManaged',
       header: t('availability.policies.list.columns.stockManaged'),
-      cell: ({ row }) => (row.original.isStockManaged ? t('common.yes') : t('common.no')),
+      cell: ({ row }) => {
+        const value = row.original.isStockManaged
+        if (value === null) return t('availability.policies.form.field.isStockManaged.inherit')
+        return value ? t('availability.common.yes') : t('availability.common.no')
+      },
     },
     {
       accessorKey: 'allowBackorder',
       header: t('availability.policies.list.columns.backorder'),
-      cell: ({ row }) => (row.original.allowBackorder ? t('common.yes') : t('common.no')),
+      cell: ({ row }) => (row.original.allowBackorder ? t('availability.common.yes') : t('availability.common.no')),
     },
     {
       accessorKey: 'isActive',
       header: t('availability.policies.list.columns.active'),
-      cell: ({ row }) => (row.original.isActive ? t('common.yes') : t('common.no')),
+      cell: ({ row }) => (row.original.isActive ? t('availability.common.yes') : t('availability.common.no')),
     },
   ], [t])
 
@@ -168,11 +202,11 @@ export default function AvailabilityPoliciesListPage() {
         <DataTable
           title={t('availability.policies.list.title')}
           titleHeadingLevel={1}
-          actions={(
+          actions={canManage ? (
             <Button asChild>
               <Link href="/backend/availability/policies/create">{t('availability.policies.list.actions.create')}</Link>
             </Button>
-          )}
+          ) : undefined}
           columns={columns}
           data={rows}
           filters={filters}
@@ -181,9 +215,11 @@ export default function AvailabilityPoliciesListPage() {
           onFiltersClear={() => { setFilterValues({}); setPage(1) }}
           perspective={{ tableId: 'availability.policies.list' }}
           rowActions={(row) => (
-            <RowActions items={[
-              { id: 'edit', label: t('common.edit'), href: `/backend/availability/policies/${row.id}` },
-              { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+            <RowActions items={canManage ? [
+              { id: 'edit', label: t('availability.common.edit'), href: `/backend/availability/policies/${row.id}` },
+              { id: 'delete', label: t('availability.common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+            ] : [
+              { id: 'view', label: t('availability.common.view'), href: `/backend/availability/policies/${row.id}` },
             ]} />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}

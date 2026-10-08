@@ -62,3 +62,42 @@ test('TC-CRM-company-delete-guard: company with a linked person is refused with 
     await deleteEntityByBody(request, token, '/api/customers/companies', companyId)
   }
 })
+
+/**
+ * Regression for #5965: unlinking a person from a company soft-deletes the
+ * `customer_person_company_links` row, and the row keeps its `company_entity_id`
+ * foreign key. The dependency guard only counts active links, so the delete passed
+ * the 422 check and then blew up on the foreign key with an HTTP 500.
+ */
+test('TC-CRM-company-delete-guard: company deletes after its only person link was soft-deleted', async ({ request }) => {
+  const token = await getAuthToken(request, 'admin')
+  let companyId: string | null = null
+  let personId: string | null = null
+
+  try {
+    companyId = await createCompanyFixture(request, token, `TC-DELGUARD Unlinked Co ${Date.now()}`)
+    personId = await createPersonFixture(request, token, {
+      firstName: 'Soft',
+      lastName: 'Unlinked',
+      displayName: 'Soft Unlinked',
+      companyEntityId: companyId,
+    })
+
+    const unlinked = await request.fetch(resolveUrl(`/api/customers/people/${personId}/companies/${companyId}`), {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    })
+    expect(unlinked.status(), 'canonical unlink soft-deletes the person-company link').toBe(200)
+
+    const deleted = await request.fetch(resolveUrl('/api/customers/companies'), {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      data: { id: companyId },
+    })
+    expect(deleted.status(), 'company with no active links deletes instead of returning 500').toBe(200)
+    companyId = null
+  } finally {
+    await deleteEntityByBody(request, token, '/api/customers/people', personId)
+    await deleteEntityByBody(request, token, '/api/customers/companies', companyId)
+  }
+})

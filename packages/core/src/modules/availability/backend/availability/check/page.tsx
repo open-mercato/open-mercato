@@ -53,7 +53,7 @@ const TRACE_FIELDS = [
 
 function formatTraceValue(value: unknown, t: (key: string) => string): string {
   if (value === null || value === undefined) return t('availability.policies.form.preview.notSet')
-  if (typeof value === 'boolean') return value ? t('common.yes') : t('common.no')
+  if (typeof value === 'boolean') return value ? t('availability.common.yes') : t('availability.common.no')
   return String(value)
 }
 
@@ -172,7 +172,7 @@ export default function AvailabilityCheckPage() {
                 </div>
                 <div>
                   <dt className="text-xs text-muted-foreground">{t('availability.check.result.canFulfil')}</dt>
-                  <dd className="text-sm">{availability.canFulfil ? t('common.yes') : t('common.no')}</dd>
+                  <dd className="text-sm">{availability.canFulfil ? t('availability.common.yes') : t('availability.common.no')}</dd>
                 </div>
                 <div>
                   <dt className="text-xs text-muted-foreground">{t('availability.check.result.policySourceId')}</dt>

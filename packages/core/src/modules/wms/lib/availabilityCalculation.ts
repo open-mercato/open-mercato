@@ -34,6 +34,9 @@ type ResolvedPolicyOverlay = {
   backorderLeadTimeDays: PolicyField<number | null>
   preorderReleaseAt: PolicyField<Date | null>
   lowStockThreshold: PolicyField<number | null>
+  minOrderQuantity: PolicyField<number | null>
+  maxOrderQuantity: PolicyField<number | null>
+  quantityIncrement: PolicyField<number | null>
   isActive: PolicyField<boolean>
 }
 type PolicyResolutionScopeLike = {
@@ -53,6 +56,9 @@ const OPEN_POLICY_DEFAULT: ResolvedPolicyOverlay = {
   backorderLeadTimeDays: { value: null, policySourceId: null },
   preorderReleaseAt: { value: null, policySourceId: null },
   lowStockThreshold: { value: null, policySourceId: null },
+  minOrderQuantity: { value: null, policySourceId: null },
+  maxOrderQuantity: { value: null, policySourceId: null },
+  quantityIncrement: { value: null, policySourceId: null },
   isActive: { value: true, policySourceId: null },
 }
 
@@ -147,6 +153,21 @@ function findProfile(profiles: ProfileRow[], productId: string, variantId: strin
   return profiles.find((p) => p.catalog_product_id === productId && !p.catalog_variant_id) ?? null
 }
 
+/**
+ * The open policy default used when `availability` is not installed. §5.2:
+ * `is_stock_managed` defaults to `true` only when a `ProductInventoryProfile`
+ * exists for the item — an item without one is `not_tracked`, never
+ * `out_of_stock`.
+ */
+function openPolicyDefaultFor(
+  profiles: ProfileRow[],
+  productId: string,
+  variantId: string | null,
+): ResolvedPolicyOverlay {
+  const hasProfile = findProfile(profiles, productId, variantId) !== null
+  return { ...OPEN_POLICY_DEFAULT, isStockManaged: { value: hasProfile, policySourceId: null } }
+}
+
 function computeState(params: {
   sellable: number
   requested: number
@@ -171,6 +192,51 @@ function computeState(params: {
     return { state: 'backorder', canFulfil: true, leadTimeDays: params.backorderLeadTimeDays, releaseAt: null }
   }
   return { state: 'out_of_stock', canFulfil: false, leadTimeDays: null, releaseAt: null }
+}
+
+/**
+ * Order-quantity rules (§5.1) are a cap independent of stock: a violation
+ * blocks fulfilment without changing the stock-derived state.
+ */
+function isWithinOrderQuantityRules(requested: number, policy: ResolvedPolicyOverlay): boolean {
+  const min = policy.minOrderQuantity.value
+  const max = policy.maxOrderQuantity.value
+  const increment = policy.quantityIncrement.value
+  if (min != null && requested < min) return false
+  if (max != null && requested > max) return false
+  if (increment != null && increment > 0 && requested % increment !== 0) return false
+  return true
+}
+
+/**
+ * Mirrors the catalog-only fallback's precedence (inactive → preorder →
+ * not_tracked) for an item the policy excludes from stock tracking. An inactive
+ * policy makes the item unpurchasable before any preorder date, exactly as on the
+ * tracked path (`computeState`).
+ */
+function computeUntrackedItem(policy: ResolvedPolicyOverlay): AvailabilityItemResult {
+  const base: AvailabilityItemResult = {
+    state: 'not_tracked',
+    availableQuantity: null,
+    canFulfil: true,
+    leadTimeDays: null,
+    releaseAt: null,
+    isAuthoritative: true,
+    policySourceId: policy.isStockManaged.policySourceId,
+  }
+  if (!policy.isActive.value) {
+    return { ...base, state: 'out_of_stock', canFulfil: false, policySourceId: policy.isActive.policySourceId }
+  }
+  const preorderReleaseAt = policy.preorderReleaseAt.value
+  if (preorderReleaseAt && preorderReleaseAt.getTime() > Date.now()) {
+    return {
+      ...base,
+      state: 'preorder',
+      releaseAt: preorderReleaseAt.toISOString(),
+      policySourceId: policy.preorderReleaseAt.policySourceId,
+    }
+  }
+  return base
 }
 
 /**
@@ -223,7 +289,7 @@ export async function computeAvailability(
   }))
   const resolvedPolicies = policyService
     ? await policyService.resolveMany(em, policyScopes)
-    : policyScopes.map(() => OPEN_POLICY_DEFAULT)
+    : query.items.map((item) => openPolicyDefaultFor(profiles, item.catalogProductId, item.catalogVariantId ?? null))
 
   function sellableFor(variantId: string, productId: string): number {
     const aggregate = balances.get(variantId) ?? 0
@@ -233,19 +299,15 @@ export async function computeAvailability(
   }
 
   query.items.forEach((item, index) => {
-    const policy = resolvedPolicies[index] ?? OPEN_POLICY_DEFAULT
+    const policy =
+      resolvedPolicies[index]
+      ?? openPolicyDefaultFor(profiles, item.catalogProductId, item.catalogVariantId ?? null)
     const key = availabilityItemKey(item)
+    const withinOrderQuantityRules = isWithinOrderQuantityRules(item.quantity, policy)
 
     if (!policy.isStockManaged.value) {
-      byItem[key] = {
-        state: 'not_tracked',
-        availableQuantity: null,
-        canFulfil: true,
-        leadTimeDays: null,
-        releaseAt: null,
-        isAuthoritative: true,
-        policySourceId: policy.isStockManaged.policySourceId,
-      }
+      const untracked = computeUntrackedItem(policy)
+      byItem[key] = { ...untracked, canFulfil: untracked.canFulfil && withinOrderQuantityRules }
       return
     }
 
@@ -277,7 +339,7 @@ export async function computeAvailability(
     byItem[key] = {
       state: computed.state,
       availableQuantity: sellable,
-      canFulfil: computed.canFulfil,
+      canFulfil: computed.canFulfil && withinOrderQuantityRules,
       leadTimeDays: computed.leadTimeDays,
       releaseAt: computed.releaseAt,
       isAuthoritative: true,

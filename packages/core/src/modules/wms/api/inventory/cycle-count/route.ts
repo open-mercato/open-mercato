@@ -44,6 +44,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Validation failed', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 409, description: 'Counted quantity is below reserved + allocated stock (insufficient_stock)', schema: errorSchema },
         { status: 422, description: 'Invalid location', schema: errorSchema },
       ],
     },

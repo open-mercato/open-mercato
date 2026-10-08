@@ -10,6 +10,7 @@ import {
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { CustomerEntity } from '../../../../data/entities'
@@ -85,7 +86,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       deletedAt: null,
     } as never,
     undefined,
-    { tenantId: auth.tenantId as string, organizationId: scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null },
+    { tenantId: auth.tenantId as string, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null },
   )
   if (!person) {
     return NextResponse.json({ error: 'Person not found' }, { status: 404 })

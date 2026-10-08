@@ -6,15 +6,18 @@
  * Resolution design (documented here because §5.2 does not fully spell it
  * out — see PLAN.md § Key design decisions):
  *
- * - Boolean columns (`isStockManaged`, `allowBackorder`, `hideWhenOutOfStock`,
- *   `isActive`) are NOT NULL, so a matched row's own value is always
- *   concrete — there is no "unset" to fall through. The single most specific
- *   EXISTING row decides every boolean field.
- * - Nullable columns (`backorderLeadTimeDays`, `preorderReleaseAt`,
- *   `lowStockThreshold`, `minOrderQuantity`, `maxOrderQuantity`,
- *   `quantityIncrement`) genuinely cascade: a matched row that leaves the
- *   field `null` defers to the next-less-specific row, per US-A2's "which
- *   level currently decides each field" requirement.
+ * - Boolean columns (`allowBackorder`, `hideWhenOutOfStock`, `isActive`) are
+ *   NOT NULL, so a matched row's own value is always concrete — there is no
+ *   "unset" to fall through. The single most specific EXISTING row decides
+ *   each of these fields.
+ * - Nullable columns (`isStockManaged`, `backorderLeadTimeDays`,
+ *   `preorderReleaseAt`, `lowStockThreshold`, `minOrderQuantity`,
+ *   `maxOrderQuantity`, `quantityIncrement`) genuinely cascade: a matched row
+ *   that leaves the field `null` defers to the next-less-specific row, per
+ *   US-A2's "which level currently decides each field" requirement.
+ *   `isStockManaged` falls through to its dynamic §5.2 module default when no
+ *   row sets it, so an org-wide default row created only to set a threshold
+ *   never switches stock tracking off for the whole organization.
  *
  * `resolveMany()` exists so `wms`'s batched `check()` (§4.2/R4 — one policy
  * lookup regardless of item count) can soft-resolve this service and still
@@ -24,6 +27,7 @@
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityName } from '@mikro-orm/core'
 import { AvailabilityPolicy } from '../data/entities'
 import { tryResolve } from './tryResolve'
 
@@ -81,12 +85,24 @@ const NULLABLE_FIELDS = [
   'quantityIncrement',
 ] as const
 
-const BOOLEAN_FIELDS = ['isStockManaged', 'allowBackorder', 'hideWhenOutOfStock', 'isActive'] as const
+const BOOLEAN_FIELDS = ['allowBackorder', 'hideWhenOutOfStock', 'isActive'] as const
 
-function candidateFilters(scope: PolicyResolutionScope): Array<Record<string, unknown>> {
+// The `wms` inventory profile read here through a soft-resolved entity class — only the
+// columns this module filters on, so `availability` never imports `wms`.
+type InventoryProfileRow = {
+  tenantId: string
+  organizationId: string
+  catalogProductId: string
+  catalogVariantId: string | null
+  deletedAt: Date | null
+}
+
+type PolicyCandidateFilter = { productId?: string | null; variantId: string | null; storeId: string | null }
+
+function candidateFilters(scope: PolicyResolutionScope): PolicyCandidateFilter[] {
   const storeId = scope.storeId ?? null
   const variantId = scope.variantId ?? null
-  const filters: Array<Record<string, unknown>> = []
+  const filters: PolicyCandidateFilter[] = []
   if (variantId) {
     filters.push({ variantId, storeId })
     filters.push({ variantId, storeId: null })
@@ -128,30 +144,39 @@ function resolveFromRows(
   const result = {} as ResolvedAvailabilityPolicy
 
   for (const field of BOOLEAN_FIELDS) {
-    if (firstRow) {
-      ;(result as any)[field] = { value: (firstRow as any)[field], policySourceId: firstRow.id }
-    } else {
-      ;(result as any)[field] = { value: false, policySourceId: null }
-    }
+    result[field] = firstRow ? { value: firstRow[field], policySourceId: firstRow.id } : { value: false, policySourceId: null }
   }
 
-  // is_stock_managed's module default is dynamic (wms + profile existence), not a flat `false`.
-  if (!firstRow) result.isStockManaged = { value: isStockManagedModuleDefault, policySourceId: null }
   // is_active's module default is "active" (nothing to deactivate).
   if (!firstRow) result.isActive = { value: true, policySourceId: null }
 
+  const stockManagedRow = findStockManagedSourceRow(rows)
+  result.isStockManaged =
+    stockManagedRow && stockManagedRow.isStockManaged != null
+      ? { value: stockManagedRow.isStockManaged, policySourceId: stockManagedRow.id }
+      : { value: isStockManagedModuleDefault, policySourceId: null }
+
   for (const field of NULLABLE_FIELDS) {
-    let resolved: ResolvedField<unknown> = { value: null, policySourceId: null }
-    for (const row of rows) {
-      if (row && (row as any)[field] != null) {
-        resolved = { value: (row as any)[field], policySourceId: row.id }
-        break
-      }
-    }
-    ;(result as any)[field] = resolved
+    const sourceRow = rows.find((row): row is AvailabilityPolicy => row != null && row[field] != null) ?? null
+    assignNullableField(result, field, sourceRow)
   }
 
   return result
+}
+
+function findStockManagedSourceRow(rows: Array<AvailabilityPolicy | null>): AvailabilityPolicy | null {
+  return rows.find((row): row is AvailabilityPolicy => row != null && row.isStockManaged != null) ?? null
+}
+
+function assignNullableField<K extends (typeof NULLABLE_FIELDS)[number]>(
+  result: ResolvedAvailabilityPolicy,
+  field: K,
+  sourceRow: AvailabilityPolicy | null,
+): void {
+  const resolved: ResolvedField<AvailabilityPolicy[K] | null> = sourceRow
+    ? { value: sourceRow[field] ?? null, policySourceId: sourceRow.id }
+    : { value: null, policySourceId: null }
+  result[field] = resolved as ResolvedAvailabilityPolicy[K]
 }
 
 /** `is_stock_managed`'s module default: true when `wms` is enabled and a `ProductInventoryProfile` exists for the item. */
@@ -160,7 +185,7 @@ export async function resolveIsStockManagedModuleDefault(
   container: { resolve: <T = unknown>(name: string) => T },
   scope: { tenantId: string; organizationId: string; productId: string; variantId?: string | null },
 ): Promise<boolean> {
-  const ProductInventoryProfile = tryResolve<new () => unknown>(container, 'ProductInventoryProfile')
+  const ProductInventoryProfile = tryResolve<EntityName<InventoryProfileRow>>(container, 'ProductInventoryProfile')
   if (!ProductInventoryProfile) return false
 
   const baseFilter = {
@@ -171,11 +196,11 @@ export async function resolveIsStockManagedModuleDefault(
   }
 
   if (scope.variantId) {
-    const variantRow = await em.findOne(ProductInventoryProfile as any, { ...baseFilter, catalogVariantId: scope.variantId })
+    const variantRow = await em.findOne(ProductInventoryProfile, { ...baseFilter, catalogVariantId: scope.variantId })
     if (variantRow) return true
   }
 
-  const productRow = await em.findOne(ProductInventoryProfile as any, { ...baseFilter, catalogVariantId: null })
+  const productRow = await em.findOne(ProductInventoryProfile, { ...baseFilter, catalogVariantId: null })
   return !!productRow
 }
 
@@ -185,18 +210,18 @@ async function resolveIsStockManagedModuleDefaultMany(
   container: { resolve: <T = unknown>(name: string) => T },
   scopes: PolicyResolutionScope[],
 ): Promise<Map<string, boolean>> {
-  const ProductInventoryProfile = tryResolve<new () => unknown>(container, 'ProductInventoryProfile')
+  const ProductInventoryProfile = tryResolve<EntityName<InventoryProfileRow>>(container, 'ProductInventoryProfile')
   const results = new Map<string, boolean>()
   if (!ProductInventoryProfile || scopes.length === 0) return results
 
   const first = scopes[0]
   const productIds = Array.from(new Set(scopes.map((s) => s.productId)))
-  const rows = (await em.find(ProductInventoryProfile as any, {
+  const rows = await em.find(ProductInventoryProfile, {
     tenantId: first.tenantId,
     organizationId: first.organizationId,
     deletedAt: null,
     catalogProductId: { $in: productIds },
-  } as any)) as Array<{ catalogProductId: string; catalogVariantId: string | null }>
+  })
 
   const exists = new Set(rows.map((row) => `${row.catalogProductId}:${row.catalogVariantId ?? ''}`))
   for (const scope of scopes) {
@@ -224,7 +249,7 @@ export function createPolicyResolutionService(container: {
 
     const first = scopes[0]
     const seen = new Set<string>()
-    const orFilters: Array<Record<string, unknown>> = []
+    const orFilters: PolicyCandidateFilter[] = []
     for (const scope of scopes) {
       for (const filter of candidateFilters(scope)) {
         const key = JSON.stringify(filter)
@@ -239,14 +264,14 @@ export function createPolicyResolutionService(container: {
           tenantId: first.tenantId,
           organizationId: first.organizationId,
           deletedAt: null,
-          $or: orFilters as any,
+          $or: orFilters,
         })
       : []
 
-    // Only scopes that resolve to no row at all need the dynamic is_stock_managed
+    // Only scopes where no chain row sets is_stock_managed need its dynamic
     // module default — batch just those.
     const rowsByScope = scopes.map((scope) => matchChainRows(scope, pool))
-    const needsModuleDefault = scopes.filter((scope, index) => !rowsByScope[index].some((row) => row != null))
+    const needsModuleDefault = scopes.filter((_scope, index) => !findStockManagedSourceRow(rowsByScope[index]))
     const moduleDefaults = await resolveIsStockManagedModuleDefaultMany(em, container, needsModuleDefault)
 
     return scopes.map((scope, index) =>

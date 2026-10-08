@@ -52,6 +52,10 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'auth:User': { status: 'enabled', resourceKind: 'auth.user', reason: 'enabled — presence + CRUD decorator (floor + record_locks); ACL routes versioned separately.' },
   'auth:Role': { status: 'enabled', resourceKind: 'auth.role', reason: 'enabled — presence + CRUD decorator (floor + record_locks); ACL routes versioned separately.' },
 
+  // --- customer_groups ---
+  'customer_groups:CustomerGroup': { status: 'enabled', resourceKind: 'customer.groups.group', reason: 'enabled — CRUD decorator (floor + record_locks); resourceKind derived from the route events config (`customer_groups.group`). Terms sub-resource is a hand-written route (see optimistic-lock-command-coverage); memberships are a junction table.' },
+  'customer_groups:CustomerGroupTerms': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — terms are written by the hand-written `customer-groups/[id]/terms` PUT route (no makeCrudRoute decorator surface), which enforces the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surfaces the conflict on the shared banner; allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
+
   // --- catalog ---
   'catalog:CatalogProduct': { status: 'enabled', resourceKind: 'catalog.product', reason: 'enabled — presence mount + CRUD decorator (floor + record_locks).' },
   'catalog:CatalogProductVariant': { status: 'enabled', resourceKind: 'catalog.variant', reason: 'enabled — presence mount + injectionSpotId + CRUD decorator.' },
@@ -121,6 +125,11 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'eudr:EudrPlot': { status: 'enabled', resourceKind: 'eudr.plot', reason: 'enabled — presence + CRUD decorator.' },
   'eudr:EudrRiskAssessment': { status: 'enabled', resourceKind: 'eudr.risk_assessment', reason: 'enabled — presence + CRUD decorator.' },
   'eudr:EudrMitigationAction': { status: 'enabled', resourceKind: 'eudr.mitigation_action', reason: 'enabled — presence + CRUD decorator.' },
+
+  // --- forms ---
+  'forms:Form': { status: 'enabled', resourceKind: 'forms.form', reason: 'enabled — hand-written form commands use the async command guard seam, preserving the OSS updated_at floor and optional record_locks enrichment.' },
+  'forms:FormVersion': { status: 'enabled', resourceKind: 'forms.form_version', reason: 'enabled — draft update, publish, and archive commands use the async command guard seam; the browser editor sends the loaded version token.' },
+  'forms:FormDistribution': { status: 'enabled', resourceKind: 'forms.distribution', reason: 'enabled — distribution update/close commands use the async command guard seam and their custom UI sends the row version.' },
 
   // --- messages ---
   'messages:Message': { status: 'exempt', resourceKind: 'messages.message', reason: 'OSS-floor-only — draft edits + message actions are hand-written command routes (no makeCrudRoute decorator surface); they enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surface the conflict on the shared banner (#3260). The two call sites are allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },

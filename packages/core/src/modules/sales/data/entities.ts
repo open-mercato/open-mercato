@@ -806,6 +806,14 @@ export class SalesDocumentSequence {
   @Property({ name: 'document_kind', type: 'text' })
   documentKind!: SalesDocumentNumberKind
 
+  /**
+   * @deprecated Since #5604 the authoritative counter is the Postgres sequence named after
+   * this row (`sales_docseq_<id without dashes>`); `nextval` on it is what issues document
+   * numbers. This column is retained for backward compatibility, is only refreshed by
+   * `setNextSequence` and by the down-migration, and must not be read as the current value —
+   * use `SalesDocumentNumberGenerator.peekSequences()`. Scheduled for removal one minor
+   * version after the deprecation window, per BACKWARD_COMPATIBILITY.md.
+   */
   @Property({ name: 'current_value', type: 'integer', default: 0 })
   currentValue: number = 0
 

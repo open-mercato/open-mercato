@@ -70,7 +70,7 @@ describe('customers people check-phone route', () => {
     })
     mockResolveOrganizationScopeForRequest.mockResolvedValue({
       selectedId: 'org-1',
-      filterIds: [],
+      filterIds: ['org-1'],
     })
   })
 

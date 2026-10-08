@@ -428,7 +428,8 @@ inbound-processor (existing hub logic, unchanged by this spec):
   • Dedup by (channel_id, external_message_id)
   • Resolve ChannelThreadMapping (RFC2822 Message-ID/In-Reply-To/References lookup)
   • Create or reuse Message thread in messages module
-  • Create Message (type: 'channel.email', body from normalized text/html)
+  • Create Message (type: 'channel.email', body from normalized text/html,
+                    sentAt = NormalizedInboundMessage.timestamp — the provider's time, not the ingest time)
   • Create MessageChannelLink (channelPayload: full MIME, channelContentType: 'email/mime',
                                  channelMetadata: { messageId, inReplyTo, references, from, to, cc, bcc })
   • Create ExternalMessage (direction='inbound')
@@ -1253,6 +1254,15 @@ None.
 - The rule "per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`" was never implemented: ingest created the conversation and the thread mapping without an assignee, and addressed the message only to `mapping.assignedUserId`. The first message of every thread (no mapping yet) and every message on an unassigned thread therefore had no `MessageRecipient`, and the participant-scoped inbox list showed it to nobody, the channel owner included.
 - Fix: `ingest-inbound-message` routes to `mapping.assignedUserId ?? channel.userId` and stamps `channel.userId` as `assignedUserId` on a newly created `ExternalConversation` and `ChannelThreadMapping`. A manual assignment still wins; existing mappings are not rewritten; tenant-wide channels (`user_id` NULL) stay unassigned. The inbox list scope (`applyMessageParticipantScope`) is unchanged, so nobody gains visibility into another user's messages. Relies on the #6093 `inboundFromChannel` waiver above.
 
+### 2026-09-15 — Ingested messages dated with the provider timestamp (#6095)
+
+- `ingest-inbound-message` now passes the adapter's `timestamp` to `messages.messages.compose` as `sentAt`, so `Message.sentAt` is when the provider received the mail rather than when the poll or history-import worker ran. Before this, a 90-day "Import history" produced 300+ messages with `sent_at` inside the import minute, and the inbox (sorted on `sent_at`) showed the whole mailbox as one block in import order.
+- `sentAt` is a server-only compose field: `composeMessageRequestSchema` omits it and `POST /api/messages` strips any client-sent value, mirroring the `sourceChannelType` treatment from #4975. Adapters that supply no `timestamp` keep the previous "now" behaviour.
+- The CRM side of the same bug (`CustomerInteraction.occurredAt = link.createdAt`) is fixed in the customers subscriber; see the changelog of `implemented/2026-05-27-crm-email-integration.md`.
+- **Where consumers get the timestamp (review follow-up on #6115).** `ingest-inbound-message` and `deliver-outbound-message` carry the resolved time on their existing events as an optional ISO `providerTimestamp`, so a consuming module dates its own rows from the event instead of reading the `ExternalMessage` row across the storage boundary. The field is additive: an event without it leaves the consumer's own fallback in place.
+- **Which timestamp (review follow-up).** `normalizeMimeInbound` used to take the MIME `Date` header first and the provider's internal date only as a fallback. The header is written by the sender's client, so once it dates the platform message and the CRM interaction a forged or skewed header could pin a message in the future or hide it in the past. `NormalizeMimeInboundOptions` gains `receivedAt` (Gmail `internalDate`, IMAP `INTERNALDATE`), which now wins; the Gmail and IMAP adapters pass it. Without a receipt time the header is still used, except when unparsable or more than a day ahead of the clock, in which case `fallbackDate` and then "now" apply (`resolveInboundTimestamp`). `fallbackDate` stays for third-party adapters.
+- Tests: `messages/data/__tests__/validators.test.ts` (server-supplied `sentAt`), `messages/commands/__tests__/messages.compose-sent-at.test.ts`, `messages/api/__tests__/compose-channel-type.test.ts` (client `sentAt` dropped), `communication_channels/commands/__tests__/ingest-inbound-message.test.ts` (provider timestamp forwarded).
+
 ### 2026-09-15 — Assigned conversations no longer drop inbound messages (#6093)
 
 - The design decision "per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`" relies on ingest addressing each inbound message to that assignee as a `MessageRecipient` (that row is what puts the message in the assignee's inbox). The messages validator, older than this spec, rejected any recipient on a `visibility: 'public'` message, so the two rules could only both hold while a conversation was unassigned. Once assigned — by `reassign_conversation`, or simply by replying from the panel, since `send-as-user` sets `assignedUserId` on first reply — every later inbound message failed compose with `recipients must be empty when visibility is public`, the poll/import workers classified that as a permanent failure, and the thread silently stopped receiving mail (12 of 321 messages in a 90-day import in the reported case).
@@ -1399,3 +1409,31 @@ The previous draft is superseded. This spec is the canonical email integration d
 - [x] `yarn build:packages` succeeds (20/20 packages); `yarn test` succeeds (21/21 packages)
 - [ ] Live IMAP/SMTP end-to-end test against a real server — covered manually by user when connecting a real account; not part of CI
 - [ ] Phase 4 widget injections (profile + integrations + data tables) — deferred to slice 3f when shared with the Gmail provider
+
+---
+
+## Amendment — Single-Use OAuth State (PR #6267, 2026-09-20)
+
+Adds a fourth security control to the state-cookie design described in § Hub Deltas → Delta 7 / § OSS Independence (§ OAuth State Cookie):
+
+| Control | Mechanism |
+|---|---|
+| Crypto integrity | AES-256-GCM AEAD (unchanged) |
+| Binding | userId + providerKey + state nonce in AEAD payload (unchanged) |
+| TTL | 5-minute `expiresAt` in payload (unchanged) |
+| **Single-use** | **Short-TTL cache marker keyed by `tenantId:state` (new)** |
+
+### New cache dependency
+
+`GET /communication_channels/oauth/[provider]/callback` now requires the `cache` DI binding to be a valid `CacheStrategy`. On startup it is always registered via `bootstrap.ts`, but if the resolved instance lacks `has`/`set` (e.g., all `createCacheService` attempts failed) the callback redirects with `code=state_store_unavailable` rather than proceeding.
+
+**Multi-replica requirement**: the single-use marker is written to the resolved cache instance. With `CACHE_STRATEGY=memory` (default) the marker is process-local — a replayed callback against a different replica will still succeed. Production multi-replica deployments MUST set `CACHE_STRATEGY=redis` to share the marker across all replicas.
+
+### New error codes on the callback flash redirect
+
+| Code | Meaning |
+|---|---|
+| `replay` | State nonce already consumed — user is replaying or refreshing the callback URL |
+| `state_store_unavailable` | Cache unavailable at callback time; fail-closed rather than skipping single-use protection |
+
+Both codes are i18n-mapped in the profile page (`communication_channels.profile.flash.replayedState`, `communication_channels.profile.flash.stateStoreUnavailable`).
