@@ -1,4 +1,11 @@
-import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, isUniqueViolation, readPgSqlState } from '../pg-errors'
+import {
+  getForeignKeyViolationConstraint,
+  isForeignKeyViolation,
+  isTransientDbError,
+  isTransientLockDbError,
+  isUniqueViolation,
+  readPgSqlState,
+} from '../pg-errors'
 
 describe('isTransientDbError', () => {
   it('is true for the max_connections SQLSTATE', () => {
@@ -44,6 +51,66 @@ describe('isTransientDbError', () => {
     const uniqueErr = { code: '23505', message: 'duplicate key value violates unique constraint' }
     expect(isUniqueViolation(uniqueErr)).toBe(true)
     expect(isTransientDbError(uniqueErr)).toBe(false)
+  })
+})
+
+describe('isTransientLockDbError', () => {
+  it('matches lock, statement and idle-in-transaction timeouts', () => {
+    for (const code of ['55P03', '57014', '25P03']) {
+      expect(isTransientLockDbError({ code })).toBe(true)
+    }
+  })
+
+  it('matches the pg-pool acquire timeout and the node-postgres not-queryable error', () => {
+    expect(isTransientLockDbError(new Error('timeout exceeded when trying to connect'))).toBe(true)
+    expect(isTransientLockDbError(new Error('Client has encountered a connection error and is not queryable'))).toBe(true)
+  })
+
+  it('matches everything isTransientDbError matches', () => {
+    for (const code of ['53300', '53400', '57P01', '57P02', '57P03', '08000', '08001', '08003', '08006']) {
+      expect(isTransientLockDbError({ code })).toBe(true)
+    }
+    expect(isTransientLockDbError(new Error('sorry, too many clients already'))).toBe(true)
+    expect(isTransientLockDbError(new Error('Connection terminated unexpectedly'))).toBe(true)
+  })
+
+  it('looks through cause and previous on every layer of the wrapper chain', () => {
+    expect(isTransientLockDbError({ message: 'wrapped', cause: { code: '55P03' } })).toBe(true)
+    expect(isTransientLockDbError({ message: 'wrapped', previous: { code: '57014' } })).toBe(true)
+    expect(isTransientLockDbError({ message: 'outer', cause: { message: 'inner', previous: { code: '25P03' } } })).toBe(true)
+    expect(isTransientLockDbError(new Error('commit failed', { cause: new Error('timeout exceeded when trying to connect') }))).toBe(true)
+    expect(
+      isTransientLockDbError({ message: 'wrapped', cause: new Error('Client has encountered a connection error and is not queryable') }),
+    ).toBe(true)
+    expect(isTransientLockDbError({ message: 'wrapped', previous: { code: '53300' } })).toBe(true)
+  })
+
+  it('is false for query-level conflicts, socket codes and non-DB errors', () => {
+    expect(isTransientLockDbError({ code: '23505' })).toBe(false)
+    expect(isTransientLockDbError({ code: '40P01' })).toBe(false)
+    expect(isTransientLockDbError({ code: '40001' })).toBe(false)
+    expect(isTransientLockDbError({ code: 'ECONNREFUSED' })).toBe(false)
+    expect(isTransientLockDbError(new Error('something unrelated broke'))).toBe(false)
+    expect(isTransientLockDbError(null)).toBe(false)
+    expect(isTransientLockDbError(undefined)).toBe(false)
+    expect(isTransientLockDbError('timeout exceeded when trying to connect')).toBe(false)
+  })
+
+  it('stops on cyclic or very deep wrapper chains', () => {
+    const cyclic: Record<string, unknown> = { message: 'loop' }
+    cyclic.cause = cyclic
+    expect(isTransientLockDbError(cyclic)).toBe(false)
+    const deep = { cause: { cause: { cause: { cause: { cause: { code: '55P03' } } } } } }
+    expect(isTransientLockDbError(deep)).toBe(false)
+  })
+
+  it('leaves isTransientDbError unchanged for the lock-only signals', () => {
+    for (const code of ['55P03', '57014', '25P03']) {
+      expect(isTransientDbError({ code })).toBe(false)
+    }
+    expect(isTransientDbError(new Error('timeout exceeded when trying to connect'))).toBe(false)
+    expect(isTransientDbError(new Error('Client has encountered a connection error and is not queryable'))).toBe(false)
+    expect(isTransientDbError({ message: 'wrapped', cause: { code: '53300' } })).toBe(false)
   })
 })
 

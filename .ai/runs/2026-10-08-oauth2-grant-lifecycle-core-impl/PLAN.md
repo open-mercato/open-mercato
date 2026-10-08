@@ -11,7 +11,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | P1a — advisory transaction lock helper in shared | dispatch:capable | todo | — |
+| 1 | 1.1 | P1a — advisory transaction lock helper in shared | dispatch:capable | done | pending |
 | 1 | 1.2 | P1b — real-Postgres lock suite and CI step | dispatch | todo | — |
 | 2 | 2.1 | P2a — OAuth protocol helpers and provider descriptor | dispatch:capable | todo | — |
 | 2 | 2.2 | P2b — fake authorization server and fixtures re-export | dispatch | todo | — |

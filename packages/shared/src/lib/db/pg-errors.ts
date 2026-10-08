@@ -148,3 +148,38 @@ export function isTransientDbError(err: unknown): boolean {
   }
   return false
 }
+
+/**
+ * SQLSTATEs that end a lock transaction early but say nothing about the data it
+ * would have written, so the work can be retried: lock_not_available (55P03,
+ * raised by `DB_LOCK_TIMEOUT_MS`), query_canceled (57014, raised by the opt-in
+ * `DB_STATEMENT_TIMEOUT_MS`) and idle_in_transaction_session_timeout (25P03).
+ */
+const TRANSIENT_LOCK_SQLSTATES = new Set(['55P03', '57014', '25P03'])
+
+/**
+ * Driver messages for a connection that never arrived or was lost mid-transaction:
+ * the pg-pool acquire timeout (`connectionTimeoutMillis`) and node-postgres's
+ * error for a client whose connection already failed.
+ */
+const TRANSIENT_LOCK_MESSAGE_PATTERNS = [
+  /timeout exceeded when trying to connect/i,
+  /client has encountered a connection error and is not queryable/i,
+]
+
+/**
+ * Detect a transient failure of a short lock transaction: everything
+ * `isTransientDbError` matches, plus lock, statement and idle-in-transaction
+ * timeouts, the pg-pool acquire timeout and node-postgres's "not queryable"
+ * error. Checks every layer of the driver-error wrapper chain (`cause` /
+ * `previous`, see `pgErrorCandidates`). `isTransientDbError` keeps its narrower
+ * scope because its callers answer 503 "service unavailable".
+ */
+export function isTransientLockDbError(err: unknown): boolean {
+  return pgErrorCandidates(err).some((candidate) => {
+    if (isTransientDbError(candidate)) return true
+    if (typeof candidate.code === 'string' && TRANSIENT_LOCK_SQLSTATES.has(candidate.code)) return true
+    const message = candidate.message
+    return typeof message === 'string' && TRANSIENT_LOCK_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))
+  })
+}

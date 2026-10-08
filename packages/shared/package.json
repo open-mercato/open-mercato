@@ -64,6 +64,10 @@
       "types": "./src/lib/db/duplicateEntityClassNames.ts",
       "default": "./dist/lib/db/duplicateEntityClassNames.js"
     },
+    "./lib/db/advisoryLock": {
+      "types": "./src/lib/db/advisoryLock.ts",
+      "default": "./dist/lib/db/advisoryLock.js"
+    },
     "./lib/data/consistency": {
       "types": "./src/lib/data/consistency.ts",
       "default": "./dist/lib/data/consistency.js"
