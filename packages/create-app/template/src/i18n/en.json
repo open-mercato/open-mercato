@@ -977,6 +977,7 @@
   "ui.forms.richtext.orderedList": "Numbered list",
   "ui.forms.richtext.paragraph": "Paragraph",
   "ui.forms.richtext.placeholder": "Write here...",
+  "ui.forms.richtext.plainText": "Plain text",
   "ui.forms.richtext.sampleText": "text",
   "ui.forms.richtext.underline": "Underline",
   "ui.forms.select.clearOption": "— Clear —",

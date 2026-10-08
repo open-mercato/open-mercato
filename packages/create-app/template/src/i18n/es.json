@@ -977,6 +977,7 @@
   "ui.forms.richtext.orderedList": "Lista numerada",
   "ui.forms.richtext.paragraph": "Párrafo",
   "ui.forms.richtext.placeholder": "Escribe aquí...",
+  "ui.forms.richtext.plainText": "Texto sin formato",
   "ui.forms.richtext.sampleText": "texto",
   "ui.forms.richtext.underline": "Subrayado",
   "ui.forms.select.clearOption": "— Borrar —",

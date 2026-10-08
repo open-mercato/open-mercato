@@ -977,6 +977,7 @@
   "ui.forms.richtext.orderedList": "번호 목록",
   "ui.forms.richtext.paragraph": "본문",
   "ui.forms.richtext.placeholder": "여기에 입력하세요...",
+  "ui.forms.richtext.plainText": "일반 텍스트",
   "ui.forms.richtext.sampleText": "텍스트",
   "ui.forms.richtext.underline": "밑줄",
   "ui.forms.select.clearOption": "— 지우기 —",

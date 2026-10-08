@@ -977,6 +977,7 @@
   "ui.forms.richtext.orderedList": "Lista numerowana",
   "ui.forms.richtext.paragraph": "Akapit",
   "ui.forms.richtext.placeholder": "Wpisz treść...",
+  "ui.forms.richtext.plainText": "Zwykły tekst",
   "ui.forms.richtext.sampleText": "tekst",
   "ui.forms.richtext.underline": "Podkreślenie",
   "ui.forms.select.clearOption": "— Wyczyść —",
