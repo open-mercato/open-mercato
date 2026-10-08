@@ -728,6 +728,11 @@ async seedDefaults({ em, tenantId, organizationId }) {
   Does not validate vendor verification — a draft invoice can exist
   before the vendor is fully verified in GUS/VIES (that only blocks
   payment in `accounts_payable_payments`, not entering the invoice).
+  **Added 2026-10-08:** both commands reject a second invoice with the
+  same `vendorId` and the same normalized `invoiceNumber` (see Data
+  Models) with `409 DUPLICATE_VENDOR_INVOICE`; the response carries the
+  id of the existing invoice so the caller (a person or another module)
+  can open it instead of retrying.
 - `submitVendorInvoiceForApproval` — `DRAFT` → `PENDING_APPROVAL`.
   Emits `accounts_payable.vendor_invoice.submitted` (persistent) — the
   only way to start the approval workflow, see Workflow definition.
@@ -919,6 +924,26 @@ a payment batch, see the sibling document.
   fail-closed) lives exclusively in `accounts_payable_payments` — see
   that document.
 
+**Added 2026-10-08 — invoices created from outside this module.** Another
+module that imports supplier documents (for example a country plugin
+turning a received e-invoice into a draft) creates the invoice the same
+way any caller does, through `createVendorInvoice` on the command bus,
+and keeps its own link to the result (its own FK-id to
+`VendorInvoice.id`). This module gets no new field, no event and no
+knowledge of that consumer; the dependency direction stays one-way
+(consumer → `accounts_payable`). Two consequences are specified here:
+(1) such a caller relies on the duplicate guard above, and on the
+`409 DUPLICATE_VENDOR_INVOICE` body's `existingInvoiceId`, to link to an
+invoice somebody already entered by hand; (2) the account on each line
+is still chosen by the caller (automatic vendor/category-to-account
+mapping stays waiting on the Posting Rules Engine, see Phase 2).
+**⚠ NEEDS HUMAN CONFIRMATION:** this document does not say how
+`vendorSnapshot` is populated, because the create body has no such
+field and this module never resolves `contractors`. For a command-bus
+caller the working proposal is an optional `vendorSnapshot` in the
+command input (name and tax id, supplied by the caller, who already has
+the supplier's data), validated only for shape.
+
 ### Backend Pages (`backend/accounts_payable/`)
 
 - `invoices/page.tsx` — invoice `DataTable` (status, vendor from
@@ -965,6 +990,17 @@ separate index `(tenant_id, organization_id, vendor_id)` for the
 vendor filter and for `accounts_payable_payments`'s query for
 "approved, unpaid invoices for this vendor" (see the sibling document's
 Cross-module integration).
+
+**Added 2026-10-08 — one vendor invoice number per vendor.** Partial
+unique index on `accounts_payable_vendor_invoices`:
+`(organization_id, tenant_id, vendor_id, lower(btrim(invoice_number)))
+where deleted_at is null and status <> 'CANCELLED'`. Compared on the
+trimmed, case-insensitive `invoice_number`, so `"FV 1/2026"` and
+`" fv 1/2026 "` collide. A `CANCELLED` or soft-deleted invoice frees its
+number, the same way Contractor Registry's `nip_hash` index frees a
+soft-deleted registration's NIP. Violating the index is reported as
+`409 DUPLICATE_VENDOR_INVOICE` by `createVendorInvoice` and
+`updateVendorInvoice` (see Commands, API Contracts).
 
 ### VendorInvoiceLine
 
@@ -1015,11 +1051,17 @@ Standard `makeCrudRoute`.
   updatedAt }`.
 - **Response 403**: caller lacks `accounts_payable.invoices.view`
   (list) / `.manage` (create).
+- **Response 409** (create, added 2026-10-08): `DUPLICATE_VENDOR_INVOICE`
+  — an invoice with the same `vendorId` and normalized `invoiceNumber`
+  already exists and is neither `CANCELLED` nor deleted; body includes
+  `existingInvoiceId`.
 
 ### `PUT /api/accounts_payable/invoices/:id`
 
 Standard `makeCrudRoute` update, blocked (409) unless `status ===
-'DRAFT'`.
+'DRAFT'`. Also `409 DUPLICATE_VENDOR_INVOICE` (added 2026-10-08) when the
+edit makes `vendorId`/`invoiceNumber` collide with another active
+invoice.
 
 ### `DELETE /api/accounts_payable/invoices/:id`
 
@@ -1073,6 +1115,12 @@ error until the accountant sets both values through the module
 configuration screen. **`accounts_payable_payments`'s rollout depends
 on `liabilityAccountId` already being set here** — rollout order: this
 module first, the sibling module second.
+
+**Added 2026-10-08 — uniqueness index.** The migration for
+`accounts_payable_vendor_invoices` also creates the partial unique index
+described in Data Models. A rollout against existing data (none in
+Phase 1, since the module is not yet implemented) would first have to
+report and resolve pre-existing duplicates.
 
 ## Implementation Plan
 
@@ -1162,6 +1210,13 @@ module first, the sibling module second.
   both lines, that the lines on `accountId` per line carry **net**
   amounts (not gross), and that the CR on `liabilityAccountId` equals
   `totalGross`.
+
+- Duplicate guard (added 2026-10-08): create an invoice for vendor V with
+  number `"FV 1/2026"`; creating a second one for V with `" fv 1/2026 "`
+  returns `409 DUPLICATE_VENDOR_INVOICE` with the first invoice's id;
+  the same number for a different vendor succeeds; after the first
+  invoice is `CANCELLED`, the same number succeeds again; editing a
+  draft so it collides returns the same 409.
 
 ## Risks & Impact Review
 
@@ -1270,6 +1325,24 @@ module first, the sibling module second.
   configuration option (now genuinely functional) is considered
   sufficient for Phase 1. Revisit in Phase 2 alongside the
   multi-step, threshold-based approval flow.
+
+#### Same vendor invoice entered twice
+- **Scenario** (added 2026-10-08): an accountant types a supplier
+  invoice that a person or another module already entered — for example
+  a received e-invoice imported by a country plugin and then keyed in by
+  hand — and both get posted, doubling expense, input VAT and the
+  liability.
+- **Severity**: Medium
+- **Affected area**: `accounts_payable`, `ledger` (duplicate balanced
+  entries), VAT reporting downstream
+- **Mitigation**: partial unique index on `(vendor, normalized invoice
+  number)` for active invoices and `409 DUPLICATE_VENDOR_INVOICE` with
+  `existingInvoiceId` (Data Models, Commands).
+- **Residual risk**: a vendor who legitimately reuses a number (or a
+  typo in the number) is not caught; credit notes carry their own
+  number and are not affected. A hard block rather than a warning is a
+  deliberate choice; a UI-level warning is the alternative if it proves
+  too strict in practice.
 
 ### Cascading failures & side effects
 
@@ -1748,3 +1821,20 @@ changes what `postVendorInvoice` sends downstream.
   `currencyId: invoice.currencyId` — the review's own aside noted this
   gap, but the 2026-09-08 fix commit's summary didn't list it among
   what it closed.
+
+### 2026-10-08 — duplicate guard and invoices created from other modules
+
+- **Gap found while mapping `financial_pl` integrations (#6061).** Nothing
+  prevented the same supplier invoice from being entered twice (by hand
+  and by a module importing received e-invoices), and the spec did not
+  say how another module creates an invoice here.
+- **Decision (working, pending maintainer review).** Partial unique
+  index on `(vendor, normalized invoice number)` for active invoices,
+  `409 DUPLICATE_VENDOR_INVOICE` with `existingInvoiceId` (Data Models,
+  Commands, API Contracts, Migration, Testing, Risks); a short
+  Cross-module integration note that external creators use
+  `createVendorInvoice` on the command bus and keep their own link.
+  `vendorSnapshot` population for such callers is marked ⚠ NEEDS HUMAN
+  CONFIRMATION.
+- No change to statuses, posting, events or the approval workflow.
+
