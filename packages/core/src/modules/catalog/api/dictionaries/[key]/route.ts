@@ -36,10 +36,13 @@ async function applyEntryTranslations(
       organizationId: context.organizationId,
       container: context.container,
     })
-    return translated.map((item, index) => ({
-      ...entries[index],
-      label: typeof item.label === 'string' && item.label.trim().length > 0 ? item.label : entries[index].label,
-    }))
+    const labelsById = new Map<string, string>()
+    for (const item of translated) {
+      if (typeof item.id === 'string' && typeof item.label === 'string' && item.label.trim().length > 0) {
+        labelsById.set(item.id, item.label)
+      }
+    }
+    return entries.map((entry) => ({ ...entry, label: labelsById.get(entry.id) ?? entry.label }))
   } catch (err) {
     logger.warn('catalog.dictionaries.GET Translation overlay failed', { err })
     return entries

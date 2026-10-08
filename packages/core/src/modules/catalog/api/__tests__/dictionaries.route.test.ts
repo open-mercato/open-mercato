@@ -100,6 +100,36 @@ describe('catalog dictionary lookup — entry translations (#6951)', () => {
     ])
   })
 
+  it('matches translated labels to entries by id regardless of overlay order', async () => {
+    overlay.mockImplementationOnce(async (items: Record<string, unknown>[], options: { locale: string }) =>
+      items
+        .map((item) => applyLocalizedContent(item, storedTranslations[String(item.id)] ?? null, options.locale))
+        .reverse(),
+    )
+
+    const response = await GET(request('pl'), { params: { key: 'unit' } })
+
+    expect(await readEntries(response)).toEqual([
+      { value: 'box', label: 'QA AI karton' },
+      { value: 'kg', label: 'Kilogram (weight)' },
+    ])
+  })
+
+  it('reads translations in the selected organization scope they are saved under', async () => {
+    const inheritedDictionary = { id: 'dict-parent', organizationId: 'org-parent', tenantId: 'tenant-1' }
+    mockEm.find.mockImplementation(async (entity: unknown) =>
+      entity === Dictionary ? [inheritedDictionary] : entries,
+    )
+
+    const response = await GET(request('pl'), { params: { key: 'unit' } })
+
+    expect(await readEntries(response)).toContainEqual({ value: 'box', label: 'QA AI karton' })
+    expect(overlay).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+    )
+  })
+
   it('falls back to the stored labels when the overlay fails', async () => {
     overlay.mockRejectedValueOnce(new Error('[internal] overlay unavailable'))
 
