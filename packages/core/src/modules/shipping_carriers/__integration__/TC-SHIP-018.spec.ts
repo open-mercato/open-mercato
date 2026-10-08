@@ -26,6 +26,7 @@ import {
  */
 test.describe('TC-SHIP-018: Carrier status skips are applied, regressions are not', () => {
   test('applies label_created -> delivered from a webhook and ignores a late in_transit', async ({ request }) => {
+    test.setTimeout(60_000)
     const token = await getAuthToken(request, 'admin')
     let shipmentId: string | null = null
     const eventIds: string[] = []

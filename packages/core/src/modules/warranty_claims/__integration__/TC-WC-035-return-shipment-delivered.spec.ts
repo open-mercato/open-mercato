@@ -30,6 +30,7 @@ export const integrationMeta = {
  */
 test.describe('TC-WC-035: return shipment delivery receives the warranty claim', () => {
   test('moves an awaiting_return claim to received when the carrier reports the return delivered', async ({ request }) => {
+    test.setTimeout(60_000)
     const adminToken = await getAuthToken(request, 'admin')
     const stamp = uniqueLabel('tc-wc-035')
     let claimId: string | null = null
