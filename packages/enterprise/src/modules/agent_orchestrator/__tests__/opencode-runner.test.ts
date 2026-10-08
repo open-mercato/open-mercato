@@ -145,6 +145,8 @@ function makeFakeClient(opts: {
   agentSentRef: { value: string | undefined }
   container: { resolve: (name: string) => unknown }
   callSubmitOutcome?: boolean
+  /** SSE events emitted between busy and idle (e.g. `message.updated` usage). */
+  streamEvents?: Array<{ type: string; properties: Record<string, unknown> }>
 }): OpenCodeRunnerClient {
   let emit: ((event: { type: string; properties: Record<string, unknown> }) => void) | null = null
   const sessionId = 'ses_fake_1'
@@ -172,6 +174,7 @@ function makeFakeClient(opts: {
       // Emit busy then idle so the runner's SSE idle-detection fires.
       setTimeout(() => {
         emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'busy' } } })
+        for (const event of opts.streamEvents ?? []) emit?.(event)
         emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'idle' } } })
       }, 0)
       return {}
@@ -521,5 +524,80 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(entry.tools).toEqual([])
     expect(submitOutcomeTool.isMutation).toBe(false)
   })
-})
 
+  describe('token usage from message.updated (#6240)', () => {
+    const assistantMessage = (
+      id: string,
+      tokens: { input: number; output: number; cache?: { read?: number; write?: number } },
+      overrides: Record<string, unknown> = {},
+    ) => ({
+      type: 'message.updated',
+      properties: {
+        info: { id, sessionID: 'ses_fake_1', role: 'assistant', modelID: 'claude-sonnet-4-5', tokens, ...overrides },
+      },
+    })
+
+    it('stamps input (incl. cache), cached subset, output and a cache-aware cost on runs.complete — repeated updates count once', async () => {
+      const entry = registerExampleFileAgent()
+      const { calls, commandBus, container } = makeHarness()
+      const client = makeFakeClient({
+        outcome: validOutcome,
+        sessionTokenRef: { value: '' },
+        agentSentRef: { value: undefined },
+        container,
+        streamEvents: [
+          assistantMessage('msg_1', { input: 100, output: 10, cache: { read: 0 } }),
+          // Same message re-emitted as it grows: the last emission wins, never summed.
+          assistantMessage('msg_1', { input: 1_000, output: 200, cache: { read: 9_000, write: 500 } }),
+          assistantMessage('msg_2', { input: 500, output: 300, cache: { read: 4_000 } }),
+          // Ignored: a user message, and an assistant message from another session.
+          { type: 'message.updated', properties: { info: { id: 'msg_u', sessionID: 'ses_fake_1', role: 'user', tokens: { input: 99_999, output: 0 } } } },
+          { type: 'message.updated', properties: { info: { id: 'msg_x', sessionID: 'ses_other', role: 'assistant', tokens: { input: 99_999, output: 99_999 } } } },
+        ],
+      })
+      const runner = new OpenCodeAgentRunner({ container: container as never, commandBus: commandBus as never, openCodeClient: client })
+
+      await runner.run(entry, { dealId: 'deal-1' }, runCtx)
+
+      const complete = calls.find((call) => call.id === 'agent_orchestrator.runs.complete')!
+      // msg_1: 1_000 + 9_000 read + 500 write; msg_2: 500 + 4_000 read.
+      expect(complete.input).toMatchObject({ inputTokens: 15_000, cachedInputTokens: 13_000, outputTokens: 500 })
+      // claude-sonnet-4-5 (reported modelID, not the unpriced declared model):
+      // 2_000 fresh × 3 + 13_000 cached × 0.3 + 500 out × 15 = 0.0174 USD → 2 cents.
+      expect(complete.input).toMatchObject({ costMinor: 2, currency: 'USD' })
+    })
+
+    it('leaves usage untouched when the stream reported none (null stays unknown, never 0)', async () => {
+      const entry = registerExampleFileAgent()
+      const { calls, commandBus, container } = makeHarness()
+      const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef: { value: '' }, agentSentRef: { value: undefined }, container })
+      const runner = new OpenCodeAgentRunner({ container: container as never, commandBus: commandBus as never, openCodeClient: client })
+
+      await runner.run(entry, { dealId: 'deal-1' }, runCtx)
+
+      const complete = calls.find((call) => call.id === 'agent_orchestrator.runs.complete')!
+      for (const field of ['inputTokens', 'cachedInputTokens', 'outputTokens', 'costMinor', 'currency']) {
+        expect(complete.input).not.toHaveProperty(field)
+      }
+    })
+
+    it('keeps the measured usage on a run that fails without an outcome', async () => {
+      const entry = registerExampleFileAgent()
+      const { calls, commandBus, container } = makeHarness()
+      const client = makeFakeClient({
+        outcome: validOutcome,
+        sessionTokenRef: { value: '' },
+        agentSentRef: { value: undefined },
+        container,
+        callSubmitOutcome: false,
+        streamEvents: [assistantMessage('msg_1', { input: 300, output: 40, cache: { read: 700 } })],
+      })
+      const runner = new OpenCodeAgentRunner({ container: container as never, commandBus: commandBus as never, openCodeClient: client })
+
+      await expect(runner.run(entry, { dealId: 'deal-1' }, runCtx)).rejects.toThrow(/no outcome submitted/)
+
+      const fail = calls.find((call) => call.id === 'agent_orchestrator.runs.fail')!
+      expect(fail.input).toMatchObject({ inputTokens: 1_000, cachedInputTokens: 700, outputTokens: 40 })
+    })
+  })
+})

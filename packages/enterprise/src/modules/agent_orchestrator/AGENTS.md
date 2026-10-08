@@ -103,7 +103,9 @@ every awkward thing in it followed from that split. Do not reintroduce either.
   `.snapshot-open-mercato.json` together; never run `db:migrate` to quiet the generator.
   Data rewrites that touch CORE `workflows` tables cannot be absorbed by a create-table
   and are carried over verbatim, `to_regclass`-guarded. Tests resolve the squash by shape
-  (`__tests__/helpers/squashMigration.ts`), never by filename.
+  (`__tests__/helpers/squashMigration.ts`), never by filename. Once a squash has shipped in
+  a release, additive schema changes STACK as `Migration<ts>_<change>.ts` with
+  `if not exists` guards (folding them in would skip databases that already ran it).
 - **Triggers are ONE declared list** (`process_definitions.triggers` jsonb,
   `processTriggerSchema`, `.max(20)`): `schedule` | `event` | `manual`. Every kind
   converges on `agent_orchestrator.processes.startExecution`, which ends in

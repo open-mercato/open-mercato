@@ -107,7 +107,7 @@ No new modules, queues, or events. Touched command surface: `agent_orchestrator.
 - `completed_at`: timestamptz, nullable — stamped by `runs.complete`/`runs.fail`; backfilled from `updated_at` for terminal rows; never mutated afterwards.
 
 ### Model pricing (config, not an entity)
-- Default map in `lib/runtime/modelPricing.ts`: `Record<model, { inputPer1M, outputPer1M }>` (currency from `OM_AGENT_COST_CURRENCY`, default `USD`).
+- Default map in `lib/runtime/modelPricing.ts`: `Record<model, { inputPer1M, outputPer1M, cachedInputPer1M? }>` (currency from `OM_AGENT_COST_CURRENCY`, default `USD`). `cachedInputPer1M` added by #6240 (see Changelog 2026-10-08).
 - `OM_AGENT_MODEL_PRICING` env: JSON merged over defaults.
 
 ### AgentMetricRollup.metrics (jsonb, additive keys)
@@ -258,3 +258,10 @@ None.
   - Phase 4 `1972166b9` — real 24h/7d/30d window select (URL-persisted, feeds both metrics calls), per-tile window/now captions, discriminated per-panel forbidden/error/retry states (stuck panel never false-all-clears), live "Updated X ago".
   - Phase 5 `effe5a12e` — `guardrail_blocked` 422 contract on run + rerun (subclass before parent) + playground ShieldAlert, autonomy control disabled (mutation plumbing removed), declared-tools honest fallback, process mapper null-honesty.
   - TC-AGENT-HONESTY-001…006 authored (006 exercises the client contract via request interception — no shipped guardrail is deterministically trippable from the playground; server side unit-covered).
+
+### 2026-10-08
+- **Cached input tier + OpenCode usage (#6240)**, additive:
+  - `agent_runs.cached_input_tokens int null` — the cached SUBSET of `input_tokens`; null = unknown, never backfilled to 0. Shipped as a stacked migration after the 0.8.0 squash (`Migration20261008103746_agent_run_cached_input_tokens`, `add column if not exists`) so upgraded databases receive it.
+  - Cost formula becomes `round((freshTok × inputPer1M + cachedTok × (cachedInputPer1M ?? inputPer1M) + outTok × outputPer1M) / 1M × 100)` with `cachedTok` clamped to `[0, inputTok]`; models without a cached rate price exactly as before. Defaults ship cached rates for all six routed models; `OM_AGENT_MODEL_PRICING` accepts an optional `cachedInputPer1M`.
+  - Native runner reads ai@7 `usage.inputTokenDetails.cacheReadTokens` (legacy `cachedInputTokens`) per step and from the object-mode fallback; OpenCode runner collects `message.updated` `info.tokens` keyed by message id (last emission wins), input = `input + cache.read + cache.write`, cached = `cache.read`, priced with the reported `modelID`, stamped on `runs.complete` and post-session `runs.fail`.
+  - `runs.complete`/`runs.fail`, `trace.ingest` and `GET /api/agent_orchestrator/runs` (`cached_input_tokens`) carry the field; the trace header shows a "Cached input" tile when known.

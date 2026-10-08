@@ -407,6 +407,68 @@ describe('confidence + usage/cost stamping (data-honesty §3.2)', () => {
     // gpt-5-mini defaults: 0.25 + 2 USD per 1M → 2.25 USD → 225 cents.
     expect(input.costMinor).toBe(225)
     expect(input.currency).toBe('USD')
+    // No step reported a cached share → unknown, never stamped as 0.
+    expect(input).not.toHaveProperty('cachedInputTokens')
+  })
+
+  it('sums the cached input share from ai@7 and legacy step usage and prices it at the cached rate (#6240)', async () => {
+    registerNativeAgent('native.cached_steps_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> } | undefined
+      await loop?.onStepFinish?.({
+        toolCalls: [],
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 600_000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 500_000 } },
+        response: { modelId: 'claude-sonnet-4-5' },
+      })
+      await loop?.onStepFinish?.({
+        toolCalls: [],
+        finishReason: 'stop',
+        usage: { inputTokens: 400_000, outputTokens: 0, cachedInputTokens: 300_000 },
+        response: { modelId: 'claude-sonnet-4-5' },
+      })
+      return VALID_MODEL_OUTPUT
+    })
+
+    const service = makeService()
+    await service.run('native.cached_steps_agent', {}, runCtx)
+
+    const input = completeRunMock.mock.calls[0][2] as Record<string, unknown>
+    expect(input.inputTokens).toBe(1_000_000)
+    expect(input.cachedInputTokens).toBe(800_000)
+    // claude-sonnet-4-5: 200_000 fresh × 3 + 800_000 cached × 0.3 = 0.84 USD → 84 cents
+    // (300 cents if the cached share were priced as fresh input).
+    expect(input.costMinor).toBe(84)
+  })
+
+  it('reads the cached share from the object-mode fallback usage when no step fired', async () => {
+    const entry: AgentRegistryEntry = {
+      id: 'native.cached_fallback_agent',
+      moduleId: 'agent_orchestrator',
+      resultKind: 'research',
+      schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
+      tools: [],
+      skills: [],
+      subAgents: [],
+      label: 'Cached fallback agent',
+      description: 'Researcher agent for cached fallback usage.',
+      instructions: 'inform',
+      runtime: 'native',
+      defaultModel: 'claude-sonnet-4-5',
+    }
+    if (!getAgentEntry(entry.id)) registerFileAgent(entry)
+    runAiAgentObjectMock.mockResolvedValue({
+      ...VALID_MODEL_OUTPUT,
+      usage: { inputTokens: 1_000_000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 1_000_000 } },
+    })
+
+    const service = makeService()
+    await service.run('native.cached_fallback_agent', {}, runCtx)
+
+    const input = completeRunMock.mock.calls[0][2] as Record<string, unknown>
+    expect(input.inputTokens).toBe(1_000_000)
+    expect(input.cachedInputTokens).toBe(1_000_000)
+    expect(input.costMinor).toBe(30)
   })
 
   it('researcher run: null confidence, fallback usage, no cost without a priced model', async () => {

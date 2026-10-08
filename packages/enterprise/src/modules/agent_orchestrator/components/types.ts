@@ -105,6 +105,8 @@ export type RunView = {
   latencyMs: number | null
   costMinor: number | null
   inputTokens: number | null
+  /** Cached SUBSET of `inputTokens`; null = not reported. */
+  cachedInputTokens: number | null
   outputTokens: number | null
   currency: string | null
   agentVersion: string | null
@@ -462,6 +464,7 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     latencyMs: asNumber(item.latency_ms) ?? asNumber(item.latencyMs),
     costMinor: asNumber(item.cost_minor) ?? asNumber(item.costMinor),
     inputTokens: asNumber(item.input_tokens) ?? asNumber(item.inputTokens),
+    cachedInputTokens: asNumber(item.cached_input_tokens) ?? asNumber(item.cachedInputTokens),
     outputTokens: asNumber(item.output_tokens) ?? asNumber(item.outputTokens),
     currency: asString(item.currency),
     agentVersion: asString(item.agent_version) ?? asString(item.agentVersion),

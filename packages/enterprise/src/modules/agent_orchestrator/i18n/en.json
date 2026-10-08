@@ -1353,6 +1353,7 @@
   "agent_orchestrator.traces.detail.artifactLoading": "Loading…",
   "agent_orchestrator.traces.detail.awaiting": "Awaiting human",
   "agent_orchestrator.traces.detail.back": "Back to traces",
+  "agent_orchestrator.traces.detail.cachedInput": "Cached input",
   "agent_orchestrator.traces.detail.chosenOption": "Chosen option",
   "agent_orchestrator.traces.detail.collapseArtifact": "Collapse payload",
   "agent_orchestrator.traces.detail.confidence": "Confidence",

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
+import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Database, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
@@ -930,6 +930,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 ? (run.inputTokens ?? 0) + (run.outputTokens ?? 0)
                 : null
             const tokensLabel = formatTokens(tokensTotal)
+            const cachedInputLabel = formatTokens(run.cachedInputTokens)
             const costLabel = formatCostMinor(run.costMinor, run.currency)
             const gated = run.humanConfirmedAt == null && run.resultKind === 'proposal'
             const runLabel = run.externalRunId ?? `RUN-${run.id.slice(0, 8)}`
@@ -1114,12 +1115,20 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       label={t('agent_orchestrator.traces.detail.duration')}
                       value={formatDurationMs(run.latencyMs) ?? '—'}
                     />
-                    {/* Tokens and cost are runtime-reported; the opencode runtime
-                        supplies neither, and a permanent '—' tile reads as a bug
-                        rather than as an absent metric. Timing tiles keep their
-                        dash — those are expected to fill in. */}
+                    {/* Tokens, cached input and cost are runtime-reported; runs
+                        that never reported them (legacy rows, external runtimes)
+                        hide the tile, since a permanent '—' reads as a bug rather
+                        than as an absent metric. Timing tiles keep their dash —
+                        those are expected to fill in. */}
                     {tokensLabel ? (
                       <StatCell icon={Hash} label={t('agent_orchestrator.traces.detail.tokens')} value={tokensLabel} />
+                    ) : null}
+                    {cachedInputLabel ? (
+                      <StatCell
+                        icon={Database}
+                        label={t('agent_orchestrator.traces.detail.cachedInput')}
+                        value={cachedInputLabel}
+                      />
                     ) : null}
                     {costLabel ? (
                       <StatCell icon={Coins} label={t('agent_orchestrator.traces.detail.cost')} value={costLabel} />

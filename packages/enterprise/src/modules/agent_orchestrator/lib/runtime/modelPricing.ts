@@ -7,8 +7,9 @@
  * code-shipped default for the models this module actually routes to, with a
  * deploy-time override:
  *
- * - `OM_AGENT_MODEL_PRICING` — JSON `{ "<model>": { "inputPer1M": n, "outputPer1M": n } }`
+ * - `OM_AGENT_MODEL_PRICING` — JSON `{ "<model>": { "inputPer1M": n, "outputPer1M": n, "cachedInputPer1M"?: n } }`
  *   merged over the defaults (bad JSON logs an internal warning and falls back).
+ *   `cachedInputPer1M` is optional; without it cached input is priced at `inputPer1M`.
  * - `OM_AGENT_COST_CURRENCY` — ISO 4217 code for every computed estimate
  *   (default `USD`). One currency per deployment; no cross-currency conversion.
  *
@@ -25,32 +26,44 @@ export type ModelPrice = {
   inputPer1M: number
   /** Price per 1M output tokens, in major currency units. */
   outputPer1M: number
+  /**
+   * Price per 1M CACHED input tokens (a prompt-cache read). Optional: when
+   * absent, cached tokens are priced at `inputPer1M`.
+   */
+  cachedInputPer1M?: number
   currency: string
 }
 
-type PriceEntry = { inputPer1M: number; outputPer1M: number }
+type PriceEntry = { inputPer1M: number; outputPer1M: number; cachedInputPer1M?: number }
 
 /**
  * List prices per 1M tokens in USD — ESTIMATES as of 2026-07 for the model ids
  * the module's agents and provider presets actually declare (`claude-sonnet-4-5`
  * in the example agents; `gpt-5`/`gpt-5-mini`/`gpt-4o`/`gpt-4o-mini` provider
- * defaults). Providers reprice without notice: override via
- * `OM_AGENT_MODEL_PRICING` rather than waiting for a redeploy.
+ * defaults). Cached-input rates are the providers' prompt-cache read prices
+ * (0.1x input for Anthropic and the GPT-5 family, 0.5x for GPT-4o). Providers
+ * reprice without notice: override via `OM_AGENT_MODEL_PRICING` rather than
+ * waiting for a redeploy.
  */
 const DEFAULT_PRICING: Record<string, PriceEntry> = {
-  'gpt-5': { inputPer1M: 1.25, outputPer1M: 10 },
-  'gpt-5-mini': { inputPer1M: 0.25, outputPer1M: 2 },
-  'gpt-4o': { inputPer1M: 2.5, outputPer1M: 10 },
-  'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.6 },
-  'claude-sonnet-4-5': { inputPer1M: 3, outputPer1M: 15 },
-  'claude-haiku-4-5': { inputPer1M: 1, outputPer1M: 5 },
+  'gpt-5': { inputPer1M: 1.25, outputPer1M: 10, cachedInputPer1M: 0.125 },
+  'gpt-5-mini': { inputPer1M: 0.25, outputPer1M: 2, cachedInputPer1M: 0.025 },
+  'gpt-4o': { inputPer1M: 2.5, outputPer1M: 10, cachedInputPer1M: 1.25 },
+  'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.6, cachedInputPer1M: 0.075 },
+  'claude-sonnet-4-5': { inputPer1M: 3, outputPer1M: 15, cachedInputPer1M: 0.3 },
+  'claude-haiku-4-5': { inputPer1M: 1, outputPer1M: 5, cachedInputPer1M: 0.1 },
 }
 
 const DEFAULT_CURRENCY = 'USD'
 
+function isNonNegativeFinite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
 function isPriceEntry(value: unknown): value is PriceEntry {
   if (!value || typeof value !== 'object') return false
   const entry = value as Record<string, unknown>
+  if (entry.cachedInputPer1M !== undefined && !isNonNegativeFinite(entry.cachedInputPer1M)) return false
   return (
     typeof entry.inputPer1M === 'number' &&
     Number.isFinite(entry.inputPer1M) &&
@@ -78,8 +91,13 @@ function resolvePricingTable(): Record<string, PriceEntry> {
     }
     const merged: Record<string, PriceEntry> = { ...DEFAULT_PRICING }
     for (const [model, entry] of Object.entries(parsed as Record<string, unknown>)) {
-      if (isPriceEntry(entry)) merged[model] = { inputPer1M: entry.inputPer1M, outputPer1M: entry.outputPer1M }
-      else logger.warn('OM_AGENT_MODEL_PRICING entry is malformed; ignored', { model })
+      if (isPriceEntry(entry)) {
+        merged[model] = {
+          inputPer1M: entry.inputPer1M,
+          outputPer1M: entry.outputPer1M,
+          ...(entry.cachedInputPer1M !== undefined ? { cachedInputPer1M: entry.cachedInputPer1M } : {}),
+        }
+      } else logger.warn('OM_AGENT_MODEL_PRICING entry is malformed; ignored', { model })
     }
     return merged
   } catch {
@@ -128,12 +146,19 @@ export function resolveModelPrice(model: string): ModelPrice | null {
 /**
  * Estimated run cost in minor currency units (cents), or null when the model
  * is unknown/absent or no token counts exist. Formula per the data-honesty
- * spec: `round((inTok × inputPer1M + outTok × outputPer1M) / 1M × 100)`.
+ * spec, with the cached tier split out of the input:
+ * `round((freshTok × inputPer1M + cachedTok × (cachedInputPer1M ?? inputPer1M)
+ *   + outTok × outputPer1M) / 1M × 100)`.
+ *
+ * `cachedInputTokens` is a SUBSET of `inputTokens` (clamped to `[0, inputTokens]`),
+ * never an addition; null/absent means no cached share is known and the result
+ * is identical to the two-tier formula.
  */
 export function computeCostMinor(
   model: string | null | undefined,
   inputTokens: number | null | undefined,
   outputTokens: number | null | undefined,
+  cachedInputTokens?: number | null,
 ): { costMinor: number; currency: string } | null {
   if (!model) return null
   if (inputTokens == null && outputTokens == null) return null
@@ -141,6 +166,11 @@ export function computeCostMinor(
   if (!price) return null
   const inTok = inputTokens ?? 0
   const outTok = outputTokens ?? 0
-  const costMinor = Math.round(((inTok * price.inputPer1M + outTok * price.outputPer1M) / 1_000_000) * 100)
+  const cachedTok = Math.min(Math.max(cachedInputTokens ?? 0, 0), inTok)
+  const freshTok = inTok - cachedTok
+  const cachedRate = price.cachedInputPer1M ?? price.inputPer1M
+  const costMinor = Math.round(
+    ((freshTok * price.inputPer1M + cachedTok * cachedRate + outTok * price.outputPer1M) / 1_000_000) * 100,
+  )
   return { costMinor, currency: price.currency }
 }

@@ -60,6 +60,8 @@ export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
  */
 const runUsageStampSchema = z.object({
   inputTokens: z.number().int().nonnegative().nullable().optional(),
+  /** Cached SUBSET of `inputTokens`; null = unknown. */
+  cachedInputTokens: z.number().int().nonnegative().nullable().optional(),
   outputTokens: z.number().int().nonnegative().nullable().optional(),
   costMinor: z.number().int().nonnegative().nullable().optional(),
   currency: z.string().length(3).nullable().optional(),
@@ -87,6 +89,7 @@ export type FailAgentRunInput = z.infer<typeof failAgentRunSchema>
 /** Apply the optional usage/cost stamps; absent (undefined) fields leave columns untouched. */
 function applyUsageStamp(run: AgentRun, input: z.infer<typeof runUsageStampSchema>): void {
   if (input.inputTokens !== undefined) run.inputTokens = input.inputTokens
+  if (input.cachedInputTokens !== undefined) run.cachedInputTokens = input.cachedInputTokens
   if (input.outputTokens !== undefined) run.outputTokens = input.outputTokens
   if (input.costMinor !== undefined) run.costMinor = input.costMinor
   if (input.currency !== undefined) run.currency = input.currency

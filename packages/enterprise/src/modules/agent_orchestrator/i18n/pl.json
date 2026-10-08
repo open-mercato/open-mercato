@@ -1353,6 +1353,7 @@
   "agent_orchestrator.traces.detail.artifactLoading": "Ładowanie…",
   "agent_orchestrator.traces.detail.awaiting": "Oczekuje na człowieka",
   "agent_orchestrator.traces.detail.back": "Powrót do śladów",
+  "agent_orchestrator.traces.detail.cachedInput": "Wejście z cache",
   "agent_orchestrator.traces.detail.chosenOption": "Wybrany wariant",
   "agent_orchestrator.traces.detail.collapseArtifact": "Zwiń dane",
   "agent_orchestrator.traces.detail.confidence": "Pewność",
