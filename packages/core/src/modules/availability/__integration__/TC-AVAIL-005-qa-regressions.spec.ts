@@ -15,6 +15,8 @@ import { deleteGeneralEntityIfExists, expectId, getTokenContext, readJsonSafe } 
  * - #6806: an inactive policy with a future preorder date keeps an untracked item unpurchasable.
  * - #6807: list and resolve-preview read the organization selected in the header (check shares the resolver).
  * - #6808: a non-UUID id or an integer above the Postgres range is a 400, never a 500.
+ * - #7080: under "All organizations" the list spans every accessible organization and a
+ *   create without a concrete organization is rejected with a message, not a field error.
  */
 
 const CHECK_API_BASE = '/api/availability/check'
@@ -180,6 +182,71 @@ test.describe('TC-AVAIL-005: availability QA regressions', () => {
     } finally {
       if (policyId && orgBId) {
         await apiRequestWithSelectedOrg(request, 'DELETE', `${POLICIES_API_BASE}?id=${encodeURIComponent(policyId)}`, {
+          token: adminToken,
+          selectedOrgId: orgBId,
+        }).catch(() => undefined)
+      }
+      await deleteOrganizationIfExists(request, superadminToken, orgBId)
+    }
+  })
+
+  test('#7080: "All organizations" lists every accessible organization and rejects an organization-less create with a message', async ({
+    request,
+  }) => {
+    test.slow()
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const { tenantId, organizationId: homeOrgId } = getTokenContext(adminToken)
+    const stamp = Date.now()
+    const productId = syntheticUuid(stamp, '8054')
+
+    let orgBId: string | null = null
+    let homePolicyId: string | null = null
+    let orgBPolicyId: string | null = null
+    try {
+      orgBId = await createOrganizationFixture(request, superadminToken, { name: `QA AVAIL 005 Org B ${stamp}`, tenantId })
+
+      const homeCreate = await apiRequest(request, 'POST', POLICIES_API_BASE, {
+        token: adminToken,
+        data: { tenantId, organizationId: homeOrgId, productId, lowStockThreshold: 3 },
+      })
+      expect(homeCreate.status(), 'creating a policy in the home organization should be 201').toBe(201)
+      homePolicyId = expectId((await readJsonSafe<{ id?: string }>(homeCreate))?.id, 'home policy id')
+
+      const orgBCreate = await apiRequestWithSelectedOrg(request, 'POST', POLICIES_API_BASE, {
+        token: adminToken,
+        selectedOrgId: orgBId,
+        data: { tenantId, organizationId: orgBId, productId, lowStockThreshold: 4 },
+      })
+      expect(orgBCreate.status(), 'creating a policy in the selected organization should be 201').toBe(201)
+      orgBPolicyId = expectId((await readJsonSafe<{ id?: string }>(orgBCreate))?.id, 'org B policy id')
+
+      const allList = await apiRequestWithSelectedOrg(request, 'GET', `${POLICIES_API_BASE}?productId=${productId}`, {
+        token: adminToken,
+        selectedOrgId: '__all__',
+      })
+      expect(allList.status()).toBe(200)
+      const allIds = ((await readJsonSafe<{ items?: Array<{ id: string }> }>(allList))?.items ?? []).map((item) => item.id)
+      expect(allIds, 'the "All organizations" list must show the home-organization policy').toContain(homePolicyId)
+      expect(allIds, 'the "All organizations" list must show the other organization\'s policy').toContain(orgBPolicyId)
+
+      const allCreate = await apiRequestWithSelectedOrg(request, 'POST', POLICIES_API_BASE, {
+        token: adminToken,
+        selectedOrgId: '__all__',
+        data: { tenantId, organizationId: null, productId: syntheticUuid(stamp, '8055'), lowStockThreshold: 3 },
+      })
+      expect(allCreate.status(), 'a create without a concrete organization must be a 400').toBe(400)
+      const allCreateBody = await readJsonSafe<{ error?: string; details?: Array<{ path?: unknown[] }> }>(allCreate)
+      expect(allCreateBody?.error, 'the 400 must carry a message the form can show').toBeTruthy()
+      expect(allCreateBody?.error).not.toBe('Invalid input')
+      expect(
+        (allCreateBody?.details ?? []).some((issue) => Array.isArray(issue.path) && issue.path[0] === 'organizationId'),
+        'the 400 must not be an organizationId field error the form cannot render',
+      ).toBe(false)
+    } finally {
+      await deleteGeneralEntityIfExists(request, adminToken, POLICIES_API_BASE, homePolicyId)
+      if (orgBPolicyId && orgBId) {
+        await apiRequestWithSelectedOrg(request, 'DELETE', `${POLICIES_API_BASE}?id=${encodeURIComponent(orgBPolicyId)}`, {
           token: adminToken,
           selectedOrgId: orgBId,
         }).catch(() => undefined)
