@@ -59,6 +59,8 @@ export type XrayStatus = {
   registry: { ready: boolean; contractHash: string; processes: Array<{ processKey: string; labelKey: string; moduleId: string }>; rejected: number }
   cursor: ProjectionCursor | null
   counts: ProjectionCounts[]
+  /** True when the counts hit their statement timeout (`counts` is then empty). */
+  countsTimedOut?: boolean
 }
 
 export class XrayErasureIncompleteError extends Error {
@@ -169,12 +171,7 @@ export async function startXrayBackfill(
   const gate = await isIngestAllowed(container, scope, em)
   if (!gate.allowed) return { ok: false, reason: 'disabled' }
   const store = createXrayStore(em)
-  const cursor = await store.ensureCursor(scope, registry.contractHash, XRAY_SETTLE_MS)
-  if (cursor.contractHash !== registry.contractHash) {
-    if (cursor.status !== 'rebuild_required') await store.markRebuildRequired(cursor)
-    return { ok: false, reason: 'rebuild_required' }
-  }
-  if (cursor.status === 'rebuild_required') return { ok: false, reason: 'rebuild_required' }
+  const cursor = await store.ensureCursor(scope, XRAY_SETTLE_MS)
   const dbNow = await store.now()
   const scanId = randomUUID()
   const chainId = randomUUID()
@@ -378,9 +375,13 @@ export async function failAbandonedXrayScan(container: XrayContainer, payload: X
 
 /**
  * Clears the organization's projection (events, cases, rollups) under its lease, resets the
- * cursor to the current contract and no pseudonym key, and starts a fresh backfill. Used
- * after a contract change (`rebuild_required`) or a permanent pseudonym key change. Refused
- * while ingest is disabled, so a rebuild never leaves an organization empty.
+ * cursor (no contracts — the next slice adopts the current ones —, no pseudonym key, no
+ * completed full reconciliation) and starts a fresh backfill. Used by operators after a
+ * permanent pseudonym key change or to re-project everything; contract changes rebuild single
+ * processes on their own. Refused while ingest is disabled. The contracts are emptied before
+ * the clearing starts, so a clearing that fails midway leaves every process to be cleared and
+ * rebuilt by the next slice; if the backfill fails to start, the next ingest tick schedules a
+ * full reconciliation (the reset cleared its timestamp).
  */
 export async function rebuildXrayProjection(
   container: XrayContainer,
@@ -393,17 +394,18 @@ export async function rebuildXrayProjection(
   const gate = await isIngestAllowed(container, scope, em)
   if (!gate.allowed) return { ok: false, reason: 'disabled' }
   const store = createXrayStore(em)
-  const cursor = await store.ensureCursor(scope, registry.contractHash, XRAY_SETTLE_MS)
+  const cursor = await store.ensureCursor(scope, XRAY_SETTLE_MS)
   const lease = await store.acquireLease(cursor, createLeaseOwner(), XRAY_LEASE_MS)
   if (!lease) return { ok: false, reason: 'lease_busy' }
   try {
+    await store.updateCursor(lease, XRAY_LEASE_MS, { contract_hashes: '{}' })
     for (const table of ['insights_process_events', 'insights_process_cases', 'insights_process_rollups'] as const) {
       let cleared = 0
       do {
         cleared = await store.clearProjectionBatch(lease, XRAY_LEASE_MS, table, CLEAR_BATCH)
       } while (cleared >= CLEAR_BATCH)
     }
-    await store.resetCursor(lease, XRAY_LEASE_MS, registry.contractHash, XRAY_SETTLE_MS)
+    await store.resetCursor(lease, XRAY_LEASE_MS, XRAY_SETTLE_MS)
   } finally {
     await store.releaseLease(lease)
   }
@@ -458,6 +460,7 @@ export async function readXrayStatus(container: XrayContainer, scope: Projection
     scope,
     ingestEnabled,
     settings,
+    countsTimedOut: counts === null,
     registry: {
       ready: registry.ready,
       contractHash: registry.contractHash,
@@ -465,7 +468,7 @@ export async function readXrayStatus(container: XrayContainer, scope: Projection
       rejected: registry.rejected.length,
     },
     cursor,
-    counts,
+    counts: counts ?? [],
   }
 }
 

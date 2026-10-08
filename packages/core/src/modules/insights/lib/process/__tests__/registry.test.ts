@@ -17,6 +17,7 @@ import {
   getProcessRegistry,
   registerProcessConfigEntries,
   resetProcessRegistryForTests,
+  restrictProcessRegistry,
 } from '../registry'
 import { testProcessConfig } from './processTestSupport'
 
@@ -210,6 +211,84 @@ describe('process contract hash', () => {
     }))
     expect(changed.contractHash).not.toBe(first.contractHash)
     expect(added.contractHash).not.toBe(first.contractHash)
+  })
+
+  it('keeps one hash per process, so changing one process leaves the others untouched', () => {
+    const base = testProcessConfig()
+    const deal = base.processes?.[0] as ProcessDescriptor
+    const quote: ProcessDescriptor = { ...deal, processKey: 'test.quote', resourceKind: 'test.quote', logResourceKinds: ['test.quote'], entityId: 'test:quote', milestones: [] }
+    const first = snapshot({ version: 1, processes: [deal, quote] })
+    const changed = snapshot({ version: 1, processes: [deal, { ...quote, endStates: [{ field: 'status', values: ['won'] }] }] })
+    expect(Array.from(first.processContractHashes.keys())).toEqual(['test.deal', 'test.quote'])
+    expect(changed.processContractHashes.get('test.deal')).toBe(first.processContractHashes.get('test.deal'))
+    expect(changed.processContractHashes.get('test.quote')).not.toBe(first.processContractHashes.get('test.quote'))
+    const alone = snapshot({ version: 1, processes: [deal] })
+    expect(alone.processContractHashes.get('test.deal')).toBe(first.processContractHashes.get('test.deal'))
+  })
+
+  it('orders resource kinds and processes by code units, independent of the locale', () => {
+    const result = snapshot(withProcess({ logResourceKinds: ['test.deal', 'test.deal_a', 'test.deal-a', 'test.deal0'] }))
+    expect(result.logResourceKinds).toEqual(['test.deal', 'test.deal-a', 'test.deal0', 'test.deal_a', 'test.payment'])
+    const deal = testProcessConfig().processes?.[0] as ProcessDescriptor
+    const underscored = { ...deal, processKey: 'test.a_', milestones: [] }
+    const numbered = { ...deal, processKey: 'test.a0', milestones: [] }
+    const ordered = snapshot({ version: 1, processes: [underscored, numbered] })
+    expect(ordered.processes.map((process) => process.processKey)).toEqual(['test.a0', 'test.a_'])
+    expect(Array.from(ordered.processContractHashes.keys())).toEqual(['test.a0', 'test.a_'])
+  })
+
+  it('restricts a snapshot to selected processes and their log resource kinds', () => {
+    const exited = snapshot(withProcess({ exits: [{ key: 'converted', labelKey: 'x', commandIds: ['test.convert'], logResourceKinds: ['test.order'], caseIdPaths: ['deal.id'] }] }))
+    const restricted = restrictProcessRegistry(exited, ['test.deal', 'test.missing'])
+    expect(restricted.processes.map((process) => process.processKey)).toEqual(['test.deal'])
+    expect(restricted.logResourceKinds).toEqual(['test.deal', 'test.order', 'test.payment'])
+    const none = restrictProcessRegistry(exited, ['test.missing'])
+    expect(none).toEqual(expect.objectContaining({ processes: [], logResourceKinds: [] }))
+    expect(Array.from(none.processContractHashes.keys())).toEqual([])
+  })
+})
+
+describe('process registry encryption guard by resource kind', () => {
+  it('rejects a declaration whose entity id belongs to another module than its resource kind', () => {
+    const root = snapshot(withProcess({ resourceKind: 'other.deal', logResourceKinds: ['test.deal'] }))
+    expect(root.processes).toEqual([])
+    expect(root.rejected[0]?.reason).toContain('resourceKind')
+    const milestone = snapshot(withProcess({
+      milestones: [{ key: 'payment', labelKey: 'x', resourceKind: 'test.payment', parentResourceKinds: ['test.deal'], entityId: 'other:payment', lifecycle: ['created'] }],
+    }))
+    expect(milestone.processes).toEqual([])
+    expect(milestone.rejected[0]?.reason).toContain('resourceKind')
+  })
+
+  it('checks the encryption maps of every module whose audit rows a process reads', () => {
+    const viaLogKind = buildProcessRegistrySnapshot(
+      [{ moduleId: 'test', config: withProcess({ logResourceKinds: ['test.deal', 'crm.deal'] }) }],
+      [{ moduleId: 'test', maps: [] }, { moduleId: 'crm', maps: [{ entityId: 'crm:deal_mirror', fields: [{ field: 'priority' }] }] }],
+    )
+    expect(viaLogKind.processes).toEqual([])
+    expect(viaLogKind.rejected[0]?.reason).toContain('priority')
+    const viaMilestoneLogKind = buildProcessRegistrySnapshot(
+      [{ moduleId: 'test', config: withProcess({
+        milestones: [{
+          key: 'payment',
+          labelKey: 'x',
+          resourceKind: 'test.payment',
+          logResourceKinds: ['billing.payment'],
+          parentResourceKinds: ['test.deal'],
+          entityId: 'test:payment',
+          fields: [{ key: 'status', labelKey: 'x', valueKind: 'dictionary', snapshotPaths: ['status'] }],
+        }],
+      }) }],
+      [{ moduleId: 'test', maps: [] }, { moduleId: 'billing', maps: [{ entityId: 'billing:payment', fields: [{ field: 'status' }] }] }],
+    )
+    expect(viaMilestoneLogKind.processes).toEqual([])
+    expect(viaMilestoneLogKind.rejected[0]?.reason).toContain('payment.status')
+    const declaredByHost = buildProcessRegistrySnapshot(
+      [{ moduleId: 'host', config: testProcessConfig() }],
+      [{ moduleId: 'host', maps: [] }, { moduleId: 'test', maps: [{ entityId: 'test:audit_only', fields: [{ field: 'stage_id' }] }] }],
+    )
+    expect(declaredByHost.processes).toEqual([])
+    expect(declaredByHost.rejected[0]?.reason).toContain('stage_id')
   })
 })
 

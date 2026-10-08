@@ -1,5 +1,6 @@
 import { isUuid } from '@open-mercato/shared/lib/causation/types'
 import {
+  PROCESS_ACTIVITY_VALUE_PATTERN,
   PROCESS_LEGACY_CAUSE_KIND,
   type ProcessActivityKind,
   type ProcessFieldValueKind,
@@ -230,13 +231,26 @@ function hasSyncRunFrame(entry: ProcessSourceEntry): boolean {
   return Boolean(entry.causation?.frames?.some((frame) => frame.kind === 'sync_run'))
 }
 
+/**
+ * The cause id stored in plaintext: an identifier matching `PROCESS_ACTIVITY_VALUE_PATTERN`
+ * (subscriber or schedule ids) or a UUID (lower-cased); anything else, and every person cause,
+ * is dropped.
+ */
+function storableCauseId(entry: ProcessSourceEntry): string | null {
+  if (!entry.causeKind || PERSON_CAUSE_KINDS.has(entry.causeKind)) return null
+  const causeId = entry.causeId
+  if (typeof causeId !== 'string') return null
+  if (isUuid(causeId)) return causeId.toLowerCase()
+  return PROCESS_ACTIVITY_VALUE_PATTERN.test(causeId) ? causeId : null
+}
+
 function buildBase(entry: ProcessSourceEntry): DerivedEventBase {
   return {
     sourceLogId: entry.logId.toLowerCase(),
     occurredAt: entry.cursorAt,
     actorUserId: entry.actorKind === 'system' ? null : normalizeId(entry.actorUserId),
     causeKind: entry.causeKind ?? PROCESS_LEGACY_CAUSE_KIND,
-    causeId: entry.causeKind && !PERSON_CAUSE_KINDS.has(entry.causeKind) ? entry.causeId : null,
+    causeId: storableCauseId(entry),
     viaSyncRun: hasSyncRunFrame(entry),
     voided: VOIDED_STATES.has(entry.executionState ?? ''),
   }
@@ -248,7 +262,8 @@ function buildBase(entry: ProcessSourceEntry): DerivedEventBase {
  * of the row it undid. A row already undone or redone at ingest yields voided events, so a
  * re-scan reproduces the same `(source_log_id, process_key, seq)` keys. Failed rows yield
  * nothing. Rows recorded before causation tracking keep `cause_kind = 'legacy'`. The cause id
- * of a person (`user`, `agent`) is never copied: actors are only stored as pseudonyms.
+ * of a person (`user`, `agent`) is never copied: actors are only stored as pseudonyms; other
+ * cause ids are kept only when they are identifiers or UUIDs.
  */
 export function deriveLogActivities(entry: ProcessSourceEntry, processes: readonly RegisteredProcess[]): LogDerivation {
   if (entry.executionState === 'failed') return { kind: 'skip', reason: 'failed' }

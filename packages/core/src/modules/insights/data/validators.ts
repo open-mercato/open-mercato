@@ -463,6 +463,7 @@ export const xrayBackfillResponseSchema = z.object({
 const xrayScanSchema = z.object({
   id: z.string().uuid(),
   kind: z.enum(['backfill', 'reconcile', 'full_reconcile']),
+  processKeys: z.array(z.string()).nullable().describe('Processes a per-process rebuild scan is limited to; null when the scan covers every process.'),
   from: z.string().nullable(),
   until: z.string().nullable(),
   position: z.string().nullable(),
@@ -470,6 +471,13 @@ const xrayScanSchema = z.object({
   progressJobId: z.string().uuid().nullable(),
   startedAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
+})
+
+const xrayContractChangeSchema = z.object({
+  at: z.string().nullable(),
+  changed: z.array(z.string()),
+  added: z.array(z.string()),
+  removed: z.array(z.string()).describe('Processes no longer registered (module disabled): their rows stay until retention prunes them and are not shown.'),
 })
 
 export const xrayStatusResponseSchema = z.object({
@@ -484,9 +492,14 @@ export const xrayStatusResponseSchema = z.object({
   }),
   cursor: z
     .object({
-      status: z.enum(['idle', 'backfilling', 'rebuild_required']),
-      contractMatches: z.boolean(),
-      computedThrough: z.string().nullable().describe('Audit rows up to this time are projected.'),
+      status: z.enum(['idle', 'backfilling']),
+      contractMatches: z.boolean().describe('Every registered process is projected under a recorded contract and no per-process rebuild is queued or running.'),
+      rebuildingProcessKeys: z.array(z.string()).describe('Processes whose rows were cleared after a contract change (declaration, derivation or tenant encryption map) and are being re-projected.'),
+      contractChange: xrayContractChangeSchema.nullable().describe('The last per-process contract transition.'),
+      computedThrough: z.string().nullable().describe('Audit rows up to this time are projected (the incremental position).'),
+      coverageFrom: z.string().nullable().describe('Audit rows from this time on are projected; earlier history is missing until a backfill or the weekly full reconciliation covers it (never earlier than the retention window).'),
+      historyScanned: z.boolean().describe('Whether a backfill or full reconciliation of every process has completed since the cursor was created or reset.'),
+      historyScannedAt: z.string().nullable(),
       stateWatermark: z.string().nullable(),
       scan: xrayScanSchema.nullable(),
       lastReconciledAt: z.string().nullable(),
@@ -494,18 +507,24 @@ export const xrayStatusResponseSchema = z.object({
       lastPrunedAt: z.string().nullable(),
       lastRunAt: z.string().nullable(),
       lastError: z.string().nullable(),
+      undecryptableRows: z.number().int().describe('Audit rows the incremental pass skipped because their encrypted columns are sealed under another key than the tenant key in use (each row counted once).'),
+      overlapTimeouts: z.number().int().describe('Overlap re-reads (late-committed rows) that ended on their statement timeout; the nightly reconciliation covers them.'),
+      lastOverlapTimeoutAt: z.string().nullable(),
       leaseActive: z.boolean(),
     })
     .nullable(),
   processes: z.array(z.object({
     processKey: z.string(),
-    n: z.number().int().describe('Projected, non-voided events.'),
-    voidedEvents: z.number().int(),
-    cases: z.number().int(),
-    openCases: z.number().int(),
+    n: z.number().int().nullable().describe('Projected, non-voided events (null when the counts timed out).'),
+    voidedEvents: z.number().int().nullable(),
+    cases: z.number().int().nullable(),
+    openCases: z.number().int().nullable(),
+    firstOccurredAt: z.string().nullable().describe('Earliest projected activity of the process.'),
     lastOccurredAt: z.string().nullable(),
-  })),
+  })).describe('Registered processes only.'),
+  countsTimedOut: z.boolean().describe('True when the per-process counts exceeded their time limit; the counts are then null.'),
   computedThrough: z.string().nullable(),
+  coverageFrom: z.string().nullable(),
 })
 
 export type XrayStatusResponse = z.infer<typeof xrayStatusResponseSchema>

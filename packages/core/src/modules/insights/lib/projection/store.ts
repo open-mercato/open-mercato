@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { sql, type Kysely, type Transaction, type UpdateObject } from 'kysely'
 import { PROCESS_LEGACY_CAUSE_KIND } from '@open-mercato/shared/modules/insights/process'
-import type { RegisteredProcess } from '../process/registry'
+import { compareCodeUnits, type RegisteredProcess } from '../process/registry'
 import {
   AUTOMATED_CAUSE_KINDS,
   CASE_EVENT_LIMIT,
@@ -11,8 +11,9 @@ import {
   type CaseEventRow,
 } from '../process/caseSummary'
 import type { ProcessCursorStatus, ProcessScanKind } from '../../data/entities'
+import { isLockTimeoutError, isStatementTimeoutError } from './errors'
 import { ERASED_PSEUDONYM_PREFIX, NO_PSEUDONYM_KEY_FINGERPRINT } from './pseudonym'
-import type { ProjectionScope, XrayDatabase } from './types'
+import type { ProcessContractChange, ProjectionScope, XrayDatabase } from './types'
 
 export const MAX_LOG_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
 
@@ -20,6 +21,20 @@ const ISO_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
 const INSERT_CHUNK_SIZE = 250
 const ID_CHUNK_SIZE = 500
 const COMMIT_STATEMENT_TIMEOUT_MS = 30000
+const RESERVED_VALUE_COUNT = 2
+const VALUE_FIELD_SCAN_LIMIT = 10000
+
+/** How long a lease attempt waits for the cursor row lock before it counts as busy. */
+export const LEASE_LOCK_TIMEOUT_MS = 5000
+
+/** Statement timeout of the status counts; on timeout the counts degrade to null. */
+export const COUNTS_STATEMENT_TIMEOUT_MS = 3000
+
+/** Rows re-pseudonymized per erasure transaction. */
+export const ERASURE_BATCH_SIZE = 5000
+
+/** Cursors per page of a system-wide cursor listing. */
+export const CURSOR_PAGE_SIZE = 500
 
 export class ProjectionLeaseLostError extends Error {
   constructor() {
@@ -61,7 +76,21 @@ export type ProjectionCursor = {
   leaseOwner: string | null
   leaseToken: number
   leaseUntil: string | null
-  contractHash: string | null
+  /** Contract hash per projected process; null until the first slice adopts the current ones. */
+  contractHashes: Record<string, string> | null
+  /** Processes cleared after a contract change and waiting for their rebuild scan. */
+  pendingRebuildKeys: string[]
+  /** Processes the running scan is limited to (a per-process rebuild); null for every process. */
+  scanProcessKeys: string[] | null
+  contractChangedAt: string | null
+  contractChange: ProcessContractChange | null
+  /** Audit rows from this time on are projected for every process not being rebuilt. */
+  coverageFrom: string | null
+  /** When a backfill or full reconciliation of every process last completed; null if never. */
+  historyScannedAt: string | null
+  undecryptableRows: number
+  overlapTimeouts: number
+  lastOverlapTimeoutAt: string | null
   status: ProcessCursorStatus
   lastRunAt: string | null
   lastError: string | null
@@ -115,6 +144,8 @@ export type ProjectionCommit = {
   voids: ProjectionVoid[]
   advance: CursorAdvance
   processes: readonly RegisteredProcess[]
+  /** Audit rows of this page skipped as undecryptable, added to the cursor's counter. */
+  undecryptable?: number
 }
 
 export type ProjectionCommitResult = {
@@ -131,7 +162,22 @@ export type ScanStart = {
   from: string | null
   until: string
   progressJobId: string | null
+  /** Limits the scan to these processes (a per-process rebuild); omitted or null for all. */
+  processKeys?: string[] | null
 }
+
+export type ContractTransition = {
+  /** The contract hash of every registered process; processes left out are dropped. */
+  hashes: Record<string, string>
+  /** Processes whose rows were cleared and must be rebuilt by a scan. */
+  rebuild: string[]
+  /** The transition to record; null when the cursor only adopts its first contracts. */
+  change: ProcessContractChange | null
+}
+
+export type CursorListFilter =
+  | { tenantId: string; organizationId?: string | null }
+  | { allTenants: true; after?: ProjectionScope | null; limit?: number }
 
 export type ScanResume = {
   scanId: string
@@ -145,6 +191,19 @@ export type ActorErasureInput = {
   replacement: string
   keyFingerprint: string
   userValueFields: ReadonlyArray<{ processKey: string; field: string }>
+  batchSize?: number
+}
+
+type ValueField = { processKey: string; field: string }
+
+function uniqueValueFields(fields: readonly ValueField[]): ValueField[] {
+  const seen = new Set<string>()
+  return fields.filter((entry) => {
+    const key = `${entry.processKey}\u001f${entry.field}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export type ActorErasureResult = {
@@ -158,6 +217,7 @@ export type ProjectionCounts = {
   voidedEvents: number
   cases: number
   openCases: number
+  firstOccurredAt: string | null
   lastOccurredAt: string | null
 }
 
@@ -187,7 +247,16 @@ type CursorRow = {
   lease_owner: string | null
   lease_token: string | number
   lease_until: string | null
-  contract_hash: string | null
+  contract_hashes: unknown
+  pending_rebuild_keys: unknown
+  scan_process_keys: unknown
+  contract_changed_at: string | null
+  contract_change: unknown
+  coverage_from: string | null
+  history_scanned_at: string | null
+  undecryptable_rows: string | number
+  overlap_timeouts: string | number
+  last_overlap_timeout_at: string | null
   status: string
   last_run_at: string | null
   last_error: string | null
@@ -214,7 +283,32 @@ function chunk<TValue>(values: readonly TValue[], size: number): TValue[][] {
 }
 
 function readStatus(value: string): ProcessCursorStatus {
-  return value === 'backfilling' || value === 'rebuild_required' ? value : 'idle'
+  return value === 'backfilling' ? value : 'idle'
+}
+
+function readKeyList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry): entry is string => typeof entry === 'string').sort(compareCodeUnits)
+}
+
+function readHashes(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const hashes: Record<string, string> = {}
+  for (const key of Object.keys(value).sort(compareCodeUnits)) {
+    const hash = (value as Record<string, unknown>)[key]
+    if (typeof hash === 'string') hashes[key] = hash
+  }
+  return hashes
+}
+
+function readChange(value: unknown): ProcessContractChange | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  return { changed: readKeyList(record.changed), added: readKeyList(record.added), removed: readKeyList(record.removed) }
+}
+
+function uniqueSorted(values: Iterable<string>): string[] {
+  return Array.from(new Set(values)).sort(compareCodeUnits)
 }
 
 function readScanKind(value: string | null): ProcessScanKind | null {
@@ -248,7 +342,16 @@ function mapCursor(row: CursorRow): ProjectionCursor {
     leaseOwner: row.lease_owner,
     leaseToken: toNumber(row.lease_token),
     leaseUntil: row.lease_until,
-    contractHash: row.contract_hash,
+    contractHashes: readHashes(row.contract_hashes),
+    pendingRebuildKeys: readKeyList(row.pending_rebuild_keys),
+    scanProcessKeys: Array.isArray(row.scan_process_keys) ? readKeyList(row.scan_process_keys) : null,
+    contractChangedAt: row.contract_changed_at,
+    contractChange: readChange(row.contract_change),
+    coverageFrom: row.coverage_from,
+    historyScannedAt: row.history_scanned_at,
+    undecryptableRows: toNumber(row.undecryptable_rows),
+    overlapTimeouts: toNumber(row.overlap_timeouts),
+    lastOverlapTimeoutAt: row.last_overlap_timeout_at,
     status: readStatus(row.status),
     lastRunAt: row.last_run_at,
     lastError: row.last_error,
@@ -284,7 +387,16 @@ function selectCursor(db: Kysely<XrayDatabase> | Transaction<XrayDatabase>) {
       'insights_process_cursors.lease_owner',
       'insights_process_cursors.lease_token',
       iso('insights_process_cursors.lease_until').as('lease_until'),
-      'insights_process_cursors.contract_hash',
+      'insights_process_cursors.contract_hashes',
+      'insights_process_cursors.pending_rebuild_keys',
+      'insights_process_cursors.scan_process_keys',
+      iso('insights_process_cursors.contract_changed_at').as('contract_changed_at'),
+      'insights_process_cursors.contract_change',
+      iso('insights_process_cursors.coverage_from').as('coverage_from'),
+      iso('insights_process_cursors.history_scanned_at').as('history_scanned_at'),
+      'insights_process_cursors.undecryptable_rows',
+      'insights_process_cursors.overlap_timeouts',
+      iso('insights_process_cursors.last_overlap_timeout_at').as('last_overlap_timeout_at'),
       'insights_process_cursors.status',
       iso('insights_process_cursors.last_run_at').as('last_run_at'),
       'insights_process_cursors.last_error',
@@ -588,9 +700,21 @@ const SCAN_CLEARED: CursorUpdate = {
   scan_after_log_id: null,
   scan_progress_job_id: null,
   scan_chain_id: null,
+  scan_process_keys: null,
 }
 
+function jsonValue(value: unknown): string {
+  return JSON.stringify(value)
+}
+
+/**
+ * Starts a scan. The processes of a per-process rebuild scan it replaces go back to the rebuild
+ * queue, and a scan limited to some processes takes those off the queue; a scan of every
+ * process leaves the queue alone (processes cleared before it started still get their own
+ * rebuild scan, so an abandoned or cancelled scan never loses one).
+ */
 function scanStartValues(scan: ScanStart): CursorUpdate {
+  const processKeys = scan.processKeys ? uniqueSorted(scan.processKeys) : null
   return {
     scan_id: scan.scanId,
     scan_chain_id: scan.chainId,
@@ -603,7 +727,17 @@ function scanStartValues(scan: ScanStart): CursorUpdate {
     scan_processed_count: 0,
     scan_started_at: sql<Date>`now()`,
     scan_updated_at: sql<Date>`now()`,
-    status: sql<string>`case when status = 'rebuild_required' then status else 'backfilling' end`,
+    scan_process_keys: processKeys ? jsonValue(processKeys) : null,
+    pending_rebuild_keys: sql<string>`coalesce((
+      select jsonb_agg(queued.key order by queued.key collate "C")
+      from (
+        select jsonb_array_elements_text(insights_process_cursors.pending_rebuild_keys) as key
+        union
+        select jsonb_array_elements_text(coalesce(insights_process_cursors.scan_process_keys, '[]'::jsonb))
+      ) as queued
+      where not (queued.key = any(${processKeys ?? []}::text[]))
+    ), '[]'::jsonb)`,
+    status: 'backfilling',
     updated_at: sql<Date>`now()`,
   }
 }
@@ -662,8 +796,8 @@ export type ProjectionStore = ReturnType<typeof createProjectionStore>
  * `ProjectionLeaseLostError` and writes nothing). Outside the lease only scan bookkeeping is
  * written (`startScan` by a person, the chain heartbeat and `abandonScan`, both conditional
  * on the scan and its chain) and the tenant-wide erasure (`recordErasure`,
- * `replaceActorPseudonym`, which locks every cursor row of the tenant). Every query carries
- * the tenant, and the organization unless it is tenant-wide.
+ * `replaceActorPseudonym`, which locks one organization's cursor row per batch). Every query
+ * carries the tenant, and the organization unless it is tenant-wide.
  */
 export function createProjectionStore(db: Kysely<XrayDatabase>) {
   async function now(): Promise<string> {
@@ -681,7 +815,12 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
     return row ? mapCursor(row as CursorRow) : null
   }
 
-  async function ensureCursor(scope: ProjectionScope, contractHash: string, settleMs: number): Promise<ProjectionCursor> {
+  /**
+   * Creates the organization's cursor (idempotent) at `now - settleMs`, covered from that
+   * time on, without contracts: the first slice adopts the current ones (the projection of a
+   * new cursor is empty, so there is nothing to rebuild).
+   */
+  async function ensureCursor(scope: ProjectionScope, settleMs: number): Promise<ProjectionCursor> {
     const start = sql<Date>`now() - (${settleMs}::int * interval '1 millisecond')`
     await db
       .insertInto('insights_process_cursors')
@@ -692,7 +831,11 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
         last_log_id: MAX_LOG_ID,
         state_watermark: start,
         state_last_log_id: MAX_LOG_ID,
-        contract_hash: contractHash,
+        contract_hashes: null,
+        pending_rebuild_keys: '[]',
+        coverage_from: start,
+        undecryptable_rows: 0,
+        overlap_timeouts: 0,
         status: 'idle',
         scan_processed_count: 0,
         lease_token: 0,
@@ -709,25 +852,45 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
     return cursor
   }
 
-  async function acquireLease(cursor: ProjectionCursor, owner: string, leaseMs: number): Promise<ProjectionLease | null> {
-    const row = await db
-      .updateTable('insights_process_cursors')
-      .set({
-        lease_owner: owner,
-        lease_token: sql<string>`lease_token + 1`,
-        lease_until: sql<Date>`now() + (${leaseMs}::int * interval '1 millisecond')`,
-        updated_at: sql<Date>`now()`,
+  /**
+   * Compare-and-set lease: granted only when no live lease exists. Waits at most
+   * `lockTimeoutMs` for the cursor row lock (held by a fenced commit or an erasure batch);
+   * a lock timeout counts as busy.
+   */
+  async function acquireLease(
+    cursor: ProjectionCursor,
+    owner: string,
+    leaseMs: number,
+    options: { lockTimeoutMs?: number } = {},
+  ): Promise<ProjectionLease | null> {
+    const lockTimeoutMs = Math.max(1, Math.trunc(options.lockTimeoutMs ?? LEASE_LOCK_TIMEOUT_MS))
+    let row: { lease_token: string } | undefined
+    try {
+      row = await db.transaction().execute(async (trx) => {
+        await sql`set local lock_timeout = ${sql.lit(lockTimeoutMs)}`.execute(trx)
+        return trx
+          .updateTable('insights_process_cursors')
+          .set({
+            lease_owner: owner,
+            lease_token: sql<string>`lease_token + 1`,
+            lease_until: sql<Date>`now() + (${leaseMs}::int * interval '1 millisecond')`,
+            updated_at: sql<Date>`now()`,
+          })
+          .where('insights_process_cursors.id', '=', cursor.id)
+          .where('insights_process_cursors.tenant_id', '=', cursor.tenantId)
+          .where('insights_process_cursors.organization_id', '=', cursor.organizationId)
+          .where((eb) => eb.or([
+            eb('insights_process_cursors.lease_owner', 'is', null),
+            eb('insights_process_cursors.lease_until', 'is', null),
+            eb('insights_process_cursors.lease_until', '<', sql<Date>`now()`),
+          ]))
+          .returning(['insights_process_cursors.lease_token'])
+          .executeTakeFirst()
       })
-      .where('insights_process_cursors.id', '=', cursor.id)
-      .where('insights_process_cursors.tenant_id', '=', cursor.tenantId)
-      .where('insights_process_cursors.organization_id', '=', cursor.organizationId)
-      .where((eb) => eb.or([
-        eb('insights_process_cursors.lease_owner', 'is', null),
-        eb('insights_process_cursors.lease_until', 'is', null),
-        eb('insights_process_cursors.lease_until', '<', sql<Date>`now()`),
-      ]))
-      .returning(['insights_process_cursors.lease_token'])
-      .executeTakeFirst()
+    } catch (error) {
+      if (isLockTimeoutError(error)) return null
+      throw error
+    }
     if (!row) return null
     return {
       cursorId: cursor.id,
@@ -828,8 +991,12 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
         casesRecomputed += outcome.recomputed
         casesRemoved += outcome.removed
       }
-      const advance = applyAdvance(batch.advance)
-      if (advance) {
+      const skipped = Math.max(0, Math.trunc(batch.undecryptable ?? 0))
+      const advance: CursorUpdate = {
+        ...(applyAdvance(batch.advance) ?? {}),
+        ...(skipped > 0 ? { undecryptable_rows: sql<string>`undecryptable_rows + ${skipped}` } : {}),
+      }
+      if (Object.keys(advance).length > 0) {
         await trx
           .updateTable('insights_process_cursors')
           .set(advance)
@@ -837,6 +1004,70 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
           .execute()
       }
       return { inserted, voided, casesRecomputed, casesRemoved }
+    })
+  }
+
+  /**
+   * Records the organization's process contracts under the lease: replaces the contract map
+   * (removed processes are dropped from it, their rows stay), queues `rebuild` processes for a
+   * rebuild scan (queued processes that are no longer registered are dropped) and stores the
+   * change. Returns the cursor as written.
+   */
+  async function applyContractTransition(lease: ProjectionLease, leaseMs: number, transition: ContractTransition): Promise<ProjectionCursor> {
+    return withFencedTransaction(db, lease, leaseMs, async (trx) => {
+      const current = await trx
+        .selectFrom('insights_process_cursors')
+        .select(['insights_process_cursors.pending_rebuild_keys'])
+        .where('insights_process_cursors.id', '=', lease.cursorId)
+        .executeTakeFirst()
+      const registered = new Set(Object.keys(transition.hashes))
+      const pending = uniqueSorted([...readKeyList(current?.pending_rebuild_keys), ...transition.rebuild])
+        .filter((processKey) => registered.has(processKey))
+      const values: CursorUpdate = {
+        contract_hashes: jsonValue(readHashes(transition.hashes) ?? {}),
+        pending_rebuild_keys: jsonValue(pending),
+        updated_at: sql<Date>`now()`,
+      }
+      if (transition.change) {
+        values.contract_changed_at = sql<Date>`now()`
+        values.contract_change = jsonValue({
+          changed: uniqueSorted(transition.change.changed),
+          added: uniqueSorted(transition.change.added),
+          removed: uniqueSorted(transition.change.removed),
+        })
+      }
+      await trx.updateTable('insights_process_cursors').set(values).where('insights_process_cursors.id', '=', lease.cursorId).execute()
+      const row = await selectCursor(trx).where('insights_process_cursors.id', '=', lease.cursorId).executeTakeFirst()
+      if (!row) throw new ProjectionLeaseLostError()
+      return mapCursor(row as CursorRow)
+    })
+  }
+
+  /**
+   * Queues processes for a rebuild scan under the lease before their rows are cleared, so the
+   * status shows them as rebuilding while a budgeted clearing spans several slices.
+   */
+  async function queueProcessRebuilds(lease: ProjectionLease, leaseMs: number, processKeys: readonly string[]): Promise<void> {
+    await withFencedTransaction(db, lease, leaseMs, async (trx) => {
+      const current = await trx
+        .selectFrom('insights_process_cursors')
+        .select(['insights_process_cursors.pending_rebuild_keys'])
+        .where('insights_process_cursors.id', '=', lease.cursorId)
+        .executeTakeFirst()
+      const pending = uniqueSorted([...readKeyList(current?.pending_rebuild_keys), ...processKeys])
+      await trx
+        .updateTable('insights_process_cursors')
+        .set({ pending_rebuild_keys: jsonValue(pending), updated_at: sql<Date>`now()` })
+        .where('insights_process_cursors.id', '=', lease.cursorId)
+        .execute()
+    })
+  }
+
+  /** Counts an overlap re-read that ended on its statement timeout (visible in the status). */
+  async function noteOverlapTimeout(lease: ProjectionLease, leaseMs: number): Promise<void> {
+    await updateCursor(lease, leaseMs, {
+      overlap_timeouts: sql<string>`overlap_timeouts + 1`,
+      last_overlap_timeout_at: sql<Date>`now()`,
     })
   }
 
@@ -912,15 +1143,25 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
     })
   }
 
+  /**
+   * Clears the finished scan. A scan of every process also records the reconciliation (and,
+   * for a backfill or full reconciliation, the history coverage from its lower bound); a
+   * per-process rebuild scan records nothing organization-wide.
+   */
   async function finishScan(lease: ProjectionLease, leaseMs: number, scanId: string, chainId: string, kind: ProcessScanKind): Promise<boolean> {
     return withFencedTransaction(db, lease, leaseMs, async (trx, fenced) => {
       if (fenced.scanId !== scanId || fenced.scanChainId !== chainId) return false
       const values: CursorUpdate = {
         ...SCAN_CLEARED,
-        status: sql<string>`case when status = 'rebuild_required' then status else 'idle' end`,
+        status: 'idle',
+        last_reconciled_at: sql<Date>`case when scan_process_keys is null then now() else last_reconciled_at end`,
+        updated_at: sql<Date>`now()`,
       }
-      if (kind === 'reconcile' || kind === 'full_reconcile' || kind === 'backfill') values.last_reconciled_at = sql<Date>`now()`
-      if (kind === 'full_reconcile' || kind === 'backfill') values.last_full_reconciled_at = sql<Date>`now()`
+      if (kind === 'full_reconcile' || kind === 'backfill') {
+        values.last_full_reconciled_at = sql<Date>`case when scan_process_keys is null then now() else last_full_reconciled_at end`
+        values.history_scanned_at = sql<Date>`case when scan_process_keys is null then now() else history_scanned_at end`
+        values.coverage_from = sql<Date>`case when scan_process_keys is null then least(coverage_from, scan_from) else coverage_from end`
+      }
       await trx.updateTable('insights_process_cursors').set(values).where('insights_process_cursors.id', '=', lease.cursorId).execute()
       return true
     })
@@ -928,7 +1169,8 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
 
   /**
    * Clears a scan its live chain gave up on. A scheduled reconciliation counts as attempted,
-   * so the next tick does not restart it at once (it is retried at its next due time).
+   * so the next tick does not restart it at once (it is retried at its next due time); the
+   * processes of an abandoned per-process rebuild go back to the rebuild queue.
    */
   async function abandonScan(
     scope: ProjectionScope,
@@ -949,10 +1191,18 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
       .updateTable('insights_process_cursors')
       .set({
         ...SCAN_CLEARED,
-        last_reconciled_at: sql<Date>`case when scan_kind in ('reconcile', 'full_reconcile') then now() else last_reconciled_at end`,
-        last_full_reconciled_at: sql<Date>`case when scan_kind = 'full_reconcile' then now() else last_full_reconciled_at end`,
+        last_reconciled_at: sql<Date>`case when scan_process_keys is null and scan_kind in ('reconcile', 'full_reconcile') then now() else last_reconciled_at end`,
+        last_full_reconciled_at: sql<Date>`case when scan_process_keys is null and scan_kind = 'full_reconcile' then now() else last_full_reconciled_at end`,
+        pending_rebuild_keys: sql<string>`case when scan_process_keys is null then pending_rebuild_keys else coalesce((
+          select jsonb_agg(queued.key order by queued.key collate "C")
+          from (
+            select jsonb_array_elements_text(insights_process_cursors.pending_rebuild_keys) as key
+            union
+            select jsonb_array_elements_text(insights_process_cursors.scan_process_keys)
+          ) as queued
+        ), '[]'::jsonb) end`,
         last_error: error.slice(0, 2000),
-        status: sql<string>`case when status = 'rebuild_required' then status else 'idle' end`,
+        status: 'idle',
         updated_at: sql<Date>`now()`,
       })
       .where('insights_process_cursors.tenant_id', '=', scope.tenantId)
@@ -962,16 +1212,6 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
       .returning(['insights_process_cursors.id'])
       .executeTakeFirst()
     return row ? { progressJobId: current.scan_progress_job_id ?? null } : null
-  }
-
-  async function markRebuildRequired(cursor: ProjectionCursor): Promise<void> {
-    await db
-      .updateTable('insights_process_cursors')
-      .set({ status: 'rebuild_required', updated_at: sql<Date>`now()` })
-      .where('insights_process_cursors.id', '=', cursor.id)
-      .where('insights_process_cursors.tenant_id', '=', cursor.tenantId)
-      .where('insights_process_cursors.organization_id', '=', cursor.organizationId)
-      .execute()
   }
 
   async function recordError(cursor: ProjectionCursor, error: string | null): Promise<void> {
@@ -984,37 +1224,77 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
       .execute()
   }
 
-  async function loadDistinctValues(scope: ProjectionScope, processKey: string, field: string, limit: number): Promise<string[]> {
-    const rows = await db
-      .selectFrom('insights_process_events')
-      .select('insights_process_events.followup_value')
-      .distinct()
-      .where('insights_process_events.tenant_id', '=', scope.tenantId)
-      .where('insights_process_events.organization_id', '=', scope.organizationId)
-      .where('insights_process_events.process_key', '=', processKey)
-      .where('insights_process_events.followup_field', '=', field)
-      .where('insights_process_events.followup_value', 'is not', null)
-      .where('insights_process_events.followup_value', 'not in', ['other', 'none'])
-      .limit(limit)
-      .execute()
-    return rows
-      .map((row) => row.followup_value)
-      .filter((value): value is string => typeof value === 'string')
+  /**
+   * The given values already stored for a field: one index point lookup per value on
+   * `insights_process_events_value_idx` (stops at the first match, never reads duplicates).
+   */
+  async function findKnownValues(scope: ProjectionScope, processKey: string, field: string, values: readonly string[]): Promise<string[]> {
+    const candidates = uniqueSorted(values)
+    if (candidates.length === 0) return []
+    const result = await sql<{ value: string }>`
+      select candidate.value
+      from unnest(${candidates}::text[]) as candidate(value)
+      where exists (
+        select 1 from insights_process_events events
+        where events.tenant_id = ${scope.tenantId} and events.organization_id = ${scope.organizationId}
+          and events.process_key = ${processKey} and events.followup_field = ${field}
+          and events.followup_value = candidate.value
+      )
+    `.execute(db)
+    return result.rows.map((row) => row.value)
   }
 
+  /**
+   * Distinct stored values of a field (reserved `other` / `none` excluded), counted up to
+   * `limit`: a loose index scan over `insights_process_events_value_idx` (one index seek per
+   * distinct value), so a field with millions of duplicate rows costs at most `limit + 2` seeks.
+   */
+  async function countDistinctValues(scope: ProjectionScope, processKey: string, field: string, limit: number): Promise<number> {
+    const bound = Math.max(0, Math.trunc(limit))
+    if (bound === 0) return 0
+    const scoped = sql`events.tenant_id = ${scope.tenantId} and events.organization_id = ${scope.organizationId}
+      and events.process_key = ${processKey} and events.followup_field = ${field}`
+    const result = await sql<{ total: string | number }>`
+      with recursive walk(value, depth) as (
+        (
+          select events.followup_value, 1
+          from insights_process_events events
+          where ${scoped} and events.followup_value is not null
+          order by events.followup_value
+          limit 1
+        )
+        union all
+        select (
+          select events.followup_value
+          from insights_process_events events
+          where ${scoped} and events.followup_value > walk.value
+          order by events.followup_value
+          limit 1
+        ), walk.depth + 1
+        from walk
+        where walk.value is not null and walk.depth < ${bound + RESERVED_VALUE_COUNT}
+      )
+      select count(*) filter (where walk.value is not null and walk.value not in ('other', 'none')) as total from walk
+    `.execute(db)
+    return Math.min(bound, toNumber(result.rows[0]?.total))
+  }
+
+  /** Removes one batch of the organization's projection rows (of one process when given). */
   async function clearProjectionBatch(
     lease: ProjectionLease,
     leaseMs: number,
     table: 'insights_process_events' | 'insights_process_cases' | 'insights_process_rollups',
     batchSize: number,
+    processKey?: string,
   ): Promise<number> {
     return withFencedTransaction(db, lease, leaseMs, async (trx) => {
       const scope = lease.scope
+      const ofProcess = processKey === undefined ? sql`` : sql`and process_key = ${processKey}`
       const result = await sql<{ id: string }>`
         delete from ${sql.table(table)}
         where id in (
           select id from ${sql.table(table)}
-          where tenant_id = ${scope.tenantId} and organization_id = ${scope.organizationId}
+          where tenant_id = ${scope.tenantId} and organization_id = ${scope.organizationId} ${ofProcess}
           limit ${batchSize}
         )
         returning id
@@ -1068,8 +1348,13 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
     })
   }
 
-  /** Resets the cursor after a cleared projection: new contract, no pseudonym key, no scan. */
-  async function resetCursor(lease: ProjectionLease, leaseMs: number, contractHash: string, settleMs: number): Promise<void> {
+  /**
+   * Resets the cursor after a cleared projection: positions at `now - settleMs`, no contracts
+   * (the next slice adopts the current ones), no rebuild queue, no pseudonym key, no scan, and
+   * no completed full reconciliation, so the next caught-up tick schedules one if the backfill
+   * that should follow never starts.
+   */
+  async function resetCursor(lease: ProjectionLease, leaseMs: number, settleMs: number): Promise<void> {
     const start = sql<Date>`now() - (${settleMs}::int * interval '1 millisecond')`
     await updateCursor(lease, leaseMs, {
       ...SCAN_CLEARED,
@@ -1081,63 +1366,113 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
       scan_started_at: null,
       scan_updated_at: null,
       actor_key_fingerprint: null,
-      contract_hash: contractHash,
+      contract_hashes: null,
+      pending_rebuild_keys: '[]',
+      contract_changed_at: null,
+      contract_change: null,
+      coverage_from: start,
+      history_scanned_at: null,
+      last_full_reconciled_at: null,
+      undecryptable_rows: 0,
+      overlap_timeouts: 0,
+      last_overlap_timeout_at: null,
       status: 'idle',
       last_error: null,
     })
   }
 
-  async function counts(scope: ProjectionScope): Promise<ProjectionCounts[]> {
-    const events = await db
-      .selectFrom('insights_process_events')
-      .select([
-        'insights_process_events.process_key',
-        sql<string>`count(*) filter (where not insights_process_events.voided)`.as('events'),
-        sql<string>`count(*) filter (where insights_process_events.voided)`.as('voided_events'),
-        sql<string | null>`to_char(max(insights_process_events.occurred_at) at time zone 'UTC', ${ISO_FORMAT})`.as('last_occurred_at'),
-      ])
-      .where('insights_process_events.tenant_id', '=', scope.tenantId)
-      .where('insights_process_events.organization_id', '=', scope.organizationId)
-      .groupBy('insights_process_events.process_key')
-      .execute()
-    const cases = await db
-      .selectFrom('insights_process_cases')
-      .select([
-        'insights_process_cases.process_key',
-        sql<string>`count(*)`.as('cases'),
-        sql<string>`count(*) filter (where insights_process_cases.status = 'open')`.as('open_cases'),
-      ])
-      .where('insights_process_cases.tenant_id', '=', scope.tenantId)
-      .where('insights_process_cases.organization_id', '=', scope.organizationId)
-      .groupBy('insights_process_cases.process_key')
-      .execute()
-    const byProcess = new Map<string, ProjectionCounts>()
-    const entryFor = (processKey: string): ProjectionCounts => {
-      const existing = byProcess.get(processKey)
-      if (existing) return existing
-      const created: ProjectionCounts = { processKey, events: 0, voidedEvents: 0, cases: 0, openCases: 0, lastOccurredAt: null }
-      byProcess.set(processKey, created)
-      return created
+  /**
+   * Per-process counts for the status, under a short statement timeout: on timeout the counts
+   * are unavailable (null) instead of failing the status.
+   */
+  async function counts(scope: ProjectionScope, options: { statementTimeoutMs?: number } = {}): Promise<ProjectionCounts[] | null> {
+    const timeoutMs = Math.max(1, Math.trunc(options.statementTimeoutMs ?? COUNTS_STATEMENT_TIMEOUT_MS))
+    try {
+      return await db.transaction().execute(async (trx) => {
+        await sql`set local statement_timeout = ${sql.lit(timeoutMs)}`.execute(trx)
+        const events = await trx
+          .selectFrom('insights_process_events')
+          .select([
+            'insights_process_events.process_key',
+            sql<string>`count(*) filter (where not insights_process_events.voided)`.as('events'),
+            sql<string>`count(*) filter (where insights_process_events.voided)`.as('voided_events'),
+            sql<string | null>`to_char(min(insights_process_events.occurred_at) at time zone 'UTC', ${ISO_FORMAT})`.as('first_occurred_at'),
+            sql<string | null>`to_char(max(insights_process_events.occurred_at) at time zone 'UTC', ${ISO_FORMAT})`.as('last_occurred_at'),
+          ])
+          .where('insights_process_events.tenant_id', '=', scope.tenantId)
+          .where('insights_process_events.organization_id', '=', scope.organizationId)
+          .groupBy('insights_process_events.process_key')
+          .execute()
+        const cases = await trx
+          .selectFrom('insights_process_cases')
+          .select([
+            'insights_process_cases.process_key',
+            sql<string>`count(*)`.as('cases'),
+            sql<string>`count(*) filter (where insights_process_cases.status = 'open')`.as('open_cases'),
+          ])
+          .where('insights_process_cases.tenant_id', '=', scope.tenantId)
+          .where('insights_process_cases.organization_id', '=', scope.organizationId)
+          .groupBy('insights_process_cases.process_key')
+          .execute()
+        const byProcess = new Map<string, ProjectionCounts>()
+        const entryFor = (processKey: string): ProjectionCounts => {
+          const existing = byProcess.get(processKey)
+          if (existing) return existing
+          const created: ProjectionCounts = { processKey, events: 0, voidedEvents: 0, cases: 0, openCases: 0, firstOccurredAt: null, lastOccurredAt: null }
+          byProcess.set(processKey, created)
+          return created
+        }
+        for (const row of events) {
+          const entry = entryFor(row.process_key)
+          entry.events = toNumber(row.events)
+          entry.voidedEvents = toNumber(row.voided_events)
+          entry.firstOccurredAt = row.first_occurred_at
+          entry.lastOccurredAt = row.last_occurred_at
+        }
+        for (const row of cases) {
+          const entry = entryFor(row.process_key)
+          entry.cases = toNumber(row.cases)
+          entry.openCases = toNumber(row.open_cases)
+        }
+        return Array.from(byProcess.values()).sort((left, right) => compareCodeUnits(left.processKey, right.processKey))
+      })
+    } catch (error) {
+      if (isStatementTimeoutError(error)) return null
+      throw error
     }
-    for (const row of events) {
-      const entry = entryFor(row.process_key)
-      entry.events = toNumber(row.events)
-      entry.voidedEvents = toNumber(row.voided_events)
-      entry.lastOccurredAt = row.last_occurred_at
-    }
-    for (const row of cases) {
-      const entry = entryFor(row.process_key)
-      entry.cases = toNumber(row.cases)
-      entry.openCases = toNumber(row.open_cases)
-    }
-    return Array.from(byProcess.values()).sort((left, right) => left.processKey.localeCompare(right.processKey))
   }
 
-  async function listCursors(filter: { tenantId?: string | null; organizationId?: string | null }): Promise<ProjectionCursor[]> {
+  /**
+   * Cursors of one tenant (optionally one organization), or — only when `allTenants` is set
+   * explicitly, for system fan-outs — one page of every tenant's cursors in
+   * `(tenant_id, organization_id)` order after `after`.
+   */
+  async function listCursors(filter: CursorListFilter): Promise<ProjectionCursor[]> {
     let query = selectCursor(db)
-    if (filter.tenantId) query = query.where('insights_process_cursors.tenant_id', '=', filter.tenantId)
+    if ('allTenants' in filter) {
+      if (filter.allTenants !== true) return []
+      const after = filter.after
+      if (after) {
+        query = query.where((eb) => eb.or([
+          eb('insights_process_cursors.tenant_id', '>', after.tenantId),
+          eb.and([
+            eb('insights_process_cursors.tenant_id', '=', after.tenantId),
+            eb('insights_process_cursors.organization_id', '>', after.organizationId),
+          ]),
+        ]))
+      }
+      const limit = Math.min(CURSOR_PAGE_SIZE, Math.max(1, Math.trunc(filter.limit ?? CURSOR_PAGE_SIZE)))
+      const rows = await query
+        .orderBy('insights_process_cursors.tenant_id')
+        .orderBy('insights_process_cursors.organization_id')
+        .limit(limit)
+        .execute()
+      return rows.map((row) => mapCursor(row as CursorRow))
+    }
+    if (typeof filter.tenantId !== 'string' || filter.tenantId.length === 0) return []
+    query = query.where('insights_process_cursors.tenant_id', '=', filter.tenantId)
     if (filter.organizationId) query = query.where('insights_process_cursors.organization_id', '=', filter.organizationId)
-    const rows = await query.orderBy('insights_process_cursors.tenant_id').orderBy('insights_process_cursors.organization_id').execute()
+    const rows = await query.orderBy('insights_process_cursors.organization_id').execute()
     return rows.map((row) => mapCursor(row as CursorRow))
   }
 
@@ -1168,58 +1503,135 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
   }
 
   /**
-   * GDPR erasure, step 2 (after the ledger row is committed): holding the row locks of every
-   * cursor of the tenant, which waits for in-flight commits, replaces the user's pseudonym
-   * with the replacement in every organization whose rows were written under
-   * `keyFingerprint`. Organizations written under another key are returned in
-   * `mismatchedOrganizationIds`: their rows cannot be matched until the key is back or a
-   * rebuild re-projects them through the ledger.
+   * The `(process_key, followup_field)` pairs holding values in an organization's events: a
+   * loose index scan over `insights_process_events_value_idx` (one seek per pair), so the
+   * erasure also reaches value fields of processes no longer registered (their rows stay).
    */
-  async function replaceActorPseudonym(input: ActorErasureInput): Promise<ActorErasureResult> {
-    const replacement = input.replacement
-    const pseudonym = input.pseudonym
-    if (!pseudonym) return { updated: 0, mismatchedOrganizationIds: [] }
+  async function loadValueFields(trx: Transaction<XrayDatabase>, tenantId: string, organizationId: string): Promise<ValueField[]> {
+    const result = await sql<{ process_key: string; followup_field: string }>`
+      with recursive pairs(process_key, followup_field, depth) as (
+        (
+          select events.process_key, events.followup_field, 1
+          from insights_process_events events
+          where events.tenant_id = ${tenantId} and events.organization_id = ${organizationId}
+            and events.followup_field is not null
+          order by events.process_key, events.followup_field
+          limit 1
+        )
+        union all
+        select next_pair.process_key, next_pair.followup_field, pairs.depth + 1
+        from pairs
+        cross join lateral (
+          select events.process_key, events.followup_field
+          from insights_process_events events
+          where events.tenant_id = ${tenantId} and events.organization_id = ${organizationId}
+            and events.followup_field is not null
+            and (events.process_key, events.followup_field) > (pairs.process_key, pairs.followup_field)
+          order by events.process_key, events.followup_field
+          limit 1
+        ) as next_pair
+        where pairs.depth < ${VALUE_FIELD_SCAN_LIMIT}
+      )
+      select process_key, followup_field from pairs
+    `.execute(trx)
+    return result.rows.map((row) => ({ processKey: row.process_key, field: row.followup_field }))
+  }
+
+  /**
+   * Re-pseudonymizes one bounded batch of an organization's rows (actor, then values) while
+   * holding that organization's cursor row lock, which waits for an in-flight fenced commit of
+   * the organization. The value fields are read under the lock of the first batch (after every
+   * commit that started before the ledger row finished). `skipped` when the organization has no
+   * rows under a pseudonym key, `mismatched` when they were written under another key (nothing
+   * is changed then).
+   */
+  async function replacePseudonymBatch(
+    input: ActorErasureInput,
+    pseudonym: string,
+    target: { id: string; organizationId: string },
+    knownFields: ValueField[] | null,
+    batchSize: number,
+  ): Promise<{ updated: number; mismatched: boolean; skipped: boolean; fields: ValueField[] | null }> {
     return db.transaction().execute(async (trx) => {
       await sql`set local statement_timeout = ${sql.lit(COMMIT_STATEMENT_TIMEOUT_MS)}`.execute(trx)
-      const cursors = await trx
+      const locked = await trx
         .selectFrom('insights_process_cursors')
-        .select(['insights_process_cursors.id', 'insights_process_cursors.organization_id', 'insights_process_cursors.actor_key_fingerprint'])
+        .select(['insights_process_cursors.actor_key_fingerprint'])
+        .where('insights_process_cursors.id', '=', target.id)
         .where('insights_process_cursors.tenant_id', '=', input.tenantId)
-        .orderBy('insights_process_cursors.id')
+        .where('insights_process_cursors.organization_id', '=', target.organizationId)
         .forUpdate()
-        .execute()
-      let updated = 0
-      const mismatchedOrganizationIds: string[] = []
-      for (const cursor of cursors) {
-        const stored = cursor.actor_key_fingerprint
-        if (stored === null || stored === NO_PSEUDONYM_KEY_FINGERPRINT) continue
-        if (stored !== input.keyFingerprint) {
-          mismatchedOrganizationIds.push(cursor.organization_id)
-          continue
-        }
-        const actors = await trx
-          .updateTable('insights_process_events')
-          .set({ actor_pseudonym: replacement })
-          .where('insights_process_events.tenant_id', '=', input.tenantId)
-          .where('insights_process_events.organization_id', '=', cursor.organization_id)
-          .where('insights_process_events.actor_pseudonym', '=', pseudonym)
-          .executeTakeFirst()
-        updated += Number(actors.numUpdatedRows ?? 0)
-        for (const target of input.userValueFields) {
-          const values = await trx
-            .updateTable('insights_process_events')
-            .set({ followup_value: replacement })
-            .where('insights_process_events.tenant_id', '=', input.tenantId)
-            .where('insights_process_events.organization_id', '=', cursor.organization_id)
-            .where('insights_process_events.process_key', '=', target.processKey)
-            .where('insights_process_events.followup_field', '=', target.field)
-            .where('insights_process_events.followup_value', '=', pseudonym)
-            .executeTakeFirst()
-          updated += Number(values.numUpdatedRows ?? 0)
-        }
+        .executeTakeFirst()
+      const stored = locked?.actor_key_fingerprint ?? null
+      if (!locked || stored === null || stored === NO_PSEUDONYM_KEY_FINGERPRINT) return { updated: 0, mismatched: false, skipped: true, fields: knownFields }
+      if (stored !== input.keyFingerprint) return { updated: 0, mismatched: true, skipped: true, fields: knownFields }
+      const fields = knownFields ?? uniqueValueFields([...input.userValueFields, ...await loadValueFields(trx, input.tenantId, target.organizationId)])
+      const actors = await sql<{ id: string }>`
+        update insights_process_events set actor_pseudonym = ${input.replacement}
+        where id in (
+          select events.id from insights_process_events events
+          where events.tenant_id = ${input.tenantId} and events.organization_id = ${target.organizationId}
+            and events.actor_pseudonym = ${pseudonym}
+          limit ${batchSize}
+        )
+        returning id
+      `.execute(trx)
+      let updated = actors.rows.length
+      for (const field of fields) {
+        const remaining = batchSize - updated
+        if (remaining <= 0) break
+        const values = await sql<{ id: string }>`
+          update insights_process_events set followup_value = ${input.replacement}
+          where id in (
+            select events.id from insights_process_events events
+            where events.tenant_id = ${input.tenantId} and events.organization_id = ${target.organizationId}
+              and events.process_key = ${field.processKey} and events.followup_field = ${field.field}
+              and events.followup_value = ${pseudonym}
+            limit ${remaining}
+          )
+          returning id
+        `.execute(trx)
+        updated += values.rows.length
       }
-      return { updated, mismatchedOrganizationIds }
+      return { updated, mismatched: false, skipped: false, fields }
     })
+  }
+
+  /**
+   * GDPR erasure, step 2 (after the ledger row is committed): organization by organization,
+   * replaces the user's pseudonym with the replacement — as actor and as a value of any field,
+   * also of processes no longer registered — in bounded batches, each in its own transaction
+   * holding only that organization's cursor row lock (so it waits for an in-flight commit of
+   * that organization and never blocks the others). Every fenced commit that locks the cursor
+   * after the ledger row was committed applies the ledger itself, so once a batch of an
+   * organization comes back short nothing can re-introduce the old pseudonym there.
+   * Organizations written under another key are returned in `mismatchedOrganizationIds`: their
+   * rows cannot be matched until the key is back or a rebuild re-projects them through the
+   * ledger.
+   */
+  async function replaceActorPseudonym(input: ActorErasureInput): Promise<ActorErasureResult> {
+    const pseudonym = input.pseudonym
+    if (!pseudonym) return { updated: 0, mismatchedOrganizationIds: [] }
+    const batchSize = Math.max(1, Math.trunc(input.batchSize ?? ERASURE_BATCH_SIZE))
+    const cursors = await db
+      .selectFrom('insights_process_cursors')
+      .select(['insights_process_cursors.id', 'insights_process_cursors.organization_id'])
+      .where('insights_process_cursors.tenant_id', '=', input.tenantId)
+      .orderBy('insights_process_cursors.organization_id')
+      .execute()
+    let updated = 0
+    const mismatchedOrganizationIds: string[] = []
+    for (const cursor of cursors) {
+      let fields: ValueField[] | null = null
+      for (;;) {
+        const batch = await replacePseudonymBatch(input, pseudonym, { id: cursor.id, organizationId: cursor.organization_id }, fields, batchSize)
+        if (batch.mismatched) mismatchedOrganizationIds.push(cursor.organization_id)
+        updated += batch.updated
+        fields = batch.fields
+        if (batch.skipped || batch.updated < batchSize) break
+      }
+    }
+    return { updated, mismatchedOrganizationIds }
   }
 
   return {
@@ -1236,9 +1648,12 @@ export function createProjectionStore(db: Kysely<XrayDatabase>) {
     resumeStalledScan,
     finishScan,
     abandonScan,
-    markRebuildRequired,
+    applyContractTransition,
+    queueProcessRebuilds,
+    noteOverlapTimeout,
     recordError,
-    loadDistinctValues,
+    findKnownValues,
+    countDistinctValues,
     clearProjectionBatch,
     pruneProjectionBatch,
     resetCursor,

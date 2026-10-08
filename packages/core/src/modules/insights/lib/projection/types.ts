@@ -6,6 +6,8 @@ type NullableTimestamp = ColumnType<Date | null, Date | string | null, Date | st
 
 type Json<TValue> = ColumnType<TValue, string, string>
 
+type NullableJson<TValue> = ColumnType<TValue | null, string | null, string | null>
+
 export type InsightsProcessCursorsTable = {
   id: Generated<string>
   tenant_id: string
@@ -32,12 +34,28 @@ export type InsightsProcessCursorsTable = {
   lease_owner: string | null
   lease_token: ColumnType<string, number | string, number | string>
   lease_until: NullableTimestamp
-  contract_hash: string | null
+  contract_hashes: NullableJson<Record<string, string>>
+  pending_rebuild_keys: Json<string[]>
+  scan_process_keys: NullableJson<string[]>
+  contract_changed_at: NullableTimestamp
+  contract_change: NullableJson<ProcessContractChange>
+  coverage_from: NullableTimestamp
+  history_scanned_at: NullableTimestamp
+  undecryptable_rows: ColumnType<string, number | string, number | string>
+  overlap_timeouts: ColumnType<string, number | string, number | string>
+  last_overlap_timeout_at: NullableTimestamp
   status: string
   last_run_at: NullableTimestamp
   last_error: string | null
   created_at: Timestamp
   updated_at: Timestamp
+}
+
+/** Process keys whose contract changed, were added or were removed in one transition. */
+export type ProcessContractChange = {
+  changed: string[]
+  added: string[]
+  removed: string[]
 }
 
 export type InsightsProcessEventsTable = {

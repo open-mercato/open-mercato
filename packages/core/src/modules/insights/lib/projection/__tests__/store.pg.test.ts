@@ -102,10 +102,11 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('creates one cursor per organization, starting at now minus the settle lag', async () => {
-    const first = await store.ensureCursor(SCOPE, 'hash-1', 60_000)
-    const second = await store.ensureCursor(SCOPE, 'hash-2', 60_000)
+    const first = await store.ensureCursor(SCOPE, 60_000)
+    await sql`update insights_process_cursors set contract_hashes = '{"test.deal":"hash-1"}'::jsonb`.execute(db)
+    const second = await store.ensureCursor(SCOPE, 60_000)
     expect(second.id).toBe(first.id)
-    expect(second.contractHash).toBe('hash-1')
+    expect(second.contractHashes).toEqual({ 'test.deal': 'hash-1' })
     expect(first).toEqual(expect.objectContaining({ status: 'idle', leaseToken: 0, lastLogId: MAX_LOG_ID }))
     const dbNow = Date.parse(await store.now())
     expect(dbNow - Date.parse(first.lastCreatedAt ?? '')).toBeGreaterThanOrEqual(59_000)
@@ -113,7 +114,7 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('grants the lease to exactly one of many concurrent acquirers', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     const leases = await Promise.all(Array.from({ length: 6 }, (_unused, index) => store.acquireLease(cursor, `worker-${index}`, LEASE_MS)))
     const granted = leases.filter((lease) => lease !== null)
     expect(granted).toHaveLength(1)
@@ -121,7 +122,7 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('fences a stale owner after an expired lease is taken over', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     const stale = await store.acquireLease(cursor, 'worker-a', LEASE_MS)
     expect(stale).not.toBeNull()
     expect(await store.acquireLease(cursor, 'worker-b', LEASE_MS)).toBeNull()
@@ -142,7 +143,7 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('makes an acquirer wait for an in-flight fenced write and then see the extended lease', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     await sql`update insights_process_cursors set lease_owner = 'worker-a', lease_token = 1, lease_until = now() - interval '1 second' where id = ${cursor.id}`.execute(db)
     const holder = await pool.connect()
     try {
@@ -160,7 +161,7 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('inserts idempotently, voids, recomputes and removes cases, and persists microsecond cursors', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     const lease = await store.acquireLease(cursor, 'worker-a', LEASE_MS)
     if (!lease) throw new Error('[internal] lease expected')
     const created = event({ occurredAt: '2026-10-08T10:00:00.000001Z' })
@@ -195,7 +196,7 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('refuses scan writes of a superseded scan and finishes or abandons the active one', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     const progressJobId = randomUUID()
     await store.startScan(cursor, { scanId: 'aaaaaaaa-0000-4000-8000-000000000001', chainId: CHAIN_A, kind: 'backfill', from: '2026-01-01T00:00:00.000000Z', until: '2026-10-08T10:00:00.000000Z', progressJobId: null })
     await store.startScan(cursor, { scanId: 'aaaaaaaa-0000-4000-8000-000000000002', chainId: CHAIN_B, kind: 'backfill', from: null, until: '2026-10-08T10:00:00.000000Z', progressJobId })
@@ -240,7 +241,7 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('starts a scheduled scan only when idle, hands a stalled scan to one new chain and ignores stale heartbeats', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     const lease = await store.acquireLease(cursor, 'worker-a', LEASE_MS)
     if (!lease) throw new Error('[internal] lease expected')
     const scheduled = { scanId: 'aaaaaaaa-0000-4000-8000-000000000011', chainId: CHAIN_A, kind: 'reconcile' as const, from: '2026-10-06T00:00:00.000000Z', until: '2026-10-08T10:00:00.000000Z', progressJobId: null }
@@ -262,8 +263,8 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('reads distinct values, counts, prunes inactive cases and clears one organization only', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
-    const otherCursor = await store.ensureCursor(OTHER_SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
+    const otherCursor = await store.ensureCursor(OTHER_SCOPE, 60_000)
     const lease = await store.acquireLease(cursor, 'worker-a', LEASE_MS)
     const otherLease = await store.acquireLease(otherCursor, 'worker-a', LEASE_MS)
     if (!lease || !otherLease) throw new Error('[internal] leases expected')
@@ -274,7 +275,8 @@ maybe('X-Ray projection store against PostgreSQL', () => {
     const reserved = event({ activityKey: 'status:other', activityKind: 'stage', followupField: 'status', followupValue: 'other', occurredAt: '2026-10-02T00:00:00.000000Z' })
     await store.commit(lease, LEASE_MS, { events: [oldEvent, activeOld, activeNew, reserved], voids: [], advance: { kind: 'none' }, processes: [dealProcess] })
     await store.commit(otherLease, LEASE_MS, { events: [event({ occurredAt: '2025-01-01T00:00:00.000000Z' })], voids: [], advance: { kind: 'none' }, processes: [dealProcess] })
-    expect(await store.loadDistinctValues(SCOPE, dealProcess.processKey, 'status', 201)).toEqual(['open'])
+    expect(await store.findKnownValues(SCOPE, dealProcess.processKey, 'status', ['open', 'won'])).toEqual(['open'])
+    expect(await store.countDistinctValues(SCOPE, dealProcess.processKey, 'status', 201)).toBe(1)
     expect(await store.counts(SCOPE)).toEqual([expect.objectContaining({ processKey: dealProcess.processKey, events: 4, voidedEvents: 0, cases: 2, openCases: 2 })])
 
     const cutoff = '2026-01-01T00:00:00.000000Z'
@@ -291,8 +293,8 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('records one erasure per user and re-pseudonymizes only organizations written under the same key', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
-    const otherCursor = await store.ensureCursor(OTHER_SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
+    const otherCursor = await store.ensureCursor(OTHER_SCOPE, 60_000)
     await sql`update insights_process_cursors set actor_key_fingerprint = 'tk1:key' where id = ${cursor.id}`.execute(db)
     await sql`update insights_process_cursors set actor_key_fingerprint = 'tk1:old-key' where id = ${otherCursor.id}`.execute(db)
     const lease = await store.acquireLease(cursor, 'worker-a', LEASE_MS)
@@ -330,11 +332,11 @@ maybe('X-Ray projection store against PostgreSQL', () => {
       { organization_id: ORG_ID, activity_kind: 'lifecycle', actor_pseudonym: replacement, followup_value: null },
       { organization_id: OTHER_ORG_ID, activity_kind: 'lifecycle', actor_pseudonym: 'tk1:erased-user', followup_value: null },
     ]
-    expect(rows).toEqual(expected.sort((left, right) => left.organization_id.localeCompare(right.organization_id) || left.activity_kind.localeCompare(right.activity_kind)))
+    expect(rows).toEqual(expected.sort((left, right) => (left.organization_id < right.organization_id ? -1 : left.organization_id > right.organization_id ? 1 : 0) || (left.activity_kind < right.activity_kind ? -1 : left.activity_kind > right.activity_kind ? 1 : 0)))
   })
 
   it('applies the erasure ledger inside every later commit', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     const replacement = await store.recordErasure(TENANT_ID, USER_ID)
     const lease = await store.acquireLease(cursor, 'worker-a', LEASE_MS)
     if (!lease) throw new Error('[internal] lease expected')
@@ -356,7 +358,7 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('makes an erasure wait for an in-flight commit and then cover its rows', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     await sql`update insights_process_cursors set actor_key_fingerprint = 'tk1:key' where id = ${cursor.id}`.execute(db)
     const holder = await pool.connect()
     let erased: Promise<{ updated: number; mismatchedOrganizationIds: string[] }> | null = null
@@ -380,7 +382,7 @@ maybe('X-Ray projection store against PostgreSQL', () => {
   })
 
   it('summarizes a case beyond the event window exactly in SQL', async () => {
-    const cursor = await store.ensureCursor(SCOPE, 'hash', 60_000)
+    const cursor = await store.ensureCursor(SCOPE, 60_000)
     const lease = await store.acquireLease(cursor, 'worker-a', LEASE_MS)
     if (!lease) throw new Error('[internal] lease expected')
     const total = CASE_EVENT_LIMIT + 25

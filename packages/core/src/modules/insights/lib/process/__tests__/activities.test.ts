@@ -192,6 +192,17 @@ describe('deriveLogActivities — undo, redo, causation', () => {
     expect(system.base.actorUserId).toBeNull()
     expect(system.base.occurredAt).toBe('2026-10-08T10:00:00.000000Z')
   })
+
+  it('keeps a cause id only when it is an identifier or a UUID', () => {
+    const changed = { snapshotBefore: { deal: { status: 'open' } }, snapshotAfter: { deal: { status: 'won' } } }
+    const derive = (causeId: string | null) => events(deriveLogActivities(sourceEntry({ ...changed, causeKind: 'subscriber', causeId }), processes)).base.causeId
+    expect(derive('customers.deal_won:notify')).toBe('customers.deal_won:notify')
+    expect(derive(WORKFLOW_ID.toUpperCase())).toBe(WORKFLOW_ID)
+    expect(derive('Jane Doe <jane@example.com>')).toBeNull()
+    expect(derive('x'.repeat(65))).toBeNull()
+    expect(derive('')).toBeNull()
+    expect(derive(null)).toBeNull()
+  })
 })
 
 describe('deriveLogActivities — conversions', () => {

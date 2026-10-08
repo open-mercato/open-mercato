@@ -8,6 +8,7 @@ import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encry
 import type { ProcessActorDimensionContext } from '@open-mercato/shared/modules/insights/process'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import {
+  compareCodeUnits,
   fieldNameCandidates,
   getProcessRegistry,
   type ProcessRegistrySnapshot,
@@ -49,8 +50,9 @@ type EncryptedFieldLookup = Pick<TenantDataEncryptionService, 'getEncryptedField
 
 /**
  * Field scopes (`<processKey>␟<field>`) whose values the tenant has chosen to encrypt through
- * its own encryption maps. Their projected values are replaced with `other`. A lookup failure
- * propagates, so ingest fails closed instead of copying a possibly encrypted value.
+ * its own encryption maps. Their projected values are replaced with `other`. A missing
+ * encryption service or a lookup failure fails the slice (fail closed) instead of copying a
+ * possibly encrypted value or flipping every process contract.
  */
 export async function resolveRedactedFields(
   registry: ProcessRegistrySnapshot,
@@ -58,8 +60,10 @@ export async function resolveRedactedFields(
   scope: ProjectionScope,
   em: EntityManager,
 ): Promise<Set<string>> {
+  if (!encryption) {
+    throw new Error('[internal] The tenant encryption service is unavailable, so Process X-Ray cannot tell which declared fields the tenant encrypts')
+  }
   const redacted = new Set<string>()
-  if (!encryption) return redacted
   const cache = new Map<string, Set<string>>()
   const encryptedFor = async (entityId: string): Promise<Set<string>> => {
     const cached = cache.get(entityId)
@@ -88,14 +92,14 @@ export async function resolveRedactedFields(
 
 function normalizeDimensionIds(values: readonly string[] | undefined): string[] {
   const ids = new Set((values ?? []).filter((value) => isUuid(value)).map((value) => value.toLowerCase()))
-  return Array.from(ids).sort((left, right) => left.localeCompare(right))
+  return Array.from(ids).sort(compareCodeUnits)
 }
 
 /**
  * Resolves the role and team dimensions of a batch of actors with one provider call per
  * dimension. Only UUID dimension ids are kept; a user in several teams is attributed to the
- * lowest team id so the attribution is deterministic. A failing provider degrades to no
- * dimension (reported) instead of failing ingest.
+ * lowest team id so the attribution is deterministic. A failing provider is reported and fails
+ * the slice (retried), because events are inserted once and would otherwise keep no dimension.
  */
 export function createActorDimensionResolver(
   registry: ProcessRegistrySnapshot,
@@ -113,7 +117,7 @@ export function createActorDimensionResolver(
       } catch (error) {
         logger.warn('[internal] X-Ray actor dimension provider failed', { kind, moduleId: provider.moduleId, err: error })
         getTelemetryRuntime()?.reportError(error, { module: 'insights', code: 'insights.xray_dimension_failed', attributes: { kind } })
-        return {}
+        throw error
       }
     }
     const [roles, teams] = await Promise.all([read('role'), read('team')])

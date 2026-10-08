@@ -68,7 +68,7 @@ describe('formatXrayStatus', () => {
     settings: { id: null, updatedAt: null, ...XRAY_SETTINGS_DEFAULTS },
     registry: { ready: true, contractHash: 'hash', processes: [], rejected: 0 },
     cursor: null,
-    counts: [{ processKey: 'customers.deal', events: 5, voidedEvents: 1, cases: 2, openCases: 1, lastOccurredAt: null }],
+    counts: [{ processKey: 'customers.deal', events: 5, voidedEvents: 1, cases: 2, openCases: 1, firstOccurredAt: null, lastOccurredAt: null }],
   }
 
   it('prints settings, cursor state and counts', () => {
@@ -77,6 +77,55 @@ describe('formatXrayStatus', () => {
       '    settings: enabled=true retentionDays=365 ingestToggle=off',
       '    cursor: none (not ingested yet)',
       '    customers.deal: events=5 voided=1 cases=2 open=1',
+    ])
+  })
+
+  it('prints the coverage, the processes being rebuilt and timed-out counts', () => {
+    const cursor: XrayStatus['cursor'] = {
+      id: 'cursor-1',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      lastCreatedAt: '2026-10-08T10:00:00.000000Z',
+      lastLogId: null,
+      stateWatermark: null,
+      stateLastLogId: null,
+      scanId: null,
+      scanKind: null,
+      scanFrom: null,
+      scanUntil: null,
+      scanAfterCreatedAt: null,
+      scanAfterLogId: null,
+      scanProgressJobId: null,
+      scanProcessedCount: 0,
+      scanStartedAt: null,
+      scanUpdatedAt: null,
+      scanChainId: null,
+      actorKeyFingerprint: null,
+      lastReconciledAt: null,
+      lastFullReconciledAt: null,
+      lastPrunedAt: null,
+      leaseOwner: null,
+      leaseToken: 0,
+      leaseUntil: null,
+      contractHashes: { 'customers.deal': 'hash' },
+      pendingRebuildKeys: ['sales.order'],
+      scanProcessKeys: ['customers.deal'],
+      contractChangedAt: null,
+      contractChange: null,
+      coverageFrom: '2026-10-01T00:00:00.000000Z',
+      historyScannedAt: null,
+      undecryptableRows: 0,
+      overlapTimeouts: 0,
+      lastOverlapTimeoutAt: null,
+      status: 'idle',
+      lastRunAt: null,
+      lastError: null,
+    }
+    expect(formatXrayStatus({ ...status, cursor, counts: [], countsTimedOut: true })).toEqual([
+      `- tenant=${TENANT_ID} org=${ORG_ID}`,
+      '    settings: enabled=true retentionDays=365 ingestToggle=off',
+      '    cursor: status=idle computedThrough=2026-10-08T10:00:00.000000Z coverageFrom=2026-10-01T00:00:00.000000Z rebuilding=sales.order,customers.deal',
+      '    counts: unavailable (timed out)',
     ])
   })
 })

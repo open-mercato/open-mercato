@@ -51,7 +51,14 @@ export function comparableRawValue(value: unknown): string {
   }
 }
 
-export type ValueCapState = Map<string, Set<string>>
+/**
+ * Per field scope: `known` values (stored ones that were looked up, plus values admitted in
+ * this run) and `distinct`, the number of distinct non-reserved values stored or admitted
+ * (null until counted; only needed once a value not known to be stored shows up).
+ */
+export type ValueCapEntry = { known: Set<string>; distinct: number | null }
+
+export type ValueCapState = Map<string, ValueCapEntry>
 
 export function valueCapScope(processKey: string, field: string): string {
   return `${processKey}\u001f${field}`
@@ -60,8 +67,9 @@ export function valueCapScope(processKey: string, field: string): string {
 /**
  * Applies the per-organization cardinality cap: a field keeps at most
  * `PROCESS_MAX_DISTINCT_VALUES_PER_FIELD` distinct values (reserved values excluded); any
- * further new value becomes `other`. `state` must be pre-seeded with the values already
- * stored for the scope and is updated in place.
+ * further new value becomes `other`. Before a value not yet `known` is capped, `state` must
+ * hold the field's stored values among the incoming ones and its stored distinct count; it is
+ * updated in place.
  */
 export function capActivityValue(
   state: ValueCapState,
@@ -70,10 +78,12 @@ export function capActivityValue(
   maxDistinct: number = PROCESS_MAX_DISTINCT_VALUES_PER_FIELD,
 ): string {
   if (isReservedActivityValue(value)) return value
-  const known = state.get(scope) ?? new Set<string>()
-  state.set(scope, known)
-  if (known.has(value)) return value
-  if (known.size >= maxDistinct) return PROCESS_OTHER_VALUE
-  known.add(value)
+  const entry = state.get(scope) ?? { known: new Set<string>(), distinct: 0 }
+  state.set(scope, entry)
+  if (entry.known.has(value)) return value
+  const distinct = entry.distinct ?? entry.known.size
+  if (distinct >= maxDistinct) return PROCESS_OTHER_VALUE
+  entry.known.add(value)
+  entry.distinct = distinct + 1
   return value
 }

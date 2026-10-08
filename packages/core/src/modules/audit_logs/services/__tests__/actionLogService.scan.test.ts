@@ -8,7 +8,8 @@ import {
   type Driver,
   type QueryResult,
 } from 'kysely'
-import { encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptWithAesGcm, encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
+import type { TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import { ActionLogService, hasUndecryptedColumn } from '../actionLogService'
 import {
   ACTION_LOG_SCAN_DEFAULT_MAX_BYTES,
@@ -105,7 +106,7 @@ function createRecordingDb(): RecordingDb {
 
 type FakeEncryptionService = {
   isEnabled: () => boolean
-  getDek: (tenantId: string | null) => Promise<null>
+  getDek: (tenantId: string | null) => Promise<TenantDek | null>
   decryptEntityPayload: jest.Mock
 }
 
@@ -114,6 +115,15 @@ function passThroughEncryption(): FakeEncryptionService {
     isEnabled: () => false,
     getDek: async () => null,
     decryptEntityPayload: jest.fn(),
+  }
+}
+
+function keyedEncryption(dekKey: string | null, overrides: Partial<FakeEncryptionService> = {}): FakeEncryptionService {
+  return {
+    isEnabled: () => true,
+    getDek: async (tenantId) => (dekKey && tenantId ? { tenantId, key: dekKey, fetchedAt: Date.now() } : null),
+    decryptEntityPayload: jest.fn(async (_entityId: string, payload: Record<string, unknown>) => payload),
+    ...overrides,
   }
 }
 
@@ -583,7 +593,8 @@ describe('ActionLogService.scanDecrypted', () => {
     await expect(service.scanDecrypted(baseScan)).rejects.toThrow('encryption map lookup failed')
   })
 
-  it('leaves out and counts rows whose encrypted columns cannot be opened, keeping the cursor past them', async () => {
+  it('leaves out and counts rows sealed under a key other than the obtained data key, keeping the cursor past them', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
     const sealed = encryptWithAesGcm('customers.deals.update', generateDek()).value
     const recording = createRecordingDb()
     recording.setProbeRows([probeRow(LOG_ONE, '1'), probeRow(LOG_TWO, '1'), probeRow(LOG_THREE, '1')])
@@ -592,11 +603,124 @@ describe('ActionLogService.scanDecrypted', () => {
       historyRow(LOG_TWO, CURSOR_TWO, { command_id: sealed }),
       historyRow(LOG_THREE, CURSOR_THREE, { snapshot_after: encryptWithAesGcm('{}', generateDek()).value }),
     ])
-    const page = await buildService(recording).scanDecrypted(baseScan)
+    const page = await buildService(recording, keyedEncryption(generateDek())).scanDecrypted(baseScan)
     expect(page.entries.map((entry) => entry.logId)).toEqual([LOG_ONE])
     expect(page.undecryptable).toBe(2)
     expect(page.lastCursor).toEqual({ createdAt: CURSOR_THREE, id: LOG_THREE })
     expect(JSON.stringify(page.entries)).not.toContain(sealed)
+  })
+
+  it('returns a row whose sealed columns open under the obtained data key', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    const dekKey = generateDek()
+    const recording = createRecordingDb()
+    recording.setProbeRows([probeRow(LOG_ONE, '1')])
+    recording.setPayloadRows([
+      historyRow(LOG_ONE, CURSOR_ONE, {
+        command_id: encryptWithAesGcm('customers.deals.update', dekKey).value,
+        snapshot_after: encryptWithAesGcm(JSON.stringify({ deal: { status: 'won' } }), dekKey).value,
+      }),
+    ])
+    const decryptEntityPayload = jest.fn(async (_entityId: string, payload: Record<string, unknown>) => ({
+      ...payload,
+      command_id: decryptWithAesGcm(String(payload.command_id), dekKey),
+    }))
+    const service = buildService(recording, keyedEncryption(dekKey, { decryptEntityPayload }))
+
+    const page = await service.scanDecrypted(baseScan)
+
+    expect(page.undecryptable).toBe(0)
+    expect(page.entries).toHaveLength(1)
+    expect(page.entries[0]).toEqual(expect.objectContaining({
+      logId: LOG_ONE,
+      commandId: 'customers.deals.update',
+      snapshotAfter: { deal: { status: 'won' } },
+    }))
+    expect(page.lastCursor).toEqual({ createdAt: CURSOR_ONE, id: LOG_ONE })
+  })
+
+  it('refuses to drop a sealed row when no data key could be obtained for it', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    const recording = createRecordingDb()
+    recording.setProbeRows([probeRow(LOG_ONE, '1'), probeRow(LOG_TWO, '1')])
+    recording.setPayloadRows([
+      historyRow(LOG_ONE, CURSOR_ONE),
+      historyRow(LOG_TWO, CURSOR_TWO, { command_id: encryptWithAesGcm('customers.deals.update', generateDek()).value }),
+    ])
+    const service = buildService(recording, keyedEncryption(null))
+
+    await expect(service.scanDecrypted(baseScan)).rejects.toBeInstanceOf(ActionLogDecryptionUnavailableError)
+  })
+
+  it('refuses to continue when the encryption service becomes unavailable after the probe', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    const dekKey = generateDek()
+    let healthChecks = 0
+    const recording = createRecordingDb()
+    recording.setProbeRows([probeRow(LOG_ONE, '1')])
+    recording.setPayloadRows([
+      historyRow(LOG_ONE, CURSOR_ONE, { snapshot_after: encryptWithAesGcm('{}', dekKey).value }),
+    ])
+    const service = buildService(recording, keyedEncryption(dekKey, {
+      isEnabled: () => {
+        healthChecks += 1
+        return healthChecks === 1
+      },
+    }))
+
+    await expect(service.scanDecrypted(baseScan)).rejects.toBeInstanceOf(ActionLogDecryptionUnavailableError)
+    expect(payloadQuery(recording)).toBeDefined()
+  })
+
+  it('refuses to drop a sealed row while tenant data encryption is switched off', async () => {
+    const recording = createRecordingDb()
+    recording.setProbeRows([probeRow(LOG_ONE, '1')])
+    recording.setPayloadRows([
+      historyRow(LOG_ONE, CURSOR_ONE, { snapshot_after: encryptWithAesGcm('{}', generateDek()).value }),
+    ])
+
+    await expect(buildService(recording).scanDecrypted(baseScan)).rejects.toBeInstanceOf(ActionLogDecryptionUnavailableError)
+    const missing = new ActionLogService({ getKysely: () => recording.db } as never)
+    await expect(missing.scanDecrypted(baseScan)).rejects.toBeInstanceOf(ActionLogDecryptionUnavailableError)
+  })
+
+  it('opens a whole column the obtained data key opens although the map-driven decryption skipped it', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    const dekKey = generateDek()
+    const recording = createRecordingDb()
+    recording.setProbeRows([probeRow(LOG_ONE, '1')])
+    recording.setPayloadRows([
+      historyRow(LOG_ONE, CURSOR_ONE, { command_id: encryptWithAesGcm('customers.deals.update', dekKey).value }),
+    ])
+    const service = buildService(recording, keyedEncryption(dekKey))
+
+    const page = await service.scanDecrypted(baseScan)
+
+    expect(page.undecryptable).toBe(0)
+    expect(page.entries).toEqual([expect.objectContaining({ logId: LOG_ONE, commandId: 'customers.deals.update' })])
+  })
+})
+
+describe('ActionLogService lenient decryption', () => {
+  afterEach(() => {
+    restoreEncryptionToggle()
+  })
+
+  it.each([
+    ['tenant data encryption is on but the service is disabled', 'yes', () => passThroughEncryption()],
+    ['tenant data encryption is off', 'no', () => passThroughEncryption()],
+    ['no data key can be obtained', 'yes', () => keyedEncryption(null)],
+    ['the row is sealed under another key', 'yes', () => keyedEncryption(generateDek())],
+  ])('returns a sealed row as stored through findHistoryEntryById when %s', async (_label, toggle, encryption) => {
+    process.env.TENANT_DATA_ENCRYPTION = toggle
+    const sealed = encryptWithAesGcm('customers.deals.update', generateDek()).value
+    const recording = createRecordingDb()
+    recording.setPayloadRows([historyRow(LOG_ONE, CURSOR_ONE, { command_id: sealed })])
+    const service = buildService(recording, encryption())
+
+    const entry = await service.findHistoryEntryById({ tenantId: TENANT_ID, organizationIds: [ORG_ID], id: LOG_ONE })
+
+    expect(entry).toEqual(expect.objectContaining({ logId: LOG_ONE, commandId: sealed, cursorAt: CURSOR_ONE }))
   })
 })
 
