@@ -103,11 +103,11 @@ Takeaway: DAM touches two peers only through DI services. The yellow nodes are t
 
 ```
 packages/core/src/modules/dam/
-  index.ts acl.ts setup.ts di.ts events.ts ce.ts search.ts cli.ts
+  index.ts acl.ts setup.ts di.ts events.ts ce.ts search.ts encryption.ts cli.ts
   data/entities.ts data/validators.ts
   lib/naming.ts            name rules, normalization, name_key, conflict suffix
   lib/fileTypes.ts         allowlist + magic-byte sniffing
-  lib/folderHierarchy.ts   tree_path/depth/ancestor_ids recompute (pattern copy of catalog/directory, no import)
+  lib/folderHierarchy.ts   tree_path/depth/ancestor_ids, subtree-scoped (column pattern from catalog/directory, no import; NOT their full rebuild)
   lib/effectivePermissions.ts  subtree rebuild of dam_folder_effective_grants
   lib/access.ts            DamAccessService: principal set, level checks, visible-folder SQL scope
   lib/trash.ts             batch trash/restore/purge
@@ -144,6 +144,8 @@ Everything is a **new surface**. Nothing existing changes:
    | `storage_driver`, `storage_path` | where the bytes are |
    | `file_name`, `mime_type`, `file_size` | |
    | `checksum_sha256` | |
+   | `status` | `reserved` / `stored` / `cleanup_pending` (see quota, item 4) |
+   | `lease_token` | uuid, fences the `reserved` → `stored` transition |
    | `created_at` | |
    | `cleanup_pending_at` | null unless a provider cleanup failed |
 
@@ -156,16 +158,28 @@ Everything is a **new surface**. Nothing existing changes:
 
    | Method | Behavior |
    |---|---|
-   | `createOwnedBlob({ ownerModule, ownerRef, tenantId, organizationId, fileName, declaredMimeType, buffer, persistLink?(tx, blobId) })` | Same security validation as `createScoped` (`lib/security.ts`): dangerous types and magic bytes. Per-file limit from `OM_ATTACHMENT_MAX_UPLOAD_MB`. Owned-blob quota check (A18). Store → insert row → `persistLink` in one transaction, with storage compensation on failure. **No CRUD events, no indexing, no OCR.** |
+   | `createOwnedBlob({ ownerModule, ownerRef, tenantId, organizationId, fileName, declaredMimeType, buffer, persistLink?(tx, blobId) })` | Same security validation as `createScoped` (`lib/security.ts`): dangerous types and magic bytes. Per-file limit from `OM_ATTACHMENT_MAX_UPLOAD_MB`. Owned-blob quota reservation (A18, item 4). Reserve row → store bytes → fenced `stored` transition + `persistLink` in the caller's transaction, with storage compensation on failure. **No CRUD events, no indexing, no OCR.** Only `stored` rows are returned by read/preview/inspect. |
    | `readOwnedBlob({ …scope, blobId, forceDownload? })` | `{ buffer \| stream, contentType, contentDisposition, fileName }`. Inline only for types `lib/security.ts` already allows inline. |
-   | `previewOwnedBlob({ …scope, blobId, width, height, fit })` | WebP buffer or `null`. Images: existing `sharp` pipeline and `imageSafety` limits. PDF: page 1 via the existing pdfjs/canvas path. Cached in a separate namespace `owned/{blobId}/…` of the thumbnail cache directory. |
+   | `previewOwnedBlob({ …scope, blobId, width, height, fit })` | WebP buffer or `null`. Images: existing `sharp` pipeline and `imageSafety` limits. `imageSafety` allows only JPEG, PNG, GIF and WebP (`allowedImageMimeTypes`), so **TIFF and BMP return `null` in P1** (type icon); widening that set is out of scope because it is shared with the generic image route. PDF: page 1 rendered by a **new** internal function (see below). Cached in a separate namespace `owned/{blobId}/…` of the thumbnail cache directory. |
    | `inspectOwnedBlob({ …scope, blobId })` | `{ mimeType, fileSize, width?, height?, pageCount?, exif? }`. EXIF allowlist (make/model, `DateTimeOriginal`, orientation, lens, ISO, exposure, focal length); **GPS dropped**. |
    | `releaseOwnedBlob({ …scope, blobId }, { em?, flush? })` | Deletes the row inside the caller's transaction and returns a provider cleanup to run after commit. On cleanup failure it calls `reportError` and sets `cleanup_pending_at` (or keeps a tombstone row), so an idempotent worker `attachments:owned-blob-cleanup` retries with the stored driver and path. It also clears the blob's preview cache. |
    | `getOwnedBlobUsage({ tenantId, ownerModule? })` | `{ usedBytes, limitBytes }` for UI display. |
 
-4. **Owned-blob quota** (A18). A per-tenant sum over `attachment_owned_blobs`, checked under `pg_advisory_xact_lock(hashtext('owned-blob-quota:' || tenant_id))` inside `createOwnedBlob`. Uploads are synchronous request-scoped writes, so no reservation table is needed. The existing quota service is not touched.
+   **PDF first-page preview is new code, not reuse.** The only export of `lib/pdfProcessing.ts` is `preparePdfPagesForOcr(filePath)`, which renders pages *without* a text layer for OCR. P1 adds an internal `renderPdfFirstPage(buffer, { maxWidth, maxHeight })` next to it. It shares the pdfjs (`pdfjs-dist/legacy`) and canvas loading, and must follow `.ai/lessons/do-not-rasterize-untrusted-uploads-through-sunsetted.md`:
+   - native pdfjs only; no `pdf2pic`, `gm` or Ghostscript;
+   - hard limits: only page 1, render timeout (5 s), maximum output pixels (same `MAX_IMAGE_SOURCE_PIXELS` as `imageSafety`), maximum source size (`OM_ATTACHMENT_MAX_UPLOAD_MB`);
+   - rendering never happens in the preview request: `createOwnedBlob` enqueues `attachments:owned-blob-preview`, an idempotent worker that renders and writes the preview cache. Until it is done (or when it fails), `previewOwnedBlob` returns `null` and the UI shows the type icon. A cache miss on an already-rendered blob re-enqueues the job instead of rendering inline.
 
-4. **`documentsAccessService`** (P5, in `packages/documents`)
+4. **Owned-blob quota** (A18). The advisory lock MUST NOT be held while bytes are written to storage, or every upload in a tenant (including P4 multi-file upload of 25 MB files to S3) would be serialized. The row itself is the reservation, following `.ai/lessons/durable-quota-reservations-need-fenced-leases.md`:
+   1. **Reserve** (short transaction): take `pg_advisory_xact_lock(hashtext('owned-blob-quota:' || tenant_id))`, check `sum(file_size)` over the tenant's rows in `reserved`, `stored` and `cleanup_pending` state plus the new size against the limit, insert the row with `status = 'reserved'` and a fresh `lease_token`, commit. The lock is released here.
+   2. **Store**: write the bytes to a create-only path derived from the row id (a retry can never overwrite committed bytes).
+   3. **Commit**: in the caller's transaction, `UPDATE … SET status = 'stored' WHERE id = :id AND lease_token = :token AND status = 'reserved'` (fenced; 0 rows → abort and clean up), then `persistLink(tx, blobId)`.
+   4. **Failure**: delete the stored bytes. Only once their absence is confirmed is the row deleted. Otherwise it moves to `cleanup_pending` and keeps counting against the quota.
+   5. **Recovery**: the `attachments:owned-blob-cleanup` worker also picks up `reserved` rows older than 1 hour, verifies or deletes the provider object, and only then deletes the row.
+
+   The existing quota service is not touched.
+
+5. **`documentsAccessService`** (P5, in `packages/documents`)
    - `canViewMany({ auth, documentIds }) → Set<string>`, built on `resolveUserAccess` + `hasTier(…, 'viewer')`.
    - `getDisplayTitles({ auth, documentIds }) → Record<id, string>`, decrypted via `findOneWithDecryption` and sanitized with `displayLabels.ts`. Only viewable ids are returned.
 
@@ -201,7 +215,7 @@ Everything is a **new surface**. Nothing existing changes:
 
 | Trigger | Mechanism | Consistency |
 |---|---|---|
-| Grant add/change/remove, break/restore inheritance, folder create, folder move/re-parent, folder restore | `rebuildEffectiveGrantsForSubtree(em, rootFolderId)` **inside the same command transaction**. Subtree = `rootFolderId` ∪ folders whose `ancestor_ids @> [rootFolderId]`. It computes top-down in memory and replaces the subtree's rows. Same pattern as `catalog/commands/categories.ts` → `rebuildCategoryHierarchyForOrganization`. | Immediate; no visibility window. |
+| Grant add/change/remove, break/restore inheritance, folder create, folder move/re-parent, folder restore | `rebuildEffectiveGrantsForSubtree(em, rootFolderId)` **inside the same command transaction**. Subtree = `rootFolderId` ∪ folders whose `ancestor_ids @> [rootFolderId]`. It computes top-down in memory and replaces the subtree's rows. The in-transaction placement follows `catalog/commands/categories.ts`, but **not** its scope: `rebuildCategoryHierarchyForOrganization` and `directory`'s `rebuildHierarchyForTenant` reload and rewrite the whole org/tenant tree, which DAM must not copy. | Immediate; no visibility window. |
 | User role membership changes, user deactivated | Nothing to rebuild: roles are resolved live (A4). A deactivated user cannot authenticate. | Immediate. |
 | `auth.user.deleted`, `auth.role.deleted` (persistent events, payload `{ id, tenantId[, organizationId] }`) | Persistent idempotent subscribers delete that principal's `dam_folder_grants` and effective rows in the tenant. | Housekeeping only. Dangling rows never grant access, because the principal can no longer be resolved. |
 | Drift (bug, manual SQL, partial failure) | Nightly idempotent queue worker `dam:permissions-reconcile`, registered per organization with `schedulerService` in `setup.ts` (guarded by `hasRegistration('schedulerService')`). Also available as CLI `yarn mercato dam rebuild-permissions [--org]`. | Eventually repaired; the run logs a summary of differences. |
@@ -217,11 +231,13 @@ Everything is a **new surface**. Nothing existing changes:
 
 ## 📝 Data Model
 
-All tables carry `tenant_id` and `organization_id` (both `uuid NOT NULL`), `created_at` and `updated_at`. User-editable tables also carry `deleted_at`. All queries filter by `organization_id` and `tenant_id`. Text fields that may contain people's data (descriptions) follow the module's encryption defaults (`findWithDecryption`). `name` and `title` are not encrypted: they are needed for ILIKE search and sorting.
+All tables carry `tenant_id` and `organization_id` (both `uuid NOT NULL`), `created_at` and `updated_at`. User-editable tables also carry `deleted_at`. All queries filter by `organization_id` and `tenant_id`.
+
+**Encryption.** `dam/encryption.ts` exports `defaultEncryptionMaps` (type from `@open-mercato/shared/modules/encryption`) declaring `dam_assets.description` as encrypted. It has no `hashField`, because no equality lookup is needed. All asset reads go through `findWithDecryption` / `findOneWithDecryption`. `name` and `title` are not encrypted: they are needed for the case-insensitive unique namespace, ILIKE search and sorting. Folder and asset names are document labels, not personal data. `technical_metadata` holds only the EXIF allowlist without GPS, so it stays plaintext.
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `dam_folders` | `id`, `parent_id uuid null`, `name text`, `name_key text`, `tree_path text`, `depth int`, `ancestor_ids jsonb`, `inherits_permissions bool default true`, `created_by_user_id`, `updated_by_user_id`, `trashed_at`, `trashed_by_user_id`, `trash_batch_id uuid null`, `trashed_from_parent_id uuid null`, `deleted_at` | Hierarchy fields maintained by `lib/folderHierarchy.ts`. Index `(organization_id, parent_id)`, GIN on `ancestor_ids`. |
+| `dam_folders` | `id`, `parent_id uuid null`, `name text`, `name_key text`, `tree_path text`, `depth int`, `ancestor_ids jsonb`, `inherits_permissions bool default true`, `created_by_user_id`, `updated_by_user_id`, `trashed_at`, `trashed_by_user_id`, `trash_batch_id uuid null`, `trashed_from_parent_id uuid null`, `deleted_at` | Hierarchy fields maintained by `lib/folderHierarchy.ts`. Index `(organization_id, parent_id)`, GIN on `ancestor_ids`. No `descendant_ids` column: descendants are queried with `ancestor_ids @> [id]`, which avoids the O(N²) arrays of the catalog/directory pattern. |
 | `dam_assets` | `id`, `folder_id uuid`, `blob_id uuid`, `name`, `name_key`, `extension text`, `title text null`, `description text null`, `mime_type`, `file_size bigint`, `technical_metadata jsonb`, `has_preview bool`, `created_by_user_id`, `updated_by_user_id`, `trashed_at`, `trashed_by_user_id`, `trash_batch_id`, `trashed_from_folder_id`, `deleted_at`, `purged_at` | `blob_id` is an FK id into `attachment_owned_blobs` (no ORM relation), nulled on purge. Index `(organization_id, folder_id)`, trigram-friendly index on `name_key`. |
 | `dam_entries` | `id`, `parent_key uuid` (folder id, or the org's root sentinel `00000000-0000-0000-0000-000000000000`), `name_key`, `entry_type` (`folder`/`asset`/`document_link`), `entry_id`, `live bool` | **Namespace guard**: partial unique `(organization_id, parent_key, name_key) WHERE live`. Written in the same transaction as the entry; `live = false` on trash. |
 | `dam_tags` | `id`, `label`, `label_key` | Unique `(organization_id, label_key)`. |
@@ -345,7 +361,7 @@ Payloads carry `{ id, organizationId, tenantId }` plus `folderId` / `parentId` w
 
 ## 📝 UI/UX
 
-Page `/backend/dam` (`page.meta`: `pageGroup: 'Media'`, `pageGroupKey: 'dam.nav.group'` (DAM's own key, translated as "Media"; implementation verifies that the sidebar merges groups by label and otherwise falls back to the attachments key), `requireFeatures: ['dam.view']`, icon `folder`). The trash is at `/backend/dam/trash` (P3). Layout uses `@open-mercato/ui` primitives and DS tokens only.
+Page `/backend/dam` (`page.meta`: `pageGroup: 'Media'`, `pageGroupKey: 'attachments.nav.group'` (the sidebar groups by key, not by label: `packages/ui/src/backend/utils/nav.ts` uses `groupId = pageGroupKey ?? group`, so a DAM-own key would render a second "Media" group; the key is a translation id only and creates no code dependency on `attachments`), `requireFeatures: ['dam.view']`, icon `folder`). The trash is at `/backend/dam/trash` (P3). Layout uses `@open-mercato/ui` primitives and DS tokens only.
 
 - **Left pane — `DamFolderTree`**
   - DAM-local component; no generic tree exists in `packages/ui`. The pattern is `documents/backend/documents/FolderTree.tsx`, re-implemented here rather than imported.
@@ -384,7 +400,9 @@ Prototype: `.ai/specs/assets/dam-module/` (illustrative mockups attached to the 
 | Scenario | Behavior |
 |---|---|
 | Two users upload `Offer.pdf` and `offer.pdf` into the same folder concurrently | The `dam_entries` unique index rejects the second → 409 with suggestion; the blob transaction rolls back (`persistLink` runs inside it) and `createOwnedBlob` compensates the stored bytes. |
-| Upload succeeds at storage but the DB transaction fails | `createOwnedBlob` deletes the stored bytes (compensation). If that also fails, it reports the error and the cleanup worker removes the orphan path. |
+| Upload succeeds at storage but the DB transaction fails | `createOwnedBlob` deletes the stored bytes (compensation) and then the `reserved` row. If the delete fails, the row moves to `cleanup_pending` (still counted in the quota), the error is reported, and the cleanup worker retries. |
+| Process crashes between reserve and commit | The `reserved` row keeps counting against the quota. After 1 hour the cleanup worker verifies or deletes the provider object and only then removes the row. |
+| Many parallel uploads in one tenant (P4) | The quota lock is held only for the short reserve transaction, never during the byte write, so uploads run in parallel. Concurrent reservations cannot over-admit because each one counts the others' `reserved` rows. |
 | Purge: DB commit succeeds, provider byte delete fails | `releaseOwnedBlob` keeps a tombstone (`cleanup_pending_at`) with driver and path. `attachments:owned-blob-cleanup` retries idempotently. The asset is already invisible, and the quota sum excludes tombstones. |
 | Folder moved while another user browses it | The next request reflects the new effective permissions. A stale `updatedAt` on concurrent edits → 409 conflict bar via `surfaceRecordConflict`. |
 | Move into own descendant | 422 `dam.errors.moveCycle`. |
@@ -415,7 +433,7 @@ Prototype: `.ai/specs/assets/dam-module/` (illustrative mockups attached to the 
 | Description not searchable (encrypted) | Low | dam | Documented limitation. | Users may expect it. |
 
 **Migration & Backward Compatibility.**
-- Every change is additive: new module and tables, a new `attachment_owned_blobs` table, optional owned-blob methods on `AttachmentService`, a new env `OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB`, a new worker, and a new DI service in `documents`.
+- Every change is additive: new module and tables, a new `attachment_owned_blobs` table, optional owned-blob methods on `AttachmentService`, a new env `OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB`, new workers (`attachments:owned-blob-cleanup`, `attachments:owned-blob-preview`), and a new DI service in `documents`.
 - **No existing behavior changes.** No existing route, tool, event, index, quota or partition is touched.
 - There are no renames or removals, so no deprecation bridge is needed.
 - Rollback: disable the module. Owned blobs stay invisible (no generic reader) but occupy storage. Before uninstalling, run CLI `yarn mercato dam purge-all --org <id> --confirm`, which releases all DAM bytes via `releaseOwnedBlob`. This is documented in UPGRADE_NOTES.
@@ -441,23 +459,27 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
    - `createOwnedBlob` / `readOwnedBlob` / `releaseOwnedBlob` / `getOwnedBlobUsage` with owner-and-scope filtering.
    - Security validation shared with `createScoped`; owned-blob quota (A18); `attachments:owned-blob-cleanup` worker.
    - `OM_ATTACHMENT_OWNED_BLOB_QUOTA_MB` in `.env.example` and the create-app template.
-   - Unit tests: wrong owner or tenant → not found, quota boundary, compensation on DB failure, cleanup retry.
+   - Unit tests: wrong owner or tenant → not found, quota boundary, parallel reservations never over-admit, fenced `stored` transition rejects a stale lease, compensation on DB failure, stale `reserved` recovery, cleanup retry.
    - Integration: generic `/api/attachments/file|image/{blobId}` → 404 with no change to those routes; the existing attachments test suite passes unchanged.
 2. **Attachments seam: `previewOwnedBlob` + `inspectOwnedBlob`.**
-   - Reuse `sharp`, `imageSafety`, the thumbnail renderer (own cache namespace) and the `pdfProcessing` page-1 rasterization.
+   - Reuse `sharp`, `imageSafety` and the thumbnail renderer (own cache namespace).
+   - New `renderPdfFirstPage` + worker `attachments:owned-blob-preview` (limits and timeout as specified in the seam section).
    - EXIF allowlist without GPS.
-   - Unit tests for image, PDF and unsupported (`null`) cases.
+   - Unit tests for image, PDF, TIFF/BMP (`null`), oversized/timeout PDF (`null`, no crash) and unsupported (`null`) cases.
 3. **DAM scaffold.**
-   - `index.ts`, `acl.ts`, `setup.ts` (features, guarded schedules), `di.ts`, `events.ts`, `ce.ts`, `search.ts` (`enabled: false`), i18n skeleton.
+   - `index.ts`, `acl.ts`, `setup.ts` (features, guarded schedules), `di.ts`, `events.ts`, `ce.ts`, `search.ts` (`enabled: false`), `encryption.ts` (`dam_assets.description`), i18n skeleton.
    - Entities `dam_folders`, `dam_assets`, `dam_entries`, `dam_tags`, `dam_asset_tags`, `dam_folder_grants` + migration + snapshot.
 4. **`lib/naming.ts` + `lib/fileTypes.ts`.** Exhaustive unit tests (forbidden characters, reserved names, NFC/case collisions, OOXML sniffing, TXT heuristics, mismatches).
 5. **Folder commands + API.**
-   - Create, rename, move with `lib/folderHierarchy.ts`, namespace entries, cycle and depth checks, optimistic lock, undo for create and rename.
+   - Create, rename, move with `lib/folderHierarchy.ts`, namespace entries, cycle and depth checks, optimistic lock.
+   - Move updates only the moved subtree, as one set-based statement per column inside the command transaction: the moved folder plus every folder with `ancestor_ids @> [movedId]` gets `tree_path` prefix replaced, `depth` shifted by the depth delta, and the old ancestor prefix of `ancestor_ids` swapped for the new one. Nothing outside the subtree is read or written (bounded by A14).
+   - Undo: create (→ hard delete of the still-empty folder), rename (→ previous name, re-checked against the namespace), and move (→ move back to the recorded `previousParentId`, re-running the cycle/depth checks, the subtree hierarchy update and, from P2, `rebuildEffectiveGrantsForSubtree`). If the previous parent is gone or the name is now taken, undo fails with the same 409/422 as a manual move.
+   - Unit tests: subtree update vs a brute-force recompute on random trees; nothing outside the subtree changes.
    - `GET /folders` tree, `/names/check`.
    - Integration: create nested folders, rename conflict 409, move cycle 422.
 6. **Asset upload/replace/download/preview + metadata.**
    - Commands and routes; `persistLink` atomicity; tags; custom fields; `inspectOwnedBlob` on upload.
-   - Integration: upload each allowed type, reject SVG and a spoofed extension, conflict suggestion, replace keeps id, download bytes match, preview for JPG/PDF and 404 for TXT.
+   - Integration: upload each allowed type, reject SVG and a spoofed extension, conflict suggestion, replace keeps id, download bytes match, preview for JPG and (after the preview worker runs) PDF, 404 for TXT, TIFF and BMP.
 7. **Stats + list API** (`/folders/{id}/stats`, `/assets` with folder, recursive and sort). Integration: counts and sizes direct vs recursive.
 8. **Backend UI.**
    - Page, `DamFolderTree`, `DamContentPane` (list/grid/stats/empty states), upload with progress and conflict prompt, `DamAssetDrawer` with `CrudForm`.
@@ -466,7 +488,7 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
 ### Phase 2 — Folder permissions
 1. Entity `dam_folder_effective_grants` + migration; initial build from the P1-recorded grants (A15). CLI `dam grant` and the UPGRADE_NOTES entry about the visibility change.
 2. `lib/effectivePermissions.ts`: subtree rebuild under the per-organization advisory lock; asset writes take `FOR SHARE` on their folder. Reference-resolver test suite (randomized trees) plus a concurrent-overlapping-rebuild test.
-3. `DamAccessService` (principal set via `authPrincipalService`, `visibleFolderScope`, `requireLevel`); retrofit every P1 route and switch `dam.manage` to "create root folders". Integration: viewer cannot upload, a non-granted user gets 404 on folder, asset, download and preview.
+3. `DamAccessService` (principal set via `authPrincipalService`, `visibleFolderScope`, `requireLevel`); retrofit every P1 route. `dam.manage` keeps its P1 meaning (write ceiling, A16); folder-level checks are added on top, and root-folder creation stays gated by `dam.root_folders.create`. Integration: viewer cannot upload, a non-granted user gets 404 on folder, asset, download and preview.
 4. Grants and inheritance commands + routes (copy-on-break). Integration: break inheritance hides a subfolder from parent viewers; restore re-shows it; the folder-move rule (A6).
 5. "Shared with me" in the tree API and UI; `DamGrantsDialog`.
 6. Subscribers `auth.user.deleted` / `auth.role.deleted`; `workers/permissions-reconcile.ts` (idempotent, concurrency 1); CLI `dam rebuild-permissions`; scheduler registration (guarded). Tests: reconcile repairs a manually corrupted row.
@@ -515,7 +537,7 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
 | Optimistic locking default ON | ✅ `updatedAt` on folders and assets; `grantsVersion` for grants |
 | zod validators, i18n, DS tokens, dialog shortcuts, `pageSize ≤ 100` | ✅ Specified |
 | Wildcard-aware RBAC for `dam.admin` | ✅ Via `rbacService` |
-| Encryption (`findWithDecryption`) | ✅ Descriptions encrypted; search limitation documented |
+| Encryption (`encryption.ts` + `findWithDecryption`) | ✅ `dam/encryption.ts` declares `dam_assets.description`; search limitation documented |
 | Queue / scheduler contracts (idempotent workers, optional scheduler) | ✅ `hasRegistration('schedulerService')` guard; CLI fallbacks |
 | Error reporting (`reportError` in catches) | ✅ Purge and cleanup failures |
 | Module id convention "plural, snake_case" (`AGENTS.md` → Conventions) | ⚠ `dam` is an acronym chosen by the product owner (brief: "use the term DAM"), treated like the `auth` special case; reviewers may request `dam` be listed as an explicit exception |
@@ -528,3 +550,13 @@ Each step leaves the app building and working. Run `yarn generate` after adding 
 - 2026-10-06 — Fresh-context review fixes: owner guard moved into `checkAttachmentAccess` + direct-reader audit, partition-API and side-effect suppression, durable provider cleanup, per-org advisory lock, transactional file replace, restore target checks, P1→P2 grant transition (A15), stable ACL semantics (A16), non-user principals (A17), byte-length names, singular event id.
 - 2026-10-06 — Product-owner decision on A2: replace the owner-guarded-partition seam with an isolated owned-blob store in `attachments` (path B). No existing attachments behavior changes; separate owned-blob quota (A18).
 - 2026-10-06 — Product owner confirmed A6 (folder move requires `manager`) and A18 (separate owned-blob quota); no open confirmations remain.
+- 2026-10-08 — Pre-implementation review fixes, verified against `develop` @ `ce49b2a40`:
+  - P2 step 3 no longer redefines `dam.manage` (consistent with A16).
+  - Nav uses `pageGroupKey: 'attachments.nav.group'`, because the sidebar groups by key.
+  - TIFF/BMP have no preview in P1 (`imageSafety` allowlist).
+  - PDF first-page preview is new code (`renderPdfFirstPage`), rendered in a worker with hard limits.
+  - Owned-blob quota uses a fenced row reservation instead of holding the advisory lock during the byte write.
+  - Folder hierarchy is updated per subtree (no full rebuild, no `descendant_ids`).
+  - Explicit `encryption.ts`.
+  - Folder-move undo is specified.
+  - Seam numbering is fixed.
