@@ -231,8 +231,14 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await login(page, 'admin')
       await page.goto(`/backend/customers/deals/${dealId}?tab=people`, { waitUntil: 'domcontentloaded' })
 
-      const linkedCard = page.locator('div').filter({ hasText: linkedName })
-      await expect(linkedCard.first(), 'the People tab should render a card per linked person')
+      const personCard = (name: string) =>
+        page
+          .locator('div')
+          .filter({ has: page.getByText(name, { exact: true }) })
+          .filter({ has: page.getByRole('button', { name: /^Unlink$/i }) })
+          .last()
+
+      await expect(personCard(linkedName), 'the People tab should render a card per linked person')
         .toBeVisible({ timeout: 30_000 })
 
       // --- Step 1: link an existing person through the dialog ---
@@ -249,8 +255,13 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       ).toBeVisible({ timeout: 30_000 })
 
       // --- Step 2: filter and sort ---
-      await page.getByRole('button', { name: /Filters/i }).click()
       const search = page.getByPlaceholder(/Search by name, role, email/i)
+      const filtersToggle = page.getByRole('button', { name: /^Filters$/i })
+      await expect(search, 'the filter row starts open').toBeVisible({ timeout: 15_000 })
+      await filtersToggle.click()
+      await expect(search, 'Filters should collapse the search and sort controls').toBeHidden()
+      await filtersToggle.click()
+      await expect(search, 'Filters should reopen the search and sort controls').toBeVisible()
       await search.fill(unlinkedName)
       await expect(page.getByText(unlinkedName, { exact: false }).first()).toBeVisible({ timeout: 30_000 })
       await expect(
@@ -272,8 +283,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await expect(sort).toHaveValue('name-desc')
 
       // --- Step 3: unlink from the card ---
-      const decoyCard = page.locator('[data-slot="card"]').filter({ hasText: decoyName }).first()
-      await decoyCard.getByRole('button', { name: /Unlink/i }).first().click()
+      await personCard(decoyName).getByRole('button', { name: /^Unlink$/i }).click()
       await expect(
         page.getByText(decoyName, { exact: false }),
         'the unlinked person should leave the list',
@@ -283,13 +293,22 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await page.getByRole('button', { name: /^Add person$/i }).click()
       const createDialog = page.getByRole('dialog')
       await expect(createDialog).toBeVisible({ timeout: 15_000 })
-      await createDialog.getByLabel(/Display name/i).fill(newContactName)
+      await createDialog.locator('[data-crud-field-id="firstName"] input').fill('TC088')
+      await createDialog.locator('[data-crud-field-id="lastName"] input').fill(`Created ${stamp}`)
+      await expect(
+        createDialog.getByText(newContactName, { exact: true }),
+        'the display name should be derived from first and last name',
+      ).toBeVisible()
       await createDialog.getByRole('button', { name: /Create person/i }).click()
       await expect(createDialog).toBeHidden({ timeout: 30_000 })
       await expect(
-        page.getByText(newContactName, { exact: false }).first(),
+        personCard(newContactName),
         'a person created from the tab should be linked to the deal straight away',
       ).toBeVisible({ timeout: 30_000 })
+      const createdContact = (await listPeopleFor(request, token, dealId)).items
+        .find((item) => item.displayName === newContactName)
+      expect(createdContact, 'the created contact should be linked server-side').toBeTruthy()
+      created.unshift({ path: '/api/customers/people', id: createdContact!.id })
 
       // --- Step 5: interleaved unlink → conflict (Risk 2) ---
       // Move the deal's lock token out of band, exactly as a second operator would. This only
@@ -301,8 +320,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       })
 
       // The page still holds the pre-bump token, so its next unlink is stale.
-      const staleCard = page.locator('[data-slot="card"]').filter({ hasText: newContactName }).first()
-      await staleCard.getByRole('button', { name: /Unlink/i }).first().click()
+      await personCard(newContactName).getByRole('button', { name: /^Unlink$/i }).click()
       await expectConflictBanner(page, { timeout: 30_000 })
     } finally {
       for (const entry of created.reverse()) {
