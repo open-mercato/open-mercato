@@ -119,7 +119,10 @@ function makeEm(existingTagIds: string[], shape: AssignmentShape = 'entity') {
 
 function makeCtx(em: unknown) {
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-  container.register({ em: asValue(em) })
+  container.register({
+    em: asValue(em),
+    dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
+  })
   return {
     container,
     auth: { tenantId: TENANT_ID, orgId: ORG_ID, sub: 'user-1' },
