@@ -67,8 +67,8 @@ describe('module extension point declarations', () => {
       'sidebar',
       'group',
       'fieldBefore',
-      'fieldAfter',
     ])
+    expect(CRUD_FORM_EXTENSION_SURFACES.find((surface) => surface.key === 'fieldAfter')?.bound).toBe(true)
     expect(CRUD_FORM_LIFECYCLE_PHASES).toEqual([
       'transformValidation',
       'transformDisplayData',

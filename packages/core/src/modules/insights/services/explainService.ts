@@ -723,6 +723,7 @@ export class ExplainService {
         key: field.key,
         labelKey: field.labelKey,
         valueKind: field.valueKind,
+        currentPath: field.currentPath ?? null,
         derived: Boolean(field.derived),
         dependsOn: field.derived ? readableDependencyKeys(resource, field.derived.dependsOn, gate) : [],
         provider: field.provider ?? null,

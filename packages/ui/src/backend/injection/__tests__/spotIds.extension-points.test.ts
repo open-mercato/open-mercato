@@ -35,10 +35,11 @@ describe('standard extension point spot IDs', () => {
       .filter((surface) => surface.bound)
       .map((surface) => surface.key)
 
-    expect(boundKeys).toEqual(['base', 'header', 'fields', 'replacement'])
+    expect(boundKeys).toEqual(['base', 'header', 'fields', 'replacement', 'fieldAfter'])
     expect(CrudFormInjectionSpots.base(entityId)).toBe('crud-form:catalog.product')
     expect(CrudFormInjectionSpots.header(entityId)).toBe('crud-form:catalog.product:header')
     expect(CrudFormInjectionSpots.fields(entityId)).toBe('crud-form:catalog.product:fields')
+    expect(CrudFormInjectionSpots.fieldAfter(entityId, 'status')).toBe('crud-form:catalog.product:field:status:after')
   })
 
   it('keeps the insights host spot ids frozen', () => {

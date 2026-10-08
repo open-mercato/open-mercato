@@ -207,7 +207,7 @@ export const CRUD_FORM_EXTENSION_SURFACES = [
   { key: 'sidebar', suffix: 'sidebar', capabilities: ['render-widget'], bound: false },
   { key: 'group', suffix: 'group:{groupId}', capabilities: ['render-widget'], bound: false },
   { key: 'fieldBefore', suffix: 'field:{fieldId}:before', capabilities: ['render-widget'], bound: false },
-  { key: 'fieldAfter', suffix: 'field:{fieldId}:after', capabilities: ['render-widget'], bound: false },
+  { key: 'fieldAfter', suffix: 'field:{fieldId}:after', capabilities: ['render-widget'], bound: true },
 ] as const satisfies readonly BoundExtensionSurface[]
 
 export const CRUD_FORM_EXTENSION_SURFACE_KEYS = CRUD_FORM_EXTENSION_SURFACES.map((surface) => surface.key)

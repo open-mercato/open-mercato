@@ -711,6 +711,19 @@ const afterFieldsSpot = CrudFormInjectionSpots.afterFields('catalog.product')
 // Result: 'crud-form:catalog.product:after-fields'
 ```
 
+### Field-level spots
+
+`CrudForm` renders `crud-form:<entityId>:field:<fieldId>:after` at the end of each field of an edit form (the record has an id) when a widget is registered for that form's field prefix:
+
+```typescript
+export const injectionTable: ModuleInjectionTable = {
+  'crud-form:catalog.product:field:*:after': 'my_module.injection.field-hint',
+  'crud-form:catalog.product:field:sku:after': 'my_module.injection.sku-hint',
+}
+```
+
+The widget receives `{ entityId, recordId, fieldId, resourceKind? }` (`CrudFormFieldInjectionContext` from `@open-mercato/ui/backend/CrudForm`). Only keys that name the `:field:` segment reach field spots: a broad wildcard such as `crud-form:*` keeps matching the form-level spots but is never rendered inside fields, and forms without field registrations render unchanged. Custom hosts can apply the same rule with `hasInjectionWidgetsForSpotPrefix('crud-form:catalog.product:field:')` from `@open-mercato/shared/modules/widgets/injection-loader`.
+
 ## Event Handler Reference
 
 ### onLoad

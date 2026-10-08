@@ -1077,8 +1077,8 @@
           },
           {
             "value": "fieldAfter",
-            "status": "currently-unbound",
-            "note": "catalog-declared CrudForm surface has no runtime host"
+            "status": "emitted-example",
+            "note": "bound Todo form field-after spot family"
           }
         ]
       },

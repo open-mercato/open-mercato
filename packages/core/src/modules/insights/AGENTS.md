@@ -22,6 +22,7 @@ Explains why a record value is what it is ("Why?") from audit history plus the c
 - Never cache `/api/insights/explain*` responses (viewer-redacted, must be fresh).
 - Never link a resolver `href` in the UI unless `isSafeInternalHref` accepts it, and never put record values or labels into the AI tool's summary text (they stay in `facts`; unsafe summary params are JSON-encoded).
 - Never claim an automation selected a value when the selection is not recorded: a field provider comparing with a source (e.g. `sales.line_price` vs a catalog price row) reports equality or difference as `inferred` at most, and anything it cannot verify (missing or foreign source, currency mismatch) as `unverifiable`.
+- Never register a field explain widget on a global `crud-form:*` pattern: list each form entity id declared in `formEntityIds` in `widgets/injection-table.ts` (header switch + `field:*:after`); `fieldExplainRegistration.test.ts` keeps both in sync.
 - Never re-implement ACL evaluation for access explanations: `RbacService.explainAccess` composes `loadAcl`, `resolveFeatureOrganizationAccess` and `authorizeFeatures`, and its decision must keep parity with `userHasAllFeatures` (covered by `auth/services/__tests__/rbacService.explainAccess.test.ts`).
 
 ## Map
@@ -35,9 +36,10 @@ Explains why a record value is what it is ("Why?") from audit history plus the c
 | `services/accessExplainService.ts` | DI `accessExplainService`: access explanations (ACL catalog validation, other-user gating, detail redaction, recent ACL changes) over `RbacService.explainAccess` |
 | `api/explain/**` | `GET /api/insights/explain`, `/descriptors`, `/log`, `/access` |
 | `cli.ts` | `mercato insights explain:coverage [--tenant] [--org] [--since] [--limit]` |
-| `lib/client/*` | Browser-side API helpers (`apiCall` + `AbortSignal`), session-cached descriptors (`useExplainDescriptors`, keyed by organization scope version), `useExplanation` (stale requests aborted, `nextBefore` paging), value/actor/date formatting |
+| `lib/client/*` | Browser-side API helpers (`apiCall` + `AbortSignal`), session-cached descriptors (`useExplainDescriptors`, keyed by organization scope version), `useExplanation` (stale requests aborted, `nextBefore` paging), value/actor/date formatting, CrudForm field mapping (`fieldExplain.ts`: form entity id → resource via `formEntityIds`, field id → key / `currentPath` / `cf:<key>`), per-form explain mode (`explainMode.ts`, remembered in local storage), kill switch (`useFieldExplainEnabled`) |
 | `components/*` | `WhyDrawer.client`, `WhyExplanation`, `WhyChain`, `CauseChip`, `ConfidenceBadge`, `VerdictBadge`, `LogCausePanel`, `AccessWhyPanel`, `WhyPage.client` (deep-link leaf) |
-| `widgets/injection/*` | `record-why` (`backend:record:current`), `deal-status-why` (`detail:customers.deal:status-badges`), `log-cause` (`version-history:entry:after`), `access-why` (`backend:access-denied:after`) |
+| `widgets/injection/*` | `record-why` (`backend:record:current`), `deal-status-why` (`detail:customers.deal:status-badges`), `log-cause` (`version-history:entry:after`), `access-why` (`backend:access-denied:after`), `field-explain-toggle` (`crud-form:<formEntityId>:header`) and `field-why` (`crud-form:<formEntityId>:field:*:after`) for the customers deal/person/company forms |
+| `lib/fieldExplainToggle*.ts`, `setup.ts` | Kill switch `insights_field_explain` (default on), seeded from `seedDefaults` only when `feature_toggles` is registered in DI |
 | `backend/insights/why/page.tsx` | Server page `/backend/insights/why?resourceKind=&resourceId=&field=&itemId=` rendering `WhyPage.client` |
 | `ai-tools.ts`, `ai-tools/explain-pack.ts` | Read-only `insights.explain_record` (facts verbatim + deterministic i18n summary; not allowlisted for any agent) |
 
