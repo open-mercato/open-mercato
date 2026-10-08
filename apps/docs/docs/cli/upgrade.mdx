@@ -27,7 +27,7 @@ The command relies on `DATABASE_URL` for database connectivity. See [Advisory Lo
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `--tenant <id>` | Scope `entities install` and `auth sync-role-acls` to a single tenant. The value is validated before any step runs. | none — all tenants |
+| `--tenant <id>` | Scope `entities install` and `auth sync-role-acls` to a single tenant. The value is validated before any step runs, and a flag passed without one (a bare `--tenant`, or a `--tenant=` left by an empty variable expansion) is refused rather than read as "all tenants". `--tenant=<id>` and the `--tenantId` alias behave identically. | none — all tenants |
 | `--lock-timeout=<seconds>` | How long to retry lock acquisition before exiting non-zero. Acquisition is retried every 5 seconds. | `600` |
 | `--no-lock` | Skip lock acquisition entirely. For local use only — never a deploy. | off |
 | `--with-seed-defaults` | Additionally run the `seed:defaults` pass. **Destructive on re-run** — read [Seed defaults](#seed-defaults-with-seed-defaults) before using it. | off |

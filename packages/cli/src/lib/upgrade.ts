@@ -56,6 +56,52 @@ export async function assertTenantExists(query: UpgradeQuery, tenantId: string):
   }
 }
 
+const TENANT_SCOPE_FLAGS = ['tenant', 'tenantId'] as const
+
+function readFlagValue(args: readonly string[], name: string): string | undefined {
+  const assignment = `--${name}=`
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index]
+    if (!token) continue
+    if (token.startsWith(assignment)) return token.slice(assignment.length)
+    if (token === `--${name}`) {
+      const next = args[index + 1]
+      return next && !next.startsWith('--') ? next : ''
+    }
+  }
+  return undefined
+}
+
+/**
+ * Reads `--tenant` / `--tenantId` in both the `--flag value` and `--flag=value` spellings.
+ *
+ * An absent flag means every tenant, which is the command's documented default. A flag that is
+ * *present with no value* — a bare `--tenant`, one followed by another flag, or a `--tenant=` left
+ * behind by an empty variable expansion — is a refusal instead, because reading it as absent would
+ * silently widen the run from the single tenant the operator asked for to all of them, reinstalling
+ * definitions and granting ACLs outside the requested scope. Refusing here, before the lock is
+ * taken and before anything migrates, is what makes the scope flag fail-before-write.
+ */
+export function parseUpgradeTenantScope(args: readonly string[]): string | null {
+  let resolved: string | null = null
+
+  for (const name of TENANT_SCOPE_FLAGS) {
+    const raw = readFlagValue(args, name)
+    if (raw === undefined) continue
+
+    const value = raw.trim()
+    if (!value) {
+      throw new UpgradeRefusal(
+        `--${name} was passed without a tenant id. Pass the tenant id to reconcile one tenant, ` +
+          'or omit the flag to reconcile every tenant.',
+      )
+    }
+    if (resolved === null) resolved = value
+  }
+
+  return resolved
+}
+
 export type UpgradeModuleCommandRunner = (
   moduleName: string,
   commandName: string,

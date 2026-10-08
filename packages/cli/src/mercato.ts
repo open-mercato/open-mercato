@@ -4,6 +4,7 @@
 import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
 import { isProductionBuildPhase, startModuleRuntimes } from './lib/module-runtimes'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
+import type { UpgradeQuery } from './lib/upgrade'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -1480,18 +1481,6 @@ export async function run(argv = process.argv) {
     await ensureEnvLoaded()
 
     const upgradeArgs = parts.slice(1).filter(Boolean)
-    const readUpgradeFlag = (name: string): string | null => {
-      for (let index = 0; index < upgradeArgs.length; index += 1) {
-        const token = upgradeArgs[index]
-        if (!token) continue
-        if (token.startsWith(`--${name}=`)) return token.slice(name.length + 3)
-        if (token === `--${name}`) {
-          const next = upgradeArgs[index + 1]
-          if (next && !next.startsWith('--')) return next
-        }
-      }
-      return null
-    }
 
     const {
       withUpgradeLock,
@@ -1506,18 +1495,22 @@ export async function run(argv = process.argv) {
       printSeedDefaultsWarning,
       assertDeploymentInitialized,
       assertTenantExists,
+      parseUpgradeTenantScope,
       UpgradeRefusal,
     } = await import('./lib/upgrade')
 
     let lockArgs: { skip: boolean; timeoutSeconds?: number }
+    let tenantId: string | null
     try {
       lockArgs = parseUpgradeLockArgs(upgradeArgs)
+      // Parsed before the lock and before any step, so a scope flag with a missing value refuses
+      // rather than silently reconciling every tenant.
+      tenantId = parseUpgradeTenantScope(upgradeArgs)
     } catch (error: unknown) {
       console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
       return 1
     }
 
-    const tenantId = readUpgradeFlag('tenant') ?? readUpgradeFlag('tenantId')
     const withSeedDefaults = upgradeArgs.includes('--with-seed-defaults')
 
     if (!process.env.DATABASE_URL) {
@@ -1554,11 +1547,14 @@ export async function run(argv = process.argv) {
             ? null
             : new Client({ connectionString: process.env.DATABASE_URL, ssl: getSslConfig() })
           if (ownClient) await ownClient.connect()
-          const query = lockClient
-            ? (sql: string, values?: unknown[]) => lockClient.query(sql, values)
-            : async (sql: string, values?: unknown[]) => {
-                const result = await ownClient!.query(sql, values as any[])
-                return { rows: result.rows as Array<Record<string, unknown>> }
+          const query: UpgradeQuery = lockClient
+            ? (sql, values) => lockClient.query(sql, values)
+            : async (sql, values) => {
+                const result = await ownClient!.query<Record<string, unknown>, unknown[]>(
+                  sql,
+                  values,
+                )
+                return { rows: result.rows }
               }
 
           try {

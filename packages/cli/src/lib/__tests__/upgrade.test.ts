@@ -3,11 +3,14 @@ import {
   UpgradeRefusal,
   assertDeploymentInitialized,
   assertTenantExists,
+  parseUpgradeTenantScope,
   printSeedDefaultsWarning,
   printUpgradeFollowUps,
   runUpgradeSteps,
   type UpgradeQuery,
 } from '../upgrade'
+import fs from 'node:fs'
+import path from 'node:path'
 
 type Invocation = { module: string; command: string; args: string[]; optional?: boolean }
 
@@ -296,5 +299,62 @@ describe('operator guidance', () => {
     for (const hazard of SEED_DEFAULTS_HAZARDS) {
       expect(output).toContain(hazard)
     }
+  })
+})
+
+describe('tenant scope parsing', () => {
+  it('reads both spellings and the tenantId alias', () => {
+    expect(parseUpgradeTenantScope(['--tenant', 'tenant-1'])).toBe('tenant-1')
+    expect(parseUpgradeTenantScope(['--tenant=tenant-1'])).toBe('tenant-1')
+    expect(parseUpgradeTenantScope(['--tenantId', 'tenant-1'])).toBe('tenant-1')
+    expect(parseUpgradeTenantScope(['--tenantId=tenant-1'])).toBe('tenant-1')
+    expect(parseUpgradeTenantScope(['--lock-timeout=30', '--tenant', 'tenant-1'])).toBe('tenant-1')
+  })
+
+  it('reads an absent flag as every tenant', () => {
+    expect(parseUpgradeTenantScope([])).toBeNull()
+    expect(parseUpgradeTenantScope(['--no-lock', '--with-seed-defaults'])).toBeNull()
+  })
+
+  it('trims a padded value instead of scoping to whitespace', () => {
+    expect(parseUpgradeTenantScope(['--tenant= tenant-1 '])).toBe('tenant-1')
+  })
+
+  // Reading a present-but-valueless scope flag as absent is the failure this guards: both
+  // tenant-aware steps would receive an empty scope and reconcile every tenant, granting ACLs and
+  // reinstalling definitions outside the one the operator named.
+  it.each([
+    ['a bare flag at the end of the argv', ['--tenant']],
+    ['a bare flag followed by another flag', ['--tenant', '--no-lock']],
+    ['an empty assignment from a blank variable expansion', ['--tenant=']],
+    ['a whitespace-only assignment', ['--tenant=   ']],
+    ['a bare alias', ['--tenantId']],
+    ['an empty alias assignment', ['--tenantId=']],
+  ])('refuses %s', (_label, args) => {
+    expect(() => parseUpgradeTenantScope(args)).toThrow(UpgradeRefusal)
+    expect(() => parseUpgradeTenantScope(args)).toThrow(/without a tenant id/)
+  })
+
+  it('refuses a valueless flag rather than falling through to the alias', () => {
+    expect(() => parseUpgradeTenantScope(['--tenant=', '--tenantId=tenant-1'])).toThrow(
+      UpgradeRefusal,
+    )
+  })
+
+  // The refusal only protects the operator if the CLI entry point parses through this function.
+  // `mercato.ts` statically imports the whole CLI graph, so the delegation is asserted against the
+  // source rather than by booting the command.
+  it('is what the `mercato upgrade` entry point parses with', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'mercato.ts'), 'utf8')
+    expect(source).toContain('parseUpgradeTenantScope(upgradeArgs)')
+    expect(source).not.toMatch(/readUpgradeFlag/)
+  })
+
+  it('refuses before the lock is taken or anything migrates', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'mercato.ts'), 'utf8')
+    const parsedAt = source.indexOf('parseUpgradeTenantScope(upgradeArgs)')
+    const lockedAt = source.indexOf('await withUpgradeLock(')
+    expect(parsedAt).toBeGreaterThan(-1)
+    expect(lockedAt).toBeGreaterThan(parsedAt)
   })
 })
