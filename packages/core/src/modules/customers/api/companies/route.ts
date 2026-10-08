@@ -1,6 +1,6 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerCompanyProfile,
@@ -26,8 +26,6 @@ import {
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
-import { findEntityIdsBySearchTokens, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import {
   createCustomersCrudOpenApi,
@@ -41,50 +39,13 @@ import {
   withScopedCustomerDealLinkWhere,
 } from '../../lib/personCompanyLinkTable'
 import { normalizeCompanyProfilePayload } from './payload'
-import { normalizeCompanyDomain, parseCompanyDomainFilter } from '../../lib/companyDomain'
+import { parseCompanyDomainFilter } from '../../lib/companyDomain'
+import { COMPANY_DOMAIN_LOOKUP_LIMIT, findCompanyIdsByDomain } from '../../lib/findCompanyIdsByDomain'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
 
 const rawBodySchema = z.object({}).passthrough()
-
-async function findCompanyIdsByDomain(ctx: CrudCtx, domain: string): Promise<string[]> {
-  const em = ctx.container.resolve('em') as EntityManager
-  const tenantId = ctx.auth?.tenantId ?? null
-  const tokenMatch = await findEntityIdsBySearchTokens({
-    db: em.getKysely<SearchTokenDatabase>(),
-    entityType: E.customers.customer_company_profile,
-    query: domain,
-    fields: ['domain'],
-    scope: {
-      tenantId: ctx.auth?.tenantId !== undefined ? tenantId : undefined,
-      organizationId: ctx.selectedOrganizationId ?? undefined,
-      organizationIds: ctx.organizationIds,
-    },
-  })
-  if (tokenMatch.matched && tokenMatch.ids.length === 0) return []
-  const where: Record<string, unknown> = tokenMatch.matched
-    ? { tenantId, id: { $in: tokenMatch.ids } }
-    : { tenantId, domain: { $ne: null } }
-  if (ctx.selectedOrganizationId) where.organizationId = ctx.selectedOrganizationId
-  else if (Array.isArray(ctx.organizationIds)) where.organizationId = { $in: ctx.organizationIds }
-  const profiles = await findWithDecryption(
-    em,
-    CustomerCompanyProfile,
-    where as FilterQuery<CustomerCompanyProfile>,
-    {},
-    { tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null },
-  )
-  if (profiles.some((profile) => isEncryptedPayloadShape(profile.domain))) {
-    logger.error('company domain lookup could not decrypt candidate profiles', { component: 'companies.list', tenantId })
-    const { translate } = await resolveTranslations()
-    throw new CrudHttpError(500, { error: translate('customers.errors.internal', 'Internal server error') })
-  }
-  return profiles
-    .filter((profile) => normalizeCompanyDomain(profile.domain) === domain)
-    .map((profile) => (profile as { entity?: { id?: unknown } }).entity?.id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
-}
 
 const listSchema = z
   .object({
@@ -94,10 +55,7 @@ const listSchema = z
     email: z.string().optional(),
     emailStartsWith: z.string().optional(),
     emailContains: z.string().optional(),
-    domain: z
-      .string()
-      .refine((value) => value.trim().length === 0 || parseCompanyDomainFilter(value) !== null, { message: 'Invalid domain' })
-      .optional(),
+    domain: z.string().optional().describe('Exact company domain such as acme.com; subdomains do not match'),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     status: z.string().optional(),
@@ -176,6 +134,14 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
+      const domain = typeof query.domain === 'string' ? parseCompanyDomainFilter(query.domain) : null
+      if (typeof query.domain === 'string' && !domain) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(400, {
+          error: translate('customers.errors.invalid_domain', 'Invalid domain: pass a bare domain such as acme.com'),
+          code: 'invalid_domain',
+        })
+      }
       const advancedFilterTree = consumeAdvancedFilterState(query)
       const filters: Record<string, unknown> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
@@ -237,9 +203,25 @@ const crud = makeCrudRoute({
           ]
         }
       }
-      const domain = typeof query.domain === 'string' ? parseCompanyDomainFilter(query.domain) : null
-      if (ctx && domain) {
-        const domainIds = await findCompanyIdsByDomain(ctx, domain)
+      if (domain) {
+        const lookup = await findCompanyIdsByDomain(ctx.container.resolve('em') as EntityManager, domain, {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+          selectedOrganizationId: ctx.selectedOrganizationId,
+          decryptionOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          includeDeleted: parseBooleanToken(typeof query.withDeleted === 'string' ? query.withDeleted : null) === true,
+        })
+        if (lookup.status === 'scope-too-large') {
+          const { translate } = await resolveTranslations()
+          throw new CrudHttpError(422, {
+            error: translate(
+              'customers.errors.domain_lookup_too_broad',
+              'Too many companies in scope to check this domain exactly. Narrow the organization scope and try again.',
+            ),
+            code: 'domain_lookup_too_broad',
+          })
+        }
+        const domainIds = lookup.companyIds
         const searchIds = (filters.id as { $in?: unknown } | undefined)?.$in
         applyEntityIdRestriction(
           filters,
@@ -581,7 +563,7 @@ const companyCreateResponseSchema = z.object({
   companyId: z.string().uuid().nullable(),
 })
 
-export const openApi = createCustomersCrudOpenApi({
+const companiesCrudOpenApi = createCustomersCrudOpenApi({
   resourceName: 'Company',
   pluralName: 'Companies',
   querySchema: listSchema,
@@ -612,3 +594,37 @@ export const openApi = createCustomersCrudOpenApi({
     ],
   },
 })
+
+export const openApi = {
+  ...companiesCrudOpenApi,
+  methods: {
+    ...companiesCrudOpenApi.methods,
+    ...(companiesCrudOpenApi.methods?.GET
+      ? {
+          GET: {
+            ...companiesCrudOpenApi.methods.GET,
+            errors: [
+              ...(companiesCrudOpenApi.methods.GET.errors ?? []),
+              {
+                status: 400,
+                description:
+                  'Invalid query parameters. A `domain` value that is not a domain name (a URL, an email address or an empty value) returns `code: "invalid_domain"`.',
+                schema: z.union([
+                  z.object({ error: z.string(), code: z.literal('invalid_domain') }),
+                  z.object({ error: z.string(), details: z.array(z.unknown()).optional() }),
+                ]),
+              },
+              {
+                status: 422,
+                description: `\`domain_lookup_too_broad\` when more than ${COMPANY_DOMAIN_LOOKUP_LIMIT} companies with a domain are in scope, so \`domain\` cannot be checked exactly; \`organization_selection_invalid\` when the selected organization is no longer available.`,
+                schema: z.object({
+                  error: z.string(),
+                  code: z.enum(['domain_lookup_too_broad', 'organization_selection_invalid']),
+                }),
+              },
+            ],
+          },
+        }
+      : {}),
+  },
+} satisfies typeof companiesCrudOpenApi

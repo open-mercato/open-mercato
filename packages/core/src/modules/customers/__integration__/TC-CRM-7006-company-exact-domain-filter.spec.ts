@@ -26,8 +26,8 @@ const readItemIds = async (response: APIResponse) => {
   return (body?.items ?? []).map((item) => item.id).sort()
 }
 
-test.describe('TC-CRM-company-exact-domain-filter: companies list filters by exact normalized domain', () => {
-  test('matches the same domain in any spelling and ignores subdomains', async ({ request }) => {
+test.describe('TC-CRM-7006: companies list filters by exact normalized domain', () => {
+  test('matches the same domain in any spelling right after create and ignores subdomains', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const domain = `qa-exact-${stamp}.example.com`
@@ -53,12 +53,13 @@ test.describe('TC-CRM-company-exact-domain-filter: companies list filters by exa
       const exactId = await createCompany(`QA Exact Domain ${stamp}`, `https://www.${domain.toUpperCase()}/`)
       await createCompany(`QA Subdomain ${stamp}`, `shop.${domain}`)
 
-      await expect.poll(() => findIdsByDomain(domain)).toEqual([exactId])
+      expect(await findIdsByDomain(domain)).toEqual([exactId])
       expect(await findIdsByDomain(`@WWW.${domain.toUpperCase()}`)).toEqual([exactId])
       expect(await findIdsByDomain(`other-${domain}`)).toEqual([])
-      for (const value of ['https://', `https://${domain}/`]) {
+      for (const value of ['', 'https://', `https://${domain}/`, `${domain}\\other.com`, `jane@${domain}`]) {
         const invalid = await apiRequest(request, 'GET', `${COMPANIES_PATH}?domain=${encodeURIComponent(value)}`, { token })
-        expect(invalid.status(), `${value} is not a domain and should be rejected`).toBe(400)
+        expect(invalid.status(), `"${value}" is not a domain and should be rejected`).toBe(400)
+        expect((await readJsonSafe<{ code?: string }>(invalid))?.code).toBe('invalid_domain')
       }
     } finally {
       for (const id of createdIds) {
@@ -102,7 +103,7 @@ test.describe('TC-CRM-company-exact-domain-filter: companies list filters by exa
       homeCompanyId = await createCompanyIn(scope.organizationId, `QA Home Org ${stamp}`)
       otherCompanyId = await createCompanyIn(otherOrgId, `QA Other Org ${stamp}`)
 
-      await expect.poll(() => findIdsByDomainAs(adminToken, otherOrgId!)).toEqual([otherCompanyId])
+      expect(await findIdsByDomainAs(adminToken, otherOrgId!)).toEqual([otherCompanyId])
 
       const roleName = `qa_domain_scope_${stamp}`
       roleId = await createRoleFixture(request, adminToken, { name: roleName, tenantId: scope.tenantId })
@@ -135,6 +136,47 @@ test.describe('TC-CRM-company-exact-domain-filter: companies list filters by exa
         }).catch(() => undefined)
       }
       await deleteOrganizationIfExists(request, adminToken, otherOrgId)
+    }
+  })
+
+  test('finds a company stored in a child organization of the selected one', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(token)
+    const stamp = Date.now()
+    const domain = `qa-child-org-${stamp}.example.com`
+    let childOrgId: string | null = null
+    let childCompanyId: string | null = null
+
+    try {
+      childOrgId = await createOrganizationFixture(request, token, {
+        name: `QA Domain Child ${stamp}`,
+        tenantId: scope.tenantId,
+        parentId: scope.organizationId,
+      })
+      const created = await apiRequestWithSelectedOrg(request, 'POST', COMPANIES_PATH, {
+        token,
+        selectedOrgId: childOrgId,
+        data: { displayName: `QA Child Org ${stamp}`, domain },
+      })
+      expect(created.status(), 'company create should return 201').toBe(201)
+      childCompanyId = expectId((await readJsonSafe<{ id?: string }>(created))?.id, 'company id')
+
+      const fromParent = await apiRequestWithSelectedOrg(
+        request,
+        'GET',
+        `${COMPANIES_PATH}?domain=${encodeURIComponent(domain)}&pageSize=10`,
+        { token, selectedOrgId: scope.organizationId },
+      )
+      expect(await readItemIds(fromParent)).toEqual([childCompanyId])
+    } finally {
+      if (childOrgId && childCompanyId) {
+        await apiRequestWithSelectedOrg(request, 'DELETE', COMPANIES_PATH, {
+          token,
+          selectedOrgId: childOrgId,
+          data: { id: childCompanyId },
+        }).catch(() => undefined)
+      }
+      await deleteOrganizationIfExists(request, token, childOrgId)
     }
   })
 })
