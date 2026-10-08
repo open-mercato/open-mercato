@@ -1,16 +1,11 @@
 {
   "name": "@open-mercato/carrier-inpost",
-  "version": "1.0.0",
+  "version": "0.8.0",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
-  "files": [
-    "dist",
-    "src",
-    "README.md"
-  ],
   "scripts": {
     "build": "node build.mjs",
-    "prepack": "node build.mjs",
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
@@ -67,33 +62,37 @@
     }
   },
   "dependencies": {
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
     "ts-pattern": "^5.0.0"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^6.5.9",
-    "@open-mercato/core": "0.4.9-develop.1080.5a6ccf821e",
-    "@open-mercato/shared": "0.4.9-develop.1080.5a6ccf821e",
-    "@open-mercato/ui": "0.4.9-develop.1080.5a6ccf821e",
+    "@mikro-orm/postgresql": "^7.0.14",
+    "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@open-mercato/core": "0.6.3-develop.3778.1.25fdb35f2e",
-    "@open-mercato/shared": "0.6.3-develop.3778.1.25fdb35f2e",
-    "@open-mercato/ui": "0.6.3-develop.3778.1.25fdb35f2e",
-    "@playwright/test": "^1.58.2",
-    "@types/chance": "^1.1.7",
+    "@open-mercato/shared": "workspace:*",
+    "@types/chance": "^1.1.8",
     "@types/jest": "^30.0.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "chance": "^1.1.13",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.2",
     "glob": "^13.0.6",
-    "jest": "^30.2.0",
-    "react": "19.2.1",
-    "react-dom": "19.2.1",
-    "ts-jest": "^29.4.6",
-    "typescript": "^5.9.3"
+    "jest": "^30.4.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/carrier-inpost"
   }
 }
