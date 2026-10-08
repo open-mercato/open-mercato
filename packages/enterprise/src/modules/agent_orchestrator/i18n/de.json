@@ -1353,7 +1353,7 @@
   "agent_orchestrator.traces.detail.artifactLoading": "Wird geladen…",
   "agent_orchestrator.traces.detail.awaiting": "Wartet auf Menschen",
   "agent_orchestrator.traces.detail.back": "Zurück zu Traces",
-  "agent_orchestrator.traces.detail.cachedInput": "Gecachte Eingabe",
+  "agent_orchestrator.traces.detail.cachedInput": "davon {count} Eingabe aus dem Cache",
   "agent_orchestrator.traces.detail.chosenOption": "Gewählte Option",
   "agent_orchestrator.traces.detail.collapseArtifact": "Daten einklappen",
   "agent_orchestrator.traces.detail.confidence": "Konfidenz",

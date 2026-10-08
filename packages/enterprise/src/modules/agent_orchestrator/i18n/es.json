@@ -1353,7 +1353,7 @@
   "agent_orchestrator.traces.detail.artifactLoading": "Cargando…",
   "agent_orchestrator.traces.detail.awaiting": "Esperando a humano",
   "agent_orchestrator.traces.detail.back": "Volver a trazas",
-  "agent_orchestrator.traces.detail.cachedInput": "Entrada en caché",
+  "agent_orchestrator.traces.detail.cachedInput": "{count} de entrada en caché",
   "agent_orchestrator.traces.detail.chosenOption": "Opción elegida",
   "agent_orchestrator.traces.detail.collapseArtifact": "Contraer datos",
   "agent_orchestrator.traces.detail.confidence": "Confianza",

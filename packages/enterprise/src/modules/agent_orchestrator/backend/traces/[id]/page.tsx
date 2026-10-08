@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Database, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
+import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
@@ -80,11 +80,13 @@ function parseTime(value: string | null): number | null {
 function StatCell({
   label,
   value,
+  hint,
   icon: Icon,
   iconClassName,
 }: {
   label: string
   value: string
+  hint?: string | null
   icon: React.ComponentType<{ className?: string }>
   iconClassName?: string
 }) {
@@ -95,6 +97,7 @@ function StatCell({
         <p className="text-xs font-medium uppercase tracking-wide">{label}</p>
       </div>
       <p className="mt-1 text-xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
+      {hint ? <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">{hint}</p> : null}
     </div>
   )
 }
@@ -1115,19 +1118,22 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       label={t('agent_orchestrator.traces.detail.duration')}
                       value={formatDurationMs(run.latencyMs) ?? '—'}
                     />
-                    {/* Tokens, cached input and cost are runtime-reported; runs
-                        that never reported them (legacy rows, external runtimes)
-                        hide the tile, since a permanent '—' reads as a bug rather
-                        than as an absent metric. Timing tiles keep their dash —
-                        those are expected to fill in. */}
+                    {/* Tokens and cost are runtime-reported; runs that never
+                        reported them (legacy rows, external runtimes) hide the
+                        tile, since a permanent '—' reads as a bug rather than as
+                        an absent metric. The cached input share is a hint inside
+                        the tokens tile, shown only when reported. Timing tiles
+                        keep their dash — those are expected to fill in. */}
                     {tokensLabel ? (
-                      <StatCell icon={Hash} label={t('agent_orchestrator.traces.detail.tokens')} value={tokensLabel} />
-                    ) : null}
-                    {cachedInputLabel ? (
                       <StatCell
-                        icon={Database}
-                        label={t('agent_orchestrator.traces.detail.cachedInput')}
-                        value={cachedInputLabel}
+                        icon={Hash}
+                        label={t('agent_orchestrator.traces.detail.tokens')}
+                        value={tokensLabel}
+                        hint={
+                          cachedInputLabel
+                            ? t('agent_orchestrator.traces.detail.cachedInput', undefined, { count: cachedInputLabel })
+                            : null
+                        }
                       />
                     ) : null}
                     {costLabel ? (
