@@ -193,5 +193,15 @@
   "insights.why.values.redactedOthersHint": "Frühere Werte von Änderungen anderer Benutzer sind verborgen.",
   "insights.why.values.synthesized": "Der Wert vor dem Rückgängigmachen ist aus der rückgängig gemachten Änderung kopiert.",
   "insights.why.values.true": "Ja",
-  "insights.why.verdict.label": "Ergebnis:"
+  "insights.why.verdict.label": "Ergebnis:",
+  "insights.xray.audit.settingsSave": "Process-X-Ray-Einstellungen aktualisieren",
+  "insights.xray.backfill.jobDescription": "Überträgt den Audit-Verlauf dieser Organisation in Process X-Ray.",
+  "insights.xray.backfill.jobName": "Process-X-Ray-Nachbefüllung",
+  "insights.xray.errors.busy": "Process X-Ray ist gerade beschäftigt. Versuchen Sie es gleich noch einmal.",
+  "insights.xray.errors.disabled": "Die Process-X-Ray-Erfassung ist für diese Organisation deaktiviert.",
+  "insights.xray.errors.invalidBackfill": "Ungültige Nachbefüllungsanfrage",
+  "insights.xray.errors.invalidSettings": "Ungültige Process-X-Ray-Einstellungen",
+  "insights.xray.errors.noProcesses": "Kein Modul deklariert einen Prozess für Process X-Ray.",
+  "insights.xray.errors.rebuildRequired": "Die Prozessdeklarationen haben sich geändert. Bauen Sie die Projektion zuerst neu auf.",
+  "insights.xray.errors.settingsConflict": "Die Einstellungen wurden von jemand anderem geändert. Laden Sie neu und versuchen Sie es erneut."
 }

@@ -119,6 +119,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
       registerNotificationHandlers(data.notificationHandlerEntries)
     }
 
+    // === 6h. Generator-plugin registrations for CLI/worker processes ===
+    if (data.cliBootstrapRegistrations) {
+      data.cliBootstrapRegistrations()
+    }
+
     // === 7-8. UI Widgets and Optional packages (async to avoid circular deps) ===
     // Store the promise so CLI context can await it
     _asyncRegistrationPromise = registerWidgetsAndOptionalPackages(data, options)

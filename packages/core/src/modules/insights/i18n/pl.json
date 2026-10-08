@@ -193,5 +193,15 @@
   "insights.why.values.redactedOthersHint": "Wcześniejsze wartości zmian innych użytkowników są ukryte.",
   "insights.why.values.synthesized": "Wartość sprzed cofnięcia jest skopiowana z cofniętej zmiany.",
   "insights.why.values.true": "Tak",
-  "insights.why.verdict.label": "Werdykt:"
+  "insights.why.verdict.label": "Werdykt:",
+  "insights.xray.audit.settingsSave": "Aktualizacja ustawień Process X-Ray",
+  "insights.xray.backfill.jobDescription": "Przenosi historię audytu tej organizacji do Process X-Ray.",
+  "insights.xray.backfill.jobName": "Uzupełnianie danych Process X-Ray",
+  "insights.xray.errors.busy": "Process X-Ray jest zajęty. Spróbuj ponownie za chwilę.",
+  "insights.xray.errors.disabled": "Zasilanie Process X-Ray jest wyłączone dla tej organizacji.",
+  "insights.xray.errors.invalidBackfill": "Nieprawidłowe żądanie uzupełnienia danych",
+  "insights.xray.errors.invalidSettings": "Nieprawidłowe ustawienia Process X-Ray",
+  "insights.xray.errors.noProcesses": "Żaden moduł nie deklaruje procesu dla Process X-Ray.",
+  "insights.xray.errors.rebuildRequired": "Deklaracje procesów uległy zmianie. Najpierw przebuduj projekcję.",
+  "insights.xray.errors.settingsConflict": "Ustawienia zostały zmienione przez kogoś innego. Odśwież i spróbuj ponownie."
 }

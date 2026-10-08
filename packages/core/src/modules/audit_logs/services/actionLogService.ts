@@ -15,7 +15,8 @@ import {
   type ActionLogFilterType,
   deriveActionLogProjection,
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
-import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptWithAesGcm, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
@@ -42,17 +43,29 @@ import {
   stripCausationFromContext,
 } from '@open-mercato/shared/lib/causation/server'
 import {
+  ACTION_LOG_SCAN_DEFAULT_MAX_BYTES,
+  ActionLogDecryptionUnavailableError,
   FIELD_HISTORY_COLUMNS,
   FIELD_HISTORY_STATEMENT_TIMEOUT_MS,
   clampHistoryLimit,
+  clampScanLimit,
   isValidHistoryCursor,
+  isValidHistoryTimestamp,
+  isValidScanCursor,
+  isValidStateChangeCursor,
   mapFieldHistoryRow,
+  takeWithinByteBudget,
   type ActionLogCauseCoverageRow,
   type ActionLogFieldHistoryEntry,
   type ActionLogFieldHistoryPage,
   type ActionLogFieldHistoryQuery,
   type ActionLogHistoryDatabase,
+  type ActionLogScanPage,
+  type ActionLogScanQuery,
   type ActionLogScopeReference,
+  type ActionLogStateChange,
+  type ActionLogStateChangePage,
+  type ActionLogStateChangeQuery,
 } from '@open-mercato/core/modules/audit_logs/lib/fieldHistory'
 
 const logger = createLogger('audit_logs').child({ component: 'action-log-service' })
@@ -204,6 +217,17 @@ function uniqueNonEmpty(values: readonly unknown[] | null | undefined): string[]
   return Array.from(result)
 }
 
+const SCANNED_ENCRYPTED_COLUMNS = ['command_id', 'snapshot_before', 'snapshot_after', 'changes_json', 'context_json'] as const
+
+/**
+ * Whether a decrypted audit row still holds a sealed column (the whole column value is an
+ * AES-GCM envelope), i.e. it was encrypted under a key other than the one in use. Only whole
+ * columns are checked: they are written by the server, never by a user.
+ */
+export function hasUndecryptedColumn(row: Record<string, unknown>): boolean {
+  return SCANNED_ENCRYPTED_COLUMNS.some((column) => isEncryptedPayloadShape(row[column]))
+}
+
 function isUuidValue(value: unknown): value is string {
   return typeof value === 'string' && SCHEMA_UUID_REGEX.test(value)
 }
@@ -215,63 +239,8 @@ export class ActionLogService {
   ) {}
 
   private async decryptEntryPayload<T extends Record<string, unknown>>(entry: T): Promise<T> {
-    if (!this.tenantEncryptionService?.isEnabled()) return entry
-
     try {
-      const tenantId = readString(entry, 'tenantId', 'tenant_id')
-      const organizationId = readString(entry, 'organizationId', 'organization_id')
-      const dek = await this.tenantEncryptionService.getDek(tenantId)
-      const deepDecrypt = (value: unknown): unknown => {
-        if (!dek) return value
-        if (typeof value === 'string' && value.split(':').length === 4 && value.endsWith(':v1')) {
-          const decrypted = decryptWithAesGcm(value, dek.key)
-          if (decrypted === null) return value
-          return parseDecryptedFieldValue(decrypted)
-        }
-        if (Array.isArray(value)) return value.map((item) => deepDecrypt(item))
-        if (value && typeof value === 'object') {
-          const copy: Record<string, unknown> = {}
-          for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-            copy[key] = deepDecrypt(item)
-          }
-          return copy
-        }
-        return value
-      }
-
-      const decrypted = await this.tenantEncryptionService.decryptEntityPayload(
-        'audit_logs:action_log',
-        entry,
-        tenantId,
-        organizationId,
-        { em: this.em },
-      )
-
-      const merged = {
-        ...entry,
-        ...decrypted,
-      } as Record<string, unknown>
-
-      // Audit log jsonb columns are encrypted as JSON-stringified payloads. After the
-      // service-level `decryptEntityPayload` call (which now returns raw strings —
-      // see issue #1810 follow-up), reattach the structured shape via
-      // `parseDecryptedFieldValue` before running the recursive `deepDecrypt` walk
-      // so nested encrypted strings inside payload objects/arrays are handled.
-      const restoreJson = (value: unknown): unknown =>
-        typeof value === 'string' ? parseDecryptedFieldValue(value) : value
-
-      merged.changesJson = deepDecrypt(restoreJson(merged.changesJson ?? merged.changes_json ?? entry.changesJson ?? entry.changes_json))
-      merged.changes_json = merged.changesJson
-      merged.snapshotBefore = deepDecrypt(restoreJson(merged.snapshotBefore ?? merged.snapshot_before ?? entry.snapshotBefore ?? entry.snapshot_before))
-      merged.snapshot_before = merged.snapshotBefore
-      merged.snapshotAfter = deepDecrypt(restoreJson(merged.snapshotAfter ?? merged.snapshot_after ?? entry.snapshotAfter ?? entry.snapshot_after))
-      merged.snapshot_after = merged.snapshotAfter
-      merged.commandPayload = deepDecrypt(restoreJson(merged.commandPayload ?? merged.command_payload ?? entry.commandPayload ?? entry.command_payload))
-      merged.command_payload = merged.commandPayload
-      merged.contextJson = deepDecrypt(restoreJson(merged.contextJson ?? merged.context_json ?? entry.contextJson ?? entry.context_json))
-      merged.context_json = merged.contextJson
-
-      return merged as T
+      return await this.decryptEntryPayloadStrict(entry)
     } catch (err) {
       if (!decryptionWarningLogged) {
         decryptionWarningLogged = true
@@ -279,6 +248,65 @@ export class ActionLogService {
       }
       return entry
     }
+  }
+
+  private async decryptEntryPayloadStrict<T extends Record<string, unknown>>(entry: T): Promise<T> {
+    const encryption = this.tenantEncryptionService
+    if (!encryption?.isEnabled()) return entry
+    const tenantId = readString(entry, 'tenantId', 'tenant_id')
+    const organizationId = readString(entry, 'organizationId', 'organization_id')
+    const dek = await encryption.getDek(tenantId)
+    const deepDecrypt = (value: unknown): unknown => {
+      if (!dek) return value
+      if (typeof value === 'string' && value.split(':').length === 4 && value.endsWith(':v1')) {
+        const decrypted = decryptWithAesGcm(value, dek.key)
+        if (decrypted === null) return value
+        return parseDecryptedFieldValue(decrypted)
+      }
+      if (Array.isArray(value)) return value.map((item) => deepDecrypt(item))
+      if (value && typeof value === 'object') {
+        const copy: Record<string, unknown> = {}
+        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+          copy[key] = deepDecrypt(item)
+        }
+        return copy
+      }
+      return value
+    }
+
+    const decrypted = await encryption.decryptEntityPayload(
+      'audit_logs:action_log',
+      entry,
+      tenantId,
+      organizationId,
+      { em: this.em },
+    )
+
+    const merged = {
+      ...entry,
+      ...decrypted,
+    } as Record<string, unknown>
+
+    // Audit log jsonb columns are encrypted as JSON-stringified payloads. After the
+    // service-level `decryptEntityPayload` call (which now returns raw strings —
+    // see issue #1810 follow-up), reattach the structured shape via
+    // `parseDecryptedFieldValue` before running the recursive `deepDecrypt` walk
+    // so nested encrypted strings inside payload objects/arrays are handled.
+    const restoreJson = (value: unknown): unknown =>
+      typeof value === 'string' ? parseDecryptedFieldValue(value) : value
+
+    merged.changesJson = deepDecrypt(restoreJson(merged.changesJson ?? merged.changes_json ?? entry.changesJson ?? entry.changes_json))
+    merged.changes_json = merged.changesJson
+    merged.snapshotBefore = deepDecrypt(restoreJson(merged.snapshotBefore ?? merged.snapshot_before ?? entry.snapshotBefore ?? entry.snapshot_before))
+    merged.snapshot_before = merged.snapshotBefore
+    merged.snapshotAfter = deepDecrypt(restoreJson(merged.snapshotAfter ?? merged.snapshot_after ?? entry.snapshotAfter ?? entry.snapshot_after))
+    merged.snapshot_after = merged.snapshotAfter
+    merged.commandPayload = deepDecrypt(restoreJson(merged.commandPayload ?? merged.command_payload ?? entry.commandPayload ?? entry.command_payload))
+    merged.command_payload = merged.commandPayload
+    merged.contextJson = deepDecrypt(restoreJson(merged.contextJson ?? merged.context_json ?? entry.contextJson ?? entry.context_json))
+    merged.context_json = merged.contextJson
+
+    return merged as T
   }
 
   private async decryptEntries(entries: ActionLog | ActionLog[] | null | undefined): Promise<void> {
@@ -1080,6 +1108,182 @@ export class ActionLogService {
     return rows
       .map((row) => row.resource_id)
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
+  }
+
+  /**
+   * Reads one organization's audit rows in ascending `(created_at, id)` order after `after`
+   * (exclusive) and up to `until` (inclusive), decrypted through the same path as every other
+   * audit read. Rows are first probed by their plaintext scope columns and payload size, so at
+   * most `limit` rows and roughly `maxBytes` of payload (never fewer than one row) are loaded
+   * and decrypted per call. `resourceKinds`, when given, narrows the scan to those kinds (an
+   * empty list returns nothing). Runs under the 5 s history statement timeout.
+   *
+   * Strict about decryption: with tenant data encryption enabled and no usable encryption
+   * service it throws `ActionLogDecryptionUnavailableError` instead of returning ciphertext,
+   * and a row whose encrypted column still cannot be opened is left out of `entries` and
+   * counted in `undecryptable`.
+   */
+  async scanDecrypted(query: ActionLogScanQuery): Promise<ActionLogScanPage> {
+    const empty: ActionLogScanPage = { entries: [], lastCursor: null, exhausted: true, payloadBytes: 0, undecryptable: 0 }
+    const tenantId = typeof query.tenantId === 'string' ? query.tenantId.trim() : ''
+    const organizationId = typeof query.organizationId === 'string' ? query.organizationId.trim() : ''
+    if (!isUuidValue(tenantId) || !isUuidValue(organizationId)) return empty
+    if (query.after !== null && !isValidScanCursor(query.after)) {
+      throw new TypeError('[internal] Invalid action log scan cursor')
+    }
+    if (!isValidHistoryTimestamp(query.until)) {
+      throw new TypeError('[internal] Invalid action log scan upper bound')
+    }
+    const resourceKinds = query.resourceKinds === undefined ? null : uniqueNonEmpty(query.resourceKinds)
+    if (resourceKinds !== null && resourceKinds.length === 0) return empty
+    if (isTenantDataEncryptionEnabled() && !this.tenantEncryptionService?.isEnabled()) {
+      throw new ActionLogDecryptionUnavailableError()
+    }
+    const limit = clampScanLimit(query.limit)
+    const maxBytes = typeof query.maxBytes === 'number' && Number.isFinite(query.maxBytes) && query.maxBytes > 0
+      ? query.maxBytes
+      : ACTION_LOG_SCAN_DEFAULT_MAX_BYTES
+    const after = query.after
+
+    const scanned = await this.runWithHistoryStatementTimeout(async (db) => {
+      let probe = db
+        .selectFrom('action_logs')
+        .select([
+          'action_logs.id',
+          sql<string>`to_char(action_logs.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as('cursor_at'),
+          sql<string>`coalesce(pg_column_size(action_logs.snapshot_before), 0)::bigint + coalesce(pg_column_size(action_logs.snapshot_after), 0) + coalesce(pg_column_size(action_logs.changes_json), 0) + coalesce(pg_column_size(action_logs.context_json), 0)::bigint`.as('payload_bytes'),
+        ])
+        .where('action_logs.deleted_at', 'is', null)
+        .where('action_logs.tenant_id', '=', tenantId)
+        .where('action_logs.organization_id', '=', organizationId)
+        .where('action_logs.created_at', '<=', sql<Date>`${query.until}::timestamptz`)
+      if (resourceKinds !== null) probe = probe.where('action_logs.resource_kind', 'in', resourceKinds)
+      if (after) {
+        const cursorAt = sql<Date>`${after.createdAt}::timestamptz`
+        probe = probe.where('action_logs.created_at', '>=', cursorAt)
+        probe = probe.where((eb) => eb.or([
+          eb('action_logs.created_at', '>', cursorAt),
+          eb.and([
+            eb('action_logs.created_at', '=', cursorAt),
+            eb('action_logs.id', '>', after.id),
+          ]),
+        ]))
+      }
+      const probeRows = await probe
+        .orderBy('action_logs.created_at', 'asc')
+        .orderBy('action_logs.id', 'asc')
+        .limit(limit + 1)
+        .execute()
+      const candidates = probeRows.slice(0, limit)
+      const sizes = candidates.map((row) => Number.parseInt(String(row.payload_bytes ?? '0'), 10) || 0)
+      const taken = takeWithinByteBudget(sizes, maxBytes)
+      const picked = candidates.slice(0, taken)
+      const pickedIds = picked.map((row) => String(row.id))
+      const lastPicked = picked.at(-1)
+      const probeCursor = lastPicked ? { createdAt: lastPicked.cursor_at, id: String(lastPicked.id) } : null
+      const payloadBytes = sizes.slice(0, taken).reduce((sum, size) => sum + size, 0)
+      const exhausted = taken === candidates.length && probeRows.length <= limit
+      if (pickedIds.length === 0) return { rows: [], exhausted, payloadBytes, probeCursor }
+      const rows = await db
+        .selectFrom('action_logs')
+        .select([...FIELD_HISTORY_COLUMNS])
+        .select(sql<string>`to_char(action_logs.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as('cursor_at'))
+        .where('action_logs.deleted_at', 'is', null)
+        .where('action_logs.tenant_id', '=', tenantId)
+        .where('action_logs.organization_id', '=', organizationId)
+        .where('action_logs.id', 'in', pickedIds)
+        .orderBy('action_logs.created_at', 'asc')
+        .orderBy('action_logs.id', 'asc')
+        .execute()
+      return { rows, exhausted, payloadBytes, probeCursor }
+    })
+
+    const entries: ActionLogFieldHistoryEntry[] = []
+    let undecryptable = 0
+    for (const row of scanned.rows) {
+      const decrypted = await this.decryptEntryPayloadStrict({ ...row } as Record<string, unknown>)
+      if (hasUndecryptedColumn(decrypted)) {
+        undecryptable += 1
+        continue
+      }
+      entries.push(mapFieldHistoryRow(decrypted, row.cursor_at))
+    }
+    return {
+      entries,
+      lastCursor: scanned.probeCursor,
+      exhausted: scanned.exhausted,
+      payloadBytes: scanned.payloadBytes,
+      undecryptable,
+    }
+  }
+
+  /**
+   * Lists one organization's audit rows whose execution state became `undone` or `redone`,
+   * in ascending `(updated_at, id)` order after `after` (exclusive) and up to `until`
+   * (inclusive). Plaintext columns only (nothing is decrypted). Served by the partial
+   * `action_logs_state_change_idx`; runs under the 5 s history statement timeout.
+   */
+  async scanStateChanges(query: ActionLogStateChangeQuery): Promise<ActionLogStateChangePage> {
+    const empty: ActionLogStateChangePage = { entries: [], lastCursor: null, exhausted: true }
+    const tenantId = typeof query.tenantId === 'string' ? query.tenantId.trim() : ''
+    const organizationId = typeof query.organizationId === 'string' ? query.organizationId.trim() : ''
+    if (!isUuidValue(tenantId) || !isUuidValue(organizationId)) return empty
+    if (query.after !== null && !isValidStateChangeCursor(query.after)) {
+      throw new TypeError('[internal] Invalid action log state-change cursor')
+    }
+    if (!isValidHistoryTimestamp(query.until)) {
+      throw new TypeError('[internal] Invalid action log state-change upper bound')
+    }
+    const resourceKinds = query.resourceKinds === undefined ? null : uniqueNonEmpty(query.resourceKinds)
+    if (resourceKinds !== null && resourceKinds.length === 0) return empty
+    const limit = clampScanLimit(query.limit)
+    const after = query.after
+
+    const rows = await this.runWithHistoryStatementTimeout(async (db) => {
+      let builder = db
+        .selectFrom('action_logs')
+        .select([
+          'action_logs.id',
+          'action_logs.execution_state',
+          'action_logs.resource_kind',
+          sql<string>`to_char(action_logs.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as('cursor_at'),
+        ])
+        .where('action_logs.tenant_id', '=', tenantId)
+        .where('action_logs.organization_id', '=', organizationId)
+        .where(sql<boolean>`action_logs.execution_state in ('undone', 'redone')`)
+        .where('action_logs.deleted_at', 'is', null)
+        .where('action_logs.updated_at', '<=', sql<Date>`${query.until}::timestamptz`)
+      if (resourceKinds !== null) builder = builder.where('action_logs.resource_kind', 'in', resourceKinds)
+      if (after) {
+        const cursorAt = sql<Date>`${after.updatedAt}::timestamptz`
+        builder = builder.where('action_logs.updated_at', '>=', cursorAt)
+        builder = builder.where((eb) => eb.or([
+          eb('action_logs.updated_at', '>', cursorAt),
+          eb.and([
+            eb('action_logs.updated_at', '=', cursorAt),
+            eb('action_logs.id', '>', after.id),
+          ]),
+        ]))
+      }
+      return builder
+        .orderBy('action_logs.updated_at', 'asc')
+        .orderBy('action_logs.id', 'asc')
+        .limit(limit + 1)
+        .execute()
+    })
+
+    const entries: ActionLogStateChange[] = rows.slice(0, limit).map((row) => ({
+      logId: String(row.id),
+      executionState: row.execution_state === 'redone' ? 'redone' : 'undone',
+      resourceKind: row.resource_kind ?? null,
+      cursor: { updatedAt: row.cursor_at, id: String(row.id) },
+    }))
+    const last = entries.at(-1)
+    return {
+      entries,
+      lastCursor: last ? last.cursor : null,
+      exhausted: rows.length <= limit,
+    }
   }
 
   /**

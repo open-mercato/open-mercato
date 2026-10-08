@@ -933,6 +933,15 @@
           "unique": false
         },
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "action_logs_state_change_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"action_logs_state_change_idx\" on \"action_logs\" (\"tenant_id\", \"organization_id\", \"updated_at\", \"id\") where \"execution_state\" in ('undone', 'redone')"
+        },
+        {
           "columnNames": [
             "tenant_id",
             "created_at"

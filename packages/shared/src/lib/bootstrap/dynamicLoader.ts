@@ -735,6 +735,7 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
     webResearchModule,
     commandInterceptorsModule,
     workflowsModule,
+    cliRegistrationsModule,
   ] = await Promise.all([
     compileAndImport(path.join(generatedDir, 'modules.cli.generated.ts')),
     compileAndImport(path.join(generatedDir, 'entities.generated.ts')),
@@ -748,7 +749,9 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
       commandInterceptorEntries: [],
     }),
     loadOptionalGeneratedModule(path.join(generatedDir, 'workflows.generated.ts'), { allCodeWorkflows: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'bootstrap-registrations.cli.generated.ts'), {}),
   ])
+  const runCliBootstrapRegistrations = cliRegistrationsModule.runCliBootstrapRegistrations
 
   return {
     modules: modulesModule.modules as BootstrapData['modules'],
@@ -769,6 +772,9 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
       []) as BootstrapData['commandInterceptorEntries'],
     // Code workflow definitions are needed by workers to resume code-defined instances
     codeWorkflows: (workflowsModule.allCodeWorkflows ?? []) as BootstrapData['codeWorkflows'],
+    cliBootstrapRegistrations: typeof runCliBootstrapRegistrations === 'function'
+      ? (runCliBootstrapRegistrations as () => void)
+      : undefined,
     // Empty UI-related data - not needed for CLI
     dashboardWidgetEntries: [],
     injectionWidgetEntries: [],

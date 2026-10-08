@@ -193,5 +193,15 @@
   "insights.why.values.redactedOthersHint": "Past values of changes made by other users are hidden.",
   "insights.why.values.synthesized": "The value before the undo is copied from the undone change.",
   "insights.why.values.true": "Yes",
-  "insights.why.verdict.label": "Verdict:"
+  "insights.why.verdict.label": "Verdict:",
+  "insights.xray.audit.settingsSave": "Update Process X-Ray settings",
+  "insights.xray.backfill.jobDescription": "Projects the audit history of this organization into Process X-Ray.",
+  "insights.xray.backfill.jobName": "Process X-Ray backfill",
+  "insights.xray.errors.busy": "Process X-Ray is busy. Try again in a moment.",
+  "insights.xray.errors.disabled": "Process X-Ray ingest is disabled for this organization.",
+  "insights.xray.errors.invalidBackfill": "Invalid backfill request",
+  "insights.xray.errors.invalidSettings": "Invalid Process X-Ray settings",
+  "insights.xray.errors.noProcesses": "No module declares a process for Process X-Ray.",
+  "insights.xray.errors.rebuildRequired": "The process declarations changed. Rebuild the projection first.",
+  "insights.xray.errors.settingsConflict": "The settings were changed by someone else. Reload and try again."
 }

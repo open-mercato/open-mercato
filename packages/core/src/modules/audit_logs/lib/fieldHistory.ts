@@ -5,6 +5,8 @@ import { ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY, canonicalizeActorSubject } from '
 
 export const FIELD_HISTORY_MAX_LIMIT = 500
 export const FIELD_HISTORY_STATEMENT_TIMEOUT_MS = 5000
+export const ACTION_LOG_SCAN_MAX_LIMIT = 500
+export const ACTION_LOG_SCAN_DEFAULT_MAX_BYTES = 8 * 1024 * 1024
 
 export type ActionLogHistoryCursor = {
   at: string
@@ -37,6 +39,77 @@ export type ActionLogFieldHistoryEntry = ExplainHistoryEntry & {
 }
 
 export type ActionLogActorKind = 'user' | 'api_key' | 'system'
+
+/** Keyset position on `(created_at, id)`; `createdAt` keeps microseconds (`YYYY-MM-DDTHH:MM:SS.ffffffZ`). */
+export type ActionLogScanCursor = {
+  createdAt: string
+  id: string
+}
+
+export type ActionLogScanQuery = {
+  tenantId: string
+  organizationId: string
+  after: ActionLogScanCursor | null
+  until: string
+  limit: number
+  maxBytes?: number
+  resourceKinds?: string[]
+}
+
+/**
+ * `lastCursor` is the position of the last row the page covered (null when it covered none),
+ * also when that row vanished between the probe and the payload read, so a caller never
+ * mistakes such a page for the end of the range; `exhausted` is true when no row at or
+ * before `until` follows it. `undecryptable` counts covered rows left out of `entries`
+ * because an encrypted column could not be opened with the tenant key in use.
+ */
+export type ActionLogScanPage = {
+  entries: ActionLogFieldHistoryEntry[]
+  lastCursor: ActionLogScanCursor | null
+  exhausted: boolean
+  payloadBytes: number
+  undecryptable: number
+}
+
+/**
+ * Thrown by `ActionLogService.scanDecrypted` when tenant data encryption is enabled but the
+ * encryption service is missing or its KMS unhealthy: a scan never hands out ciphertext as
+ * if it were data, so the caller fails and retries later.
+ */
+export class ActionLogDecryptionUnavailableError extends Error {
+  constructor() {
+    super('[internal] Audit log payloads cannot be decrypted: the tenant data key is unavailable')
+    this.name = 'ActionLogDecryptionUnavailableError'
+  }
+}
+
+/** Keyset position on `(updated_at, id)`; `updatedAt` keeps microseconds. */
+export type ActionLogStateChangeCursor = {
+  updatedAt: string
+  id: string
+}
+
+export type ActionLogStateChangeQuery = {
+  tenantId: string
+  organizationId: string
+  after: ActionLogStateChangeCursor | null
+  until: string
+  limit: number
+  resourceKinds?: string[]
+}
+
+export type ActionLogStateChange = {
+  logId: string
+  executionState: 'undone' | 'redone'
+  resourceKind: string | null
+  cursor: ActionLogStateChangeCursor
+}
+
+export type ActionLogStateChangePage = {
+  entries: ActionLogStateChange[]
+  lastCursor: ActionLogStateChangeCursor | null
+  exhausted: boolean
+}
 
 export type ActionLogFieldHistoryPage = {
   entries: ActionLogFieldHistoryEntry[]
@@ -80,6 +153,7 @@ export type ActionLogHistoryTable = {
   correlation_id: string | null
   caused_by_log_id: string | null
   created_at: Date
+  updated_at: Date
   deleted_at: Date | null
 }
 
@@ -132,6 +206,40 @@ export function isValidHistoryCursor(cursor: ActionLogHistoryCursor | null | und
   if (!cursor) return false
   if (!isUuid(cursor.id)) return false
   return isValidHistoryTimestamp(cursor.at)
+}
+
+export function clampScanLimit(limit: number): number {
+  if (!Number.isFinite(limit)) return 1
+  return Math.min(Math.max(Math.trunc(limit), 1), ACTION_LOG_SCAN_MAX_LIMIT)
+}
+
+export function isValidScanCursor(cursor: ActionLogScanCursor | null | undefined): cursor is ActionLogScanCursor {
+  if (!cursor) return false
+  return isValidHistoryCursor({ at: cursor.createdAt, id: cursor.id })
+}
+
+export function isValidStateChangeCursor(
+  cursor: ActionLogStateChangeCursor | null | undefined,
+): cursor is ActionLogStateChangeCursor {
+  if (!cursor) return false
+  return isValidHistoryCursor({ at: cursor.updatedAt, id: cursor.id })
+}
+
+/**
+ * The longest prefix of `sizes` whose sum stays within `maxBytes`, and never fewer than one
+ * entry, so a single oversized row still makes progress.
+ */
+export function takeWithinByteBudget(sizes: readonly number[], maxBytes: number): number {
+  if (sizes.length === 0) return 0
+  let total = 0
+  let count = 0
+  for (const size of sizes) {
+    const next = total + Math.max(0, size)
+    if (count > 0 && next > maxBytes) break
+    total = next
+    count += 1
+  }
+  return count
 }
 
 export function clampHistoryLimit(limit: number): number {

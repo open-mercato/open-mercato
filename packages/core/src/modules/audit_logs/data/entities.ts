@@ -18,6 +18,10 @@ export type ActionLogExecutionState = 'done' | 'undoing' | 'undone' | 'failed' |
 @Index({ name: 'action_logs_cause_idx', properties: ['tenantId', 'causeKind', 'causeId', 'createdAt'] })
 @Index({ name: 'action_logs_correlation_idx', properties: ['tenantId', 'correlationId'] })
 @Index({ name: 'action_logs_caused_by_idx', properties: ['causedByLogId'] })
+@Index({
+  name: 'action_logs_state_change_idx',
+  expression: `create index "action_logs_state_change_idx" on "action_logs" ("tenant_id", "organization_id", "updated_at", "id") where "execution_state" in ('undone', 'redone')`,
+})
 export class ActionLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

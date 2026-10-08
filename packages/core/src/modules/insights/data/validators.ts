@@ -397,3 +397,115 @@ export type AccessRoleGrantView = z.infer<typeof accessRoleGrantSchema>
 export type AccessRecentChangeView = z.infer<typeof accessRecentChangeSchema>
 export type AccessExplainDetail = z.infer<typeof accessExplainDetailSchema>
 export type AccessExplainResponse = z.infer<typeof accessExplainResponseSchema>
+
+export const XRAY_RETENTION_DAYS_MIN = 7
+export const XRAY_RETENTION_DAYS_MAX = 3650
+export const XRAY_K_ANONYMITY_FLOOR = 5
+export const XRAY_STEP_MAP_MAX_ENTRIES = 500
+
+const xrayActivityStepMapSchema = z
+  .record(z.string().trim().min(1).max(200), z.string().trim().min(1).max(200))
+  .refine((value) => Object.keys(value).length <= XRAY_STEP_MAP_MAX_ENTRIES, {
+    message: `At most ${XRAY_STEP_MAP_MAX_ENTRIES} activity mappings are allowed`,
+  })
+
+export const xraySettingsUpdateSchema = z
+  .object({
+    enabled: z.boolean().optional().describe('Projects this organization\'s audited changes into Process X-Ray (default true).'),
+    retentionDays: z.number().int().min(XRAY_RETENTION_DAYS_MIN).max(XRAY_RETENTION_DAYS_MAX).optional().describe('Days a case is kept after its last activity (default 365).'),
+    kAnonymity: z.number().int().min(XRAY_K_ANONYMITY_FLOOR).max(1000).optional().describe('Minimum number of cases per reported cell (default 10, minimum 5).'),
+    debounceSeconds: z.number().int().min(0).max(86400).optional().describe('Window in which a change and its correction collapse into one step at query time (default 120).'),
+    individualsEnabled: z.boolean().optional().describe('Allows per-person breakdowns for users with `insights.xray.view_individuals` (default false).'),
+    conformanceWorkflowId: z.string().uuid().nullable().optional().describe('Workflow definition the process is compared against.'),
+    activityStepMap: xrayActivityStepMapSchema.nullable().optional().describe('Maps activity keys to workflow step ids for conformance.'),
+  })
+  .strict()
+
+export type XraySettingsUpdateInput = z.infer<typeof xraySettingsUpdateSchema>
+
+export const xraySettingsSaveSchema = xraySettingsUpdateSchema.extend({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+})
+
+export type XraySettingsSaveInput = z.infer<typeof xraySettingsSaveSchema>
+
+export const xraySettingsSchema = z.object({
+  enabled: z.boolean(),
+  retentionDays: z.number().int(),
+  kAnonymity: z.number().int(),
+  debounceSeconds: z.number().int(),
+  individualsEnabled: z.boolean(),
+  conformanceWorkflowId: z.string().uuid().nullable(),
+  activityStepMap: z.record(z.string(), z.string()).nullable(),
+  updatedAt: z.string().nullable().describe('Version token for optimistic locking; null until the settings are first saved.'),
+})
+
+export const xraySettingsResponseSchema = z.object({
+  ok: z.literal(true),
+  result: xraySettingsSchema,
+})
+
+export const xrayErrorSchema = z.object({
+  error: z.string(),
+  code: z.string().optional(),
+})
+
+export const xrayBackfillRequestSchema = z.object({}).strict()
+
+export const xrayBackfillResponseSchema = z.object({
+  ok: z.literal(true),
+  progressJobId: z.string().uuid().nullable(),
+  scanId: z.string().uuid(),
+  scheduleRegistered: z.boolean().describe('Whether the per-organization ingest schedule is registered (false when the scheduler module is absent).'),
+})
+
+const xrayScanSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(['backfill', 'reconcile', 'full_reconcile']),
+  from: z.string().nullable(),
+  until: z.string().nullable(),
+  position: z.string().nullable(),
+  processed: z.number().int(),
+  progressJobId: z.string().uuid().nullable(),
+  startedAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+})
+
+export const xrayStatusResponseSchema = z.object({
+  organizationId: z.string().uuid(),
+  ingestEnabled: z.boolean().describe('False when the `insights_xray_ingest` feature toggle is off.'),
+  settings: xraySettingsSchema,
+  registry: z.object({
+    ready: z.boolean(),
+    contractHash: z.string(),
+    processes: z.array(z.object({ processKey: z.string(), labelKey: z.string(), moduleId: z.string() })),
+    rejected: z.number().int().describe('Declarations rejected at boot (see the server log).'),
+  }),
+  cursor: z
+    .object({
+      status: z.enum(['idle', 'backfilling', 'rebuild_required']),
+      contractMatches: z.boolean(),
+      computedThrough: z.string().nullable().describe('Audit rows up to this time are projected.'),
+      stateWatermark: z.string().nullable(),
+      scan: xrayScanSchema.nullable(),
+      lastReconciledAt: z.string().nullable(),
+      lastFullReconciledAt: z.string().nullable(),
+      lastPrunedAt: z.string().nullable(),
+      lastRunAt: z.string().nullable(),
+      lastError: z.string().nullable(),
+      leaseActive: z.boolean(),
+    })
+    .nullable(),
+  processes: z.array(z.object({
+    processKey: z.string(),
+    n: z.number().int().describe('Projected, non-voided events.'),
+    voidedEvents: z.number().int(),
+    cases: z.number().int(),
+    openCases: z.number().int(),
+    lastOccurredAt: z.string().nullable(),
+  })),
+  computedThrough: z.string().nullable(),
+})
+
+export type XrayStatusResponse = z.infer<typeof xrayStatusResponseSchema>

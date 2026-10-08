@@ -1683,6 +1683,7 @@
   "customers.insights.fields.status": "Status",
   "customers.insights.fields.valueAmount": "Deal value",
   "customers.insights.fields.valueCurrency": "Currency",
+  "customers.insights.process.deal": "Deal lifecycle",
   "customers.insights.resources.company": "Company",
   "customers.insights.resources.deal": "Deal",
   "customers.insights.resources.person": "Person",

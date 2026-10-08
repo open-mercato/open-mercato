@@ -65,6 +65,12 @@ export interface BootstrapData {
   commandLoaderEntries?: CommandLoaderBootstrapEntry[]
   notificationHandlerEntries?: NotificationHandlerBootstrapEntry[]
   codeWorkflows?: import('../../modules/workflows/types').CodeWorkflowDefinition[]
+  /**
+   * Generator-plugin registrations that also run in CLI and worker processes
+   * (`bootstrap-registrations.cli.generated.ts`). The app runtime runs every plugin
+   * registration through `bootstrap-registrations.generated.ts` instead.
+   */
+  cliBootstrapRegistrations?: () => void
 }
 
 export interface BootstrapOptions {

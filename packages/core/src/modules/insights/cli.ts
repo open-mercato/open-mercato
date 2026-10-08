@@ -2,9 +2,23 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { isUuid } from '@open-mercato/shared/lib/causation/types'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { ActionLogCauseCoverageRow } from '@open-mercato/core/modules/audit_logs/lib/fieldHistory'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { listExplainResources, type RegisteredExplainResource } from './lib/explain-registry'
+import {
+  pruneXrayProjection,
+  readXrayStatus,
+  rebuildXrayProjection,
+  runXrayBackfillJob,
+  startXrayBackfill,
+  type XrayBackfillStart,
+  type XrayStatus,
+} from './lib/projection/jobs'
+import type { XrayContainer } from './lib/projection/runtime'
+import type { ProjectionScope } from './lib/projection/types'
 
 export const COVERAGE_DEFAULT_LIMIT = 100
 export const COVERAGE_MAX_LIMIT = 1000
@@ -188,6 +202,166 @@ const explainCoverage: ModuleCli = {
   },
 }
 
-const insightsCliCommands: ModuleCli[] = [explainCoverage]
+export type XrayCliArgs = {
+  tenantId: string | null
+  organizationId: string | null
+  inline: boolean
+}
+
+export type XrayCliArgsResult = { ok: true; args: XrayCliArgs } | { ok: false; error: string }
+
+const XRAY_USAGE = '[--tenant <id>] [--org <id>]'
+const XRAY_INLINE_RETRY_MS = 1000
+const XRAY_INLINE_MAX_SLICES = 100000
+
+export function parseXrayArgs(rest: string[]): XrayCliArgsResult {
+  const tenantId = readOption(rest, ['tenant', 'tenantId'])
+  const organizationId = readOption(rest, ['org', 'orgId', 'organizationId'])
+  if (tenantId !== null && !isUuid(tenantId)) return { ok: false, error: '--tenant must be a UUID' }
+  if (organizationId !== null && !isUuid(organizationId)) return { ok: false, error: '--org must be a UUID' }
+  if (organizationId !== null && tenantId === null) return { ok: false, error: '--org requires --tenant' }
+  return {
+    ok: true,
+    args: {
+      tenantId: tenantId ? tenantId.toLowerCase() : null,
+      organizationId: organizationId ? organizationId.toLowerCase() : null,
+      inline: rest.includes('--inline'),
+    },
+  }
+}
+
+export async function resolveXrayTargets(em: EntityManager, args: XrayCliArgs): Promise<ProjectionScope[]> {
+  if (args.tenantId && args.organizationId) return [{ tenantId: args.tenantId, organizationId: args.organizationId }]
+  const organizations = await findWithDecryption(
+    em,
+    Organization,
+    { deletedAt: null, ...(args.tenantId ? { tenant: args.tenantId } : {}) },
+    { orderBy: { id: 'asc' } },
+    { tenantId: args.tenantId, organizationId: null },
+  )
+  return organizations
+    .map((organization) => {
+      const tenantId = typeof organization.tenant === 'string' ? organization.tenant : organization.tenant?.id
+      return tenantId ? { tenantId: String(tenantId), organizationId: String(organization.id) } : null
+    })
+    .filter((scope): scope is ProjectionScope => scope !== null)
+}
+
+export function formatXrayStatus(status: XrayStatus): string[] {
+  const cursor = status.cursor
+  const lines = [
+    `- tenant=${status.scope.tenantId} org=${status.scope.organizationId}`,
+    `    settings: enabled=${status.settings.enabled} retentionDays=${status.settings.retentionDays} ingestToggle=${status.ingestEnabled ? 'on' : 'off'}`,
+  ]
+  if (!cursor) {
+    lines.push('    cursor: none (not ingested yet)')
+  } else {
+    lines.push(`    cursor: status=${cursor.status} computedThrough=${cursor.lastCreatedAt ?? 'n/a'} contract=${cursor.contractHash === status.registry.contractHash ? 'current' : 'outdated'}`)
+    if (cursor.scanId) {
+      lines.push(`    scan: ${cursor.scanKind} ${cursor.scanId} position=${cursor.scanAfterCreatedAt ?? 'start'} until=${cursor.scanUntil ?? 'n/a'} processed=${cursor.scanProcessedCount}`)
+    }
+    if (cursor.lastError) lines.push(`    last error: ${cursor.lastError}`)
+  }
+  for (const count of status.counts) {
+    lines.push(`    ${count.processKey}: events=${count.events} voided=${count.voidedEvents} cases=${count.cases} open=${count.openCases}`)
+  }
+  return lines
+}
+
+function describeStart(scope: ProjectionScope, started: XrayBackfillStart): string {
+  if (!started.ok) return `[insights] org ${scope.organizationId}: skipped (${started.reason})`
+  return `[insights] org ${scope.organizationId}: scan ${started.scanId} started${started.progressJobId ? ` (progress job ${started.progressJobId})` : ''}`
+}
+
+async function drainScanInline(container: XrayContainer, scope: ProjectionScope, started: XrayBackfillStart): Promise<string> {
+  if (!started.ok) return started.reason
+  const payload = { scope: { ...scope, userId: null }, scanId: started.scanId, chainId: started.chainId, progressJobId: started.progressJobId }
+  for (let slice = 0; slice < XRAY_INLINE_MAX_SLICES; slice += 1) {
+    const status = await runXrayBackfillJob(container, payload, { enqueueContinuation: false })
+    if (status === 'lease_busy' || status === 'lease_lost') {
+      await new Promise((resolve) => setTimeout(resolve, XRAY_INLINE_RETRY_MS))
+      continue
+    }
+    if (status !== 'budget_exhausted') return status
+  }
+  return 'budget_exhausted'
+}
+
+async function runXrayCommand(
+  rest: string[],
+  command: string,
+  run: (container: XrayContainer, scope: ProjectionScope, args: XrayCliArgs) => Promise<void>,
+): Promise<void> {
+  const parsed = parseXrayArgs(rest)
+  if (!parsed.ok) {
+    console.error(`[insights] ${parsed.error}`)
+    console.error(`Usage: mercato insights ${command} ${XRAY_USAGE}`)
+    process.exitCode = 1
+    return
+  }
+  const container = await createRequestContainer()
+  const em = (container.resolve('em') as EntityManager).fork()
+  const targets = await resolveXrayTargets(em, parsed.args)
+  if (targets.length === 0) {
+    console.log('[insights] No organization matches the given scope.')
+    return
+  }
+  for (const scope of targets) await run(container, scope, parsed.args)
+}
+
+async function backfillLabels(): Promise<{ name: string; description: string }> {
+  const { translate } = await resolveTranslations()
+  return {
+    name: translate('insights.xray.backfill.jobName', 'Process X-Ray backfill'),
+    description: translate('insights.xray.backfill.jobDescription', 'Projects the audit history of this organization into Process X-Ray.'),
+  }
+}
+
+const xrayStatus: ModuleCli = {
+  command: 'xray:status',
+  async run(rest) {
+    await runXrayCommand(rest, 'xray:status', async (container, scope) => {
+      for (const line of formatXrayStatus(await readXrayStatus(container, scope))) console.log(line)
+    })
+  },
+}
+
+const xrayBackfill: ModuleCli = {
+  command: 'xray:backfill',
+  async run(rest) {
+    const labels = await backfillLabels()
+    await runXrayCommand(rest, 'xray:backfill [--inline]', async (container, scope, args) => {
+      const started = await startXrayBackfill(container, scope, { userId: null, ...labels, enqueue: !args.inline })
+      console.log(describeStart(scope, started))
+      if (args.inline && started.ok) console.log(`[insights] org ${scope.organizationId}: ${await drainScanInline(container, scope, started)}`)
+    })
+  },
+}
+
+const xrayRebuild: ModuleCli = {
+  command: 'xray:rebuild',
+  async run(rest) {
+    const labels = await backfillLabels()
+    await runXrayCommand(rest, 'xray:rebuild [--inline]', async (container, scope, args) => {
+      const started = await rebuildXrayProjection(container, scope, { userId: null, ...labels, enqueue: !args.inline })
+      console.log(describeStart(scope, started))
+      if (args.inline && started.ok) console.log(`[insights] org ${scope.organizationId}: ${await drainScanInline(container, scope, started)}`)
+    })
+  },
+}
+
+const xrayPrune: ModuleCli = {
+  command: 'xray:prune',
+  async run(rest) {
+    await runXrayCommand(rest, 'xray:prune', async (container, scope) => {
+      const outcome = await pruneXrayProjection(container, scope)
+      console.log(outcome.ok
+        ? `[insights] org ${scope.organizationId}: pruned ${outcome.removed} rows (cutoff ${outcome.cutoff ?? 'n/a'})`
+        : `[insights] org ${scope.organizationId}: skipped (${outcome.reason})`)
+    })
+  },
+}
+
+const insightsCliCommands: ModuleCli[] = [explainCoverage, xrayStatus, xrayBackfill, xrayRebuild, xrayPrune]
 
 export default insightsCliCommands
