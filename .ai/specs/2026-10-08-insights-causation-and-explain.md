@@ -359,7 +359,7 @@ Each phase is one independently reviewable change set (stacked branches).
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | 1a — Causation core | Done | 2026-10-08 | Library, command bus, ActionLogService stamping, audit API filters, migrations (columns + concurrent indexes); TC-AUD-009..012 pass |
-| 1b — Propagation | Done | 2026-10-08 | Dispatcher + CLI, queue, events, workflows, business rules, api_keys origin, AI, scheduler, data_sync; TC-WF-066 passes; TC-BR-013 under investigation |
+| 1b — Propagation | Done | 2026-10-08 | Dispatcher + CLI, queue, events, workflows, business rules, api_keys origin, AI, scheduler, data_sync; TC-WF-066 and TC-BR-013 pass (person events carry the profile id as `id`, the customer entity id as `entityId`; rule logs use the payload `id`) |
 | 2 — Explain core | Not Started | — | — |
 | 3 — Price and access | Not Started | — | — |
 | 4a — UI and AI | Not Started | — | — |
