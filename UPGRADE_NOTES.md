@@ -53,6 +53,25 @@ propagate). If you hit `WRONG_KEY` in production, see "Key mismatch fails the wr
 [`apps/docs/docs/architecture/data-encryption.mdx`](apps/docs/docs/architecture/data-encryption.mdx)
 for how to resolve an affected row.
 
+### Saved views keep their legacy filter record; `maybeMigrateLegacyFilterValues` is deprecated (#7046)
+
+Every perspective read path (`GET /api/perspectives/<tableId>`, `loadPerspectivesState`, and the
+save responses) used to run `maybeMigrateLegacyFilterValues`, which dropped `settings.filters`
+unless it was a v2 advanced-filter tree (`v: 2` or a `root` key). Every `DataTable` page still on
+the legacy `FilterBar` (`filterValues` / `onFiltersApply`) saves a flat `FilterValues` record, so
+views saved from those pages came back without their filters. The read path now returns
+`settings.filters` exactly as stored. No data migration is needed, because the records were
+always persisted.
+
+**Action for module authors:** none for code that reads perspectives through the API or the
+service: flat records now come back where they were missing before, and `DataTable` already
+applies each shape only on pages that handle it. If you imported `maybeMigrateLegacyFilterValues`
+from `@open-mercato/core/modules/perspectives/services/perspectiveService`, it still behaves as
+before but is `@deprecated` and will be removed in a future minor release. Use the stored settings
+as-is, or keep `filters` only when it has `v === 2` or a `root` key if you really need the
+tree-only view. See "`maybeMigrateLegacyFilterValues` — deprecated" in
+[`.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md`](.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md).
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

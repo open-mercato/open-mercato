@@ -12,6 +12,9 @@ import type {
   PerspectiveSaveInput,
   RolePerspectiveSaveInput,
 } from '../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('perspectives').child({ component: 'perspective-service' })
 
 export type PerspectiveScope = {
   userId: string
@@ -143,6 +146,28 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
   if (record.personalDefaultId !== null && typeof record.personalDefaultId !== 'string') return false
   if (!Array.isArray(record.rolePerspectives) || record.rolePerspectives.some((item) => !isResolvedRolePerspective(item))) return false
   return true
+}
+
+/**
+ * @deprecated No longer called by the perspectives read path, which now returns
+ * `settings.filters` exactly as stored. DataTable decides per page whether a
+ * saved filter is a v2 advanced-filter tree or a flat `FilterValues` record, so
+ * stripping the flat shape on the server lost the filters of every view saved
+ * from a page using the legacy `FilterBar`. Kept unchanged for callers that
+ * import it; it will be removed in a future minor release. Use the stored
+ * settings directly instead.
+ *
+ * Drops a flat `FilterValues`-shaped `filters` record, passing through tree-shaped
+ * state (`v:2` or a `root` key) and undefined / null filters unchanged.
+ */
+export function maybeMigrateLegacyFilterValues(settings: PerspectiveSettings): PerspectiveSettings {
+  const filters = settings.filters
+  if (!filters || typeof filters !== 'object') return settings
+  const record = filters as Record<string, unknown>
+  if ('v' in record && record.v === 2) return settings
+  if ('root' in record) return settings
+  logger.warn('Dropping legacy filterValues shape; please re-create the perspective with the new filter UI.')
+  return { ...settings, filters: undefined }
 }
 
 function toResolvedPerspective(entity: Perspective): ResolvedPerspective {
