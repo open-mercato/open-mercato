@@ -24,8 +24,8 @@ export async function resolveAvailabilityOrganizationId(
   return scope?.selectedId ?? resolveActiveOrganizationId(auth)
 }
 
-// The policy list follows the `makeCrudRoute` read scope: the organization selected in
-// the header, or under "All organizations" every organization the caller may access.
+// The policy list reads the organization selected in the header, or under "All
+// organizations" every organization the caller may access, as the `makeCrudRoute` lists do.
 // `null` means the whole tenant; an empty array means no organization is in scope.
 export async function resolveAvailabilityListOrganizationIds(
   container: AwilixContainer,

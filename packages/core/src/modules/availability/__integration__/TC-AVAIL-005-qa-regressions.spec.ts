@@ -203,6 +203,7 @@ test.describe('TC-AVAIL-005: availability QA regressions', () => {
     let orgBId: string | null = null
     let homePolicyId: string | null = null
     let orgBPolicyId: string | null = null
+    let unexpectedPolicyId: string | null = null
     try {
       orgBId = await createOrganizationFixture(request, superadminToken, { name: `QA AVAIL 005 Org B ${stamp}`, tenantId })
 
@@ -235,8 +236,9 @@ test.describe('TC-AVAIL-005: availability QA regressions', () => {
         selectedOrgId: '__all__',
         data: { tenantId, organizationId: null, productId: syntheticUuid(stamp, '8055'), lowStockThreshold: 3 },
       })
+      const allCreateBody = await readJsonSafe<{ id?: string; error?: string; details?: Array<{ path?: unknown[] }> }>(allCreate)
+      if (allCreate.status() < 400) unexpectedPolicyId = allCreateBody?.id ?? null
       expect(allCreate.status(), 'a create without a concrete organization must be a 400').toBe(400)
-      const allCreateBody = await readJsonSafe<{ error?: string; details?: Array<{ path?: unknown[] }> }>(allCreate)
       expect(allCreateBody?.error, 'the 400 must carry a message the form can show').toBeTruthy()
       expect(allCreateBody?.error).not.toBe('Invalid input')
       expect(
@@ -245,6 +247,7 @@ test.describe('TC-AVAIL-005: availability QA regressions', () => {
       ).toBe(false)
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, POLICIES_API_BASE, homePolicyId)
+      await deleteGeneralEntityIfExists(request, adminToken, POLICIES_API_BASE, unexpectedPolicyId)
       if (orgBPolicyId && orgBId) {
         await apiRequestWithSelectedOrg(request, 'DELETE', `${POLICIES_API_BASE}?id=${encodeURIComponent(orgBPolicyId)}`, {
           token: adminToken,
