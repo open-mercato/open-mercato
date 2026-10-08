@@ -36,6 +36,8 @@ const DOCUMENT_ID = '44444444-4444-4444-8444-444444444444'
 const LINE_ID = '55555555-5555-4555-8555-555555555555'
 const STATUS_ENTRY_ID = '66666666-6666-4666-8666-666666666666'
 const NEXT_STATUS_ENTRY_ID = '77777777-7777-4777-8777-777777777777'
+const PRICE_ID = '88888888-8888-4888-8888-888888888888'
+const SECOND_LINE_ID = '99999999-9999-4999-8999-999999999999'
 const LOCALES = ['en', 'pl', 'de', 'es', 'ko'] as const
 
 const em = {} as EntityManager
@@ -249,6 +251,8 @@ describe('sales insights.explain', () => {
       currencyCode: 'EUR',
     }
 
+    const lineCurrent = { ...line, priceId: null, priceMode: null }
+
     it('reads the order and its lines tenant-wide for an unrestricted scope', async () => {
       findOneWithDecryptionMock.mockResolvedValueOnce(order)
       findWithDecryptionMock.mockResolvedValueOnce([line])
@@ -268,8 +272,21 @@ describe('sales insights.explain', () => {
         grandTotalNetAmount: '10.0000',
         grandTotalGrossAmount: '12.3000',
         currencyCode: 'EUR',
-        lines: [line],
+        lines: [lineCurrent],
       })
+    })
+
+    it('exposes only the catalog price link and price mode from the line metadata', async () => {
+      findOneWithDecryptionMock.mockResolvedValueOnce(order)
+      findWithDecryptionMock.mockResolvedValueOnce([
+        { ...line, metadata: { priceId: ` ${PRICE_ID} `, priceMode: 'gross', note: 'internal' } },
+        { ...line, id: SECOND_LINE_ID, metadata: { priceId: 42, priceMode: 'list' } },
+      ])
+      const current = await getResource('sales.order').loadCurrent(buildContext(), DOCUMENT_ID)
+      expect(current?.lines).toEqual([
+        { ...line, priceId: PRICE_ID, priceMode: 'gross' },
+        { ...line, id: SECOND_LINE_ID, priceId: null, priceMode: null },
+      ])
     })
 
     it('denies an empty organization scope without querying', async () => {
@@ -293,7 +310,7 @@ describe('sales insights.explain', () => {
       const current = await getResource('sales.quote').loadCurrent(buildContext({ organizationIds: [ORG_A] }), DOCUMENT_ID)
       const [, , lineWhere] = findWithDecryptionMock.mock.calls[0]
       expect(lineWhere).toEqual({ quote: DOCUMENT_ID, tenantId: TENANT_ID, organizationId: ORG_A, deletedAt: null })
-      expect(current).toMatchObject({ status: 'sent', lines: [line] })
+      expect(current).toMatchObject({ status: 'sent', lines: [lineCurrent] })
     })
 
     it('rejects non-UUID record ids without querying', async () => {

@@ -10,6 +10,20 @@ export const BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID: InjectionSpotId = 'backend
 export const BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID: InjectionSpotId = 'backend:sidebar:top'
 export const BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID: InjectionSpotId = 'backend:sidebar:footer'
 
+/**
+ * Rendered after the access-denied message of a guarded backend page. Context:
+ * `{ path: string | null, requiredFeatures: string[] }` (`AccessDeniedInjectionContext`).
+ * Mounted only when the host passes `path` or `requiredFeatures` to `AccessDeniedMessage`.
+ */
+export const BACKEND_ACCESS_DENIED_AFTER_INJECTION_SPOT_ID: InjectionSpotId = 'backend:access-denied:after'
+
+/**
+ * Rendered after the summary of one version-history entry. Context:
+ * `{ logId: string, resourceKind: string | null, resourceId: string | null }`
+ * (`VersionHistoryEntryInjectionContext`).
+ */
+export const VERSION_HISTORY_ENTRY_AFTER_INJECTION_SPOT_ID: InjectionSpotId = 'version-history:entry:after'
+
 // Standardized backend chrome spot ids
 export const BACKEND_TOPBAR_PROFILE_MENU_INJECTION_SPOT_ID: InjectionSpotId = 'backend:topbar:profile-menu'
 export const BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID: InjectionSpotId = 'backend:topbar:actions'

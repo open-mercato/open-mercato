@@ -48,7 +48,9 @@ function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map((item) => stableSerialize(item)).join(',')}]`
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>
-    const keys = Object.keys(record).filter((key) => record[key] !== undefined).sort()
+    const keys = Object.keys(record)
+      .filter((key) => record[key] !== undefined)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
     return `{${keys.map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(',')}}`
   }
   if (typeof value === 'bigint') return JSON.stringify(value.toString())

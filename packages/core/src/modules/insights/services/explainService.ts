@@ -516,16 +516,18 @@ export class ExplainService {
       })
       : EMPTY_REFERENCE_INDEX
 
-    const providerHints = await this.runProvider({
-      resource,
-      target,
-      current,
-      itemId: query.itemId ?? null,
-      history: visibility.canSeePastValues ? scan.entries : [],
-      checker,
-      loadContext,
-      detailScope,
-    })
+    const providerHints = before === null
+      ? await this.runProvider({
+        resource,
+        target,
+        current,
+        itemId: query.itemId ?? null,
+        history: visibility.canSeePastValues ? scan.entries : [],
+        checker,
+        loadContext,
+        detailScope,
+      })
+      : []
 
     let nextBefore: string | null = null
     if (result.chain.length > page.length) {
@@ -564,6 +566,11 @@ export class ExplainService {
     }
   }
 
+  /**
+   * Runs the field's provider with the history the viewer may see. Called for the first
+   * page only: a continuation page holds a partial history window, so facts computed
+   * from it could contradict the first page's.
+   */
   private async runProvider(params: {
     resource: ExplainResourceDescriptor
     target: FieldTarget

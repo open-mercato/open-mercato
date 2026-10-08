@@ -282,3 +282,117 @@ export type ExplainFieldResponse = z.infer<typeof explainFieldResponseSchema>
 export type ExplainOverviewResponse = z.infer<typeof explainOverviewResponseSchema>
 export type ExplainDescriptorsResponse = z.infer<typeof explainDescriptorsResponseSchema>
 export type ExplainLogResponse = z.infer<typeof explainLogResponseSchema>
+
+export const ACCESS_EXPLAIN_FEATURE_LIMIT = 20
+export const ACCESS_EXPLAIN_PATH_MAX_LENGTH = 2048
+
+export const ACCESS_EXPLAIN_REASONS = [
+  'missing_feature',
+  'organization_out_of_scope',
+  'user_acl_override',
+  'module_disabled',
+  'feature_removed',
+  'not_determinable',
+] as const
+
+export type AccessExplainReason = (typeof ACCESS_EXPLAIN_REASONS)[number]
+
+export const ACCESS_EXPLAIN_SOURCES = ['super_admin', 'user_acl', 'roles', 'api_key', 'none'] as const
+
+export const ACCESS_EXPLAIN_CHANGE_KINDS = ['user_acl', 'role_acl', 'user_roles'] as const
+
+const ACCESS_FEATURE_ID_PATTERN = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_:-]+)+$/
+const FIRST_PRINTABLE_CHAR_CODE = 32
+const DELETE_CHAR_CODE = 127
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code < FIRST_PRINTABLE_CHAR_CODE || code === DELETE_CHAR_CODE) return true
+  }
+  return false
+}
+
+function isApplicationPath(value: string): boolean {
+  return value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !hasControlCharacter(value)
+}
+
+export const accessExplainQuerySchema = z.object({
+  features: z
+    .array(z.string().trim().min(1).max(200).regex(ACCESS_FEATURE_ID_PATTERN, { message: 'Invalid feature id' }))
+    .min(1)
+    .max(ACCESS_EXPLAIN_FEATURE_LIMIT)
+    .describe('Feature ids to explain, comma-separated or repeated (`features=a,b` or `features=a&features=b`); at most 20 concrete ids from the ACL catalog, no wildcards.'),
+  path: z
+    .string()
+    .trim()
+    .min(1)
+    .max(ACCESS_EXPLAIN_PATH_MAX_LENGTH)
+    .refine(isApplicationPath, { message: 'Invalid path' })
+    .optional()
+    .describe('Application path where the caller was denied access. When every feature is granted to the caller, the denial came from a rule outside RBAC and is reported as `not_determinable`; ignored when explaining another user.'),
+  userId: z
+    .string()
+    .trim()
+    .uuid()
+    .optional()
+    .describe('User to explain; defaults to the caller. Another user requires `insights.explain.access_detail` and `auth.users.list`.'),
+})
+
+export type AccessExplainQuery = z.infer<typeof accessExplainQuerySchema>
+
+const accessReasonSchema = z.enum(ACCESS_EXPLAIN_REASONS)
+
+export const accessRoleGrantSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  isSuperAdmin: z.boolean(),
+  organizations: z.array(z.string()).nullable().describe('Organizations the role ACL is restricted to; null = every organization.'),
+  appliesToOrganization: z.boolean().describe('Whether the role ACL applies at the evaluated organization.'),
+  grantedFeatures: z.array(z.string()).describe('Requested features the role ACL grants (wildcard-aware).'),
+})
+
+export const accessRecentChangeSchema = z.object({
+  logId: z.string(),
+  at: z.string(),
+  kind: z.enum(ACCESS_EXPLAIN_CHANGE_KINDS),
+  resourceId: z.string().nullable(),
+  commandId: z.string().nullable(),
+  actionLabel: z.string().nullable(),
+})
+
+export const accessExplainDetailSchema = z.object({
+  subject: z.object({ kind: z.enum(['user', 'api_key']), id: z.string(), isSelf: z.boolean() }),
+  source: z.enum(ACCESS_EXPLAIN_SOURCES).describe('Where the principal\'s grants come from; a per-user ACL replaces role grants.'),
+  organizationId: z.string().nullable().describe('Organization the decision was evaluated at.'),
+  organizationAllowed: z.boolean(),
+  aclOrganizations: z.array(z.string()).nullable(),
+  features: z.array(z.object({ feature: z.string(), granted: z.boolean(), reason: accessReasonSchema.nullable() })),
+  userAcl: z
+    .object({
+      isSuperAdmin: z.boolean(),
+      organizations: z.array(z.string()).nullable(),
+      grantedFeatures: z.array(z.string()),
+    })
+    .nullable(),
+  roles: z.array(accessRoleGrantSchema),
+  rolesThatWouldGrant: z.array(accessRoleGrantSchema),
+  grantedOrganizationIds: z.array(z.string()).nullable().describe('Organizations where every requested feature is granted; null = every organization.'),
+  organizationsRedacted: z.boolean().describe('True when organization ids outside the caller\'s scope were omitted.'),
+  recentChanges: z.array(accessRecentChangeSchema).nullable().describe('Latest ACL and role-assignment audit entries; null without `audit_logs.view_tenant`.'),
+  consistentWithFreshRead: z.boolean().describe('False when a cache-bypassing re-evaluation disagreed with the cached decision.'),
+})
+
+export const accessExplainResponseSchema = z.object({
+  decision: z.enum(['granted', 'denied']),
+  required: z.array(z.object({ feature: z.string(), granted: z.boolean() })),
+  reasons: z.array(accessReasonSchema),
+  summary: explainSummarySchema.describe('Deterministic i18n summary (`key` + `params`) of the decision and its main reason.'),
+  detail: accessExplainDetailSchema.nullable(),
+  confidence: z.enum(EXPLAIN_CONFIDENCES),
+})
+
+export type AccessRoleGrantView = z.infer<typeof accessRoleGrantSchema>
+export type AccessRecentChangeView = z.infer<typeof accessRecentChangeSchema>
+export type AccessExplainDetail = z.infer<typeof accessExplainDetailSchema>
+export type AccessExplainResponse = z.infer<typeof accessExplainResponseSchema>
