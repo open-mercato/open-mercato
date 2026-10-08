@@ -501,11 +501,11 @@ export async function getStorefrontProductDetail(
   if (!main) return null
   const { product } = main
   const primaryCategory = main.categories[0]
-  const ancestors = breadcrumbAncestors(primaryCategory, mainLoad.ancestors)
-
-  const [relatedIds, media] = await Promise.all([findRelatedProductIds(runtime, main), loadMedia(runtime, product)])
   const knownAncestors = new Map(mainLoad.ancestors)
   for (const category of main.categories) knownAncestors.set(category.id, category)
+  const ancestors = breadcrumbAncestors(primaryCategory, knownAncestors)
+
+  const [relatedIds, media] = await Promise.all([findRelatedProductIds(runtime, main), loadMedia(runtime, product)])
   const { products: related } = await loadProducts(runtime, relatedIds, false, knownAncestors)
   const variantIds = main.variants.map((variant) => variant.id)
   const templateId = referenceId(product.optionSchemaTemplate)

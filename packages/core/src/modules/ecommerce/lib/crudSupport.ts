@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityName, FilterQuery } from '@mikro-orm/core'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
@@ -23,6 +24,8 @@ export function resolveScopeOrganizationId(ctx: CrudCtx): string | null {
   return ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
 }
 
+const recordIdSchema = z.string().uuid()
+
 type ScopedRecord = { id: string; tenantId: string; organizationId: string; deletedAt?: Date | null }
 
 /**
@@ -39,7 +42,7 @@ export async function assertRecordInWriteScope<T extends ScopedRecord>(
 ): Promise<void> {
   const tenantId = ctx.auth?.tenantId ?? null
   const organizationId = resolveScopeOrganizationId(ctx)
-  if (typeof id !== 'string' || !id || !tenantId || !organizationId) return
+  if (typeof id !== 'string' || !recordIdSchema.safeParse(id).success || !tenantId || !organizationId) return
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const record = await findOneWithDecryption(
     em,

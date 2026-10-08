@@ -37,7 +37,7 @@ function useLookupLabels(source: LookupSource, ids: readonly string[]) {
       },
       () => {
         settled = true
-        release()
+        if (!cancelled) release()
       },
     )
     return () => {

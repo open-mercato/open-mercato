@@ -172,6 +172,12 @@ describe('ecommerce store CRUD route', () => {
       await expect(opts.hooks!.beforeDelete!(STORE_ID, createCtx(em))).rejects.toMatchObject({ status: 404 })
     })
 
+    it('leaves a malformed id to the factory instead of querying with it', async () => {
+      const { em } = createFakeEm({ findOne: () => makeStore({ organizationId: CHILD_ORG_ID }) })
+      await expect(opts.hooks!.beforeUpdate!({ id: 'abc' }, createCtx(em))).resolves.toBeUndefined()
+      expect(em.findOne).not.toHaveBeenCalled()
+    })
+
     it('lets an update or delete of a store in the selected organization through', async () => {
       const { em } = createFakeEm({ findOne: () => makeStore() })
       await expect(opts.hooks!.beforeUpdate!({ id: STORE_ID, name: 'X' }, createCtx(em))).resolves.toBeUndefined()

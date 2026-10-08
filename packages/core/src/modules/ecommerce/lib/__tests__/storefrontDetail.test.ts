@@ -752,6 +752,15 @@ describe('getStorefrontProductDetail — payload (§5.2)', () => {
     ])
   })
 
+  it('keeps the full breadcrumb when the product is also assigned to the ancestor itself', async () => {
+    const main = world.products.find((product) => product.id === MAIN_ID)
+    if (!main) throw new Error('[internal] fixture lacks the main product')
+    main.categoryIds = [CAT_DRESS, CAT_ROOT]
+    const result = await detail(MAIN_ID)
+    expect(result?.breadcrumb.map((entry) => entry.id)).toEqual([CAT_ROOT, CAT_DRESS])
+    expect(result?.breadcrumb[0]).toEqual({ id: CAT_ROOT, name: 'Clothing', slug: 'clothing' })
+  })
+
   it('hides a category under an inactive ancestor from categories and the breadcrumb', async () => {
     const root = CATEGORIES.find((entry) => entry.id === CAT_ROOT)
     if (!root) throw new Error('[internal] fixture lacks the root category')
