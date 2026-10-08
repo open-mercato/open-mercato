@@ -415,10 +415,13 @@ indexes already use.
 
 ### Cross-module dependency surface
 
-**Scenario:** `financial_pl` depends on both `ledger` and
+**Scenario:** the Poland engines depend on both `ledger` and
 `tax_management` — two hard dependencies for one plugin, each
-independently a single point of failure for `financial_pl`'s
-period-close flow if either's API changes.
+independently a single point of failure for the period-close flow if
+either's API changes. (Target layout from 2026-10-08: these engines live
+in the separate package `financial_pl_accounting` with a hard `requires`
+on `ledger` and `tax_management`; `financial_pl` itself keeps no
+dependency on either.)
 **Severity:** Minor.
 **Affected area:** `financial_pl`'s period-close flow.
 **Mitigation:** Named, versioned DI token/registry contracts
@@ -463,7 +466,8 @@ decisions; doesn't fit VAT or PIT-4.
   (`official-modules#55`) — not designed in this document, which only
   defines the contract shape. **Input source, decided 2026-10-08:** the
   VAT engine reads `financial_pl`'s VAT register (the evidence the
-  JPK_V7 declaration is built from) and posts only the settlement
+  JPK_V7 declaration is built from) through a read-only DI service that
+  `financial_pl` exposes, never through its entities, and posts only the settlement
   through this module; the CIT and PIT engines read GL account balances
   (#6013), because those taxes derive from the books. GL balances also
   feed a reconciliation of the VAT register against the VAT accounts
@@ -661,7 +665,15 @@ Not yet re-reviewed by a maintainer under this revision.
   GL balances (#6013) reconcile the VAT register. Three sentences edited;
   no change to the `ITaxEngine` contract, `TaxCode`, mappings,
   `TaxLiabilityRecord` or the commands.
-- **Not changed here.** Which module id hosts the Poland engines
-  (`financial_pl` or a GL-dependent sibling) is still open and tracked
-  outside this document.
+- **Host module (decided 2026-10-08).** The
+  Poland engines, the mikrorachunek and the payment-instruction commands
+  move to a GL-dependent sibling package, `financial_pl_accounting`
+  with a hard `requires` on `financial_pl`, `ledger`,
+  `tax_management` and `financial_statements`. `financial_pl` stays
+  installable without a ledger and keeps JPK_V7 and KSeF. This replaces
+  the earlier "still open" note. Mentions of "`financial_pl`" in the
+  sections above, as the place where the engines and the `.pay`-style
+  feature live, read as this package; the payment feature becomes
+  `financial_pl_accounting.tax.pay`. Nothing in the `ITaxEngine`
+  contract changes.
 
