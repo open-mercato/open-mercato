@@ -25,8 +25,10 @@
 >    document defines (Architecture → M2).
 > 3. Not a hard blocker, but related: `open-mercato#6013` (GL account
 >    balances) and `open-mercato#6038` (GL bulk-read) are both
->    unmerged prerequisites for `financial_pl`'s own tax-calculation
->    logic (Out of scope) — named here because PR #6168's review
+>    unmerged prerequisites for `financial_pl`'s own CIT/PIT
+>    calculation and VAT reconciliation (Out of scope; VAT itself is
+>    computed from `financial_pl`'s VAT register, not from GL balances,
+>    decided 2026-10-08) — named here because PR #6168's review
 >    asked for the dependency list to be explicit, not because this
 >    document's own code depends on them.
 
@@ -198,11 +200,14 @@ much VAT to charge on one sale. `tax_management.TaxCode` is a
 no rate, no transaction scoping, and no FK to `SalesTaxRate` at all —
 it exists to track *that a VAT liability gets calculated and remitted
 each period*, not *how much VAT applies to a given line item*.
-`financial_pl`'s VAT `ITaxEngine.calculate()` is the layer that reads
-`SalesTaxRate`-driven sales data (output VAT) netted against purchase
-input VAT to produce the period's total (Out of scope, this document;
-that logic lives in `official-modules#55` and reads GL balances per
-`open-mercato#6013`) — the two entities describe different layers of
+`financial_pl`'s VAT `ITaxEngine.calculate()` is the layer that nets
+output VAT against purchase input VAT to produce the period's total
+(Out of scope, this document; that logic lives in `official-modules#55`).
+**Decided 2026-10-08:** its input is `financial_pl`'s own VAT register
+(sales invoice VAT and `PurchaseVatRecord`, the same evidence the
+JPK_V7 declaration is built from), not GL balances; `open-mercato#6013`
+balances are used only to reconcile the register against the VAT
+accounts — the two entities describe different layers of
 the same overall VAT story and were never meant to overlap. SPEC-024
 §10.2's "Tax calculation on transactions" is `SalesTaxRate`'s own
 existing territory in `sales`, unaffected by this document.
@@ -455,8 +460,14 @@ decisions; doesn't fit VAT or PIT-4.
 - **Tax calculation logic itself** (how much VAT/CIT/PIT is actually
   owed, and each tax's exact posting-line shape). `ITaxEngine.calculate`'s
   real implementation is `financial_pl` application logic
-  (`official-modules#55`) reading GL account balances (#6013) — not
-  designed in this document, which only defines the contract shape.
+  (`official-modules#55`) — not designed in this document, which only
+  defines the contract shape. **Input source, decided 2026-10-08:** the
+  VAT engine reads `financial_pl`'s VAT register (the evidence the
+  JPK_V7 declaration is built from) and posts only the settlement
+  through this module; the CIT and PIT engines read GL account balances
+  (#6013), because those taxes derive from the books. GL balances also
+  feed a reconciliation of the VAT register against the VAT accounts
+  (differences are reported, not corrected).
 - **The mikrorachunek podatkowy payment instruction** and its checksum
   algorithm — Poland-specific, `official-modules#55`.
 - **ZUS** (social security contributions) — structurally different (an
@@ -630,3 +641,27 @@ related but distinct point. Corrected to cite the real
 directly. Substance unchanged; citation only.
 
 Not yet re-reviewed by a maintainer under this revision.
+
+### 2026-10-08 — source of the VAT engine's input
+
+- **Why.** This document (Out of scope, `SalesTaxRate` relation, merge-order
+  note) said the VAT engine reads GL account balances. The JPK_V7
+  declaration is built from the VAT register (sales invoice VAT and
+  `PurchaseVatRecord`, with KSeF number, markings, transaction class, GTU
+  codes, fixed-asset VAT and self-assessment), fields the GL does not
+  carry; and the existing `financial_pl` code computes the declaration
+  from register rows and operator inputs. `2026-09-06-accounts-payable.md`
+  already cites the same separation in Comarch Optima (VAT register
+  first, a separate "Księguj" step into the books), and
+  `2026-08-18-sales-invoice-gl-posting.md` says the same for sales:
+  output VAT loses its per-rate breakdown in the GL posting, so a
+  JPK_V7 process must read `sales.SalesInvoiceLine` directly.
+- **Decision (working, pending maintainer review).** VAT: register in,
+  settlement posted through `tax_management`; CIT/PIT: GL balances in.
+  GL balances (#6013) reconcile the VAT register. Three sentences edited;
+  no change to the `ITaxEngine` contract, `TaxCode`, mappings,
+  `TaxLiabilityRecord` or the commands.
+- **Not changed here.** Which module id hosts the Poland engines
+  (`financial_pl` or a GL-dependent sibling) is still open and tracked
+  outside this document.
+
