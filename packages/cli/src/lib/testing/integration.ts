@@ -9,6 +9,7 @@ import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import spawn from 'cross-spawn'
 import { fetchWithTimeout, type FetchWithTimeoutInit } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { isUnsafeJwtSecret } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveEnvironment } from '../resolver'
 import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
@@ -187,6 +188,19 @@ export function resolveEphemeralPostgresImage(env: NodeJS.ProcessEnv = process.e
 
 export function ephemeralPostgresInitSql(): string {
   return EPHEMERAL_POSTGRES_INIT_SQL
+}
+
+const DEFAULT_EPHEMERAL_JWT_SECRET = 'om-ephemeral-integration-jwt-secret'
+
+export function resolveEphemeralJwtSecret(env: NodeJS.ProcessEnv = process.env): string {
+  const inherited = env.JWT_SECRET
+  if (inherited && !isUnsafeJwtSecret(inherited)) return inherited
+  if (inherited !== undefined) {
+    console.warn(
+      '[integration] Ignoring the inherited JWT_SECRET: it is a placeholder or too short and the ephemeral app runs with NODE_ENV=production. Using the ephemeral default instead.',
+    )
+  }
+  return DEFAULT_EPHEMERAL_JWT_SECRET
 }
 const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /net::ERR_CONNECTION_REFUSED/i,
@@ -2164,8 +2178,16 @@ function buildReusableEnvironment(
     // stale CRUD response until the TTL (TC-CRM-028/079, TC-SX-001).
     CACHE_STRATEGY: 'sqlite',
     CACHE_SQLITE_PATH: EPHEMERAL_CACHE_DB_PATH,
-    JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
+    JWT_SECRET: resolveEphemeralJwtSecret(),
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // The forms module refuses its DEV-ONLY deterministic KMS adapter under
+    // NODE_ENV=production (which is how this app runs), so without a master key
+    // `formsEncryptionService` fails to resolve and every encrypted-payload
+    // route answers a bare 500: the whole public/portal runtime, the submissions
+    // inbox, revisions, audit, anonymize, export, PDF and analytics. Admin CRUD
+    // keeps working, which is what makes the omission easy to miss.
+    FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
+      ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
     // Integration probe + tests expect `admin@acme.com / secret` and
     // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
     // password resolution through the random-fallback branch unless these
@@ -3546,8 +3568,16 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       APP_URL: applicationBaseUrl,
       NEXT_PUBLIC_APP_URL: applicationBaseUrl,
       PLATFORM_PORTAL_BASE_URL: applicationBaseUrl,
-      JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
+      JWT_SECRET: resolveEphemeralJwtSecret(),
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // The forms module refuses its DEV-ONLY deterministic KMS adapter under
+    // NODE_ENV=production (which is how this app runs), so without a master key
+    // `formsEncryptionService` fails to resolve and every encrypted-payload
+    // route answers a bare 500: the whole public/portal runtime, the submissions
+    // inbox, revisions, audit, anonymize, export, PDF and analytics. Admin CRUD
+    // keeps working, which is what makes the omission easy to miss.
+    FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
+      ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
       NODE_ENV: 'production',
       // See the auth-probe block above: pin derived-user passwords to the
       // documented 'secret' so the ephemeral login probe converges under

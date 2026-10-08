@@ -5,7 +5,6 @@ import ts from 'typescript-js'
 import {
   MODULE_CODE_EXTENSIONS,
   SCAN_CONFIGS,
-  resolveModuleFile,
   resolveStandaloneSourceMirrorBase,
   scanModuleDir,
   stripModuleCodeExtension,
@@ -325,16 +324,20 @@ class SnapshotCollector {
     const sourceBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
     const app = this.codeFile(roots.appBase, relativePath)
     const source = app ?? this.codeFile(sourceBase, relativePath)
-    if (!source) return []
+    // Conventions retain stale compiled inputs after source deletion. Directory
+    // scans still enumerate only the authoritative source mirror before pairing.
+    const runtime = !app && sourceBase !== roots.pkgBase
+      ? this.codeFile(roots.pkgBase, stripModuleCodeExtension(relativePath))
+      : source
+    const primary = source ?? runtime
+    if (!primary) return []
     const logical = stripModuleCodeExtension(relativePath).replace(/\\/g, '/')
     const key = `${identity}:${kind.category}:${kind.extensionId ?? ''}:${logical}`
-    this.file(`${key}:source`, source, kind, mode)
-    const resolved = resolveModuleFile(roots, { appBase: roots.appBase, pkgBase: roots.pkgBase }, relativePath)
-    const runtime = resolved?.absolutePath
+    if (source) this.file(`${key}:source`, source, kind, mode)
     if (runtime && runtime !== source) this.file(`${key}:runtime`, runtime, kind, mode)
     // Physical ownership is part of the fingerprint even for identical bytes.
-    this.record(`${key}:authority`, source, kind, JSON.stringify([source, runtime ?? null]))
-    return runtime && runtime !== source ? [source, runtime] : [source]
+    this.record(`${key}:authority`, primary, kind, JSON.stringify([source, runtime]))
+    return source && runtime && runtime !== source ? [source, runtime] : [primary]
   }
 
   tree(identity: string, directory: string, kind: InputKind, skipTests = true): void {

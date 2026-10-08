@@ -109,14 +109,48 @@ export function getWebResearchAdapterWatchInputs(
   }
 }
 
-function identifierFor(index: number): string {
-  return `adapter${index}`
+function renderEntries(adapters: readonly DiscoveredAdapter[]): string {
+  if (adapters.length === 0) return 'export const webResearchAdapterEntries: AdapterRegistryEntry[] = []\n'
+  const loaders = adapters
+    .map(
+      (adapter) =>
+        `  loadAdapterEntry('${adapter.packageName}', () => import('${adapter.packageName}')),`,
+    )
+    .join('\n')
+  return `const MISSING_MODULE_CODES = new Set(['ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'])
+
+async function loadAdapterEntry(
+  packageName: string,
+  load: () => Promise<unknown>,
+): Promise<AdapterRegistryEntry | null> {
+  try {
+    return { packageName, module: await load() }
+  } catch (error) {
+    const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown }
+    const isMissingCode = typeof code === 'string' && MISSING_MODULE_CODES.has(code)
+    const namesThisPackage = typeof message === 'string' && message.includes(\`'\${packageName}'\`)
+    if (isMissingCode && namesThisPackage) return null
+    throw error
+  }
+}
+
+const loadedEntries = await Promise.all([
+${loaders}
+])
+
+export const webResearchAdapterEntries: AdapterRegistryEntry[] = loadedEntries.filter(
+  (entry): entry is AdapterRegistryEntry => entry !== null,
+)
+`
 }
 
 /**
- * Emits the statically imported adapter registry. Discovery happens here, at
- * build time, because a bundler cannot follow `import()` with a runtime-computed
- * specifier — a dynamic registry would resolve to nothing under Turbopack.
+ * Emits the adapter registry. Discovery happens here, at build time, because a
+ * bundler cannot follow `import()` with a runtime-computed specifier — a dynamic
+ * registry would resolve to nothing under Turbopack. Each adapter is imported
+ * with a literal specifier and a package that is not installed where the
+ * registry runs is skipped: discovery scans the whole workspace, but a process
+ * such as a worker in a production image only has the app's own dependencies.
  */
 export async function generateWebResearchAdapters(
   options: WebResearchAdaptersOptions,
@@ -142,26 +176,13 @@ export async function generateWebResearchAdapters(
     left.packageName.localeCompare(right.packageName),
   )
 
-  const imports = adapters
-    .map((adapter, index) => `import * as ${identifierFor(index)} from '${adapter.packageName}'`)
-    .join('\n')
-  const entries = adapters
-    .map(
-      (adapter, index) =>
-        `  { packageName: '${adapter.packageName}', module: ${identifierFor(index)} },`,
-    )
-    .join('\n')
-
   const content = `// AUTO-GENERATED — do not edit by hand.
 // Source: packages declaring \`${MANIFEST_NAMESPACE}.${ADAPTER_MANIFEST_KEY}\` in package.json.
 // Regenerate with: yarn generate
+// Adapter packages that are not installed where this registry runs are skipped.
 import type { AdapterRegistryEntry } from '@open-mercato/web-research'
-${imports}
 
-export const webResearchAdapterEntries: AdapterRegistryEntry[] = [
-${entries}
-]
-`
+${renderEntries(adapters)}`
 
   writeGeneratedFile({
     outFile,

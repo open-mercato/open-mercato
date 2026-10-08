@@ -1,7 +1,10 @@
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createResolver, type PackageResolver } from '../../resolver'
+import ts from 'typescript-js'
+import { createResolver } from '../../resolver'
+import type { PackageResolver } from '../../resolver'
 import { readChecksumRecord } from '../../utils'
 import { generateWebResearchAdapters, getWebResearchAdapterWatchInputs } from '../web-research-adapters'
 
@@ -34,8 +37,11 @@ function writeManifest(packageRoot: string, name: string, adapterId?: string): v
   fs.mkdirSync(packageRoot, { recursive: true })
   fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({
     name,
+    type: 'module',
+    exports: './index.js',
     ...(adapterId === undefined ? {} : { openMercato: { webResearchAdapter: { id: adapterId } } }),
   }))
+  fs.writeFileSync(path.join(packageRoot, 'index.js'), `export const id = ${JSON.stringify(adapterId ?? '')}\n`)
 }
 
 describe('generateWebResearchAdapters', () => {
@@ -45,7 +51,7 @@ describe('generateWebResearchAdapters', () => {
   let checksumFile: string
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'web-research-adapters-test-'))
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'web-research-adapters-test-')))
     resolver = createTestResolver(root)
     outFile = path.join(resolver.getOutputDir(), 'web-research-adapters.generated.ts')
     checksumFile = path.join(resolver.getOutputDir(), 'web-research-adapters.checksum')
@@ -81,12 +87,7 @@ describe('generateWebResearchAdapters', () => {
     ])
     expect(inputs.fullReasons).toEqual([])
     await generateWebResearchAdapters({ resolver, quiet: true })
-    const initialOutput = fs.readFileSync(outFile, 'utf8')
-    expect(initialOutput).toContain("from '@third-party/adapter'")
-    expect(initialOutput).toContain("from 'workspace-adapter'")
-    expect(initialOutput).not.toContain('nested-implementation')
-    expect(initialOutput).not.toContain('cached-adapter')
-    expect(initialOutput).not.toContain('bin-adapter')
+    expectRegistryEntries([['@third-party/adapter', 'third-party']])
 
     const appAdapter = path.join(appInstalledRoot, '@another-vendor', 'adapter')
     writeManifest(appAdapter, '@another-vendor/adapter', 'app')
@@ -95,7 +96,10 @@ describe('generateWebResearchAdapters', () => {
     expect(nextInputs.directoryPaths).toEqual([workspaceRoot, installedRoot, appInstalledRoot])
     expect(nextInputs.fullReasons).toEqual([])
     await generateWebResearchAdapters({ resolver, quiet: true })
-    expect(fs.readFileSync(outFile, 'utf8')).toContain("from '@another-vendor/adapter'")
+    expectRegistryEntries([
+      ['@another-vendor/adapter', 'app'],
+      ['@third-party/adapter', 'third-party'],
+    ])
   })
 
   it('keeps standalone discovery roots inside the standalone project', () => {
@@ -163,7 +167,7 @@ describe('generateWebResearchAdapters', () => {
     const second = await generateWebResearchAdapters({ resolver, quiet: true })
 
     expect(first.filesWritten).toEqual([outFile])
-    expect(content).not.toContain("from 'invalid'")
+    expectRegistryEntries([])
     expect(second.filesWritten).toEqual([])
     expect(second.filesUnchanged).toEqual([outFile])
     expect(fs.readFileSync(outFile, 'utf8')).toBe(content)
@@ -201,22 +205,21 @@ describe('generateWebResearchAdapters', () => {
     const installedPackage = path.join(root, 'node_modules', '@example', 'a-adapter')
     writeManifest(workspacePackage, '@example/z-adapter', 'z')
     writeManifest(installedPackage, '@example/a-adapter')
+    fs.symlinkSync(workspacePackage, path.join(root, 'node_modules', '@example', 'z-adapter'), 'dir')
     await generateWebResearchAdapters({ resolver, quiet: true })
     const initialStructure = readChecksumRecord(checksumFile)?.structure
     const initialOutput = fs.readFileSync(outFile, 'utf8')
-    expect(initialOutput).toContain("import * as adapter0 from '@example/z-adapter'")
-    expect(initialOutput).not.toContain('@example/a-adapter')
+    expectRegistryEntries([['@example/z-adapter', 'z']])
 
     writeManifest(installedPackage, '@example/a-adapter', 'a')
     const added = await generateWebResearchAdapters({ resolver, quiet: true })
     const addedStructure = readChecksumRecord(checksumFile)?.structure
     expect(added.filesWritten).toEqual([outFile])
     expect(addedStructure).not.toBe(initialStructure)
-    const addedOutput = fs.readFileSync(outFile, 'utf8')
-    expect(addedOutput).toContain("import * as adapter0 from '@example/a-adapter'")
-    expect(addedOutput).toContain("import * as adapter1 from '@example/z-adapter'")
-    expect(addedOutput).toContain("{ packageName: '@example/a-adapter', module: adapter0 }")
-    expect(addedOutput).toContain("{ packageName: '@example/z-adapter', module: adapter1 }")
+    expectRegistryEntries([
+      ['@example/a-adapter', 'a'],
+      ['@example/z-adapter', 'z'],
+    ])
 
     fs.rmSync(path.join(installedPackage, 'package.json'))
     await generateWebResearchAdapters({ resolver, quiet: true })
@@ -226,7 +229,7 @@ describe('generateWebResearchAdapters', () => {
     writeManifest(workspacePackage, '@example/z-adapter', '')
     const removed = await generateWebResearchAdapters({ resolver, quiet: true })
     expect(removed.filesWritten).toEqual([outFile])
-    expect(fs.readFileSync(outFile, 'utf8')).not.toContain('@example/z-adapter')
+    expectRegistryEntries([])
     expect(readChecksumRecord(checksumFile)?.structure).not.toBe(initialStructure)
   })
 
@@ -258,5 +261,75 @@ describe('generateWebResearchAdapters', () => {
     expect(result.filesUnchanged).toEqual([outFile])
     expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
     expect(fs.statSync(outFile).mtimeMs).toBe(outputMtimeBefore)
+  })
+
+  function runGeneratedRegistry(): { status: number | null; stdout: string; stderr: string } {
+    // Execute the generated registry's module-loading boundaries in a fresh Node process.
+    const compiled = ts.transpileModule(fs.readFileSync(outFile, 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText
+    const registryFile = path.join(resolver.getOutputDir(), 'web-research-adapters.generated.mjs')
+    fs.writeFileSync(registryFile, compiled)
+    const script = [
+      `const { webResearchAdapterEntries } = await import(${JSON.stringify(registryFile)})`,
+      'console.log(JSON.stringify(webResearchAdapterEntries.map((entry) => [entry.packageName, entry.module.id])))',
+    ].join('\n')
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: resolver.getAppDir(),
+      encoding: 'utf8',
+    })
+    return { status: result.status, stdout: result.stdout.trim(), stderr: result.stderr }
+  }
+
+  function expectRegistryEntries(entries: string[][]): void {
+    const result = runGeneratedRegistry()
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual(entries)
+  }
+
+  it('emits an empty registry when no adapter package is discovered', async () => {
+    await generateWebResearchAdapters({ resolver, quiet: true })
+
+    expectRegistryEntries([])
+  })
+
+  it('still surfaces an installed adapter that fails while loading', async () => {
+    const packageRoot = path.join(root, 'node_modules', '@acme', 'web-research-broken')
+    writeManifest(packageRoot, '@acme/web-research-broken', 'broken')
+    fs.writeFileSync(path.join(packageRoot, 'index.js'), "throw new Error('adapter exploded')\n")
+    await generateWebResearchAdapters({ resolver, quiet: true })
+
+    const result = runGeneratedRegistry()
+
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('adapter exploded')
+  })
+
+  it('still surfaces an installed adapter whose own dependency is missing', async () => {
+    const packageRoot = path.join(root, 'node_modules', '@acme', 'web-research-needs-dep')
+    writeManifest(packageRoot, '@acme/web-research-needs-dep', 'needs-dep')
+    fs.writeFileSync(
+      path.join(packageRoot, 'index.js'),
+      "import '@acme/missing-adapter-dependency'\nexport const id = 'needs-dep'\n",
+    )
+    await generateWebResearchAdapters({ resolver, quiet: true })
+
+    const result = runGeneratedRegistry()
+
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('@acme/missing-adapter-dependency')
+  })
+
+  it('still surfaces an installed adapter whose entry file is missing', async () => {
+    const packageRoot = path.join(root, 'node_modules', '@acme', 'web-research-unbuilt')
+    writeManifest(packageRoot, '@acme/web-research-unbuilt', 'unbuilt')
+    fs.rmSync(path.join(packageRoot, 'index.js'))
+    await generateWebResearchAdapters({ resolver, quiet: true })
+
+    const result = runGeneratedRegistry()
+
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toMatch(/Cannot find module/)
   })
 })

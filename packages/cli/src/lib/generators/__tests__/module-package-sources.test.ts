@@ -86,7 +86,7 @@ describe('generateModulePackageSources', () => {
     await generateModulePackageSources({ resolver, quiet: true })
     const outputBefore = fs.readFileSync(outFile, 'utf8')
     const checksumBefore = readChecksumRecord(checksumFile)
-    const pinnedTime = new Date(Date.now() - 60_000)
+    const pinnedTime = new Date('2020-01-01T00:00:00.000Z')
     fs.utimesSync(outFile, pinnedTime, pinnedTime)
     fs.utimesSync(checksumFile, pinnedTime, pinnedTime)
     const outputMtimeBefore = fs.statSync(outFile).mtimeMs
@@ -123,7 +123,7 @@ describe('generateModulePackageSources', () => {
     await generateModulePackageSources({ resolver: initialResolver, quiet: true })
     const outputBefore = fs.readFileSync(outFile, 'utf8')
     const initialStructure = readChecksumRecord(checksumFile)?.structure
-    const pinnedTime = new Date(Date.now() - 60_000)
+    const pinnedTime = new Date('2020-01-01T00:00:00.000Z')
     fs.utimesSync(outFile, pinnedTime, pinnedTime)
     const outputMtimeBefore = fs.statSync(outFile).mtimeMs
 

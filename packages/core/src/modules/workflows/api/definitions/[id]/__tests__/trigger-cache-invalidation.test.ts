@@ -8,6 +8,10 @@
  * wildcard event-trigger subscriber on a stale snapshot for up to
  * TRIGGER_CACHE_TTL — after `reset-to-code` it kept matching the embedded
  * triggers of a row that no longer exists.
+ *
+ * `publish` belongs to the same family: it mints the version that event
+ * triggers resolve to from then on, so a cache left alone keeps starting the
+ * superseded version until the TTL runs out.
  */
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
@@ -78,6 +82,10 @@ jest.mock('../../../../lib/event-trigger-service', () => ({
   invalidateTriggerCache: jest.fn(),
 }))
 
+jest.mock('../../../../lib/caller-graph', () => ({
+  findSubWorkflowCallers: jest.fn(async () => []),
+}))
+
 jest.mock('../../../../lib/code-registry', () => ({
   getCodeWorkflow: jest.fn(() => codeDefinition),
 }))
@@ -93,6 +101,7 @@ jest.mock('../../serialize', () => ({
 import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { POST as customize } from '../customize/route'
 import { POST as resetToCode } from '../reset-to-code/route'
+import { POST as publish } from '../publish/route'
 
 const mockInvalidateTriggerCache = invalidateTriggerCache as jest.MockedFunction<
   typeof invalidateTriggerCache
@@ -102,7 +111,25 @@ function request(path: string) {
   return new Request(`http://localhost/api/workflows/definitions/${path}`, { method: 'POST' })
 }
 
-describe('workflows definition customize/reset-to-code trigger cache invalidation', () => {
+const publishedSource = {
+  id: DEFINITION_ID,
+  workflowId: WORKFLOW_ID,
+  codeWorkflowId: null,
+  workflowName: 'Order Approval',
+  description: null,
+  version: 1,
+  definition: { steps: [], transitions: [], triggers: [] },
+  metadata: null,
+  enabled: true,
+  kind: 'workflow',
+  lifecycle: 'published',
+  grantedFeatures: null,
+  tenantId: TENANT_ID,
+  organizationId: ORG_ID,
+  deletedAt: null,
+}
+
+describe('workflows definition customize/reset-to-code/publish trigger cache invalidation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: ORG_ID })
@@ -156,6 +183,32 @@ describe('workflows definition customize/reset-to-code trigger cache invalidatio
 
     expect(res.status).toBe(409)
     expect(mockEm.remove).not.toHaveBeenCalled()
+    expect(mockInvalidateTriggerCache).not.toHaveBeenCalled()
+  })
+
+  it('invalidates the trigger cache when publish mints a new version', async () => {
+    mockEm.findOne.mockResolvedValue({ ...publishedSource })
+    const context = { params: Promise.resolve({ id: DEFINITION_ID }) }
+    const res = await publish(request(`${DEFINITION_ID}/publish`) as never, context as never)
+
+    expect(res.status).toBe(200)
+    expect(mockEm.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ workflowId: WORKFLOW_ID, version: 2, lifecycle: 'published' }),
+    )
+    expect(mockInvalidateTriggerCache).toHaveBeenCalledWith(TENANT_ID, ORG_ID)
+    expect(mockEm.flush.mock.invocationCallOrder[0]).toBeLessThan(
+      mockInvalidateTriggerCache.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('leaves the trigger cache alone when publish finds no definition to version', async () => {
+    mockEm.findOne.mockResolvedValue(null)
+    const context = { params: Promise.resolve({ id: DEFINITION_ID }) }
+    const res = await publish(request(`${DEFINITION_ID}/publish`) as never, context as never)
+
+    expect(res.status).toBe(404)
+    expect(mockEm.flush).not.toHaveBeenCalled()
     expect(mockInvalidateTriggerCache).not.toHaveBeenCalled()
   })
 })
