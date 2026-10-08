@@ -1,0 +1,99 @@
+{
+  "name": "@open-mercato/carrier-inpost",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    }
+  },
+  "dependencies": {
+    "ts-pattern": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@mikro-orm/postgresql": "^6.5.9",
+    "@open-mercato/core": "0.4.9-develop.1080.5a6ccf821e",
+    "@open-mercato/shared": "0.4.9-develop.1080.5a6ccf821e",
+    "@open-mercato/ui": "0.4.9-develop.1080.5a6ccf821e",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@open-mercato/core": "0.6.3-develop.3778.1.25fdb35f2e",
+    "@open-mercato/shared": "0.6.3-develop.3778.1.25fdb35f2e",
+    "@open-mercato/ui": "0.6.3-develop.3778.1.25fdb35f2e",
+    "@playwright/test": "^1.58.2",
+    "@types/chance": "^1.1.7",
+    "@types/jest": "^30.0.0",
+    "chance": "^1.1.13",
+    "esbuild": "^0.25.0",
+    "glob": "^13.0.6",
+    "jest": "^30.2.0",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
