@@ -1491,6 +1491,5 @@
   "agent_orchestrator.webSearch.activity.stage.merging": "결과 병합 중",
   "agent_orchestrator.webSearch.activity.stage.reading": "페이지 읽는 중",
   "agent_orchestrator.webSearch.activity.title": "웹 검색",
-  "agent_orchestrator.workInbox.disposition.title": "검토할 에이전트 제안: {agent}",
-  "notifications.categories.agent_orchestrator": "AI 에이전트"
+  "agent_orchestrator.workInbox.disposition.title": "검토할 에이전트 제안: {agent}"
 }

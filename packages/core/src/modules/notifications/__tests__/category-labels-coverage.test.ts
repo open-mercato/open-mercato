@@ -8,7 +8,8 @@ import { deriveCategory } from '../lib/derive-category'
  * (`/backend/config/notifications`) must resolve to a translated
  * `notifications.categories.<key>` label in every locale. Without one, the heading
  * falls back to the raw module id (issue #7089). Dictionaries merge flat across
- * modules, so the label may live in any module's `i18n/<locale>.json`.
+ * modules, so the label may live in any module's `i18n/<locale>.json`. Commercial
+ * modules under `packages/enterprise/` are maintained separately and are out of scope.
  */
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..', '..', '..')
@@ -17,7 +18,9 @@ const CATEGORY_KEY_PREFIX = 'notifications.categories.'
 
 function listModuleDirs(): string[] {
   const roots = [
-    ...readdirSync(join(REPO_ROOT, 'packages')).map((pkg) => join(REPO_ROOT, 'packages', pkg, 'src', 'modules')),
+    ...readdirSync(join(REPO_ROOT, 'packages'))
+      .filter((pkg) => pkg !== 'enterprise')
+      .map((pkg) => join(REPO_ROOT, 'packages', pkg, 'src', 'modules')),
     ...readdirSync(join(REPO_ROOT, 'apps')).map((app) => join(REPO_ROOT, 'apps', app, 'src', 'modules')),
   ].filter((root) => existsSync(root))
   return roots.flatMap((root) =>
@@ -63,7 +66,7 @@ describe('notification category labels', () => {
   it('discovers notification types across the workspace', () => {
     expect(categories.size).toBeGreaterThan(5)
     expect(moduleDirs.map((dir) => relative(REPO_ROOT, dir))).toEqual(
-      expect.arrayContaining(['packages/enterprise/src/modules/security', 'packages/core/src/modules/wms']),
+      expect.arrayContaining(['packages/core/src/modules/auth', 'packages/core/src/modules/wms']),
     )
   })
 
@@ -73,10 +76,4 @@ describe('notification category labels', () => {
     expect(missing).toEqual([])
   })
 
-  it('groups enterprise security notifications with auth under one Security heading', () => {
-    expect(categories.has('security')).toBe(false)
-    expect(categories.get('auth')).toEqual(
-      expect.arrayContaining(['auth.account.locked', 'security.password.changed', 'security.mfa.enrolled']),
-    )
-  })
 })

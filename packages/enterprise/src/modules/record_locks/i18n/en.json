@@ -1,5 +1,4 @@
 {
-  "notifications.categories.record_locks": "Record locking",
   "record_locks.banner.active_users_label": "Active users",
   "record_locks.banner.contention_notice": "Another user opened this record while you are editing it. Conflicts may occur on save.",
   "record_locks.banner.local_machine": "local machine",

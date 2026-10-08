@@ -1491,6 +1491,5 @@
   "agent_orchestrator.webSearch.activity.stage.merging": "Combinando resultados",
   "agent_orchestrator.webSearch.activity.stage.reading": "Leyendo páginas",
   "agent_orchestrator.webSearch.activity.title": "Búsqueda web",
-  "agent_orchestrator.workInbox.disposition.title": "Propuesta del agente para revisar: {agent}",
-  "notifications.categories.agent_orchestrator": "Agentes de IA"
+  "agent_orchestrator.workInbox.disposition.title": "Propuesta del agente para revisar: {agent}"
 }
