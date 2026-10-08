@@ -57,7 +57,7 @@
   "carrier_inpost.demo.section.tracking": "Track Shipment",
   "carrier_inpost.demo.section.trackingDesc": "Polls InPost for live tracking status and events. Requires a shipment to be created first.",
   "carrier_inpost.demo.section.webhooks": "Webhook Delivery Log",
-  "carrier_inpost.demo.section.webhooksDesc": "InPost sends webhook events to /api/shipping-carriers/webhooks/inpost. The last received event timestamp is stored on each shipment record (lastWebhookAt). Use the InPost dashboard to configure the webhook endpoint URL.",
+  "carrier_inpost.demo.section.webhooksDesc": "InPost sends webhook events to /api/shipping-carriers/webhook/inpost. The last received event timestamp is stored on each shipment record (lastWebhookAt). Use the InPost dashboard to configure the webhook endpoint URL.",
   "carrier_inpost.demo.shipmentFailed": "Failed to create shipment",
   "carrier_inpost.demo.sizeMode.custom": "Custom dimensions",
   "carrier_inpost.demo.sizeMode.template": "InPost locker template",

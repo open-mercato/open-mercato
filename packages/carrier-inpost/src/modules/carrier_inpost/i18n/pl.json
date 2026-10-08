@@ -57,7 +57,7 @@
   "carrier_inpost.demo.section.tracking": "Śledź przesyłkę",
   "carrier_inpost.demo.section.trackingDesc": "Odpytuje InPost o aktualny status śledzenia i zdarzenia. Wymaga wcześniejszego utworzenia przesyłki.",
   "carrier_inpost.demo.section.webhooks": "Dziennik dostarczania webhooków",
-  "carrier_inpost.demo.section.webhooksDesc": "InPost wysyła zdarzenia webhook do /api/shipping-carriers/webhooks/inpost. Znacznik czasu ostatniego zdarzenia jest przechowywany w rekordzie przesyłki (lastWebhookAt). Użyj panelu InPost, aby skonfigurować adres URL endpointu webhook.",
+  "carrier_inpost.demo.section.webhooksDesc": "InPost wysyła zdarzenia webhook do /api/shipping-carriers/webhook/inpost. Znacznik czasu ostatniego zdarzenia jest przechowywany w rekordzie przesyłki (lastWebhookAt). Użyj panelu InPost, aby skonfigurować adres URL endpointu webhook.",
   "carrier_inpost.demo.shipmentFailed": "Nie udało się utworzyć przesyłki",
   "carrier_inpost.demo.sizeMode.custom": "Własne wymiary",
   "carrier_inpost.demo.sizeMode.template": "Gabaryt paczkomatu InPost",

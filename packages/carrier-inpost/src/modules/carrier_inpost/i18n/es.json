@@ -57,7 +57,7 @@
   "carrier_inpost.demo.section.tracking": "Rastrear envío",
   "carrier_inpost.demo.section.trackingDesc": "Consulta el estado de seguimiento en tiempo real y los eventos de InPost. Requiere que se haya creado un envío previamente.",
   "carrier_inpost.demo.section.webhooks": "Registro de entrega de webhooks",
-  "carrier_inpost.demo.section.webhooksDesc": "InPost envía eventos webhook a /api/shipping-carriers/webhooks/inpost. La marca de tiempo del último evento recibido se almacena en cada registro de envío (lastWebhookAt). Use el panel de InPost para configurar la URL del endpoint webhook.",
+  "carrier_inpost.demo.section.webhooksDesc": "InPost envía eventos webhook a /api/shipping-carriers/webhook/inpost. La marca de tiempo del último evento recibido se almacena en cada registro de envío (lastWebhookAt). Use el panel de InPost para configurar la URL del endpoint webhook.",
   "carrier_inpost.demo.shipmentFailed": "Error al crear el envío",
   "carrier_inpost.demo.sizeMode.custom": "Dimensiones personalizadas",
   "carrier_inpost.demo.sizeMode.template": "Plantilla de taquilla InPost",

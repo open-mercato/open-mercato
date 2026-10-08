@@ -57,7 +57,7 @@
   "carrier_inpost.demo.section.tracking": "배송 추적",
   "carrier_inpost.demo.section.trackingDesc": "InPost에서 실시간 추적 상태와 이벤트를 조회합니다. 먼저 배송을 생성해야 합니다.",
   "carrier_inpost.demo.section.webhooks": "웹훅 전송 로그",
-  "carrier_inpost.demo.section.webhooksDesc": "InPost는 웹훅 이벤트를 /api/shipping-carriers/webhooks/inpost로 전송합니다. 마지막으로 수신한 이벤트 시각은 각 배송 레코드(lastWebhookAt)에 저장됩니다. InPost 대시보드에서 웹훅 엔드포인트 URL을 구성하세요.",
+  "carrier_inpost.demo.section.webhooksDesc": "InPost는 웹훅 이벤트를 /api/shipping-carriers/webhook/inpost로 전송합니다. 마지막으로 수신한 이벤트 시각은 각 배송 레코드(lastWebhookAt)에 저장됩니다. InPost 대시보드에서 웹훅 엔드포인트 URL을 구성하세요.",
   "carrier_inpost.demo.shipmentFailed": "배송을 생성하지 못했습니다",
   "carrier_inpost.demo.sizeMode.custom": "사용자 지정 치수",
   "carrier_inpost.demo.sizeMode.template": "InPost 보관함 규격",

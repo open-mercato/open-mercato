@@ -945,13 +945,13 @@ export default function InpostDemoPage() {
             <p className="text-sm text-muted-foreground">
               {t(
                 'carrier_inpost.demo.section.webhooksDesc',
-                'InPost sends webhook events to /api/shipping-carriers/webhooks/inpost. The last received event timestamp is stored on each shipment record (lastWebhookAt). Use the InPost dashboard to configure the webhook endpoint URL.',
+                'InPost sends webhook events to /api/shipping-carriers/webhook/inpost. The last received event timestamp is stored on each shipment record (lastWebhookAt). Use the InPost dashboard to configure the webhook endpoint URL.',
               )}
             </p>
             {shipment && (
               <div className="mt-4 rounded bg-muted px-3 py-2 text-xs font-mono">
                 <p>shipment id: {shipment.shipmentId}</p>
-                <p>webhook endpoint: /api/shipping-carriers/webhooks/inpost</p>
+                <p>webhook endpoint: /api/shipping-carriers/webhook/inpost</p>
               </div>
             )}
           </section>

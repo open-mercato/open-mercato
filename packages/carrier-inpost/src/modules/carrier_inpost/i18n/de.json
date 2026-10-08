@@ -57,7 +57,7 @@
   "carrier_inpost.demo.section.tracking": "Sendung verfolgen",
   "carrier_inpost.demo.section.trackingDesc": "Ruft den Live-Tracking-Status und Ereignisse von InPost ab. Erfordert eine zuvor erstellte Sendung.",
   "carrier_inpost.demo.section.webhooks": "Webhook-Lieferprotokoll",
-  "carrier_inpost.demo.section.webhooksDesc": "InPost sendet Webhook-Ereignisse an /api/shipping-carriers/webhooks/inpost. Der Zeitstempel des zuletzt empfangenen Ereignisses wird in jedem Sendungsdatensatz (lastWebhookAt) gespeichert. Konfigurieren Sie die Webhook-Endpunkt-URL im InPost-Dashboard.",
+  "carrier_inpost.demo.section.webhooksDesc": "InPost sendet Webhook-Ereignisse an /api/shipping-carriers/webhook/inpost. Der Zeitstempel des zuletzt empfangenen Ereignisses wird in jedem Sendungsdatensatz (lastWebhookAt) gespeichert. Konfigurieren Sie die Webhook-Endpunkt-URL im InPost-Dashboard.",
   "carrier_inpost.demo.shipmentFailed": "Sendung konnte nicht erstellt werden",
   "carrier_inpost.demo.sizeMode.custom": "Benutzerdefinierte Abmessungen",
   "carrier_inpost.demo.sizeMode.template": "InPost-Paketstation-Vorlage",
