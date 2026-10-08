@@ -597,3 +597,42 @@ describe('ExplainService.explainLog', () => {
     expect(outcome.body.cause).toEqual(expect.objectContaining({ kind: 'user', legacy: true, labelKey: 'insights.explain.cause.legacyUser' }))
   })
 })
+
+describe('ExplainService — field providers', () => {
+  const providerExplain = jest.fn(async () => [{ key: 'test.provider.fact', params: { outcome: 'matched' }, confidence: 'inferred' as const }])
+
+  function registerProviderConfig() {
+    const config = testExplainConfig()
+    const [resource] = config.resources ?? []
+    resource.fields = resource.fields.map((field) => (field.key === 'status' ? { ...field, provider: 'test.provider' } : field))
+    registerTestExplainConfig({ ...config, providers: [{ id: 'test.provider', explain: providerExplain }] })
+  }
+
+  beforeEach(() => {
+    providerExplain.mockClear()
+    registerProviderConfig()
+  })
+
+  it('adds provider facts to the first page with the scanned history', async () => {
+    const body = fieldBody((await explainField()).outcome)
+    expect(providerExplain).toHaveBeenCalledTimes(1)
+    expect(providerExplain).toHaveBeenCalledWith(expect.objectContaining({ itemId: null, history: store.entries }))
+    expect(body.hints).toEqual(expect.arrayContaining([
+      { key: 'test.provider.fact', params: { outcome: 'matched' }, confidence: 'inferred', reference: null },
+    ]))
+  })
+
+  it('passes no history to providers for viewers who cannot see past values', async () => {
+    granted = ['insights.*', 'test.deals.view', 'audit_logs.view_self']
+    await explainField()
+    expect(providerExplain).toHaveBeenCalledWith(expect.objectContaining({ history: [] }))
+  })
+
+  it('does not run providers on continuation pages, whose history window is partial', async () => {
+    const first = fieldBody((await explainField({ limit: 1 })).outcome)
+    providerExplain.mockClear()
+    const second = fieldBody((await explainField({ limit: 1, before: first.page.nextBefore ?? undefined })).outcome)
+    expect(providerExplain).not.toHaveBeenCalled()
+    expect(second.hints.some((hint) => hint.key === 'test.provider.fact')).toBe(false)
+  })
+})

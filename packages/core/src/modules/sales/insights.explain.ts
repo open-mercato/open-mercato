@@ -16,8 +16,13 @@ import {
 } from '@open-mercato/shared/modules/insights/helpers'
 import { SalesOrder, SalesOrderLine, SalesQuote, SalesQuoteLine } from './data/entities'
 import { SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_QUOTE } from './commands/shared'
+import {
+  SALES_LINE_PRICE_PROVIDER_ID,
+  linePriceProvider,
+  readLinePriceMode,
+} from './lib/explain/linePriceProvider'
 
-export const SALES_LINE_PRICE_PROVIDER_ID = 'sales.line_price'
+export { SALES_LINE_PRICE_PROVIDER_ID }
 
 const DICTIONARY_ENTRY_REFERENCE_KIND = 'dictionary.entry'
 
@@ -30,6 +35,8 @@ type SalesLineCurrent = {
   unitPriceNet: string
   unitPriceGross: string
   currencyCode: string
+  priceId: string | null
+  priceMode: 'net' | 'gross' | null
 }
 
 const ORDER_STATUS_UNLOGGED_WRITERS: ExplainUnloggedWriter[] = [
@@ -124,6 +131,11 @@ const linesCollection: ExplainCollectionDescriptor = {
   ],
 }
 
+function readLineMetadataText(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = metadata ? metadata[key] : null
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
 function toLineCurrent(line: SalesOrderLine | SalesQuoteLine): SalesLineCurrent {
   return {
     id: line.id,
@@ -132,6 +144,8 @@ function toLineCurrent(line: SalesOrderLine | SalesQuoteLine): SalesLineCurrent 
     unitPriceNet: line.unitPriceNet,
     unitPriceGross: line.unitPriceGross,
     currencyCode: line.currencyCode,
+    priceId: readLineMetadataText(line.metadata, 'priceId'),
+    priceMode: readLinePriceMode(readLineMetadataText(line.metadata, 'priceMode')),
   }
 }
 
@@ -250,6 +264,7 @@ export const explainConfig = defineExplainConfig({
       recordHref: (id) => `/backend/sales/quotes/${encodeURIComponent(id)}`,
     },
   ],
+  providers: [linePriceProvider],
 })
 
 export default explainConfig

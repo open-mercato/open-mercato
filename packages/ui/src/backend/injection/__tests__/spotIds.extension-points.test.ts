@@ -2,7 +2,12 @@ import {
   CRUD_FORM_EXTENSION_SURFACES,
   DATA_TABLE_EXTENSION_SURFACES,
 } from '@open-mercato/shared/modules/widgets/extension-points'
-import { CrudFormInjectionSpots, DataTableInjectionSpots } from '../spotIds'
+import {
+  BACKEND_ACCESS_DENIED_AFTER_INJECTION_SPOT_ID,
+  CrudFormInjectionSpots,
+  DataTableInjectionSpots,
+  VERSION_HISTORY_ENTRY_AFTER_INJECTION_SPOT_ID,
+} from '../spotIds'
 
 describe('standard extension point spot IDs', () => {
   it('keeps every bound DataTable suffix aligned with the runtime helper', () => {
@@ -34,5 +39,10 @@ describe('standard extension point spot IDs', () => {
     expect(CrudFormInjectionSpots.base(entityId)).toBe('crud-form:catalog.product')
     expect(CrudFormInjectionSpots.header(entityId)).toBe('crud-form:catalog.product:header')
     expect(CrudFormInjectionSpots.fields(entityId)).toBe('crud-form:catalog.product:fields')
+  })
+
+  it('keeps the insights host spot ids frozen', () => {
+    expect(BACKEND_ACCESS_DENIED_AFTER_INJECTION_SPOT_ID).toBe('backend:access-denied:after')
+    expect(VERSION_HISTORY_ENTRY_AFTER_INJECTION_SPOT_ID).toBe('version-history:entry:after')
   })
 })

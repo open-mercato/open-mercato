@@ -613,3 +613,15 @@ Phase 2 of [`.ai/specs/2026-10-08-insights-causation-and-explain.md`](.ai/specs/
 | Database schema, event IDs, widget spot IDs, notification IDs, AI tool IDs | No change | ✓ n/a |
 
 **Migration path for existing modules**: none. A module opts in by adding `insights.explain.ts` and running `yarn generate`. Operators run `yarn generate` and `yarn mercato auth sync-role-acls` so existing roles receive the new features (see UPGRADE_NOTES.md).
+
+### Insights "Why?" price and access (Phase 3, 2026-10-08)
+
+Phase 3 of the same spec explains sales line prices and access decisions. Every surface below is new and additive.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| §1 Auto-discovery (`insights.explain.ts`) | `catalog` declares the `catalog.price` reference resolver (`requiredFeatures: ['catalog.products.view']`); `sales` registers the `sales.line_price` field provider. The sales line items exposed to explain declarations gain `priceId` and `priceMode` (read from line `metadata`) | ✓ ADDITIVE |
+| §3 Function signatures (`RbacService`) | New `explainAccess(userId, features, { tenantId, organizationId }, { detail? })` → `{ decision, required, reasons, confidence, consistentWithFreshRead, detail }` (decision always equals `userHasAllFeatures` on the same cache-backed ACL; a cache-bypassing re-check lowers `confidence` to `inferred` on disagreement) and `findRolesGrantingFeatures(tenantId, features, { organizationId? })`; new exported types `AccessExplanation*`, `AccessRoleGrant`, `AccessUserAclGrant` and the value set `ACCESS_EXPLANATION_REASONS` (`missing_feature`, `organization_out_of_scope`, `user_acl_override`, `module_disabled`, `feature_removed`). `loadAcl` and every existing method are unchanged | ✓ ADDITIVE; reason values ADDITIVE-ONLY |
+| §7 API routes | `GET /api/insights/explain/access?features=&path=&userId=` (`requireAuth`; resolved tenant required; unknown feature ids → 400 `unknown_feature`; another user requires `insights.explain.access_detail` + `auth.users.list` → 403 `forbidden`; a user outside the caller's tenant/organization scope → 404 `not_found`). Response `{ decision, required, reasons, summary, detail, confidence }`; `detail` only with `insights.explain.access_detail`. Explain field hints gain `sales.insights.linePrice.*` facts with `params.outcome` (`matched_price_row`, `differs`, `no_catalog_link`, `unverifiable`) | ✓ ADDITIVE; STABLE |
+| §9 DI service names | `accessExplainService` (request-scoped) | ✓ ADDITIVE; STABLE |
+| Database schema, event IDs, widget spot IDs, ACL feature IDs, notification IDs, CLI commands | No change | ✓ n/a |

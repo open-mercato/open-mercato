@@ -20,6 +20,9 @@ Explains why a record value is what it is ("Why?") from audit history plus the c
 - Never treat an undo trace's value before the undo as evidence: it is copied from the undone entry (`source: 'synthesized'`).
 - Never reveal whether a referenced log exists: an out-of-scope `caused_by_log_id` is presented exactly like a missing one.
 - Never cache `/api/insights/explain*` responses (viewer-redacted, must be fresh).
+- Never link a resolver `href` in the UI unless `isSafeInternalHref` accepts it, and never put record values or labels into the AI tool's summary text (they stay in `facts`; unsafe summary params are JSON-encoded).
+- Never claim an automation selected a value when the selection is not recorded: a field provider comparing with a source (e.g. `sales.line_price` vs a catalog price row) reports equality or difference as `inferred` at most, and anything it cannot verify (missing or foreign source, currency mismatch) as `unverifiable`.
+- Never re-implement ACL evaluation for access explanations: `RbacService.explainAccess` composes `loadAcl`, `resolveFeatureOrganizationAccess` and `authorizeFeatures`, and its decision must keep parity with `userHasAllFeatures` (covered by `auth/services/__tests__/rbacService.explainAccess.test.ts`).
 
 ## Map
 
@@ -29,8 +32,14 @@ Explains why a record value is what it is ("Why?") from audit history plus the c
 | `lib/engine/*` | Paths, normalization, chain, gaps, verdicts, confidence, summaries (i18n keys only) |
 | `lib/viewer.ts`, `lib/presenter.ts`, `lib/causes.ts` | Scope (D10), visibility matrix, cause/reference resolution with feature + organization checks |
 | `services/explainService.ts` | DI `explainService`: `explain`, `describe`, `explainLog` |
-| `api/explain/**` | `GET /api/insights/explain`, `/descriptors`, `/log` |
+| `services/accessExplainService.ts` | DI `accessExplainService`: access explanations (ACL catalog validation, other-user gating, detail redaction, recent ACL changes) over `RbacService.explainAccess` |
+| `api/explain/**` | `GET /api/insights/explain`, `/descriptors`, `/log`, `/access` |
 | `cli.ts` | `mercato insights explain:coverage [--tenant] [--org] [--since] [--limit]` |
+| `lib/client/*` | Browser-side API helpers (`apiCall` + `AbortSignal`), session-cached descriptors (`useExplainDescriptors`, keyed by organization scope version), `useExplanation` (stale requests aborted, `nextBefore` paging), value/actor/date formatting |
+| `components/*` | `WhyDrawer.client`, `WhyExplanation`, `WhyChain`, `CauseChip`, `ConfidenceBadge`, `VerdictBadge`, `LogCausePanel`, `AccessWhyPanel`, `WhyPage.client` (deep-link leaf) |
+| `widgets/injection/*` | `record-why` (`backend:record:current`), `deal-status-why` (`detail:customers.deal:status-badges`), `log-cause` (`version-history:entry:after`), `access-why` (`backend:access-denied:after`) |
+| `backend/insights/why/page.tsx` | Server page `/backend/insights/why?resourceKind=&resourceId=&field=&itemId=` rendering `WhyPage.client` |
+| `ai-tools.ts`, `ai-tools/explain-pack.ts` | Read-only `insights.explain_record` (facts verbatim + deterministic i18n summary; not allowlisted for any agent) |
 
 Verdict semantics: the current value is compared only on the first page (`page.continuation` marks later pages); `OM_INSIGHTS_EXPLAIN_SCAN_MAX` (default 500) bounds rows per request and `truncated` caps confidence at `inferred`.
 

@@ -164,6 +164,10 @@ describe('Backend requireFeatures guard', () => {
     const el = await BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) })
     expect(el).toBeTruthy()
     expect(redirect).not.toHaveBeenCalled()
+    expect((el as React.ReactElement<{ path?: string; requiredFeatures?: string[] }>).props).toMatchObject({
+      path: '/backend/entities/records',
+      requiredFeatures: ['entities.records.view'],
+    })
   })
 
   it('renders access denied when user lacks required roles', async () => {
@@ -185,6 +189,10 @@ describe('Backend requireFeatures guard', () => {
     const el = await BackendCatchAll({ params: Promise.resolve({ slug: ['admin', 'page'] }) })
     expect(el).toBeTruthy()
     expect(redirect).not.toHaveBeenCalled()
+    expect((el as React.ReactElement<{ path?: string; requiredFeatures?: string[] }>).props).toMatchObject({
+      path: '/backend/admin/page',
+      requiredFeatures: [],
+    })
   })
 
   it('redirects to MFA enrollment page when enforcement is active and user is not compliant', async () => {

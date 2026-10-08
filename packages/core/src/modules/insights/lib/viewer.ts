@@ -85,7 +85,9 @@ export type ExplainFeatureCheckerOptions = {
 }
 
 function featureListKey(features: readonly string[]): string {
-  return Array.from(new Set(features)).sort().join('\u0000')
+  return Array.from(new Set(features))
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+    .join('\u0000')
 }
 
 function normalizeFeatureList(requiredFeatures: readonly string[] | undefined): string[] {
