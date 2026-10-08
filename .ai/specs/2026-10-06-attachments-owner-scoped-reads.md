@@ -91,12 +91,17 @@ Behaviour, in order:
    rather than hiding an operational fault as a missing logo. Vector
    input never reaches Sharp.
 
-Every refusal after step 1 is a 404, apart from a rendition pipeline refusal, so the method does not
-reveal whether an id exists elsewhere. The method is optional on the interface, so third-party
+Every refusal after step 1 is a 404, with two exceptions: a refusal from the rendition pipeline
+keeps its status (400, 413 or 422, step 6), and a row whose partition has no `AttachmentPartition`
+record is a 500 (`[internal] Attachment partition is not configured`), a server misconfiguration
+rather than a property of the request. So the method does not reveal whether an id exists
+elsewhere. The method is optional on the interface, so third-party
 `AttachmentService` implementations keep compiling.
 
-`lib/imageRendition.ts` is extracted from the image route without changing that route's behaviour.
-Its existing tests, including the spoofed-content refusal, pass unmodified.
+`lib/imageRendition.ts` is extracted from the image route. The route's behaviour is unchanged and
+its existing tests, including the spoofed-content refusal, pass unmodified, with one recorded
+exception: a stored image Sharp cannot decode is now a 422 instead of a 500
+(`BACKWARD_COMPATIBILITY.md`).
 
 **Security argument.** The caller's own ownership record is the authorization: the module has
 already decided, from rows it owns, that this file is meant to be public — here, a published pay
@@ -178,7 +183,7 @@ staff keep the resized image-route preview.
 | `GET /api/attachments/image/{id}` | uses the extracted pipeline | a stored image Sharp cannot decode is a `422` instead of the `500` `Failed to render image`; every other failure is still a `500`, now also reported (recorded in `BACKWARD_COMPATIBILITY.md`) |
 | `GET /api/checkout/pay/{slug}/logo` | new public route | ADDITIVE |
 | `GET /api/checkout/pay/{slug}` → `logoPreviewUrl` | value changes from the image route to the logo route when a logo attachment is set | public pay-page API value change (Ask First in `packages/checkout/AGENTS.md`; requested in the PR) |
-| `buildCheckoutPublicLogoUrl`, `CHECKOUT_LOGO_ATTACHMENT_PARTITION` (checkout lib) | new helpers | ADDITIVE |
+| `buildCheckoutPublicLogoUrl` (checkout lib) | new helper | ADDITIVE |
 | `checkout.payPage.errors.logoNotFound` | new translation key in all five locales | ADDITIVE |
 
 ## Risks & Impact Review
@@ -232,10 +237,12 @@ Verified with a trial merge of this branch into the vector images branch:
     `readScopedForOwner` rule, then the vector rules.
 - The merged tree (re-verified on 2026-10-07 after the fifth review round) passes:
   - core and checkout typecheck;
-  - every attachments suite (618 tests), `attachment-service.test.ts` among them (67). The only
-    failures are six in `storage.test.ts` and `localDriver.test.ts`, suites neither branch touches,
-    which fail on the Windows machine used because they expect POSIX absolute paths;
-  - checkout's pay route suites (47).
+  - every attachments suite and `attachment-service.test.ts`. The only failures are six in
+    `storage.test.ts` and `localDriver.test.ts`, suites neither branch touches, which fail on the
+    Windows machine used because they expect POSIX absolute paths. (Test counts are not recorded
+    here: they change with every round on either branch.) At the heads rebased onto `develop`
+    `7187041c2`, the trial merge gives the same five conflicting files and hunks;
+  - checkout's pay route suites.
   The conflicts are the same five files and hunks as listed above.
 
 After both merge, `readScopedForOwner` returns a sanitised SVG as a download, like `readScoped`; a
@@ -314,6 +321,13 @@ it always asks for a raster rendition and refuses any non-raster content type, w
   - a link pointing at another link's logo is a 404;
   - an unpublished link's logo is a 404.
 
+  The test sends `status: 'active'` together with `logoAttachmentId` when it sets a link's logo.
+  `updateLinkSchema` is `checkoutContentSchema.partial()`, and under zod 4 `.partial()` still
+  applies the inner `status: linkStatusSchema.default('draft')`, so an update that omits `status`
+  resets a published link to draft and its public logo becomes a 404. That is a pre-existing bug in
+  `develop`, observed while rebasing and out of scope here; the test sends the status it needs
+  rather than depend on it.
+
 Regression proofs:
 
 - **Against unmodified `develop`:** the payload test fails (2 failed, 1 passed;
@@ -337,6 +351,12 @@ Regression proofs:
 
 ## Changelog
 
+- 2026-10-08 — Consistency pass after the rebase onto `develop` `7187041c2`:
+  - the refusal statuses match the code (a missing partition record is a 500);
+  - `CHECKOUT_LOGO_ATTACHMENT_PARTITION`, removed earlier, is gone from the API table;
+  - the image route's 422 is named where the extraction is described;
+  - merged-tree test counts dropped;
+  - why TC-CHKT-044 sends `status: 'active'`, and the `.partial()` defaults bug it works around.
 - 2026-10-07 — Fifth review round:
   - merge order re-verified with a trial merge;
   - libjpeg's `Insufficient memory` and the JPEG encoder's maximum-dimension error are operational
