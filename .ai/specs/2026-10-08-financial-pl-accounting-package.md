@@ -1,5 +1,7 @@
 # SPEC-013: `financial_pl_accounting` package (Polish features that read the general ledger)
 
+> **Moved from `official-modules`.** Originally opened as open-mercato/official-modules#61 by @mikoajp. `official-modules` is deprecated and being archived, and `financial_pl` will not live there: the financial work continues in Core, with KSeF coming later as a separate PR (see open-mercato/official-modules#29). Content is unchanged; the `SPEC-0xx` numbers inside refer to the `official-modules` numbering. Code references to `official-modules` (for example branch `feat/financial-pl-invoice-ux`) point to that archived repository.
+
 ## TLDR
 
 **Key Points:**

@@ -1,10 +1,12 @@
 # SPEC-012: `financial_pl` integration contracts (JPK transport, KSeF → AP bridge, VAT register read service)
 
+> **Moved from `official-modules`.** Originally opened as open-mercato/official-modules#60 by @mikoajp. `official-modules` is deprecated and being archived, and `financial_pl` will not live there: the financial work continues in Core, with KSeF coming later as a separate PR (see open-mercato/official-modules#29). Content is unchanged; the `SPEC-0xx` numbers inside refer to the `official-modules` numbering. Code references to `official-modules` (for example branch `feat/financial-pl-invoice-ux`) point to that archived repository.
+
 ## TLDR
 
 **Key Points:**
 - Three additions to `financial_pl`, each a small, additive contract: a DI service that sends JPK files (`jpkTransportService`), an optional action that turns a received KSeF invoice into an Accounts Payable draft, and a read-only DI service over the VAT register (`vatRegisterReadService`).
-- They let the sibling package `financial_pl_accounting` (SPEC-013) use `financial_pl` without importing its code or touching its entities, and let `financial_pl` stay installable without a ledger.
+- They let the sibling package `financial_pl_accounting` (SPEC-013, `2026-10-08-financial-pl-accounting-package.md`) use `financial_pl` without importing its code or touching its entities, and let `financial_pl` stay installable without a ledger.
 
 **Scope:**
 - A1 `jpkTransportService`: `submit`, `pollStatus`. The signing certificate and private key never leave `financial_pl`.
@@ -30,7 +32,7 @@ Decisions in this document are a proposed current state. The points below are ma
 
 `financial_pl` covers KSeF 2.0 / FA(3) exchange, JPK_V7 from its own register tables (`PurchaseVatRecord`, `ReceivedInvoice`, `SalesInvoicePlMeta`), and invoice authoring. It declares no `requires` and imports from core only `directory`, `progress` and `sales`. Its README positions it for standalone installs on `@open-mercato/core` ≥ 0.6.6.
 
-The Polish features that read a general ledger (tax engines, Bilans/RZiS, JPK_KR_PD, VAT reconciliation) belong to a separate package, `financial_pl_accounting` (SPEC-013), so that `financial_pl` does not have to depend on `ledger`. That package needs three things from `financial_pl`; this document defines them. The bridge in A2 is the one addition that serves `financial_pl`'s own users: it connects a received invoice to the accounts-payable ledger.
+The Polish features that read a general ledger (tax engines, Bilans/RZiS, JPK_KR_PD, VAT reconciliation) belong to a separate package, `financial_pl_accounting` (SPEC-013, `2026-10-08-financial-pl-accounting-package.md`), so that `financial_pl` does not have to depend on `ledger`. That package needs three things from `financial_pl`; this document defines them. The bridge in A2 is the one addition that serves `financial_pl`'s own users: it connects a received invoice to the accounts-payable ledger.
 
 > **Market Reference**: Comarch Optima records a purchase document in the VAT register first and posts it to the books in a separate "Księguj" step; `2026-09-06-accounts-payable.md` (`open-mercato#5962`) already cites this. That is the model here: the register stays the evidence for the JPK_V7 declaration, and posting is a separate, later action in another module. Rejected: making `financial_pl` post to the ledger itself.
 
@@ -38,7 +40,7 @@ The Polish features that read a general ledger (tax engines, Bilans/RZiS, JPK_KR
 
 1. **JPK_KR_PD needs the existing JPK transport.** `lib/jpk/jpk-submission-client.ts` implements the MF gateway protocol over any XML (the `InitUpload` metadata carries no form code; signing uses the organization's certificate). A module in another package cannot import it: root `AGENTS.md` requires modules to remain isomorphic and independent, and the certificate and key must not be handed out.
 2. **Received invoices stop at the register.** A supplier invoice fetched from KSeF lands in `ReceivedInvoice` and `PurchaseVatRecord`. Entering the same invoice in Accounts Payable is manual, and nothing prevents it from being entered twice.
-3. **VAT figures are only reachable through `financial_pl`'s entities.** The VAT tax engine (SPEC-011) and the reconciliation report (SPEC-013) need the period totals the JPK_V7 declaration is built from, and direct access to `financial_pl` entities from another module would be an ORM-level coupling.
+3. **VAT figures are only reachable through `financial_pl`'s entities.** The VAT tax engine (SPEC-011) and the reconciliation report (SPEC-013, `2026-10-08-financial-pl-accounting-package.md`) need the period totals the JPK_V7 declaration is built from, and direct access to `financial_pl` entities from another module would be an ORM-level coupling.
 
 ## Proposed Solution
 
@@ -181,7 +183,7 @@ Additive: one nullable column and three new services. No existing contract chang
 
 ### Phase 2
 1. A1: multi-part upload and streaming input (with SPEC-010 Q6).
-2. Widget injection spot on the JPK_V7 screen for the VAT reconciliation widget (SPEC-013).
+2. Widget injection spot on the JPK_V7 screen for the VAT reconciliation widget (SPEC-013, `2026-10-08-financial-pl-accounting-package.md`).
 
 ### File Manifest
 
