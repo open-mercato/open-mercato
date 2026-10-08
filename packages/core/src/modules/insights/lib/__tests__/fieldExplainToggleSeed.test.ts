@@ -80,16 +80,27 @@ describe('insights_field_explain toggle seed', () => {
     expect(double.persist).not.toHaveBeenCalled()
   })
 
-  it('runs from the module seedDefaults hook', async () => {
+  it('runs from the module seedDefaults hook alongside the X-Ray ingest toggle and schedule', async () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
     const double = buildEm()
+    const register = jest.fn(async () => undefined)
 
     await setup.seedDefaults?.({
       em: double.em,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-      container: containerWith(['featureTogglesService']) as unknown as AwilixContainer,
+      container: {
+        ...containerWith(['featureTogglesService', 'schedulerService']),
+        resolve: () => ({ register }),
+      } as unknown as AwilixContainer,
     })
-    expect(double.persist).toHaveBeenCalledTimes(1)
+    const seededIdentifiers = double.create.mock.calls.map(([, data]) => (data as { identifier: string }).identifier)
+    expect(seededIdentifiers).toEqual(['insights_field_explain', 'insights_xray_ingest'])
+    expect(double.persist).toHaveBeenCalledTimes(2)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      targetQueue: 'insights-xray-ingest',
+    }))
   })
 })

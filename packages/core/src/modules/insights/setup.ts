@@ -1,9 +1,15 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 
 export const setup: ModuleSetupConfig = {
-  async seedDefaults({ em, container }) {
-    const { seedInsightsFieldExplainToggle } = await import('./lib/fieldExplainToggleSeed')
-    await seedInsightsFieldExplainToggle(em, container)
+  async seedDefaults(ctx) {
+    const [{ seedInsightsFieldExplainToggle }, { seedXrayIngestToggle }, { ensureXrayIngestSchedule }] = await Promise.all([
+      import('./lib/fieldExplainToggleSeed'),
+      import('./lib/projection/killSwitch'),
+      import('./lib/projection/queue'),
+    ])
+    await seedInsightsFieldExplainToggle(ctx.em, ctx.container)
+    await seedXrayIngestToggle(ctx.em, ctx.container)
+    await ensureXrayIngestSchedule(ctx.container, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
   },
   defaultRoleFeatures: {
     superadmin: ['insights.*'],
@@ -14,15 +20,6 @@ export const setup: ModuleSetupConfig = {
       'insights.xray.manage',
     ],
     employee: ['insights.explain.view'],
-  },
-
-  async seedDefaults(ctx) {
-    const [{ seedXrayIngestToggle }, { ensureXrayIngestSchedule }] = await Promise.all([
-      import('./lib/projection/killSwitch'),
-      import('./lib/projection/queue'),
-    ])
-    await seedXrayIngestToggle(ctx.em, ctx.container)
-    await ensureXrayIngestSchedule(ctx.container, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
   },
 }
 

@@ -9,6 +9,7 @@ export const XRAY_STATUS_PATH = '/api/insights/xray/status'
 export const XRAY_SETTINGS_PATH = '/api/insights/xray/settings'
 export const XRAY_BACKFILL_PATH = '/api/insights/xray/backfill'
 export const XRAY_BACKFILL_QUEUE = 'insights-xray-backfill'
+export const XRAY_INGEST_QUEUE = 'insights-xray-ingest'
 export const DEAL_PROCESS_KEY = 'customers.deal'
 export const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
 
@@ -21,7 +22,7 @@ if (!process.env.OM_TEST_APP_ROOT?.trim()) {
   process.env.QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
 }
 
-const BACKFILL_TIMEOUT_MS = 120_000
+const BACKFILL_TIMEOUT_MS = 30_000
 const POLL_INTERVAL_MS = 1000
 
 export type XrayScopeOptions = { selectedOrgId?: string }
@@ -173,10 +174,20 @@ export async function deleteProjectedCases(caseIds: Array<string | null>): Promi
   })
 }
 
-/** Removes every X-Ray row of an organization created only for a test. */
+/**
+ * Removes every X-Ray row of an organization created only for a test, starting with the ingest
+ * schedule a backfill registers for it, so no later tick re-creates its cursor.
+ */
 export async function deleteXrayOrganizationState(organizationId: string | null): Promise<void> {
   if (!organizationId) return
   await withClient(async (client) => {
+    const scheduler = await client.query<{ name: string | null }>("select to_regclass('public.scheduled_jobs')::text as name")
+    if (scheduler.rows[0]?.name) {
+      await client.query(
+        "delete from scheduled_jobs where organization_id = $1 and source_module = 'insights' and target_queue = $2",
+        [organizationId, XRAY_INGEST_QUEUE],
+      )
+    }
     for (const table of ['insights_process_events', 'insights_process_cases', 'insights_process_rollups', 'insights_process_cursors', 'insights_process_settings']) {
       await client.query(`delete from ${table} where organization_id = $1`, [organizationId])
     }
