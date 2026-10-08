@@ -12,6 +12,7 @@ import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/muta
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { omnibusConfigPatchSchema, type OmnibusConfigPatch } from '../../../data/validators'
 import { OMNIBUS_CONFIG_MODULE_ID, OMNIBUS_CONFIG_NAME, omnibusConfigSchema, type OmnibusConfig } from '../../../lib/omnibusTypes'
 import {
@@ -28,8 +29,10 @@ const logger = createLogger('catalog')
 
 const OMNIBUS_CONFIG_RESOURCE_KIND = 'catalog.settings'
 
+const OMNIBUS_CONFIG_READ_FEATURES = ['catalog.settings.view', 'catalog.settings.manage'] as const
+
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['catalog.settings.view'] },
+  GET: { requireAuth: true },
   PATCH: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
 }
 
@@ -61,6 +64,16 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const container = await createRequestContainer()
+    const rbacService = container.resolve('rbacService') as RbacService
+    const scope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
+    let canRead = false
+    for (const feature of OMNIBUS_CONFIG_READ_FEATURES) {
+      if (await rbacService.userHasAllFeatures(auth.sub, [feature], scope)) {
+        canRead = true
+        break
+      }
+    }
+    if (!canRead) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const service = container.resolve('moduleConfigService') as ModuleConfigService
     const config = await readStoredConfig(service, auth.tenantId)
     return NextResponse.json(config ?? {})

@@ -19,12 +19,17 @@ const setValueMock = jest.fn(async (_moduleId: string, _name: string, value: unk
 })
 const deleteByTagsMock = jest.fn(async () => 0)
 const cache = { deleteByTags: deleteByTagsMock }
+let grantedFeatures: string[] = ['catalog.settings.manage']
+const userHasAllFeaturesMock = jest.fn(async (_userId: string, required: string[]) =>
+  required.every((feature) => grantedFeatures.includes(feature)),
+)
 
 const container = {
   hasRegistration: (name: string) => name === 'moduleConfigService' || name === 'cache',
   resolve: jest.fn((name: string) => {
     if (name === 'moduleConfigService') return { getValue: getValueMock, setValue: setValueMock }
     if (name === 'cache') return cache
+    if (name === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -66,14 +71,26 @@ describe('catalog omnibus config route', () => {
     authValue = { sub: userId, tenantId, orgId: organizationId, features: ['catalog.settings.manage'] }
     storedValue = null
     guards = []
+    grantedFeatures = ['catalog.settings.manage']
     jest.clearAllMocks()
   })
 
   it('declares view/manage features and exports openApi', () => {
-    expect(metadata.GET.requireFeatures).toEqual(['catalog.settings.view'])
+    expect(metadata.GET).toEqual({ requireAuth: true })
     expect(metadata.PATCH.requireFeatures).toEqual(['catalog.settings.manage'])
     expect(openApi.methods?.GET).toBeDefined()
     expect(openApi.methods?.PATCH).toBeDefined()
+  })
+
+  it('lets GET through with either the view or the manage feature and rejects neither', async () => {
+    grantedFeatures = ['catalog.settings.view']
+    expect((await GET(getRequest())).status).toBe(200)
+    grantedFeatures = ['catalog.settings.manage']
+    expect((await GET(getRequest())).status).toBe(200)
+    grantedFeatures = []
+    expect((await GET(getRequest())).status).toBe(403)
+    expect(getValueMock).toHaveBeenCalledTimes(2)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(userId, ['catalog.settings.view'], { tenantId, organizationId })
   })
 
   it('returns 401 without a tenant-bound auth context', async () => {
