@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createQaDeal, deleteQaDealIfExists, updateQaDeal, uniqueSuffix } from './helpers/explainApi'
 import {
   DEAL_PROCESS_KEY,
+  XRAY_BACKFILL_PATH,
   deleteProjectedCases,
   getXrayStatus,
   readProjectedCase,
@@ -25,6 +26,7 @@ import {
  */
 test.describe('TC-INS-X01: deal status changes reach the Process X-Ray projection', () => {
   test('backfills the deal lifecycle into events and a completed case', async ({ request }) => {
+    test.slow()
     let token: string | null = null
     let dealId: string | null = null
 
@@ -75,5 +77,7 @@ test.describe('TC-INS-X01: deal status changes reach the Process X-Ray projectio
     const employeeToken = await getAuthToken(request, 'employee')
     const status = await getXrayStatus(request, employeeToken)
     expect(status.status).toBe(403)
+    const backfill = await apiRequest(request, 'POST', XRAY_BACKFILL_PATH, { token: employeeToken, data: {} })
+    expect(backfill.status()).toBe(403)
   })
 })

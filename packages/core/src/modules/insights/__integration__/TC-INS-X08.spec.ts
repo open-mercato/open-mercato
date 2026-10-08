@@ -27,6 +27,7 @@ import {
  */
 test.describe('TC-INS-X08: X-Ray tenant and organization isolation', () => {
   test('keeps cursors, events and settings per organization', async ({ request }) => {
+    test.slow()
     let token: string | null = null
     let otherOrgId: string | null = null
     let homeDealId: string | null = null

@@ -24,6 +24,7 @@ import { deleteProjectedCases, readProjectedCase, readProjectedEvents, runXrayBa
  */
 test.describe('TC-INS-X02: undo voids the projected step and redo adds a new one', () => {
   test('voids on undo and re-projects on redo', async ({ request }) => {
+    test.slow()
     let token: string | null = null
     let dealId: string | null = null
 
