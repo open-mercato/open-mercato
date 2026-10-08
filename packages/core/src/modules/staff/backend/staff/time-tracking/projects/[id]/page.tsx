@@ -392,7 +392,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     let cancelled = false
     async function loadProject() {
       const resolved = resolvedRef.current
-      const keepScreen = resolved?.projectId === projectId && resolved.scopeVersion === 0
+      const keepScreen = resolved !== null && resolved.projectId === projectId && resolved.scopeVersion === 0
       if (!keepScreen) setLoading(true)
       const settle = (outcome: { project?: ProjectRecord; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
         if (cancelled || !projectId) return
