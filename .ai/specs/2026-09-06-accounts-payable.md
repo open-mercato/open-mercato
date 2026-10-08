@@ -937,12 +937,17 @@ knowledge of that consumer; the dependency direction stays one-way
 invoice somebody already entered by hand; (2) the account on each line
 is still chosen by the caller (automatic vendor/category-to-account
 mapping stays waiting on the Posting Rules Engine, see Phase 2).
-**⚠ NEEDS HUMAN CONFIRMATION:** this document does not say how
-`vendorSnapshot` is populated, because the create body has no such
-field and this module never resolves `contractors`. For a command-bus
-caller the working proposal is an optional `vendorSnapshot` in the
-command input (name and tax id, supplied by the caller, who already has
-the supplier's data), validated only for shape.
+**`vendorSnapshot` (decided 2026-10-08).** `createVendorInvoice` takes an
+optional `vendorSnapshot: { name, taxId }`, validated only for shape
+(non-empty strings, sensible length) and stored encrypted (see
+Encryption). It is always supplied by the caller, who already holds the
+supplier's data: this module's own form fills it from the contractor the
+user picked, and a module importing a supplier document fills it from the
+document itself (for a received e-invoice, the seller's name and tax id as
+printed on it, which is the right point-in-time copy). This module never
+reads `contractors` to build it, so the one-way dependency is unchanged.
+`vendorId` stays the source of truth; the snapshot is only for rendering,
+and this module does not check that the two agree.
 
 ### Backend Pages (`backend/accounts_payable/`)
 
@@ -1040,7 +1045,8 @@ Standard `makeCrudRoute`.
 
 - **Query**: `page?`, `pageSize?` (≤100), `status?`, `vendorId?`,
   `dueDateFrom?`, `dueDateTo?`.
-- **Create body**: `{ vendorId, invoiceNumber, invoiceDate, dueDate,
+- **Create body**: `{ vendorId, vendorSnapshot?: { name, taxId },
+  invoiceNumber, invoiceDate, dueDate,
   currencyId, goodsReceiptReference?, lines: { accountId,
   description, netAmount, taxRate }[] }`. `status` defaults to
   `DRAFT`, not settable on create.
@@ -1834,7 +1840,7 @@ changes what `postVendorInvoice` sends downstream.
   Commands, API Contracts, Migration, Testing, Risks); a short
   Cross-module integration note that external creators use
   `createVendorInvoice` on the command bus and keep their own link.
-  `vendorSnapshot` population for such callers is marked ⚠ NEEDS HUMAN
-  CONFIRMATION.
+  `vendorSnapshot` becomes an optional, caller-supplied input of
+  `createVendorInvoice` (decided 2026-10-08; Cross-module integration).
 - No change to statuses, posting, events or the approval workflow.
 
