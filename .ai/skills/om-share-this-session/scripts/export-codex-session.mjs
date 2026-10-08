@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -55,9 +55,14 @@ function validateThread(thread, expectedThreadId) {
   return thread
 }
 
+function isCodexOnWindowsPath() {
+  return spawnSync('where.exe', ['codex'], { stdio: 'ignore', windowsHide: true }).status === 0
+}
+
 function startAppServer() {
   const stdio = ['pipe', 'pipe', 'ignore']
   if (process.platform === 'win32') {
+    if (!isCodexOnWindowsPath()) fail('Could not start the Codex app-server.')
     return spawn('codex app-server --stdio', { stdio, shell: true, windowsHide: true })
   }
   return spawn('codex', ['app-server', '--stdio'], { stdio })

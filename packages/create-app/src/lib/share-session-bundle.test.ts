@@ -73,6 +73,10 @@ function createFakeCodex(root: string): string {
   fs.writeFileSync(
     executablePath,
     `#!/usr/bin/env node
+if (process.env.FAKE_CODEX_MODE === 'linger') {
+  process.getBuiltinModule('node:fs').writeFileSync(process.env.FAKE_CODEX_PID_FILE, String(process.pid))
+  setInterval(() => {}, 1000)
+}
 let input = ''
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (chunk) => {
@@ -119,23 +123,45 @@ process.stdin.on('data', (chunk) => {
   return binDirectory
 }
 
-function runCodexExporter(root: string, mode = 'success') {
+function runCodexExporter(root: string, mode = 'success', searchPath?: string) {
   const threadId = '123e4567-e89b-42d3-a456-426614174000'
   const outputPath = path.join(root, 'native-codex-session.json')
+  const pidFile = path.join(root, 'fake-codex.pid')
   const binDirectory = createFakeCodex(root)
   const result = spawnSync(
     process.execPath,
     [codexExporter, '--thread-id', threadId, '--out', outputPath],
     {
+      cwd: root,
       encoding: 'utf8',
+      timeout: 20_000,
       env: {
         ...process.env,
-        PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ''}`,
+        PATH: searchPath ?? `${binDirectory}${path.delimiter}${process.env.PATH ?? ''}`,
         FAKE_CODEX_MODE: mode,
+        FAKE_CODEX_PID_FILE: pidFile,
       },
     },
   )
-  return { result, outputPath, threadId }
+  return { result, outputPath, threadId, pidFile }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMilliseconds: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMilliseconds
+  while (isProcessRunning(pid)) {
+    if (Date.now() > deadline) return false
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+  }
+  return true
 }
 
 test('Codex session exporter reads the requested native thread through app-server', () => {
@@ -170,6 +196,39 @@ test('Codex session exporter rejects a mismatched thread without leaving output'
     const { result, outputPath } = runCodexExporter(root, 'mismatch')
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /different thread than requested/)
+    assert.equal(fs.existsSync(outputPath), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Codex session exporter stops an app-server that keeps running after its input closes', async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-codex-export-')))
+  let serverPid = 0
+  try {
+    const { result, outputPath, pidFile } = runCodexExporter(root, 'linger')
+    serverPid = Number(fs.readFileSync(pidFile, 'utf8'))
+    assert.equal(result.error, undefined, 'the exporter must exit without being killed')
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(fs.existsSync(outputPath), true)
+    assert.equal(await waitForProcessExit(serverPid, 2_000), true, 'the app-server must not outlive the exporter')
+  } finally {
+    if (serverPid && isProcessRunning(serverPid)) process.kill(serverPid)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Codex session exporter reports a start failure when codex is not installed', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-codex-export-')))
+  try {
+    const emptyDirectory = path.join(root, 'empty-bin')
+    fs.mkdirSync(emptyDirectory)
+    const searchPath = process.platform === 'win32'
+      ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
+      : emptyDirectory
+    const { result, outputPath } = runCodexExporter(root, 'success', searchPath)
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /Could not start the Codex app-server\./)
     assert.equal(fs.existsSync(outputPath), false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
