@@ -1,8 +1,8 @@
 # Unified CRM Email History and Context
 
 **Status:** Draft — proposal awaiting maintainer review; implementation not started.
-**Scope:** OSS — `customers` (owner), with additive contracts in `messages`, `communication_channels`, `attachments` and `@open-mercato/ui`.
-**Date:** 2026-09-30
+**Scope:** OSS — `customers` (owner), with small additive contracts in `messages`, `communication_channels` and `@open-mercato/ui`.
+**Date:** 2026-09-30 (revised 2026-10-09 after the 2026-10-02 review and 2026-10-08 re-review)
 
 > **Proposal for review.** This document does not claim maintainer approval or authorize implementation, deployment, migrations or permanent deletion.
 
@@ -10,709 +10,667 @@
 
 - [`implemented/2026-05-27-crm-email-integration.md`](implemented/2026-05-27-crm-email-integration.md) — Person-anchored CRM email: `CustomerInteraction` email rows linked from `communication_channels` events, the Person Emails tab, compose, and owner-only private visibility (Company and Deal pages were out of its scope).
 - [`implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`](implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md) — source threading that produces the `Message.threadId` used for conversation grouping.
-- [`2026-08-25-crm-channel-shared-visibility.md`](2026-08-25-crm-channel-shared-visibility.md), shipped in [#5756](https://github.com/open-mercato/open-mercato/pull/5756) — owner-controlled sharing of a mailbox owner's email conversation with one Person (`CustomerEmailConversationShare`, `customers.email.share_conversation`, `/api/customers/people/{id}/email-share`), plus shared-channel visibility.
+- [`2026-08-25-crm-channel-shared-visibility.md`](2026-08-25-crm-channel-shared-visibility.md), shipped in [#5756](https://github.com/open-mercato/open-mercato/pull/5756) — owner-controlled sharing of a mailbox owner's email history with one Person (`CustomerEmailConversationShare`, `customers.email.share_conversation`, `/api/customers/people/{id}/email-share`), plus shared-channel visibility.
+- [`implemented/2026-05-12-crm-bulk-delete-and-person-dependency-guard.md`](implemented/2026-05-12-crm-bulk-delete-and-person-dependency-guard.md) — the `PERSON_HAS_DEPENDENTS` / `COMPANY_HAS_DEPENDENTS` delete guards this revision extends.
 
-## 📝 TLDR
+## 📝 TL;DR
 
-Provide one CRM email capability on Person and Company detail pages: the same Emails interface, authorized conversation reader, composer, complete history/search, and durable business context. Include the Person email improvements required for parity, security and preservation in this specification. Linking email to a business record changes relevance only; it never grants read access or sending authority.
+Give Person and Company detail pages one shared **Emails** capability: the same reader, composer, complete paged history and server search. A conversation is attached to a record by an explicit **relevance link**; a relevance link never grants read access or sending authority.
 
-## 📝 Proposed Direction
+The revision makes three structural choices:
 
-| Decision | Proposed direction |
-| --- | --- |
-| Scope | One spec for People and Companies, including the necessary Person email fixes. |
-| UX | Matching controls and matching authorized content for the same conversation. |
-| Preservation | Authorized retained history remains reachable through normal CRM operations. |
-| Lifecycle | Archive/Restore is the recommended routine lifecycle; retained mail is preserved. |
-| Privacy | Relevance and sharing are separate; existing email privacy and tenant boundaries remain enforced. |
-| Performance | Complete history is pageable and searchable; content is loaded in bounded pages. |
+1. **Retention by guarding DELETE, not by parallel authorization storage.** Person and Company DELETE refuse records that still hold source-linked email interactions, and point the user to Archive. A new override feature (held by administrators, including through the `customers.*` wildcard) keeps today's destructive delete available after explicit confirmation (for example data-protection requests or departed mailbox owners). The previously proposed `customer_email_authorization_anchors` and `customer_email_history_shares` tables, their dual writes and their reconciliation are removed (see [Retention and deletion model](#-retention-and-deletion-model) and [Alternatives considered](#-alternatives-considered)).
+2. **Authorization stays in customers-owned rows.** Because email interactions can no longer be stranded by a CRM delete, the existing `customer_interactions` email rows plus `customer_email_conversation_shares` remain the complete authorization source. List, count, cursor and search are one customers-owned SQL statement; no cross-module SQL composition is required. A Phase 0 spike proves this against a reference fixture, with a defined fallback (see [API and query architecture](#-api-and-query-architecture)).
+3. **Live defects are prerequisites, not scope.** The reply-parent read-check gap and the undo metadata loss (both already described in the public review) are standalone fixes that must land first, together with one privately tracked hardening item (see [Prerequisite correctness fixes](#-prerequisite-correctness-fixes)).
 
-This spec recommends keeping the Person fixes and the Company capability in one spec; maintainer review confirms or adjusts that scope. The API, data-model and migration sections below state the proposed design explicitly; they are not descriptions of already implemented behavior.
+## ❓ Open Questions
 
-## 📝 Overview
+Each question has a recommended default. The rest of this spec is written against the defaults; a different answer changes only the sections named.
 
-This is an OSS CRM capability for sales and account-management users. Person and Company pages become two entry points to the same email system. Business context persists as people change employer, records are archived, and mailboxes disconnect. Privacy remains an independent, current authorization decision.
+| # | Question | Options | Recommended default | Sections affected |
+| --- | --- | --- | --- | --- |
+| Q1 | One spec or split specs? | (a) One spec for the shared Person/Company capability. (b) Split Person parity and Company Emails into two specs. | **(a)**, with the prerequisites P1–P3 split out of scope. Person and Company must read through the same authorization query and the same reader; splitting would let them diverge. Phase 0 gates everything else, so a negative spike result stops the whole spec rather than half of it. | Implementation phases |
+| Q2 | Retention design (review M1). | (a) Extend the existing delete guards and route users to Archive. (b) Durable authorization anchors plus retained history shares, keeping DELETE permissive. | **(a)** — evaluated in [Alternatives considered](#-alternatives-considered). It removes two tables, a dual write and two Critical/High risks. Its one regression — ordinary users can no longer hard-delete a Person who holds CRM email — is bounded by the override in Q6. | Retention, Data model, Migration, Risks |
+| Q3 | Authorization query architecture (review M3). | (a) Customers-local authorization over `customer_interactions` + `customer_email_conversation_shares`, with denormalized `conversation_key`/`message_id`/`email_at` columns and a correlated `search_tokens` EXISTS on the customers-owned `customers:customer_interaction` token rows. (b) A cross-module "opaque relation" composed by source ports. (c) Fallback projection `customer_email_conversation_index`. | **(a)**, proven by the Phase 0 spike; **(c)** if a spike criterion fails; **(b)** is not pursued, because no DI port in the repo returns a composable SQL fragment today and (a) does not need one. | API and query architecture, Phases |
+| Q4 | Should CRM global history include channel mail that matched **no** Person at ingest? | (a) Defer: unmatched mail stays in the owner's Messages inbox; CRM history covers every CRM-captured email, including archived and former contacts. (b) Include it, which needs a customers-owned capture row for mail with no Person. | **(a)**. Option (b) re-introduces an anchor-like table for a minority case. It can be specified later as an additive follow-up. | Goals, Non-goals, Global history |
+| Q5 | Error contract for the extended delete guard. | (a) Keep `PERSON_HAS_DEPENDENTS` / `COMPANY_HAS_DEPENDENTS` and add a `retainedEmail` blocker. (b) New `*_HAS_RETAINED_EMAIL` codes. | **(a)**. The OpenAPI response declares `code` as a literal (`api/people/route.ts:586`, `api/companies/route.ts:555`), and bulk delete already groups per-row 422 failures generically. Adding a blocker line is additive; a new code is not. | Retention, Compatibility |
+| Q6 | Should hard delete of a Person who holds source-linked email remain possible? | (a) Only through a new override feature `customers.records.delete_retained_email` (honored by both Person and Company delete), which performs today's destructive delete after explicit confirmation and is recorded in the command log. (b) Never, until a full erasure workflow exists. (c) Always (no guard). | **(a)**. It keeps today's capability for data-protection requests and for Persons whose mailbox owner has left (nobody else can clear private rows), while ordinary users are routed to Archive. A full erasure of **source** mail (`messages`, `communication_channels`, provider copies) remains a separate future spec. | Retention, ACL, Non-goals |
 
-### Plain-language example
+## 🎯 Goals
 
-Anna emails Jon about Acme's renewal. The conversation is related to Anna and Acme. Jon opens either record's Emails tab, reads the same authorized messages and replies using his authorized mailbox. The reply retains those business relationships. Jon can find the original agreement from several years ago without loading all mail into the browser. Archiving Anna or changing her employer leaves Acme's retained correspondence available. Unlinking Acme changes where the conversation appears; the email remains discoverable in the global email history.
+1. **Parity:** the same viewer opening the same conversation from a Person or a Company sees the same authorized messages, order, privacy labels and actions.
+2. **Explicit relevance:** conversations are attached to Person/Company records by explicit, correctable, undoable relevance links. Compose sets context; replies inherit it; historical links require confirmation.
+3. **Complete reachability:** every CRM-captured email the viewer may read is reachable by paging and server search. Page sizes bound the work; they never bound the archive.
+4. **Relevance is not permission:** creating, removing or restoring a relevance link never changes visibility, ownership, grants, channel sharing or send authority.
+5. **Isolation:** every read and write is bound to the authenticated tenant and to an allowed organization, including All organizations mode.
+6. **Preserved history:** archive/restore, employer changes and mailbox disconnection never remove CRM-captured email or its authorization. Ordinary CRM DELETE cannot strand it either: DELETE is refused while retained email exists. Only the explicit override (Q6) removes it, deliberately.
 
-Think of related records as labels on one conversation. Reading permission is a separate key; adding a label never hands someone that key.
+## 🚫 Non-goals
 
-| What the user does | What happens |
-| --- | --- |
-| Opens Anna or Acme → Emails | Uses the same reader, search, reply and attachment controls; that viewer sees the same readable messages in the same conversation. |
-| Writes a new email from Acme | Acme is already selected as context; the user chooses the actual recipient and their authorized sender mailbox. |
-| Links an old conversation | Adds the chosen Person/Company label without copying email or changing who can read it. |
-| Replies | Keeps the conversation's context and lets the user review recipients; the new reply defaults private. |
-| Archives Anna | Keeps the record inactive and discoverable; retained correspondence remains reachable. |
-| Changes sharing | Shows which original email setting, Person-history grant or channel share supplies access; each authorized control changes only its stated scope. |
+- Deal context, bulk curation, new providers, delegated sending, Company sender identities, cross-mailbox deduplication, domain/AI relevance inference.
+- Administrator access to private correspondence. `customers.email.view_private` stays inert (`customers/acl.ts:88-98`).
+- An erasure/purge capability for **source** mail (Q6). The override in Q6 removes CRM-held data only, exactly as DELETE does today.
+- Unmatched channel mail (no Person matched at ingest) in CRM history (Q4).
+- Implementing prerequisites P1–P3. They land separately (P3 per the `SECURITY.md` process).
+- Exactly-once delivery across arbitrary providers.
 
-### Scope and boundaries
+## 📝 Problem statement and user stories
 
-**Included:** shared Person/Company reader and host; complete conversation/message paging; authorized server search and historical discovery; persistent Person/Company relevance; New email, Reply and Reply all; safe delivery retries; durable authorization provenance; archive/restore and legacy CRM-delete compatibility; faithful undo; attachment authorization and retention; migration/reconciliation; privacy and performance verification.
+Company pages have no email surface. Person email history is bounded (50 threads, 1,000 scanned interactions, 200 messages per thread) and cannot be searched server-side. A Company view built from current employment would move history when people change jobs. Separate Person and Company implementations would disagree on which messages appear and which actions work. And today a CRM delete silently removes the CRM email record of a Person, so CRM history can be lost by a routine action.
 
-**Deferred:** Deal context, bulk curation, new providers, delegated sending, Company sender identities, cross-mailbox deduplication, domain/AI relevance inference, administrator access to private correspondence, and a new permanent email-purge UI. This work defines safeguards around existing deletion paths; it does not create an unapproved purge capability.
-
-### Evidence baseline
-
-This proposal was checked against `develop` at `0c5dd630b583697a459e362aedb4d780168dc380` (2026-09-29), which includes the owner-controlled sharing from #5756. Some of those sharing features are not yet on `main`, so older revisions or branches may lack them. Implementation must recheck the then-current target branch.
-
-Verified at that revision: Person history has no cursor, defaults to 50 threads, caps interaction scanning before grouping and retains at most 200 messages per returned thread; grants/shared-channel candidates are also capped. Person and Company delete physically remove interactions. Both undo paths omit email linkage/provider/visibility metadata. Reply continuation resolves the parent without the required email-read check. These dependencies are addressed below rather than reused unchanged.
-
-### Established CRM practice
-
-Explicit communication-to-record relevance and capture during composition are established patterns. EspoCRM recognizes related records and allows users to set a Parent; SuiteCRM relates imported/composed mail to CRM records; Frappe CRM provides contextual email on Lead/Deal surfaces. These examples support convenient capture and correctable context, not a universal requirement to copy all contact mail onto every affiliated Company. [EspoCRM](https://docs.espocrm.com/user-guide/emails/), [SuiteCRM](https://docs.suitecrm.com/user/daily-activities/composing-emails/), [Frappe CRM](https://docs.frappe.io/crm/email-communication).
-
-This proposal adopts persistent context, familiar email actions and explicit correction. It does not import another product's sharing model or automatically expose private correspondence to all Company viewers.
-
-## 📝 Problem Statement
-
-Company pages lack an email surface, while Person email history is bounded and difficult to search comprehensively. A current-employment join makes account history move when affiliations change. A manual-only picker restricted to current contacts leaves old or unmatched correspondence undiscoverable. Separate Person and Company implementations would also produce conflicting message subsets, actions and error behavior.
-
-Retaining message bytes is insufficient: deleting their last CRM interaction, losing sharing provenance, restricting attachments differently, or silently truncating a query can make those bytes practically inaccessible. This proposal treats reachability, authorization and recovery as part of preservation.
-
-## 📝 Product Invariants
-
-1. **Parity:** the same viewer, with access to both records, opening the same conversation through Person or Company receives the same authorized messages, order, privacy information and available email actions. Only record-context listing and new-email defaults differ.
-2. **Relevance is not permission:** creating, deleting or restoring a business link does not modify visibility, ownership, grants, channel sharing or send authority. This also applies to manually linking a Person with pre-existing sharing grants.
-3. **Complete reachability:** every retained, imported message and attachment the viewer is authorized to read is reachable through ordinary history/search/recovery paths. Bounded pages limit work, not the archive's extent.
-4. **Stable account context:** employment changes, archive/restore, mailbox disconnection and CRM record deletion do not erase retained email or its authorization provenance.
-5. **Live privacy:** revoked grants stop access on the next server read, download or send validation. Restoring records or undoing a relevance change never resurrects a revoked grant.
-6. **No concealed failures:** indexing, synchronization, linkage and attachment failures are explicit states with recovery actions, not successful empty results.
-7. **Source ownership:** messages/communication_channels keep content, channel and delivery ownership; attachments keeps file ownership; customers owns relevance and CRM authorization provenance. No duplicate email store or direct cross-module ORM relation.
-
-These guarantees cover retained/imported data and normal CRM operations. They do not authorize another user's private mail, imply that unsynchronized provider content is stored, or make deliberate authorized purge reversible. Access revocation and deliberate source purge are explicit security/destruction events, distinct from unlinking or CRM deletion.
-
-## 📝 User Stories / Use Cases
-
-| Story | User outcome | Acceptance reference |
+| Story | Outcome | Acceptance |
 | --- | --- | --- |
-| U1 — Same conversation | Read/reply consistently from either related record. | A1, A2 |
-| U2 — Old correspondence | Find an unloaded old message or former-contact thread and open its full history. | A3, A4 |
-| U3 — Useful context | Compose in record context, link historical mail, correct relevance and undo a mistaken link. | A5, A6 |
-| U4 — Privacy | Share only with an explicit authorized action; private content and attachments stay protected. | A7, A8 |
-| U5 — Safe continuity | Archive or delete a CRM record without stranding retained correspondence; restore faithfully. | A9, A10 |
-| U6 — Reliable send | Review recipients/sender, preserve a failed draft and avoid duplicate delivery on retry. | A11 |
-| U7 — Fast, understandable history | Browse large accounts and recognize unavailable/syncing/recovery states. | A12, A13 |
+| U1 — Same conversation | Read and reply consistently from either related record. | A1, A2 |
+| U2 — Old correspondence | Find an old, unloaded message (including archived contacts) and open its full history. | A3, A4 |
+| U3 — Useful context | Compose in record context, link historical mail, correct relevance, undo a mistaken link. | A5, A6 |
+| U4 — Privacy | Only explicit owner sharing widens access; relevance never does. | A7, A8 |
+| U5 — Safe lifecycle | Archive instead of delete; a delete never silently loses CRM email. | A9, A10 |
+| U6 — Reliable send | Review recipients/sender; a retry never sends twice from the CRM. | A11 |
+| U7 — Large accounts | Browse and search large histories within budget, with clear sync/index states. | A13, A14 |
 
-## 📝 Proposed Solution
+## 📝 Current behavior (baseline)
 
-### Proposed design decisions
+Verified against `develop` at `7187041c2c8fa483d2e76ba7c0197157b3decf1f` (2026-10-09). Line numbers are for orientation; implementation must re-check the then-current branch.
 
-| Decision | Proposal and rationale |
-| --- | --- |
-| Business context | Persistent conversation-to-record associations for both Person and Company. Compose establishes explicit context; replies inherit it; historical suggestions require confirmation. |
-| Archive | Use existing `CustomerEntity.isActive = false/true` through guarded, undoable updates. The UI explains that Archive makes the record inactive and retains history. Existing inactive records remain discoverable; no new interpretation of DELETE. |
-| Authorization preservation | Add durable per-message provenance anchors, independent of deletable interaction rows, and stable historical Person keys on current sharing grants. Archive alone is insufficient while legacy DELETE remains compatible. |
-| Identity | Use server-derived `thread:<Message.threadId>` where available, otherwise `message:<Message.id>` or `link:<MessageChannelLink.id>`. Preserve adapters for existing Person `threadKey` values. Never infer identity from subject or merge separately imported mailbox copies. |
-| Discovery | Search the complete authorized retained history, including unassigned and former-contact mail. Active affiliation is a suggestion, not a linking condition. |
-| Permissions | Reuse existing record-view/manage, compose and owner-only sharing features. Keep `customers.email.view_private` inert. |
-| Delivery | One shared composer and source-owned delivery path; persist delivery intent and business context before dispatch. |
-| Rollout | Additive schema/services/APIs, resumable backfill, dual-write validation, coordinated Person/Company activation. Preserve old endpoints/imports/spots. |
+**Person email read path**
+- `GET /api/customers/people/[id]/email-threads` (`api/people/[id]/email-threads/route.ts`, feature `customers.people.view`) calls `buildPersonEmailThreads` (`lib/personEmailThreads.ts`). There is no cursor. Defaults: `DEFAULT_MAX_THREADS = 50`, `DEFAULT_MAX_MESSAGES_PER_THREAD = 200` (L81-82). Interaction rows are scanned with `limit: maxThreads * 20` (L198) **before** grouping, so a Person with more than 1,000 visible email interactions loses older threads.
+- Authorization is the `buildEmailVisibilityMikroFilter` / `applyEmailVisibilityFilter` predicate (`lib/visibilityFilter.ts`). An email row is visible when `visibility IS NULL`, `visibility <> 'private'`, `author_user_id = viewer`, it matches a conversation-share grant `(entity_id, author_user_id)`, or `channel_id` is in the shared-channel list.
+- Grant and channel inputs (`lib/conversationShares.ts`):
+  - `listGrantsForViewerOnPerson` (L106-119), used by the Person thread route (route L72), is **uncapped**.
+  - `listGrantsForViewer` (L72-99), used by unscoped surfaces such as `/interactions` and `/activities`, is capped at `SHARE_ARM_MAX = 500` (L15) and logs truncation.
+  - `listSharedChannelIds` (L208-250) is capped at `SHARED_CHANNEL_ARM_MAX = 500` (L194), logs truncation and fails closed to `[]` on error. It reads `CommunicationChannel` by string entity name (L221), the existing cross-module read pattern.
+  - Grants and channel IDs are materialized as application arrays and expanded into one OR arm per grant.
+- `MessageChannelLink` and `Message` rows are read by string entity name (`personEmailThreads.ts:220,240`). Customers also reads `message_channel_links`/`messages` directly elsewhere (raw SQL in `link-channel-message-handler.ts:303-325,414-420`; a read-only Kysely projection in `data/enrichers.ts:402-427` via `lib/kysely.ts`). `module-decoupling.test.ts` does not constrain these reads, and no DI port in the repo returns a SQL/Kysely fragment for another module to compose (the closest precedent is a direct import of `messages/lib/participantScope.ts:47-63` by `communication_channels/data/enrichers.ts`).
 
-Separate ingest-time **identity matching** from **Company relevance**. Trusted address matching may establish the original Person provenance and Person context, using encryption-aware lookup. It must not automatically label all correspondence with every current Company. Historical Company links are suggested from known context and confirmed by the user. Ambiguous mail remains available in global history and Link existing.
+**Ingest**
+- `lib/link-channel-message-handler.ts` creates email interactions only on **Person** entities (address match or a verified `crmPersonId` hint, L171-205). One row per Person, unique on `(entity_id, external_message_id)` (`customer_interactions_email_dedupe_uq`). It denormalizes `channel_id` and sets `visibility` to `private` for user-scoped channels and `shared` for tenant-scoped channels. Mail with no matched Person and no threading parent creates no CRM row.
 
-### Alternatives considered
+**Delete and undo**
+- `customers.people.delete` (`commands/people.ts:1222+`) refuses only for deal links (`PERSON_HAS_DEPENDENTS`, L241-262, check at L1246). Otherwise it hard-deletes (`nativeDelete`) the Person's interactions, including email interactions (L1259). The guard is not re-checked inside the delete transaction.
+- `customers.companies.delete` (`commands/companies.ts`) refuses for person links, deal links and direct people (`COMPANY_HAS_DEPENDENTS`, L80-113), re-checks inside the transaction (L1018-1043), then hard-deletes the Company's interactions (L1054).
+- `customer_email_conversation_shares.person_entity_id` has an FK without an `ON DELETE` action (`migrations/Migration20260825120000_customers.ts:11`), and neither delete command touches that table. Deleting a Person with **any** share row, active or revoked, therefore fails at the database instead of returning a structured 422.
+- Undo snapshots omit `externalMessageId`, `channelId`, `channelProviderKey` and `visibility`: `PersonInteractionSnapshot` (`people.ts:117-136`, restore L1629-1652) and `CompanyInteractionSnapshot` (`companies.ts:173-192`, restore ~L1389). → **P2**.
+- `customers.interactions.delete` (`commands/interactions.ts:1222+`) soft-deletes.
 
-- **Current-affiliation roll-up:** convenient initially, but moves historical context and includes unrelated mail. Rejected as the canonical Company view.
-- **Company-only link table plus unchanged Person APIs:** small but fails parity, complete discovery, reply validation and lifecycle preservation. Rejected for the accepted scope.
-- **Archive without durable anchors:** preserves routine archived records but leaves legacy CRM DELETE able to strand mail and grants. Rejected as the complete retention solution.
-- **Snapshotting grants or marking retained mail shared:** makes revocation ineffective or widens access. Rejected.
-- **New global conversation identity:** useful future work, but changes source threading/deduplication and is unnecessary for a consistent first release. Deferred.
+**Compose and reply**
+- `POST /api/customers/people/[id]/emails` (feature `customers.email.compose`) accepts any `parentMessageId` (`route.ts:39`) and forwards it (L134) → `communication_channels/lib/send-as-user.ts:142` → `messages.messages.compose`. That command resolves the parent by `{ id, tenantId, organizationId, deletedAt: null }` only (`messages/commands/messages.ts:301-315`) and copies its `threadId`. There is no read check. → **P1**.
+- `messages.messages.compose` already supports an optional `idempotencyKey` (schema L144, fast path L285-294, unique-violation race handling L413-421, column `messages.idempotency_key` with unique index `messages_idempotency_key_uq (tenant_id, idempotency_key)`). Inbound ingest uses it. `send-as-user.ts` (L128-146) does **not** pass one.
+- `communication_channels/commands/deliver-outbound-message.ts` short-circuits with `already_delivered` when the message's link is already `queued`/`sent`/`delivered`/`read` (L212-225). The unique `message_channel_links.message_id` prevents duplicate links. The provider call has a documented at-least-once window: a crash between the provider accepting and the success flush re-sends on retry (L444-455).
 
-## 📝 Architecture
+**UI and extension points**
+- `detail:customers.person:tabs` (`people-v2/[id]/page.tsx:302`) and `detail:customers.company:tabs` (`companies-v2/[id]/page.tsx:299`) are consumed (for example by `warranty_claims/widgets/injection-table.ts:12,20`). Neither is declared in `customers/extension-points.ts`. `section:customers.companies.detailTabs` is the component-replacement handle (`components/detail/CompanyDetailTabs.tsx:35`).
+- `privateEmailCountEnricher` (`customers.private-email-count`, `data/enrichers.ts:218-310`) adds `_privateEmailCount` to Person responses.
+- The `messages:message` search entity exists with `enabled: false` (`messages/search.ts:52-54`); enabling it is entity-wide (fulltext, vector and global search gated only by `messages.view`). This spec does **not** enable it.
+- `customers:customer_interaction` is the query-index entity type of the interactions CRUD route (`api/interactions/route.ts:91-92`). It is registered in no `search.ts`, so `resolveReadableEntityTypes` (`shared/src/lib/search/entityAccess.ts:90-106`) withholds it from non-superadmin global search. Email interaction `title`/`body` hold the email subject and body text on the address-match path (`link-channel-message-handler.ts:240-250`); the threading-inheritance path writes `body: null` (`:466-467`). The query engine already composes correlated `search_tokens` EXISTS subqueries (`shared/src/lib/query/engine.ts:1823`; `shared/src/lib/search/tokenLookup.ts`); `search_tokens` is owned by `query_index`.
 
-### Ownership and proposed DI contracts
+## 📖 Glossary
 
-The following are **new proposed contracts**, not claims that these services already exist:
-
-| Owner | Contract | Responsibility |
+| Term | Meaning in this spec | Repo identifier |
 | --- | --- | --- |
-| customers | `crmEmailConversationReader` | Context authorization, record associations and DTO normalization; both record routes use it. |
-| customers | `crmEmailAccessPolicy` | Parameterized, indexed authorized channel-link selection from original provenance anchors and current grants; no content reads. |
-| messages | `messageEmailSource` | Scoped conversation/message paging, encrypted content, safe summaries, keyword search, reply-parent validation and attachment-parent identification. |
-| messages | `messageReadPolicyRegistry` | Typed source-owned registry that separates channel-email base authorization from optional additional grants; native permissions remain unchanged for messages not classified as channel email. |
-| communication_channels | `communicationChannelHistoryAccess` | Retained channel read eligibility, distinct from connected/send eligibility. |
-| communication_channels | `communicationChannelEmailSenders` | Bounded actor-owned email-channel selection and current source send eligibility; no credentials or delegated identities. |
-| attachments | existing `attachmentService` | Scoped file listing/streaming/release and partition checks; email-owned files also require message authorization. |
+| **Message** | One source email. Owned by `messages`. | `Message` (`messages`) |
+| **Channel link** | The per-channel delivery/ingest record of a message (provider IDs, delivery status). Owned by `communication_channels`. | `MessageChannelLink`; `CustomerInteraction.externalMessageId` points at its ID |
+| **Conversation** | Messages grouped by source thread. The key is `thread:<Message.threadId>`, or `message:<Message.id>` when there is no thread. | `Message.threadId`; new `conversation_key` |
+| **Email interaction** | The CRM row that records "this channel link concerns this Person, authored by this mailbox owner, with this visibility". It is the **authorization record** for CRM email. | `CustomerInteraction` with `interactionType = 'email'` and `externalMessageId` set |
+| **Retained email** | Source-linked email interactions (`interactionType = 'email'`, `externalMessageId` set, not soft-deleted) on a record. The delete guard protects them. | — |
+| **Visibility** | Per-interaction `private` / `shared` / legacy `null`. | `CustomerInteraction.visibility` |
+| **Conversation share (grant)** | The owner hands their whole email history with **one Person** to every user with CRM access to that Person. It matches interactions by `(entity_id = person, author_user_id = owner)`. | `CustomerEmailConversationShare` |
+| **Shared channel** | A mailbox marked as a team mailbox. All its email interactions are readable. | `CommunicationChannel.visibility = 'shared'` |
+| **Relevance link** | A Person/Company label on a conversation. It changes **where** a conversation is listed, never **who** can read it. | new `CustomerEmailConversationLink` |
+| **Person/Company association** | The existing employment relation between Person and Company. Used only to *suggest* relevance links, never to derive them. | `CustomerPersonCompanyLink`, `CustomerPersonProfile.company` |
+| **Archive** | `CustomerEntity.isActive = false` through the existing update commands. History stays. | `isActive` |
+| **Delete guard** | The 422 refusal of a destructive delete while dependents exist. | `PERSON_HAS_DEPENDENTS`, `COMPANY_HAS_DEPENDENTS` |
 
-Source-owned, immutable channel provenance classifies retained channel email before evaluating permissions; retain that classification through channel disconnection, source-link tombstones and CRM deletion. A mutable CRM interaction type or native MessageRecipient row cannot change it. For channel email, the source base policy admits verified original mailbox ownership or retained shared-channel read eligibility; generic native sender/recipient or administrator permissions are not an alternative bypass. Customers registers an optional grant contributor for explicit shared, verified legacy-null and current original Person/owner-history grants. Missing/disabled customers contributes no such grants and cannot reopen a native-recipient fallback. If a required source classification/channel policy cannot be resolved, the email path fails closed with an unavailable state. Messages not classified as channel email, including other channel types, keep their existing native behavior.
+## 🗂️ Existing vs proposed data model
 
-Customers owns its optional contribution to the generic registry. Upstream modules do not import or resolve a customers-specific service. The contributor validates trusted tenant/org/user context and returns an authorized channel-link selection rather than a caller-supplied boolean. Its implementation reads customers tables and resolves only the needed source/channel ports; it does not recursively call the combined message reader. The typed registry distinguishes unavailable required base policy from an absent optional grant provider. It must not implement an unrestricted OR with existing native permissions.
+```
+                         (customers-owned)                                      (source-owned)
+ ┌──────────────────────────┐   entity_id   ┌──────────────────────────────┐ externalMessageId ┌────────────────────┐   messageId   ┌──────────┐
+ │ CustomerEntity (Person)  │◀──────────────│ CustomerInteraction (email)  │──────────────────▶│ MessageChannelLink │──────────────▶│ Message  │
+ │  EXISTING  isActive      │               │  EXISTING  authorUserId,     │   logical UUID    │  EXISTING          │               │ EXISTING │
+ └──────────────────────────┘               │  visibility, channelId       │                   └────────────────────┘               │ threadId │
+        ▲            ▲                      │  + NEW conversation_key      │                                                        └──────────┘
+        │            │ person_entity_id     │  + NEW message_id, email_at  │
+        │   ┌─────────────────────────────┐ └──────────────────────────────┘
+        │   │ CustomerEmailConversation-  │      matched by (entity_id, author_user_id)
+        │   │ Share  EXISTING (grant)     │──────────────────────────────────────▶ (authorization only)
+        │   └─────────────────────────────┘
+        │ entity_id (Person or Company)
+ ┌──────────────────────────────────┐  conversation_key (same value, no FK)
+ │ CustomerEmailConversationLink    │─────────────────────────────────────────▶ (relevance only, never authorization)
+ │  NEW (relevance link)            │
+ └──────────────────────────────────┘
+```
 
-Use the sanctioned source-owned DI/query ports for peer data. A query port may accept an opaque, parameterized server-only relation selecting authorized MessageChannelLink IDs, bound to trusted tenant/org/viewer context, through the shared query engine. It must compose inside the database plan, never become a raw caller-supplied ID list or materialize the archive into an application array. It cannot accept raw SQL/table names from HTTP input. Messages owns joins to messages tables; communication_channels owns channel/link joins and supplies a typed relation through its coordinating port; customers owns anchor/grant joins. `messageEmailSource` coordinates those ports without peer ORM/table access. Define and type this selection contract in the owning source packages' public exports before wiring it.
-
-### Read flow
-
-1. Resolve authenticated actor, tenant and permitted organizations. For a record context, load the correct Person/Company and enforce access against that record's own organization, including All organizations mode.
-2. Build scoped relevance and authorized channel-link selections. Apply source channel-email classification/base policy, then the optional CRM grants over **all original anchors**: explicit shared, legitimate legacy-null and current original Person/owner grant. Require the appropriate view feature. Native recipient status never bypasses private channel-email policy; absent optional grants leave verified owner/shared-channel access intact.
-3. Apply authorization before keyword matching, summary generation, grouping, counts, sorting and cursor boundaries. Use EXISTS/relational selections, never capped grant arrays or post-page filtering.
-4. Deduplicate original anchors by actual message/channel-link identity, group using the server conversation key and page by the latest readable message.
-5. Load only the requested authorized summaries/bodies via `messageEmailSource`; use the owning encryption helpers. Return only related records the viewer can see.
-
-Person relevance no longer constrains which readable messages appear **inside** a selected conversation. An authorized continuation from a newly CC'd colleague appears consistently on both pages. This intentionally improves the Person reader; a component-only extraction would not achieve it.
-
-### Ingestion and projection consistency
-
-Trusted inbound/outbound linkage creates provenance anchors idempotently, including retained channel mail with no matched Person. Matching a Person adds a separate original provenance row and relevance link. Manual relevance never creates a provenance row or a grant. Source linkage, mailbox owner/author, channel/provider, email classification and original Person permission scope are verified server facts; ordinary interaction create/update, author reassignment or type switching cannot fabricate or rewrite them.
-
-Source modules emit typed lifecycle events; the customers-owned optional subscriber maintains its projection. Persist event delivery/reconciliation through the existing queue contract. Visibility/grant changes owned by customers update active interaction metadata and retained anchors atomically in the same customers transaction. Cross-module source writes remain source-owned and communicate through events; do not perform peer ORM writes inside a customers route.
-
-A queued or failed projection must remain observable. The global source history retains the mail; CRM shows pending synchronization/linkage and an explicit recovery path. A deletion transaction verifies/persists provenance from its current interactions before removing them, so projection lag cannot destroy the last authorization anchor. Rollout is gated on completed initial backfill and reconciliation.
-
-### Optional-module behavior
-
-Customers owns guarded peer resolution. Without messages/communication_channels, record pages still load and Emails shows unavailable with Retry; existing stored customer metadata is untouched. Missing attachment service yields an attachment-unavailable state and fails closed. A disabled search backend yields search-unavailable and full paged browsing; it must not report zero matches. The supported complete-search deployment uses the baseline database token strategy, without requiring an external search/vector provider.
-
-### Commands and events
-
-| Mutation | Command / existing path | Undo and side effects |
+| Entity | Status | Role |
 | --- | --- | --- |
-| Link context | `customers.email_conversation_link.create` | Undo only the active generation created by this command; an existing link is a no-op. |
-| Unlink context | `customers.email_conversation_link.delete` | Restore the same generation only after current access/record checks; never overwrite a newer relink. |
-| Edit Related records | `customers.email_conversation_link.update_context` | Bounded atomic link/unlink changes; undo only its own changed generations with current authorization/version checks. |
-| Archive/Restore | existing `customers.people.update` / `customers.companies.update` | Version-checked `isActive` update; undo restores prior active state only. |
-| Visibility | existing interaction visibility commands and new `customers.email_authorization_anchor.update_visibility` | Owner-only, exact original anchor, transactionally mirrored to its live interaction if present; current-version undo never revives a revoked grant. |
-| Share/revoke | existing `customers.email_conversation_share.*` plus retained grant adapter | Preserve owner-only authority, stable scope and optimistic locking. |
-| Compose/reply | `customers.email.compose` orchestration over the existing source send service | External delivery is not undoable; use delivery intent/idempotency and explicit recovery. |
-| CRM delete/undo | existing People/Company commands | Ensure anchors before deletion; restore complete linkage/privacy; preserve retained grant keys. |
-| Backfill/reconcile | `customers.email_history.reconcile` with queue worker | Idempotent projection work; no email delivery or destructive cleanup. |
+| `CustomerInteraction` (email) | Existing; **three additive nullable columns** `conversation_key text`, `message_id uuid`, `email_at timestamptz` (= `COALESCE(occurred_at, created_at)` at link time) plus the partial indexes the spike keeps. | Authorization record and grouping/search key. Denormalized like `channel_id` was, to avoid a cross-module join. `Message.threadId` is only set when null and never rewritten after send (`messages/commands/messages.ts:353-354`), so the copy is stable. |
+| `CustomerEmailConversationShare` | Existing; **unchanged schema**. A Person delete (allowed only without retained email) captures and removes its share rows; undo restores the active ones. | Person-history grant. |
+| `CustomerEmailConversationLink` | **New** `customer_email_conversation_links` (schema below). | Relevance label for Person/Company. |
+| `Message` | Existing; **one additive nullable column** `idempotency_fingerprint` (see [Failure, retry and idempotency](#-failure-retry-and-idempotency)). | Content and threading. |
+| `MessageChannelLink`, `CommunicationChannel` | Existing; unchanged. | Delivery and channel ownership. |
+| ~~`customer_email_authorization_anchors`~~, ~~`customer_email_history_shares`~~ | **Removed from the proposal** (Q2). | — |
 
-Define additive `customers.email_conversation_link.created`, `.deleted` and `customers.email_history.reconciled` events through `createModuleEvents`; payloads contain scoped IDs and outcomes only. Retain existing event IDs. New email-context/access events are not tenant-wide `clientBroadcast` events. Refresh originating UI directly and other visible authorized hosts through bounded refresh; do not disclose private IDs through SSE.
-
-## 📝 Data Models
-
-### CustomerEmailConversationLink — business relevance
-
-New customers-owned `customer_email_conversation_links`:
+### `CustomerEmailConversationLink` — relevance only
 
 | Column | Contract |
 | --- | --- |
-| `id` | UUID primary key and relationship generation. |
-| `tenant_id`, `organization_id` | Required, derived from trusted record scope. |
-| `entity_id` | Same-module FK to CustomerEntity; Person or Company, validated kind. |
-| `conversation_key` | Server-derived source identity; no cross-module ORM relation. |
-| `linked_by_user_id`, `origin` | Audit actor; `manual`, `compose`, `ingest_person` or `reply_inheritance`. |
-| `created_at`, `updated_at`, `deleted_at` | Versioned soft-deletable association. Return `updatedAt` for custom guarded writes. |
+| `id` | UUID primary key; also the relationship *generation* (a relink creates a new row). |
+| `tenant_id`, `organization_id` | Required; derived from the trusted record scope, never from input. |
+| `entity_id` | Same-module FK to `customer_entities` (Person or Company; kind validated). |
+| `conversation_key` | Server-derived source key (`thread:<uuid>` / `message:<uuid>`); no cross-module FK. |
+| `origin` | `manual`, `compose`, `reply_inheritance`, `ingest_person`. |
+| `linked_by_user_id` | Actor for audit; null for ingest. |
+| `created_at`, `updated_at`, `deleted_at` | `updated_at` for optimistic locking (returned as `updatedAt`); `deleted_at` for user unlink. |
 
-Unique active `(tenant_id, organization_id, entity_id, conversation_key)`; context lookup on that tuple; reverse lookup `(tenant_id, organization_id, conversation_key)` where active. Choose the conservative `updated_at` guard even though assignment rows can qualify for an exemption. A recreated link receives a new generation; stale unlink/undo targets the old UUID/version, preventing ABA races.
+Indexes: unique active `(tenant_id, organization_id, entity_id, conversation_key) where deleted_at is null`; reverse lookup `(tenant_id, organization_id, conversation_key) where deleted_at is null`; and a plain `(tenant_id, organization_id, entity_id, conversation_key, created_at desc)` index for the ingest-link rule that looks up the latest generation, including unlinked rows. No subject, address, name, body or attachment is stored. A stale unlink/undo targets the old UUID/version, so it can never remove a newer relink (no ABA). Record DELETE captures the record's link rows (active and soft-deleted) in the undo snapshot and **hard-deletes** them, so soft-deleted rows cannot block the record's hard delete through the FK (the trap documented at `commands/companies.ts:1044-1051`); undo recreates them with their original IDs.
 
-No subject, address, name, body or attachment is stored here. CRM hard-delete captures/removes its business links for compatible undo; email content and authorization anchors survive. After a record is gone, the mail remains reachable globally or from other linked records. Recreating an unrelated Person with the same address does not inherit the deleted Person's authorization scope.
+**Commands (all undoable through the command log, all with per-row optimistic locking):**
 
-### CustomerEmailAuthorizationAnchor — original permission provenance
-
-New customers-owned `customer_email_authorization_anchors`:
-
-| Column | Contract |
-| --- | --- |
-| `id`, `tenant_id`, `organization_id` | UUID and required trusted scope. |
-| `source_interaction_id` | Nullable logical UUID; surviving metadata must not cascade with interaction deletion. |
-| `historical_person_entity_id` | Nullable stable logical Person UUID for the original grant scope; no live FK. Null for source-verified unmatched channel provenance. |
-| `message_channel_link_id`, `message_id` | Logical source UUIDs, scoped and verified through the source service. |
-| `message_thread_id`, `conversation_key` | Nullable source thread UUID plus server-normalized fallback key. Source changes reconcile atomically. |
-| `owner_user_id`, `channel_id`, `channel_provider_key` | Exact original mailbox-author/channel provenance; record ownership is unrelated. |
-| `visibility`, `visibility_origin` | `private`/`shared`; null allowed only for verified legacy-null provenance. New unmatched anchors default private. |
-| `source_detached_at` | Original CRM interaction removal; does not revoke read access. |
-| `created_at`, `updated_at`, `deleted_at` | Versioned metadata; deleted only by explicit source retention/purge policy, never manual relevance. |
-
-Preserve one row per original interaction provenance, not one arbitrary row per message. Unique scoped non-null source-interaction ID; a separate partial unique key prevents duplicate unmatched channel provenance for a message link. Index scoped conversation/message/link lookups; index `(tenant_id, organization_id, historical_person_entity_id, owner_user_id)` for grants and scoped owner/channel visibility predicates.
-
-This is authorization metadata, not a content store. Use the verified source owner and **current** grants. Live interaction visibility and its exact retained anchor are updated atomically; legacy and new routes use the same policy. Each original anchor is a separate versioned permission scope, so a retained visibility edit requires that anchor's own updatedAt rather than a record/message timestamp. There is no extra shared aggregate/root anchor that could keep mail shared after its original visibility is made private.
-
-Source-linked author/owner, channel/provider, message/link IDs, email classification and original Person authorization scope are immutable to ordinary interaction edits. Reject generic create/update values that fabricate or alter source-email provenance, including author spoofing, type switching of a source-linked interaction, and a claimed source link without trusted source evidence. The verified ingestion/compose path derives these fields server-side. Ordinary non-source CRM notes retain their existing editing behavior and cannot mint source-email authority. Generic edits to labels or business relevance cannot retarget a Person-history grant. A genuine source correction, if required, uses a separately specified owner-authorized/source-verified repair operation with an audit trail and explicit permission-set reconciliation; arbitrary authorization re-anchoring is not part of this proposal. Document the security tightening of the existing generic mutation paths under the compatibility protocol.
-
-There are no new PII labels/addresses in this table. Any new label/header/body snapshot introduced during implementation requires an explicit module `encryption.ts` map and decryption-helper reads; unencrypted free-text fallback is forbidden.
-
-### CustomerEmailHistoryShare — compatible retained grant authority
-
-Add customers-owned `customer_email_history_shares` with `id`, required tenant/org, `historical_person_entity_id` (logical UUID), `owner_user_id`, `shared_by_user_id`, `created_at`, `updated_at` and `deleted_at`. Preserve the existing share ID when backfilling. Unique active scoped `(historical_person_entity_id, owner_user_id)` and indexed EXISTS lookups; no live Person FK and no copied labels/content.
-
-This retains the **same existing owner/Person-history grant**, independently of the required live Person relation on `CustomerEmailConversationShare`. Keeping the legacy relation/property unchanged avoids introducing nullable values into its public entity contract. The old table remains a compatibility projection for live-Person APIs. Sharing mutations update the current retained authority and its live projection in the same customers transaction; legacy readers consult the shared policy. New grant creation requires a real in-scope Person and the authenticated mailbox owner. Revocation remains possible after that Person is deleted.
-
-CRM hard-delete explicitly captures/removes the legacy FK projection, including inactive rows that otherwise block deletion, while retaining the current history authority. Undo rebinds the original stable IDs only if the retained authority is still active; it must never recreate a subsequently revoked grant. Backfill/reconciliation cannot overwrite a newer revoke. New People with matching addresses do not inherit old grants.
-
-Existing live-Person share routes/DTOs remain compatible. Add a retained-context control for the mailbox owner to inspect/revoke their same historical grant after the live Person disappears. Explain its full historical scope; it is not a thread-only grant. Normal record-view/manage permissions and administrator wildcards do not confer ownership or sharing authority.
-
-This additional table is a deliberate compatibility cost. A future deprecation can consolidate storage after downstream consumers migrate; this proposal must not silently change the existing exported relation's required type.
-
-### Existing entities and delivery intents
-
-Reuse CustomerEntity `isActive`, `updatedAt`, existing Message/MessageChannelLink/ExternalConversation and source attachment records. ExternalConversation exists; this proposal does not assert that the platform lacks every conversation entity. `Message.threadId` remains the grouping identity currently used by CRM; separately ingested copies can differ, while explicit cross-channel replies can legitimately inherit a parent's thread ID.
-
-Source-owned outbound delivery needs a durable intent keyed by `(tenant, organization, actor, clientRequestId)` and a payload fingerprint. Extend an existing suitable source job/outbox record when available; otherwise add an append-only source-owned intent, with no new production dependency. Its states are `prepared`, `queued`, `delivered`, `failed` and `delivery_unknown`; store content only through existing encrypted draft/message payload storage and logical references, not in customers tables. Persist the exact parent, channel, recipient payload and requested record context before provider dispatch. Reused keys with different payloads return conflict; active/unknown intents never trigger a blind second provider send.
-
-## 📝 API Contracts
-
-All paths below are under `/api`. Existing paths stay supported. This proposal introduces an additive family and moves both in-repo hosts onto it. Every route exports per-method `metadata` and `openApi`, validates zod inputs, uses trusted scope and the command/mutation-guard registry. Custom actions use the supported route-mutation-guard wrapper where available, otherwise the registry directly; do not copy deprecated guard helpers from old routes.
-
-### Reads and discovery
-
-| Method and path | Input / response | Authorization |
+| Mutation | Command | Undo |
 | --- | --- | --- |
-| `GET /customers/people/[id]/email-conversations` | Conversation summary page for Person context. | `customers.people.view`; record's own tenant/org access. |
-| `GET /customers/companies/[id]/email-conversations` | Same summary page for Company context. | `customers.companies.view` + `customers.people.view`; record scope. |
-| `GET /customers/email-conversations` | Same page across accessible CRM email, including unassigned mail; used by Link existing and global history. | `customers.people.view`; allowed orgs and current email access. |
-| `GET /customers/email-conversations/[key]/messages` | Chronological message page, accessed independently of a particular record. | `customers.people.view`; current email access to each returned message. |
-| `GET /customers/email-conversations/[key]/related-records` | Paged visible Person/Company associations with link ID, kind, link `updatedAt` and record `updatedAt`. | Current conversation access plus view access for each returned record, before paging. |
-| `GET /customers/email-conversations/[key]/access` | Current per-email access explanations plus paged owner controls, original anchor IDs/updatedAt and retained grant IDs/updatedAt where manageable. | Current read access; owner-only management information. |
-| `GET /customers/email-senders` | Paged source-owned sender choices, including a verified eligible default and owned disconnected choices with disabled state. | `customers.email.compose`, `customers.people.view`; actor-owned email channels in the concrete permitted org. |
-| `GET /customers/email-messages/[messageId]/attachments` | Paged authorized attachment metadata and authenticated download paths. | Exact message read plus attachment scope/partition policy. |
-| `GET /customers/email-messages/[messageId]/attachments/[attachmentId]` | Authorized binary/preview stream. | Revalidate message and exact attachment-parent assignment on every request. |
+| Link | `customers.email_conversation_link.create` | Soft-deletes only the generation it created; an already-active link is a no-op without undo. |
+| Unlink | `customers.email_conversation_link.delete` | Restores the same generation only if no newer active link exists and the record/conversation are still accessible. |
+| Compound edit | `customers.email_conversation_link.update_context` | Reverts only its own changed generations, atomically, with current version checks. |
+| Ingest/compose/reply link | written inside `link-channel-message-handler.ts` / the CRM send command | Not user-undoable; idempotent on the active unique index. |
 
-Summary query: `cursor?`, `pageSize?` (default 25, maximum 100), `q?` (trimmed 1–200 characters), `from?`, `to?`, `history=active|trash` (default active). Global discovery optionally accepts `excludeRelatedTo` with validated record kind/ID and record access, and `organizationId` restricted to the authenticated allowed set. Archive state does not filter email authority. A Person/Company list has an explicit Active/Inactive-or-archived/All record filter; direct archived-record pages retain history.
+**Ingest-link rules.**
+1. **Atomic with the interaction.** The `ingest_person` link is written in the same transaction as its interaction row. It is also (re)attempted on the handler's duplicate-interaction path, so a retried delivery repairs a link whose first write failed. Today `persistInteractions` flushes row by row and skips duplicates (`link-channel-message-handler.ts:533-565`); Phase 1 changes that.
+2. **User unlink wins.** Ingest and reconciliation never create a link for `(entity, conversation_key)` when that pair's latest generation was removed by a user unlink (`deleted_at` set by `customers.email_conversation_link.delete`/`update_context`). Only an explicit user link re-attaches it.
+3. **Reconciliation is narrow.** It only creates links for interactions that have a key and have **never** had a link generation for their `(entity, conversation_key)`. It never undoes a user decision.
 
-Summary response:
+## 🔒 Product invariants
+
+1. **Parity:** for one viewer with access to both records, the same conversation through Person or Company yields the same authorized messages, order, privacy labels and actions. Only record-context listing and new-email defaults differ.
+2. **Relevance is not permission:** the authorization predicate never reads `customer_email_conversation_links`. A link on a record that the viewer can see does not make any message readable. This includes linking a Person who already has share grants: a grant matches interactions **on that Person**, not conversations labelled with that Person.
+3. **Complete reachability:** every CRM-captured email interaction the viewer may read is reachable by paging and search. No pre-page cap, grant array or roster limits the candidate set.
+4. **Stable history:** archive/restore, employer change and mailbox disconnection do not modify email interactions, shares or links. Ordinary CRM DELETE is refused while retained email exists.
+5. **Live privacy:** revocation of a share, a shared channel or record/organization access takes effect on the next server read, download or send validation. Undo of a relevance change never restores a grant.
+6. **No concealed failures:** indexing, sync, link projection and source unavailability are explicit states, not empty results.
+7. **Source ownership:** `messages`/`communication_channels` keep content, threading and delivery; `attachments` keeps files; `customers` owns interactions, shares and relevance links. No duplicate email store and no direct cross-module ORM relation.
+
+## 🧱 Prerequisite correctness fixes
+
+P1 and P2 are **live defects on `develop`**, independent of this proposal, and both were already described publicly in review 5391346456. P3 is a prerequisite hardening item tracked outside this document. All three must land as standalone, separately reviewed changes **before Phase 1**. This spec does not implement them. Later phases treat them as baseline and add only regression assertions to their own tests.
+
+Why separately: P1 is an authorization gap in production code paths that exist today. It should not wait for a multi-phase design review. P2 silently widens privacy on undo today. P3 is tracked privately per `SECURITY.md`; this spec depends only on the invariant it guarantees. Each is a small, testable change in one module with its own risk profile. Bundling them would make the fixes wait on design approval, and it would mix a security fix into a feature PR's review and rollback unit.
+
+GitHub search on 2026-10-09 (`parentMessageId`, "reply parent authorization", "undo email visibility", "undo externalMessageId") found no issue or PR for any of these defects. #6432 is an adjacent compose-gating bug (closed) and #6105 concerns reply-reference semantics; neither covers these. The reviewer's 2026-10-08 search found the same. No tracking item has been filed yet; the cells below are placeholders for the author/maintainers to fill. P1's details are already public through the review, so a normal fix PR (security-labelled) is appropriate; P2 is a normal bug issue; P3 goes through the private channel in `SECURITY.md`.
+
+| ID | Defect | Evidence | Required fix (standalone) | Tracking |
+| --- | --- | --- | --- | --- |
+| **P1** | Reply continuation skips the read check on the parent. Any user with `customers.email.compose` can thread a reply onto any message in the org, including another user's private mail, and the reply inherits that message's `threadId`. | `api/people/[id]/emails/route.ts:39,134` → `send-as-user.ts:142` → `messages/commands/messages.ts:301-315` (as cited in review 5391346456) | Check parent readability under the policy of the surface that accepted the request, and return the same generic 404 for unknown and unreadable parents. The native Messages compose route applies the messages read policy. The CRM route accepts a parent that is readable under the CRM email predicate or natively readable, so a share grantee can still reply to shared mail they are not a native participant of. Forwarding then happens only through a trusted server-side option that is not reachable from HTTP input. A native-only check would break those legitimate grantee replies. Never silently fall back to `threadId = parentMessageId` for an unreadable parent. The exact mechanism is the P1 PR's decision. | `TBD — fix PR (not yet filed)` |
+| **P2** | People/Company delete-undo restores email interactions without `externalMessageId`, `channelId`, `channelProviderKey` and `visibility`. A private email comes back as `visibility: null`, which is legacy-visible, and it loses its source link. | `people.ts:117-136`, `:1629-1652`; `companies.ts:173-192`, `~:1389` | Capture and restore all four fields in both snapshot types. For old command logs that lack the fields, restore `visibility: 'private'` (fail closed) and leave the link null, and do not default to `null`. Add regression tests for both record kinds. | `TBD — issue (not yet filed)` |
+| **P3** | Hardening item tracked privately per `SECURITY.md`. | — | Must guarantee the **provenance invariant** this spec relies on: source-linked email interactions change only through trusted, source-verified paths. | `TBD — private report (not yet filed)` |
+
+Once the delete guard lands (Phase 1), P2 is reached for **source-linked** email only through the Q6 override. It still matters for that override, for existing command logs and for manually logged email interactions with a visibility. That is why P2 stays a prerequisite and is not dropped.
+
+## 🔐 Authorization model
+
+**Single predicate, customers-owned.** A CRM email message is readable by viewer *V* in organization *O* when *V* holds the route's view feature and access to *O*, and **at least one** non-deleted email interaction row *i* for that channel link in *O* satisfies the existing predicate:
+
+```
+i.visibility IS NULL                                  -- legacy rows (unchanged v1 rule)
+OR i.visibility <> 'private'                          -- shared
+OR i.author_user_id = V                               -- mailbox owner
+OR EXISTS (active share s: s.person_entity_id = i.entity_id AND s.owner_user_id = i.author_user_id)
+OR i.channel_id IN (V's readable shared channels)     -- team mailbox
+```
+
+This is the predicate of `lib/visibilityFilter.ts` today, with two changes. The grant arm becomes a correlated EXISTS instead of an application array. The shared-channel input becomes complete, or else the read reports `unavailable`; it is never silently truncated. API-key callers (`api_key:*`) keep today's strict behavior: the port normalizes them to `viewer = NULL` with an empty shared-channel list, so no author arm, no grants and no shared channels apply (and no non-UUID value ever reaches a UUID comparison).
+
+**Rules**
+- **Relevance never authorizes.** The predicate never reads relevance links. A link only decides which conversations a record context lists. Inside a listed conversation, every readable message appears, whichever Person its interaction row is on. This is what gives parity.
+- **Record access is checked separately.** A record-context route first loads the Person/Company and enforces view features and the record's own organization. Then the email predicate runs within that organization.
+- **No admin bypass for reading.** Wildcards and `customers.email.view_private` grant no read access to private email. (The Q6 delete override, which wildcard holders do get, removes CRM rows; it never reveals content.) Share management stays owner-only (`customers.email.share_conversation`, owner derived from the caller).
+- **Revocation is immediate.** Grants, shared channels and organization access are evaluated per request. Cursors carry no authority.
+- **Archived records keep their interactions.** Archive changes nothing in the predicate.
+- **Provenance invariant.** Source-linked email interactions change only through trusted, source-verified paths (guaranteed by prerequisite P3).
+- **Writes re-check reads.** Reply parent (P1), attachment download, link/unlink and the access dialog all require the target to be readable under this predicate at the time of the request.
+- **Related-record metadata.** `ingest_person` links reveal which Persons a conversation concerns. They are shown only to viewers who can read at least one message of that conversation and who can view the linked record; this matches the existing Person Emails tab, which already shows the Person the viewer opened. Accepted and documented.
+
+**Native Messages surfaces.** This spec does not change who can read messages through the native Messages module. CRM routes authorize with the predicate above and then hydrate content through the messages source port. The previously proposed `messageReadPolicyRegistry` and "native recipient never bypasses channel-email policy" changes are **withdrawn** from this proposal. The inventory in [Cross-module behavior changes](#cross-module-behavior-changes-and-blast-radius) shows what they would have affected. If channel email in the native inbox needs tightening, that is a separate messages-owned change.
+
+## 🗄️ Retention and deletion model
+
+**Archive is the routine lifecycle.** `customers.people.update` / `customers.companies.update` with `isActive: false|true` are version-checked and undoable. Archive keeps every interaction, share and link. Archived records remain discoverable through an Active/Inactive/All record filter, and their Emails tab works unchanged.
+
+**DELETE is guarded.** The existing guards gain a `retainedEmail` blocker (Q5):
+
+| Command | New blocker (counted in scope, re-checked inside the delete transaction) | Also inside the transaction |
+| --- | --- | --- |
+| `customers.people.delete` | Interactions on the Person with `interactionType = 'email' AND externalMessageId IS NOT NULL AND deletedAt IS NULL`. | Lock the `CustomerEntity` row (`FOR UPDATE`) and re-run the count inside the transaction (`people.ts` checks outside today, L1246 vs transaction at L1253; companies already re-checks). Capture the Person's share rows and relevance links **inside the locked transaction** (today the snapshot is loaded in `prepare` and `execute`, both outside the transaction), then delete them: shares match only this Person's interactions, which this command removes, and leaving them would violate the share FK; links are hard-deleted for the same FK reason. Undo restores the captured active shares, links and interactions (P2). |
+| `customers.companies.delete` | Source-linked email interactions on the Company. The primary ingest path creates none (`findPeopleByAddresses` and the hint are Person-only), but the threading-inheritance fallbacks do not filter by kind (`link-channel-message-handler.ts:303-325,427-446`), and the blocker is cheap insurance against any future path. It covers both. | Capture and hard-delete the Company's relevance links; undo recreates them. They are labels, so removing them strands no mail: it stays reachable from linked People and global history. |
+
+Active shares are deliberately **not** a blocker, although the review suggested counting them. Revoking a share is owner-only, so a share blocker would leave non-owners unable to delete a Person whose source-linked mail is already gone. A share without source-linked interactions guards nothing that DELETE would strand.
+
+The 422 message adds a count-free blocker, `customers.people.delete.blockers.retainedEmail` / `customers.companies.delete.blockers.retainedEmail` ("email history — archive instead"), and an archive hint. No count is shown, because it would include private rows the actor cannot read. Bulk delete reuses the same commands and reports the same per-row blocker. The row lock serializes against a concurrent ingest insert: the insert's FK check (`customer_interactions_entity_id_foreign`) waits and then fails once the Person is gone. Today that 23503 is not caught in `persistInteractions` (`link-channel-message-handler.ts:558-565`), so the persistent subscriber retries and re-matches without the deleted Person; Phase 1 adds an explicit catch so the outcome is "unmatched" rather than a retry loop. Mail is never half-attached. Tests must reproduce this race on Postgres.
+
+**Override (Q6).** A new feature `customers.records.delete_retained_email` (declared in `customers/acl.ts`, granted to no default role beyond the existing `customers.*` wildcard holders) lets the delete commands skip the `retainedEmail` blocker when the request also carries `confirmRetainedEmailDelete: true` (an additive optional boolean on the existing DELETE body/query, declared in OpenAPI; ignored without the feature, so the 422 still applies). It then performs today's behavior: interactions, shares and links of the record are captured for undo (complete metadata, P2) and removed. Source mail is untouched, exactly as today. The command log records the actor and the override. This keeps data-protection deletes and the departed-owner case possible without making them the default path.
+
+**What stays reachable after each operation**
+
+| Operation | Email interactions | Shares | Relevance links | Source mail |
+| --- | --- | --- | --- | --- |
+| Archive / Restore | kept | kept | kept | kept |
+| Employer change | kept | kept | kept; suggestions change only | kept |
+| Mailbox disconnect (`isActive = false`) | kept; read stays, send becomes unavailable | kept | kept | kept |
+| Shared channel soft-delete (`delete-channel.ts:109`) | kept; the **shared-channel arm is revoked** (the port, like `listSharedChannelIds` today, ignores deleted channels); owner, shared-visibility, legacy and grant arms are unaffected | kept | kept | kept |
+| Unlink conversation from record | kept | kept | soft-deleted (undoable) | kept |
+| DELETE Person with retained email | **refused (422)** | — | — | — |
+| DELETE with the Q6 override | captured + removed, restored on undo | captured + removed, active ones restored on undo | captured + removed, restored on undo | kept |
+| DELETE Person/Company without retained email | none source-linked; manual email rows removed, restored on undo (P2) | captured + deleted, active ones restored on undo | captured + removed, restored on undo | kept |
+| One email interaction is removed from CRM (`customers.interactions.delete`) | soft-deleted, so it leaves CRM for everyone | kept | kept | kept in the owner's Messages inbox |
+
+**Erasure (GDPR).** Today's DELETE removes CRM-held personal data — profile, addresses, comments, and the interaction copies of email subject/body (`people.ts:1253-1268`; `title`/`body` set at `link-channel-message-handler.ts:240-250`) — but leaves the `Message`, `MessageChannelLink`, attachments and provider copies untouched. The guard therefore **is a regression for ordinary users**: they can no longer remove that CRM data for a Person who has captured email. The Q6 override restores exactly today's capability for authorized administrators, so no deployment loses the ability to act on a data-protection request at the CRM level, including when the mailbox owner has left. A complete erasure of **source** mail stays a separate, future, explicitly authorized workflow; it is not made harder by this design. Retained mail never outranks a lawful erasure request. By contrast, the rejected anchor design would have kept Person-keyed authorization metadata after the Person was deleted, which is harder to erase.
+
+## 🧭 API and query architecture
+
+### Ports (new, typed, DI-registered)
+
+The ports are owned where the data lives. Customers never imports peer entity classes. The existing string-entity-name reads in `personEmailThreads.ts` and `conversationShares.ts` move behind these ports.
 
 ```ts
-type ConversationPage = {
-  items: Array<{
-    conversationKey: string
-    subject: string
-    snippet: string
-    latestReadableMessageAt: string
-    latestReadableMessageId: string
-    participants: Array<{ name?: string; address: string }>
-    hasMoreParticipants: boolean
-    channels: Array<{ id: string; label: string; canSend: boolean }>
-    hasMoreChannels: boolean
-    accessSummary: 'private' | 'shared' | 'mixed'
-    relatedRecords: Array<{ id: string; kind: 'person' | 'company'; label: string }>
-    hasMoreRelatedRecords: boolean
-    hasMissingContent: boolean
-  }>
-  nextCursor: string | null
-  snapshotAt: string
-  state: 'ready' | 'syncing' | 'indexing' | 'unavailable'
+// packages/core/src/modules/customers/lib/emailHistoryAccess.ts — DI key: 'customerEmailHistoryAccess'
+export type CrmEmailViewer = {
+  tenantId: string
+  organizationId: string            // one concrete org per query; All-organizations fans out per allowed org
+  userId: string | null             // the port maps 'api_key:*' to null → strict arms only
+}
+
+export type CrmEmailListInput = {
+  context: { kind: 'person' | 'company'; recordId: string } | { kind: 'global' }
+  q?: string                         // 1–200 chars, token AND semantics
+  from?: Date
+  to?: Date
+  snapshotAt: Date
+  after?: { latestAt: Date; conversationKey: string } | null   // decoded, verified cursor
+  pageSize: number                   // 1–100
+}
+
+export type CrmEmailListResult =
+  | { state: 'ready'; items: Array<{ conversationKey: string; latestReadableAt: Date; latestReadableLinkId: string }>; hasMore: boolean }
+  | { state: 'indexing' | 'unavailable'; reason: 'search-index-incomplete' | 'shared-channels-incomplete' | 'source-unavailable' | 'query-failed' }
+
+export interface CustomerEmailHistoryAccess {
+  listConversations(viewer: CrmEmailViewer, input: CrmEmailListInput): Promise<CrmEmailListResult>
+  listReadableLinks(viewer: CrmEmailViewer, input: {
+    conversationKey: string; before?: { at: Date; linkId: string } | null; pageSize: number
+  }): Promise<
+    | { state: 'ready'; items: Array<{ messageChannelLinkId: string; messageId: string; emailAt: Date; access: 'owner' | 'shared' | 'legacy' | 'grant' | 'channel' }>; hasMore: boolean }
+    | { state: 'unavailable'; reason: 'shared-channels-incomplete' | 'query-failed' }
+  >
+  canReadLink(viewer: CrmEmailViewer, messageChannelLinkId: string): Promise<boolean>   // false on any error (fail closed)
+}
+
+// packages/core/src/modules/communication_channels — DI key: 'communicationChannelHistoryAccess'
+export interface CommunicationChannelHistoryAccess {
+  // Complete list or an explicit incomplete result; never a silent truncation.
+  listReadableSharedChannelIds(scope: { tenantId: string; organizationId: string }, viewerUserId: string):
+    Promise<{ complete: true; ids: string[] } | { complete: false }>
+}
+
+// packages/core/src/modules/messages — DI key: 'messageEmailSource'
+export interface MessageEmailSource {
+  // Inputs are bounded by one page (≤ 100 IDs) that customers has already authorized.
+  loadSummaries(scope: { tenantId: string; organizationId: string }, linkIds: string[]): Promise<EmailSummaryDto[]>
+  loadMessages(scope: { tenantId: string; organizationId: string }, linkIds: string[]): Promise<EmailMessageDto[]>
+  resolveConversationKey(scope: { tenantId: string; organizationId: string }, messageId: string): Promise<string | null>
 }
 ```
 
-All summary fields derive from authorized messages only. Participant/Bcc disclosure follows source delivery permissions; Bcc is never exposed to another participant or copied into Reply all. Omit unavailable message counts rather than reporting a retained slice as the total. UI may show an exact accessible count only when computed from the complete authorized set.
+The DTOs carry only fields the CRM reader renders (decrypted through the owning module's helpers). No ORM entity crosses a module boundary. Peer modules are resolved with the existing optional-resolution pattern.
 
-Summary metadata is a labeled preview: at most five authorized participants, three channels and three visible related records; bound subject/snippet/label previews without altering stored source values. The hasMore flags refer only to additional authorized entries. Complete participants/headers are available in the paged message reader, complete context in Related records, and sender choices through the proposed source-owned paged sender port/API. No preview cutoff limits archive reachability. Related-record, attachment and owner-access reads accept cursor/pageSize (default 25, maximum 100), enforce access before stable ID/time ordering, and return items/nextCursor. Picker inputs are also server-paged/searchable; never preload the entire contact or channel roster.
+**Failure behavior (all ports fail closed):** a missing or throwing peer port, an incomplete shared-channel list, or a database error yields `state: 'unavailable'` (or `false` from `canReadLink`), never an empty page and never a wider predicate. `loadSummaries`/`loadMessages` return only rows for the given IDs in the given scope; a requested ID that is missing is rendered as a labeled "content unavailable" item, not dropped. `messageEmailSource.resolveConversationKey` is introduced in Phase 1 (ingest needs it); the other methods in Phase 2.
 
-`GET /customers/email-senders` accepts permitted concrete organizationId, cursor/pageSize and optional q. Return `{ items:[{ id, label, fromAddress, isPrimary, canSend, disabledReason? }], nextCursor, defaultSender }`; defaultSender is one verified eligible choice with the same fields, or null, and all entries are actor-owned email channels. Derive an eligible primary/default server-side, return its authorized choice even if it is outside the current search page, and require explicit review of any sender change. Revalidate eligibility on send/dispatch. This is a new bounded CRM contract over source-owned data; it does not claim the existing `/communication_channels/me/channels` profile endpoint is paged or change its default response.
+### Query sketch (customers-only SQL, one statement)
 
-Message query: `before?`, `pageSize?` (default 25, maximum 100), `history` and optional `context` used solely to enforce route/record view permissions. Return `{ items, olderCursor, hasMore, state }`; items include source message ID, sender/To/Cc, subject, sanitized body/body format, sent/received time, authorized access label, source delivery status and an attachment preview/continuation to the complete paged attachment list. Fetch newest bounded messages first and display them chronologically; loading older prepends without losing scroll position. Missing content remains a labeled authorized item with available recovery, never an omitted row or fabricated body.
+Context listing for a Company (Person is the same with `entity_id = $person`; global omits the `ctx` filter). `$viewer` is `NULL` for API-key callers, and `$shared_channel_ids` is then empty:
 
-Cursor contract: opaque authenticated token with version, viewer/scope/filter binding, authorized ordering tuple, snapshot time and bounded expiry. Conversation order is `(latest readable message time DESC, conversation key ASC)`; message order uses source timestamp plus stable message ID. For list traversal, calculate the latest readable time from messages at or before the snapshot and relevance established by that snapshot. New arrivals/links appear on Refresh. Stable traversal without duplicates/gaps is guaranteed while access, existing relevance, history state and source ordering remain unchanged; it is not a snapshot of permissions.
-
-Re-evaluate current grants on every page; a cursor never grants access. Revocation can change a conversation's latest readable time, and unlink/trash/reconciliation can change membership. On a detected change, discard affected cursors and restart the list with a generic history-changed notice, retaining the draft/selected conversation only if still readable. Clients deduplicate loaded keys and offer Refresh throughout; a refresh starts a fresh complete traversal. Do not claim gap-free traversal across concurrent policy/relevance mutations. Tests must prove immediate authorization on the next page and complete reachability after restart, not freeze revoked access for paging stability. Tampered/mismatched/expired tokens produce a generic cursor error and restart action, without exposing hidden IDs or counts.
-
-Search: server-side baseline token keyword matching across authorized retained subject, participants and plain-text email body; multiple query tokens use documented AND semantics, with normalized word matching rather than arbitrary substring promises. Date/context filters apply to the same authorized candidate set. Page/search must not first select only 50 conversations, 200 messages, 500 grants or the current contact roster. Index all supported retained body content, including terms near the end of long bodies, through source-owned encrypted/token indexing. Do not use ILIKE against ciphertext or send private mail to a vector/AI provider. Missing/incomplete indexes report indexing/unavailable and expose Retry/browse; they do not masquerade as a complete zero-match result.
-
-### Business associations
-
-`POST /customers/email-conversation-links`:
-
-```json
-{ "recordId": "uuid", "recordKind": "person", "conversationKey": "server-issued-key" }
+```sql
+WITH ctx AS (
+  SELECT l.conversation_key
+  FROM customer_email_conversation_links l
+  WHERE l.tenant_id = $tenant AND l.organization_id = $org
+    AND l.entity_id = $company AND l.deleted_at IS NULL
+    AND l.created_at <= $snapshot
+),
+readable AS (
+  SELECT i.conversation_key,
+         i.external_message_id                         AS link_id,
+         i.email_at                                    AS at
+  FROM customer_interactions i
+  WHERE i.tenant_id = $tenant AND i.organization_id = $org
+    AND i.interaction_type = 'email' AND i.deleted_at IS NULL
+    AND i.external_message_id IS NOT NULL AND i.conversation_key IS NOT NULL
+    AND i.conversation_key IN (SELECT conversation_key FROM ctx)
+    AND i.email_at <= $snapshot
+    AND i.created_at <= $snapshot            -- late-ingested old mail waits for Refresh instead of jumping behind the cursor
+    AND ( i.visibility IS NULL
+       OR i.visibility <> 'private'
+       OR i.author_user_id = $viewer
+       OR ($viewer IS NOT NULL AND EXISTS (       -- API-key callers get no grants (as today)
+                  SELECT 1 FROM customer_email_conversation_shares s
+                  WHERE s.tenant_id = i.tenant_id AND s.organization_id = i.organization_id
+                    AND s.person_entity_id = i.entity_id AND s.owner_user_id = i.author_user_id
+                    AND s.deleted_at IS NULL))
+       OR i.channel_id = ANY($shared_channel_ids) )
+    -- only when q is present: every query token must hit this interaction's own tokens
+    AND ( $no_query OR EXISTS (
+          SELECT 1 FROM search_tokens st
+          WHERE st.entity_type = 'customers:customer_interaction' AND st.entity_id = i.id::text
+            AND st.tenant_id = i.tenant_id AND st.organization_id = i.organization_id
+            AND st.token_hash = ANY($hashes)
+          GROUP BY st.entity_id
+          HAVING count(DISTINCT st.token_hash) >= $hash_count ) )
+)
+SELECT conversation_key, max(at) AS latest_at,
+       (array_agg(link_id ORDER BY at DESC, link_id DESC))[1] AS latest_link_id
+FROM readable
+GROUP BY conversation_key
+HAVING $after_at IS NULL
+    OR max(at) < $after_at
+    OR (max(at) = $after_at AND conversation_key > $after_key)
+ORDER BY latest_at DESC, conversation_key ASC
+LIMIT $page_size + 1;
 ```
 
-Require that record's view/manage features, `customers.people.view`, and current conversation readability. Active affiliation is not required. Validate IDs/kind in the same scope. Return `201` for a new generation or `200` for an already-active link: `{ id, recordId, recordKind, conversationKey, updatedAt, created }`. Concurrent duplicate creates converge through the active unique constraint. A result containing `created:false` carries no destructive undo.
+- **Isolation:** `tenant_id` and one concrete `organization_id` are bound in every table reference, including the share EXISTS and `search_tokens`. All-organizations mode runs one query per allowed organization and merges by the same order key, or uses `organization_id = ANY($allowedOrgs)` with the share EXISTS correlated on `i.organization_id`. The spike chooses between the two.
+- **Viewer binding:** `$viewer` and `$shared_channel_ids` come from the authenticated context and the channel port, never from HTTP input. `$shared_channel_ids` is a complete list of shared **channels** (small, per org). It is not a message or grant array.
+- **Keyset:** the `HAVING` condition is the exact complement of `ORDER BY latest_at DESC, conversation_key ASC`. Both `email_at <= $snapshot` and `created_at <= $snapshot` keep each conversation's `latest_at` frozen for the traversal; rows ingested after the snapshot appear on Refresh.
+- **Search uses customers-owned tokens.** `search_tokens` is the `query_index` token table that the query engine already correlates (`engine.ts:1823`). The tokens used here are those of `customers:customer_interaction` — the query-index entity type of the interactions CRUD route — whose `title`/`body` already hold the email subject/body text. Nothing in `messages` is enabled: `messages:message` stays `enabled: false`, so no fulltext, vector or global-search exposure is added, and no email content goes to vector/AI providers. Because `customers:customer_interaction` is registered in no `search.ts`, non-superadmin global search does not return it (`entityAccess.ts:90-106`). Phase 0 checks whether superadmin token search can return interaction rows today; if it can, Phase 1 adds the type to `listSearchTokenExcludedEntityTypes` (`query_index/lib/search-entity-policy.ts:44`) so this design adds no new superadmin exposure. Token caps apply (`OM_SEARCH_MAX_TOKENS_PER_FIELD`, default 5,000 distinct tokens per field), so terms beyond the cap in very long bodies are not findable; this is documented, not hidden.
+- **Messages inside a conversation** use the same `readable` predicate filtered by `conversation_key`. One message can have several interaction rows (one per matched Person), so an inner `SELECT DISTINCT ON (link_id) … ORDER BY link_id, at DESC` deduplicates first; the outer query orders `(at DESC, link_id DESC)` and keysets on `before`.
+- **Hydration:** customers passes the ≤100 authorized link IDs of the page to `messageEmailSource`. That bounded array is the only cross-module data flow on the read path.
+- **Statement budget:** one list statement, one shared-channel port call (cacheable per request), one hydration call per page. That fits the ≤8-statement target for a single organization. All-organizations mode with per-org fan-out is budgeted per organization; the `= ANY($allowedOrgs)` variant keeps one statement. The spike picks the variant.
 
-`DELETE /customers/email-conversation-links/[id]` requires the same access and an optimistic-lock header for that link. Soft-delete its exact version; return `{ ok:true }`. Unknown/inaccessible/already-deleted links return the same `404`. `409` uses the shared conflict body.
+Supporting index (customers, additive):
+`create index customer_interactions_email_conv_idx on customer_interactions (tenant_id, organization_id, conversation_key, email_at desc) where interaction_type = 'email' and deleted_at is null and conversation_key is not null` for context listing and message paging, and `customer_interactions_email_time_idx on customer_interactions (tenant_id, organization_id, email_at desc) where interaction_type = 'email' and deleted_at is null and conversation_key is not null` for the global list (no `conversation_key` prefix). The spike keeps only the indexes whose plans it proves. The existing `customer_email_conv_shares_lookup_idx (tenant_id, organization_id, person_entity_id)` serves the share EXISTS.
 
-`POST /customers/email-conversations/[key]/related-records` is the bounded compound action used by the Related records dialog; it changes explicit deltas, not the entire relationship set:
+### Phase 0 — authorization-query spike
 
-```json
-{
-  "changes": [
-    { "operation": "link", "recordId": "uuid", "recordKind": "company", "recordUpdatedAt": "ISO-8601" },
-    { "operation": "unlink", "linkId": "uuid", "updatedAt": "ISO-8601", "recordUpdatedAt": "ISO-8601" }
-  ]
-}
-```
+Time-boxed (≤ 5 working days), on a branch, with throwaway prototype code (migration, seed script, the SQL above). Only evidence is kept — plans, timings, the equivalence report — recorded in this spec's changelog. No product code is merged.
 
-Allow 1–20 changes, reject duplicate/conflicting targets, and require current conversation readability plus view/manage features for every affected record in the same concrete org. The server derives an unlink's record from its scoped link. Revalidate each record version and each existing link's own version through the framework's scoped command optimistic-lock guard; never apply a parent record header to a child link. Commit all changes in one customers transaction or none. Return `200 { createdLinks, removedLinkIds, unchangedLinkIds }` plus the standard command/undo metadata. Each returned active link has id/recordId/kind/updatedAt. A target that became unavailable yields generic `404`; a stale version yields the shared `409` conflict and no partial changes.
+**Reference fixture (per organization, seeded by script, encrypted columns on):** 100,000 email interactions over 10,000 conversations; one Company with 2,000 linked conversations; one conversation with 2,000 messages; 1,000 active share rows; 600 shared channels; at least 60 % private traffic the viewer cannot read; 20 % of messages matched to several Persons; archived Persons; legacy `visibility IS NULL` rows. Record hardware, Postgres version and settings. **Budgets (warm, production mode):** p95 list/message page ≤ 500 ms; indexed search p95 ≤ 1 s; first 25-summary payload ≤ 128 KiB; ≤ 8 data-access statements per request excluding auth/bootstrap, not growing with grants, Persons or threads.
 
-Active-link uniqueness makes duplicate creates no-ops, including within a retry. An already-committed unlink is not replayed against a later relink generation: a repeated stale compound request returns `404`/`409` and the UI reloads before a new explicit submission. Transport uncertainty triggers read/reconciliation, not a blind replay. The command log records only changed generations; undo revalidates all affected access/versions and is atomic, never removes an unrelated link or resurrects a grant. Multi-conversation bulk curation remains deferred.
+**Success criteria (all required):**
+1. The list statement above (Person, Company and global; with and without `q`) and the message-page statement meet the budgets, with plans that use the proposed indexes and the share index, and no sequential scan of `customer_interactions` outside the scoped partition.
+2. Results equal a brute-force reference (load everything, apply `buildEmailVisibilityMikroFilter` semantics in memory) for every fixture viewer, including API-key callers: zero false positives and zero false negatives.
+3. `conversation_key`, `message_id` and `email_at` can be derived for every fixture interaction from data available to `link-channel-message-handler.ts` (the `MessageChannelLink.messageId` it already reads, then `Message.threadId`), so Phase 1 can populate them at ingest and backfill in batches of ≤ 500.
+4. Interactions created by `link-channel-message-handler.ts` (which uses `em.create`, not the CRUD command) either already receive `customers:customer_interaction` token rows, or the spike identifies the query-index upsert Phase 1 must emit; and the superadmin global-search check described above is recorded.
 
-Undo uses the command log and current access, record existence and link generation. A newer association is never silently removed or replaced. Removing the last business link leaves the message in global history; associations are not the authorization proof.
+**Fallback (if 1 fails):** a customers-owned projection `customer_email_conversation_index`, with one row per `(tenant, org, conversation_key, entity_id, author_user_id, visibility_class, channel_id)` and `latest_at`. It is maintained in the same customers transaction as every email-interaction write (create, visibility change, delete, undo). There is no cross-module dual write, because all inputs are customers-owned. Listing groups over this smaller table; message paging still uses `customer_interactions`. If only the search part of criterion 1 fails, search falls back to `findEntityIdsBySearchTokens` (`tokenLookup.ts`) restricted to the record context's interactions, with an explicit `indexing`/too-broad state instead of an unbounded ID list.
 
-### New email and replies
+**If criterion 2, 3 or 4 fails,** the spike reports `BLOCKED` and the spec returns to review. No later phase starts on an unproven query; Phases 1–5 below assume the spike result recorded in the changelog.
 
-`POST /customers/email-conversations/send` uses the existing recipient/content/channel limits and visibility enum, plus `clientRequestId` UUID and at most 20 related records. Each record must be in scope with its manage feature. A new email may have a selected Person, Company, both or neither; actual To/Cc/Bcc recipients are explicit. Do not invent a placeholder Person for an unknown address.
+**`indexing` detection:** the access service reports `indexing` while the scope's Phase 5 reindex/backfill progress job has not completed (existing progress-job state). After that, per-row token lag is normal query-index eventual consistency: a just-ingested message is browsable immediately and searchable after its index event is processed. This is documented in the UI copy rather than reported as an error.
 
-`POST /customers/email-conversations/[key]/reply` accepts the same content/channel fields, `clientRequestId` and the **exact** `parentMessageId`. The server derives the conversation/thread and reply headers. It verifies the parent exists, belongs to the allowed tenant/org and requested conversation, and is currently readable, then verifies compose feature and source send eligibility. Never silently turn an unknown/inaccessible parent into a new thread. Recipients are prefilled from the selected message's Reply-To/From and authorized To/Cc; remove the chosen sender and deduplicate. Users can review/edit recipients. Bcc is not inherited.
+### Endpoints
 
-Reply business context is inherited from all existing active conversation relationships in the concrete org. It does not depend on a selected current Person and does not require managing every inherited record. Additional context changes use the separate authorized association operation. Different authorized actor-owned channels may continue the same source thread; this does not grant send-as authority over the original channel.
+All paths are under `/api`. Existing paths stay supported. Every route exports per-method `metadata` and `openApi`, validates input with zod, uses trusted scope and goes through the command/mutation-guard registry. All responses are `Cache-Control: private, no-store`.
 
-Both writes return `202 { operationId, messageId?, status }`. A queued response means durable intent accepted, not provider delivery. The operation can be read through `GET /customers/email-deliveries/[operationId]` by its authenticated actor only, with state `queued|delivered|failed|delivery_unknown`, source result IDs and a minimal actionable error. Message/delivery IDs are returned only where readable.
-
-Persist the source-owned intent and logical CRM context before external dispatch. A durable source event projects returned source IDs and links into customers. Failures retry the projection, not the provider send. Same idempotency key/payload returns the same operation; changed payload returns `409`. If provider acceptance is uncertain, retain `delivery_unknown`, reconcile by provider IDs/operation markers when supported, and require an explicit recovery decision before any send that might duplicate delivery. Exactly-once delivery across arbitrary providers is not promised.
-
-Sharing/visibility of each new reply defaults private and remains an independent authorized setting. Replying to shared mail does not automatically share the reply. Existing MIME/header behavior and actor attribution remain source-owned.
-
-### Retained sharing, lifecycle and error semantics
-
-`PATCH /customers/email-authorization-anchors/[id]/visibility` accepts `{ "visibility": "private" }`, with allowed visibility values private/shared. Require `customers.email.compose`, `customers.people.view`, current email readability, verified matching mailbox owner and the optimistic-lock header for this exact anchor's updatedAt. Reject caller-supplied owner/Person/channel fields with the strict schema: they are not editable inputs. Atomically change only this original permission scope and its matching live interaction, if it still exists; return `{ id, messageId, messageChannelLinkId, visibility, updatedAt }`. The same operation works after CRM hard-delete. Unknown/inaccessible anchors return generic `404`; stale versions return shared `409`; source-verification failure is `503`. Both legacy visibility writes and this command use the same transactional service and update the anchor version.
-
-Access controls use paged `GET .../access` (default 25, maximum 100) to inspect all manageable original anchors without a hidden cutoff. The usual single-anchor email shows one visibility control. Where a message has several original permission scopes/mailbox copies, label those controls separately and require an explicit choice of the scope to change; there is no misleading global Private toggle. A private setting does not revoke a historical Person grant, channel sharing, another original shared anchor or another owner's copy. Show the effective access explanation separately and provide the authorized grant/channel control for the actual source of access. Undo uses the current exact anchor/live-projection versions and cannot restore an unrelated revoked grant.
-
-`DELETE /customers/email-history-shares/[id]` revokes the same historical owner/Person-history grant, including after CRM deletion. Require `customers.email.share_conversation`, authenticated matching mailbox owner and version header; update retained authority and any live compatibility projection atomically. Existing live grant creation and visibility routes remain available and synchronize through the common service. Do not add a Company-wide grant or administrator bypass.
-
-Archive/Restore refers to CRM records and uses the existing version-checked People/Company update APIs with `isActive:false/true`. Existing DELETE APIs retain their CRM-destructive meaning while capturing links/complete interaction metadata and ensuring retained anchors; they do not purge source mail or source-owned attachments.
-
-Source email Trash is separate. This proposal adds complete authorized retained-history reading/search/download in the Trash view, including the actor's own recipient tombstones and globally soft-deleted retained source messages where the viewer still has current email access. A recipient-only deletion affects that actor's Active/Trash membership, not other viewers; a global soft deletion moves retained content to authorized Trash history. Both views enforce the same current email/attachment policy. It does not claim that a durable source restore API already exists. Existing source deletion Undo remains available subject to current actor/scope/access and exact tombstone/version checks; add missing version metadata additively if the source path needs it. Undo never restores revoked grants or overwrites later source changes. A new durable move-from-Trash restore command is outside this proposal. The Trash UI offers Open retained email and available Undo, and uses Restore only for CRM Archive. No new generic permanent purge endpoint is introduced.
-
-Common errors: `400` malformed keys/cursors, `401` unauthenticated, `403` missing operation feature, `404` unknown/out-of-scope/unreadable target, `409` optimistic/idempotency conflict, `422` field validation, `503` unavailable source/search capability. A mixed-access conversation omits unreadable messages without exposing their existence. Access revocation while open clears stale bodies, attachments and optimistic context after the next failed revalidation, preserves the actor's unsent draft, and shows a generic access-changed state.
-
-## 📝 UI/UX
-
-### Shared host and components
-
-Use a common `CrmEmailConversationsTab` and `useCrmEmailConversations` on both record types, plus `/backend/customers/email-history` using the same reader and `customers.people.view` page metadata. Expose Email history from the customers navigation and both Emails hosts, including when a record has no linked conversations. `PersonEmailThreadsTab` remains an additive compatibility wrapper/re-export. Reuse the existing `EmailThreadsPanel`, `ComposeEmailDialog` and message renderer through additive props for summaries, pagination, host empty states, related records and actions; avoid parallel UI implementations.
-
-The dedicated conversation list remains the established `EmailThreadsPanel` family. Do not replace it with a generic grid; ordinary tabular pickers use DataTable with stable IDs. Composition/association dialogs use CrudForm where applicable; custom email hosts retain their required draft/reply behavior and wrap every mutation with `useGuardedMutation`, exposing `retryLastMutation` in injection context. All data calls use shared `apiCall` helpers and defensive JSON parsing.
-
-Company Emails is a built-in customers tab. Preserve `detail:customers.company:tabs` and `section:customers.companies.detailTabs` with their existing meanings, and preserve Person spots/handles. Additive email-host/action spots must be declared and typed, with no renaming of existing extension IDs.
-
-### Identical experience
-
-Both record types use the tab name **Emails**, search, date range, Active/Trash history filter, Refresh, Link existing, New email, conversation selection, older-conversation/message loading, message access labels, Related records, Reply, Reply all and attachments. Source unavailable/send-ineligible states affect both identically. A record tab lists its linked conversations; global history includes linked/unlinked accessible mail.
-
-New email on a Person prefills that Person's known address and context. Company context prefills the Company, then asks the user to choose a contact or enter an address; never select an arbitrary first Person. Affiliation suggestions include the complete existing link/profile union and explicitly searchable archived contacts. Unknown addresses are allowed through existing send validation. Replies use the selected message and preserve context independently of employment.
-
-Link existing searches whole authorized history, including old, unmatched and former-contact mail, and keeps permission labels visible. Related records can be corrected without changing access. Optional polish may suggest already-known explicit context to reduce an empty Company starting experience; this is not an implementation gate or an inference engine. Suggestions require confirmation and expose only authorized candidates. Domain/AI inference remains deferred.
-
-The per-email access dialog separates the editable visibility of each original permission scope from effective access through other anchors, an owner's historical Person grant or channel sharing. A normal single-scope email has one simple control; multiple scopes are explicitly labeled and pageable. Explain the broader grant's scope before using its owner-only control, including after a Person is deleted. Turning one visibility setting private cannot be presented as revoking every other source of access. Do not add counts/placeholders for hidden private messages to either new host; retain existing public enrichers for compatibility without rendering them as different Person/Company UI behavior.
-
-### States, navigation and accessibility
-
-Use shared `LoadingMessage`, `ErrorMessage`, `EmptyState`, `Alert`, `StatusBadge`, `FormField`, `SectionHeader` and confirmation/conflict helpers. Separate initial loading, empty context, no search matches, paging error, missing body/file, indexing/syncing, disconnected mailbox, read revocation and disabled module. A failed page preserves previously loaded authorized content and offers Retry. Synchronization coverage is explicit when provider data is incomplete.
-
-Desktop uses list/reader composition. At narrow widths, selecting a conversation opens/focuses the reader and provides Back to conversations, preserving query, loaded pages and scroll. Opening a related record keeps the conversation selected when it is available there. Loading older messages preserves reading position; refresh does not discard a draft or abruptly reorder the selected conversation.
-
-Keyboard operation, meaningful focus restoration, screen-reader announcements, visible focus and labeled icon buttons are required. Every dialog supports Cmd/Ctrl+Enter and Escape. Cancel/route navigation protects a nonempty unsent draft with the shared confirmation pattern. Keep drafts in memory unless using existing secure source draft storage; do not persist email bodies in raw localStorage. Failed send retains parent, sender, recipients, body, access choice and context. Retrying must not use a newly selected contact/channel.
-
-Use semantic design-system tokens, shared Button/IconButton controls and lucide-react icons. Touched legacy lines follow the Boy Scout rule. No new primitive, arbitrary sizes/status colors or pasted mockup CSS. Add all copy to the actual supported customers/ui/message locales through `useT`/`resolveTranslations`; use generic email-history empty copy rather than contact-only wording.
-
-No UI mockup is part of this spec; its component/accessibility rules govern implementation.
-
-### Frontend Architecture Contract
-
-| Surface | Current boundary / planned client leaves | Data owner |
+| Method and path | Purpose | Authorization |
 | --- | --- | --- |
-| People and Companies v2 detail routes (`people-v2`, `companies-v2`) | Existing client page roots remain a documented legacy exception; add a scoped email leaf, no new page-root client conversion or provider. | Guarded record APIs and shared email API. |
-| Global email/history entry | Server page/metadata shell where feasible, with the same client email leaf. Existing Messages root stays intact. | Source-owned authorized history plus CRM adapter. |
-| Shared email host | Stateful selected conversation, paging/search state, abortable requests and visible-tab refresh. | Server authorization/API. |
-| Compose/association/access dialogs | Scoped form/draft state, keyboard and conflict handling. Lazy-load composition leaves. | Guarded command APIs. |
+| `GET /customers/people/[id]/email-conversations` | Conversation page for Person context. | `customers.people.view`; record's own org. |
+| `GET /customers/companies/[id]/email-conversations` | Same for Company context. | `customers.companies.view` + `customers.people.view`; record's own org. |
+| `GET /customers/email-conversations` | Global CRM email history (all CRM-captured email the viewer can read); used by Link existing. | `customers.people.view`; allowed orgs. |
+| `GET /customers/email-conversations/[key]/messages` | Chronological message page. | `customers.people.view`; predicate per message. |
+| `GET /customers/email-conversations/[key]/related-records` | Paged visible relevance links with link ID, kind and `updatedAt`. | Conversation readable + view access per returned record, applied before paging. |
+| `GET /customers/email-conversations/[key]/access` | Per-message access explanation (`owner`/`shared`/`legacy`/`grant`/`channel`) for readable messages; owner-only link to the existing share control. | Conversation readable. |
+| `GET /customers/email-senders` | Paged actor-owned email channels, with a verified default. | `customers.email.compose` + `customers.people.view`. |
+| `GET /customers/email-messages/[messageId]/attachments[/[attachmentId]]` | Authorized attachment list and stream (payload parts and `messages:message` rows). | Predicate on the message; plus `checkAttachmentAccess` for attachment-module rows. |
+| `POST /customers/email-conversation-links` / `DELETE …/[id]` | Link / unlink one record. | Record view/manage + conversation readable; optimistic lock on the link. |
+| `POST /customers/email-conversations/[key]/related-records` | Atomic compound link/unlink deltas (1–20). | As above for every affected record; per-child version check. |
+| `POST /customers/email-conversations/send` and `…/[key]/reply` | New email / reply with context. | `customers.email.compose`; reply parent readable (P1 baseline + predicate). |
+| `GET /customers/email-deliveries/[operationId]` | Delivery status for the actor's own send. | Actor only. |
 
-Client ledger: the existing Person/Company roots need routing, inline edit and injection hooks; this proposal adds no new responsibility there. The Person wrapper contains context/default props only. `CrmEmailConversationsTab` owns list/reader selection; `useCrmEmailConversations` owns abort/effect cleanup and refresh; compose owns draft and recipient editing; association/access dialogs own their guarded forms. Source modules, ORM, tokens/crypto and registries are server-only imports.
+**Link contracts.** `POST /customers/email-conversation-links` body `{ recordId, recordKind: 'person'|'company', conversationKey }` → `201` new generation or `200` already active: `{ id, recordId, recordKind, conversationKey, updatedAt, created }`. `DELETE /customers/email-conversation-links/[id]` requires the optimistic-lock header for that link → `{ ok: true }`; unknown/inaccessible/already-deleted → the same `404`. The compound `POST …/[key]/related-records` body is `{ changes: [{ operation: 'link', recordId, recordKind, recordUpdatedAt } | { operation: 'unlink', linkId, updatedAt, recordUpdatedAt }] }` (1–20 changes, no duplicate targets). It commits all or nothing, using each child's own version (never a parent header), and returns `{ createdLinks, removedLinkIds, unchangedLinkIds }`. Linking requires record view/manage and current conversation readability, not active employment.
 
-Budgets: zero newly converted client page roots, zero new global providers/bootstrap imports, each new client leaf/hook at most 300 LOC unless review documents a split/exception, zero new heavy editor/browser SDKs at route/provider roots. Existing large client roots are retained rather than expanded into larger email implementations. Measure both routes against their baseline: proposed incremental email initial-route JS budget <=35 KiB gzip excluding already-shared dependencies; lazy composer payload <=50 KiB gzip. After ten tab/record switches, subscriptions/timers return to baseline and retained heap growth attributable to the feature is <=10 MiB after collection in the documented browser harness. These are acceptance targets, not measured results.
+**Send contracts.** `POST /customers/email-conversations/send` accepts `{ clientRequestId (uuid), channelId, to, cc?, bcc?, subject, body, visibility, relatedRecords? (≤ 20 record refs) }` within the existing recipient/content limits. `POST …/[key]/reply` accepts the same plus the exact `parentMessageId`. The server derives thread and reply headers, checks the parent (P1 plus CRM predicate), prefills recipients from Reply-To/From and authorized To/Cc, and never inherits Bcc. Both return `202 { operationId, messageId, status }`. New replies default to `private`. Reply context is inherited from the conversation's active links (`origin = 'reply_inheritance'`).
 
-Require route hydration/interactivity tests on both pages, `yarn check:client-boundaries` baseline comparison, production bundle evidence and one memory/refresh cleanup trace. Feature hooks/providers mount only with their visible host and clean up on unmount, org switch, navigation and logout.
+**Paging contracts:**
+- Summary query: `cursor?`, `pageSize?` (default 25, max 100), `q?` (1–200), `from?`, `to?`.
+- The response shape lists only authorized participants, channels and related records, previewed at 5/3/3 with `hasMore` flags, and has `state: 'ready' | 'syncing' | 'indexing' | 'unavailable'`.
+- Cursors are opaque, versioned and authenticated, bound to viewer, scope, filter and `snapshotAt`, with bounded expiry. Tampered or expired cursors return a generic cursor error with a restart action.
+- The cursor order is `(latest readable time DESC, conversation_key ASC)`. Messages are ordered by source time plus a stable link ID.
+- Re-evaluate authorization on every page. The cursor stores a fingerprint of the viewer's grant set, shared-channel set and the context's active link set; a mismatch on the next page restarts traversal with a generic notice. While a scope's key backfill is running, rows that gain a `conversation_key` can join a running traversal; the UI shows `syncing` for that period instead of promising gap-free paging.
 
-## 📝 Security, Attachments and Performance
+Unknown, out-of-scope and unreadable targets return the same `404`. Version conflicts use the shared `409` body.
 
-### Unified message and attachment policy
+The previous revision's source-email Trash view (retained-source Trash reading and the source deletion-Undo tightening) is **removed from this scope**. It depended on source soft-delete semantics that this proposal does not otherwise touch. It can follow as a messages-owned spec.
 
-The same email-read decision governs summary, body, search, reply parent, attachment metadata, download, inline image, thumbnail and exports. Channel-email classification/base policy takes precedence over generic native permissions; optional CRM grants extend only that policy. Native message-recipient status alone must not bypass private channel-email privacy, including when customers is disabled/unavailable or a CRM interaction is deleted/retyped. For unassigned mail, source-verified mailbox ownership/shared-channel eligibility supplies access. Required source-policy failure is closed, with no partition-only/native-recipient fallback. Return channel/copy metadata only for authorized links, not every source copy of an otherwise readable message. Messages not classified as channel email, including other channel types, keep their native permissions.
+## 🖥️ UI/UX
 
-Current attachment-list sender/recipient checks do not cover CRM sharing; generic file partition/scope checks alone do not cover private-email authorization. Add a source-owned, generic attachment-parent policy contribution from messages. Attachments resolves its registered policy without importing customers; messages uses its read policy and exact scoped attachment assignment. `checkAttachmentAccess` remains mandatory and is combined with the email gate, not treated as a substitute.
+- A shared `CrmEmailConversationsTab` and `useCrmEmailConversations` serve both record types. `PersonEmailThreadsTab` stays as a compatibility wrapper/re-export. The tabs reuse `EmailThreadsPanel`, `ComposeEmailDialog` and the message renderer through additive props.
+- **Extension points.** `detail:customers.person:tabs` and `detail:customers.company:tabs` are consumed today but **not declared** in `customers/extension-points.ts`. This work **declares both additively** with `detailHost(...)`, keeping their IDs and current meaning. `section:customers.companies.detailTabs` keeps its meaning. New email-host/action spots are declared and typed. No existing ID is renamed.
+- **Global history page.** `/backend/customers/email-history` uses the same reader with `customers.people.view` page metadata. It is a CRM page rather than a view inside the Messages inbox for two reasons. Its authorization (shares, shared channels, legacy visibility) and actions (link/unlink records) are customers-owned. Embedding them in `messages` would make that module depend on the optional `customers` module.
+- Both record types get the same controls: Emails tab name, search, date range, Refresh, Link existing, New email, Load older, access labels, Related records, Reply, Reply all and attachments.
+- New email from a Company prefills the Company context and asks for a recipient. It never auto-selects a contact.
+- Link existing searches global CRM history, including archived Persons and Persons who have since changed employer.
+- The access dialog explains which arm grants access (owner, shared, legacy, Person-history grant, shared channel) and links to the owner-only share control.
+- No counts or placeholders for hidden private messages are shown in the new hosts. The `privateEmailCountEnricher` response shape is preserved for compatibility.
+- States, accessibility, the design-system rules, dialog keyboard handling (Cmd/Ctrl+Enter, Escape), draft protection (failed sends keep parent, sender, recipients, body and context), `useGuardedMutation` with `retryLastMutation`, `apiCall`, i18n and the frontend budgets apply:
+  - zero new client page roots;
+  - incremental initial JS ≤35 KiB gzip;
+  - lazy composer ≤50 KiB gzip;
+  - ≤10 MiB retained heap after ten tab switches.
 
-Direct generic file/preview/thumbnail routes for message-owned attachments must enforce that same parent gate, including when the caller holds an administrator role. If the parent/service is unavailable, fail closed with a recoverable state; never return a partition-only fallback. Private email files must not use public storage URLs/CDN caching; serve through authenticated scoped endpoints with `private,no-store` and safe content headers. Verify inline content and attachment filenames/URLs cannot inject HTML or access unrelated storage assignments. Remote tracking/images follow the established sanitized email policy and are not fetched automatically to make a preview appear complete.
+## 🧩 Implementation phases
 
-Routine removal from a CRM record or draft must not release retained sent/received-email files. The current generic attachment DELETE combines attachments.manage/scope checks with physical removal; it is not a separate reviewed email-purge authority. Preserve non-email deletion behavior. Block physical removal of retained email-owned files through that generic path unless an explicit source purge policy, authorization and retention review have been approved independently; ordinary attachment management or administrator privileges are insufficient. No new email-purge capability is authorized by this proposal.
+Prerequisites P1–P3 land first, separately (P3 per the `SECURITY.md` process). Phase 0 must report `PASS` (or `PASS with fallback`) before Phase 1 starts.
 
-If an independently authorized source purge applies, permanent release uses `attachmentService.releaseScoped` with exact scope/owner/partition; commit metadata before provider byte cleanup and observe/retry cleanup failures. Preserve the both-or-neither scope invariant; email attachments in this design are fully tenant/org scoped. Do not fabricate partial-null rows or copy bytes/content to bypass source permissions.
+| Phase | Content | Exit evidence |
+| --- | --- | --- |
+| **0 — Spike** | Authorization-query spike above. | Recorded plans/latencies, equivalence report, token-coverage and superadmin-search findings; decision PASS / PASS-with-fallback / BLOCKED in the changelog. |
+| **1 — Retention guard, schema and ingest** | Extend both delete guards (Q5) with the override feature (Q6); add the people in-transaction re-check, row lock and in-transaction capture of shares/links; create the link table; add `conversation_key`/`message_id`/`email_at` and indexes; add `messageEmailSource.resolveConversationKey`; make `link-channel-message-handler.ts` populate the new columns, write one `ingest_person` link per matched Person (idempotent on the active unique index; null key → row stays `syncing` and the link is written by reconciliation), catch the FK race, write the body text on the threading-inheritance path too (today `body: null`, `:466-467`), and emit the query-index upsert identified in Phase 0. | A9, A10; race test on Postgres; new ingest appears on the Person tab; generator diff limited to the intended migration. |
+| **2 — Read path** | `customerEmailHistoryAccess`, the channel port and the rest of the messages port, contextual/global listing, message paging, search over `customers:customer_interaction` tokens, and adapters for the existing Person `email-threads` DTO and `threadKey`. | A1, A3, A4, A7, A13 (budgets re-measured on real code); `module-decoupling.test.ts` and optional-module checks with `messages`/`communication_channels` disabled (Emails reports `unavailable`). |
+| **3 — Relevance and send** | Link/unlink/compound commands with undo, CRM send/reply over the existing compose with the `idempotencyKey` and fingerprint, delivery status, attachment routes. | A5, A6, A8, A11. |
+| **4 — UI** | Shared host on Person and Company, global history page, extension-point declarations, locales. | A2, A12; both main UI paths. |
+| **5 — Backfill and activation** | Backfill `conversation_key`/`message_id`/`email_at`; reindex `customers:customer_interaction` email rows; seed relevance links from existing Person interactions; parity comparison; activate both hosts together behind one feature toggle. | A14; UPGRADE_NOTES. |
 
-### Query, indexing and refresh budgets
+## 🔄 Migration and backfill
 
-Support contextual lookup by the active-link index, anchor/grant EXISTS predicates, source scoped thread/message/time indexes and scoped hashed search tokens. Do not assert existing indexes alone prove a fast plan. Inspect representative EXPLAIN ANALYZE plans; add only measured supporting indexes in their owning modules.
+The data migration is small:
+- **Schema (customers):** the new `customer_email_conversation_links` table, three nullable columns on `customer_interactions`, and the partial indexes the spike keeps. **Schema (messages):** one nullable `idempotency_fingerprint` column on `messages`. **ACL:** one new feature `customers.records.delete_retained_email`. All additive; the normal `yarn db:generate` review flow. Nothing is applied locally without asking.
+- **Backfill 1 — keys:** for email interactions with `external_message_id` and a null `conversation_key`, set `email_at = COALESCE(occurred_at, created_at)` and resolve `message_id` and `conversation_key` through `messageEmailSource` in checkpointed queue batches of ≤500 rows per transaction. Rows that cannot be resolved stay null, are counted as `syncing`, and are listed in a scoped recovery report. They are never guessed.
+- **Backfill 2 — relevance:** create one `origin = 'ingest_person'` relevance link per distinct `(Person, conversation_key)` from existing interactions. Company links are **not** inferred from employment.
+- **Backfill 3 — search tokens:** a query-index reindex of `customers:customer_interaction` email rows (existing reindex/queue path), so rows created by ingest before Phase 1 get tokens. `messages:message` is not touched.
+- No authorization data is migrated, because none moves. **Parity check:** for representative owners, grantees, shared-channel viewers and API-key callers, the new Person route must return a **superset** of the old Person route's authorized link set. The only allowed additions are (a) rows previously hidden by the 50-thread/1,000-interaction truncation, (b) readable messages filed on other Persons inside conversations linked to this Person (the intended parity change), and (c) rows previously hidden by the `SHARE_ARM_MAX` (500) or `SHARED_CHANNEL_ARM_MAX` (500) truncation. Any row the old route returned that the new one does not, and any addition outside (a)–(c), blocks activation. The global route is compared the same way against the unscoped `/interactions` predicate, including viewers with >500 grants.
+- Work over 1,000 rows runs as background jobs with progress, retries and operator-visible state. Both local and async queue strategies are supported.
 
-Proposed reference fixture per organization: 100,000 retained email messages, 10,000 conversations, a Company with 2,000 linked conversations, a conversation with 2,000 messages, 1,000 active historical share scopes and multiple retained shared channels. Include substantial unreadable private traffic, duplicate Person provenance and encrypted bodies. Record hardware/database/browser configuration. Acceptance targets on warm local production-mode runs: p95 list/detail <=500 ms, indexed search <=1 s, first 25-summary payload <=128 KiB, and <=8 data-access SQL statements per list/detail/search request excluding framework auth/bootstrap; query count must not grow per Person/thread/grant. Message/body payload bounds follow existing source content limits and the 100-item page maximum; large attachments stream individually.
+## 🛡️ Security and tenant/org isolation
 
-These targets require measured implementation evidence; failure must be addressed or explicitly reviewed before rollout. Avoid unbounded application ID/grant arrays, N+1 hydration, full-archive decryption and decrypting bodies before authorization. Operations exceeding 1,000 rows use resumable queue workers, typically <=500 rows per transaction, with existing connection/concurrency budgets. Sensitive email content is not exported to fulltext/vector providers merely to satisfy latency.
+- Every statement binds `tenant_id` and an allowed `organization_id`, including the share EXISTS, `search_tokens`, links and hydration ports. Record routes enforce the record's own organization.
+- The authorization predicate is evaluated before search, grouping, counts, ordering and cursor boundaries. There is no post-page filtering and no capped grant array.
+- The reply parent, attachments, link/unlink and delivery status each re-check the predicate (or actor ownership) per request. A queued send re-checks parent readability and channel eligibility at dispatch.
+- No relevance-based access. No admin bypass for reading email. API-key callers stay strict.
+- Bodies, subjects, addresses and filenames never appear in logs, events or telemetry. New events (`customers.email_conversation_link.created|deleted`) carry scoped IDs only and are not `clientBroadcast`.
+- Email content is not sent to vector or AI providers. Search uses the existing hashed `query_index` tokens of `customers:customer_interaction`; `messages:message` search stays disabled; no new entity type is registered for global search.
+- Provenance invariant: source-linked email interactions change only through trusted, source-verified paths (P3).
 
-Reuse existing refresh/event helpers. Keep the 20-second background refresh only while the host and document are visible; run at most one in-flight request per viewer/context/query, debounce keyword input (~300 ms), abort superseded requests and bound the post-send fast-refresh window. No polling in hidden tabs; no new custom queue/process or duplicate source credential refresh. Fetch summaries before bodies; attach large message rendering to bounded pages.
+### Attachments
 
-### Cache and observability
+CRM attachment routes require the message predicate. For files stored as `messages:message` `Attachment` rows they also require `checkAttachmentAccess`. Inbound channel attachments live in the channel payload, not the attachments module, and are served by `messageEmailSource`. The routes stream through authenticated endpoints with `private, no-store`. The generic attachments module routes are **not changed by this proposal**. The previously proposed gating of the generic file and DELETE routes is withdrawn from scope. The inventory below records who it would affect, so that a separate attachments-owned change can be judged on its own.
 
-All email/access/attachment responses initially use `Cache-Control: private, no-store`; server authorization/content response caching is disabled. A future cache requires scoped viewer/permission keys and reviewed invalidation. Existing CRM cache/index writes invalidate record-context and grant/anchor aliases after commit in execute and undo; use DI cache helpers with tenant/org tags, not raw Redis/SQLite.
+### Cross-module behavior changes and blast radius
 
-Logs/events/telemetry contain scoped IDs, durations, row counts, job states and error fingerprints, never bodies, subjects, addresses, attachment filenames or credentials. Use the shared logger and reportError for recorded failures. Observe provenance reconciliation lag, failed jobs, missing-content recovery, grant consistency mismatches, delivery-unknown operations and latency/query-count budgets. A permission mismatch fails closed and surfaces operational recovery rather than silently sharing legacy-null data.
+The previous revision proposed two changes that alter behavior for existing users of other modules. This inventory, taken from `develop` `7187041c2`, states who would lose access. On that basis, **both changes are withdrawn from this proposal's scope**. The revision also deliberately does **not** enable `messages:message` search: enabling that entity is entity-wide (fulltext, vector and global search gated only by `messages.view`, `messages/search.ts:52-54`) and would expose other users' private channel mail to any `messages.view` holder. The CRM capability does not need them, because CRM routes authorize with the customers predicate and never fall back to native permissions. If maintainers want either tightening, it should be its own messages- or attachments-owned change under `BACKWARD_COMPATIBILITY.md`.
 
-## 📝 Migration & Backward Compatibility
+**(a) "Native recipient status never bypasses private channel-email policy" (messages read path).**
 
-### Contract inventory
+| Who has native access to channel email today | Evidence | Would lose access under the withdrawn change? |
+| --- | --- | --- |
+| Inbound: one `MessageRecipient`, the conversation's assignee (`mapping.assignedUserId`), else the mailbox owner (`channel.userId`); none for an unassigned tenant-wide channel. No address matching of other org users. | `communication_channels/commands/ingest-inbound-message.ts:388,408-410`; recipient insert `messages/commands/messages.ts:358-359` | **Yes, for one population:** a user to whom a thread on a *personal* mailbox was reassigned (`PUT …/threads/[threadId]/assign`, `communication_channels/api/put/threads/[threadId]/assign/route.ts`). They receive recipient rows for later inbound messages, while the CRM interaction is `private` to the owner. The owner keeps access (author arm). |
+| Outbound send-as-user: sender is the actor (who must own the channel); **no** recipient rows. | `send-as-user.ts:101,128-147` | No — the sender is the CRM author. |
+| Non-participants via channel fallback: `GET /api/messages/[id]` admits a non-sender/non-recipient only through `hasChannelThreadReadAccess` (requires `messages.view`). The rule is owner-only for personal mailboxes and open to all callers for tenant-wide channels (`userId == null`). | `messages/api/[id]/route.ts` (sender/recipient/channel checks ~L112-147); `messages/lib/routeHelpers.ts:71-117`; `communication_channels/lib/access-control.ts:109-129` | Tenant-wide channel mail is ingested into CRM as `shared` (`link-channel-message-handler.ts` visibility rule), so nobody loses access. Personal mailboxes: no change (owner-only already). |
+| Message list `GET /api/messages`: participant-scoped (sender or recipient row), no channel fallback. | `messages/api/route.ts:192-223`; `messages/lib/participantScope.ts:47-63` | Same population as row 1 (reassigned thread assignees). |
 
-| Surface | Compatibility strategy |
-| --- | --- |
-| Existing Person `email-threads` and `emails` APIs | Keep paths, defaults and required DTO fields. Route through common policy; add optional cursor/continuation metadata where safe. The in-repo Person host adopts the new API. |
-| Existing thread DTO/component imports | Preserve old exports and signatures through wrappers/re-exports; new pagination/access fields are additive. Keep translation of existing Person `threadKey` values at the adapter. |
-| Existing share entity, FK relation and routes | Keep their required public properties and live-record responses. Add separate retained authority and synchronize commands; no nullable relation retrofit. |
-| People/Company update/delete | Archive uses existing isActive update semantics. DELETE still removes CRM records, while retaining independent source email/permission provenance and capturing context for undo. |
-| Existing visibility/sharing features | Same owner-only behavior, wildcard-aware operation guards, no private-mail admin bypass. Legacy API keys never gain private access through a fabricated actor. |
-| Generic interaction provenance edits | Ordinary content/relevance edits remain; source-linked author/type/channel/link/original Person authority is source-verified and cannot be fabricated or rewritten. Document security tightening and any safe migration/repair path. |
-| Extension spots/handles/events/DI | Existing IDs and exports remain. Proposed services/registry are additive typed public contracts; no generated files edited by hand. |
-| Attachment routes | Preserve non-email behavior. Add email-parent authorization to email-owned resources and correct authorized CRM-shared access. Document security tightening in UPGRADE_NOTES with operator recovery for legacy public file storage. |
-| Reserved private-count enricher | Preserve its public shape during deprecation; new unified hosts do not render hidden-private counts. Document the legacy exception; do not copy it onto Company history. |
+**(b) Gating generic attachment file and DELETE routes for message-owned files.**
 
-Source parent validation closes unauthorized continuation rather than removing the public parent field. Source channel-email classification, provenance-edit restrictions, attachment retention gates and current-authorized source Undo are security tightenings of existing behavior; inventory downstream consumers and document them explicitly. Any contract change that cannot retain a safe bridge must follow BACKWARD_COMPATIBILITY.md; do not assume the emergency security exception applies. A qualifying exception needs the documented vulnerability argument, upgrade instructions and named human maintainer approval. No implementation is authorized by this draft's status.
+| Surface today | Evidence | Who would be affected by gating |
+| --- | --- | --- |
+| `GET /api/attachments/file/[id]`: `requireAuth: false`, then `checkAttachmentAccess`. That check is partition/tenant/org only, with no `entityId`/`recordId` or feature check. | `attachments/api/file/[id]/route.ts:20-22,46-50,72`; `attachments/lib/access.ts:45-95` | Any authenticated user in the same tenant+org who has an attachment ID of a `messages:message` file and is not a participant: they **can** download today and would lose that. Message participants download through `messages/api/[id]/attachments` (sender/recipient or public + channel access, `route.ts:50-66`) and would be unaffected. |
+| `DELETE /api/attachments` and `DELETE /api/attachments/library/[id]`: `attachments.manage`, scope check, then `em.remove` **and** storage `delete` of the bytes. | `attachments/api/route.ts:55,670-718`; `attachments/api/library/[id]/route.ts:49,255-256` | Holders of `attachments.manage` (typically admins) who today can delete any message-owned file, **including bytes shared with forward copies** (`copyAttachmentsForForwardMessages` reuses `storagePath`, `messages/lib/attachments.ts:149-200`). |
+| Message-owned deletes inside messages: `messages.attachments.unlink_from_draft` deletes rows only (no bytes); `delete_for_actor` soft-deletes recipient/message and leaves attachments untouched. | `messages/commands/attachments.ts:152`; `messages/commands/messages.ts:1098-1150` | Unaffected. |
+| **Inbound channel email attachments are not `Attachment` rows**: MIME parts are normalized to `data:` URLs in the channel payload. | `communication_channels/lib/email-mime.ts:336-362` | Gating the attachments module would not protect them at all. CRM attachment reads therefore go through `messageEmailSource` (payload parts and any `messages:message` rows) behind the CRM predicate. |
 
-### Rollout sequence
+Net effect for this proposal: **no access is removed from any existing user.** The CRM routes are new surfaces with their own authorization. The two findings above (reassigned-assignee native access to private CRM mail, and same-org download of message files by ID) are recorded for maintainers as possible follow-ups. They are not changed here.
 
-1. Add tables/indexes and additive source read/authorization/attachment contracts. Ship faithful People/Company undo and reply-parent checks with regression coverage. Keep the new UI inactive while preparing history.
-2. Start dual writes for provenance, business context and grant authority; capture ingestion/backfill watermark. Apply visibility/sharing/delete changes transactionally in customers. Source events carry logical references; persistent reconciliation handles delivery lag.
-3. Run idempotent scoped backfill in queue batches (<=500 rows/transaction), checkpointing stable source IDs. Populate exact existing provenance, live Person relevance, current grants and unassigned channel provenance from source-verified ownership. Do not infer Company links from current employment.
-4. Reconcile every retained email link against source IDs, original visibility/owner/channel, grant state and context. Source services expose bounded inventory/read ports; no peer-table scraping. Search indexes cover the same supported archive. Bad/missing provenance goes to a scoped recovery report; never default an unknown private visibility to null/shared.
-5. Compare old/new authorized message sets for representative owners/grantees, including users with >500 grants and channels, and then validate the full fixture suite. Compare counts, IDs, metadata and source-controlled content/attachment integrity fingerprints without logging plaintext. Permission expansions require an explained existing-source authorization basis; unexplained differences block activation.
-6. Activate the same shared host/API on Person and Company under one customers-owned feature toggle using the existing toggle framework. Enable only after migration, privacy, attachment and performance gates pass. Show synchronization coverage explicitly. The global-history recovery entry is available with the rollout.
+## ♻️ Failure, retry and idempotency
 
-Large backfills are not one-shot tenant upgrade-banner transactions. They use existing progress/queue contracts with checkpoints, retries and operator-visible state. Work above 1,000 rows is background work. Keep both local and async queue strategies supported. A server crash cannot turn a partial backfill into successful completion.
+**Existing mechanisms (reused, not replaced)**
+- `messages.messages.compose` `idempotencyKey`: an optional string ≤255 with a unique index `messages_idempotency_key_uq (tenant_id, idempotency_key)`. A repeat returns the existing message (L285-294), and a concurrent duplicate resolves to the winner (L413-421).
+- `deliver-outbound-message.ts`: the link short-circuit on `queued`/`sent`/`delivered`/`read` (L212-225) plus unique `message_channel_links.message_id` prevent a second provider call for a message whose delivery completed.
 
-### Deletion and restoration reconciliation
+**Gaps this spec closes (and only these)**
+1. **Client retry after a lost response creates a second message.** The CRM send path (`send-as-user.ts:128-146`) passes no `idempotencyKey`. New CRM send/reply endpoints accept a client `clientRequestId` (UUID) and pass `idempotencyKey = 'crm-send:' + actorUserId + ':' + clientRequestId` to the existing compose. A retry returns the same message, and the outbound short-circuit then prevents a second delivery.
+2. **The same key with a different payload is silently accepted.** Messages adds an optional nullable `idempotency_fingerprint` (a hash of parent, channel, recipients, subject and body) stored with the message. A repeat with the same key and a different fingerprint returns `409`. This is additive in messages.
+3. **No status for the actor.** `GET /customers/email-deliveries/[operationId]` (operation = message ID, actor-only) maps the existing link `deliveryStatus` to `queued | sent | failed`. A link that stays `pending` past a threshold is shown as `delivery_unknown`, with guidance not to resend. No new intent table or state machine is added.
+4. **Context lost if the CRM projection fails after compose.** Relevance links for the new conversation are written in a customers transaction after compose returns the `threadId`. A retry with the same `clientRequestId` returns the same message and re-applies the links; the active-link uniqueness makes this a no-op when they already exist.
 
-Before People/Company deletion, persist/verify every affected retained anchor and capture complete interaction fields: externalMessageId, channelId, channelProviderKey, visibility, author and existing content/custom snapshots. Preserve current historical grant authority; explicitly remove legacy FK projection rows so they cannot block the compatible hard-delete path. Remove/capture business links in the same customers transaction; source messages and retained file assignments are not removed.
+The provider-level at-least-once window (L444-455) is unchanged and documented. Exactly-once delivery is not promised.
 
-Undo restores original entity/link IDs and complete metadata, subject to current versions and uniqueness. It restores live grant projections only from still-active retained authority. Old incomplete command logs must consult trustworthy durable/source provenance; never infer private metadata from missing fields. Where historical information cannot be reconstructed, report incomplete restoration and retain owner-accessible source mail rather than claiming successful privacy-equivalent undo. Pre-existing missing provider bodies/files cannot be recreated by schema migration; recovery status remains visible.
+**Other failure states:** a peer module is missing → `unavailable` + Retry. Search tokens are incomplete → `indexing` + browse. Shared-channel list is incomplete → `unavailable`. Unresolved `conversation_key` → `syncing`. Revocation while open → clear bodies/attachments and keep the draft. A stale link/unlink → `409` without partial change.
 
-### Rollback and operations
-
-Before activation, take the normal scoped backup/recovery checkpoint and verify restoration in the test environment. Application rollback disables the new hosts/routes and retains additive data. Never drop anchors/grants/links or replay delivery intents to roll back. After the new hosts/routes have been used, rollback may target only a compatibility release that still honors retained grant revocations and provenance-aware deletion; rolling back to an arbitrary pre-bridge build could reopen privacy or loss bugs and is forbidden. Document this minimum safe rollback version in UPGRADE_NOTES at implementation time.
-
-This proposal includes no migrations or application code and applies no local database changes. Implementation includes scoped ORM migration/snapshot files, uses the normal generator review workflow and requests authorization separately before applying migrations to a developer database.
-
-## 📝 Edge Cases & Failure Scenarios
+### Edge cases
 
 | Trigger | Required behavior |
 | --- | --- |
-| Person changes Company | Existing conversation context and original grant scopes remain; new context requires explicit choice. |
-| Record archive/restore or owner reassignment | isActive/CRM owner changes do not modify mailbox authorship, grants, attachments or email reachability. |
-| CRM record hard-delete | Retained anchors/grants preserve mail access globally/through other records; deleted context is captured for undo. |
-| Channel disconnect/soft-delete | Sending becomes unavailable; source-owned retained read eligibility preserves previously granted historical access. Explicit channel-share revocation still revokes access. |
-| Source email trash | Respect actor-recipient/global tombstones in Active/Trash; retained reading/search/download stays authorized. Existing deletion Undo is checked against current access/versions; no new durable source Restore is promised. |
-| User loses grant/record/org permission | Revalidate reads/downloads; clear no-longer-authorized UI. Retain source data and unsent actor draft; do not restore grants by undo. |
-| Grant revoked after send queued | Worker rechecks actor, scope, exact parent read and channel send eligibility immediately before provider dispatch. Fail safely if revoked; after provider acceptance, delivery cannot be undone. |
-| Cross-channel reply | Continue only a currently readable exact parent; preserve source identity and context. Do not deduplicate distinct mailbox copies by subject. |
-| Null thread ID later resolves | Reconcile verified source key to thread key, merge duplicate context associations atomically, retain audit generations and prevent stale undo. |
-| Search/index/linkage backlog | Show indexing/synchronizing or recovery status; source global history remains reachable. Never return an apparently complete empty archive. |
-| Provider times out after accepting | Delivery unknown; reconcile before resend. Keep draft and exact intent; no automatic fresh key or new contact target. |
-| Association projection fails after send | Provider delivery state is preserved; retry projection only and show pending context. |
-| Missing body or attachment | Preserve authorized item metadata and a clear missing/recovery state; no fabricated success or public-file fallback. |
-| Disabled peer module | Record pages work; unavailable features fail closed and offer Retry. |
-| Concurrent relink, revoke or restore | Exact generation/version checks; atomic compound deltas; conflict/reload instead of overwriting newer state. Paging after access/relevance changes restarts with live permissions. |
+| Person changes Company | Interactions, shares and links stay; new Company context needs an explicit link. |
+| Archive/restore or CRM owner reassignment | No change to mailbox authorship, shares, links or reachability. |
+| DELETE of a Person with captured email | 422 with the archive hint; only the Q6 override deletes, with complete undo. |
+| Concurrent ingest during DELETE | Row lock serializes; ingest re-matches without the deleted Person; no half-attached rows. |
+| Mailbox disconnected | Read stays; send shows the channel as unavailable. |
+| Shared channel soft-deleted | The shared-channel arm is revoked on the next request; other arms unaffected. |
+| Share revoked between pages | Next page applies the new predicate; a detected change restarts traversal. |
+| Share revoked after a reply is queued | The worker re-checks parent readability and channel eligibility before dispatch and fails safely. |
+| Old mail ingested late | `created_at <= snapshot` keeps it out of the running traversal; it appears on Refresh. |
+| `Message.threadId` unresolved at ingest | Row stays `syncing`; reconciliation fills the key and the `ingest_person` link. |
+| Provider times out after accepting | `delivery_unknown`; same `clientRequestId` returns the same message; no blind resend. |
+| Link projection fails after send | Retry with the same `clientRequestId` re-applies links idempotently. |
+| New inbound mail in a conversation the user unlinked from a Person | No `ingest_person` link is re-created (ingest-link rule 2); the mail stays reachable through other links and global history. |
+| Ingest link write fails after the interaction committed | Cannot happen: both are in one transaction; a retried delivery also repairs a missing link on the duplicate path. |
+| `messages`/`communication_channels` disabled | Record pages load; Emails shows `unavailable`. |
 
-## 📝 Risks & Impact Review
+## 🧪 Testing and QA
 
-### R1 — Relevance creates unintended private access
+Integration tests ship with each phase in module `__integration__` directories. Every fixture (tenant, org, users, channels, people, companies, messages, shares, files) is created in setup through API helpers and removed in teardown. There is no demo data and no live provider.
 
-- **Scenario:** linking a Person lets their pre-existing grant match mail that was never in that original authority scope.
-- **Severity:** Critical.
-- **Affected area:** associations, shared reader, search and attachments.
-- **Mitigation:** immutable source-email classification/provenance; generic create/update cannot spoof owner/type/source scope; separate original anchors from business links; current grants over original stable Person keys; no native-recipient fallback when customers is absent; privacy-negative tests.
-- **Residual risk:** integration code can still misidentify provenance; activation requires old/new permission-set reconciliation and a single policy implementation.
-
-### R2 — Retained grants diverge from the legacy projection
-
-- **Scenario:** a legacy revoke updates only one table, or backfill/undo overwrites a later revoke.
-- **Severity:** Critical.
-- **Affected area:** grant/visibility commands, legacy readers and restoration.
-- **Mitigation:** one versioned service/transaction for every command and generic update path; stable IDs, current authority, checkpointed backfill and negative concurrent-revoke tests. Fail closed on mismatch.
-- **Residual risk:** third-party direct ORM mutations are not a supported guard bypass; document reconciliation and supported mutation contracts.
-
-### R3 — Attachment URL bypass or physical loss
-
-- **Scenario:** a CRM grant is denied by sender-only listing, or a generic file/public URL exposes private mail; unlink/delete removes retained bytes.
-- **Severity:** Critical.
-- **Affected area:** attachment listing, binary/image/thumbnail routes and deletion/storage.
-- **Mitigation:** combined source message and partition/assignment gate on every access path; authenticated private streams; block generic physical deletion of retained email files without independently approved source purge authority; post-commit scoped release only for that purge; audit legacy public URLs/storage.
-- **Residual risk:** already disclosed public bytes cannot be made undisclosed; migrate/rotate the affected storage references and report the exposure for operator action.
-
-### R4 — Destructive CRM deletion outruns provenance projection
-
-- **Scenario:** a queued ingest subscriber has not persisted the final authorization anchor when the Person is deleted.
-- **Severity:** High.
-- **Affected area:** People/Company delete/undo, grants and Company/global history.
-- **Mitigation:** verify/upsert trusted interaction provenance inside the deletion transaction, retain current grants, preserve exact snapshot metadata and test both record types.
-- **Residual risk:** old incomplete history requires source-backed recovery; unrecoverable prior metadata is reported rather than fabricated.
-
-### R5 — Pagination/search silently omits authorized history
-
-- **Scenario:** pre-page caps, hidden-message ordering, grant truncation, encrypted ILIKE or incomplete tokens leave old mail unreachable.
-- **Severity:** High.
-- **Affected area:** all list/message/search/discovery endpoints.
-- **Mitigation:** relational authorization before ordering/paging; snapshot cursors with stable-traversal guarantees limited to unchanged access/relevance; restart after detected changes; complete source token indexing; explicit incomplete states and tests beyond former boundaries.
-- **Residual risk:** concurrent arrivals appear on Refresh; documented keyword matching is not arbitrary substring or semantic search.
-
-### R6 — Duplicate or unauthorized delivery
-
-- **Scenario:** a retry sends twice, a mutable UI target changes the recipient, or a worker uses a parent/channel after revocation.
-- **Severity:** High.
-- **Affected area:** compose, reply, queue and providers.
-- **Mitigation:** durable scoped intent/fingerprint, actor-only operation lookup, fixed targets, dispatch-time revalidation and delivery-unknown reconciliation. Source delivery stays outside reversible CRM transactions.
-- **Residual risk:** arbitrary providers may not offer definitive reconciliation; a human recovery decision may be required, and delivered email cannot be unsent.
-
-### R7 — Large-account load or sensitive indexing
-
-- **Scenario:** unbounded grants/N+1 bodies overload the DB, or private bodies enter an external vector index.
-- **Severity:** High.
-- **Affected area:** query ports, search/index workers and UI.
-- **Mitigation:** scoped indexed selections, eight-query target, bounded hydration/jobs, database token baseline, excluded/hash-only PII policy and measured large encrypted fixtures. No external email embeddings.
-- **Residual risk:** deployment capacity varies; published p95/heap/bundle targets require evidence and operator configuration.
-
-### R8 — Rollback reopens a security or loss path
-
-- **Scenario:** a pre-bridge build ignores a retained revoke or hard-deletes the last provenance.
-- **Severity:** High.
-- **Affected area:** deployment, recovery and downstream clients.
-- **Mitigation:** additive schema, safe compatibility release floor, tested backups/rollback and upgrade notes. No destructive schema rollback or intent replay.
-- **Residual risk:** unsafe downgrade remains an operator action outside the supported rollback contract; instructions must state it plainly.
-
-### R9 — Optional modules or workers are unavailable
-
-- **Scenario:** a disabled source or stopped worker appears as empty history; UI polling and background jobs multiply load.
-- **Severity:** Medium.
-- **Affected area:** record pages, linkage/indexing/delivery and queue resources.
-- **Mitigation:** fail-closed unavailable/pending states, durable events/reconciliation, one visible-host refresh, effect cleanup and shared connection budgets.
-- **Residual risk:** background work is delayed while workers are unavailable; recovery is observable rather than instantaneous.
-
-## 📋 Acceptance & Integration Coverage
-
-Executable integration tests ship with each affected implementation phase in module `__integration__` directories. Create tenant/org/users/channels/records/messages/grants/files in setup with shared API fixture helpers, and clean up in finally/teardown. Use deterministic mocked source/provider behavior for delivery tests; no demo data, personal inboxes or live secrets.
-
-| ID | Required proof | API / key UI paths |
+| ID | Required proof | Paths |
 | --- | --- | --- |
-| A1 | Same viewer opens same thread on Person and Company: identical authorized messages/order/access/actions, including a continuation anchored to a different Person. | Both contextual lists, messages, related records; both Emails tabs. |
-| A2 | Identical empty/loading/error/revoked/disabled states and shared keyboard/mobile behavior. | Both routes/hosts, disabled-module and hydration tests. |
-| A3 | Conversation 51+ and message 201+ are reachable; 1,000+ grants and channels do not truncate visibility; stable snapshot traversal has no duplicates/gaps while access/relevance/history/order are unchanged. Revoke/unlink between pages enforces live privacy, and Refresh/restart reaches the complete newly authorized set. | Context/global lists and message pages; Load older/earlier, access-change restart. |
-| A4 | Server search finds old unloaded body terms, encrypted subjects/participants, long-body tail tokens and old/unmatched/archived-contact mail; indexing failures are explicit. | Global/context search, Link existing, archived record selection. |
-| A5 | Link/unlink never alters access, including a newly linked Person with existing grants; last unlink leaves mail globally available. | Link POST/DELETE, related-record dialog, global history, undo. |
-| A6 | Concurrent duplicate create, unlink/relink and stale undo respect ID generations/updatedAt; a compound action is bounded and commits all deltas or none, including one revoked/inaccessible/stale child. Uncertain retries never overwrite a newer generation; guessed private links reveal nothing. | Link POST/DELETE, compound Related records POST, command/undo and dialog conflict paths. |
-| A7 | Owner/shared/legitimate legacy/null/Person grant/shared-channel/mixed access behaves consistently; no admin bypass, metadata/count/cursor leak or cross-tenant/org access; All organizations works. Native-recipient plus private provenance grants no read when not owner/grantee, including customers disabled/unavailable. Generic create/update/type/author/source-link/Person-scope spoofing cannot fabricate authority. | Every read/search/context/access path, generic interaction mutations, required-policy failure and API-key negatives. |
-| A8 | Authorized CRM-shared viewer can list/download retained attachments; unauthorized user cannot use generic file, inline image, thumbnail, public URL, export or administrator partition checks as a bypass. | CRM attachment routes plus existing message/generic attachment routes and file deletion. |
-| A9 | Employer changes, owner reassignment, archive/restore, channel disconnect/soft-delete preserve history; explicit grant/channel-share revocation removes access on the next validation. Retained visibility PATCH works after CRM deletion, checks the exact anchor version, atomically synchronizes its live projection and explains other effective grants. | Record updates, channel actions, reads/downloads, anchor visibility PATCH, retained-grant DELETE and legacy share/visibility writes. |
-| A10 | People AND Company hard-delete/undo preserve mail, exact linkage/privacy and current grants; inactive legacy FK rows do not block deletion; old incomplete snapshots never become shared by default. | Both delete/undo command families, global/Company history and retained-access controls. |
-| A11 | Exact-parent/actor/channel checks, To/Cc/Reply all/Bcc correctness, cross-channel continuation, failed drafts, idempotency collisions, ambiguous delivery and worker-time revocation work. | New send/reply, legacy Person send, operation lookup, dispatch/projection workers and both composers. |
-| A12 | Active/Trash membership respects actor/global tombstones; all authorized retained Trash content/files are pageable/searchable/readable, available deletion Undo checks current actor/access/version, and revoked grants stay revoked. Purged/missing content is explicit; null keys reconcile; separate imported copies stay separate; stopped workers do not imply empty history. | History active/trash, retained reader/download, existing source deletion Undo, message/key reconciliation and sync recovery. |
-| A13 | Large encrypted reference fixture meets p95/query/payload budgets; summary context/participant/channel previews and context/access/file/sender pickers stay bounded with complete continuation; routes meet bundle/heap and cleanup budgets. | Read/search plans, sender API/selector, production route loads, ten navigation/tab cycles, queue backfill modes. |
-| A14 | Backfill interruption/retry, concurrent revoke, activation, rollback and minimum safe compatibility build preserve verified content/access/context sets. | Reconciliation inventory/worker, legacy/new comparison and rollout toggle. |
+| A1 | Same viewer sees the same messages/order/actions on Person and Company, including a message whose interaction row is only on a second Person. | Both context lists, messages, both tabs. |
+| A2 | Identical loading/empty/error/unavailable states; keyboard and narrow layout. | Both hosts. |
+| A3 | Conversation 51+, message 201+ and interaction 1,001+ reachable. A viewer with 1,000+ grants and 600+ shared channels on the global route sees the complete set; an incomplete shared-channel list yields `unavailable`. Revoke or unlink between pages enforces live privacy, and a restart reaches the full set. | Context/global lists, message pages. |
+| A4 | Server search finds old subject/body terms (within the documented per-field token cap) and archived-contact mail; before the scope's reindex completes, search reports `indexing`; non-superadmin global search returns no `customers:customer_interaction` hits. | Global/context search, Link existing, global search route. |
+| A5 | Link/unlink never changes access, including linking a Person who holds share grants; the last unlink leaves mail in global history. | Link POST/DELETE, compound action, undo. |
+| A6 | Concurrent duplicate create, unlink/relink, stale undo and a compound action with one stale child are all-or-nothing. After a user unlink, a new inbound message in that conversation does not re-create the link, and reconciliation does not either. | Link commands, undo, ingest, reconciliation. |
+| A7 | Owner/shared/legacy/grant/channel/mixed access; no admin bypass; no cross-tenant/org access; API-key strict; All organizations works; the provenance invariant holds (regression for P3). | Every read path. |
+| A8 | An authorized CRM viewer can list/download attachments; an unreadable message's attachments return 404. | CRM attachment routes. |
+| A9 | Archive/restore, employer change and channel disconnect preserve history; revoking a share, un-sharing or soft-deleting a shared channel removes that arm on the next request. Newly ingested mail appears on the Person tab (ingest link). | Record updates, channel actions, share route, ingest. |
+| A10 | Person/Company DELETE with retained email returns 422 `PERSON_HAS_DEPENDENTS`/`COMPANY_HAS_DEPENDENTS` with the count-free `retainedEmail` blocker; without retained email it succeeds even with active/revoked share rows and soft-deleted links; undo restores links and previously active shares; the Q6 override deletes only with the feature and confirmation flag and undoes completely. Concurrent ingest during delete never half-attaches (reproduced on Postgres). Bulk delete reports per row. | Both delete commands, override, bulk delete. |
+| A11 | Reply with an unreadable parent → 404 (P1 regression). Retry with the same `clientRequestId` → one message and one delivery. Same key with a different payload → 409. Status lookup is actor-only. Failed link projection is recovered by retry. | Send/reply, status, outbound worker. |
+| A12 | The extension spots are declared; the warranty_claims tabs still render on both pages. | Both detail pages. |
+| A13 | Reference fixture meets the p95, statement-count and payload budgets; bundle/heap budgets are met. | Read/search plans, route loads. |
+| A14 | Backfill interruption/retry, null-key recovery report, parity comparison and toggle rollback. | Backfill worker, toggle. |
 
-Unit tests target pure conversation-key normalization, cursor validation/order, access predicates, provenance/grant projection rules, header/recipient handling, generation-aware undo and idempotency state transitions. Do not substitute unit mirrors of implementation for integration privacy/retention evidence.
+Unit tests cover conversation-key normalization, cursor encode/verify, the predicate builder (kysely and mikro parity, as today), the fingerprint and guard counting. The implementation gate runs the configured validation commands plus the affected integration tests, the decoupling test and the client-boundary comparison.
 
-The implementation gate uses the configured ordered validation commands: build packages, generate, build packages, i18n sync/usage, typecheck, test and build app, plus affected self-contained integration tests, module-decoupling checks, client-boundary comparison and documented performance evidence. Select the runner once according to the repository Docker/local rules and report it. Spec-only validation does not run application builds or apply migrations.
+## ⚠️ Risks
 
-## 📋 Phasing
+| ID | Scenario | Severity | Mitigation | Residual |
+| --- | --- | --- | --- | --- |
+| R1 | Relevance accidentally used as authorization (for example a Company list that also filters messages by link). | Critical | The predicate never reads links (invariant 2); A5/A7 negatives; one shared predicate builder with kysely/mikro parity tests. | Review discipline on future query edits. |
+| R2 | The delete guard blocks users who expect DELETE to work, including for data-protection requests. | Medium | The 422 names the blocker and offers Archive; the Q6 override keeps today's delete for authorized administrators; bulk delete reports per row; precedent from the 2026-05-12 guard; documented in UPGRADE_NOTES. | Ordinary users must ask an administrator; source-mail erasure still needs a future workflow. |
+| R3 | The spike passes on the fixture but the plan regresses on real data skew. | High | Index plus measured budgets in Phase 2/5; fallback projection already specified; operator-visible latency metrics. | Capacity varies by deployment. |
+| R4 | `conversation_key` backfill leaves rows null, so they are missing from lists. | High | Null rows are counted as `syncing` and listed in a recovery report; the old Person route stays available until the parity check passes. | Unresolvable legacy links stay owner-visible in Messages only. |
+| R5 | Search exposes private email terms or grows `search_tokens`. | Medium | Only existing `customers:customer_interaction` query-index tokens are used (hashed); `messages:message` stays disabled; the type is not registered for global search and is excluded from superadmin token search if Phase 0 finds it exposed; authorization is applied in the same statement before matching. | Token rows grow with interaction volume, as for any indexed entity. |
+| R6 | Duplicate delivery on retry. | High | Existing `idempotencyKey` and outbound short-circuit; fingerprint 409; `delivery_unknown` guidance. | Provider at-least-once window (L444-455). |
+| R7 | Share rows deleted with their Person lose audit history of revoked grants. | Low | Active shares are captured and restored on undo. Revoked rows grant nothing. The delete is in the command log. | Audit of past revoked grants for deleted Persons is not retained. |
+| R8 | Optional modules or workers are down and appear as empty history. | Medium | Explicit `unavailable`/`syncing`/`indexing` states; retry. | Delayed recovery. |
+| R9 | Email interactions are altered outside the source-verified path, weakening the authorization record or the guard. | Critical | Prerequisite P3 lands before Phase 1; A7 regression. | Direct ORM writes by third-party code are not a supported path. |
 
-All phases belong to this unified specification. Foundations can land incrementally, but the new Company capability is not declared complete until Person parity, full-history reachability, security, retention and recovery gates pass. Do not defer those guarantees to optional follow-ups.
+## 🔀 Alternatives considered
 
-1. **Security and retained authority:** exact reply-parent checks, faithful undo, durable original anchors/grants, attachment ownership gates and retained channel access.
-2. **Shared source/history contracts:** typed optional read-policy/query ports, complete paging/search, identity adapters, trash/recovery and legacy-policy bridges.
-3. **Persistent business context and reliable delivery:** Person/Company relevance, concurrency-safe commands, capture/inheritance and delivery intents/reconciliation.
-4. **Shared UI:** both Emails hosts, historical discovery, composer/access controls, archived/global recovery navigation and consistent states.
-5. **Backfill, verification and coordinated activation:** resumable projections/indexes, parity/security reconciliation, performance evidence and safe rollout/rollback.
+### Retention: delete guard (adopted) vs anchors + retained history shares (previous revision)
 
-## 📋 Implementation Plan
+The previous revision kept Person/Company DELETE permissive. It added `customer_email_authorization_anchors` (one durable row per original interaction provenance) and `customer_email_history_shares` (a copy of each grant without the live Person FK). `CustomerEmailConversationShare` then became a compatibility projection kept in sync by dual writes.
 
-### Phase 1 — Security and retained authority
+| Dimension | Delete guard + Archive (adopted) | Anchors + history shares (rejected) |
+| --- | --- | --- |
+| Preservation of email history | Complete: the rows that hold CRM email are removed only by an explicit per-row CRM delete or by the audited Q6 override. | Complete, but only if the anchor projection is current at delete time (old R4). |
+| Authorization/history semantics | One authorization source, the existing interactions + shares, already tested and shipped. | Two sources (live interaction and retained anchor) that must agree; access after deletion depends on a historical Person key with no live record. |
+| GDPR / erasure | Ordinary users lose the ability to remove CRM-held email copies for such Persons (a real, intended regression); the Q6 override keeps today's CRM-level deletion for authorized administrators, including when the mailbox owner has left. Source mail is left untouched exactly as today; its erasure is a separate future workflow. | Keeps DELETE as today, but Person-keyed authorization metadata outlives the Person; any erasure must also find and purge anchors and history shares. |
+| Delete vs Archive expectations | Clear: Archive is reversible and keeps history; DELETE refuses while history exists and says why. This matches the existing deal-link and person-link guards. | Ambiguous: DELETE "succeeds" but the Person's mail and grants continue to exist and grant access through a record that no longer exists. |
+| Migration complexity | Three nullable columns plus one new link table; key backfill only. | Two new authority tables, a backfill of every interaction into anchors and every share into history shares, and a reconciliation report. |
+| Dual-write risk | None: every write touches one customers table set in one transaction. | Every share/visibility change writes two tables; old R2 (grants diverge) was rated Critical. |
+| Compatibility burden | One additive blocker line in an existing 422 and one additive ACL feature; no entity contract changes. | New public routes (`email-authorization-anchors`, `email-history-shares`), a retained-grant UI and a long-term projection to deprecate later. |
+| Operational failure modes | A user sees a 422 and archives instead. | Projection lag, divergence detection, repair tooling and a minimum safe rollback version, because rollback to a pre-bridge build could reopen revoked grants. |
+| Implementation size | Small: two delete commands, one migration, one ACL feature, tests. | Large: three entities, two command families, two routes, reconciliation worker, UI. |
+| Future maintenance | Nothing new to keep in sync. | Permanent two-table invariants for every future share/visibility feature. |
 
-1. Pin the actual target-branch baseline and inventory every email visibility/share/interaction provenance/deletion mutation, message attachment access path and source retention operation. Add regression fixtures reproducing the known reply/undo/FK/attachment and author/type/provenance-spoofing gaps. **Verify:** negative API tests demonstrate each baseline condition without provider secrets.
-2. Add the three customers-owned entities, validators, migrations/snapshot metadata, encryption review and indexed grant/provenance service. Preserve legacy share types/routes; source-verify immutable provenance on generic create/update; route all legacy and retained-anchor visibility/grant mutations through one transactional service. **Verify:** A7/A9/A10, exact-anchor conflicts/live projection, concurrent revoke and no-op generator schema diff.
-3. Ensure provenance on People/Company delete, capture/restore complete snapshots and current grants, and reuse isActive update for archive/restore with parent-version headers. Add retained channel-read eligibility distinct from send status. **Verify:** both lifecycle families and A9/A10 remain usable with unchanged required contracts.
-4. Add exact reply-parent checks to source compose/send, and the generic message-owned attachment-parent gate to list/file/preview/delete paths. **Verify:** A8/A11; non-email attachment behavior and optional-module tests pass.
+**Decision:** adopt the delete guard. For ordinary users it removes "hard-delete a Person who has CRM-captured email" and replaces it with Archive. For authorized administrators the Q6 override keeps today's behavior. The one capability neither design offered — erasing the source mail — needs **less** retained Person-linked data, not more, and is a separate future workflow.
 
-### Phase 2 — Shared source/history contracts
+### Authorization query
 
-5. Publish typed source-owned classification/base-policy/query contracts and the optional customers grant contributor, using authorized channel-link relations with trusted scope and explicit missing-provider semantics; no native email-recipient fallback, circular reader call or peer ORM access. Wire the policy into legacy and new message, reply and attachment paths. **Verify:** disabled customers/messages/channel combinations, private-plus-native-recipient negatives and A1/A7/A8.
-6. Add contextual/global summary, complete message paging, bounded related-record/access/attachment/sender reads and retained Trash reading/search/download. Tighten existing source deletion Undo with current actor/scope/access and exact tombstone/version checks. Define authenticated snapshot cursors, change/restart behavior and adapters for existing Person `threadKey`/DTO shapes. **Verify:** all affected read/Undo routes, >50/>200/>500 boundaries, between-page revoke/unlink and A1/A3/A12/A13.
-7. Index/search retained source email through database tokens with correct encryption/hash-only field policies, bounded workers and explicit incomplete states. **Verify:** encrypted and long-body search, archived/unassigned discovery and A4/A13.
+- **Cross-module "opaque relation" composed by source ports (previous revision):** would require a new query-engine primitive for cross-module EXISTS with no precedent in the repo. Rejected in favor of customers-local authorization, which needs no such primitive once interactions are durable.
+- **Materialized `authorized_message_link` per viewer:** grows with viewers × messages and needs invalidation on every grant change. It is not needed unless the spike fails; the per-conversation fallback index is smaller and viewer-independent.
 
-### Phase 3 — Context and reliable delivery
+### Other
 
-8. Implement guarded versioned link/unlink/compound association commands, events and generation-aware undo. Preserve scope and prevent relevance from minting authority. **Verify:** A5/A6 and guesses/revocations after dialog open.
-9. Add source-owned durable delivery intent/status lookup and shared new-send/reply orchestration. Persist explicit context, actor/channel/parent/recipients; revalidate at dispatch and reconcile source IDs/CRM context through durable events. **Verify:** A11, failed provider/ambiguous delivery and failed projection recovery without duplicate send.
+- **Current-affiliation roll-up for Company email:** moves history when people change employer and includes unrelated mail. Rejected as the canonical Company view; used only for suggestions.
+- **Company-only link table with unchanged Person APIs:** fails parity, paging and reply validation. Rejected.
+- **Snapshotting grants or marking retained mail shared:** makes revocation ineffective. Rejected.
+- **A new global conversation identity:** changes source threading/deduplication. Deferred.
+- **A CRM view inside the Messages inbox:** see the UI section. Rejected because it would couple `messages` to `customers`.
 
-### Phase 4 — Shared UI
+## 🚀 Rollout and compatibility
 
-10. Extract shared leaves/hook using EmailThreadsPanel/ComposeEmailDialog; preserve the Person wrapper and extension contracts; mount matching Person/Company Emails hosts and the global recovery entry. **Verify:** A1/A2, component contract tests, hydration and client-boundary ledger.
-11. Implement full-history linking/search, recipient defaults, per-email/access-grant explanations, archive navigation, pagination scroll/focus and draft/conflict/retry behavior with complete locales. **Verify:** both main UI paths, A4/A5/A7/A11/A12 on keyboard, narrow screen and dark appearance.
-
-### Phase 5 — Backfill and release evidence
-
-12. Add idempotent scoped inventory/backfill/reconciliation jobs and progress, using source ports and checkpoints. Verify old/new IDs/content-permission metadata, including worker interruption and concurrent revoke. **Verify:** A14 with local and async queue strategies.
-13. Record reference-fixture EXPLAIN plans, p95/query counts, payload/bundle sizes, cleanup/heap traces and all mandatory API/UI regression results. Fix budget failures before activation. **Verify:** A13 and configured build/typecheck/i18n/test gate.
-14. Write UPGRADE_NOTES, minimum safe rollback version, operator recovery and feature toggle activation criteria. Activate Person/Company together only after the evidence passes; keep the spec pending until deployment evidence exists. **Verify:** A14 toggle/rollback rehearsal and human review of contract/security changes.
-
-### Implementation file manifest (proposed)
-
-| Area | Expected ownership/files |
+| Surface | Strategy |
 | --- | --- |
-| Customers data/policy | `data/entities.ts`, `data/validators.ts`, `lib/visibilityFilter.ts`, new `lib/emailHistoryAccess.ts`/`lib/emailConversationReader.ts`, grant/provenance services, `di.ts`, migrations/snapshot. |
-| Customers commands | Existing People/Company/interaction/share commands; new context-link/compound and retained-anchor visibility commands, compose orchestration and reconciliation command. |
-| Customers APIs | Additive paths listed in API Contracts; old Person email routes and existing visibility/share routes remain adapters. |
-| Customers UI | Existing PersonEmailThreadsTab/ComposeEmailDialog and CompanyDetailTabs; new scoped shared leaves/hooks and dialogs; actual locales and stable extension declarations. |
-| Source email | messages/communication_channels public source services, immutable email classification/base policy, optional grant registry, token search, source intent/delivery worker/status, lifecycle events, history/trash access and authorized/versioned deletion Undo. |
-| Attachments | Existing service/generic parent-policy integration; message attachment listing, file/preview/thumbnail and protected deletion; no storage-driver construction in customers. |
-| UI package | Additive EmailThreadsPanel/message component props and source-authorized attachment paths; preserve exports. |
-| Tests/docs | Customers/source/attachments module `__integration__` and targeted unit tests, decoupling/client-boundary evidence, docs and UPGRADE_NOTES. |
+| Person `email-threads` and `emails` APIs | Paths, defaults and DTO fields stay; they are routed through the new access service, with an additive cursor. The in-repo host moves to the new API. |
+| Thread DTO/component imports | Preserved through wrappers/re-exports; existing `threadKey` values are translated at the adapter. |
+| `CustomerEmailConversationShare` entity/routes | Unchanged. |
+| People/Company DELETE | Additive `retainedEmail` blocker under the existing 422 codes (Q5), plus an additive override feature `customers.records.delete_retained_email` and request confirmation flag (Q6). Documented as a behavior tightening in UPGRADE_NOTES; precedent from the 2026-05-12 guard. |
+| `customer_interactions` | Three nullable columns plus partial indexes; no change to existing fields. P3 ships separately with its own upgrade note. |
+| Messages compose | Optional `idempotency_fingerprint` column and check; existing `idempotencyKey` semantics are unchanged. |
+| Search | No change to `messages:message` (stays disabled); at most an additive exclusion of `customers:customer_interaction` from superadmin token search (Phase 0 decides). |
+| Extension spots | `detail:customers.person:tabs` and `detail:customers.company:tabs` declared additively; no ID renamed. |
+| Enricher `customers.private-email-count` | Shape preserved; not rendered by new hosts. |
+| Native Messages and generic attachment routes | **Unchanged by this proposal.** |
+| Events | New `customers.email_conversation_link.created/deleted` via `createModuleEvents`; existing IDs retained. |
 
-No new provider-specific configuration, production dependency, global bootstrap email import, release/PR automation change or generated registry edit is part of this spec.
+**Activation:** both hosts behind one customers feature toggle, enabled after A1–A14 pass. Rollback of the hosts means disabling the toggle; the additive schema is kept. The delete guard (Phase 1) is not behind that toggle: it ships as a normal behavior change, and rolling it back means reverting that release, which restores today's permissive delete and loses nothing else. Because no authorization data moved, rolling back to the previous build cannot reopen a revoked grant. This removes the "minimum safe rollback version" constraint of the previous revision.
 
-## Final Compliance Report — 2026-09-30
+## Final Compliance Report — 2026-10-09
 
-### AGENTS.md Files Reviewed
-
-- Root AGENTS.md and Task Router.
-- `packages/core/AGENTS.md`, customers and attachments module guides.
-- `packages/ui/AGENTS.md`, `packages/ui/src/backend/AGENTS.md`, `packages/shared/AGENTS.md`.
-- `packages/events/AGENTS.md`, `packages/queue/AGENTS.md`, `packages/search/AGENTS.md`.
-- `.ai/specs/AGENTS.md`, `.ai/qa/AGENTS.md`, BACKWARD_COMPATIBILITY.md and the spec-writing checklist/frontend contract.
-
-### Compliance Matrix
-
-| Rule Source | Rule | Status | Notes |
+| Rule source | Rule | Status | Notes |
 | --- | --- | --- | --- |
-| Root/core architecture | No cross-module ORM relations; source ownership and optional coupling. | Designed compliant | Three customers-owned tables, logical source IDs, source-owned ports and optional registry contribution. |
-| Root/core scoping | Trusted tenant/org and All organizations handling. | Designed compliant | Every record/message/grant/file/cursor/operation boundary is scoped. |
-| Core API/commands | metadata/OpenAPI, zod, mutation guards and command side effects. | Designed compliant | Explicit on all proposed routes and write paths; legacy helper replacement included. |
-| Root concurrency | updatedAt, scoped headers and shared conflict UI. | Designed compliant | Link generations, original visibility anchors, grants and record updates versioned; compound child guards use each child's version. |
-| Core/shared encryption | Owning encryption maps/helpers; no ciphertext ILIKE or ad hoc crypto. | Designed compliant | Content remains source-owned; source tokens/hash-only policies and no plaintext vector content. |
-| UI/backend/DS | Shared component families, apiCall, guarded writes, i18n and accessibility. | Designed compliant | Existing email family, shared dialogs/states and no mockup CSS copied into production. |
-| Attachments guide | Source DI, scope invariant, partition/read checks and post-commit release. | Designed compliant | Combined email-parent gate closes listing/download inconsistency and generic private-file bypass. |
-| Events/queue | Typed scoped events, idempotent durable work, bounded worker/pool usage. | Designed compliant | Projection/reconcile jobs and no private event broadcasts/custom queues. |
-| Search/performance | Scoped token indexing, complete cursor paging, bounded queries and measurement. | Designed compliant | Explicit archive coverage, fixtures and latency/query/bundle/heap targets. |
-| Compatibility | Preserve frozen/stable APIs/types/events/spots, document security tightening. | Designed compliant | Additive API/services and retained grant authority preserve the existing live relation; upgrade/rollback requirements explicit. |
-| Spec/QA | Unified user-approved scope, phases, risks and self-contained API/UI coverage. | Designed compliant | A1–A14 map to phases and affected paths. |
+| Root/core architecture | No cross-module ORM relations; source ownership | Designed compliant | Customers-only SQL; logical IDs; typed DI ports for the new read path (existing string-entity reads elsewhere are untouched). |
+| Root/core scoping | Tenant/org on every query | Designed compliant | Bound in every table reference, including `search_tokens` and the share EXISTS. |
+| Core API/commands | metadata/OpenAPI, zod, guards, undo | Designed compliant | All new routes; link commands undoable; send not undoable. |
+| Root concurrency | `updated_at`, scoped headers, conflict UI | Designed compliant | Links versioned; per-child headers in compound action. |
+| Encryption | Owning helpers; no ciphertext ILIKE | Designed compliant | Existing hashed query-index tokens; decryption in the owning modules. |
+| Backward compatibility | Additive; tightening documented | Designed compliant | Delete guard tightening + UPGRADE_NOTES; extension spots declared additively. |
+| Spec/QA | Integration coverage per affected path | Designed compliant | A1–A14. |
 
-### Internal Consistency Check
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| Data models match API contracts | Pass at design level | Relevance links, original authority, retained grants and delivery intent are separate. |
-| API contracts match UI/UX | Pass at design level | Both hosts use the same routes/policy/controls; global recovery is explicit. |
-| Risks cover all write operations | Pass at design level | Link/undo, grant/visibility, archive/delete, delivery, projection, attachment and rollout addressed. |
-| Commands and undo defined | Pass at design level | Reversible CRM changes and irreversible external delivery distinguished. |
-| Cache strategy covers reads/writes | Pass at design level | private/no-store, no content response cache, existing post-commit alias invalidation. |
-| Implementation evidence | Pending | No application code, migration, delivery, security exploit reproduction or production benchmark was run for this document. |
-
-### Non-Compliant Items / Review Conditions
-
-No known design-rule violation is intentionally accepted. The existing large client page roots are a documented baseline exception; implementation must add no new client-root conversion or email blob. Required implementation evidence, final source-port typing/query plans, downstream compatibility review and named maintainer approval for any qualifying security exception remain release gates. These are not an assertion that this proposal is already production verified.
-
-### Verdict
-
-This spec is a consolidated, reviewable design proposal. It is not maintainer-approved or implemented. Implementation must preserve the stated contracts and meet the evidence gates; discovery of a new contract incompatibility requires updating this spec before changing that surface.
+Implementation evidence (spike results, plans, benchmarks) is pending. This spec is not maintainer-approved.
 
 ## Changelog
 
+### 2026-10-09 — Revision for review findings (2026-10-02 review, 2026-10-08 re-review)
+
+- **M1:** Evaluated the delete-guard alternative across ten dimensions and adopted it. Removed `customer_email_authorization_anchors`, `customer_email_history_shares`, their dual writes, routes, retained-grant UI and the minimum-safe-rollback constraint.
+- **M2:** Moved the reply-parent read check (P1) and the undo metadata loss (P2) to "Prerequisite correctness fixes" as standalone fixes that land first, with tracking placeholders (none existed on 2026-10-09). Added P3, a privately tracked prerequisite that guarantees the provenance invariant the delete-guard design relies on.
+- **M3:** Replaced the "opaque relation" with customers-local authorization. Added typed port signatures for customers, communication_channels and messages (with fail-closed behavior), a SQL sketch, a Phase 0 spike with an inline reference fixture, budgets and success criteria, and a fallback projection. Search uses existing customers-owned query-index tokens; `messages:message` search stays disabled.
+- **m1:** Corrected the cap baseline. `listGrantsForViewerOnPerson` is uncapped; `SHARE_ARM_MAX = 500` applies only to `listGrantsForViewer`; `SHARED_CHANNEL_ARM_MAX = 500` applies to `listSharedChannelIds`.
+- **m2:** Documented the existing compose `idempotencyKey` and the outbound sent-link short-circuit, and limited new work to the four gaps they leave.
+- **m3:** Both `detail:customers.*:tabs` spots are declared additively (both are undeclared today).
+- **m4:** Added numbered Open Questions Q1–Q6 with defaults.
+- **m5:** Added a glossary and an existing-vs-proposed data model.
+- **m6:** Added the cross-module blast-radius inventory and withdrew the native-recipient and generic-attachment-route changes from scope.
+- **Nit:** One line on why the global history is a CRM page and not a Messages view.
+- Removed the retained-source Trash scope (it depended on source soft-delete semantics outside this proposal) and the unmatched-mail scope (Q4).
+- Added the Q6 override feature for administrators (keeps today's CRM-level delete for data-protection requests and departed owners), the relevance-link schema/commands/contracts, the ingest-time `ingest_person` link writer, problem statement, user stories and edge cases.
+- Re-verified all baseline facts against `develop` `7187041c2`.
+
 ### 2026-09-30 — Initial proposal
 
-- Proposed one unified Person/Company CRM email capability instead of a Company-only view built from manually linked current contacts (see Alternatives considered).
-- Added complete history/search, consistent composition/retry, privacy-safe association and shared reader/UI contracts.
-- Added Archive/Restore and independent original authorization/grant retention without changing legacy hard-delete into archive.
-- Included both Person and Company undo fixes, source reply validation, grant/channel cap removal and complete attachment access/retention requirements.
-- Defined source identity rules, retained optional-module ownership, defined additive APIs, migration/rollback, explicit failure states and measured performance targets.
-- Added self-contained API/UI acceptance matrix, frontend contract, risk register and phased implementation plan.
-
-### Review — 2026-09-30
-
-- **Reviewer:** Author-side, AI-assisted pre-submission design review covering scope cohesion, retention, security and concurrency. No known blocker remains open. This is a design review, not runtime verification; maintainer review is pending.
-- **Security:** Defined source-email authorization precedence/missing-provider behavior, immutable verified provenance, retained visibility mutation, current grants, reply-parent checks and attachment access/retention; implementation verification pending.
-- **Performance:** Indexed/relational query and bounded-load targets specified; benchmarks pending implementation.
-- **Cache:** private/no-store and post-commit scoped invalidation specified.
-- **Commands:** Compound context deltas and exact-anchor visibility have explicit guarded API/command/undo contracts; delivery has explicit irreversible/idempotency semantics. Trash promises retained reading and existing authorized Undo, rather than an undocumented source restore API.
-- **Risks:** Concrete severity/mitigation/residual risks documented.
-- **Verdict:** Proposal for maintainer review; no implementation or deployment approval claimed.
+- Proposed a unified Person/Company CRM email capability with complete history/search, relevance links, shared reader/composer, anchors/history shares for retention, and a phased plan.
