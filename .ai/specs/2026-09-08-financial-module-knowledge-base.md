@@ -118,6 +118,46 @@ spec does not redo it.
   call and needs a public DI transport service in `financial_pl`, with the
   signing certificate staying inside it.
 
+**Update 2026-10-08 (later pass) — target layout and the decisions that
+close the open items above.**
+
+- **Target layout.** `financial_pl` stays as it is (KSeF, JPK_V7, invoices),
+  installable without a ledger, no `requires`. The GL-dependent Poland
+  features (VAT/CIT/PIT engines and tax-payment instruction, Bilans/RZiS,
+  JPK_KR_PD, VAT reconciliation report) go to a separate `official-modules`
+  package, `financial_pl_accounting`, with a hard `requires`
+  on `financial_pl`, `ledger`, `tax_management` and `financial_statements`
+  (not `posting_rules`: it only reads period state). Dependency direction:
+  `financial_pl_accounting` → `financial_pl`, core; never the reverse.
+  `financial_pl` gains three things: a DI transport service for JPK
+  (`submit`, `pollStatus`; certificate and key stay inside), a read-only DI
+  service over its VAT register, and the KSeF received invoice → AP draft
+  bridge (optional, `tryResolve`; needs its own spec). Feature ids of the
+  new package carry its own module-id prefix.
+- **Decisions.** NIP normalization is one shared function with a checksum
+  (#5955); `vendorSnapshot` is an optional, caller-supplied input of
+  `createVendorInvoice`, because AP never reads `contractors` (#5962); the
+  duplicate-invoice guard stays a hard `409`; the input-VAT account for the
+  reconciliation report is the new package's own setting, not AP's
+  `vatInputAccountId`, which AP documents as used only by itself.
+- **Findings.** `ledger.lockFiscalPeriod` bypasses the Posting Rules guard
+  by design, so a locked period does not prove zespół 4→5 was reconciled
+  (the annual statements spec said otherwise; corrected, with the two-variant
+  parity check as backstop). No spec gave an in-process read of period state
+  or of the `CLOSING` entry; two methods were added to #6038. The
+  `packages/modules/` path in the annual statements spec does not exist in
+  the repository; corrected to `packages/core/src/modules/`. The JPK
+  transport code is generic over the XML (the `InitUpload` metadata carries
+  no form code) and currently uploads a single part, which a full-year
+  journal export may outgrow; multi-part support is part of the transport
+  service. The `RPD` node has eight amount fields (`K_1`–`K_8`) in
+  Comarch XL's documentation, entered manually; the vendored XSD is the
+  tie-breaker, not yet read.
+- **Not yet written into the specs concerned:** SPEC-010 and SPEC-011 in
+  `official-modules` (location, `requires`, transport via the DI service)
+  and the two new `official-modules` specs (financial_pl integration
+  contracts; `financial_pl_accounting` package overview).
+
 ---
 
 ## 2. Cross-cutting conventions already settled (the real source of truth)
