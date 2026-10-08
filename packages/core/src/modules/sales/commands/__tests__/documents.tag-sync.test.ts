@@ -16,6 +16,7 @@ import {
   SalesDocumentTagAssignment,
 } from '../../data/entities'
 import type { DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -110,6 +111,7 @@ function makeEm(existingTagIds: string[], shape: AssignmentShape = 'entity') {
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
     flush: jest.fn(async () => {}),
     begin: jest.fn(async () => {}),
+    getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     fork: () => em,
