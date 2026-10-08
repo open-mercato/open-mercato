@@ -89,6 +89,9 @@ predicate over the record's `entity_indexes` row in disjunctive normal form
 (`{ anyOf: SearchIndexDocCondition[][] }`, conditions `exists` / `eq` / `overlap` / `noverlap` over
 `doc` keys and `recordIdNotIn`). A strategy that supports it ANDs it into the query that ranks, so a
 restrictive filter cannot starve the result set the way post-filtering a top-k retrieval does.
+One exception: when the `pgvector` planner uses its `ivfflat` index (default `probes = 1`), the
+predicate is still applied to the candidates of the probed list only, so a very restrictive filter can
+return fewer hits than exist — raise `ivfflat.probes` for heavily restricted buyers if that matters.
 `SearchStrategy` gained an optional `supportsIndexDocFilter` flag, and `VectorDriver` the same flag plus
 `VectorDriverQuery.filter.indexDocFilter`. The built-in `tokens` strategy and the `pgvector` driver
 support it; `fulltext` (Meilisearch), `chromadb` and `qdrant` do not. `SearchService.search` skips any

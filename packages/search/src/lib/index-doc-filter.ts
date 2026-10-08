@@ -18,7 +18,8 @@ import {
 /**
  * `SearchOptions.indexDocFilter` compiled to one correlated `exists` over `entity_indexes`, so a
  * strategy can AND it into the query that ranks — the predicate decides which rows are ranked,
- * never which ranked rows are kept, and a restrictive filter cannot starve the result set.
+ * never which ranked rows are kept, and a restrictive filter cannot starve the result set (except
+ * under a pgvector `ivfflat` index scan, which applies it to the probed lists' candidates only).
  */
 
 export const INDEX_DOC_FILTER_ALIAS = 'om_index_doc'
