@@ -44,7 +44,17 @@ const mockPartition = {
 }
 
 const mockStorageRead = jest.fn(async () => ({ buffer: Buffer.from('data') }))
-const mockResolveForPartition = jest.fn(async () => ({ read: mockStorageRead }))
+const mockResolveForPartition = jest.fn(async () => ({ key: 'local', read: mockStorageRead }))
+
+const mockLogger = { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() }
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => mockLogger,
+}))
+
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 
 const mockEm = {
   findOne: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
@@ -195,5 +205,59 @@ describe('attachments file route', () => {
     expect(response.status).toBe(200)
     expect(mockEm.findOne.mock.calls[0][1]).toEqual({ id: 'att-1' })
     expect(mockStorageRead).toHaveBeenCalledWith('privateAttachments', 'stored/file.txt')
+  })
+  describe('storage read failures (#6994)', () => {
+    const requestFile = () =>
+      GET(
+        new Request('http://localhost/api/attachments/file/att-1') as Parameters<FileRoute['GET']>[0],
+        { params: Promise.resolve({ id: 'att-1' }) },
+      )
+
+    it('returns 404 STORAGE_FILE_MISSING and logs the cause when the local file is gone', async () => {
+      mockStorageRead.mockRejectedValueOnce(Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' }))
+
+      const response = await requestFile()
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: 'File not available', code: 'STORAGE_FILE_MISSING' })
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Attachment file missing from storage',
+        expect.objectContaining({
+          attachmentId: 'att-1',
+          partitionCode: 'privateAttachments',
+          storagePath: 'stored/file.txt',
+          storageDriver: 'local',
+          errorCode: 'ENOENT',
+        }),
+      )
+      expect(mockReportError).not.toHaveBeenCalled()
+    })
+
+    it('treats an S3 NoSuchKey error as a missing file', async () => {
+      mockStorageRead.mockRejectedValueOnce(Object.assign(new Error('The specified key does not exist.'), { name: 'NoSuchKey' }))
+
+      const response = await requestFile()
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toMatchObject({ code: 'STORAGE_FILE_MISSING' })
+    })
+
+    it('returns 500 STORAGE_READ_FAILED, logs and reports any other read error', async () => {
+      const failure = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+      mockStorageRead.mockRejectedValueOnce(failure)
+
+      const response = await requestFile()
+
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: 'File not available', code: 'STORAGE_READ_FAILED' })
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Attachment storage read failed',
+        expect.objectContaining({ attachmentId: 'att-1', storageDriver: 'local', errorCode: 'EACCES', err: failure }),
+      )
+      expect(mockReportError).toHaveBeenCalledWith(
+        failure,
+        expect.objectContaining({ module: 'attachments', code: 'attachments.storage_read_failed' }),
+      )
+    })
   })
 })
