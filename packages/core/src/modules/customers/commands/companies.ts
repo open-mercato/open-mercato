@@ -732,7 +732,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
   id: 'customers.companies.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(companyUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadCompanySnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
