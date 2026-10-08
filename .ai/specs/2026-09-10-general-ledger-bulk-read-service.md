@@ -58,6 +58,11 @@ one is filed).
   same inputs.
 - `listAccounts` / `listAccountGroups` — full snapshot (chart of
   accounts doesn't grow the way a journal does; no pagination needed).
+- `getFiscalPeriod` / `findClosingEntries` (added 2026-10-08) — the
+  period's dates and lock state, and the posted `CLOSING` entries dated
+  inside it. A statement or filing generator (annual financial statements,
+  JPK_KR_PD) needs both and neither #6013 nor the REST routes offer them
+  to an in-process caller.
 - Registered in `ledger`'s `di.ts` under a named token, resolved by any
   module that declares `requires: ['ledger']`.
 
@@ -169,7 +174,7 @@ established, and re-implements balance logic GL already owns).
 ## Proposed Solution
 
 A single new service, registered by `ledger` in its own DI container,
-exposing five read-only methods. Every method takes `tenantId`/
+exposing seven read-only methods. Every method takes `tenantId`/
 `organizationId` as required, explicit arguments — not inferred from an
 HTTP request's auth context, because a caller here may not be inside an
 HTTP request at all (a background worker generating an annual filing,
@@ -209,8 +214,31 @@ export interface LedgerBulkReadService {
     tenantId: string
     organizationId: string
   }): Promise<LedgerAccountGroupDto[]>
+
+  // Added 2026-10-08
+  getFiscalPeriod(params: {
+    tenantId: string
+    organizationId: string
+    periodId: string
+  }): Promise<FiscalPeriodDto | null>   // { id, startDate, endDate, isLocked }
+
+  findClosingEntries(params: {
+    tenantId: string
+    organizationId: string
+    periodId: string
+  }): Promise<ClosingEntryDto[]>        // { id, operationDate, sequenceNumber, isReversed }
 }
 ```
+
+`getFiscalPeriod` returns `null` for a period that does not exist in the
+caller's scope or is soft-deleted. `findClosingEntries` returns the posted
+entries of type `CLOSING` whose `operationDate` falls inside the period,
+ordered by `sequenceNumber`, with `isReversed` set when a `REVERSAL` of the
+entry exists (derived from the reversal link GL core already keeps), so a
+caller can tell a superseded closing entry from the live one. Neither
+method returns anything a caller cannot already read through the REST
+routes; neither writes, and neither exposes the `FiscalPeriod` or
+`JournalEntry` entities.
 
 `getZois` calls #6013's existing `getTrialBalance`/`getAccountBalance`
 functions directly — it does not recompute anything. `iterateJournalEntries`/
@@ -453,7 +481,7 @@ single-entity-designed tool); Apache Fineract remains not yet checked
 ### New files
 
 - `packages/ledger/src/modules/ledger/services/bulk-read-service.ts` —
-  the five methods above, each delegating to existing query logic.
+  the seven methods above, each delegating to existing query logic.
 - `packages/ledger/src/modules/ledger/di.ts` — register the service
   under a named token (e.g. `ledgerBulkReadService`) resolvable via
   `container.resolve('ledgerBulkReadService')` by any module declaring
@@ -549,6 +577,11 @@ without hardcoding them client-side.
   `cursor`, `limit`, and both scope parameters — a query for tenant A
   never returns tenant B's rows, checked directly (not just implied by
   existing GL test coverage).
+- `getFiscalPeriod` returns the same `startDate`/`endDate`/`isLocked` the
+  fiscal-period REST list shows, `null` across tenants and for a deleted
+  period; `findClosingEntries` returns the `CLOSING` entry dated in the
+  period, flags a reversed one with `isReversed`, and never returns
+  entries of another type, another period or another tenant.
 - `getZois` returns byte-identical figures to
   `GET /api/ledger/reports/trial-balance` for the same
   `periodId`/`organizationId`/`tenantId` — a regression guard against
@@ -651,7 +684,7 @@ access path" and would fit there — but `iterateJournalEntries`/
 `iterateJournalEntryLines`/`listAccounts`/`listAccountGroups` read
 `JournalEntry`, `JournalEntryLine`, and `LedgerAccount` directly, which
 are the core engine's own entities (#5663's scope), not #6013's
-balance/ZSiO scope. Folding all five methods into #6013 would stretch
+balance/ZSiO scope. Folding all the methods into #6013 would stretch
 that document past what it says it covers — #6013 itself is explicit
 about staying "Scoped to ZSiO only, not Bilans/P&L/Cash Flow" (quoted
 verbatim from #6013's own Concerns section, confirmed by reading that
@@ -720,7 +753,10 @@ tests.
 2. Implement `services/bulk-read-service.ts`: `iterateJournalEntries`/
    `iterateJournalEntryLines` (cursor-paginated, wrapping step 1's
    query), `getZois` (delegating to #6013's `getAccountBalance`/
-   `getTrialBalance`), `listAccounts`/`listAccountGroups`.
+   `getTrialBalance`), `listAccounts`/`listAccountGroups`,
+   `getFiscalPeriod`/`findClosingEntries` (thin reads over the existing
+   `FiscalPeriod` and `JournalEntry` queries; no new locking or posting
+   logic).
 3. Register the service in `di.ts` under a named, documented token.
 4. Add the test coverage in Testing Strategy, including the
    tenant-isolation-specific cases called out in Risks.
@@ -875,3 +911,21 @@ financial-spec-writing-process):
   Invariants), not a gap to close by imitating them.
 
 Findings recorded in `financial-module-knowledge-base.md` §3.
+
+### 2026-10-08 — read access to period state and closing entries
+
+- **Gap found while mapping `financial_pl` integrations (#6061).** The
+  annual financial statements spec needs to know whether a period is
+  locked and which `CLOSING` entry it was closed with, and JPK_KR_PD needs
+  the period's dates. No spec offered an in-process read for either:
+  #6013's `getTrialBalance` returns balances, not period state, and the
+  REST routes would mean an HTTP call from a module to its own app.
+- **Decision (2026-10-08).** Two more read-only
+  methods on this service, `getFiscalPeriod` and `findClosingEntries`
+  (Scope, Proposed Solution, Testing Strategy, Implementation Plan). The
+  service count in the Proposed Solution goes from five to seven. No
+  change to the data model, ACL, events or Phase 2.
+- **Consumers.** In the target layout the Polish accounting features are
+  a separate package (`financial_pl_accounting`) that
+  declares `requires` on `ledger` and resolves this service; `financial_pl`
+  itself does not.
