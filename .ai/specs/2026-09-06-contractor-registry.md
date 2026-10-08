@@ -726,6 +726,52 @@ need (see Queries / API and Cross-module integration below for the
 resolved design; this was corrected during independent compliance
 review — see Changelog).
 
+**Added 2026-10-08 — `contractorLookupByNip`, a second DI-resolvable,
+read-only service.** Registered in `di.ts` next to
+`contractorBankWhitelistCheck`, for the same reason (a synchronous,
+in-process, same-request need that must not become an HTTP round-trip
+to the app itself). Signature:
+
+```ts
+contractorLookupByNip(params: {
+  tenantId: string
+  organizationId: string
+  nip: string
+}): Promise<{
+  id: string
+  isVendor: boolean
+  isCustomer: boolean
+  approvalStatus: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'
+  verificationStatus: 'PENDING' | 'VERIFIED' | 'FAILED'
+} | null>
+```
+
+- **Lookup key is `nipHash`**, scoped to `(tenant, organization)` and
+  `deleted_at is null` — the same partial unique index
+  `createContractor`'s duplicate detection already uses, so at most one
+  row can match.
+- **Returns no PII.** Never `nip`, name, address, contact or bank data;
+  those stay behind `findWithDecryption` in this module's own routes. A
+  consumer that needs the contractor's name or tax id for its own
+  snapshot reads them through this module's authorized API, not through
+  this service.
+- **Read-only.** It never writes, never calls GUS/VIES/Biała Lista and
+  never reads `lastVerifiedAt` as a source of truth (same rule as
+  `checkBankAccountWhitelist`).
+- **Unguarded by design,** like `contractorBankWhitelistCheck`: the
+  caller owns authorization for its own request.
+- **NIP normalization — ⚠ NEEDS HUMAN CONFIRMATION.** This document does
+  not yet define how `nip` is normalized before hashing. Default
+  proposed here: strip spaces and dashes and a leading `PL`, keep ten
+  digits; the same function must be used by `createContractor`,
+  `updateContractor` (which rejects a change anyway) and this lookup, so
+  `"PL 123-456-78-90"` and `"1234567890"` resolve to the same hash.
+- **Not found returns `null`.** The caller decides what to do next; if
+  it wants the contractor to exist it calls `createContractor` (through
+  the command bus), which starts `PENDING_APPROVAL` and triggers the
+  `contractors.vendor-approval` workflow exactly as a manual registration
+  does.
+
 ### Commands (Command Pattern, `commands/`)
 
 - `createContractor` — validates NIP uniqueness (via `nipHash` lookup)
@@ -890,6 +936,12 @@ triggers on `sales.order.created`.
   (confirmed in scope, 2026-09-08) completes through the generic
   `POST /api/workflows/tasks/:id/complete`.
 
+- **No `nip` filter on `GET /api/contractors` (decided 2026-10-08).**
+  `nip` is encrypted and only `nipHash` is queryable; a REST filter would
+  add a second lookup path without a consumer that needs it. Lookup by
+  NIP for other modules goes through `contractorLookupByNip` (see DI
+  Registrar). Revisit only if this module's own list UI needs it.
+
 ### Cross-module integration
 
 **Corrected 2026-09-08**: the consumer named below is
@@ -926,6 +978,16 @@ This module never imports or resolves anything belonging to
 (`accounts_payable_payments` → `contractors`), matching
 `packages/core/AGENTS.md`'s "upstream module MUST NOT import, resolve,
 or hard-require the consumer."
+
+**Added 2026-10-08 — second consumer shape: lookup by NIP.** Any module
+that imports supplier documents (for example a country plugin turning an
+e-invoice into an `accounts_payable` draft) resolves
+`contractorLookupByNip` through its own `tryResolve` wrapper and treats
+`undefined` (module absent) as "cannot match": it hides or disables the
+matching step instead of failing. A `null` result is a normal answer,
+not an error. This module never imports or resolves anything belonging
+to such a consumer; the dependency direction stays one-way
+(consumer → `contractors`).
 
 ### Backend Pages (`backend/contractors/`)
 
@@ -1129,7 +1191,7 @@ exactly as `sales.order-approval` and
 | `data/entities.ts` | Create | `Contractor`, `ContractorBankAccount` |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for both entities above, plus the partial indexes `contractor_bank_account_one_primary_uq` and the `nip_hash` uniqueness index scoped `where deleted_at is null` (see Design decisions) |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`) and `contractors:contractor_bank_account` |
-| `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) for cross-module resolution — see DI Registrar |
+| `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) and `contractorLookupByNip` (read-only, `nipHash` lookup, no PII) for cross-module resolution — see DI Registrar |
 | `acl.ts` | Create | Three `contractors.*` features (`.view`/`.manage`/`.approve`) |
 | `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; no `seedDefaults` |
 | `commands/contractors.ts` | Create | `createContractor` / `updateContractor` |
@@ -1210,6 +1272,12 @@ exactly as `sales.order-approval` and
   uniqueness index both exist and are exercised at the database level
   (a raw insert bypassing the command still fails for two primaries or
   two live NIPs), and that re-registering a soft-deleted NIP succeeds.
+- `contractorLookupByNip` (added 2026-10-08): returns the contractor for
+  the same NIP written as `"1234567890"` and `"PL 123-456-78-90"`; returns
+  `null` for a soft-deleted contractor, for another organization and for
+  another tenant; the returned object has exactly the documented keys and
+  never `nip`, name, address, contact or bank data; calling it twice
+  writes nothing.
 - Reserved integration test category: `TC-CONTRACTOR-*`, including a
   `__integration__/TC-CONTRACTOR-CRUDFORM-001.spec.ts` covering the
   `Contractor` create/update `CrudForm` flow end to end (list → create
@@ -1867,3 +1935,19 @@ time on this document:
   Models, or Compliance Matrix rows changed — every finding either
   confirmed existing design choices or was recorded as an explicit,
   un-actioned gap for a future pass, not applied unilaterally.
+
+### 2026-10-08 — NIP lookup service for cross-module consumers
+
+- **Gap found while mapping `financial_pl` integrations (#6061).** A
+  module that imports supplier documents (a KSeF received invoice, for
+  example) needs to find the contractor by NIP, and this document offered
+  no such path: the REST list filters only by `isVendor`, `isCustomer`
+  and `verificationStatus`, `nipHash` was used only inside
+  `createContractor`, and the only DI service was
+  `contractorBankWhitelistCheck`.
+- **Decision (working, pending maintainer review).** Add
+  `contractorLookupByNip` as a second read-only DI service (DI Registrar,
+  Cross-module integration, File Manifest, Testing Strategy); no REST
+  `nip` filter (Queries / API). Returns no PII. NIP normalization is
+  marked ⚠ NEEDS HUMAN CONFIRMATION in DI Registrar.
+- No change to the data model, ACL, events or workflows.
