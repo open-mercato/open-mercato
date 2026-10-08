@@ -2272,6 +2272,7 @@ async function queueDeletionSideEffects(
   dataEngine: DataEngine,
   entities: DeletableEntity[] | DeletableEntity | null | undefined,
   entityType: string,
+  emit?: { events: CrudEventsConfig<SalesOrder> | CrudEventsConfig<SalesQuote>; actorUserId: string | null },
 ): Promise<void> {
   if (!entities) return;
   const list = Array.isArray(entities) ? entities : [entities];
@@ -2291,6 +2292,8 @@ async function queueDeletionSideEffects(
           tenantId: entity.tenantId ?? null,
         },
         indexer: { entityType },
+        events: emit?.events,
+        actorUserId: emit?.actorUserId ?? null,
       }),
     );
   }
@@ -5474,7 +5477,10 @@ const deleteQuoteCommand: CommandHandler<
     );
     const dataEngine = ctx.container.resolve<DataEngine>("dataEngine");
     await Promise.all([
-      queueDeletionSideEffects(dataEngine, quote, E.sales.sales_quote),
+      queueDeletionSideEffects(dataEngine, quote, E.sales.sales_quote, {
+        events: quoteCrudEvents,
+        actorUserId: ctx.auth?.sub ?? null,
+      }),
       queueDeletionSideEffects(dataEngine, lines, E.sales.sales_quote_line),
       queueDeletionSideEffects(
         dataEngine,
@@ -6624,7 +6630,10 @@ const deleteOrderCommand: CommandHandler<
     );
     const dataEngine = ctx.container.resolve<DataEngine>("dataEngine");
     await Promise.all([
-      queueDeletionSideEffects(dataEngine, order, E.sales.sales_order),
+      queueDeletionSideEffects(dataEngine, order, E.sales.sales_order, {
+        events: orderCrudEvents,
+        actorUserId: ctx.auth?.sub ?? null,
+      }),
       queueDeletionSideEffects(dataEngine, lines, E.sales.sales_order_line),
       queueDeletionSideEffects(
         dataEngine,
