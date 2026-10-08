@@ -30,3 +30,34 @@ describe('LookupMultiPicker', () => {
     expect(screen.queryByRole('button', { name: /Category Two/ })).not.toBeInTheDocument()
   })
 })
+
+describe('LookupMultiPicker label resolution', () => {
+  it('resolves saved ids to labels under StrictMode, where the first lookup is cancelled', async () => {
+    const resolve = jest.fn(async (ids: readonly string[]) => options.filter((option) => ids.includes(option.value)))
+    const strictSource: LookupSource = { id: 'strict', search: jest.fn().mockResolvedValue([]), resolve }
+    renderWithProviders(
+      <React.StrictMode>
+        <LookupMultiPicker source={strictSource} value={['cat-2']} onChange={() => undefined} />
+      </React.StrictMode>,
+    )
+
+    expect(await screen.findByText('Category Two')).toBeInTheDocument()
+  })
+
+  it('retries ids whose lookup failed', async () => {
+    const resolve = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('[internal] lookup failed'))
+      .mockImplementation(async (ids: readonly string[]) => options.filter((option) => ids.includes(option.value)))
+    const failingSource: LookupSource = { id: 'failing', search: jest.fn().mockResolvedValue([]), resolve }
+    const { rerender } = renderWithProviders(
+      <LookupMultiPicker source={failingSource} value={['cat-1']} onChange={() => undefined} />,
+    )
+    await screen.findByText('cat-1')
+    await Promise.resolve()
+    rerender(<LookupMultiPicker source={failingSource} value={['cat-1', 'cat-2']} onChange={() => undefined} />)
+
+    expect(await screen.findByText('Category One')).toBeInTheDocument()
+    expect(screen.getByText('Category Two')).toBeInTheDocument()
+  })
+})

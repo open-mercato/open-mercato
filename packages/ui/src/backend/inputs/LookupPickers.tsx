@@ -26,11 +26,23 @@ function useLookupLabels(source: LookupSource, ids: readonly string[]) {
     if (missing.length === 0) return
     for (const id of missing) requested.current.add(id)
     let cancelled = false
-    void source.resolve(missing).then((resolved) => {
-      if (!cancelled) register(resolved)
-    })
+    let settled = false
+    const release = () => {
+      for (const id of missing) requested.current.delete(id)
+    }
+    void source.resolve(missing).then(
+      (resolved) => {
+        settled = true
+        if (!cancelled) register(resolved)
+      },
+      () => {
+        settled = true
+        release()
+      },
+    )
     return () => {
       cancelled = true
+      if (!settled) release()
     }
   }, [idsKey, register, source])
 

@@ -24,12 +24,14 @@ function isCountResult(value: unknown): value is AssortmentCountResult {
 /**
  * Live product count for one channel binding. With a draft it asks for the unsaved scope and
  * require-authentication switch, debounced so typing in a picker sends one request per pause;
- * without a binding id (an unsaved binding) it stays idle.
+ * without a binding id (an unsaved binding) it stays idle. A changed `refreshKey` (the binding's
+ * `updatedAt`) refetches the same URL, so a saved edit is reflected without a remount.
  */
 export function useChannelAssortmentCount(
   bindingId: string | null,
   draft: AssortmentCountDraft | null,
   delayMs: number = ASSORTMENT_COUNT_DEBOUNCE_MS,
+  refreshKey: string | null = null,
 ): AssortmentCountState {
   const url = bindingId ? buildAssortmentCountUrl(bindingId, draft) : null
   const [state, setState] = React.useState<AssortmentCountState>(() => (url ? { status: 'loading' } : { status: 'idle' }))
@@ -59,7 +61,7 @@ export function useChannelAssortmentCount(
       cancelled = true
       clearTimeout(timer)
     }
-  }, [delayMs, url])
+  }, [delayMs, url, refreshKey])
 
   return state
 }

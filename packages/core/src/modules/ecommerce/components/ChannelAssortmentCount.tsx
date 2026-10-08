@@ -116,10 +116,10 @@ export function ChannelAssortmentCountPanel({ state, unrestricted }: ChannelAsso
   )
 }
 
-export function ChannelAssortmentCountCell({ bindingId }: { bindingId: string }) {
+export function ChannelAssortmentCountCell({ bindingId, updatedAt }: { bindingId: string; updatedAt?: string | null }) {
   const t = useT()
   const format = useCountFormatter()
-  const state = useChannelAssortmentCount(bindingId, null, 0)
+  const state = useChannelAssortmentCount(bindingId, null, 0, updatedAt ?? null)
   if (state.status === 'loading' || state.status === 'idle') return <Spinner size="sm" />
   if (state.status === 'error') return <span className="text-muted-foreground">—</span>
   const { result } = state

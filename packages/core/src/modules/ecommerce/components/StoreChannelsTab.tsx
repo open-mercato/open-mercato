@@ -244,7 +244,7 @@ export function StoreChannelsTab({ store, reload }: StoreChannelsTabProps) {
         id: 'count',
         header: t('ecommerce.backend.store.channels.columns.count', 'Products shown'),
         enableSorting: false,
-        cell: ({ row }) => <ChannelAssortmentCountCell bindingId={row.original.id} />,
+        cell: ({ row }) => <ChannelAssortmentCountCell bindingId={row.original.id} updatedAt={row.original.updatedAt} />,
       },
     ],
     [describeBinding, priceKindLabels, t],
