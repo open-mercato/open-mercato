@@ -46,7 +46,7 @@ export function SalesOrderCreatedRenderer({
   const viewAction = actions.find((action) => action.id === 'view') ?? actions[0] ?? null
 
   const handleView = async () => {
-    if (!viewAction) {
+    if (!viewAction || notification.status === 'actioned') {
       if (notification.linkHref) router.push(notification.linkHref)
       return
     }
@@ -128,7 +128,7 @@ export function SalesOrderCreatedRenderer({
               e.stopPropagation()
               handleView()
             }}
-            disabled={executing || (!viewAction && !notification.linkHref)}
+            disabled={executing || (!viewAction && !notification.linkHref) || (notification.status === 'actioned' && !notification.linkHref)}
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {t('sales.notifications.renderer.viewOrder', 'View Order')}

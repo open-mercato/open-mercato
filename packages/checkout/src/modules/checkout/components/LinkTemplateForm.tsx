@@ -29,6 +29,7 @@ import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ColorPicker } from '@open-mercato/ui/primitives/color-picker'
@@ -118,6 +119,24 @@ export function toSubmittedAmount(value: unknown, locale?: string): number | nul
   if (typeof value !== 'string') return null
   if (!value.trim()) return null
   return parseLocaleNumber(value, locale)
+}
+
+function isUnparseableAmount(value: unknown, locale?: string): boolean {
+  return typeof value === 'string' && value.trim().length > 0 && toSubmittedAmount(value, locale) === null
+}
+
+// `toSubmittedAmount` turns unparseable text into `null`, which the API then reads as "no
+// amount" (or, for a price-list row, coerces to 0), so the typed value would be lost silently
+// (issue #6311). Collects the money fields of the active pricing mode that hold text the
+// locale-aware parser cannot read, keyed by form path, so submission can stop with a field error.
+export function collectUnparseableAmountPaths(values: Record<string, unknown>, locale?: string): string[] {
+  const pricingMode = readString(values.pricingMode) || 'fixed'
+  const candidates: Array<[string, unknown]> = pricingMode === 'custom_amount'
+    ? [['customAmountMin', values.customAmountMin], ['customAmountMax', values.customAmountMax]]
+    : pricingMode === 'price_list'
+      ? normalizePriceListItems(values.priceListItems).map((item, index) => [`priceListItems.${index}.amount`, item.amount])
+      : [['fixedPriceAmount', values.fixedPriceAmount], ['fixedPriceOriginalAmount', values.fixedPriceOriginalAmount]]
+  return candidates.filter(([, value]) => isUnparseableAmount(value, locale)).map(([path]) => path)
 }
 
 function readBoolean(value: unknown, fallback = false): boolean {
@@ -1686,6 +1705,14 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                   ? 'publish'
                   : 'save'
               const shouldOpenPreview = submitIntent === 'preview'
+              const unparseableAmountPaths = collectUnparseableAmountPaths(values, locale)
+              if (unparseableAmountPaths.length > 0) {
+                const invalidNumberMessage = t('checkout.validation.common.invalidNumber')
+                throw createCrudFormError(
+                  invalidNumberMessage,
+                  Object.fromEntries(unparseableAmountPaths.map((path) => [path, invalidNumberMessage])),
+                )
+              }
               const payload = {
                 ...values,
                 status: submitIntent === 'publish' ? 'active' : values.status,
