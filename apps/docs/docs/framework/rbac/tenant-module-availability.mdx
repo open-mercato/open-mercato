@@ -17,6 +17,7 @@ For a tenant where a module is unavailable, its features are denied — includin
 - the backend sidebar, settings and profile menus and browser `hasFeature` checks (effective features), and portal navigation;
 - `POST /api/auth/feature-check` and `POST /api/customer_accounts/portal/feature-check`;
 - every `rbacService.userHasAllFeatures` / `customerRbacService.userHasAllFeatures` check, and CRUD interceptors, enrichers, mutation guards and command interceptors that declare features;
+- audit-log undo and redo of the module's commands;
 
 Availability is evaluated per tenant in scope: a super admin acting in a tenant where the module is unavailable cannot use it there, and still can in tenants where it is available. When a check carries no tenant, the principal's own tenant is used. Stored grants are never modified.
 
@@ -27,7 +28,6 @@ This is **feature-guard enforcement, not data isolation and not an entitlement b
 - the module's subscribers, workers, schedules, webhooks and CLI commands;
 - routes and pages that declare no feature guard, and enrichers or interceptors that declare no `features`;
 - server code that authorizes from an already-loaded ACL snapshot without passing the unavailable set — search, dashboard widget lists, entities, communication channels, notification recipients, documents, staff readers, workflow portal tasks, the organization switcher and some enterprise modules;
-- audit-log undo and redo (follow-up);
 - the AI assistant's tools, agents and MCP servers (follow-up);
 - audit-log snapshot reads and attachments fetched by id.
 

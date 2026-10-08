@@ -102,7 +102,8 @@ a response your route chooses.
 An app can register a provider under the new DI key `tenantModuleAvailabilityProvider` (contract in
 `@open-mercato/shared/security/tenantModuleAvailability`) to deny, per tenant, the features of modules it
 marks unavailable: in page and API route guards (including a module's own routes and pages guarded by
-another module's feature), navigation, the feature-check endpoints and the realm RBAC services, including for super admins and wildcard grants. It is
+another module's feature), navigation, the feature-check endpoints and the realm RBAC services,
+audit-log undo/redo, including for super admins and wildcard grants. It is
 feature-guard enforcement, not data isolation. Without a provider nothing changes. See
 `apps/docs/docs/framework/rbac/tenant-module-availability.mdx`.
 
@@ -121,7 +122,7 @@ Additive surfaces, no action required:
 - The cached admin navigation key gains an `:unavailable=<ids>` suffix only while modules are unavailable to
   the tenant.
 - The reference app and the create-app template gain the test-only module `module_availability_probe`
-  (two routes that answer 404 outside `OM_TEST_MODE`), like `ratelimit_probe`.
+  (three routes that answer 404 outside `OM_TEST_MODE` and an undoable command that persists nothing), like `ratelimit_probe`.
 
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 

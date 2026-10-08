@@ -4,7 +4,7 @@ Status: Implemented (feature-guard enforcement); follow-ups listed under "Not co
 
 ## TLDR
 
-A multi-tenant deployment enables modules once, in `modules.ts`, for every tenant. SaaS apps often need to vary that per tenant: a module belongs to some subscription plans but not others, or it only applies to some kinds of tenant. This spec adds an optional, DI-registered **tenant module availability provider**. When an app registers one, the features of a module the provider marks unavailable for a tenant are denied in that tenant, including to super admins and to `*` / `module.*` grants, across pages, API routes and pages owned by the module, navigation, the feature-check endpoints and the realm RBAC services.
+A multi-tenant deployment enables modules once, in `modules.ts`, for every tenant. SaaS apps often need to vary that per tenant: a module belongs to some subscription plans but not others, or it only applies to some kinds of tenant. This spec adds an optional, DI-registered **tenant module availability provider**. When an app registers one, the features of a module the provider marks unavailable for a tenant are denied in that tenant, including to super admins and to `*` / `module.*` grants, across pages, API routes and pages owned by the module, navigation, the feature-check endpoints and the realm RBAC services, audit-log undo and redo.
 
 This is **feature-guard enforcement, not data isolation and not an entitlement boundary**. The module's subscribers, workers, schedules and webhooks keep running, its data stays readable through the consumers listed under "Not covered", and routes that declare no `requireFeatures` stay reachable. Without a provider nothing changes.
 
@@ -72,10 +72,10 @@ Tenant in scope = `scope.tenantId`, or the principal's own tenant (user, API key
 5. Organization narrowing (`resolveFeatureOrganizationAccess`) and tenant runtimes (`tenantHasFeature`).
 6. Portal auth payloads, profile and portal navigation (`CustomerRbacService`).
 7. Every module call of `rbacService.userHasAllFeatures` with a tenant scope.
+8. Audit-log undo and redo: the routes and the in-transaction replay guard refuse a replay whose command id belongs to an unavailable module.
 
 ### Not covered (follow-up)
 
-- Audit-log undo and redo of an unavailable module's commands (stacked follow-up PR).
 - AI assistant tool execution, tool and agent lists, agent policy and MCP servers (stacked follow-up PR).
 - Read-side ACL-snapshot consumers that call `authorizeFeatures` themselves: search (`search` routes, `shared/lib/search/entityAccess.ts`), dashboards widget lists, entities, communication channels, notification recipients, documents, staff readers, workflows portal tasks, the organization switcher, enterprise security and agent orchestrator, the backend upgrade-actions banner.
 - Audit-log snapshot reads and attachments fetched by id.
@@ -111,9 +111,9 @@ None. Stored grants are never modified.
 
 ## API Contracts
 
-No existing route, request or response schema changes. With a provider registered, guarded routes of an unavailable module answer the existing 403, pages render the existing access-denied view, and capability payloads omit the module.
+No existing route, request or response schema changes. With a provider registered, guarded routes of an unavailable module answer the existing 403 (undo/redo the existing 400), pages render the existing access-denied view, and capability payloads omit the module.
 
-The reference app and the create-app template gain the test-only module `module_availability_probe` (like `ratelimit_probe`): `GET /api/module_availability_probe/ping` and `PUT /api/module_availability_probe/availability`, both answering 404 outside `OM_TEST_MODE`. It has no `acl.ts`, page, setup or locale: the ping route requires `module_availability_probe.ping`, a feature the probe owns through its module-id prefix without declaring it, which TC-MAP-001 grants to a role explicitly. The switch checks `auth.acl.manage` in its handler instead of declaring `requireFeatures`, because the owning-module check would otherwise lock the switch once the probe module is unavailable (found by TC-MAP-001).
+The reference app and the create-app template gain the test-only module `module_availability_probe` (like `ratelimit_probe`): `GET /api/module_availability_probe/ping` and `PUT /api/module_availability_probe/availability`, plus `POST /api/module_availability_probe/markers`, which runs the undoable command `module_availability_probe.markers.record` (it persists nothing but its action-log entry), all answering 404 outside `OM_TEST_MODE`. It has no `acl.ts`, page, setup or locale: the ping and marker routes require `module_availability_probe.ping`, a feature the probe owns through its module-id prefix without declaring it, which TC-MAP-001 grants to a role explicitly. The switch checks `auth.acl.manage` in its handler instead of declaring `requireFeatures`, because the owning-module check would otherwise lock the switch once the probe module is unavailable (found by TC-MAP-001).
 
 ## Migration & Backward Compatibility
 
@@ -141,8 +141,10 @@ Additive only; `BACKWARD_COMPATIBILITY.md` and `UPGRADE_NOTES.md` list the surfa
 | Navigation and effective features | shared and `rbacService` effective-feature cases; `admin-nav` cache-key cases |
 | Portal | `customerRbacService.tenantModuleAvailability`, `portal-org-binding` |
 | Long-lived services converge | `rbacService.tenantModuleAvailability` "lets a long-lived service follow an invalidation…" |
+| Undo and redo | `undo.route.test.ts`, `redo.route.test.ts`, replay-guard case |
 | Cache, invalidation, fail closed | shared service cases |
 | End to end | `apps/mercato/src/modules/module_availability_probe/__integration__/TC-MAP-001-tenant-module-availability.spec.ts` (route guard and feature-check for a tenant user, the super admin and an API key; flip back proves invalidation) |
+| End to end, audit-log replay | `packages/core/src/modules/audit_logs/__integration__/TC-AUD-009-replay-unavailable-module.spec.ts` (undo and redo of a probe-owned command refused with 400 while the probe is unavailable, then accepted) |
 
 ### Performance
 
@@ -166,14 +168,14 @@ Jest micro-benchmarks, in-band, Windows 11 / Node 24, shared machine (noisy); ca
 
 ### 2026-10-08
 
-- Gate preparation: rebased onto `develop` `7187041c2`; the probe's feature is described precisely (no `acl.ts`; owned through its module-id prefix).
+- Gate preparation: rebased onto `develop` `7187041c2`; the probe's feature is described precisely (no `acl.ts`; owned through its module-id prefix). TC-AUD-009 proves audit-log undo and redo refusal through the app, against a test-only undoable probe command.
 - Delta review: the post-write stamp re-check is tested and drops the entry when the re-check fails; invalidation bumps the generation again after deleting the entry; the realm-service memos are true LRUs; the stamp key has its own prefix; the documented convergence bounds include `timeoutMs`.
 - Third review: a per-tenant invalidation stamp in the shared cache keeps an answer in flight in another process from being cached after an invalidation; the grant-narrowing memo is reduced to one LRU of 16 segment-indexed plans; `RbacService` memos are bounded; the dispatcher and staff-frontend wiring are tested; docs explain how to keep a route reachable while its module is unavailable.
 
 ### 2026-10-07
 
 - Second review: route and page guards deny a module's own routes and pages when it is unavailable; the per-instance memo is generation-checked with a one-second TTL; cache keys carry the governed set; LRU eviction for narrowing plans and generations; `customerRbacService` registration falls back without the auth key.
-- First review: replay-bound RBAC methods honour the provider; availability state shared across per-request provider objects; invalidation generations; reporting on cache failures and invalid registrations; memoized grant narrowing; nav cache keyed by the evaluated tenant; deterministic portal feature ownership; probe reduced to two test-only routes; claims re-scoped to feature-guard enforcement.
+- First review: replay-bound RBAC methods honour the provider; availability state shared across per-request provider objects; invalidation generations; reporting on cache failures and invalid registrations; memoized grant narrowing; nav cache keyed by the evaluated tenant; deterministic portal feature ownership; probe reduced to two test-only routes; claims re-scoped to feature-guard enforcement. Audit-log undo/redo honours the provider.
 - Rebased onto `develop` `85ee5f16b`.
 
 ### 2026-10-05
