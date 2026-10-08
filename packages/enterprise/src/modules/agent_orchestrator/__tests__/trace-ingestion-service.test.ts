@@ -323,6 +323,12 @@ describe('ingestTrace — estimated cost (null-only, data-honesty §3.2)', () =>
     expect(run.costMinor).toBe(84)
   })
 
+  it('clamps an ingested cached share to the run input total', async () => {
+    const { em, storeFor } = createFakeEm()
+    await ingestTrace(em, SCOPE, { ...basePayload(), inputTokens: 50, cachedInputTokens: 80 })
+    expect(storeFor(AgentRun)[0].cachedInputTokens).toBe(50)
+  })
+
   it('never overwrites a non-null cost (envelope-supplied or runner-stamped)', async () => {
     const { em, storeFor } = createFakeEm()
     const payload = {

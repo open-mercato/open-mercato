@@ -7,6 +7,7 @@ import { AgentRun, type AgentRunStatus } from '../data/entities'
 import { agentTypeSchema } from '../data/validators'
 import { emitAgentOrchestratorEvent } from '../events'
 import { getRerunOfRunId } from '../lib/runtime/rerunContext'
+import { clampCachedInputTokens } from '../lib/runtime/modelPricing'
 import { invalidateAgentRunCache } from '../lib/crudCache'
 
 const createAgentRunSchema = z.object({
@@ -90,6 +91,8 @@ export type FailAgentRunInput = z.infer<typeof failAgentRunSchema>
 function applyUsageStamp(run: AgentRun, input: z.infer<typeof runUsageStampSchema>): void {
   if (input.inputTokens !== undefined) run.inputTokens = input.inputTokens
   if (input.cachedInputTokens !== undefined) run.cachedInputTokens = input.cachedInputTokens
+  const cachedInputTokens = clampCachedInputTokens(run.cachedInputTokens, run.inputTokens)
+  if (cachedInputTokens !== run.cachedInputTokens) run.cachedInputTokens = cachedInputTokens
   if (input.outputTokens !== undefined) run.outputTokens = input.outputTokens
   if (input.costMinor !== undefined) run.costMinor = input.costMinor
   if (input.currency !== undefined) run.currency = input.currency

@@ -10,7 +10,7 @@ import {
 } from '../../data/entities'
 import { traceIngestSchema, type TraceIngest, type TraceSpanIngest } from '../../data/validators'
 import { ARTIFACT_REFS, type ArtifactEncryptionRef, type ArtifactOffloader } from './artifactStore'
-import { computeCostMinor } from '../runtime/modelPricing'
+import { clampCachedInputTokens, computeCostMinor } from '../runtime/modelPricing'
 import { redactSecrets } from './redactToolSummary'
 
 export type IngestScope = { tenantId: string; organizationId: string }
@@ -241,6 +241,8 @@ function applyRunFields(run: AgentRun, payload: TraceIngest): void {
   if (payload.confidence !== undefined) run.confidence = payload.confidence
   if (payload.inputTokens !== undefined) run.inputTokens = payload.inputTokens
   if (payload.cachedInputTokens !== undefined) run.cachedInputTokens = payload.cachedInputTokens
+  const cachedInputTokens = clampCachedInputTokens(run.cachedInputTokens, run.inputTokens)
+  if (cachedInputTokens !== run.cachedInputTokens) run.cachedInputTokens = cachedInputTokens
   if (payload.outputTokens !== undefined) run.outputTokens = payload.outputTokens
   if (payload.costMinor !== undefined) run.costMinor = payload.costMinor
   if (payload.currency !== undefined) run.currency = payload.currency

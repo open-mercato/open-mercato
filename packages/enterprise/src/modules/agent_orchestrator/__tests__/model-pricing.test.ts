@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { computeCostMinor, resolveModelPrice } from '../lib/runtime/modelPricing'
+import { clampCachedInputTokens, computeCostMinor, resolveModelPrice } from '../lib/runtime/modelPricing'
 import { captureLogs } from './support/captureLogs'
 
 describe('modelPricing — Q8 minimal pricing config', () => {
@@ -142,6 +142,14 @@ describe('modelPricing — Q8 minimal pricing config', () => {
       expect(resolveModelPrice('text')).toBeNull()
       expect(logs.at('warn').map((record) => record.fields.model)).toEqual(expect.arrayContaining(['negative', 'text']))
       logs.restore()
+    })
+
+    it('clampCachedInputTokens keeps the cached share within the input and unknown as unknown', () => {
+      expect(clampCachedInputTokens(80, 50)).toBe(50)
+      expect(clampCachedInputTokens(30, 50)).toBe(30)
+      expect(clampCachedInputTokens(null, 50)).toBeNull()
+      expect(clampCachedInputTokens(undefined, 50)).toBeUndefined()
+      expect(clampCachedInputTokens(80, null)).toBe(80)
     })
 
     it('an override without cachedInputPer1M drops the default cached rate for that model', () => {

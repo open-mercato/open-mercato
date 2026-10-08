@@ -147,6 +147,8 @@ function makeFakeClient(opts: {
   callSubmitOutcome?: boolean
   /** SSE events emitted between busy and idle (e.g. `message.updated` usage). */
   streamEvents?: Array<{ type: string; properties: Record<string, unknown> }>
+  /** Set false to simulate a session that never goes idle after the outcome. */
+  emitIdle?: boolean
 }): OpenCodeRunnerClient {
   let emit: ((event: { type: string; properties: Record<string, unknown> }) => void) | null = null
   const sessionId = 'ses_fake_1'
@@ -175,7 +177,9 @@ function makeFakeClient(opts: {
       setTimeout(() => {
         emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'busy' } } })
         for (const event of opts.streamEvents ?? []) emit?.(event)
-        emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'idle' } } })
+        if (opts.emitIdle !== false) {
+          emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'idle' } } })
+        }
       }, 0)
       return {}
     },
@@ -580,6 +584,29 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
         expect(complete.input).not.toHaveProperty(field)
       }
     })
+
+    it('bounds the post-outcome usage wait when the session never goes idle', async () => {
+      const entry = registerExampleFileAgent()
+      const { calls, commandBus, container } = makeHarness()
+      const client = makeFakeClient({
+        outcome: validOutcome,
+        sessionTokenRef: { value: '' },
+        agentSentRef: { value: undefined },
+        container,
+        emitIdle: false,
+        streamEvents: [assistantMessage('msg_1', { input: 10, output: 5 })],
+      })
+      const runner = new OpenCodeAgentRunner({ container: container as never, commandBus: commandBus as never, openCodeClient: client })
+
+      const startedAt = Date.now()
+      const result = await runner.run(entry, { dealId: 'deal-1' }, runCtx)
+      const elapsedMs = Date.now() - startedAt
+
+      expect(result.kind).toBe('proposal')
+      expect(elapsedMs).toBeGreaterThanOrEqual(1_900)
+      expect(elapsedMs).toBeLessThan(6_000)
+      expect(calls.find((call) => call.id === 'agent_orchestrator.runs.complete')!.input).toMatchObject({ inputTokens: 10 })
+    }, 15_000)
 
     it('keeps the measured usage on a run that fails without an outcome', async () => {
       const entry = registerExampleFileAgent()

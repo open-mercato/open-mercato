@@ -25,6 +25,17 @@ describe('OpenCode message usage (#6240)', () => {
     ).toMatchObject({ inputTokens: 100, cachedInputTokens: 0, modelId: null })
   })
 
+  it('adds reasoning tokens to output — OpenCode excludes them from tokens.output, providers bill them as output', () => {
+    expect(
+      readOpenCodeMessageUsage({
+        id: 'msg_r',
+        role: 'assistant',
+        modelID: 'gpt-5',
+        tokens: { input: 1_000, output: 200, reasoning: 1_800, cache: { read: 0, write: 0 } },
+      })?.usage,
+    ).toMatchObject({ inputTokens: 1_000, outputTokens: 2_000 })
+  })
+
   it('ignores non-assistant messages, missing ids or tokens, and treats malformed counts as 0', () => {
     expect(readOpenCodeMessageUsage(null)).toBeNull()
     expect(readOpenCodeMessageUsage({ id: 'u', role: 'user', tokens: { input: 5, output: 0 } })).toBeNull()

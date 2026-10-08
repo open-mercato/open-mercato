@@ -144,6 +144,18 @@ export function resolveModelPrice(model: string): ModelPrice | null {
 }
 
 /**
+ * The cached share is a SUBSET of input, so a stored value never exceeds the
+ * known input total. Unknown stays unknown: null/undefined passes through.
+ */
+export function clampCachedInputTokens(
+  cachedInputTokens: number | null | undefined,
+  inputTokens: number | null | undefined,
+): number | null | undefined {
+  if (cachedInputTokens == null || inputTokens == null) return cachedInputTokens
+  return Math.min(cachedInputTokens, inputTokens)
+}
+
+/**
  * Estimated run cost in minor currency units (cents), or null when the model
  * is unknown/absent or no token counts exist. Formula per the data-honesty
  * spec, with the cached tier split out of the input:
@@ -152,7 +164,9 @@ export function resolveModelPrice(model: string): ModelPrice | null {
  *
  * `cachedInputTokens` is a SUBSET of `inputTokens` (clamped to `[0, inputTokens]`),
  * never an addition; null/absent means no cached share is known and the result
- * is identical to the two-tier formula.
+ * is identical to the two-tier formula. Prompt-cache WRITES are not split out:
+ * they are priced at `inputPer1M` although some providers bill them higher
+ * (Anthropic: 1.25x), so a cache-priming run is slightly under-estimated.
  */
 export function computeCostMinor(
   model: string | null | undefined,

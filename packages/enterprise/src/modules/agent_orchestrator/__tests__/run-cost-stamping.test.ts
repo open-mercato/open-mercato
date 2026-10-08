@@ -189,6 +189,17 @@ describe('runs.complete / runs.fail — additive confidence + usage/cost stamps'
     expect(legacyRow.cachedInputTokens).toBeNull()
   })
 
+  it('clamps a cached share larger than the input it is a subset of', async () => {
+    const { em, storeFor } = createFakeEm()
+    const row = seedRunningRun(storeFor, { cachedInputTokens: null })
+    await failAgentRunCommand.execute(
+      { runId: RUN_ID, errorMessage: 'boom', inputTokens: 100, cachedInputTokens: 400 },
+      makeCtx(em),
+    )
+    expect(row.inputTokens).toBe(100)
+    expect(row.cachedInputTokens).toBe(100)
+  })
+
   it('rejects a negative cachedInputTokens stamp', async () => {
     const { em, storeFor } = createFakeEm()
     seedRunningRun(storeFor)

@@ -8,6 +8,12 @@
  * `AgentRun.inputTokens` stores the whole input with the cached read share
  * carried separately as a SUBSET (`cachedInputTokens`). So the run's input is
  * `input + cache.read + cache.write`, and `cachedInputTokens` is `cache.read`.
+ * Likewise OpenCode's `output` EXCLUDES reasoning tokens, which providers bill
+ * as output (and the AI SDK counts in `outputTokens` on the native path), so
+ * the run's output is `output + reasoning`.
+ *
+ * The run is priced at the last reported `modelID`; a session that switches
+ * models mid-run is an estimate at that one model's rate.
  */
 
 export type OpenCodeMessageUsage = {
@@ -30,7 +36,7 @@ export function readOpenCodeMessageUsage(info: unknown): { messageId: string; us
     id?: unknown
     role?: unknown
     modelID?: unknown
-    tokens?: { input?: unknown; output?: unknown; cache?: { read?: unknown; write?: unknown } }
+    tokens?: { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown; write?: unknown } }
   }
   if (record.role !== 'assistant' || typeof record.id !== 'string' || !record.tokens) return null
   const cachedInputTokens = toTokenCount(record.tokens.cache?.read)
@@ -39,7 +45,7 @@ export function readOpenCodeMessageUsage(info: unknown): { messageId: string; us
     messageId: record.id,
     usage: {
       inputTokens: toTokenCount(record.tokens.input) + cachedInputTokens + cacheWriteTokens,
-      outputTokens: toTokenCount(record.tokens.output),
+      outputTokens: toTokenCount(record.tokens.output) + toTokenCount(record.tokens.reasoning),
       cachedInputTokens,
       modelId: typeof record.modelID === 'string' && record.modelID.trim() !== '' ? record.modelID : null,
     },
