@@ -10,6 +10,8 @@ import {
   findGeneratedFile,
   compileAndImportGenerated,
   ensureApiRouteManifestsRegistered,
+  resolveAppAliasPath,
+  createAppAliasPlugin,
 } from '../generated-registry-loader'
 
 function makeTempDir(): string {
@@ -95,6 +97,19 @@ describe('rewriteGeneratedAliasImports', () => {
     expect(out).toBe(`import x from ${safeJsLiteral(expectedUrl)}`)
   })
 
+  // Regression for #6575: apps whose tsconfig maps `@/*` to `./src/*` must
+  // resolve `@/...` against src/ first, not the app root.
+  it('resolves a `@/...` import to the app src/ directory when the target lives there', () => {
+    const appRoot = makeTempDir()
+    fs.mkdirSync(path.join(appRoot, 'src', 'lib'), { recursive: true })
+    fs.writeFileSync(path.join(appRoot, 'src', 'lib', 'helpers.ts'), 'export const a = 1\n')
+
+    const out = rewriteGeneratedAliasImports(`import { a } from '@/lib/helpers'`, appRoot)
+
+    const expectedUrl = pathToFileURL(path.join(appRoot, 'src', 'lib', 'helpers.ts')).href
+    expect(out).toBe(`import { a } from ${safeJsLiteral(expectedUrl)}`)
+  })
+
   it('leaves non-alias imports untouched', () => {
     const source = [
       `import { z } from 'zod'`,
@@ -166,6 +181,98 @@ describe('rewriteGeneratedAliasImports', () => {
 
     expect(out).toBe(`import * as AI_TOOLS from ${safeJsLiteral(pathToFileURL(artifact).href)}`)
     expect(out).not.toContain('ai-tools.ts')
+  })
+})
+
+describe('resolveAppAliasPath', () => {
+  it('prefers src/ over the app root for ordinary alias paths', () => {
+    const appRoot = makeTempDir()
+    fs.mkdirSync(path.join(appRoot, 'src', 'lib'), { recursive: true })
+    fs.mkdirSync(path.join(appRoot, 'lib'), { recursive: true })
+    fs.writeFileSync(path.join(appRoot, 'src', 'lib', 'x.ts'), '')
+    fs.writeFileSync(path.join(appRoot, 'lib', 'x.ts'), '')
+
+    expect(resolveAppAliasPath(appRoot, 'lib/x')).toBe(path.join(appRoot, 'src', 'lib', 'x.ts'))
+  })
+
+  it('falls back to the app root for apps that keep their sources there', () => {
+    const appRoot = makeTempDir()
+    fs.mkdirSync(path.join(appRoot, 'modules', 'demo'), { recursive: true })
+    fs.writeFileSync(path.join(appRoot, 'modules', 'demo', 'index.ts'), '')
+
+    expect(resolveAppAliasPath(appRoot, 'modules/demo')).toBe(
+      path.join(appRoot, 'modules', 'demo', 'index.ts'),
+    )
+  })
+
+  it('maps `.mercato/*` to the app root only', () => {
+    const appRoot = makeTempDir()
+    fs.mkdirSync(path.join(appRoot, 'src', '.mercato', 'generated'), { recursive: true })
+    fs.writeFileSync(path.join(appRoot, 'src', '.mercato', 'generated', 'entities.ts'), '')
+
+    expect(resolveAppAliasPath(appRoot, '.mercato/generated/entities')).toBeNull()
+
+    fs.mkdirSync(path.join(appRoot, '.mercato', 'generated'), { recursive: true })
+    fs.writeFileSync(path.join(appRoot, '.mercato', 'generated', 'entities.ts'), '')
+    expect(resolveAppAliasPath(appRoot, '.mercato/generated/entities')).toBe(
+      path.join(appRoot, '.mercato', 'generated', 'entities.ts'),
+    )
+  })
+
+  it('returns null when nothing matches', () => {
+    expect(resolveAppAliasPath(makeTempDir(), 'lib/missing')).toBeNull()
+  })
+})
+
+describe('createAppAliasPlugin', () => {
+  // Regression for #6575: `bundleLocalModules` bundled @app module sources with
+  // `alias: { '@': appRoot }`, so every `@/lib/...` / `@/modules/...` import in
+  // an app with `@/*` -> `./src/*` failed with esbuild "Could not resolve".
+  it('bundles an @app module whose sources import through `@/` into src/', async () => {
+    const appRoot = makeTempAppRoot()
+    const generatedDir = path.join(appRoot, '.mercato', 'generated')
+    const moduleDir = path.join(appRoot, 'src', 'modules', 'example')
+    fs.mkdirSync(generatedDir, { recursive: true })
+    fs.mkdirSync(moduleDir, { recursive: true })
+    fs.mkdirSync(path.join(appRoot, 'src', 'lib'), { recursive: true })
+    fs.writeFileSync(path.join(appRoot, 'src', 'lib', 'toolName.ts'), 'export const TOOL_NAME = "example.from_src_lib"\n')
+    fs.writeFileSync(
+      path.join(moduleDir, 'ai-tools.ts'),
+      [`import { TOOL_NAME } from '@/lib/toolName'`, 'export const aiTools = [{ name: TOOL_NAME }]'].join('\n'),
+    )
+    const generatedPath = path.join(generatedDir, 'ai-tools.generated.ts')
+    fs.writeFileSync(
+      generatedPath,
+      [
+        'import * as ExampleTools from "../../src/modules/example/ai-tools"',
+        'export const aiToolConfigEntries = ExampleTools.aiTools',
+      ].join('\n'),
+    )
+
+    const esbuild = await import('esbuild')
+    const result = await esbuild.build({
+      entryPoints: [generatedPath],
+      bundle: true,
+      packages: 'external',
+      format: 'esm',
+      platform: 'node',
+      write: false,
+      logLevel: 'silent',
+      plugins: [createAppAliasPlugin(appRoot)],
+    })
+
+    expect(result.errors).toEqual([])
+    expect(result.outputFiles[0].text).toContain('example.from_src_lib')
+  })
+
+  it('wires the alias plugin into the bundling compile path', () => {
+    const loaderSource = fs.readFileSync(
+      path.join(__dirname, '..', 'generated-registry-loader.ts'),
+      'utf8',
+    )
+
+    expect(loaderSource).toContain('plugins: [createAppAliasPlugin(appRoot)]')
+    expect(loaderSource).not.toMatch(/alias:\s*\{\s*'@'/)
   })
 })
 

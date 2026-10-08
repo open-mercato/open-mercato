@@ -35,6 +35,7 @@
   "api_keys.list.error.loadFailed": "API-Schlüssel konnten nicht geladen werden",
   "api_keys.list.noDate": "—",
   "api_keys.list.noRoles": "Keine",
+  "api_keys.list.success.created": "API-Schlüssel erstellt",
   "api_keys.list.success.deleted": "API-Schlüssel gelöscht",
   "api_keys.list.title": "API-Schlüssel",
   "api_keys.nav.apiKeys": "API-Schlüssel",

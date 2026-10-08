@@ -8,6 +8,7 @@ import {
   DictionarySelectField,
   getCustomerDictionaryManageHref,
 } from '../formConfig'
+import { DealFormField } from '../detail/create/DealFormField'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../lib/dictionaries'
 
 const mockEnsureCustomerDictionary = jest.fn()
@@ -28,17 +29,22 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect', () => ({
   DictionaryOptionsUnavailableError: class DictionaryOptionsUnavailableError extends Error {},
   DictionaryEntrySelect: ({
+    id,
     manageHref,
     fetchOptions,
   }: {
+    id?: string
     manageHref?: string
     fetchOptions: () => Promise<unknown>
   }) => {
     capturedFetchOptions = fetchOptions
     return (
-      <a data-testid="manage-link" href={manageHref}>
-        Manage
-      </a>
+      <>
+        <button type="button" role="combobox" aria-expanded={false} id={id} />
+        <a data-testid="manage-link" href={manageHref}>
+          Manage
+        </a>
+      </>
     )
   },
 }))
@@ -166,5 +172,34 @@ describe('DictionarySelectField', () => {
     )
 
     await expect(capturedFetchOptions?.()).rejects.toBe(responseError)
+  })
+
+  it('forwards the id to the select trigger', () => {
+    render(
+      <DictionarySelectField
+        id="status"
+        kind="deal-statuses"
+        value={undefined}
+        onChange={() => {}}
+        labels={labels}
+      />,
+    )
+
+    expect(screen.getByRole('combobox')).toHaveAttribute('id', 'status')
+  })
+
+  it('names the select from the surrounding DealFormField label', () => {
+    render(
+      <DealFormField fieldId="status" label="Status">
+        <DictionarySelectField
+          kind="deal-statuses"
+          value={undefined}
+          onChange={() => {}}
+          labels={labels}
+        />
+      </DealFormField>,
+    )
+
+    expect(screen.getByLabelText('Status')).toBe(screen.getByRole('combobox'))
   })
 })
