@@ -8,6 +8,7 @@
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
+    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/lib/db/__tests__/advisoryLock\\.integration\\.test\\.ts$'",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
@@ -140,8 +141,10 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
+    "cross-env": "^10.1.0",
     "jest": "^30.4.2",
     "language-subtag-registry": "^0.3.20",
+    "testcontainers": "^12.0.3",
     "ts-jest": "^29.4.12",
     "ts-morph": "^28.0.0",
     "typescript": "7.0.2"
