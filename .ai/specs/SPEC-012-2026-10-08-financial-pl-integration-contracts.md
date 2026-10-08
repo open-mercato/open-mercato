@@ -15,6 +15,17 @@
 - A1 and A3 become public, versioned contracts between two packages in this repository. A change to their shape is a breaking change.
 - A2 depends on the Accounts Payable and Contractor Registry code, which today exist as specs in `open-mercato` (#5962, #5955).
 
+
+## Open items
+
+Decisions in this document are a proposed current state. The points below are marked **⚠ NEEDS HUMAN CONFIRMATION** in the body and are for the maintainers of `financial_pl` to settle during implementation:
+
+1. **A1, gateway part size.** The MF gateway's size limit per uploaded part; a full-year Dziennik / KontoZapis file may exceed it, and Phase 1 sends a single part.
+2. **A1, `AuthData` for natural persons.** The production authorization path (`buildJpkAuthData`, marked in code as not verifiable in the test environment) and whether JPK_KR_PD needs it.
+3. **A2, empty `fa3Xml`.** The fallback when the invoice XML is missing: number from `PurchaseVatRecord.documentNumber`, one line built from the sums, VAT rate only when it matches a statutory rate.
+4. **A3, period semantics.** Whether `PurchaseVatRecord.year/month` is the deduction period the declaration uses.
+5. **A3, source of the VAT figure.** Whether the VAT engine takes the amount from a generated JPK_V7 declaration when one exists, or computes it from register sums with an operator-entered `priorSurplus`.
+
 ## Overview
 
 `financial_pl` covers KSeF 2.0 / FA(3) exchange, JPK_V7 from its own register tables (`PurchaseVatRecord`, `ReceivedInvoice`, `SalesInvoicePlMeta`), and invoice authoring. It declares no `requires` and imports from core only `directory`, `progress` and `sales`. Its README positions it for standalone installs on `@open-mercato/core` ≥ 0.6.6.
