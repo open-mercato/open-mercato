@@ -220,7 +220,7 @@ A missing DEK shows through the existing platform path (the health run fails, th
 |---|---|---|---|
 | `grant_invalidated` | the grant is `invalidated` (no network call), or Refresh got `invalid_grant` (`grant_rejected`), or the access token expired with no refresh token stored (`no_refresh_token`) | `invalidated`, in the same commit as `oauth_invalidated` | no; Reconnect |
 | `client_misconfigured` | `invalid_client` / `unauthorized_client`; another permanent 4xx (`token_endpoint_rejected`, with the provider code); the grant's `clientId` differs from the Client Configuration (`client_changed`, on read); no Client Configuration, or an empty `clientId` or `clientSecret` (`client_not_configured`) | unchanged, `active` | no; the admin fixes the configuration |
-| `transient` | network error, timeout, 5xx, 429, non-JSON, `temporarily_unavailable`, `server_error`, lock deadline, or a transient DB error | unchanged | back off; a stored token still valid at call time is returned `degraded` (never for a `rejectedAccessToken` call) |
+| `transient` | network error, timeout, 5xx, 429, non-JSON, `temporarily_unavailable`, `server_error`, lock deadline, or a transient DB error; a `rejectedAccessToken` call over an unexpired grant with no stored refresh token | unchanged | back off; a stored token still valid at call time is returned `degraded` (never for a `rejectedAccessToken` call) |
 | `platform_unavailable` | no DEK (including a grant sealed before encryption was switched off), a field-level layer that couldn't be opened, or a blob that doesn't decrypt or validate; no token call (I6) | unchanged, never invalidated | fail closed; may be transient (a KMS outage) |
 | `not_connected` | no live grant | — | no; "Connect first", never "reconnect" |
 
@@ -730,6 +730,7 @@ Repository evidence: file references in §1.4.1 (line-level in the Phase 1 featu
 - Rule 1: the order of the organization checks, including an explicitly empty scope and the feature in the resolved organization. Rule 3 and `connect_state_invalid`: `consumeOAuthStateOnce` before the code exchange, fail closed.
 - §1.4.6 and I6: the second stalled-holder path; the Client Configuration is read child-then-bundle with the layered read.
 - #6267 and #6478 merged on 2026-10-07; the `upsert` fix is tracked in issue #6915.
+- §1.4.5: a `rejectedAccessToken` call over an unexpired grant with no stored refresh token is `transient` with no token.
 
 ### 2026-10-04
 
