@@ -117,6 +117,12 @@ The callback URL Open Mercato sends does not match the one registered in Entra. 
 
 Set `OM_CHANNEL_MS365_LOGIN_BASE_URL` (e.g. `https://login.microsoftonline.us`) and `OM_CHANNEL_MS365_GRAPH_BASE_URL` (e.g. `https://graph.microsoft.us/v1.0`) on the app and workers.
 
+The default OAuth scopes follow the Graph host automatically (`https://graph.microsoft.us/Mail.ReadWrite`, …), so leave the **OAuth scopes** field blank unless you need extra permissions. If you do override it, use the sovereign Graph host in every Graph scope — a token issued for `graph.microsoft.com` is rejected by `graph.microsoft.us`.
+
+### Message size cap
+
+One raw message download is capped at 50 MB (`OM_CHANNEL_MS365_MAX_MIME_BYTES` overrides the byte count). A larger message is skipped with a warning in the logs; the rest of the mailbox keeps syncing.
+
 ---
 
 ## Related

@@ -1,11 +1,17 @@
 import {
   MS365_DEFAULT_SCOPES,
   MS365_DEFAULT_TENANT,
+  buildGraphScopes,
+  defaultScopes,
   ms365ChannelStateSchema,
   ms365ClientCredentialsSchema,
   ms365UserCredentialsSchema,
   parseScopes,
 } from '../credentials'
+
+afterEach(() => {
+  delete process.env.OM_CHANNEL_MS365_GRAPH_BASE_URL
+})
 
 describe('ms365ClientCredentialsSchema', () => {
   it('defaults tenantId to organizations when blank or missing', () => {
@@ -45,6 +51,23 @@ describe('parseScopes', () => {
 
   it('keeps an explicit offline_access where the admin placed it', () => {
     expect(parseScopes('openid offline_access Mail.Send')).toEqual(['openid', 'offline_access', 'Mail.Send'])
+  })
+
+  it('derives the default Graph scopes from the sovereign-cloud Graph host so the token audience matches', () => {
+    expect(buildGraphScopes('https://graph.microsoft.us/v1.0')).toEqual([
+      'https://graph.microsoft.us/User.Read',
+      'https://graph.microsoft.us/Mail.ReadWrite',
+      'https://graph.microsoft.us/Mail.Send',
+    ])
+    process.env.OM_CHANNEL_MS365_GRAPH_BASE_URL = 'https://graph.microsoft.us/v1.0/'
+    expect(defaultScopes()).toEqual(['offline_access', 'openid', 'profile', 'email', ...buildGraphScopes('https://graph.microsoft.us/v1.0')])
+    expect(parseScopes(undefined)).toEqual(defaultScopes())
+    expect(parseScopes(undefined)).not.toEqual(MS365_DEFAULT_SCOPES)
+  })
+
+  it('falls back to the public-cloud scopes when the override is absent or malformed', () => {
+    process.env.OM_CHANNEL_MS365_GRAPH_BASE_URL = 'ftp://nope'
+    expect(parseScopes(undefined)).toEqual(MS365_DEFAULT_SCOPES)
   })
 })
 

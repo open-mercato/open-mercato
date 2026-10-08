@@ -1,5 +1,6 @@
 import {
   GRAPH_MESSAGE_SELECT,
+  GRAPH_MESSAGE_TOO_LARGE_CODE,
   GraphApiError,
   escapeODataString,
   getGraphMailClient,
@@ -57,6 +58,31 @@ afterEach(() => {
   globalThis.fetch = originalFetch
   setGraphMailClient(null)
   delete process.env.OM_CHANNEL_MS365_DELTA_PAGE_SIZE
+  delete process.env.OM_CHANNEL_MS365_MAX_MIME_BYTES
+})
+
+describe('GraphMailClient MIME size cap', () => {
+  it('rejects a $value download whose Content-Length exceeds the cap without buffering it', async () => {
+    process.env.OM_CHANNEL_MS365_MAX_MIME_BYTES = '16'
+    installFetch([{ status: 200, body: 'x'.repeat(32), headers: { 'Content-Length': '32' } }])
+    await expect(getGraphMailClient().getMessageMime(auth, 'm1')).rejects.toMatchObject({
+      status: 413,
+      code: GRAPH_MESSAGE_TOO_LARGE_CODE,
+      transient: false,
+    })
+  })
+
+  it('rejects a $value download that turns out larger than the cap when no Content-Length was sent', async () => {
+    process.env.OM_CHANNEL_MS365_MAX_MIME_BYTES = '16'
+    installFetch([{ status: 200, body: 'x'.repeat(32) }])
+    await expect(getGraphMailClient().getMessageMime(auth, 'm1')).rejects.toMatchObject({ code: GRAPH_MESSAGE_TOO_LARGE_CODE })
+  })
+
+  it('returns the bytes when they fit under the cap', async () => {
+    process.env.OM_CHANNEL_MS365_MAX_MIME_BYTES = '64'
+    installFetch([{ status: 200, body: 'small', headers: { 'Content-Length': '5' } }])
+    expect((await getGraphMailClient().getMessageMime(auth, 'm1')).toString('utf-8')).toBe('small')
+  })
 })
 
 describe('helpers', () => {

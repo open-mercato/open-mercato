@@ -7,7 +7,7 @@ description: Architecture, OAuth setup, environment variables, deploy runbook, a
 
 The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, Microsoft 365, IMAP+SMTP) into the **Messages** module, and routes mobile push through the same `ChannelAdapter` contract. Each provider ships as a separate workspace package; the hub itself stays adapter-agnostic.
 
-Three message providers ship today, all `channelScope: 'user'`:
+Four message providers ship today, all `channelScope: 'user'`:
 
 - `@open-mercato/channel-imap` — credential-based IMAP polling + SMTP send
 - `@open-mercato/channel-gmail` — Gmail OAuth2 + History API polling + `gmail.users.messages.send`

@@ -25,6 +25,7 @@ import type {
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { decodeCursor, encodeCursor, ensureBrackets, htmlToText } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { getImportHistoryMaxSinceDays } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { ms365Capabilities } from './capabilities'
 import {
@@ -41,6 +42,7 @@ import { convertOutboundForMs365, type Ms365EmailNativeMetadata } from './conver
 import {
   escapeODataString,
   getGraphMailClient,
+  GRAPH_MESSAGE_TOO_LARGE_CODE,
   GraphApiError,
   isResyncRequiredError,
   resolveGraphPageSize,
@@ -75,6 +77,9 @@ const REQUIRES_REAUTH = 'requires_reauth'
  * connect; the hub dedups by message id.
  */
 const BOOTSTRAP_OVERLAP_MS = 2 * 60_000
+
+/** Lower bound for the import look-back; the ceiling is the hub's deployment-wide limit. */
+const IMPORT_SINCE_DAYS_MIN = 1
 
 /** Graph `$filter` length is bounded; chunk sender lists into OR groups of this size. */
 const IMPORT_SENDER_CHUNK_SIZE = 15
@@ -124,9 +129,15 @@ function isTransientGraphError(error: unknown): boolean {
  * Sync model (spec § Inbound sync model):
  *   - Bootstrap: start an Inbox delta filtered to the last `BOOTSTRAP_OVERLAP_MS`,
  *     drain to a deltaLink, persist `{ deltaLink, receivedWatermark }`.
- *   - Incremental: follow `nextLink` (mid-drain) or `deltaLink`; ingest only
- *     non-draft, non-tombstone items with `receivedDateTime >= receivedWatermark`
- *     (older items are flag/move updates on mail we already have).
+ *   - Incremental: follow `nextLink` (mid-drain) or `deltaLink`; ingest every
+ *     non-draft, non-tombstone item the page reports, whatever its
+ *     `receivedDateTime`. A message moved *into* the Inbox later (rescued from
+ *     Junk, an Outlook rule, another client) keeps its original timestamp, so a
+ *     watermark cutoff here would drop it for good once the token advances.
+ *     Flag/read updates on mail we already have are re-read and deduped by the
+ *     hub on `(channel_id, external_message_id)`.
+ *   - `receivedWatermark` is therefore only a floor for the next bootstrap /
+ *     re-sync (`startInboxDelta` filters server-side), never an ingest filter.
  *   - The stored link only advances after every message of the page was
  *     normalized; a transient failure keeps the previous link so the next tick
  *     re-reads the same page (hub dedups by message id).
@@ -479,7 +490,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       return { messages: [], hasMore: false }
     }
 
-    const sinceDays = Math.min(Math.max(1, Math.floor(input.sinceDays)), 365)
+    const sinceDays = clampImportSinceDays(input.sinceDays)
     const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
 
     let page
@@ -501,21 +512,25 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     const remaining = maxMessages - cursor.fetched
     // `pageOffset` resumes a page after a transient failure at the message
     // that failed, so replayed messages are neither re-fetched nor counted
-    // against `maxMessages` a second time.
+    // against `maxMessages` a second time. The cap bounds *imported* messages,
+    // not candidates: a vanished (404) stub must not use up a slot.
     const pageCandidates = page.value.filter((item) => !item.isDraft)
-    const candidates = pageCandidates.slice(cursor.pageOffset, cursor.pageOffset + remaining)
-    const { messages, hardFailed } = await this.fetchAndNormalize(api, auth, candidates, accountIdentifier)
+    const candidates = pageCandidates.slice(cursor.pageOffset)
+    const { messages, hardFailed, consumed } = await this.fetchAndNormalize(api, auth, candidates, accountIdentifier, remaining)
     const fetched = cursor.fetched + messages.length
 
     if (hardFailed) {
-      // Re-run the same page next time, resuming right after the successful prefix.
+      // Re-run the same page next time, resuming right after the consumed
+      // prefix. `consumed` counts skipped 404/410 stubs too, so a vanished
+      // message before the failure does not shift the resume point back onto
+      // an already-imported (and already-counted) message.
       return {
         messages,
         nextCursor: encodeCursor({
           nextLink: cursor.nextLink,
           chunkIndex: cursor.chunkIndex,
           fetched,
-          pageOffset: cursor.pageOffset + messages.length,
+          pageOffset: cursor.pageOffset + consumed,
         } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
@@ -549,11 +564,17 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     const api = getGraphMailClient()
     // "Delete" is delivered as a move to Deleted Items so an accidental click is
     // recoverable from Outlook, mirroring Gmail's trash semantics.
-    let graphId: string | null
-    try {
-      graphId = await api.findMessageIdByInternetMessageId(auth, ensureBrackets(input.externalMessageId))
-    } catch (error) {
-      throw toHubError(error)
+    //
+    // Inbound mail without a MIME `Message-ID` was stored under the fallback
+    // `ms365:<graphId>@<account>` id (see `normalize-inbound.ts`); it carries
+    // the Graph id directly, so no lookup is needed (and none would succeed).
+    let graphId: string | null = parseFallbackGraphId(input.externalMessageId)
+    if (!graphId) {
+      try {
+        graphId = await api.findMessageIdByInternetMessageId(auth, ensureBrackets(input.externalMessageId))
+      } catch (error) {
+        throw toHubError(error)
+      }
     }
     if (!graphId) return
     try {
@@ -596,7 +617,10 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     const seededState: Ms365ChannelState = {
       receivedWatermark: floor.toISOString(),
     }
-    return this.ingestDeltaPage(api, auth, page, seededState, accountIdentifier)
+    // The initial page is already filtered server-side (`receivedSince`); the
+    // client-side floor only guards against a re-read of older items on this
+    // one page. Incremental pages never get a floor (see the sync model above).
+    return this.ingestDeltaPage(api, auth, page, seededState, accountIdentifier, floor)
   }
 
   /**
@@ -604,6 +628,11 @@ class Ms365ChannelAdapter implements ChannelAdapter {
    * only advances when every candidate on the page was fetched; a transient
    * `$value` failure keeps the incoming state so the next tick re-reads the
    * same page.
+   *
+   * `floor` is set only for the first bootstrap / re-sync page. Incremental
+   * pages pass `null`: an item older than the watermark there is either a
+   * flag/read update (deduped by the hub) or a message that just entered the
+   * Inbox, which must be ingested.
    */
   private async ingestDeltaPage(
     api: GraphMailClient,
@@ -611,9 +640,9 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     page: GraphDeltaPage,
     state: Ms365ChannelState,
     accountIdentifier: string,
+    floor: Date | null = null,
   ): Promise<HistoryPage> {
-    const watermark = parseIsoDate(state.receivedWatermark)
-    const candidates = page.value.filter((item) => isIngestCandidate(item, watermark))
+    const candidates = page.value.filter((item) => isIngestCandidate(item, floor))
     const { messages, hardFailed } = await this.fetchAndNormalize(api, auth, candidates, accountIdentifier)
     const now = new Date().toISOString()
 
@@ -646,23 +675,41 @@ class Ms365ChannelAdapter implements ChannelAdapter {
 
   /**
    * Fetch + normalize each candidate. 404/410 on `$value` means the message
-   * is gone — skip it. Any other failure stops the page without advancing
-   * past the unprocessed messages (`hardFailed: true`); a 401 is re-thrown so
-   * the hub flips the channel to `requires_reauth`.
+   * is gone — skip it; a message over the MIME size cap is skipped with a
+   * warning. Any other failure stops the page without advancing past the
+   * unprocessed messages (`hardFailed: true`); a 401 is re-thrown so the hub
+   * flips the channel to `requires_reauth`.
+   *
+   * `consumed` is how many stubs were dealt with (fetched or skipped) before
+   * the loop stopped — the resume offset for a replayed page.
    */
   private async fetchAndNormalize(
     api: GraphMailClient,
     auth: GraphAuth,
     stubs: GraphMessageStub[],
     accountIdentifier: string,
-  ): Promise<{ messages: NormalizedInboundMessage[]; hardFailed: boolean }> {
+    maxMessages: number = Number.POSITIVE_INFINITY,
+  ): Promise<{ messages: NormalizedInboundMessage[]; hardFailed: boolean; consumed: number }> {
     const out: NormalizedInboundMessage[] = []
+    let consumed = 0
     for (const stub of stubs) {
+      if (out.length >= maxMessages) break
       let rawMessage: Buffer
       try {
         rawMessage = await api.getMessageMime(auth, stub.id)
       } catch (error) {
-        if (error instanceof GraphApiError && (error.status === 404 || error.status === 410)) continue
+        if (error instanceof GraphApiError && (error.status === 404 || error.status === 410)) {
+          consumed += 1
+          continue
+        }
+        if (error instanceof GraphApiError && error.code === GRAPH_MESSAGE_TOO_LARGE_CODE) {
+          logger.warn('Microsoft Graph message exceeds the MIME size cap; skipping', {
+            graphMessageId: stub.id,
+            detail: error.detail,
+          })
+          consumed += 1
+          continue
+        }
         if (error instanceof GraphApiError && error.status === 401) throw toHubError(error)
         if (!isTransientGraphError(error)) {
           // A permanent failure (403 access denied, malformed request, …)
@@ -675,7 +722,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
           graphMessageId: stub.id,
           err: error,
         })
-        return { messages: out, hardFailed: true }
+        return { messages: out, hardFailed: true, consumed }
       }
       const normalized = await normalizeInboundMs365Message({
         rawMessage,
@@ -686,23 +733,43 @@ class Ms365ChannelAdapter implements ChannelAdapter {
         fallbackDate: parseIsoDate(stub.receivedDateTime) ?? undefined,
       })
       out.push(normalized)
+      consumed += 1
     }
-    return { messages: out, hardFailed: false }
+    return { messages: out, hardFailed: false, consumed }
   }
 }
 
 // ── helpers ──────────────────────────────────────────────────
 
-function isIngestCandidate(item: GraphMessageStub, watermark: Date | null): boolean {
+function isIngestCandidate(item: GraphMessageStub, floor: Date | null): boolean {
   if (!item || typeof item.id !== 'string' || item.id.length === 0) return false
   if (item['@removed']) return false
   if (item.isDraft) return false
-  if (!watermark) return true
+  if (!floor) return true
   const received = parseIsoDate(item.receivedDateTime)
   // Items without a timestamp cannot be classified; ingest them (dedup at hub)
   // rather than silently dropping mail.
   if (!received) return true
-  return received.getTime() >= watermark.getTime()
+  return received.getTime() >= floor.getTime()
+}
+
+/**
+ * Recover the Graph id from the `ms365:<graphId>@<account>` fallback id that
+ * `normalize-inbound.ts` assigns to inbound mail without a MIME `Message-ID`.
+ * Graph ids are base64url-ish and never contain `@`, so the split is unambiguous.
+ */
+export function parseFallbackGraphId(externalMessageId: string): string | null {
+  const bare = stripAngleBrackets(externalMessageId) ?? externalMessageId
+  if (!bare.startsWith('ms365:')) return null
+  // The account part is itself an address, so split on the first `@`.
+  const at = bare.indexOf('@', 'ms365:'.length)
+  const graphId = at === -1 ? bare.slice('ms365:'.length) : bare.slice('ms365:'.length, at)
+  return graphId.length > 0 ? graphId : null
+}
+
+function clampImportSinceDays(value: number): number {
+  const raw = Number.isFinite(value) ? Math.trunc(value) : IMPORT_SINCE_DAYS_MIN
+  return Math.max(IMPORT_SINCE_DAYS_MIN, Math.min(getImportHistoryMaxSinceDays(), raw))
 }
 
 function maxReceivedDateTime(items: GraphMessageStub[]): string | undefined {
@@ -845,40 +912,31 @@ function parseClientCredentialsOrThrow(value: unknown): Ms365ClientCredentials {
   return parsed.data
 }
 
-let warnedLegacyClientPath = false
-
 /**
- * Resolve the OAuth client config for a refresh, preferring the hub-resolved
- * `RefreshCredentialsInput.oauthClient` (Spec A). The deprecated
- * `credentials._client` read path is kept for parity with the Gmail adapter's
- * fixtures and emits a one-time warning.
+ * Resolve the OAuth client config for a refresh from the hub-supplied
+ * `RefreshCredentialsInput.oauthClient` (Spec A). The client-app id and secret
+ * must come from this trusted slot only — never from the per-user credentials
+ * blob (`credentials._client`), the legacy path #6266 removed from Gmail.
  */
 function resolveMs365OAuthClient(input: RefreshCredentialsInput): Ms365ClientCredentials {
-  if (input.oauthClient) {
-    const client = input.oauthClient
-    if (!client.clientId) {
-      throw new Error('[internal] Invalid Microsoft 365 OAuth client credentials: Application (client) ID required')
-    }
-    if (!client.clientSecret) {
-      throw new Error('[internal] Invalid Microsoft 365 OAuth client credentials: client secret required')
-    }
-    return {
-      clientId: client.clientId,
-      clientSecret: client.clientSecret,
-      tenantId: MS365_DEFAULT_TENANT,
-      ...(client.scopes !== undefined ? { scopes: client.scopes.join(' ') } : {}),
-    }
-  }
-  if (!warnedLegacyClientPath) {
-    warnedLegacyClientPath = true
-    logger.warn(
-      'reading OAuth client config from credentials._client is deprecated;' +
-        ' pass via RefreshCredentialsInput.oauthClient instead (Spec A)',
+  const client = input.oauthClient
+  if (!client) {
+    throw new Error(
+      '[internal] Microsoft 365 OAuth client config is required: pass it via RefreshCredentialsInput.oauthClient',
     )
   }
-  return parseClientCredentialsOrThrow(
-    (input.credentials as unknown as { _client?: unknown })._client ?? input.credentials,
-  )
+  if (!client.clientId) {
+    throw new Error('[internal] Invalid Microsoft 365 OAuth client credentials: Application (client) ID required')
+  }
+  if (!client.clientSecret) {
+    throw new Error('[internal] Invalid Microsoft 365 OAuth client credentials: client secret required')
+  }
+  return {
+    clientId: client.clientId,
+    clientSecret: client.clientSecret,
+    tenantId: MS365_DEFAULT_TENANT,
+    ...(client.scopes !== undefined ? { scopes: client.scopes.join(' ') } : {}),
+  }
 }
 
 let cachedAdapter: Ms365ChannelAdapter | null = null

@@ -115,14 +115,39 @@ export type Ms365ChannelState = z.infer<typeof ms365ChannelStateSchema>
 /** OpenID Connect scopes — always requested so we get an id_token + refresh token. */
 export const MS365_OIDC_SCOPES = ['offline_access', 'openid', 'profile', 'email']
 
-/** Graph delegated permissions the adapter needs. */
-export const MS365_GRAPH_SCOPES = [
-  'https://graph.microsoft.com/User.Read',
-  'https://graph.microsoft.com/Mail.ReadWrite',
-  'https://graph.microsoft.com/Mail.Send',
-]
+export const MS365_DEFAULT_GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0'
 
+/**
+ * Sovereign-cloud override for the Graph base URL (e.g.
+ * `https://graph.microsoft.us/v1.0`). Lives here rather than in `oauth.ts`
+ * because the default scopes below are derived from it and `oauth.ts` already
+ * imports this module.
+ */
+export function resolveGraphBaseUrl(): string {
+  const raw = process.env.OM_CHANNEL_MS365_GRAPH_BASE_URL?.trim()
+  if (raw && /^https:\/\/[^\s]+$/i.test(raw)) return raw.replace(/\/+$/, '')
+  return MS365_DEFAULT_GRAPH_BASE_URL
+}
+
+/**
+ * Graph delegated permissions the adapter needs, scoped to the Graph host the
+ * deployment talks to. The resource in a v2.0 scope is the token audience, so
+ * a US Government or China tenant must consent to `graph.microsoft.us/...`
+ * (not `graph.microsoft.com/...`) or every Graph call answers 401.
+ */
+export function buildGraphScopes(graphBaseUrl: string = resolveGraphBaseUrl()): string[] {
+  const origin = new URL(graphBaseUrl).origin
+  return [`${origin}/User.Read`, `${origin}/Mail.ReadWrite`, `${origin}/Mail.Send`]
+}
+
+/** Default scopes for the public cloud; `defaultScopes()` honours the sovereign-cloud override. */
+export const MS365_GRAPH_SCOPES = buildGraphScopes(MS365_DEFAULT_GRAPH_BASE_URL)
 export const MS365_DEFAULT_SCOPES = [...MS365_OIDC_SCOPES, ...MS365_GRAPH_SCOPES]
+
+/** The scopes requested when the admin leaves the override blank. */
+export function defaultScopes(): string[] {
+  return [...MS365_OIDC_SCOPES, ...buildGraphScopes()]
+}
 
 /**
  * Parse the admin's optional scope override. `offline_access` is re-added when
@@ -130,7 +155,7 @@ export const MS365_DEFAULT_SCOPES = [...MS365_OIDC_SCOPES, ...MS365_GRAPH_SCOPES
  * channel would flip to `requires_reauth` after one hour.
  */
 export function parseScopes(value: string | undefined): string[] {
-  if (!value || !value.trim()) return [...MS365_DEFAULT_SCOPES]
+  if (!value || !value.trim()) return defaultScopes()
   const scopes = value
     .split(/[\s,]+/)
     .map((s) => s.trim())
