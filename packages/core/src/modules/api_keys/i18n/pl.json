@@ -35,6 +35,7 @@
   "api_keys.list.error.loadFailed": "Nie udało się wczytać kluczy API",
   "api_keys.list.noDate": "—",
   "api_keys.list.noRoles": "Brak",
+  "api_keys.list.success.created": "Klucz API został utworzony",
   "api_keys.list.success.deleted": "Klucz API usunięty",
   "api_keys.list.title": "Klucze API",
   "api_keys.nav.apiKeys": "Klucze API",
