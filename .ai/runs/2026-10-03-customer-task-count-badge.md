@@ -29,6 +29,7 @@ Compatibility mode uses database aggregates and a scoped subquery to suppress br
 - CI on the complete customer implementation passed builds, generation, lint, translations and typecheck. The broad unit run passed 2020 core suites / 18308 tests and failed only two tests in an unchanged communication-channel sharing fixture that still used a removed column button. The test-only correction exercises the current real row menu; both tests pass locally and independent review found no issues.
 - Template parity passed locally. Final-head CI remains pending; human GitHub review and manual QA still gate merge.
 - Full browser QA was not run because no local test-environment descriptor is configured. The PR carries executable QA instructions.
+- Review follow-up (2026-10-08): added `TC-CRM-6068` route-level integration coverage (person and company `counts.todos` through create/complete/delete, bridged and deleted-bridge legacy links seeded in Postgres, and the people-v2 Tasks badge). It passed 4/4 against a local app on an isolated database, and failed on the previous legacy-only count and on a subquery that skips deleted bridges.
 
 ## Progress
 
