@@ -1,4 +1,5 @@
 {
+  "notifications.categories.wms": "창고",
   "search.entityType.wms.inventory_lot": "재고 로트",
   "search.entityType.wms.product_inventory_profile": "재고 프로필",
   "search.entityType.wms.warehouse": "창고",
