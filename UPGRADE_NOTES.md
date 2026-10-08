@@ -584,6 +584,63 @@ new application version serves traffic. Until it has run, saving an encryption m
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
 
+### Causation foundation: run the new migrations before rolling the app
+
+Every audited write now records **why** it happened (a user, an API key, a workflow, a business
+rule, an undo, …) next to a correlation id shared by the whole request, job or automation run.
+Spec: [`2026-10-08-insights-causation-and-explain`](.ai/specs/2026-10-08-insights-causation-and-explain.md).
+
+**Action for operators — migrate first.** The entities now map new nullable columns
+(`action_logs.cause_kind`/`cause_id`/`correlation_id`/`caused_by_log_id`,
+`rule_execution_logs.run_id`/`rule_version`/`rule_definition_hash`/`causation_json`,
+`api_keys.causation_json`), so the new application version fails on these tables until the
+migrations have run. Run `yarn db:migrate` (or your deployment's migration step) **before** new pods
+serve traffic.
+
+- The column migrations (`Migration20261008080137_*` in `audit_logs`, `business_rules`, `api_keys`)
+  are metadata-only `ALTER TABLE`s that run with `set local lock_timeout = '5s'`, so they give up
+  instead of queueing every write behind them. On a busy table a lock timeout is expected: retry the
+  migration.
+- The index migrations (`Migration20261008080138_*` in `audit_logs`, `business_rules`) are
+  non-transactional and use `CREATE INDEX CONCURRENTLY`, dropping a possibly INVALID index from an
+  interrupted build first, so a retried deploy is safe.
+- `yarn mercato auth sync-role-acls` is **not** needed for this change: it adds no ACL features.
+
+**Action for standalone apps.** The API catch-all dispatcher must open the request's causation
+scope. If your app's `src/app/api/[...slug]/route.ts` predates this release, wrap the handler call
+(the create-app template already does):
+
+```ts
+import { runWithRequestCausation } from '@open-mercato/shared/lib/causation/server'
+
+const runHandler = () => runWithCacheTenant(
+  auth?.tenantId ?? null,
+  () => runWithRequestCausation(auth, () => handler(req, handlerContext)),
+)
+```
+
+Without it writes still succeed, but each command falls back to the authenticated principal as its
+cause and gets its own correlation id instead of sharing the request's.
+
+**Behavior changes:**
+
+- `rule_execution_logs.entity_id` for a rule triggered by a CRUD event is now the record id from
+  the event payload instead of `'unknown'`.
+- `startWorkflow` ignores `metadata.causation` supplied by the caller; the server sets it.
+- A caller-provided `context.causation` passed to the action log is always discarded, and the undo
+  trace row no longer inherits the undone entry's causation — it records the undo itself.
+- `ActionLogService.log` is now called as `log(payload, em, causation)` (the `em` may be
+  `undefined`), and `markUndone` accepts an optional fourth `causation` argument. **Action for module
+  authors:** a DI override or a test double of `actionLogService` must accept (and may ignore) the
+  optional extra argument.
+- Audit list responses gain `causeKind`, `causeId`, `correlationId` and `causedByLogId`, and the list
+  and CSV export accept `causeKind`/`causeId`/`correlationId` filters. Callers without
+  `audit_logs.view_tenant` receive `causeId`/`causedByLogId` as `null` for `user`/`agent` causes.
+
+**Kill switch.** Set `OM_CAUSATION=off` to stop capturing and propagating causation: new rows keep
+the cause columns `null` and the request, queue and workflow paths behave as before (a caller's
+`context.causation` and a client's workflow `metadata.causation` are still discarded).
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

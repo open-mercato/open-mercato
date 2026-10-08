@@ -24,6 +24,10 @@
       "types": "./src/lib/commands/index.ts",
       "default": "./dist/lib/commands/index.js"
     },
+    "./lib/causation": {
+      "types": "./src/lib/causation/index.ts",
+      "default": "./dist/lib/causation/index.js"
+    },
     "./lib/catalog-visibility": {
       "types": "./src/lib/catalog-visibility/index.ts",
       "default": "./dist/lib/catalog-visibility/index.js"

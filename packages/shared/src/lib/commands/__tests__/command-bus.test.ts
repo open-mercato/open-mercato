@@ -44,7 +44,9 @@ describe('CommandBus', () => {
         tenantId: 'tenant-1',
         actorUserId: 'user-1',
         resourceId: '123',
-      })
+      }),
+      undefined,
+      expect.objectContaining({ frames: [{ kind: 'user' }] }),
     )
     expect(logEntry).toEqual({ id: 'log-entry' })
   })
@@ -251,7 +253,9 @@ describe('CommandBus', () => {
       expect.objectContaining({
         actorUserId: undefined,
         context: { systemActor: 'system:command' },
-      })
+      }),
+      undefined,
+      expect.objectContaining({ frames: [{ kind: 'system' }] }),
     )
   })
 
@@ -420,7 +424,9 @@ describe('CommandBus', () => {
           original: 'buildlog-original-value',
           interceptorOverridden: 'buildlog-takes-precedence',
         },
-      })
+      }),
+      undefined,
+      expect.objectContaining({ frames: [{ kind: 'user' }] }),
     )
   })
 
@@ -469,7 +475,9 @@ describe('CommandBus', () => {
     })
 
     expect(logMock).toHaveBeenCalledWith(
-      expect.objectContaining({ context: { untouched: 'base-untouched' } })
+      expect.objectContaining({ context: { untouched: 'base-untouched' } }),
+      undefined,
+      expect.objectContaining({ frames: [{ kind: 'user' }] }),
     )
   })
 
@@ -506,7 +514,9 @@ describe('CommandBus', () => {
         actorUserId: 'agent-user-1',
         onBehalfOfUserId: 'human-1',
         context: expect.objectContaining({ source: 'agent' }),
-      })
+      }),
+      undefined,
+      expect.objectContaining({ frames: [{ kind: 'user' }, { kind: 'agent', id: 'agent-user-1' }] }),
     )
   })
 

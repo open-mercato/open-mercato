@@ -4,6 +4,8 @@ import { isMfaPendingJwtPayload, verifyJwt } from './jwt'
 import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
 import { isTransientDbError } from '@open-mercato/shared/lib/db/pg-errors'
+import { sanitizeCausation, type CausationEnvelope } from '../causation/types'
+import { reportCausationDegradation } from '../causation/server'
 
 function readRequestPathname(req: Request): string | null {
   try {
@@ -29,6 +31,7 @@ export type AuthContext = {
   userId?: string
   keyId?: string
   keyName?: string
+  originCausation?: CausationEnvelope | null
   [k: string]: unknown
 } | null
 
@@ -308,6 +311,10 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       }
     }
 
+    const originCausation = sanitizeCausation(record.causationJson ?? null)
+    if (!originCausation && record.causationJson != null) {
+      reportCausationDegradation('api_key_origin_invalid', { keyId: String(record.id) })
+    }
     const auth: Exclude<AuthContext, null> = {
       sub: `api_key:${record.id}`,
       tenantId: record.tenantId ?? null,
@@ -318,6 +325,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       keyId: record.id,
       keyName: record.name,
       ...(actualUserId ? { userId: actualUserId } : {}),
+      ...(originCausation ? { originCausation } : {}),
     }
     cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
     return auth

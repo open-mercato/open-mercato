@@ -40,6 +40,7 @@ import { resolveRunOutcome } from './run-outcome'
 import { collectRunOutcomeEvidence } from './run-outcome-evidence'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { resolveWorkflowDefinitionExecutionUserId } from './definition-grant'
+import { applyServerStartCausation } from './workflow-causation'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
 import { DRY_RUN_EVENT_TYPES } from './dry-run'
@@ -285,6 +286,10 @@ export async function startWorkflow(
     }
   }
 
+  const instanceMetadata = applyServerStartCausation(metadata, {
+    initiatedByUserId: normalizeWorkflowUserId(metadata?.initiatedBy),
+  })
+
   // Create workflow instance
   const now = new Date()
   const instance = em.create(WorkflowInstance, {
@@ -295,7 +300,7 @@ export async function startWorkflow(
     currentStepId: startStep.stepId,
     context: initialContext,
     correlationKey,
-    metadata,
+    metadata: instanceMetadata,
     startedAt: now,
     retryCount: 0,
     isDryRun,
@@ -316,7 +321,7 @@ export async function startWorkflow(
       version: instance.version,
       startStepId: startStep.stepId,
       initialContext,
-      metadata,
+      metadata: instanceMetadata,
     },
     userId: metadata?.initiatedBy,
     tenantId,

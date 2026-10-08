@@ -41,6 +41,14 @@ import {
   ownsTransactionLifetime,
   type TransactionLifetime,
 } from './transaction-lifetime'
+import { isUuid, type CausationEnvelope } from '../causation/types'
+import {
+  appendCausationFrame,
+  isCausationEnabled,
+  resolveCausationForCommand,
+  runWithCausation,
+  stripCausationFromContext,
+} from '../causation/server'
 
 const logger = createLogger('shared').child({ component: 'commands' })
 
@@ -50,7 +58,29 @@ type CommandActionLogService = {
   releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean>
   markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
   claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
-  log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
+  log(
+    input: ActionLogCreateInput,
+    transactionalEm?: EntityManager,
+    causation?: CausationEnvelope | null,
+  ): Promise<ActionLog | null>
+}
+
+function resolveCommandCausation(ctx: CommandRuntimeContext): CausationEnvelope {
+  return resolveCausationForCommand({
+    explicit: ctx.causation ?? null,
+    auth: ctx.auth,
+    runAs: ctx.runAs ?? null,
+    systemActor: ctx.systemActor === true,
+  })
+}
+
+function bindCausedByLog(envelope: CausationEnvelope, logEntry: { id?: unknown } | null | undefined): CausationEnvelope {
+  const logId = logEntry?.id
+  return isUuid(logId) ? { ...envelope, causedByLogId: logId } : envelope
+}
+
+function runInCausation<T>(envelope: CausationEnvelope | null, fn: () => T): T {
+  return envelope ? runWithCausation(envelope, fn) : fn()
 }
 
 type AtomicReplayTransaction = {
@@ -277,6 +307,13 @@ export class CommandBus {
 
     const replayLogEntry = options.redoLogEntry ?? null
     const isAtomicReplay = replayLogEntry !== null && handler.atomicReplay === true
+    let commandCausation: CausationEnvelope | null = null
+    if (isCausationEnabled()) {
+      const resolvedCausation = resolveCommandCausation(options.ctx)
+      commandCausation = replayLogEntry
+        ? appendCausationFrame(resolvedCausation, { kind: 'redo', id: replayLogEntry.id ?? null })
+        : resolvedCausation
+    }
     const allInterceptors = getAllCommandInterceptorInstances()
     let interceptorMetadata = new Map<string, Record<string, unknown>>()
     let effectiveOptions = options
@@ -405,7 +442,7 @@ export class CommandBus {
           if (inferred) mergedMeta.changes = inferred
         }
       }
-      const logEntry = await this.persistLog(commandId, coreOptions, mergedMeta)
+      const logEntry = await this.persistLog(commandId, coreOptions, mergedMeta, commandCausation)
       return { result, mergedMeta, logEntry }
     }
 
@@ -458,13 +495,14 @@ export class CommandBus {
         }
         const claimed = await service.claimForRedo(atomicSourceLog.id, replayEm)
         if (!claimed) throw new Error('[internal] Redo source already consumed')
-        coreResult = await executeCore(effectiveOptions)
+        coreResult = await runInCausation(commandCausation, () => executeCore(effectiveOptions))
       }], { transaction: true, label: `${commandId}.redo` })
       replaySourceFinalized = !ambientReplay.joinsAmbient
     } else {
-      coreResult = await executeCore(effectiveOptions)
+      coreResult = await runInCausation(commandCausation, () => executeCore(effectiveOptions))
     }
     const { result, mergedMeta, logEntry } = coreResult!
+    const postCommitCausation = commandCausation ? bindCausedByLog(commandCausation, logEntry) : null
 
     const runPostCommit = async () => {
       let finalResult = result
@@ -506,13 +544,13 @@ export class CommandBus {
       }
       onTransactionLifetimeComplete(ambientReplay.em, async (outcome) => {
         if (outcome !== 'committed') return
-        executionResult.result = await runPostCommit()
+        executionResult.result = await runInCausation(postCommitCausation, runPostCommit)
         executionResult.replaySourceFinalized = true
       })
       return executionResult
     }
 
-    executionResult.result = await runPostCommit()
+    executionResult.result = await runInCausation(postCommitCausation, runPostCommit)
     return executionResult
   }
 
@@ -526,6 +564,9 @@ export class CommandBus {
     }
 
     const isAtomicReplay = handler.atomicReplay === true
+    const undoCausation = isCausationEnabled()
+      ? appendCausationFrame(resolveCommandCausation(ctx), { kind: 'undo', id: log.id })
+      : null
     const allInterceptors = getAllCommandInterceptorInstances()
     let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
     let userFeatures: string[] = []
@@ -627,7 +668,7 @@ export class CommandBus {
           })
         }
         await claimUndo(replayEm)
-        await finishUndo(replayCtx, replayEm)
+        await runInCausation(undoCausation, () => finishUndo(replayCtx, replayEm))
       }], {
         transaction: true,
         label: `${log.commandId}.undo`,
@@ -640,7 +681,7 @@ export class CommandBus {
         const prepared = await runBeforeUndoInterceptors(ctx)
         undoInterceptorMetadata = prepared.metadata
         userFeatures = prepared.userFeatures
-        await finishUndo(ctx)
+        await runInCausation(undoCausation, () => finishUndo(ctx))
       } catch (err) {
         // Legacy handlers retain their compensating release behavior because
         // their domain mutation may not share the action-log transaction.
@@ -675,12 +716,12 @@ export class CommandBus {
         throw new Error('[internal] Ambient atomic replay lost its outer transaction lifetime owner')
       }
       onTransactionLifetimeComplete(ambientReplay.em, async (outcome) => {
-        if (outcome === 'committed') await runPostCommit()
+        if (outcome === 'committed') await runInCausation(undoCausation, runPostCommit)
       })
       return
     }
 
-    await runPostCommit()
+    await runInCausation(undoCausation, runPostCommit)
   }
 
   private buildUndoTraceLog(log: ActionLog, ctx: CommandRuntimeContext): ActionLogCreateInput | undefined {
@@ -871,7 +912,8 @@ export class CommandBus {
   private async persistLog<TInput>(
     commandId: string,
     options: CommandExecutionOptions<TInput>,
-    metadata: CommandLogMetadata | null
+    metadata: CommandLogMetadata | null,
+    causation: CausationEnvelope | null = null,
   ): Promise<ActionLog | null> {
     if (!metadata) return null
     if (metadata.skipLog) return null
@@ -923,7 +965,8 @@ export class CommandBus {
       if ('snapshotAfter' in metadata && metadata.snapshotAfter !== undefined) payload.snapshotAfter = metadata.snapshotAfter
       if ('changes' in metadata && metadata.changes !== undefined && metadata.changes !== null) payload.changes = metadata.changes
       if ('context' in metadata && metadata.context !== undefined && metadata.context !== null) {
-        payload.context = { ...(systemActorContext ?? {}), ...metadata.context }
+        const callerContext = causation ? stripCausationFromContext(metadata.context) : metadata.context
+        payload.context = { ...(systemActorContext ?? {}), ...callerContext }
       } else if (systemActorContext) {
         payload.context = systemActorContext
       }
@@ -944,6 +987,9 @@ export class CommandBus {
       payload.commandPayload = redoEnvelope
     }
 
+    if (causation) {
+      return await service.log(payload as ActionLogCreateInput, options.ctx.transactionalEm, causation)
+    }
     return options.ctx.transactionalEm
       ? await service.log(payload as ActionLogCreateInput, options.ctx.transactionalEm)
       : await service.log(payload as ActionLogCreateInput)

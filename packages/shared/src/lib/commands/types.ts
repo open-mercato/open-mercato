@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import type { AuthContext } from '../auth/server'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { TransactionLifetime } from './transaction-lifetime'
+import type { CausationEnvelope } from '../causation/types'
 
 /**
  * Bulk-import / backfill deferral flags. When a command runs under a context that
@@ -101,6 +102,18 @@ export type CommandRuntimeContext = {
    * audit path.
    */
   runAs?: CommandRunAsContext
+  /**
+   * Explicit causation envelope for the writes this context produces (Insights
+   * causation foundation). When set, the command bus uses it instead of the
+   * ambient envelope or the `auth`-derived fallback, runs the command inside it
+   * so nested commands and emitted events inherit it, and hands it to
+   * `actionLogService.log` as the server-only cause argument. Only trusted
+   * server code (workflow activities, queue workers, schedulers) may set it;
+   * HTTP request input MUST never flow into it. Additive + optional: callers
+   * that omit it keep the ambient/auth-derived resolution, and the whole
+   * mechanism is disabled with `OM_CAUSATION=off`.
+   */
+  causation?: CausationEnvelope | null
 }
 
 export type CommandRunAsContext = {

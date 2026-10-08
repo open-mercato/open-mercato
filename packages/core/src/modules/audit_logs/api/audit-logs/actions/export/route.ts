@@ -16,6 +16,8 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import { parseActionLogCauseFilterParams } from '@open-mercato/core/modules/audit_logs/data/validators'
+import { CAUSATION_MAX_TEXT_LENGTH, CAUSE_KINDS } from '@open-mercato/shared/lib/causation/types'
 import { loadAuditLogDisplayMaps } from '../../display'
 import { requireResolvedTenantScope } from '../../readScope'
 
@@ -64,6 +66,20 @@ const exportQuerySchema = z.object({
     .optional(),
   before: z.string().describe('Return actions created before this ISO-8601 timestamp').optional(),
   after: z.string().describe('Return actions created after this ISO-8601 timestamp').optional(),
+  causeKind: z
+    .enum(CAUSE_KINDS)
+    .describe('Filter by the primary cause of the write (e.g. `user`, `api_key`, `workflow`, `undo`).')
+    .optional(),
+  causeId: z
+    .string()
+    .max(CAUSATION_MAX_TEXT_LENGTH)
+    .describe('Filter by the primary cause identifier. Requires `causeKind`.')
+    .optional(),
+  correlationId: z
+    .string()
+    .uuid()
+    .describe('Filter by the correlation id shared by every write of one request, job or automation run.')
+    .optional(),
 })
 
 const responseSchema = z.object({
@@ -132,6 +148,10 @@ export async function GET(req: Request) {
   )
 
   const url = new URL(req.url)
+  const causeFilters = parseActionLogCauseFilterParams(url.searchParams)
+  if (!causeFilters.success) {
+    return NextResponse.json({ error: 'Validation failed', details: causeFilters.error.issues }, { status: 400 })
+  }
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
   const resourceKind = url.searchParams.get('resourceKind') ?? undefined
@@ -185,6 +205,9 @@ export async function GET(req: Request) {
       limit,
       before,
       after,
+      causeKind: causeFilters.data.causeKind,
+      causeId: causeFilters.data.causeId,
+      correlationId: causeFilters.data.correlationId,
     })
   } catch (err) {
     if (err instanceof z.ZodError) {

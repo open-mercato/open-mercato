@@ -4,7 +4,7 @@ import { sql } from 'kysely'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   actionLogCreateSchema,
-  actionLogListSchema,
+  actionLogListQuerySchema,
   uuid,
   type ActionLogCreateInput,
   type ActionLogListQuery,
@@ -27,6 +27,20 @@ import {
   actionLogBelongsToSubject,
   canonicalizeActorSubject,
 } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import {
+  CAUSATION_CONTEXT_KEY,
+  projectCausation,
+  type ActionLogCausationProjection,
+  type CausationEnvelope,
+  type CausationFrame,
+} from '@open-mercato/shared/lib/causation/types'
+import {
+  createCausationEnvelope,
+  getAmbientCausation,
+  isCausationEnabled,
+  reportCausationDegradation,
+  stripCausationFromContext,
+} from '@open-mercato/shared/lib/causation/server'
 
 const logger = createLogger('audit_logs').child({ component: 'action-log-service' })
 
@@ -251,10 +265,21 @@ export class ActionLogService {
     return await this.decryptEntryPayload(detached) as unknown as ActionLog
   }
 
-  async log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null> {
+  /**
+   * Persists an action log entry. `causation` is the server-resolved envelope
+   * (command bus, workers); when omitted the ambient causation scope is used.
+   * Cause columns are derived only from that argument, never from `input`, and a
+   * caller-provided `context.causation` is always discarded.
+   */
+  async log(
+    input: ActionLogCreateInput,
+    transactionalEm?: EntityManager,
+    causation?: CausationEnvelope | null,
+  ): Promise<ActionLog | null> {
     const data = this.parseCreateInput(input)
+    const causationProjection = this.resolveCausationProjection(input, causation)
     const operationEm = transactionalEm ?? this.em.fork()
-    const log = this.createLogEntity(operationEm, data)
+    const log = this.createLogEntity(operationEm, data, causationProjection)
     await operationEm.persist(log).flush()
     if (transactionalEm) return this.decryptDetachedEntry(log)
     await this.decryptEntries(log)
@@ -287,6 +312,29 @@ export class ActionLogService {
     return data
   }
 
+  private resolveCausationProjection(
+    input: ActionLogCreateInput | null | undefined,
+    causation: CausationEnvelope | null | undefined,
+  ): ActionLogCausationProjection | null {
+    if (!isCausationEnabled()) return null
+    const resolved = causation === undefined ? getAmbientCausation() : causation
+    const projection = resolved ? projectCausation(resolved) : null
+    if (projection) return projection
+    reportCausationDegradation('log_fallback_actor', { resourceKind: input?.resourceKind ?? null })
+    return projectCausation(createCausationEnvelope([this.deriveFallbackCausationFrame(input)]))
+  }
+
+  private deriveFallbackCausationFrame(input: ActionLogCreateInput | null | undefined): CausationFrame {
+    const meta = { derivedFrom: 'actor' }
+    const candidate = readActorCandidate(input?.actorUserId)
+    const actor = canonicalizeActorSubject(candidate)
+    if (actor?.kind === 'api_key') return { kind: 'api_key', id: actor.storageId, meta }
+    if (actor?.kind === 'user') return { kind: 'user', meta }
+    const systemActorReference = candidate ? toSystemActorReference(candidate) : null
+    if (systemActorReference) return { kind: 'system', ref: systemActorReference, meta }
+    return { kind: 'unknown', meta }
+  }
+
   private sanitizeActor(input: ActionLogCreateInput): ActionLogCreateInput {
     if (!input) return input
     const candidate = readActorCandidate(input.actorUserId)
@@ -310,13 +358,21 @@ export class ActionLogService {
     return { ...input, actorUserId, context }
   }
 
-  private createLogEntity(fork: EntityManager, data: ActionLogCreateInput): ActionLog {
+  private createLogEntity(
+    fork: EntityManager,
+    data: ActionLogCreateInput,
+    causation: ActionLogCausationProjection | null = null,
+  ): ActionLog {
+    const callerContext = stripCausationFromContext(isRecord(data.context) ? data.context : null)
+    const contextJson = causation
+      ? { ...(callerContext ?? {}), [CAUSATION_CONTEXT_KEY]: causation.envelope }
+      : callerContext
     const projection = deriveActionLogProjection({
       actorUserId: data.actorUserId ?? null,
       actionLabel: data.actionLabel ?? null,
       changes: isRecord(data.changes) ? data.changes : null,
       commandId: data.commandId,
-      context: isRecord(data.context) ? data.context : null,
+      context: callerContext,
       snapshotBefore: data.snapshotBefore,
     })
 
@@ -342,8 +398,12 @@ export class ActionLogService {
       changesJson: isRecord(data.changes) ? data.changes : null,
       changedFields: projection.changedFields,
       primaryChangedField: projection.primaryChangedField,
-      contextJson: isRecord(data.context) ? data.context : null,
+      contextJson,
       sourceKey: projection.sourceKey,
+      causeKind: causation?.causeKind ?? null,
+      causeId: causation?.causeId ?? null,
+      correlationId: causation?.correlationId ?? null,
+      causedByLogId: causation?.causedByLogId ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -409,7 +469,7 @@ export class ActionLogService {
   }
 
   private parseListQuery(query: Partial<ActionLogListQuery>) {
-    return actionLogListSchema.parse({
+    return actionLogListQuerySchema.parse({
       ...query,
     })
   }
@@ -545,6 +605,12 @@ export class ActionLogService {
     const actionTypes = this.resolveActionTypes(parsed)
     if (actionTypes.length === 1) query = query.where('action_logs.action_type', '=', actionTypes[0])
     if (actionTypes.length > 1) query = query.where('action_logs.action_type', 'in', actionTypes)
+
+    if (parsed.causeKind) {
+      query = query.where('action_logs.cause_kind', '=', parsed.causeKind)
+      if (parsed.causeId) query = query.where('action_logs.cause_id', '=', parsed.causeId)
+    }
+    if (parsed.correlationId) query = query.where('action_logs.correlation_id', '=', parsed.correlationId)
 
     if (parsed.sortField === 'user') {
       query = query.leftJoin('users as audit_actor', 'audit_actor.id', 'action_logs.actor_user_id')
@@ -727,7 +793,12 @@ export class ActionLogService {
     return affected === 1
   }
 
-  async markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager) {
+  async markUndone(
+    id: string,
+    traceInput?: ActionLogCreateInput,
+    transactionalEm?: EntityManager,
+    causation?: CausationEnvelope | null,
+  ) {
     const operationEm = transactionalEm ?? this.em.fork()
     const log = await operationEm.findOne(ActionLog, { id, deletedAt: null })
     if (!log) return null
@@ -735,7 +806,13 @@ export class ActionLogService {
     log.executionState = 'undone'
     log.undoToken = null
 
-    const traceLog = traceInput ? this.createLogEntity(operationEm, this.parseCreateInput(traceInput)) : null
+    const traceLog = traceInput
+      ? this.createLogEntity(
+          operationEm,
+          this.parseCreateInput(traceInput),
+          this.resolveCausationProjection(traceInput, causation),
+        )
+      : null
     if (traceLog) {
       operationEm.persist(traceLog)
     }
