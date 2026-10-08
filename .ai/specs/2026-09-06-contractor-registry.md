@@ -760,12 +760,19 @@ contractorLookupByNip(params: {
   `checkBankAccountWhitelist`).
 - **Unguarded by design,** like `contractorBankWhitelistCheck`: the
   caller owns authorization for its own request.
-- **NIP normalization — ⚠ NEEDS HUMAN CONFIRMATION.** This document does
-  not yet define how `nip` is normalized before hashing. Default
-  proposed here: strip spaces and dashes and a leading `PL`, keep ten
-  digits; the same function must be used by `createContractor`,
-  `updateContractor` (which rejects a change anyway) and this lookup, so
-  `"PL 123-456-78-90"` and `"1234567890"` resolve to the same hash.
+- **NIP normalization (decided 2026-10-08).** One shared function,
+  `normalizeNip(raw)`, used by `createContractor`, `updateContractor`
+  (which rejects a change anyway) and this lookup, so `"PL 123-456-78-90"`
+  and `"1234567890"` resolve to the same `nipHash`. It strips spaces,
+  dashes and a leading `PL` (case-insensitive) and accepts the result only
+  if it is ten digits with a valid checksum (weights 6, 5, 7, 2, 3, 4, 5,
+  6, 7; the weighted sum modulo 11 must equal the tenth digit; a remainder
+  of 10 is invalid). `contractorLookupByNip` returns `null`, without an
+  error, for input that does not normalize (a malformed or non-Polish tax
+  id): Phase 1 matches Polish NIPs only, and the caller decides what to do
+  with a supplier it cannot match. This note does not change what
+  `createContractor` already accepts or rejects; it only fixes the form
+  that is hashed.
 - **Not found returns `null`.** The caller decides what to do next; if
   it wants the contractor to exist it calls `createContractor` (through
   the command bus), which starts `PENDING_APPROVAL` and triggers the
@@ -1274,6 +1281,8 @@ exactly as `sales.order-approval` and
   two live NIPs), and that re-registering a soft-deleted NIP succeeds.
 - `contractorLookupByNip` (added 2026-10-08): returns the contractor for
   the same NIP written as `"1234567890"` and `"PL 123-456-78-90"`; returns
+  `null` for a ten-digit string with a wrong checksum and for a non-Polish
+  tax id; returns
   `null` for a soft-deleted contractor, for another organization and for
   another tenant; the returned object has exactly the documented keys and
   never `nip`, name, address, contact or bank data; calling it twice
@@ -1948,6 +1957,6 @@ time on this document:
 - **Decision (working, pending maintainer review).** Add
   `contractorLookupByNip` as a second read-only DI service (DI Registrar,
   Cross-module integration, File Manifest, Testing Strategy); no REST
-  `nip` filter (Queries / API). Returns no PII. NIP normalization is
-  marked ⚠ NEEDS HUMAN CONFIRMATION in DI Registrar.
+  `nip` filter (Queries / API). Returns no PII. NIP normalization
+  (`normalizeNip`, checksum included) is decided in DI Registrar.
 - No change to the data model, ACL, events or workflows.
