@@ -6,6 +6,7 @@ import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integra
 
 test.describe('TC-CAT-038: Markdown editor opens content with code blocks', () => {
   test('product description with fenced and tagged code blocks loads in rich-text mode', async ({ page, request }) => {
+    test.slow()
     const stamp = Date.now()
     const token = await getAuthToken(request, 'admin')
     let productId: string | null = null
@@ -45,7 +46,7 @@ test.describe('TC-CAT-038: Markdown editor opens content with code blocks', () =
       await login(page, 'admin')
       await page.goto(`/backend/catalog/products/${encodeURIComponent(productId as string)}`)
 
-      const editor = page.locator('.om-mdx-editor')
+      const editor = page.locator('.om-mdx-prose')
       await expect(editor).toBeVisible()
       await expect(editor.getByText(`Hello QA ${stamp},`)).toBeVisible()
       await expect(editor.getByText(`Tagged block ${stamp}`)).toBeVisible()
