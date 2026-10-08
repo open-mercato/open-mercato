@@ -61,7 +61,7 @@ describe('capActivityValue', () => {
 
   it('never counts reserved values and honours values already stored', () => {
     const scope = valueCapScope('test.deal', 'status')
-    const state: ValueCapState = new Map([[scope, new Set(['stored'])]])
+    const state: ValueCapState = new Map([[scope, { known: new Set(['stored']), distinct: 1 }]])
     expect(capActivityValue(state, scope, 'none', 1)).toBe('none')
     expect(capActivityValue(state, scope, 'other', 1)).toBe('other')
     expect(capActivityValue(state, scope, 'stored', 1)).toBe('stored')

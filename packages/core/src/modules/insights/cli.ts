@@ -256,12 +256,14 @@ export function formatXrayStatus(status: XrayStatus): string[] {
   if (!cursor) {
     lines.push('    cursor: none (not ingested yet)')
   } else {
-    lines.push(`    cursor: status=${cursor.status} computedThrough=${cursor.lastCreatedAt ?? 'n/a'} contract=${cursor.contractHash === status.registry.contractHash ? 'current' : 'outdated'}`)
+    const rebuilding = Array.from(new Set([...cursor.pendingRebuildKeys, ...(cursor.scanProcessKeys ?? [])]))
+    lines.push(`    cursor: status=${cursor.status} computedThrough=${cursor.lastCreatedAt ?? 'n/a'} coverageFrom=${cursor.coverageFrom ?? 'n/a'} rebuilding=${rebuilding.length > 0 ? rebuilding.join(',') : 'none'}`)
     if (cursor.scanId) {
       lines.push(`    scan: ${cursor.scanKind} ${cursor.scanId} position=${cursor.scanAfterCreatedAt ?? 'start'} until=${cursor.scanUntil ?? 'n/a'} processed=${cursor.scanProcessedCount}`)
     }
     if (cursor.lastError) lines.push(`    last error: ${cursor.lastError}`)
   }
+  if (status.countsTimedOut) lines.push('    counts: unavailable (timed out)')
   for (const count of status.counts) {
     lines.push(`    ${count.processKey}: events=${count.events} voided=${count.voidedEvents} cases=${count.cases} open=${count.openCases}`)
   }

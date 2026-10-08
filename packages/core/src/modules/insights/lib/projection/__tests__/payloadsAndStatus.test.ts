@@ -64,7 +64,16 @@ function cursor(overrides: Partial<ProjectionCursor> = {}): ProjectionCursor {
     leaseOwner: 'worker',
     leaseToken: 3,
     leaseUntil: '2026-10-08T10:02:00.000000Z',
-    contractHash: 'hash-1',
+    contractHashes: { 'customers.deal': 'deal-hash' },
+    pendingRebuildKeys: [],
+    scanProcessKeys: null,
+    contractChangedAt: null,
+    contractChange: null,
+    coverageFrom: '2026-10-01T00:00:00.000000Z',
+    historyScannedAt: null,
+    undecryptableRows: 0,
+    overlapTimeouts: 0,
+    lastOverlapTimeoutAt: null,
     status: 'backfilling',
     lastRunAt: null,
     lastError: null,
@@ -79,24 +88,79 @@ describe('toXrayStatusResponse', () => {
     settings: { id: null, updatedAt: null, ...XRAY_SETTINGS_DEFAULTS },
     registry: { ready: true, contractHash: 'hash-1', processes: [{ processKey: 'customers.deal', labelKey: 'customers.insights.process.deal', moduleId: 'customers' }], rejected: 0 },
     cursor: cursor(),
-    counts: [{ processKey: 'customers.deal', events: 10, voidedEvents: 2, cases: 3, openCases: 1, lastOccurredAt: '2026-10-08T09:59:00.000000Z' }],
+    counts: [{ processKey: 'customers.deal', events: 10, voidedEvents: 2, cases: 3, openCases: 1, firstOccurredAt: '2026-01-02T00:00:00.000000Z', lastOccurredAt: '2026-10-08T09:59:00.000000Z' }],
   }
 
   it('maps the cursor, scan and counts into the documented response', () => {
     const response = toXrayStatusResponse(base, Date.parse('2026-10-08T10:00:00.000Z'))
     expect(xrayStatusResponseSchema.parse(response)).toEqual(response)
     expect(response.computedThrough).toBe('2026-10-08T10:00:00.000000Z')
-    expect(response.cursor).toEqual(expect.objectContaining({ status: 'backfilling', contractMatches: true, leaseActive: true }))
-    expect(response.cursor?.scan).toEqual(expect.objectContaining({ id: SCAN_ID, kind: 'backfill', processed: 42, position: '2026-01-01T00:00:00.000000Z' }))
-    expect(response.processes).toEqual([{ processKey: 'customers.deal', n: 10, voidedEvents: 2, cases: 3, openCases: 1, lastOccurredAt: '2026-10-08T09:59:00.000000Z' }])
+    expect(response.cursor).toEqual(expect.objectContaining({ status: 'backfilling', contractMatches: true, rebuildingProcessKeys: [], leaseActive: true }))
+    expect(response.cursor?.scan).toEqual(expect.objectContaining({ id: SCAN_ID, kind: 'backfill', processed: 42, position: '2026-01-01T00:00:00.000000Z', processKeys: null }))
+    expect(response.processes).toEqual([{ processKey: 'customers.deal', n: 10, voidedEvents: 2, cases: 3, openCases: 1, firstOccurredAt: '2026-01-02T00:00:00.000000Z', lastOccurredAt: '2026-10-08T09:59:00.000000Z' }])
+    expect(response.countsTimedOut).toBe(false)
     expect(JSON.stringify(response)).not.toContain('tk1:fingerprint')
     expect(JSON.stringify(response)).not.toContain(CHAIN_ID)
+    expect(JSON.stringify(response)).not.toContain('deal-hash')
   })
 
-  it('reports an outdated contract, an expired lease and a missing cursor', () => {
-    const outdated = toXrayStatusResponse({ ...base, cursor: cursor({ contractHash: 'old', scanId: null }) }, Date.parse('2026-10-08T11:00:00.000Z'))
-    expect(outdated.cursor).toEqual(expect.objectContaining({ contractMatches: false, leaseActive: false, scan: null }))
+  it('reports pending per-process rebuilds, an expired lease and a missing cursor', () => {
+    const rebuilding = toXrayStatusResponse({
+      ...base,
+      cursor: cursor({
+        scanProcessKeys: ['customers.deal'],
+        pendingRebuildKeys: ['sales.order'],
+        contractChangedAt: '2026-10-08T10:30:00.000000Z',
+        contractChange: { changed: ['customers.deal'], added: ['sales.order'], removed: ['legacy.process'] },
+      }),
+    }, Date.parse('2026-10-08T11:00:00.000Z'))
+    expect(xrayStatusResponseSchema.parse(rebuilding)).toEqual(rebuilding)
+    expect(rebuilding.cursor).toEqual(expect.objectContaining({
+      contractMatches: false,
+      rebuildingProcessKeys: ['customers.deal', 'sales.order'],
+      contractChange: { at: '2026-10-08T10:30:00.000000Z', changed: ['customers.deal'], added: ['sales.order'], removed: ['legacy.process'] },
+      leaseActive: false,
+    }))
+    expect(rebuilding.cursor?.scan?.processKeys).toEqual(['customers.deal'])
+    const unadopted = toXrayStatusResponse({ ...base, cursor: cursor({ contractHashes: null, scanId: null }) })
+    expect(unadopted.cursor).toEqual(expect.objectContaining({ contractMatches: false, scan: null }))
     const empty = toXrayStatusResponse({ ...base, cursor: null, counts: [] })
-    expect(empty).toEqual(expect.objectContaining({ cursor: null, computedThrough: null, processes: [] }))
+    expect(empty).toEqual(expect.objectContaining({ cursor: null, computedThrough: null, coverageFrom: null, processes: [] }))
+  })
+
+  it('exposes where the projection is complete from, so computedThrough is never read as full history', () => {
+    const now = Date.parse('2026-10-08T10:00:00.000Z')
+    const fresh = toXrayStatusResponse(base, now)
+    expect(fresh.coverageFrom).toBe('2026-10-01T00:00:00.000000Z')
+    expect(fresh.cursor).toEqual(expect.objectContaining({ coverageFrom: '2026-10-01T00:00:00.000000Z', historyScanned: false, historyScannedAt: null }))
+    const backfilled = toXrayStatusResponse({
+      ...base,
+      cursor: cursor({ coverageFrom: '2020-01-01T00:00:00.000000Z', historyScannedAt: '2026-10-07T00:00:00.000000Z' }),
+    }, now)
+    expect(backfilled.coverageFrom).toBe(new Date(now - XRAY_SETTINGS_DEFAULTS.retentionDays * 24 * 60 * 60_000).toISOString().replace(/Z$/, '000Z'))
+    expect(backfilled.cursor).toEqual(expect.objectContaining({ historyScanned: true, historyScannedAt: '2026-10-07T00:00:00.000000Z' }))
+  })
+
+  it('shows skipped rows and overlap timeouts as counts', () => {
+    const response = toXrayStatusResponse({ ...base, cursor: cursor({ undecryptableRows: 4, overlapTimeouts: 2, lastOverlapTimeoutAt: '2026-10-08T09:00:00.000000Z' }) })
+    expect(response.cursor).toEqual(expect.objectContaining({ undecryptableRows: 4, overlapTimeouts: 2, lastOverlapTimeoutAt: '2026-10-08T09:00:00.000000Z' }))
+  })
+
+  it('degrades to null counts with a flag when the counts timed out, still listing registered processes', () => {
+    const response = toXrayStatusResponse({ ...base, counts: [], countsTimedOut: true })
+    expect(xrayStatusResponseSchema.parse(response)).toEqual(response)
+    expect(response.countsTimedOut).toBe(true)
+    expect(response.processes).toEqual([{ processKey: 'customers.deal', n: null, voidedEvents: null, cases: null, openCases: null, firstOccurredAt: null, lastOccurredAt: null }])
+  })
+
+  it('lists only registered processes: rows of a disabled module stay but are not shown', () => {
+    const response = toXrayStatusResponse({
+      ...base,
+      counts: [
+        ...base.counts,
+        { processKey: 'retired.process', events: 7, voidedEvents: 0, cases: 1, openCases: 0, firstOccurredAt: null, lastOccurredAt: null },
+      ],
+    })
+    expect(response.processes.map((process) => process.processKey)).toEqual(['customers.deal'])
   })
 })

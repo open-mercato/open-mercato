@@ -1,3 +1,16 @@
+const reportErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/logger')
+  const silent = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn(), trace: jest.fn(), child: () => silent }
+  return { ...actual, createLogger: () => silent }
+})
+
+import type { ProcessDescriptor, ProcessModuleConfig } from '@open-mercato/shared/modules/insights/process'
 import {
   XRAY_KEY_MISMATCH_ERROR,
   XRAY_OVERLAP_MS,
@@ -16,6 +29,7 @@ import type { ActorPseudonymizer } from '../pseudonym'
 import { createMemoryLogSource, createMemoryStore, microIso, type MemoryLogRow, type MemoryLogSourceOptions } from './memoryProjection'
 import {
   DEAL_ID,
+  ORDER_ID,
   ORG_ID,
   OTHER_ORG_ID,
   OTHER_USER_ID,
@@ -28,7 +42,7 @@ import {
   testRegistry,
 } from '../../process/__tests__/processTestSupport'
 import { buildProcessRegistrySnapshot } from '../../process/registry'
-import { valueCapScope } from '../../process/values'
+import { valueCapScope, type ValueCapState } from '../../process/values'
 
 const ROLE_ID = '88888888-0000-4000-8000-000000000001'
 const TEAM_ID = '99999999-0000-4000-8000-000000000001'
@@ -89,6 +103,41 @@ function createRow(dealId: string, createdAt: string, status = 'open'): MemoryLo
     commandId: 'test.deals.create',
     snapshotBefore: null,
     snapshotAfter: { deal: { status, stageId: STAGE_A, ownerUserId: USER_ID } },
+  })
+}
+
+const QUOTE_ID = ORDER_ID
+const DAY = 24 * 60 * MINUTE
+
+function quoteProcess(overrides: Partial<ProcessDescriptor> = {}): ProcessDescriptor {
+  return {
+    processKey: 'test.quote',
+    labelKey: 'test.process.quote',
+    resourceKind: 'test.quote',
+    entityId: 'test:quote',
+    requiredFeatures: ['test.quotes.view'],
+    stageFields: [{ key: 'status', labelKey: 'test.status', valueKind: 'dictionary', snapshotPaths: ['quote.status'], changeKeys: ['quote.status'] }],
+    ...overrides,
+  }
+}
+
+function dealProcess(overrides: Partial<ProcessDescriptor> = {}): ProcessDescriptor {
+  return { ...(testProcessConfig().processes?.[0] as ProcessDescriptor), ...overrides }
+}
+
+function processConfig(...processes: ProcessDescriptor[]): ProcessModuleConfig {
+  return { version: 1, processes }
+}
+
+function quoteRow(createdAt: string, status = 'sent'): MemoryLogRow {
+  return logRow({
+    resourceKind: 'test.quote',
+    resourceId: QUOTE_ID,
+    createdAt,
+    actionType: 'create',
+    commandId: 'test.quotes.create',
+    snapshotBefore: null,
+    snapshotAfter: { quote: { status } },
   })
 }
 
@@ -333,22 +382,194 @@ describe('runIngestSlice — lease, contract and registry', () => {
     expect(harness.memory.state.events).toHaveLength(XRAY_PAGE_LIMIT)
   })
 
-  it('flags rebuild_required when the contract changed and projects nothing', async () => {
+  it('adopts the current per-process contracts on a new cursor without rebuilding anything', async () => {
     const harness = setup({ now: at(0) })
-    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
-    harness.rows.push(createRow(DEAL_ID, at(10_000)))
+    harness.deps.registry = testRegistry(processConfig(dealProcess(), quoteProcess()))
+    const result = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(result).toEqual(expect.objectContaining({ status: 'caught_up', contractChange: null, scanStarted: null }))
+    const cursor = harness.memory.state.cursors[0]
+    expect(Object.keys(cursor.contractHashes ?? {})).toEqual(['test.deal', 'test.quote'])
+    expect(cursor.pendingRebuildKeys).toEqual([])
+  })
+
+  it('rebuilds only the process whose contract changed and keeps ingesting the others', async () => {
+    const harness = setup({ now: at(0) })
+    harness.deps.registry = testRegistry(processConfig(dealProcess(), quoteProcess()))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.rows.push(createRow(DEAL_ID, at(MINUTE)), quoteRow(at(MINUTE)))
     harness.setNow(at(5 * MINUTE))
-    const base = testProcessConfig()
-    const process = base.processes?.[0]
-    if (!process) throw new Error('[internal] missing test process')
-    harness.deps.registry = buildProcessRegistrySnapshot(
-      [{ moduleId: 'test', config: { version: 1, processes: [{ ...process, endStates: [{ field: 'status', values: ['won'] }] }] } }],
-      [],
-    )
-    const result = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
-    expect(result.status).toBe('rebuild_required')
-    expect(harness.memory.state.cursors[0].status).toBe('rebuild_required')
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    const quoteKeys = () => harness.memory.state.events.filter((event) => event.processKey === 'test.quote').map((event) => event.activityKey)
+    expect(quoteKeys()).toEqual(['created', 'status:sent'])
+    harness.setNow(at(30 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    const fullBefore = harness.memory.state.cursors[0].lastFullReconciledAt
+    const hashesBefore = { ...harness.memory.state.cursors[0].contractHashes }
+
+    harness.deps.registry = testRegistry(processConfig(dealProcess(), quoteProcess({ endStates: [{ field: 'status', values: ['accepted'] }] })))
+    harness.rows.push(logRow({ createdAt: at(30 * MINUTE) }))
+    harness.setNow(at(32 * MINUTE))
+    const result = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(result.status).toBe('caught_up')
+    expect(result.contractChange).toEqual({ changed: ['test.quote'], added: [], removed: [] })
+    expect(quoteKeys()).toEqual([])
+    expect(harness.memory.state.events.filter((event) => event.processKey === 'test.deal').map((event) => event.activityKey)).toEqual(['created', 'status:open', `stageId:${STAGE_A}`, 'status:won'])
+    expect(result.scanStarted).toEqual(expect.objectContaining({ kind: 'full_reconcile', processKeys: ['test.quote'], from: shiftIso(at(0), -XRAY_SETTLE_MS) }))
+    const cursor = harness.memory.state.cursors[0]
+    expect(cursor.contractHashes?.['test.deal']).toBe(hashesBefore['test.deal'])
+    expect(cursor.contractHashes?.['test.quote']).not.toBe(hashesBefore['test.quote'])
+    expect(cursor).toEqual(expect.objectContaining({ pendingRebuildKeys: [], scanProcessKeys: ['test.quote'], contractChange: { changed: ['test.quote'], added: [], removed: [] } }))
+    expect(cursor.contractChangedAt).toBe(at(32 * MINUTE))
+
+    harness.logSource.scanCalls.length = 0
+    const rebuilt = await runScanSlice(harness.deps, SCOPE, cursor.scanId ?? '', cursor.scanChainId ?? '')
+    expect(rebuilt.status).toBe('completed')
+    expect(harness.logSource.scanCalls.length).toBeGreaterThan(0)
+    expect(harness.logSource.scanCalls.every((query) => JSON.stringify(query.resourceKinds) === JSON.stringify(['test.quote']))).toBe(true)
+    expect(quoteKeys()).toEqual(['created', 'status:sent'])
+    expect(cursor).toEqual(expect.objectContaining({ scanId: null, scanProcessKeys: null, lastFullReconciledAt: fullBefore, status: 'idle' }))
+    const steady = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(steady).toEqual(expect.objectContaining({ contractChange: null, scanStarted: null }))
+  })
+
+  it('queues a changed process before clearing it, so a clearing cut short by the budget shows as rebuilding and resumes', async () => {
+    let elapsed = 0
+    const harness = setup({ now: at(0), clock: () => elapsed })
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.rows.push(createRow(DEAL_ID, at(MINUTE)))
+    harness.setNow(at(5 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    const cursor = harness.memory.state.cursors[0]
+    const hashBefore = cursor.contractHashes?.['test.deal']
+    harness.deps.registry = testRegistry(processConfig(dealProcess({ endStates: [{ field: 'status', values: ['open'] }] })))
+    const originalClear = harness.memory.store.clearProjectionBatch
+    harness.deps.store = {
+      ...harness.memory.store,
+      clearProjectionBatch: async (...args) => {
+        const removed = await originalClear(...args)
+        elapsed = 60_000
+        return removed
+      },
+    }
+    const cut = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(cut.status).toBe('budget_exhausted')
+    expect(cursor.pendingRebuildKeys).toEqual(['test.deal'])
+    expect(cursor.contractHashes?.['test.deal']).toBe(hashBefore)
+    elapsed = 0
+    harness.deps.store = harness.memory.store
+    const resumed = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(resumed.contractChange).toEqual({ changed: ['test.deal'], added: [], removed: [] })
+    expect(cursor.contractHashes?.['test.deal']).not.toBe(hashBefore)
+    expect(resumed.scanStarted).toEqual(expect.objectContaining({ processKeys: ['test.deal'] }))
+  })
+
+  it('re-projects the recent rows of a rebuilt process in the same slice (overlap window) without waiting for its scan', async () => {
+    const harness = setup({ now: at(0) })
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.rows.push(createRow(DEAL_ID, at(MINUTE)))
+    harness.setNow(at(5 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.deps.registry = testRegistry(processConfig(dealProcess({ endStates: [{ field: 'status', values: ['open'] }] })))
+    harness.setNow(at(6 * MINUTE))
+    const result = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(result.contractChange).toEqual({ changed: ['test.deal'], added: [], removed: [] })
+    expect(harness.memory.state.events.map((event) => event.activityKey)).toEqual(['created', 'status:open', `stageId:${STAGE_A}`])
+    expect(harness.memory.state.cases).toEqual([expect.objectContaining({ caseId: DEAL_ID, status: 'completed' })])
+  })
+
+  it('schedules a rebuild for an added process, keeps the rows of a removed one and rebuilds it when it comes back', async () => {
+    const harness = setup({ now: at(0) })
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.rows.push(createRow(DEAL_ID, at(MINUTE)), quoteRow(at(MINUTE)))
+    harness.setNow(at(5 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    const dealEvents = () => harness.memory.state.events.filter((event) => event.processKey === 'test.deal').length
+    expect(dealEvents()).toBe(3)
+
+    harness.setNow(at(30 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.deps.registry = testRegistry(processConfig(dealProcess(), quoteProcess()))
+    harness.setNow(at(31 * MINUTE))
+    const added = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(added.contractChange).toEqual({ changed: [], added: ['test.quote'], removed: [] })
+    expect(added.scanStarted).toEqual(expect.objectContaining({ kind: 'full_reconcile', processKeys: ['test.quote'] }))
+    expect(dealEvents()).toBe(3)
+    const cursor = harness.memory.state.cursors[0]
+    expect(await runScanSlice(harness.deps, SCOPE, cursor.scanId ?? '', cursor.scanChainId ?? '')).toEqual(expect.objectContaining({ status: 'completed' }))
+    expect(harness.memory.state.events.filter((event) => event.processKey === 'test.quote').map((event) => event.activityKey)).toEqual(['created', 'status:sent'])
+
+    harness.deps.registry = testRegistry(processConfig(quoteProcess()))
+    harness.setNow(at(32 * MINUTE))
+    const removed = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(removed).toEqual(expect.objectContaining({ status: 'caught_up', contractChange: { changed: [], added: [], removed: ['test.deal'] }, scanStarted: null }))
+    expect(dealEvents()).toBe(3)
+    expect(Object.keys(cursor.contractHashes ?? {})).toEqual(['test.quote'])
+
+    harness.deps.registry = testRegistry(processConfig(dealProcess(), quoteProcess()))
+    harness.setNow(at(33 * MINUTE))
+    const back = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(back.contractChange).toEqual({ changed: [], added: ['test.deal'], removed: [] })
+    expect(dealEvents()).toBe(0)
+    expect(await runScanSlice(harness.deps, SCOPE, cursor.scanId ?? '', cursor.scanChainId ?? '')).toEqual(expect.objectContaining({ status: 'completed' }))
+    expect(dealEvents()).toBe(3)
+  })
+
+  it('rebuilds a process when the tenant starts encrypting one of its declared fields', async () => {
+    const harness = setup({ now: at(0) })
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.rows.push(logRow({
+      createdAt: at(MINUTE),
+      snapshotBefore: { deal: { status: 'open', priority: 'low' } },
+      snapshotAfter: { deal: { status: 'open', priority: 'secret_high' } },
+    }))
+    harness.setNow(at(5 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(harness.memory.state.events.map((event) => event.followupValue)).toEqual(['secret_high'])
+
+    harness.setNow(at(30 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.deps.redactedFields = new Set([valueCapScope('test.deal', 'priority')])
+    harness.setNow(at(31 * MINUTE))
+    const result = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(result.contractChange).toEqual({ changed: ['test.deal'], added: [], removed: [] })
     expect(harness.memory.state.events).toEqual([])
+    const cursor = harness.memory.state.cursors[0]
+    await runScanSlice(harness.deps, SCOPE, cursor.scanId ?? '', cursor.scanChainId ?? '')
+    expect(harness.memory.state.events.map((event) => event.followupValue)).toEqual(['other'])
+  })
+
+  it('waits for a running scan before it starts a process rebuild', async () => {
+    const harness = setup({ now: at(0) })
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    const cursor = harness.memory.state.cursors[0]
+    const scanId = 'abababab-0000-4000-8000-000000000001'
+    await harness.memory.store.startScan(cursor, { scanId, chainId: CHAIN_ID, kind: 'backfill', from: at(-MINUTE), until: at(0), progressJobId: null })
+    harness.deps.registry = testRegistry(processConfig(dealProcess({ endStates: [{ field: 'status', values: ['won'] }] })))
+    harness.setNow(at(MINUTE))
+    const waiting = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(waiting.scanStarted).toBeNull()
+    expect(cursor).toEqual(expect.objectContaining({ scanId, pendingRebuildKeys: ['test.deal'] }))
+    expect(await runScanSlice(harness.deps, SCOPE, scanId, CHAIN_ID)).toEqual(expect.objectContaining({ status: 'completed' }))
+    expect(cursor.pendingRebuildKeys).toEqual(['test.deal'])
+    const started = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    expect(started.scanStarted).toEqual(expect.objectContaining({ processKeys: ['test.deal'] }))
+    expect(cursor.pendingRebuildKeys).toEqual([])
+  })
+
+  it('re-projects a process in a scan slice of a worker whose contract differs, before scanning', async () => {
+    const harness = setup({ now: at(0) })
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    harness.rows.push(createRow(DEAL_ID, at(MINUTE)))
+    harness.setNow(at(5 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 30 })
+    const cursor = harness.memory.state.cursors[0]
+    const scanId = 'abababab-0000-4000-8000-000000000002'
+    await harness.memory.store.startScan(cursor, { scanId, chainId: CHAIN_ID, kind: 'reconcile', from: at(-MINUTE), until: at(4 * MINUTE), progressJobId: null })
+    harness.deps.registry = testRegistry(processConfig(dealProcess({ endStates: [{ field: 'status', values: ['won'] }] })))
+    const result = await runScanSlice(harness.deps, SCOPE, scanId, CHAIN_ID)
+    expect(result).toEqual(expect.objectContaining({ status: 'completed', contractChange: { changed: ['test.deal'], added: [], removed: [] } }))
+    expect(cursor.pendingRebuildKeys).toEqual(['test.deal'])
+    expect(harness.memory.state.events.map((event) => event.activityKey)).toEqual(['created', 'status:open', `stageId:${STAGE_A}`])
   })
 
   it('does nothing without registered processes (module disabled or no declarations)', async () => {
@@ -579,6 +800,63 @@ describe('runIngestSlice — windowed reads', () => {
     expect(harness.memory.state.cursors[0].lastCreatedAt).toBe(shiftIso(at(5 * MINUTE), -XRAY_SETTLE_MS))
   })
 
+  it('reports skipped undecryptable rows and records their count (never values) on the cursor', async () => {
+    reportErrorMock.mockClear()
+    const update = logRow({ createdAt: at(MINUTE), snapshotAfter: { deal: { status: 'secret_value' } } })
+    const harness = setup({ now: at(0), source: { undecryptableIds: new Set([update.logId]) } })
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
+    harness.rows.push(update)
+    harness.setNow(at(5 * MINUTE))
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
+    const cursor = harness.memory.state.cursors[0]
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
+      module: 'insights',
+      code: 'insights.xray_undecryptable_rows',
+      attributes: { rows: 1, phase: 'ingest' },
+    }))
+    expect(JSON.stringify(reportErrorMock.mock.calls[0])).not.toContain('secret_value')
+    expect(cursor.undecryptableRows).toBe(1)
+    expect(cursor.lastError).toMatch(/^\[internal\] .*\b1 audit row/)
+    expect(cursor.lastError).not.toContain('secret_value')
+    expect(cursor.lastError).not.toContain(update.logId)
+    harness.setNow(at(6 * MINUTE))
+    const reread = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
+    expect(reread.undecryptable).toBe(1)
+    expect(cursor.undecryptableRows).toBe(1)
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports rows a backfill skips in the history without counting them again on the cursor', async () => {
+    reportErrorMock.mockClear()
+    const sealed = logRow({ createdAt: at(-2 * 60 * MINUTE) })
+    const harness = setup({ now: at(0), source: { undecryptableIds: new Set([sealed.logId]) } })
+    harness.rows.push(sealed)
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
+    const cursor = harness.memory.state.cursors[0]
+    const scanId = 'abababab-0000-4000-8000-000000000009'
+    await harness.memory.store.startScan(cursor, { scanId, chainId: CHAIN_ID, kind: 'backfill', from: at(-24 * 60 * MINUTE), until: at(0), progressJobId: null })
+    const result = await runScanSlice(harness.deps, SCOPE, scanId, CHAIN_ID)
+    expect(result).toEqual(expect.objectContaining({ status: 'completed', undecryptable: 1 }))
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ code: 'insights.xray_undecryptable_rows', attributes: { rows: 1, phase: 'backfill' } }))
+    expect(cursor.undecryptableRows).toBe(0)
+    expect(cursor.lastError).toMatch(/^\[internal\] .*\b1 audit row/)
+  })
+
+  it('warns and counts an overlap re-read that hit the statement timeout instead of ending silently', async () => {
+    let cursorAt = ''
+    const harness = setup({ now: at(0), source: { timeoutWhen: (query) => cursorAt !== '' && compareIso(query.until, cursorAt) <= 0 } })
+    await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
+    const cursor = harness.memory.state.cursors[0]
+    cursorAt = cursor.lastCreatedAt ?? ''
+    harness.rows.push(createRow(DEAL_ID, at(MINUTE)))
+    harness.setNow(at(5 * MINUTE))
+    const result = await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
+    expect(result).toEqual(expect.objectContaining({ status: 'caught_up', overlapTimedOut: true, inserted: 3 }))
+    expect(cursor).toEqual(expect.objectContaining({ overlapTimeouts: 1, lastOverlapTimeoutAt: at(5 * MINUTE) }))
+  })
+
   it('re-reads the newest minutes before the cursor first', async () => {
     const harness = setup({ now: at(0) })
     await runIngestSlice(harness.deps, SCOPE, { retentionDays: 365 })
@@ -604,7 +882,7 @@ describe('buildPageWrites', () => {
         snapshotBefore: { deal: { status: 'open', ownerUserId: USER_ID, priority: 'low' } },
         snapshotAfter: { deal: { status: 'won', ownerUserId: OTHER_USER_ID, priority: 'secret_high' } },
       }), cursorAt: at(0) },
-    ], new Map([[valueCapScope('test.deal', 'status'), new Set(Array.from({ length: 200 }, (_unused, index) => `v_${index}`))]]))
+    ], new Map([[valueCapScope('test.deal', 'status'), { known: new Set(Array.from({ length: 200 }, (_unused, index) => `v_${index}`)), distinct: 200 }]]))
     expect(writes.events.map((event) => [event.activityKey, event.followupField, event.followupValue])).toEqual([
       ['status:other', 'status', 'other'],
       ['ownerUserId:changed', 'ownerUserId', `tk1:${OTHER_USER_ID.slice(0, 8)}`],
@@ -614,14 +892,81 @@ describe('buildPageWrites', () => {
     expect(harness.resolveActorDimensions).toHaveBeenCalledWith([USER_ID])
   })
 
-  it('loads the stored distinct values once per field before capping', async () => {
+  it('looks up only the incoming values and counts stored distinct values only for an unseen one', async () => {
     const harness = setup({ now: at(0) })
-    const load = jest.spyOn(harness.memory.store, 'loadDistinctValues')
-    const capState = new Map<string, Set<string>>()
+    harness.memory.state.events.push(...['won', 'lost', 'open'].map((value, index) => ({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      processKey: 'test.deal',
+      caseKind: 'test.deal',
+      caseId: DEAL_ID,
+      activityKey: `status:${value}`,
+      activityKind: 'stage',
+      occurredAt: at(-index),
+      sourceLogId: nextLogId(),
+      seq: 0,
+      actorPseudonym: null,
+      actorRoleIds: null,
+      actorTeamId: null,
+      causeKind: 'user',
+      causeId: null,
+      viaSyncRun: false,
+      followupField: 'status',
+      followupValue: value,
+      voided: false,
+      voidedByLogId: null,
+    })))
+    const find = jest.spyOn(harness.memory.store, 'findKnownValues')
+    const count = jest.spyOn(harness.memory.store, 'countDistinctValues')
+    const capState: ValueCapState = new Map()
     await buildPageWrites(harness.deps, SCOPE, [{ ...logRow(), cursorAt: at(0) }, { ...logRow(), cursorAt: at(1) }], capState)
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(load).toHaveBeenCalledWith(SCOPE, 'test.deal', 'status', 201)
-    expect(capState.get(valueCapScope('test.deal', 'status'))).toEqual(new Set(['won']))
+    expect(find).toHaveBeenCalledTimes(1)
+    expect(find).toHaveBeenCalledWith(SCOPE, 'test.deal', 'status', ['won'])
+    expect(count).not.toHaveBeenCalled()
+    expect(capState.get(valueCapScope('test.deal', 'status'))?.known).toEqual(new Set(['won']))
+
+    const fresh = await buildPageWrites(harness.deps, SCOPE, [{
+      ...logRow({ snapshotBefore: { deal: { status: 'open' } }, snapshotAfter: { deal: { status: 'review' } } }),
+      cursorAt: at(2),
+    }], capState)
+    expect(count).toHaveBeenCalledTimes(1)
+    expect(count).toHaveBeenCalledWith(SCOPE, 'test.deal', 'status', 201)
+    expect(fresh.events.map((event) => event.followupValue)).toEqual(['review'])
+    expect(capState.get(valueCapScope('test.deal', 'status'))).toEqual({ known: new Set(['won', 'review']), distinct: 4 })
+    await buildPageWrites(harness.deps, SCOPE, [{ ...logRow({ snapshotBefore: { deal: { status: 'open' } }, snapshotAfter: { deal: { status: 'review' } } }), cursorAt: at(3) }], capState)
+    expect(find).toHaveBeenCalledTimes(2)
+    expect(count).toHaveBeenCalledTimes(1)
+  })
+
+  it('caps a field at 200 stored distinct values even when the cap state starts empty', async () => {
+    const harness = setup({ now: at(0) })
+    harness.memory.state.events.push(...Array.from({ length: 200 }, (_unused, index) => ({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      processKey: 'test.deal',
+      caseKind: 'test.deal',
+      caseId: DEAL_ID,
+      activityKey: `status:v_${index}`,
+      activityKind: 'stage',
+      occurredAt: at(-index),
+      sourceLogId: nextLogId(),
+      seq: 0,
+      actorPseudonym: null,
+      actorRoleIds: null,
+      actorTeamId: null,
+      causeKind: 'user',
+      causeId: null,
+      viaSyncRun: false,
+      followupField: 'status',
+      followupValue: `v_${index}`,
+      voided: false,
+      voidedByLogId: null,
+    })))
+    const writes = await buildPageWrites(harness.deps, SCOPE, [
+      { ...logRow({ snapshotBefore: { deal: { status: 'open' } }, snapshotAfter: { deal: { status: 'v_7' } } }), cursorAt: at(0) },
+      { ...logRow({ snapshotBefore: { deal: { status: 'v_7' } }, snapshotAfter: { deal: { status: 'brand_new' } } }), cursorAt: at(1) },
+    ], new Map())
+    expect(writes.events.map((event) => event.followupValue)).toEqual(['v_7', 'other'])
   })
 
   it('groups undo voids by the undoing row', async () => {

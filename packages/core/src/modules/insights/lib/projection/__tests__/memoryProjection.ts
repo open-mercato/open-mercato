@@ -6,7 +6,7 @@ import type {
   ActionLogStateChangeQuery,
 } from '@open-mercato/core/modules/audit_logs/lib/fieldHistory'
 import { buildCaseAggregate, summarizeCase, CASE_EVENT_LIMIT, type CaseEventRow, type CaseSummary } from '../../process/caseSummary'
-import type { RegisteredProcess } from '../../process/registry'
+import { compareCodeUnits, type RegisteredProcess } from '../../process/registry'
 import {
   MAX_LOG_ID,
   ProjectionLeaseLostError,
@@ -144,7 +144,18 @@ const SCAN_CLEARED = {
   scanAfterLogId: null,
   scanProgressJobId: null,
   scanChainId: null,
+  scanProcessKeys: null,
 } as const
+
+function sortedUnique(values: Iterable<string>): string[] {
+  return Array.from(new Set(values)).sort(compareCodeUnits)
+}
+
+function earlier(left: string | null, right: string | null): string | null {
+  if (!left) return right
+  if (!right) return left
+  return Date.parse(left) <= Date.parse(right) ? left : right
+}
 
 export function createMemoryStore(initialNow: string) {
   const state: MemoryState = { clock: { now: initialNow }, cursors: [], events: [], cases: [], erasures: new Map(), commits: 0 }
@@ -192,6 +203,21 @@ export function createMemoryStore(initialNow: string) {
     }
   }
 
+  function removeRows(lease: ProjectionLease, table: 'insights_process_events' | 'insights_process_cases' | 'insights_process_rollups', batchSize: number, processKey?: string): number {
+    const inScope = (row: { tenantId: string; organizationId: string; processKey: string }) =>
+      row.tenantId === lease.scope.tenantId && row.organizationId === lease.scope.organizationId
+      && (processKey === undefined || row.processKey === processKey)
+    if (table === 'insights_process_rollups') return 0
+    if (table === 'insights_process_events') {
+      const doomed = new Set(state.events.filter(inScope).slice(0, batchSize))
+      state.events = state.events.filter((row) => !doomed.has(row))
+      return doomed.size
+    }
+    const doomed = new Set(state.cases.filter(inScope).slice(0, batchSize))
+    state.cases = state.cases.filter((row) => !doomed.has(row))
+    return doomed.size
+  }
+
   function applyScanStart(stored: ProjectionCursor, scan: ScanStart) {
     stored.scanId = scan.scanId
     stored.scanChainId = scan.chainId
@@ -204,7 +230,11 @@ export function createMemoryStore(initialNow: string) {
     stored.scanProcessedCount = 0
     stored.scanStartedAt = state.clock.now
     stored.scanUpdatedAt = state.clock.now
-    if (stored.status !== 'rebuild_required') stored.status = 'backfilling'
+    const processKeys = scan.processKeys ? sortedUnique(scan.processKeys) : null
+    stored.pendingRebuildKeys = sortedUnique([...stored.pendingRebuildKeys, ...(stored.scanProcessKeys ?? [])])
+      .filter((key) => !(processKeys ?? []).includes(key))
+    stored.scanProcessKeys = processKeys
+    stored.status = 'backfilling'
   }
 
   const store: ProjectionStore = {
@@ -215,7 +245,7 @@ export function createMemoryStore(initialNow: string) {
       const cursor = cursorFor(scope)
       return cursor ? { ...cursor } : null
     },
-    async ensureCursor(scope, contractHash, settleMs) {
+    async ensureCursor(scope, settleMs) {
       if (!cursorFor(scope)) {
         cursorSequence += 1
         const start = shift(state.clock.now, -settleMs)
@@ -238,7 +268,16 @@ export function createMemoryStore(initialNow: string) {
           leaseOwner: null,
           leaseToken: 0,
           leaseUntil: null,
-          contractHash,
+          contractHashes: null,
+          pendingRebuildKeys: [],
+          scanProcessKeys: null,
+          contractChangedAt: null,
+          contractChange: null,
+          coverageFrom: start,
+          historyScannedAt: null,
+          undecryptableRows: 0,
+          overlapTimeouts: 0,
+          lastOverlapTimeoutAt: null,
           status: 'idle',
           lastRunAt: null,
           lastError: null,
@@ -306,14 +345,16 @@ export function createMemoryStore(initialNow: string) {
         if (process) recompute(scope, process, caseId)
       }
       applyAdvance(cursor, batch.advance)
+      cursor.undecryptableRows += Math.max(0, Math.trunc(batch.undecryptable ?? 0))
       cursor.leaseUntil = shift(state.clock.now, leaseMs)
       state.commits += 1
       return { inserted, voided, casesRecomputed: touched.size, casesRemoved: 0 }
     },
     async updateCursor(lease, leaseMs, values) {
       const cursor = fence(lease)
-      const update = values as { last_pruned_at?: unknown; actor_key_fingerprint?: unknown; last_error?: unknown }
+      const update = values as { last_pruned_at?: unknown; actor_key_fingerprint?: unknown; last_error?: unknown; contract_hashes?: unknown }
       if (update.last_pruned_at instanceof Date) cursor.lastPrunedAt = microIso(update.last_pruned_at)
+      if (typeof update.contract_hashes === 'string') cursor.contractHashes = JSON.parse(update.contract_hashes) as Record<string, string>
       if (typeof update.actor_key_fingerprint === 'string') cursor.actorKeyFingerprint = update.actor_key_fingerprint
       if (typeof update.last_error === 'string') cursor.lastError = update.last_error
       cursor.leaseUntil = shift(state.clock.now, leaseMs)
@@ -346,32 +387,74 @@ export function createMemoryStore(initialNow: string) {
     async finishScan(lease, _leaseMs, scanId, chainId, kind) {
       const cursor = fence(lease)
       if (cursor.scanId !== scanId || cursor.scanChainId !== chainId) return false
+      const everyProcess = cursor.scanProcessKeys === null
+      const scanFrom = cursor.scanFrom
       Object.assign(cursor, SCAN_CLEARED)
-      cursor.lastReconciledAt = state.clock.now
-      if (kind !== 'reconcile') cursor.lastFullReconciledAt = state.clock.now
-      if (cursor.status !== 'rebuild_required') cursor.status = 'idle'
+      if (everyProcess) {
+        cursor.lastReconciledAt = state.clock.now
+        if (kind !== 'reconcile') {
+          cursor.lastFullReconciledAt = state.clock.now
+          cursor.historyScannedAt = state.clock.now
+          cursor.coverageFrom = earlier(cursor.coverageFrom, scanFrom)
+        }
+      }
+      cursor.status = 'idle'
       return true
     },
     async abandonScan(scope, scanId, chainId, error) {
       const cursor = cursorFor(scope)
       if (!cursor || cursor.scanId !== scanId || cursor.scanChainId !== chainId) return null
       const progressJobId = cursor.scanProgressJobId
-      if (cursor.scanKind === 'reconcile' || cursor.scanKind === 'full_reconcile') cursor.lastReconciledAt = state.clock.now
-      if (cursor.scanKind === 'full_reconcile') cursor.lastFullReconciledAt = state.clock.now
+      if (cursor.scanProcessKeys === null) {
+        if (cursor.scanKind === 'reconcile' || cursor.scanKind === 'full_reconcile') cursor.lastReconciledAt = state.clock.now
+        if (cursor.scanKind === 'full_reconcile') cursor.lastFullReconciledAt = state.clock.now
+      } else {
+        cursor.pendingRebuildKeys = sortedUnique([...cursor.pendingRebuildKeys, ...cursor.scanProcessKeys])
+      }
       Object.assign(cursor, SCAN_CLEARED)
       cursor.lastError = error
-      if (cursor.status !== 'rebuild_required') cursor.status = 'idle'
+      cursor.status = 'idle'
       return { progressJobId }
     },
-    async markRebuildRequired(cursor) {
-      const stored = state.cursors.find((candidate) => candidate.id === cursor.id)
-      if (stored) stored.status = 'rebuild_required'
+    async applyContractTransition(lease, leaseMs, transition) {
+      const cursor = fence(lease)
+      const registered = new Set(Object.keys(transition.hashes))
+      cursor.contractHashes = Object.fromEntries(Object.entries(transition.hashes).sort(([left], [right]) => compareCodeUnits(left, right)))
+      cursor.pendingRebuildKeys = sortedUnique([...cursor.pendingRebuildKeys, ...transition.rebuild]).filter((key) => registered.has(key))
+      if (transition.change) {
+        cursor.contractChangedAt = state.clock.now
+        cursor.contractChange = {
+          changed: sortedUnique(transition.change.changed),
+          added: sortedUnique(transition.change.added),
+          removed: sortedUnique(transition.change.removed),
+        }
+      }
+      cursor.leaseUntil = shift(state.clock.now, leaseMs)
+      return { ...cursor }
+    },
+    async queueProcessRebuilds(lease, leaseMs, processKeys) {
+      const cursor = fence(lease)
+      cursor.pendingRebuildKeys = sortedUnique([...cursor.pendingRebuildKeys, ...processKeys])
+      cursor.leaseUntil = shift(state.clock.now, leaseMs)
+    },
+    async noteOverlapTimeout(lease, leaseMs) {
+      const cursor = fence(lease)
+      cursor.overlapTimeouts += 1
+      cursor.lastOverlapTimeoutAt = state.clock.now
+      cursor.leaseUntil = shift(state.clock.now, leaseMs)
     },
     async recordError(cursor, error) {
       const stored = state.cursors.find((candidate) => candidate.id === cursor.id)
       if (stored) stored.lastError = error
     },
-    async loadDistinctValues(scope, processKey, field, limit) {
+    async findKnownValues(scope, processKey, field, values) {
+      const stored = new Set(state.events
+        .filter((event) => event.tenantId === scope.tenantId && event.organizationId === scope.organizationId)
+        .filter((event) => event.processKey === processKey && event.followupField === field && event.followupValue !== null)
+        .map((event) => event.followupValue))
+      return sortedUnique(values).filter((value) => stored.has(value))
+    },
+    async countDistinctValues(scope, processKey, field, limit) {
       const values = new Set<string>()
       for (const event of state.events) {
         if (event.tenantId !== scope.tenantId || event.organizationId !== scope.organizationId) continue
@@ -379,14 +462,11 @@ export function createMemoryStore(initialNow: string) {
         if (event.followupValue === 'other' || event.followupValue === 'none') continue
         values.add(event.followupValue)
       }
-      return Array.from(values).slice(0, limit)
+      return Math.min(limit, values.size)
     },
-    async clearProjectionBatch(lease) {
+    async clearProjectionBatch(lease, _leaseMs, table, batchSize, processKey) {
       fence(lease)
-      const before = state.events.length + state.cases.length
-      state.events = state.events.filter((event) => !(event.tenantId === lease.scope.tenantId && event.organizationId === lease.scope.organizationId))
-      state.cases = state.cases.filter((row) => !(row.tenantId === lease.scope.tenantId && row.organizationId === lease.scope.organizationId))
-      return before - state.events.length - state.cases.length
+      return removeRows(lease, table, batchSize, processKey)
     },
     async pruneProjectionBatch(lease, _leaseMs, table, cutoff) {
       fence(lease)
@@ -395,19 +475,46 @@ export function createMemoryStore(initialNow: string) {
       state.events = state.events.filter((event) => Date.parse(event.occurredAt) >= Date.parse(cutoff))
       return before - state.events.length
     },
-    async resetCursor(lease, _leaseMs, contractHash) {
+    async resetCursor(lease, _leaseMs, settleMs) {
       const cursor = fence(lease)
+      const start = shift(state.clock.now, -settleMs)
       Object.assign(cursor, SCAN_CLEARED)
-      cursor.contractHash = contractHash
+      cursor.lastCreatedAt = start
+      cursor.lastLogId = MAX_LOG_ID
+      cursor.stateWatermark = start
+      cursor.stateLastLogId = MAX_LOG_ID
+      cursor.scanProcessedCount = 0
+      cursor.scanStartedAt = null
+      cursor.scanUpdatedAt = null
       cursor.actorKeyFingerprint = null
+      cursor.contractHashes = null
+      cursor.pendingRebuildKeys = []
+      cursor.contractChangedAt = null
+      cursor.contractChange = null
+      cursor.coverageFrom = start
+      cursor.historyScannedAt = null
+      cursor.lastFullReconciledAt = null
+      cursor.undecryptableRows = 0
+      cursor.overlapTimeouts = 0
+      cursor.lastOverlapTimeoutAt = null
       cursor.status = 'idle'
       cursor.lastError = null
     },
     async counts() {
       return []
     },
-    async listCursors() {
-      return state.cursors.map((cursor) => ({ ...cursor }))
+    async listCursors(filter) {
+      const all = [...state.cursors].sort((left, right) => compareCodeUnits(left.tenantId, right.tenantId) || compareCodeUnits(left.organizationId, right.organizationId))
+      if ('allTenants' in filter) {
+        const after = filter.after
+        const page = after
+          ? all.filter((cursor) => compareCodeUnits(cursor.tenantId, after.tenantId) > 0 || (cursor.tenantId === after.tenantId && compareCodeUnits(cursor.organizationId, after.organizationId) > 0))
+          : all
+        return page.slice(0, filter.limit ?? 500).map((cursor) => ({ ...cursor }))
+      }
+      return all
+        .filter((cursor) => cursor.tenantId === filter.tenantId && (!filter.organizationId || cursor.organizationId === filter.organizationId))
+        .map((cursor) => ({ ...cursor }))
     },
     async recordErasure(tenantId, userId) {
       const key = erasureKey(tenantId, userId)
@@ -434,8 +541,7 @@ export function createMemoryStore(initialNow: string) {
             event.actorPseudonym = input.replacement
             updated += 1
           }
-          const userField = input.userValueFields.some((target) => target.processKey === event.processKey && target.field === event.followupField)
-          if (userField && event.followupValue === input.pseudonym) {
+          if (event.followupField !== null && event.followupValue === input.pseudonym) {
             event.followupValue = input.replacement
             updated += 1
           }

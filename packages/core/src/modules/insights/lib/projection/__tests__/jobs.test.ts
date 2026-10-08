@@ -235,15 +235,24 @@ describe('startXrayBackfill', () => {
     expect(enqueueXrayBackfill).toHaveBeenCalledTimes(1)
   })
 
-  it('refuses when ingest is disabled, nothing is declared or the contract changed', async () => {
+  it('refuses when ingest is disabled or nothing is declared, and starts over outdated contracts (the scan rebuilds them)', async () => {
     isXrayIngestEnabled.mockResolvedValueOnce(false)
     expect(await startXrayBackfill(container(null), SCOPE, LABELS)).toEqual({ ok: false, reason: 'disabled' })
     registry = buildProcessRegistrySnapshot([], [])
     expect(await startXrayBackfill(container(null), SCOPE, LABELS)).toEqual({ ok: false, reason: 'no_processes' })
     registry = testRegistry()
-    await memory.store.ensureCursor(SCOPE, 'old-hash', 60_000)
-    expect(await startXrayBackfill(container(null), SCOPE, LABELS)).toEqual({ ok: false, reason: 'rebuild_required' })
-    expect(memory.state.cursors[0].status).toBe('rebuild_required')
+    await memory.store.ensureCursor(SCOPE, 60_000)
+    memory.state.cursors[0].contractHashes = { 'test.deal': 'old-hash' }
+    const started = await startXrayBackfill(container(null), SCOPE, LABELS)
+    expect(started.ok).toBe(true)
+    if (!started.ok) throw new Error('[internal] backfill should start')
+    expect(await runXrayBackfillJob(container(null), { scope: { ...SCOPE, userId: USER_ID }, scanId: started.scanId, chainId: started.chainId, progressJobId: null })).toBe('completed')
+    expect(memory.state.cursors[0]).toEqual(expect.objectContaining({
+      contractHashes: { 'test.deal': expect.any(String) },
+      contractChange: { changed: ['test.deal'], added: [], removed: [] },
+      pendingRebuildKeys: ['test.deal'],
+    }))
+    expect(memory.state.cursors[0].contractHashes?.['test.deal']).not.toBe('old-hash')
   })
 })
 
@@ -364,16 +373,49 @@ describe('runXrayBackfillJob', () => {
 })
 
 describe('rebuild and erasure', () => {
-  it('clears the projection, adopts the current contract and starts a backfill', async () => {
-    await memory.store.ensureCursor(SCOPE, 'old-hash', 60_000)
-    memory.state.cursors[0].status = 'rebuild_required'
+  it('clears the projection, resets the contracts for adoption and starts a backfill', async () => {
+    await memory.store.ensureCursor(SCOPE, 60_000)
+    Object.assign(memory.state.cursors[0], { contractHashes: { 'test.deal': 'old-hash' }, pendingRebuildKeys: ['test.deal'] })
+    memory.state.events.push(projectedEvent(`tk1:${USER_ID}`))
     const result = await rebuildXrayProjection(container(progressService()), SCOPE, LABELS)
     expect(result.ok).toBe(true)
-    expect(memory.state.cursors[0]).toEqual(expect.objectContaining({ contractHash: registry.contractHash, status: 'backfilling' }))
+    expect(memory.state.events).toEqual([])
+    expect(memory.state.cursors[0]).toEqual(expect.objectContaining({ contractHashes: null, pendingRebuildKeys: [], status: 'backfilling', scanKind: 'backfill' }))
+  })
+
+  it('leaves a full reconciliation due when the backfill of a rebuild fails to start', async () => {
+    await runXrayIngestJob(container(null), SCOPE)
+    memory.state.events.push(projectedEvent(`tk1:${USER_ID}`))
+    const progress = progressService()
+    progress.createJob.mockRejectedValueOnce(new Error('progress store down'))
+    await expect(rebuildXrayProjection(container(progress), SCOPE, LABELS)).rejects.toThrow('progress store down')
+    expect(memory.state.events).toEqual([])
+    expect(memory.state.cursors[0]).toEqual(expect.objectContaining({ scanId: null, lastFullReconciledAt: null, contractHashes: null }))
+    enqueueXrayBackfill.mockClear()
+    const next = await runXrayIngestJob(container(null), SCOPE)
+    expect(next).toEqual(expect.objectContaining({ status: 'caught_up', scanStarted: expect.objectContaining({ kind: 'full_reconcile' }) }))
+    expect(next.status === 'caught_up' && next.scanStarted?.processKeys).toBeFalsy()
+    expect(memory.state.cursors[0]).toEqual(expect.objectContaining({ scanKind: 'full_reconcile', scanFrom: '2026-09-08T10:00:00.000000Z' }))
+    expect(enqueueXrayBackfill).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves every process to be cleared and rebuilt when the clearing of a rebuild fails midway', async () => {
+    await runXrayIngestJob(container(null), SCOPE)
+    memory.state.events.push(projectedEvent(`tk1:${USER_ID}`))
+    jest.spyOn(memory.store, 'clearProjectionBatch').mockRejectedValueOnce(new Error('connection reset'))
+    await expect(rebuildXrayProjection(container(progressService()), SCOPE, LABELS)).rejects.toThrow('connection reset')
+    expect(memory.state.cursors[0].contractHashes).toEqual({})
+    expect(memory.state.events).toHaveLength(1)
+    const next = await runXrayIngestJob(container(null), SCOPE)
+    expect(next).toEqual(expect.objectContaining({
+      contractChange: { changed: [], added: ['test.deal'], removed: [] },
+      scanStarted: expect.objectContaining({ kind: 'full_reconcile', processKeys: ['test.deal'] }),
+    }))
+    expect(memory.state.events).toEqual([])
   })
 
   it('refuses to rebuild while another worker holds the lease', async () => {
-    const cursor = await memory.store.ensureCursor(SCOPE, registry.contractHash, 60_000)
+    const cursor = await memory.store.ensureCursor(SCOPE, 60_000)
     await memory.store.acquireLease(cursor, 'other', 120_000)
     expect(await rebuildXrayProjection(container(null), SCOPE, LABELS)).toEqual({ ok: false, reason: 'lease_busy' })
   })

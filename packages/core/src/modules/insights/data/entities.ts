@@ -1,7 +1,7 @@
 import { BigIntType, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
-export const PROCESS_CURSOR_STATUSES = ['idle', 'backfilling', 'rebuild_required'] as const
+export const PROCESS_CURSOR_STATUSES = ['idle', 'backfilling'] as const
 
 export type ProcessCursorStatus = (typeof PROCESS_CURSOR_STATUSES)[number]
 
@@ -17,15 +17,19 @@ export type AutomationSuggestionStatus = (typeof AUTOMATION_SUGGESTION_STATUSES)
  * Per-organization ingest state of the Process X-Ray projection. The incremental cursor
  * walks `action_logs` on `(created_at, id)`; the state watermark walks undo/redo state
  * changes on `(updated_at, id)`; the `scan_*` columns hold one resumable range scan
- * (backfill or reconciliation) and `scan_chain_id` the single job chain allowed to advance
- * it. `actor_key_fingerprint` pins the pseudonym key the organization's rows were written
- * under. Every projection write runs under the CAS lease and is fenced by `lease_token`,
- * which only ever increases.
+ * (backfill or reconciliation, optionally limited to `scan_process_keys`) and `scan_chain_id`
+ * the single job chain allowed to advance it. `contract_hashes` maps each projected process to
+ * the contract its rows were written under (null until the first slice adopts the current
+ * ones); a changed or added process is cleared and queued in `pending_rebuild_keys` for a
+ * process-limited full reconciliation. `coverage_from` / `history_scanned_at` tell how far
+ * back the projection is complete. `actor_key_fingerprint` pins the pseudonym key the
+ * organization's rows were written under. Every projection write runs under the CAS lease
+ * and is fenced by `lease_token`, which only ever increases.
  */
 @Entity({ tableName: 'insights_process_cursors' })
 @Unique({ name: 'insights_process_cursors_scope_unique', properties: ['tenantId', 'organizationId'] })
 export class InsightsProcessCursor {
-  [OptionalProps]?: 'status' | 'leaseToken' | 'scanProcessedCount' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'status' | 'leaseToken' | 'scanProcessedCount' | 'pendingRebuildKeys' | 'undecryptableRows' | 'overlapTimeouts' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -102,8 +106,35 @@ export class InsightsProcessCursor {
   @Property({ name: 'lease_until', type: Date, nullable: true })
   leaseUntil: Date | null = null
 
-  @Property({ name: 'contract_hash', type: 'text', nullable: true })
-  contractHash: string | null = null
+  @Property({ name: 'contract_hashes', type: 'jsonb', nullable: true })
+  contractHashes: Record<string, string> | null = null
+
+  @Property({ name: 'pending_rebuild_keys', type: 'jsonb', default: [] })
+  pendingRebuildKeys: string[] = []
+
+  @Property({ name: 'scan_process_keys', type: 'jsonb', nullable: true })
+  scanProcessKeys: string[] | null = null
+
+  @Property({ name: 'contract_changed_at', type: Date, nullable: true })
+  contractChangedAt: Date | null = null
+
+  @Property({ name: 'contract_change', type: 'jsonb', nullable: true })
+  contractChange: { changed: string[]; added: string[]; removed: string[] } | null = null
+
+  @Property({ name: 'coverage_from', type: Date, nullable: true })
+  coverageFrom: Date | null = null
+
+  @Property({ name: 'history_scanned_at', type: Date, nullable: true })
+  historyScannedAt: Date | null = null
+
+  @Property({ name: 'undecryptable_rows', type: new BigIntType('number'), default: 0 })
+  undecryptableRows: number = 0
+
+  @Property({ name: 'overlap_timeouts', type: new BigIntType('number'), default: 0 })
+  overlapTimeouts: number = 0
+
+  @Property({ name: 'last_overlap_timeout_at', type: Date, nullable: true })
+  lastOverlapTimeoutAt: Date | null = null
 
   @Property({ name: 'status', type: 'text', default: 'idle' })
   status: ProcessCursorStatus = 'idle'
@@ -133,6 +164,7 @@ export class InsightsProcessCursor {
 @Index({ name: 'insights_process_events_window_idx', properties: ['tenantId', 'organizationId', 'processKey', 'occurredAt'] })
 @Index({ name: 'insights_process_events_value_idx', properties: ['tenantId', 'organizationId', 'processKey', 'followupField', 'followupValue'] })
 @Index({ name: 'insights_process_events_actor_idx', properties: ['tenantId', 'actorPseudonym'] })
+@Index({ name: 'insights_process_events_occurred_idx', properties: ['tenantId', 'organizationId', 'occurredAt'] })
 export class InsightsProcessEvent {
   [OptionalProps]?: 'voided' | 'viaSyncRun' | 'createdAt'
 
@@ -236,6 +268,7 @@ export class InsightsProcessErasure {
 @Unique({ name: 'insights_process_cases_case_unique', properties: ['tenantId', 'organizationId', 'processKey', 'caseId'] })
 @Index({ name: 'insights_process_cases_activity_idx', properties: ['tenantId', 'organizationId', 'processKey', 'lastActivityAt'] })
 @Index({ name: 'insights_process_cases_variant_idx', properties: ['tenantId', 'organizationId', 'processKey', 'variantHash'] })
+@Index({ name: 'insights_process_cases_retention_idx', properties: ['tenantId', 'organizationId', 'lastActivityAt'] })
 export class InsightsProcessCase {
   [OptionalProps]?: 'truncated' | 'createdAt' | 'updatedAt'
 

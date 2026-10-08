@@ -22,6 +22,10 @@ export type ActionLogExecutionState = 'done' | 'undoing' | 'undone' | 'failed' |
   name: 'action_logs_state_change_idx',
   expression: `create index "action_logs_state_change_idx" on "action_logs" ("tenant_id", "organization_id", "updated_at", "id") where "execution_state" in ('undone', 'redone')`,
 })
+@Index({
+  name: 'action_logs_scan_idx',
+  expression: `create index "action_logs_scan_idx" on "action_logs" ("tenant_id", "organization_id", "created_at", "id") where "deleted_at" is null`,
+})
 export class ActionLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

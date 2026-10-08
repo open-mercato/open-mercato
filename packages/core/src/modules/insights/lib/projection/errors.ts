@@ -1,5 +1,6 @@
 const DATABASE_ERROR_CODE_PATTERN = /^[0-9A-Z]{5}$/
 const STATEMENT_TIMEOUT_CODE = '57014'
+const LOCK_NOT_AVAILABLE_CODE = '55P03'
 const INTERNAL_MESSAGE_PREFIX = '[internal] '
 const MAX_CAUSE_DEPTH = 4
 const MAX_DESCRIPTION_LENGTH = 500
@@ -14,6 +15,11 @@ function readDatabaseErrorCode(error: unknown, depth = 0): string | null {
 /** Whether PostgreSQL cancelled the statement on its `statement_timeout` (SQLSTATE 57014). */
 export function isStatementTimeoutError(error: unknown): boolean {
   return readDatabaseErrorCode(error) === STATEMENT_TIMEOUT_CODE
+}
+
+/** Whether PostgreSQL gave up waiting for a lock on its `lock_timeout` (SQLSTATE 55P03). */
+export function isLockTimeoutError(error: unknown): boolean {
+  return readDatabaseErrorCode(error) === LOCK_NOT_AVAILABLE_CODE
 }
 
 /**

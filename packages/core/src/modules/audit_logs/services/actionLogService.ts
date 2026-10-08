@@ -17,6 +17,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { decryptWithAesGcm, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import type { TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
@@ -228,6 +229,41 @@ export function hasUndecryptedColumn(row: Record<string, unknown>): boolean {
   return SCANNED_ENCRYPTED_COLUMNS.some((column) => isEncryptedPayloadShape(row[column]))
 }
 
+const SCANNED_COLUMN_PROPERTIES: Record<(typeof SCANNED_ENCRYPTED_COLUMNS)[number], string> = {
+  command_id: 'commandId',
+  snapshot_before: 'snapshotBefore',
+  snapshot_after: 'snapshotAfter',
+  changes_json: 'changesJson',
+  context_json: 'contextJson',
+}
+
+/**
+ * Opens whole columns that are still sealed although `dekKey` opens them (e.g. a column the
+ * tenant's encryption map no longer lists, which the map-driven decryption skips).
+ */
+function openSealedColumnsWith(row: Record<string, unknown>, dekKey: string): Record<string, unknown> {
+  const opened: Record<string, unknown> = { ...row }
+  for (const column of SCANNED_ENCRYPTED_COLUMNS) {
+    const value = opened[column]
+    if (!isEncryptedPayloadShape(value)) continue
+    const decrypted = decryptWithAesGcm(value, dekKey)
+    if (decrypted === null) continue
+    const restored = column === 'command_id' ? decrypted : parseDecryptedFieldValue(decrypted)
+    opened[column] = restored
+    opened[SCANNED_COLUMN_PROPERTIES[column]] = restored
+  }
+  return opened
+}
+
+type DecryptedEntryWithKey<T> = {
+  entry: T
+  dek: TenantDek | null
+}
+
+type ScannedEntryDecryption =
+  | { sealedUnderAnotherKey: false; entry: Record<string, unknown> }
+  | { sealedUnderAnotherKey: true }
+
 function isUuidValue(value: unknown): value is string {
   return typeof value === 'string' && SCHEMA_UUID_REGEX.test(value)
 }
@@ -251,8 +287,31 @@ export class ActionLogService {
   }
 
   private async decryptEntryPayloadStrict<T extends Record<string, unknown>>(entry: T): Promise<T> {
+    return (await this.decryptEntryPayloadWithKey(entry)).entry
+  }
+
+  /**
+   * Decrypts one entry for a scan without ever dropping data a retry could recover. Throws
+   * `ActionLogDecryptionUnavailableError` when tenant data encryption is on but the service is
+   * missing or disabled, or when a whole encrypted column stays sealed although no data key was
+   * obtained. A sealed whole column the obtained key opens is opened here; only a column the
+   * obtained key cannot open is reported as sealed under another key.
+   */
+  private async decryptScannedEntry(row: Record<string, unknown>): Promise<ScannedEntryDecryption> {
+    if (isTenantDataEncryptionEnabled() && !this.tenantEncryptionService?.isEnabled()) {
+      throw new ActionLogDecryptionUnavailableError()
+    }
+    const { entry, dek } = await this.decryptEntryPayloadWithKey(row)
+    if (!hasUndecryptedColumn(entry)) return { sealedUnderAnotherKey: false, entry }
+    if (!dek) throw new ActionLogDecryptionUnavailableError()
+    const opened = openSealedColumnsWith(entry, dek.key)
+    if (!hasUndecryptedColumn(opened)) return { sealedUnderAnotherKey: false, entry: opened }
+    return { sealedUnderAnotherKey: true }
+  }
+
+  private async decryptEntryPayloadWithKey<T extends Record<string, unknown>>(entry: T): Promise<DecryptedEntryWithKey<T>> {
     const encryption = this.tenantEncryptionService
-    if (!encryption?.isEnabled()) return entry
+    if (!encryption?.isEnabled()) return { entry, dek: null }
     const tenantId = readString(entry, 'tenantId', 'tenant_id')
     const organizationId = readString(entry, 'organizationId', 'organization_id')
     const dek = await encryption.getDek(tenantId)
@@ -306,7 +365,7 @@ export class ActionLogService {
     merged.contextJson = deepDecrypt(restoreJson(merged.contextJson ?? merged.context_json ?? entry.contextJson ?? entry.context_json))
     merged.context_json = merged.contextJson
 
-    return merged as T
+    return { entry: merged as T, dek }
   }
 
   private async decryptEntries(entries: ActionLog | ActionLog[] | null | undefined): Promise<void> {
@@ -1118,10 +1177,16 @@ export class ActionLogService {
    * and decrypted per call. `resourceKinds`, when given, narrows the scan to those kinds (an
    * empty list returns nothing). Runs under the 5 s history statement timeout.
    *
-   * Strict about decryption: with tenant data encryption enabled and no usable encryption
-   * service it throws `ActionLogDecryptionUnavailableError` instead of returning ciphertext,
-   * and a row whose encrypted column still cannot be opened is left out of `entries` and
-   * counted in `undecryptable`.
+   * Strict about decryption, so a caller that advances to `lastCursor` never skips a row a
+   * retry could still read. It throws `ActionLogDecryptionUnavailableError` (before the probe
+   * and again for every loaded row) while tenant data encryption is enabled but the encryption
+   * service is missing or disabled, and for any row whose whole encrypted column
+   * (`command_id`, `snapshot_before`, `snapshot_after`, `changes_json`, `context_json`) is still
+   * sealed when no data key was obtained for it (lookup returned nothing, or the service is
+   * missing or disabled, including with the encryption toggle off). A sealed whole column the
+   * obtained key opens (e.g. one the tenant's map no longer lists) is opened. Only a row whose
+   * sealed column the obtained data key cannot open (sealed under another key) is left out of
+   * `entries` and counted in `undecryptable`; `lastCursor` moves past it.
    */
   async scanDecrypted(query: ActionLogScanQuery): Promise<ActionLogScanPage> {
     const empty: ActionLogScanPage = { entries: [], lastCursor: null, exhausted: true, payloadBytes: 0, undecryptable: 0 }
@@ -1201,12 +1266,12 @@ export class ActionLogService {
     const entries: ActionLogFieldHistoryEntry[] = []
     let undecryptable = 0
     for (const row of scanned.rows) {
-      const decrypted = await this.decryptEntryPayloadStrict({ ...row } as Record<string, unknown>)
-      if (hasUndecryptedColumn(decrypted)) {
+      const decryption = await this.decryptScannedEntry({ ...row } as Record<string, unknown>)
+      if (decryption.sealedUnderAnotherKey) {
         undecryptable += 1
         continue
       }
-      entries.push(mapFieldHistoryRow(decrypted, row.cursor_at))
+      entries.push(mapFieldHistoryRow(decryption.entry, row.cursor_at))
     }
     return {
       entries,

@@ -23,10 +23,17 @@ import {
 const logger = createLogger('insights').child({ component: 'process-registry' })
 
 /**
- * Version of the derivation rules in `lib/process/activities.ts`. Part of the contract hash,
- * so a change to how activities are derived marks every organization `rebuild_required`.
+ * Version of the derivation rules in `lib/process/activities.ts`. Part of every process
+ * contract hash, so a change to how activities are derived re-projects every process of every
+ * organization (per-process self-healing rebuild on the next ingest slice).
  */
-export const PROCESS_DERIVATION_VERSION = 1
+export const PROCESS_DERIVATION_VERSION = 2
+
+/** Locale-independent ordering (UTF-16 code units) for everything that feeds hashing or ordering. */
+export function compareCodeUnits(left: string, right: string): number {
+  if (left === right) return 0
+  return left < right ? -1 : 1
+}
 
 export type ProcessConfigRegistrationEntry = {
   moduleId: string
@@ -84,6 +91,8 @@ export type ProcessRegistrySnapshot = {
   actorDimensions: Map<ProcessActorDimensionKind, RegisteredActorDimensionProvider>
   rejected: ProcessRegistryRejection[]
   contractHash: string
+  /** Contract hash of each registered process (derivation version + its definition), in key order. */
+  processContractHashes: ReadonlyMap<string, string>
   logResourceKinds: string[]
 }
 
@@ -181,17 +190,32 @@ function entityModuleId(entityId: string): string {
   return entityId.slice(0, entityId.indexOf(':'))
 }
 
+function resourceKindModuleId(resourceKind: string): string {
+  const separator = resourceKind.indexOf('.')
+  return separator < 0 ? resourceKind : resourceKind.slice(0, separator)
+}
+
+type GuardTarget = {
+  entityId: string
+  resourceKinds: readonly string[]
+}
+
+/**
+ * Encrypted field names a declared field must not read: the declared entity's map and every
+ * map of the declaring module, of the entity's module and of each module whose audit rows the
+ * declaration reads (its resource kind and logged resource kinds).
+ */
 function findEncryptedField(
   field: RegisteredProcessField,
-  entityId: string,
+  target: GuardTarget,
   moduleId: string,
   index: EncryptionIndex,
 ): string | null {
-  const encrypted = new Set<string>([
-    ...Array.from(index.byEntity.get(entityId) ?? []),
-    ...Array.from(index.byModule.get(moduleId) ?? []),
-    ...Array.from(index.byModule.get(entityModuleId(entityId)) ?? []),
-  ])
+  const modules = new Set<string>([moduleId, entityModuleId(target.entityId), ...target.resourceKinds.map(resourceKindModuleId)])
+  const encrypted = new Set<string>(index.byEntity.get(target.entityId) ?? [])
+  for (const owner of modules) {
+    for (const name of index.byModule.get(owner) ?? []) encrypted.add(name)
+  }
   if (encrypted.size === 0) return null
   for (const candidate of fieldNameCandidates(field)) {
     if (encrypted.has(candidate)) return candidate
@@ -250,6 +274,9 @@ function readMilestone(value: unknown, rootLogKinds: readonly string[]): Registe
   const logResourceKinds = readStringList(value.logResourceKinds)
   if (!logResourceKinds) return `milestone ${value.key} has invalid logResourceKinds`
   if (typeof value.entityId !== 'string' || !PROCESS_ENTITY_ID_PATTERN.test(value.entityId)) return `milestone ${value.key} needs an entityId like <module>:<entity>`
+  if (entityModuleId(value.entityId) !== resourceKindModuleId(value.resourceKind)) {
+    return `milestone ${value.key} entityId belongs to another module than its resourceKind`
+  }
   const lifecycle = readLifecycle(value.lifecycle)
   if (!lifecycle) return `milestone ${value.key} has an invalid lifecycle`
   const fields = readFieldList(value.fields)
@@ -318,6 +345,9 @@ function readProcess(
   if (!isNonEmptyString(value.labelKey)) return reject('labelKey is required')
   if (!isNonEmptyString(value.resourceKind)) return reject('resourceKind is required')
   if (typeof value.entityId !== 'string' || !PROCESS_ENTITY_ID_PATTERN.test(value.entityId)) return reject('entityId must look like <module>:<entity>')
+  if (entityModuleId(value.entityId) !== resourceKindModuleId(value.resourceKind)) {
+    return reject('entityId belongs to another module than its resourceKind')
+  }
   const requiredFeatures = readStringList(value.requiredFeatures)
   if (!requiredFeatures || requiredFeatures.length === 0) return reject('requiredFeatures must be a non-empty list')
   const logResourceKinds = readStringList(value.logResourceKinds)
@@ -344,13 +374,15 @@ function readProcess(
   if (exits.some((exit) => milestones.some((milestone) => milestone.key === exit.key))) return reject('an exit key collides with a milestone key')
   const endStates = readEndStates(value.endStates, new Set(stageFields.map((field) => field.key)))
   if (!endStates) return reject('endStates must name declared stage fields and identifier values')
+  const rootTarget: GuardTarget = { entityId: value.entityId, resourceKinds: [value.resourceKind, ...rootLogKinds] }
   for (const field of [...stageFields, ...followupFields]) {
-    const encrypted = findEncryptedField(field, value.entityId, moduleId, index)
+    const encrypted = findEncryptedField(field, rootTarget, moduleId, index)
     if (encrypted) return reject(`field ${field.key} references the encrypted field ${encrypted}`)
   }
   for (const milestone of milestones) {
+    const milestoneTarget: GuardTarget = { entityId: milestone.entityId, resourceKinds: [milestone.resourceKind, ...milestone.logResourceKinds] }
     for (const field of milestone.fields) {
-      const encrypted = findEncryptedField(field, milestone.entityId, moduleId, index)
+      const encrypted = findEncryptedField(field, milestoneTarget, moduleId, index)
       if (encrypted) return reject(`milestone field ${milestone.key}.${field.key} references the encrypted field ${encrypted}`)
     }
   }
@@ -381,41 +413,52 @@ function canonicalField(field: RegisteredProcessField) {
   return { key: field.key, valueKind: field.valueKind, snapshotPaths: field.snapshotPaths, changeKeys: field.changeKeys }
 }
 
-/**
- * Hash of everything that changes the projected rows: the derivation version and, per
- * process, its resource kinds, fields, milestones and end states. Labels and features do
- * not affect projected rows and are excluded.
- */
-export function computeProcessContractHash(processes: readonly RegisteredProcess[]): string {
-  const canonical = {
+function canonicalProcess(process: RegisteredProcess) {
+  return {
     derivation: PROCESS_DERIVATION_VERSION,
-    processes: [...processes]
-      .sort((left, right) => left.processKey.localeCompare(right.processKey))
-      .map((process) => ({
-        processKey: process.processKey,
-        resourceKind: process.resourceKind,
-        logResourceKinds: process.logResourceKinds,
-        entityId: process.entityId,
-        stageFields: process.stageFields.map(canonicalField),
-        followupFields: process.followupFields.map(canonicalField),
-        milestones: process.milestones.map((milestone) => ({
-          key: milestone.key,
-          resourceKind: milestone.resourceKind,
-          logResourceKinds: milestone.logResourceKinds,
-          parentResourceKinds: milestone.parentResourceKinds,
-          lifecycle: milestone.lifecycle,
-          fields: milestone.fields.map(canonicalField),
-        })),
-        exits: process.exits.map((exit) => ({
-          key: exit.key,
-          commandIds: exit.commandIds,
-          logResourceKinds: exit.logResourceKinds,
-          caseIdPaths: exit.caseIdPaths,
-        })),
-        endStates: process.endStates,
-      })),
+    processKey: process.processKey,
+    resourceKind: process.resourceKind,
+    logResourceKinds: process.logResourceKinds,
+    entityId: process.entityId,
+    stageFields: process.stageFields.map(canonicalField),
+    followupFields: process.followupFields.map(canonicalField),
+    milestones: process.milestones.map((milestone) => ({
+      key: milestone.key,
+      resourceKind: milestone.resourceKind,
+      logResourceKinds: milestone.logResourceKinds,
+      parentResourceKinds: milestone.parentResourceKinds,
+      lifecycle: milestone.lifecycle,
+      fields: milestone.fields.map(canonicalField),
+    })),
+    exits: process.exits.map((exit) => ({
+      key: exit.key,
+      commandIds: exit.commandIds,
+      logResourceKinds: exit.logResourceKinds,
+      caseIdPaths: exit.caseIdPaths,
+    })),
+    endStates: process.endStates,
   }
-  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
+}
+
+/**
+ * Contract hash of one process: the derivation version and everything of the declaration that
+ * changes its projected rows (resource kinds, fields, milestones, exits, end states). Labels and
+ * features do not affect projected rows and are excluded. Ingest compares it per process, so a
+ * change rebuilds only that process.
+ */
+export function computeProcessDefinitionHash(process: RegisteredProcess): string {
+  return createHash('sha256').update(JSON.stringify(canonicalProcess(process))).digest('hex')
+}
+
+function sortedProcessHashes(processes: readonly RegisteredProcess[]): Map<string, string> {
+  const sorted = [...processes].sort((left, right) => compareCodeUnits(left.processKey, right.processKey))
+  return new Map(sorted.map((process) => [process.processKey, computeProcessDefinitionHash(process)]))
+}
+
+/** Hash over every process contract hash of a registry (shown in the status; ingest compares per process). */
+export function computeProcessContractHash(processes: readonly RegisteredProcess[]): string {
+  const canonical = Array.from(sortedProcessHashes(processes).entries())
+  return createHash('sha256').update(JSON.stringify({ derivation: PROCESS_DERIVATION_VERSION, processes: canonical })).digest('hex')
 }
 
 function collectLogResourceKinds(processes: readonly RegisteredProcess[]): string[] {
@@ -429,14 +472,35 @@ function collectLogResourceKinds(processes: readonly RegisteredProcess[]): strin
       for (const kind of exit.logResourceKinds) kinds.add(kind)
     }
   }
-  return Array.from(kinds).sort((left, right) => left.localeCompare(right))
+  return Array.from(kinds).sort(compareCodeUnits)
 }
 
 /**
- * Validates registered declarations against the owning modules' encryption maps. A
- * declaration whose field resolves to an encrypted column of the declared entity, or to
- * any encrypted field of the declaring module, is rejected as a whole, as is any invalid
- * shape. Duplicate process keys and actor dimension kinds keep the first registration.
+ * The registry narrowed to the given process keys (unknown keys are ignored), with the log
+ * resource kinds of the kept processes only. Used by range scans that rebuild single processes.
+ */
+export function restrictProcessRegistry(snapshot: ProcessRegistrySnapshot, processKeys: readonly string[]): ProcessRegistrySnapshot {
+  const selected = new Set(processKeys)
+  const processes = snapshot.processes.filter((process) => selected.has(process.processKey))
+  const processContractHashes = new Map(
+    Array.from(snapshot.processContractHashes.entries()).filter(([processKey]) => selected.has(processKey)),
+  )
+  return {
+    ...snapshot,
+    processes,
+    processContractHashes,
+    contractHash: computeProcessContractHash(processes),
+    logResourceKinds: collectLogResourceKinds(processes),
+  }
+}
+
+/**
+ * Validates registered declarations against the modules' encryption maps. A declaration whose
+ * field resolves to an encrypted column of the declared entity, or to any encrypted field of
+ * the declaring module, the entity's module or a module whose audit rows it reads (resource
+ * kind and logged resource kinds), is rejected as a whole, as is a declaration whose entity
+ * belongs to another module than its resource kind and any invalid shape. Duplicate process
+ * keys and actor dimension kinds keep the first registration.
  */
 export function buildProcessRegistrySnapshot(
   entries: readonly ProcessConfigRegistrationEntry[],
@@ -476,13 +540,14 @@ export function buildProcessRegistrySnapshot(
       actorDimensions.set(candidate.kind, { moduleId: entry.moduleId, provider: candidate })
     }
   }
-  const list = Array.from(processes.values()).sort((left, right) => left.processKey.localeCompare(right.processKey))
+  const list = Array.from(processes.values()).sort((left, right) => compareCodeUnits(left.processKey, right.processKey))
   return {
     ready: true,
     processes: list,
     actorDimensions,
     rejected,
     contractHash: computeProcessContractHash(list),
+    processContractHashes: sortedProcessHashes(list),
     logResourceKinds: collectLogResourceKinds(list),
   }
 }
@@ -503,6 +568,7 @@ function notReadySnapshot(): ProcessRegistrySnapshot {
     actorDimensions: new Map(),
     rejected: [],
     contractHash: computeProcessContractHash([]),
+    processContractHashes: new Map(),
     logResourceKinds: [],
   }
 }
