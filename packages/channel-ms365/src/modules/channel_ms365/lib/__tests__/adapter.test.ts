@@ -1,7 +1,8 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { buildImportFilter, getMs365ChannelAdapter } from '../adapter'
+import { buildImportFilter, getMs365ChannelAdapter, parseFallbackGraphId } from '../adapter'
 import { ms365Capabilities } from '../capabilities'
 import {
+  GRAPH_MESSAGE_TOO_LARGE_CODE,
   GraphApiError,
   setGraphMailClient,
   type GraphDeltaPage,
@@ -96,6 +97,7 @@ afterEach(() => {
   setGraphMailClient(null)
   setMicrosoftOAuthClient(null)
   loggerWarn.mockClear()
+  delete process.env.OM_IMPORT_HISTORY_MAX_SINCE_DAYS
 })
 
 describe('Ms365ChannelAdapter wiring', () => {
@@ -387,6 +389,27 @@ describe('Ms365ChannelAdapter.refreshCredentials', () => {
     ).rejects.toThrow('requires_reauth')
   })
 
+  it('refuses to read the OAuth client from the per-user credentials blob (no credentials._client fallback)', async () => {
+    const refreshes: unknown[] = []
+    setMicrosoftOAuthClient(
+      stubOAuth({
+        refreshToken: async (input) => {
+          refreshes.push(input)
+          return { access_token: 'at', token_type: 'Bearer' }
+        },
+      }),
+    )
+    await expect(
+      getMs365ChannelAdapter().refreshCredentials!({
+        channelId: 'c1',
+        credentials: { ...userCredentials, _client: clientCredentials },
+        scope,
+      }),
+    ).rejects.toThrow(/oauthClient/)
+    expect(refreshes).toHaveLength(0)
+    expect(loggerWarn).not.toHaveBeenCalled()
+  })
+
   it('requires a client secret from the hub config', async () => {
     setMicrosoftOAuthClient(stubOAuth({}))
     await expect(
@@ -455,7 +478,7 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
     expect(typeof state.receivedWatermark).toBe('string')
   })
 
-  it('incremental: ingests only new non-draft items at or after the watermark and advances the cursor', async () => {
+  it('incremental: ingests every non-draft, non-removed item — including mail moved into the Inbox with an old receivedDateTime — and advances the cursor', async () => {
     const mimeFetches: string[] = []
     setGraphMailClient({
       ...emptyGraph(),
@@ -463,7 +486,9 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
         ({
           value: [
             { id: 'new-1', receivedDateTime: '2026-09-04T10:05:00Z', internetMessageId: '<new-1@example.com>', conversationId: 'conv-a' },
-            { id: 'old-flag-change', receivedDateTime: '2026-09-04T09:00:00Z' },
+            // Rescued from Junk / moved by a rule after the watermark advanced:
+            // the delta reports it as a new Inbox item with its original timestamp.
+            { id: 'rescued-from-junk', receivedDateTime: '2026-09-04T09:00:00Z' },
             { id: 'draft-1', receivedDateTime: '2026-09-04T10:06:00Z', isDraft: true },
             { id: 'gone-1', '@removed': { reason: 'deleted' } },
             { id: 'boundary', receivedDateTime: '2026-09-04T10:00:00Z' },
@@ -479,8 +504,8 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
       deltaLink: 'https://graph.microsoft.com/v1.0/delta?$deltatoken=current',
       receivedWatermark: '2026-09-04T10:00:00.000Z',
     })
-    expect(mimeFetches).toEqual(['new-1', 'boundary'])
-    expect(page.messages.map((m) => m.externalMessageId)).toEqual(['new-1@example.com', 'boundary@example.com'])
+    expect(mimeFetches).toEqual(['new-1', 'rescued-from-junk', 'boundary'])
+    expect(page.messages.map((m) => m.externalMessageId)).toEqual(['new-1@example.com', 'rescued-from-junk@example.com', 'boundary@example.com'])
     expect(page.messages[0].channelMetadata).toMatchObject({ graphMessageId: 'new-1', graphConversationId: 'conv-a' })
     expect(page.hasMore).toBe(false)
     const state = decodeCursor(page.nextCursor)
@@ -582,6 +607,28 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
     const state = decodeCursor(page.nextCursor)
     expect(state.deltaLink).toContain('$deltatoken=current')
     expect(state.receivedWatermark).toBe('2026-09-04T10:00:00.000Z')
+  })
+
+  it('skips a message over the MIME size cap with a warning and still advances the cursor', async () => {
+    setGraphMailClient({
+      ...emptyGraph(),
+      continueDelta: async () => ({
+        value: [
+          { id: 'huge', receivedDateTime: '2026-09-04T10:05:00Z' },
+          { id: 'after-huge', receivedDateTime: '2026-09-04T10:06:00Z' },
+        ],
+        deltaLink: 'https://graph.microsoft.com/v1.0/delta?$deltatoken=advanced',
+      }),
+      getMessageMime: async (_auth, id) => {
+        if (id === 'huge') throw new GraphApiError('too large', 413, 'declared 200000000 bytes, cap 52428800', { code: GRAPH_MESSAGE_TOO_LARGE_CODE })
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const page = await fetchHistory({ deltaLink: 'https://graph.microsoft.com/v1.0/delta?$deltatoken=current' })
+    expect(page.messages.map((m) => m.externalMessageId)).toEqual(['after-huge@example.com'])
+    expect(page.hasMore).toBe(false)
+    expect(decodeCursor(page.nextCursor).deltaLink).toContain('$deltatoken=advanced')
+    expect(loggerWarn).toHaveBeenCalledWith(expect.stringContaining('size cap'), expect.objectContaining({ graphMessageId: 'huge' }))
   })
 
   it('surfaces a permanent per-message fetch failure instead of pinning the cursor forever', async () => {
@@ -706,6 +753,56 @@ describe('Ms365ChannelAdapter.importHistory', () => {
     expect(second.messages.map((m) => m.externalMessageId)).toEqual(['b@example.com', 'c@example.com'])
     expect(second.hasMore).toBe(false)
     expect(fetchedIds).toEqual(['a', 'b', 'c'])
+  })
+
+  it('resumes after the consumed prefix when a vanished (404) message precedes the transient failure', async () => {
+    let failOnce = true
+    const fetchedIds: string[] = []
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async () => ({ value: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }),
+      getMessageMime: async (_auth, id) => {
+        if (id === 'a') throw new GraphApiError('nf', 404, 'not found')
+        if (id === 'c' && failOnce) {
+          failOnce = false
+          throw new GraphApiError('boom', 503, 'unavailable')
+        }
+        fetchedIds.push(id)
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 2 })
+    expect(first.messages.map((m) => m.externalMessageId)).toEqual(['b@example.com'])
+    expect(first.hasMore).toBe(true)
+    expect(decodeCursor(first.nextCursor)).toMatchObject({ fetched: 1, pageOffset: 2 })
+    const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 2, cursor: first.nextCursor })
+    // `b` is neither re-fetched nor counted a second time, so the cap of two still admits `c`.
+    expect(second.messages.map((m) => m.externalMessageId)).toEqual(['c@example.com'])
+    expect(second.hasMore).toBe(false)
+    expect(fetchedIds).toEqual(['b', 'c'])
+  })
+
+  it('clamps the look-back to the hub-wide ceiling instead of a fixed 365 days', async () => {
+    const filters: string[] = []
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async (_auth, input) => {
+        filters.push(input.filter)
+        return { value: [] }
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 730 })
+    const floor = new Date(filters[0].match(/receivedDateTime ge (\S+)/)![1]).getTime()
+    const daysBack = (Date.now() - floor) / (24 * 60 * 60 * 1000)
+    expect(daysBack).toBeGreaterThan(729)
+    expect(daysBack).toBeLessThan(731)
+
+    process.env.OM_IMPORT_HISTORY_MAX_SINCE_DAYS = '400'
+    await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 730 })
+    const cappedFloor = new Date(filters[1].match(/receivedDateTime ge (\S+)/)![1]).getTime()
+    expect((Date.now() - cappedFloor) / (24 * 60 * 60 * 1000)).toBeLessThan(401)
   })
 
   it('surfaces a permanent MIME failure during import', async () => {
@@ -897,6 +994,27 @@ describe('Ms365ChannelAdapter.deleteMessage', () => {
     await getMs365ChannelAdapter().deleteMessage!({ externalMessageId: 'msg-42@example.com', conversationId: 'c', credentials: userCredentials, scope })
     expect(lookups).toEqual(['<msg-42@example.com>'])
     expect(moves).toEqual([{ id: 'graph-42', destination: 'deleteditems' }])
+  })
+
+  it('moves a message stored under the ms365:<graphId>@<account> fallback id without a lookup', async () => {
+    const lookups: string[] = []
+    const moves: Array<{ id: string; destination: string }> = []
+    setGraphMailClient({
+      ...emptyGraph(),
+      findMessageIdByInternetMessageId: async (_auth, internetMessageId) => {
+        lookups.push(internetMessageId)
+        return null
+      },
+      moveMessage: async (_auth, id, destination) => {
+        moves.push({ id, destination })
+      },
+    })
+    await getMs365ChannelAdapter().deleteMessage!({ externalMessageId: 'ms365:AAMkAGI2@alice@contoso.com', conversationId: 'c', credentials: userCredentials, scope })
+    expect(lookups).toEqual([])
+    expect(moves).toEqual([{ id: 'AAMkAGI2', destination: 'deleteditems' }])
+    expect(parseFallbackGraphId('<ms365:AAMkAGI2@alice@contoso.com>')).toBe('AAMkAGI2')
+    expect(parseFallbackGraphId('msg-42@example.com')).toBeNull()
+    expect(parseFallbackGraphId('ms365:')).toBeNull()
   })
 
   it('is a no-op when the message is already gone', async () => {

@@ -21,12 +21,13 @@ import {
   tokenResponseToExpiresAt,
   type OAuthTokenResponse,
 } from '@open-mercato/core/modules/communication_channels/lib/oauth-token'
-import { parseScopes } from './credentials'
+import { MS365_DEFAULT_GRAPH_BASE_URL, parseScopes, resolveGraphBaseUrl } from './credentials'
+
+export { MS365_DEFAULT_GRAPH_BASE_URL, resolveGraphBaseUrl }
 
 export { tokenResponseToExpiresAt }
 
 export const MS365_DEFAULT_LOGIN_BASE_URL = 'https://login.microsoftonline.com'
-export const MS365_DEFAULT_GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0'
 
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
@@ -41,13 +42,6 @@ export function resolveLoginBaseUrl(): string {
   const raw = process.env.OM_CHANNEL_MS365_LOGIN_BASE_URL?.trim()
   if (raw && /^https:\/\/[^/\s]+$/i.test(stripTrailingSlash(raw))) return stripTrailingSlash(raw)
   return MS365_DEFAULT_LOGIN_BASE_URL
-}
-
-/** Sovereign-cloud override for the Graph base URL (e.g. `https://graph.microsoft.us/v1.0`). */
-export function resolveGraphBaseUrl(): string {
-  const raw = process.env.OM_CHANNEL_MS365_GRAPH_BASE_URL?.trim()
-  if (raw && /^https:\/\/[^\s]+$/i.test(raw)) return stripTrailingSlash(raw)
-  return MS365_DEFAULT_GRAPH_BASE_URL
 }
 
 export function buildAuthorityUrl(tenantId: string): string {

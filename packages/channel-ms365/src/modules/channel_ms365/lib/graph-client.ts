@@ -100,6 +100,23 @@ export interface GraphMailClient {
 const GRAPH_MAX_RETRIES = 3
 const GRAPH_BACKOFF_BASE_MS = 500
 const GRAPH_BACKOFF_CAP_MS = 8_000
+/**
+ * An honoured `Retry-After` may legitimately exceed the computed-backoff cap
+ * (Graph throttling windows run to minutes); it gets its own, wider ceiling so
+ * a long window is waited out rather than hit early with more 429s.
+ */
+const GRAPH_RETRY_AFTER_CAP_MS = 120_000
+/** Default ceiling for one `$value` download; Exchange allows messages up to 150 MB. */
+const GRAPH_DEFAULT_MAX_MIME_BYTES = 50 * 1024 * 1024
+/** Error code the adapter keys on to skip (not retry, not fail the poll) an oversized message. */
+export const GRAPH_MESSAGE_TOO_LARGE_CODE = 'om.messageTooLarge'
+
+/** `OM_CHANNEL_MS365_MAX_MIME_BYTES` — cap for one raw message download. */
+export function resolveGraphMaxMimeBytes(): number {
+  const raw = Number(process.env.OM_CHANNEL_MS365_MAX_MIME_BYTES)
+  if (Number.isFinite(raw) && raw > 0) return Math.floor(raw)
+  return GRAPH_DEFAULT_MAX_MIME_BYTES
+}
 const GRAPH_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 const GRAPH_DEFAULT_PAGE_SIZE = 50
 const GRAPH_MAX_PAGE_SIZE = 200
@@ -362,7 +379,26 @@ class FetchGraphMailClient implements GraphMailClient {
 
       if (res.ok) {
         if (options.responseType === 'buffer') {
-          return Buffer.from(await res.arrayBuffer())
+          const cap = resolveGraphMaxMimeBytes()
+          const declared = Number(res.headers.get('content-length'))
+          if (Number.isFinite(declared) && declared > cap) {
+            throw new GraphApiError(
+              `Microsoft Graph ${options.method} ${url.pathname} response too large`,
+              413,
+              `declared ${declared} bytes, cap ${cap}`,
+              { code: GRAPH_MESSAGE_TOO_LARGE_CODE },
+            )
+          }
+          const bytes = Buffer.from(await res.arrayBuffer())
+          if (bytes.byteLength > cap) {
+            throw new GraphApiError(
+              `Microsoft Graph ${options.method} ${url.pathname} response too large`,
+              413,
+              `received ${bytes.byteLength} bytes, cap ${cap}`,
+              { code: GRAPH_MESSAGE_TOO_LARGE_CODE },
+            )
+          }
+          return bytes
         }
         const text = await res.text()
         if (options.responseType === 'none' || !text) return undefined
@@ -439,12 +475,12 @@ function parseRetryAfter(value: string | null): number | undefined {
   if (!value) return undefined
   const asNumber = Number(value)
   if (Number.isFinite(asNumber) && asNumber >= 0) {
-    return Math.min(asNumber * 1000, GRAPH_BACKOFF_CAP_MS)
+    return Math.min(asNumber * 1000, GRAPH_RETRY_AFTER_CAP_MS)
   }
   const asDate = Date.parse(value)
   if (Number.isFinite(asDate)) {
     const delta = asDate - Date.now()
-    if (delta > 0) return Math.min(delta, GRAPH_BACKOFF_CAP_MS)
+    if (delta > 0) return Math.min(delta, GRAPH_RETRY_AFTER_CAP_MS)
   }
   return undefined
 }
