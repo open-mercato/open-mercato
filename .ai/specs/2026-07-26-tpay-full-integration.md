@@ -1,6 +1,6 @@
 # Tpay Authoritative Transaction Notification Settlement
 
-- **Status:** planned
+- **Status:** in-progress (implemented; live sandbox acceptance outstanding)
 - **Date:** 2026-07-26
 - **Type:** OSS payment-provider settlement capability
 - **Provider package:** `@open-mercato/gateway-tpay` (`gateway_tpay`)
@@ -230,6 +230,15 @@ Acceptance requires notification-only sandbox capture, tampered MD5/JWS/amount r
 - Existing routes, adapter signatures, events, queues, DI keys, database fields, and registries stay stable.
 - Existing hosted sessions remain status-readable; no migration/backfill; enable per tenant after callback setup.
 
+## Implementation Notes
+
+- Files: `packages/gateway-tpay/src/modules/gateway_tpay/lib/{notification-form,checksum,jws,webhook-handler,webhook-response}.ts`, `lib/certificates/{production,sandbox,index}.ts`, registration in `di.ts`; the adapter's `verifyWebhook` delegates to the same handler.
+- Trust anchors: bundled PEM text from both `tpay-jws-root.pem` files with pinned SHA-256 fingerprints (asserted in tests); leaf chain, validity, CN, and root self-signature are checked; certificate cache 1 h (bounded by validity), refetch at most once per 30 s after a signature failure, 30 s negative cache on fetch failure.
+- The payment locator reads only `tr_crc`; a malformed body with a valid `tr_crc` is rejected as `verification_failed` (`400 FALSE`) instead of being retried.
+- Event identity uses the raw Tpay status (`true`/`chargeback`); `event.data.status` is `correct`/`refund` for the existing status map; `event.data` holds `status`, `title`, `trDate`, `paid`, `amount`, `testMode`, and `overpaidByGrosze` when overpaid.
+- Residual: several Tpay transactions with the same payment id and amount verify together and are rejected as ambiguous; the reconciliation poller settles them.
+- Tests generate a throwaway CA chain with the `openssl` binary at test time; no private key is committed.
+
 ## Implementation Plan
 
 1. Add form/checksum/JWS modules and reviewed bundled root.
@@ -282,6 +291,10 @@ None identified. All prerequisites must land before implementation.
 Fully compliant — ready for implementation after prerequisites.
 
 ## Changelog
+
+### 2026-10-09 (implementation)
+
+- Implemented notification parsing, MD5, JWS with bundled per-environment trust anchors, handler, response formatter, and registration; user guide updated. Live sandbox acceptance pending (needs a public HTTPS tunnel).
 
 ### 2026-10-09
 
