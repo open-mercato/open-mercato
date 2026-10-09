@@ -1,6 +1,6 @@
 # Helpdesk: Customer Support Tickets on Staff Projects
 
-> **Status:** Draft (revised after PR #6965 review)
+> **Status:** Implemented on branch `spec/staff-helpdesk-support-tickets-impl` (pending review)
 > **Module:** `staff` (`packages/core/src/modules/staff`). Helpdesk data is kept in a helpdesk-shaped extension entity, so a later `staff` split can move it as a file move (see D1).
 > **Reference for the portal surface:** `warranty_claims` (portal intake, customer-pinned ownership, portal attachments) and staff's own EP-50 portal time reports (identity resolution, recipient pinning)
 > **Supersedes:** issue [#430](https://github.com/open-mercato/open-mercato/issues/430) "feat: Helpdesk Module" (see D3)
@@ -717,3 +717,12 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
   - **n3:** the rollback text now names the portal features as the off-switch.
   - **n4:** seeding of the "Customer support" project and the fallback rule moves to Phase 4 (step 4.0), so staff don't see an empty project before intake ships. Phase 1 seeds categories only and offers "Create fallback project".
   - **n5:** `staff.support_ticket.activity` is renamed `staff.support_ticket.activity_recorded`.
+- **2026-10-09** — Implementation notes (branch `spec/staff-helpdesk-support-tickets-impl`):
+  - One staff migration (`Migration20261009180543_staff`) carries every schema change, including the Phase 2 columns; the partial and expression unique indexes are hand-written, as in earlier staff migrations.
+  - The `assignee_changed` payload field is `changeKind`, not `reason`: the time-tracking broadcast tests forbid a `reason` key on client-broadcast payloads (it is the free-text field of `time_report.unlocked`). An optional `actorUserId` is also carried, so `time_task.assigned` can skip self-assignment.
+  - Task delete has no separate restore command; the extension row's soft-delete is cascaded in `deleteTaskCommand` and restored by its undo.
+  - The project create command stores the client-sent code, so seeding calls `timeProjectCodeResolver` (falling back to `deriveProjectCode`) itself.
+  - The comment update API now accepts `visibility` alone, so `body` became optional on update (at least one of the two is required).
+  - Out-of-spec fix needed for the dashboard widget: `usePortalDashboardWidgets` (packages/ui) loaded widgets once on mount, before the portal client registry finished registering, so every `portal:dashboard:sections` widget (including the example module's) stayed hidden. It now reloads on `subscribeToInjectionRegistryChanges`, with a regression test.
+  - Integration coverage: `staff/__integration__/support/TC-STAFF-SUP-010` (full UI lifecycle), `-011` (routing variants and fallback-rule guards), `-012` (roles: default assignee, assigners, claim race, owner fallback, validation, D2 regression, portal viewer, company isolation), `-013` (attachments API and UI), `-014` (comment visibility, response hygiene, rate limit).
+
