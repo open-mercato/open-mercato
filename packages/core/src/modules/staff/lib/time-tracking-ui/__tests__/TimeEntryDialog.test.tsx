@@ -1354,6 +1354,33 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
     await waitFor(() => expect(document.activeElement).toBe(projectSelect()))
   })
 
+  it('leaves focus where the person moved it when the settings flip the mode late', async () => {
+    let releaseSettings: () => void = () => {}
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/settings')) {
+        await new Promise<void>((resolve) => {
+          releaseSettings = resolve
+        })
+        return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    renderDialog()
+
+    await screen.findByTestId('entry-dialog-task')
+    const description = document.getElementById('entry-dialog-description') as HTMLElement
+    act(() => description.focus())
+    expect(document.activeElement).toBe(description)
+
+    releaseSettings()
+    await screen.findByTestId('entry-dialog-project')
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(() => resolve(null)))
+    })
+    expect(document.activeElement).toBe(description)
+  })
+
   it('requires the project, not the task, in project mode', async () => {
     renderDialog({ mode: 'project' })
 

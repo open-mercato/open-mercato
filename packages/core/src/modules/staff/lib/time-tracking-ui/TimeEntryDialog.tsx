@@ -1115,7 +1115,7 @@ function DefaultTimeEntryDialog({
 
   /**
    * The tenant's entry mode can answer after the seed (first open of a session). It is applied once
-   * per seed and only while nothing was typed, so the form never changes shape under someone who started.
+   * per seed, only while nothing was typed, and moves focus only if the person has not moved it.
    */
   React.useEffect(() => {
     if (!open || !baseline || settingsQuery.isPending) return
@@ -1128,7 +1128,8 @@ function DefaultTimeEntryDialog({
       settingMode: settings.defaults.entryMode,
     })
     if (resolved === mode) return
-    refocusAfterModeChangeRef.current = true
+    const active = document.activeElement
+    refocusAfterModeChangeRef.current = !active || active === document.body || !!taskTriggerRef.current?.contains(active)
     setMode(resolved)
   }, [baseline, entry, isDirty, mode, modeProp, open, settings.defaults.entryMode, settingsQuery.isPending])
 
