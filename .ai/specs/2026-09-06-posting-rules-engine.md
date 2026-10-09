@@ -172,10 +172,20 @@ declares `persistent: true` (`packages/events/AGENTS.md` → Subscription
 Types: retried on failure). The payload is `{ journalEntryId,
 sequenceNumber, type, operationDate, organizationId, tenantId,
 referenceType, referenceId, lines: { id, accountId, debit, credit }[]
-}`, so the subscriber does not re-read the entry's lines; it reads the
-`JournalEntry` once, only for `currencyId`, which the payload does not
-carry (⚠ NEEDS HUMAN CONFIRMATION: ask #5663 to add `currencyId` to the
-payload, which would remove that read).
+}`, so the subscriber uses it to decide *whether* to act (`type`,
+`referenceType`, line ids and accounts). It loads the source entry and
+its lines once, through the same loader `reconcileCostRing` uses, for
+what the payload does not carry: `currencyId`, `exchangeRate` and each
+line's `amountCurrency`. **Decided 2026-10-09:** #5663 is not asked to
+widen the payload. The sweeper has no event and needs that read anyway,
+so one loader serves both paths and they cannot drift apart; one
+indexed read per event is cheap. A reclassification copies `currencyId`
+and `exchangeRate` from the source entry and `amountCurrency` from the
+source line (in the ledger `amountCurrency` is an unsigned magnitude,
+which `reverseJournalEntry` also copies unchanged), so the zespół 5 line
+shows the same original-currency amount as the cost it reclassifies.
+**Gap found while checking this:** an earlier draft, and #6711, copied
+only `currencyId`.
 
 Because delivery is retried, **the subscriber must be idempotent**, and
 that is a requirement of this module, not something the event
@@ -185,11 +195,20 @@ must neither post a second reclassification nor leave the first one
 untagged. Per source line the subscriber (1) takes a transaction-scoped
 advisory lock on the source line id and, in that same transaction,
 (2) looks for an existing reclassification keyed on that line (the
-marker below) and posts only if there is none — using the
-composed-transaction mechanism of #5663's `postJournalEntry` so that
-lock and posting commit together (⚠ NEEDS HUMAN CONFIRMATION against
-#6340) — and (3) always runs the tag step as "ensure the `CostCenter`
-tag exists", whether or not step (2) posted anything. The sweeper and
+marker below) and posts only if there is none — through
+`ctx.transactionalEm`, which `ledger.postJournalEntry` honours
+(`withPostingTransaction`), so that lock and posting commit together — and (3) always runs the tag step as "ensure the `CostCenter`
+tag exists", whether or not step (2) posted anything. **Checked against #6340 on
+2026-10-09:** the lock is `select pg_advisory_xact_lock(hashtextextended(?,
+0))` through `trx.execute`, the primitive `ledger/commands/fiscalPeriods.ts`
+already uses. Because the call is composed, `ledger.postJournalEntry`
+does not emit `ledger.journal_entry.posted` itself (`isComposedPostingCall`);
+the engine emits it for its own entry after its commit, with the
+`emitPostedEvent` helper `ledger` exports for composing callers, and the
+subscriber ignores that event by the marker. The tag cannot join the
+transaction: `journal_entry_line_dimension.setJournalEntryLineDimension`
+opens its own and does not honour `transactionalEm`, so tagging is a
+separate step, which is why step (3) exists. The sweeper and
 the subscriber share this one code path, so a retry, a concurrent
 sweeper run and a re-delivery converge on one reclassification per
 line. Errors that a retry cannot fix (clearing account unset, no
@@ -308,9 +327,17 @@ reversal line and the line it reverses, so for several lines with the
 *same* account and amount but different explicit `CostCenter` tags the
 pairing can swap which of them a mirror reuses; ledger totals are
 unaffected, only the cost-centre attribution between those equal lines.
-⚠ NEEDS HUMAN CONFIRMATION: closing this fully needs
-`reverseJournalEntry` to record which original line each reversal line
-inverts (a #5663 change).
+**Decided 2026-10-09: no #5663 change for now.** Lines with the same
+account share the rule's target account and default cost centre, so the
+pairing can only matter when they carry different *explicit* tags, and
+nothing sets an explicit MPK in Phase 1 (AP has no such field; only a
+manual `journal_entry_line_dimension` write can). Revisit when AP adds a
+per-line MPK: then add a nullable `reversesLineId` to
+`journal_entry_lines`, written by `reverseJournalEntry`, and replace the
+pairing with a lookup. Adding a nullable column while the table is still
+empty is cheaper than after production rows exist; it is deferred only
+because it widens a core PR that is under review, for a case that cannot
+occur yet.
 
 **Period-close guard: a dedicated entry point in `posting_rules`, not
 a subscriber veto.** A subscriber cannot block #5663's
@@ -852,10 +879,11 @@ stay `null` until an admin configures them, exactly like
   Types). The payload, as #5663 specifies it, is `{ journalEntryId,
   sequenceNumber, type, operationDate, organizationId, tenantId,
   referenceType, referenceId, lines: { id, accountId, debit, credit }[]
-  }` (`debit`/`credit` as numeric strings). The subscriber works from
-  the payload and does not re-read the lines; it reads the
-  `JournalEntry` once, for `currencyId` only, which the payload does
-  not carry. Per event, in this order:
+  }` (`debit`/`credit` as numeric strings). The subscriber uses the
+  payload to decide whether to act and loads the source entry and lines
+  once for what the payload lacks (`currencyId`, `exchangeRate`, each
+  line's `amountCurrency`; see Design Decisions, "Real-time, not
+  batch"). Per event, in this order:
   - **Trigger set.** Returns without processing any line unless `type`
     is `'NORMAL'` or `'REVERSAL'` (so `OPENING` and `CLOSING` are
     skipped), and returns when `referenceType` is
@@ -902,7 +930,8 @@ stay `null` until an admin configures them, exactly like
   - **Either way:** `operationDate` copied from the source entry (#5663
     requires it as non-nullable on every `JournalEntry` — the
     reclassification's business date is the same business event as the
-    source, not "today"), `currencyId` from the source entry,
+    source, not "today"), `currencyId` and `exchangeRate` from the source
+    entry, `amountCurrency` from the source line,
     `referenceType: 'PostingRulesEngineReclassification'`, `referenceId`
     = the **source line's id** (**corrected 2026-10-09**; it was the
     source entry). Then **ensures** the new zespół 5 line carries the
@@ -922,7 +951,9 @@ stay `null` until an admin configures them, exactly like
     thrown, so that delivery retries them. A subscriber failure cannot
     reject the source posting, so with the module unconfigured source
     postings succeed and the two P&L views diverge until the sweeper
-    runs (see Risks).
+    runs (see Risks). The posting is composed (`ctx.transactionalEm`), so
+    the engine emits `ledger.journal_entry.posted` for its own entry
+    after its commit; the trigger-set check ignores it.
 
   **The payload contract is no longer an open gap.** #5663 specifies it
   (core engine → Events, added 2026-09-18) and this section follows it.
@@ -989,7 +1020,16 @@ stay `null` until an admin configures them, exactly like
   While `PostingRulesSettings.clearingAccountId` is unset, the settings
   page and the `CostCenter`/`DefaultAccountPostingRule` pages show a
   banner saying that zespół 4 postings are not being reclassified yet
-  and why (⚠ NEEDS HUMAN CONFIRMATION: banner versus a notification).
+  and why. **A banner, not a notification (decided 2026-10-09):** the
+  condition is a standing state, not an event, so a banner
+  (`@open-mercato/ui/primitives/alert` or `banner`) is always accurate
+  and disappears when the setting is saved. A notification
+  (`notificationTypes` in `notifications.ts`) is addressed to users per
+  event; one per unreclassifiable line would flood the same people, and
+  it adds a dependency on the notifications module. An aggregated
+  notification ("N lines could not be reclassified", sent by the
+  sweeper) can be added in Phase 2 if accountants do not visit these
+  pages.
 
 ## Data Models
 
@@ -1300,6 +1340,12 @@ already configured `PostingRulesSettings` and at least one
   second one; and that a rule whose `defaultCostCenterId` points at a
   deactivated cost centre resolves to the sentinel (**added 2026-10-09**,
   re-review m3).
+- **Currency and emission (added 2026-10-09).** Assert a reclassification
+  of a foreign-currency entry carries the source entry's `currencyId` and
+  `exchangeRate` and the source line's `amountCurrency` (also on a
+  contra-side mirror), and that the engine emits
+  `ledger.journal_entry.posted` for its own composed posting after its
+  commit and not before, and that the subscriber ignores that event.
 
 ## Risks & Impact Review
 
@@ -1378,19 +1424,20 @@ or residual risk.
   its named error) and the offending-line list of
   `posting_rules.lockFiscalPeriod`, which refuses to lock. Both are
   pulled, not pushed, so Phase 1 adds a visible signal: a banner while
-  `clearingAccountId` is unset (see Backend Pages). Residual risk: medium
+  `clearingAccountId` is unset (see Backend Pages for why a banner and not a
+  notification). Residual risk: medium
   until a chart-of-accounts import exists (see Out of scope), since until
   then an admin must already know their `LedgerAccount` ids.
 - **The event contract (see Events & Subscribers).** **Closed
   2026-10-09** (re-review M3): #5663 now specifies the payload and this
-  subscriber's `persistent: true`, and this module's text follows it.
-  What remains is that `currencyId` is not in the payload, so the
-  subscriber reads the entry once (⚠ NEEDS HUMAN CONFIRMATION: whether to
-  ask #5663 to add it). Severity: low. Affected area: #6711's
-  `reclassifyLine`, which still declares `persistent: false` and keys on
-  the source entry, and must be aligned with this text before either PR
-  merges (see the 2026-10-09 Changelog entry). Mitigation: that
-  alignment. Residual risk: none once aligned.
+  subscriber's `persistent: true`, and this module's text follows it. The
+  payload lacks `currencyId`, `exchangeRate` and `amountCurrency`; the
+  engine loads them with the same loader as the sweeper, and #5663 is not
+  asked to change. Severity: low. Affected area: #6711's
+  `reclassifyLine`, which still declares `persistent: false`, keys on the
+  source entry and copies only `currencyId`, and must be aligned with
+  this text before either PR merges (see the 2026-10-09 Changelog
+  entry). Mitigation: that alignment. Residual risk: none once aligned.
 - **The period-close guard doesn't protect the existing UI button**
   (see Known integration gap, Cross-module integration) — a real,
   named gap until #5663's Fiscal Periods page is updated separately.
@@ -1711,12 +1758,24 @@ in the text above:
   names and unique keys, `GET`/`PUT`/`DELETE` routes and delete commands.
 - **n1, n2.** Citation by symbol; knowledge-base file name; the
   2026-09-29 entry reduced to a pointer.
+- **The four open points, decided against #6340's code.** (1) #5663 is
+  not asked to add `currencyId` to the payload: the payload also lacks
+  `exchangeRate` and `amountCurrency`, both of which a reclassification
+  must copy, so the engine loads them with the sweeper's loader. (2) The
+  lock in the same transaction as the posting is feasible
+  (`ctx.transactionalEm`, `pg_advisory_xact_lock` as in `fiscalPeriods.ts`),
+  but a composed call is not emitted by `ledger`, so the engine emits for
+  its own entry, and tagging cannot join the transaction. (3) A banner in
+  Phase 1, not a notification. (4) No per-line link in
+  `reverseJournalEntry` for now; revisit with AP's per-line MPK.
 
 **Divergences still open in #6711** (checked against the author's branch
-on 2026-10-09). The code does not yet follow this text in five places:
+on 2026-10-09). The code does not yet follow this text in seven places:
 the subscriber declares `persistent: false`; `referenceId` is the source
 entry; `findUnreclassifiedEntries` compares counts per entry; the trigger
 set is not restricted (`CLOSING`/`OPENING` entries and clearing-account
-lines are processed); the sentinel `CostCenter` is not protected. Either
+lines are processed); the sentinel `CostCenter` is not protected; `exchangeRate` and
+`amountCurrency` are not copied; the posting is not composed with the
+per-line lock and the engine's own posting event is not emitted. Either
 #6711 changes to follow this document or this document changes, before
 either PR merges.
