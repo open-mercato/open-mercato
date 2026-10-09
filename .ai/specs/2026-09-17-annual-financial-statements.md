@@ -48,7 +48,7 @@ owns everything Poland-specific: the actual Bilans/RZiS line templates
 (Załącznik nr 1 do Ustawy o rachunkowości), a tenant-configured
 account→line mapping (`StatementLineMapping`, per Wn/Ma side — accounts are
 tenant-customized, never hardcoded, per the knowledge base's own §2
-convention), a disclosure-only input for the board resolution's (uchwała) outcome
+convention), a disclosure-only input for the owners' resolution's (uchwała zgromadzenia wspólników / walnego zgromadzenia) outcome
 (profit distribution, or loss coverage when the year ended in a loss;
 Design decisions #4), and a same-net-result check between RZiS's two
 variants (porównawczy/by-nature, zespół 4; kalkulacyjny/by-function, zespół
@@ -130,8 +130,11 @@ because #6013's own trial balance rows are per-account, flat, and
 statement-format-agnostic (Data Models, `TrialBalanceRowDto`).
 
 A second, narrower requirement folds in here rather than opening its own
-document: the **board resolution (uchwała zarządu) on profit distribution
-or loss coverage** is explicitly *not* a workflow this system runs — per the source
+document: the **owners' resolution (uchwała zgromadzenia wspólników in a sp. z o.o.,
+walnego zgromadzenia in an S.A.; the recording says "zarządu", but the
+Commercial Companies Code gives profit distribution to the owners' body,
+arts. 191 §1 and 396 §5 KSH) on profit distribution or loss coverage** is
+explicitly *not* a workflow this system runs — per the source
 recording, *"Uchwały zarządu (podział zysku itd.) — zawsze załączane jako
 PDF, nie generowane przez system"* — it is captured as a single disclosure
 record (the resolved allocation). In Phase 1 it feeds **no amount** in
@@ -139,7 +142,7 @@ either statement: a year-N resolution is adopted together with approval of
 the year-N statements, so it cannot change year-N figures, and the
 Statement of Changes in Equity that would roll it forward is out of scope
 (Design decisions #4). Kieso's Retained Earnings Statement (Illustration
-4.19) treats a board-level dividend/appropriation decision the same way:
+4.19) treats a owner-level dividend/appropriation decision the same way:
 external data the statement reports, not a system-computed step.
 
 ## Proposed Solution
@@ -440,7 +443,7 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
    `700 + 600 = 1300`, Pasywa `1000 + 250 + 50 = 1300`; RZiS revenue
    `600`, costs `350`, net result `250` = the Bilans "Zysk (strata) netto".
 
-4. **The board resolution (uchwała) is a disclosure record, not a
+4. **The owners' resolution (uchwała) is a disclosure record, not a
    workflow, and nothing in this module consumes it for an amount.**
    Confirmed directly by the source recording: uchwała documents are
    "zawsze załączane jako PDF, nie generowane przez system."
@@ -462,19 +465,37 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
      when that statement is specified, it reads `ClosingResolution` and is
      the first real consumer. This mirrors Kieso's Retained Earnings
      Statement (Illustration 4.19), where the dividend/appropriation split
-     is external, board-decided data the statement rolls forward, not
+     is external, owner-decided data the statement rolls forward, not
      something the statement computes.
-   - **Two shapes, chosen by the sign of the net result.** Profit:
-     `retainedEarnings`, `dividends`, `supplementaryCapital`, each `≥ 0`,
-     summing to the profit. Loss: `lossCoveredFromCapital` and
-     `lossCarriedForward`, each `≥ 0`, summing to the absolute loss. The
-     server derives the shape from `netResult`; the wrong shape is `400
-     RESOLUTION_SHAPE_MISMATCH`, and a zero result needs no resolution
-     (`400 NOTHING_TO_RESOLVE`). **⚠ NEEDS HUMAN CONFIRMATION:** the loss
-     categories (covered from reserve/supplementary capital versus carried
-     forward as "strata z lat ubiegłych") are the usual Polish options but
-     need an accountant's confirmation, as does whether a dedicated
-     "pokrycie ze zysków lat przyszłych" bucket is required.
+   - **An allocation list, not fixed fields.** The resolution is a list
+     `allocations: { category, amount, note? }[]`, each `amount > 0`, summing
+     to the absolute net result. The permitted categories depend on the sign
+     of the net result (the server derives `resolutionKind` from it):
+     - profit: `dividend`, `supplementary_capital` (kapitał zapasowy),
+       `reserve_capital` (kapitał rezerwowy), `retained_earnings`
+       (niepodzielony zysk), `other`;
+     - loss: `covered_from_supplementary_capital`,
+       `covered_from_reserve_capital`, `carried_forward` (strata z lat
+       ubiegłych), `other`.
+
+     Each category appears at most once, and `other` requires a `note`. A
+     category from the wrong kind is `400 RESOLUTION_CATEGORY_INVALID`, a
+     sum that does not match is `400 RESOLUTION_SUM_MISMATCH`, and a zero
+     result needs no resolution (`400 NOTHING_TO_RESOLVE`). The list is
+     deliberately open at the edges: the owners' body may allocate in ways
+     a fixed set of columns would reject, and a new category is a new enum
+     value, not a schema change. Grounding: a loss is covered from the
+     supplementary capital and from reserve capitals the articles create
+     for that purpose (art. 396 §1, §4, §5 KSH), and a company may also
+     leave it carried forward; a profit goes to a dividend (art. 191 §1
+     KSH, S.A.: art. 348 §1), to those same capitals, or stays
+     undistributed. Reducing the share capital is a separate procedure and
+     is not a category here. **⚠ NEEDS HUMAN CONFIRMATION:** an accountant
+     should confirm the category list, in particular whether an allocation
+     to the company social benefits fund (ZFŚS) or other special funds is
+     needed, and whether the list differs for partnerships and sole
+     proprietors, where there may be no such resolution at all. Category
+     labels are translation keys (i18n), not statutory text.
 5. **Statement generation requires the fiscal year's last `FiscalPeriod`
    to be locked via `posting_rules.lockFiscalPeriod` — not a bare
    `CLOSING`-entry existence check.** GL core engine's `CLOSING` entry
@@ -750,11 +771,10 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
   the check results, and the current `CLOSING` entry's `ClosingResolution`
   if one exists (disclosure only, Design decisions #4/#5b).
 - `commands/recordClosingResolution.ts` — input `{ fiscalPeriodId,
-  attachmentRef? }` plus the shape-specific amounts (profit:
-  `retainedEarnings`, `dividends`, `supplementaryCapital`; loss:
-  `lossCoveredFromCapital`, `lossCarriedForward`, Design decisions #4);
-  resolves the year's current `CLOSING` entry and its `computeDerivedTotals`-
-  derived RZiS net result, validates the shape matches the result's sign and
+  allocations: { category, amount, note? }[], attachmentRef? }` (Design
+  decisions #4); resolves the year's current `CLOSING` entry and its
+  `computeDerivedTotals`-derived RZiS net result, derives the kind from its
+  sign, validates each category belongs to that kind, `other` has a note and
   the amounts sum to its absolute value, and writes `ClosingResolution`
   keyed to that `closingEntryId` with the `netResult` it was validated
   against (Design decisions #5b) — `409` if a resolution already exists for
@@ -826,14 +846,11 @@ ledger.JournalEntry, the specific `CLOSING` entry this resolution was
 computed against — Design decisions #5b), netResult (decimal, signed — the
 RZiS net result it was validated against, so a later view can show what the
 resolution answered), resolutionKind ('profit_distribution' |
-'loss_coverage'), retainedEarnings, dividends, supplementaryCapital
-(decimals, set for `profit_distribution`, otherwise null),
-lossCoveredFromCapital, lossCarriedForward (decimals, set for
-`loss_coverage`, otherwise null), attachmentRef (string, nullable — a
-document/file reference, not a workflow state), recordedBy, recordedAt }`.
-For a profit, the three profit amounts are each `≥ 0` and sum to
-`netResult`; for a loss, the two loss amounts are each `≥ 0` and sum to
-`−netResult` (validated in the command, not a DB constraint, since it needs
+'loss_coverage'), allocations (jsonb array of `{ category, amount, note? }`,
+categories per kind as in Design decisions #4), attachmentRef (string,
+nullable — a document/file reference, not a workflow state), recordedBy,
+recordedAt }`. Every `amount` is `> 0` and the amounts sum to `|netResult|`
+(validated in the command, not a DB constraint, since it needs
 the full aggregation to check; Design decisions #4). The record is a
 disclosure: no amount in any statement is derived from it. Unique on
 `(tenantId, organizationId, fiscalPeriodId, closingEntryId)` — no longer
@@ -926,15 +943,15 @@ selected organization), never accepted from the body.)
 
 ### `POST /api/financial-pl-accounting/statements/closing-resolution`
 
-- **Body**: `{ fiscalPeriodId, attachmentRef? }` plus, for a profit,
-  `{ retainedEarnings, dividends, supplementaryCapital }` or, for a loss,
-  `{ lossCoveredFromCapital, lossCarriedForward }` (Design decisions #4).
+- **Body**: `{ fiscalPeriodId, allocations: { category, amount, note? }[],
+  attachmentRef? }` (Design decisions #4).
 - **Response 200**: the created `ClosingResolution` (`closingEntryId`,
   `netResult` and `resolutionKind` resolved server-side from the year's
   current `CLOSING` entry, Design decisions #5b).
-- **Response 400**: `RESOLUTION_SHAPE_MISMATCH` (profit fields sent for a
-  loss or vice versa), `NOTHING_TO_RESOLVE` (net result is zero), or the
-  amounts don't sum to the absolute net result.
+- **Response 400**: `RESOLUTION_CATEGORY_INVALID` (a category not allowed
+  for the kind, a repeated category, or `other` without a `note`),
+  `RESOLUTION_SUM_MISMATCH` (amounts don't sum to the absolute net result),
+  or `NOTHING_TO_RESOLVE` (net result is zero).
 - **Response 403**: caller lacks `financial_pl_accounting.statements.manage`.
 - **Response 409**: a `ClosingResolution` already exists for this
   `(fiscalPeriodId, closingEntryId)` pair (immutable once recorded for
@@ -1007,11 +1024,11 @@ banners/messages described here.)
   and Delete (confirm dialog, soft delete) for mapping rows (Design
   decisions #7).
 - Closing-resolution entry: a small form on the same statements page
-  (for a profit, three amount fields that must sum to the displayed profit;
-  for a loss, two that must sum to the loss — the form shows the shape
-  matching the sign of the net result, and renders a recorded resolution as
-  a disclosure note, Design decisions #4 — plus an optional attachment
-  upload) rather than a separate page — it's a
+  (an allocation list whose category choices follow the sign of the net
+  result and whose amounts must sum to the displayed result, with a note
+  required for `other`; a recorded resolution renders as a disclosure note,
+  Design decisions #4 — plus an optional attachment upload) rather than a
+  separate page — it's a
   single record per `(fiscalPeriodId, closingEntryId)` pair, not a list
   (Design decisions #5b).
 
@@ -1037,8 +1054,9 @@ banners/messages described here.)
   pending confirmation.
 - **Aktywa ≠ Pasywa, or Bilans net result ≠ RZiS net result.** `422`, both
   figures in the body, statements still returned (Design decisions #3b).
-- **Loss-making year.** The resolution takes the loss shape (Design
-  decisions #4); a profit-shaped payload is `400 RESOLUTION_SHAPE_MISMATCH`.
+- **Loss-making year.** The resolution takes the loss categories (Design
+  decisions #4); a profit category sent for a loss is `400
+  RESOLUTION_CATEGORY_INVALID`.
 - **A mapping row is deleted or its account is renamed/soft-deleted after
   statements were generated.** Nothing stored changes; the next generation
   reflects the current mapping, and a now-uncovered balance returns `409`.
@@ -1147,7 +1165,7 @@ banners/messages described here.)
   alone, no per-account settings** — rejected; see Design decisions #2
   (Wn/Ma-side-dependent classification and tenant-specific renumbering
   both defeat a purely derived mapping).
-- **Model the uchwała as a workflow (draft → board-approved → posted)**
+- **Model the uchwała as a workflow (draft → owners-approved → posted)**
   — rejected; the source recording is explicit that the resolution is
   always an external PDF, never system-generated (Design decisions #4).
 - **Fold this into GL account balances (#6013) as a Phase 3** — rejected
@@ -1251,7 +1269,7 @@ cross-module fallout.
 2. `financial_pl_accounting`: `data/entities.ts` + migration
    (`StatementLineMapping` — `updatedAt` and `deletedAt`, partial unique
    index, no `version` field — and `ClosingResolution` with
-   `closingEntryId`, `netResult`, `resolutionKind`, profit/loss columns and
+   `closingEntryId`, `netResult`, `resolutionKind`, `allocations` and
    the revised unique constraint).
 3. `financial_pl_accounting`: `lib/bilansTemplate.ts`, `lib/rzisTemplate.ts` (both
    variants, each line's `sign`/`isTotal` set) — the fixed Załącznik nr 1
@@ -1260,7 +1278,7 @@ cross-module fallout.
    (calendar-year guard, `posting_rules.lockFiscalPeriod`-gated
    precondition, `CLOSING`-entry lookup and subtraction for RZiS, coverage
    validation, comparative pass, parity and integrity checks),
-   `commands/recordClosingResolution.ts` (profit/loss shapes),
+   `commands/recordClosingResolution.ts` (allocation list),
    `commands/statementLineMappings.ts` (create/update/delete).
 5. `financial_pl_accounting`: `lib/exportStatementAdapter.ts` (Design decisions #6).
 6. `financial_pl_accounting`: `acl.ts` (`financial_pl_accounting.statements.manage`),
@@ -1335,11 +1353,13 @@ cross-module fallout.
   first year returns `null` with `reason: 'first_year'`; unclosed prior year
   returns `null` with `reason: 'prior_year_not_closed'`; a prior year
   failing coverage returns `409` with `scope: 'previous_year'`.
-- **Loss-making resolution** (Design decisions #4): a loss year accepts the
-  two-field shape summing to the loss and rejects the profit shape with
-  `400 RESOLUTION_SHAPE_MISMATCH`; a zero result is `400
-  NOTHING_TO_RESOLVE`; asserting that recording a resolution changes no
-  statement amount and posts no entry.
+- **Resolution allocations** (Design decisions #4): a profit year accepts
+  any permitted combination of profit categories summing to the profit and
+  a loss year the loss categories summing to the loss; a category of the
+  wrong kind or a repeated one is `400 RESOLUTION_CATEGORY_INVALID`, `other`
+  without a note likewise, a wrong sum is `400 RESOLUTION_SUM_MISMATCH`, a
+  zero result is `400 NOTHING_TO_RESOLVE`; recording a resolution changes
+  no statement amount and posts no entry.
 - Variant-parity pass/fail (existing case, kept): including a
   deliberately-unreconciled-490 fixture — but now asserted at
   `posting_rules.lockFiscalPeriod` time (Design decisions #5), with a
@@ -1392,7 +1412,7 @@ the commands directly:
 | Tenant/organization isolation | A mapping, resolution or fiscal period from another organization is `404` or absent from lists; a mapping `accountId` from another organization is `400`; the selected organization (not the user's home organization) is used, including for a user switched to a second organization. |
 | Mapping CRUD | Create, duplicate `409`, invalid account/enum/`lineCode` `400`, update `lineCode`, immutability of `accountId`/`side`/`statementCode`, stale-`updatedAt` `409` with the current record echoed, soft delete and re-create, `404` on an unknown id, pagination `pageSize ≤ 100`. |
 | Generate | Each `409` code (`PERIOD_NOT_LOCKED`, `CLOSING_ENTRY_MISSING`, `FISCAL_YEAR_NOT_CALENDAR`, `MAPPING_INCOMPLETE`), each `422` code with statements still returned, and the happy path with `comparative` both available and unavailable. |
-| Closing resolution | Profit and loss shapes accepted, shape mismatch and zero result `400`, sum mismatch `400`, duplicate for the same `closingEntryId` `409`, a new row after a reopen produces a new `closingEntryId`. |
+| Closing resolution | Profit and loss allocations accepted, wrong-kind category, `other` without note, zero result and sum mismatch each `400`, duplicate for the same `closingEntryId` `409`, a new row after a reopen produces a new `closingEntryId`. |
 | Export | PDF/XLSX export of a generated year reproduces the on-screen amounts (including `previousAmount`); export for an unmapped or mid-correction period returns the same `409` as generation. |
 | UI (Playwright) | Open the statements page, pick a period, generate, see Bilans/RZiS with the prior-year column and the porównawczy/kalkulacyjny toggle; integrity-failure and unresolved-closing banners; record a resolution; on the mapping page create, edit, delete a row, and trigger the stale-update conflict bar from two sessions; the coverage panel lists an uncovered account. |
 
@@ -1405,12 +1425,12 @@ the commands directly:
 | `packages/core/src/modules/financial_statements/lib/buildIncomeStatementData.ts` | Create | Pre-closing-turnover → line-bucketed aggregation (RZiS) |
 | `packages/core/src/modules/financial_statements/lib/computeDerivedTotals.ts` | Create | Signed subtotal/net-result derivation |
 | `packages/core/src/modules/financial_statements/index.ts` | Create | Module manifest, `requires: ['ledger']` |
-| `financial_pl_accounting/data/entities.ts` | Modify | `StatementLineMapping` (`updatedAt`, `deletedAt`, partial unique index), `ClosingResolution` (+`closingEntryId`, `netResult`, `resolutionKind`, profit/loss columns) |
+| `financial_pl_accounting/data/entities.ts` | Modify | `StatementLineMapping` (`updatedAt`, `deletedAt`, partial unique index), `ClosingResolution` (+`closingEntryId`, `netResult`, `resolutionKind`, `allocations`) |
 | `financial_pl_accounting/lib/bilansTemplate.ts` / `rzisTemplate.ts` | Create | Załącznik nr 1 line templates (`sign`/`isTotal`) |
 | `financial_pl_accounting/lib/exportStatementAdapter.ts` | Create | Statement-compatible PDF/XLSX export |
 | `financial_pl_accounting/commands/generateAnnualStatements.ts` | Create | Generation + calendar-year guard + per-leaf coverage + comparatives + parity and integrity checks; custom route, mutation-guard-wired |
 | `financial_pl_accounting/commands/statementLineMappings.ts` | Create | `create`/`update`/`deleteStatementLineMapping` (live-account, enum, template-line, duplicate validation; soft delete) |
-| `financial_pl_accounting/commands/recordClosingResolution.ts` | Create | Uchwała disclosure (profit or loss shape), keyed to `closingEntryId`; custom route, mutation-guard-wired |
+| `financial_pl_accounting/commands/recordClosingResolution.ts` | Create | Uchwała disclosure (allocation list), keyed to `closingEntryId`; custom route, mutation-guard-wired |
 | `financial_pl_accounting/acl.ts` | Modify | `financial_pl_accounting.statements.manage` |
 | `financial_pl_accounting/api/statements/route.ts` | Create | `POST /generate`, `POST /closing-resolution` (custom, mutation-guard-wired, `openApi`) |
 | `financial_pl_accounting/api/statement-line-mapping/route.ts` | Create | `makeCrudRoute`: `GET` list, `POST` create, `PUT /:id` update (default-ON `updatedAt` lock), `DELETE /:id` soft delete, each command-backed; `openApi` |
@@ -1497,8 +1517,8 @@ Ed.).**
   appropriations (board-level decisions) decrease it; the reconciliation
   is presented as beginning balance + net income − distributions =
   ending balance. Grounds Design decisions #4 — `ClosingResolution`'s
-  three-way split (retained earnings / dividends / supplementary
-  capital) is the same structure Kieso presents, with the board's
+  allocation list (dividend / capitals / retained earnings) follows the
+  structure Kieso presents, with the owners'
   decision treated as external input data, not a computed statement
   line.
 - **Fowler, *Analysis Patterns*, §6.12 "Balance Sheet and Income
@@ -1857,9 +1877,9 @@ Seven major and two minor findings from the review of `c7ac9ffcb`:
   index.
 - **Major 6 — `ClosingResolution` consumption and loss case (Design
   decisions #4, rewritten).** Defined as disclosure-only in Phase 1 (no
-  amount derived from it, nothing posted), with a profit shape and a loss
-  shape chosen by the sign of the net result; `netResult` and
-  `resolutionKind` added to the entity.
+  amount derived from it, nothing posted), with an allocation list whose
+  categories follow the sign of the net result (profit or loss); `netResult`,
+  `resolutionKind` and `allocations` added to the entity.
 - **Major 7 — integration coverage (Testing Strategy, new subsection).**
   Authorization per method, mutation guards, tenant/organization isolation,
   mapping CRUD, generate and resolution error codes, export, and the
@@ -1882,3 +1902,13 @@ Seven major and two minor findings from the review of `c7ac9ffcb`:
   #4) and missing-prior-year warn-versus-block (Design decisions #8).
 - **Not a change in this document:** retargeting the PR from `main` to
   `develop` is a repository action on the PR itself.
+- **Follow-up, same day: allocation list and the resolving body.** The
+  resolution's fixed fields (`retainedEarnings`, `dividends`,
+  `supplementaryCapital` / two loss fields) were replaced by
+  `allocations: { category, amount, note? }[]` with profit and loss category
+  sets, adding a reserve-capital category the fixed fields lacked (art. 396
+  §4–5 KSH). "Board resolution (uchwała zarządu)" was corrected to the
+  owners' resolution (zgromadzenie wspólników / walne zgromadzenie, arts.
+  191 §1 and 396 §5 KSH). The category list stays marked **⚠ NEEDS HUMAN
+  CONFIRMATION** (ZFŚS and special funds, partnerships and sole proprietors
+  were not verified).
