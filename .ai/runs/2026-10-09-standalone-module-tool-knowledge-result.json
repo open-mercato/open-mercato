@@ -58,11 +58,11 @@
       },
       {
         "path": "packages/create-app/agentic/guides/module-tool.md",
-        "sha256": "b14d5352f7c8c3231e99ee961d6bb055a2185c25bb770be1c6f0b04f7ca6699d"
+        "sha256": "22e9f6f40737689d7fb39da92cdc8390a1a72239d5c1e8fb621f85e32af8960e"
       },
       {
         "path": "packages/create-app/agentic/shared/scripts/evaluate-agent-harness.mjs",
-        "sha256": "0ca58dcd0cf2ef5d7dcbce83be799fa5b8ed86ca556344a28ea5dbc55f8a4484"
+        "sha256": "33cbee44badcb37d61e48f62ac8229df651bee7ade774629e218d504a1ec6a6e"
       },
       {
         "path": "packages/create-app/agentic/shared/scripts/execution-sandbox.mjs",
@@ -100,7 +100,7 @@
       "baselineSchemaPath": "packages/create-app/scripts/source-links/source-link-baseline.schema.json"
     },
     "resolvedBaseSha": "f0ef209366f888988a3305eb2d42836b536f4b97",
-    "headSha": "b385829a01dc116ddcbcc970c79d3e12c472ad92",
+    "headSha": "3a5ccfc72c755bc426c2a1b2153fc34eb2950b41",
     "focusedExecutions": [
       {
         "testFile": "packages/create-app/src/lib/module-tool-guidance.test.ts",
@@ -113,12 +113,12 @@
         ],
         "baseWithTestPatch": {
           "exitCode": 1,
-          "stdoutSha256": "56b4cb909643460cb6d037559085cd06cd023a77ca6aa61023ce01aa9f78cfb8",
+          "stdoutSha256": "7badf341dd4827b0b1ced07e80761f449f8d7e4312d1c8e8e3b44014d935414b",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "head": {
           "exitCode": 0,
-          "stdoutSha256": "dea87d5d2e659820f6a630923762d7404e9c69520ecc1e224e76fc7157cd99d8",
+          "stdoutSha256": "7af860b844a8889a27d820475db8b84f9de75b554e0577878431d9bc649a8244",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       },
@@ -133,12 +133,12 @@
         ],
         "baseWithTestPatch": {
           "exitCode": 1,
-          "stdoutSha256": "fae3e19880077546cc816fc90def817c3903ce919ce6ffd2a39e71917fb933c5",
+          "stdoutSha256": "a62ca49623fee4ded7dfc5debfb8deeb236193f0a53b42376055c14d8fa41d47",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "head": {
           "exitCode": 0,
-          "stdoutSha256": "2d0d81b593689735d70fbe572c7ef16fa97f9ab19ca8804606b40237375912a2",
+          "stdoutSha256": "27cb1df12e2cef7b55c54725e1868c37e4b8a1a470a3067acfae841361614eba",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       },
@@ -153,12 +153,12 @@
         ],
         "baseWithTestPatch": {
           "exitCode": 1,
-          "stdoutSha256": "ee6359cc516c43ea6a5388611fddf6e52c47209c43250ec74792f1b88d2d1c7e",
+          "stdoutSha256": "c840d30602bf97f47671226d3b47a248ede7cda776424d384e3804d536c5efa0",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "head": {
           "exitCode": 0,
-          "stdoutSha256": "6eeac5eb5564ae465617b7b750286d336e4cdcd7386676ce38605b5157116503",
+          "stdoutSha256": "212ba1999b3a7682560305b81c6cfba5f08fbb9e02977ad6b393054639b58481",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       },
@@ -173,12 +173,12 @@
         ],
         "baseWithTestPatch": {
           "exitCode": 1,
-          "stdoutSha256": "ee57dac50ac6b1f23cd250d26ee908fe6f574ce728c478472ff4bcaf798e2b38",
+          "stdoutSha256": "780369999d4d9e9ccc7a2b4d4593e31869742d4cb1416d2688ae54dcfac23901",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "head": {
           "exitCode": 0,
-          "stdoutSha256": "09d802cdcecccde449247c17be61819c5e1d8e21780f8cdfdbd1eb0b2d4c6e6d",
+          "stdoutSha256": "d798bfe96c81d1e05dd14fa4ab2b7ea8ef3428a12b0a28ffd7c7aed2e7d1f5ff",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       }
@@ -211,6 +211,13 @@
       },
       {
         "path": ".ai/runs/2026-10-09-standalone-module-tool-knowledge-result.json",
+        "rule": "unclassified-fails-closed",
+        "contract": null,
+        "changeClass": "knowledge-contract",
+        "focusedTest": false
+      },
+      {
+        "path": ".ai/runs/2026-10-09-standalone-module-tool-validation-summary.json",
         "rule": "unclassified-fails-closed",
         "contract": null,
         "changeClass": "knowledge-contract",
@@ -424,6 +431,7 @@
       ".ai/runs/2026-10-09-standalone-module-tool-evidence.md",
       ".ai/runs/2026-10-09-standalone-module-tool-knowledge-change.json",
       ".ai/runs/2026-10-09-standalone-module-tool-knowledge-result.json",
+      ".ai/runs/2026-10-09-standalone-module-tool-validation-summary.json",
       ".ai/runs/2026-10-09-standalone-module-tool.md",
       "packages/create-app/agentic/guides/architecture.md",
       "packages/create-app/agentic/guides/module-tool.md"
@@ -441,12 +449,12 @@
         ],
         "baseWithTestPatch": {
           "exitCode": 1,
-          "stdoutSha256": "56b4cb909643460cb6d037559085cd06cd023a77ca6aa61023ce01aa9f78cfb8",
+          "stdoutSha256": "7badf341dd4827b0b1ced07e80761f449f8d7e4312d1c8e8e3b44014d935414b",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "head": {
           "exitCode": 0,
-          "stdoutSha256": "dea87d5d2e659820f6a630923762d7404e9c69520ecc1e224e76fc7157cd99d8",
+          "stdoutSha256": "7af860b844a8889a27d820475db8b84f9de75b554e0577878431d9bc649a8244",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       },
@@ -461,12 +469,12 @@
         ],
         "baseWithTestPatch": {
           "exitCode": 1,
-          "stdoutSha256": "fae3e19880077546cc816fc90def817c3903ce919ce6ffd2a39e71917fb933c5",
+          "stdoutSha256": "a62ca49623fee4ded7dfc5debfb8deeb236193f0a53b42376055c14d8fa41d47",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "head": {
           "exitCode": 0,
-          "stdoutSha256": "2d0d81b593689735d70fbe572c7ef16fa97f9ab19ca8804606b40237375912a2",
+          "stdoutSha256": "27cb1df12e2cef7b55c54725e1868c37e4b8a1a470a3067acfae841361614eba",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       },
@@ -481,12 +489,12 @@
         ],
         "baseWithTestPatch": {
           "exitCode": 1,
-          "stdoutSha256": "ee6359cc516c43ea6a5388611fddf6e52c47209c43250ec74792f1b88d2d1c7e",
+          "stdoutSha256": "c840d30602bf97f47671226d3b47a248ede7cda776424d384e3804d536c5efa0",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "head": {
           "exitCode": 0,
-          "stdoutSha256": "6eeac5eb5564ae465617b7b750286d336e4cdcd7386676ce38605b5157116503",
+          "stdoutSha256": "212ba1999b3a7682560305b81c6cfba5f08fbb9e02977ad6b393054639b58481",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       },
@@ -501,12 +509,12 @@
         ],
         "baseWithTestPatch": {
           "exitCode": 1,
-          "stdoutSha256": "ee57dac50ac6b1f23cd250d26ee908fe6f574ce728c478472ff4bcaf798e2b38",
+          "stdoutSha256": "780369999d4d9e9ccc7a2b4d4593e31869742d4cb1416d2688ae54dcfac23901",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         "head": {
           "exitCode": 0,
-          "stdoutSha256": "09d802cdcecccde449247c17be61819c5e1d8e21780f8cdfdbd1eb0b2d4c6e6d",
+          "stdoutSha256": "d798bfe96c81d1e05dd14fa4ab2b7ea8ef3428a12b0a28ffd7c7aed2e7d1f5ff",
           "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         }
       }
@@ -528,6 +536,7 @@
     ".ai/runs/2026-10-09-standalone-module-tool-evidence.md",
     ".ai/runs/2026-10-09-standalone-module-tool-knowledge-change.json",
     ".ai/runs/2026-10-09-standalone-module-tool-knowledge-result.json",
+    ".ai/runs/2026-10-09-standalone-module-tool-validation-summary.json",
     ".ai/runs/2026-10-09-standalone-module-tool.md",
     ".ai/specs/2026-07-24-standalone-ai-development-harness.md",
     "apps/docs/docs/cli/module-add.mdx",
