@@ -35,8 +35,8 @@ Ship tested Brevo and Mailjet system-email provider packages on the existing Com
 
 ### Phase 1: Brevo connector
 
-- [ ] 1.1 Add the Brevo provider package and contract tests
-- [ ] 1.2 Implement Brevo send, health, and env-preset tests
+- [x] 1.1 Add the Brevo provider package and contract tests — 012cf0e0e
+- [x] 1.2 Implement Brevo send, health, and env-preset tests — 012cf0e0e
 
 ### Phase 2: Mailjet connector
 
