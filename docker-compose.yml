@@ -11,7 +11,8 @@
 #
 # Published ports bind to 127.0.0.1 so the dev-default credentials are not
 # reachable from other machines (Docker-published ports bypass ufw/iptables
-# INPUT rules on Linux). Set OM_DOCKER_BIND_ADDRESS=0.0.0.0 to expose them.
+# INPUT rules on Linux). Set OM_DOCKER_BIND_ADDRESS=0.0.0.0 to expose them, or
+# OM_VERDACCIO_BIND_ADDRESS to move only the registry (see the verdaccio service).
 
 services:
   opencode:
@@ -216,8 +217,12 @@ services:
     environment:
       VERDACCIO_PORT: 4873
       VERDACCIO_PUBLIC_URL: http://localhost:4873
+    # Standalone fullapp builds reach the registry at host.docker.internal:4873.
+    # On native Linux that is the Docker bridge gateway, not loopback: set
+    # OM_VERDACCIO_BIND_ADDRESS to the bridge address (e.g. 172.17.0.1) for a
+    # route only containers and the host can use. See docker/README.md.
     ports:
-      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${VERDACCIO_PORT:-4873}:4873"
+      - "${OM_VERDACCIO_BIND_ADDRESS:-${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}}:${VERDACCIO_PORT:-4873}:4873"
     volumes:
       - verdaccio_storage:/verdaccio/storage
       - verdaccio_plugins:/verdaccio/plugins
