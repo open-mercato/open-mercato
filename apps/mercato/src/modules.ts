@@ -164,6 +164,11 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'telemetry', from: '@open-mercato/telemetry' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
+  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
+  // submissions, role-sliced rendering, public runner + portal + embed surfaces.
+  // Listed after customer_accounts/portal because its portal pages and public
+  // runner resolve customer auth through them.
+  { id: 'forms', from: '@open-mercato/core' },
   {
     id: 'example',
     from: '@app',

@@ -1,4 +1,5 @@
 import type { OrganizationScope } from './organizationScope'
+export { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 
 export type OrganizationScopeFilter = {
   organizationIds: string[] | undefined
@@ -14,15 +15,17 @@ export function resolveOrganizationScopeFilter(
 ): OrganizationScopeFilter {
   const organizationIds = (() => {
     if (scope?.selectedId) return [scope.selectedId]
-    if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
+    if (Array.isArray(scope?.filterIds)) return scope.filterIds
     if (scope?.filterIds === null) return undefined
-    if (auth?.orgId) return [auth.orgId]
+    if (!scope && auth?.orgId) return [auth.orgId]
     return undefined
   })()
+
+  const isExplicitlyEmpty = Array.isArray(scope?.filterIds) && scope.filterIds.length === 0
 
   return {
     organizationIds,
     where: organizationIds ? { organizationId: { $in: organizationIds } } : {},
-    rbacOrganizationId: scope?.selectedId ?? auth?.orgId ?? null,
+    rbacOrganizationId: scope?.selectedId ?? (isExplicitlyEmpty ? null : auth?.orgId ?? null),
   }
 }

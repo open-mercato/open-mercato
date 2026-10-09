@@ -1,7 +1,14 @@
+import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ProgressService } from '../../progress/lib/progressService'
+import type { DataSyncProgressJobDescription } from './adapter'
+import { resolveAdapterForIntegration } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
 import { getSyncQueue } from './queue'
 import { DATA_SYNC_EXPORT_QUEUE, DATA_SYNC_IMPORT_QUEUE } from './queue-policy'
+
+const logger = createLogger('data_sync').child({ component: 'start-run' })
 
 export type DataSyncStartScope = {
   organizationId: string
@@ -27,6 +34,56 @@ export type StartDataSyncRunInput = {
   }
 }
 
+const progressJobDescriptionSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
+})
+
+/**
+ * The adapter's answer to `describeProgressJob`, or nothing. A hook that throws
+ * or answers with the wrong shape is dropped whole rather than failing the start:
+ * the run matters more than how its progress job reads.
+ */
+function resolveAdapterProgressJobDescription(input: StartDataSyncRunInput): DataSyncProgressJobDescription {
+  const adapter = resolveAdapterForIntegration(input.integrationId)
+  if (typeof adapter?.describeProgressJob !== 'function') return {}
+  const attributes = {
+    integrationId: input.integrationId,
+    entityType: input.entityType,
+    direction: input.direction,
+  }
+  let declared: unknown
+  try {
+    declared = adapter.describeProgressJob({ entityType: input.entityType, direction: input.direction })
+  } catch (error) {
+    logger.warn('Data sync adapter failed to describe its progress job; using the defaults', { ...attributes, err: error })
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'data_sync',
+        code: 'data_sync.progress_job_description_failed',
+        attributes,
+      })
+    } catch (telemetryError) {
+      logger.warn('Failed to report a data sync error to telemetry', {
+        code: 'data_sync.progress_job_description_failed',
+        err: telemetryError as Error,
+      })
+    }
+    return {}
+  }
+  if (declared === undefined) return {}
+  const parsed = progressJobDescriptionSchema.safeParse(declared)
+  if (!parsed.success) {
+    logger.warn('Data sync adapter described its progress job with an invalid shape; using the defaults', {
+      ...attributes,
+      issues: parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+    })
+    return {}
+  }
+  return parsed.data
+}
+
 export async function startDataSyncRun(params: {
   syncRunService: SyncRunService
   progressService: ProgressService
@@ -36,14 +93,16 @@ export async function startDataSyncRun(params: {
   const { syncRunService, progressService, scope, input } = params
   const createProgressJob = input.createProgressJob !== false
 
+  const described = createProgressJob ? resolveAdapterProgressJobDescription(input) : {}
   const progressJob = createProgressJob
     ? await progressService.createJob(
       {
         jobType: input.progressJob?.jobType ?? `data_sync:${input.direction}`,
-        name: input.progressJob?.name ?? `Data sync ${input.integrationId} — ${input.entityType}`,
-        description: input.progressJob?.description ?? `${input.entityType} ${input.direction}`,
+        name: input.progressJob?.name ?? described.name ?? `Data sync ${input.integrationId} — ${input.entityType}`,
+        description: input.progressJob?.description ?? described.description ?? `${input.entityType} ${input.direction}`,
         cancellable: input.progressJob?.cancellable ?? true,
         meta: {
+          ...(described.meta ?? {}),
           integrationId: input.integrationId,
           entityType: input.entityType,
           direction: input.direction,
