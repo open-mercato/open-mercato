@@ -293,6 +293,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
   },
   {
+    path: 'packages/create-app/src/lib/ci-flag.test.ts',
+    reason: 'Reads nothing outside packages/create-app — process.cwd() is a per-test mkdtemp directory it scaffolds into, and its scripts/.github paths are inside that scaffold. Also already unfiltered via the create-app parity step (#3779).',
+  },
+  {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
