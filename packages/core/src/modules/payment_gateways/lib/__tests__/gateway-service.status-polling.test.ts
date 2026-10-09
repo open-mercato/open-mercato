@@ -251,22 +251,27 @@ describe('payment gateway service — status polling rotation', () => {
     expect(store.find((record) => record.id === 'txn_4')?.unifiedStatus).toBe('captured')
   })
 
-  it('leaves lastPolledAt untouched when the provider call fails, so the transaction is retried first', async () => {
-    const store = buildStore(2)
+  it('stamps lastPolledAt on a failed provider call so a persistently failing transaction cannot block the queue', async () => {
+    const store = buildStore(3)
     const { service, getStatus } = buildService(store, () => 'pending')
-    getStatus.mockImplementationOnce(async () => {
-      throw new Error('provider unavailable')
+    getStatus.mockImplementation(async ({ sessionId }: { sessionId: string }) => {
+      if (sessionId === 'sess_1') throw new Error('provider unavailable')
+      return { status: 'pending' as UnifiedPaymentStatus }
     })
+    const polledPerRun: string[][] = []
+    let failuresLogged = 0
 
-    jest.advanceTimersByTime(60_000)
-    const logService = await runPoller(service, 1)
+    for (let run = 0; run < 3; run += 1) {
+      getStatus.mockClear()
+      jest.advanceTimersByTime(60_000)
+      const logService = await runPoller(service, 1)
+      failuresLogged += logService.write.mock.calls.length
+      polledPerRun.push(getStatus.mock.calls.map(([input]) => input.sessionId))
+    }
 
-    expect(logService.write).toHaveBeenCalledTimes(1)
-    expect(store[0].lastPolledAt).toBeNull()
-
-    getStatus.mockClear()
-    jest.advanceTimersByTime(60_000)
-    await runPoller(service, 1)
-    expect(getStatus.mock.calls.map(([input]) => input.sessionId)).toEqual(['sess_1'])
+    expect(polledPerRun).toEqual([['sess_1'], ['sess_2'], ['sess_3']])
+    expect(failuresLogged).toBe(1)
+    expect(store[0].lastPolledAt).not.toBeNull()
+    expect(store[0].unifiedStatus).toBe('pending')
   })
 })

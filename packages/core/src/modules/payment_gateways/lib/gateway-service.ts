@@ -185,6 +185,14 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     }, scope)
   }
 
+  async function stampLastPolledAt(transaction: GatewayTransaction, polledAt: Date): Promise<void> {
+    await em.nativeUpdate(
+      GatewayTransaction,
+      { id: transaction.id, organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+      { lastPolledAt: polledAt },
+    )
+  }
+
   async function resolveAdapterAndCredentials(providerKey: string, scope: { organizationId: string; tenantId: string }) {
     const integrationId = `gateway_${providerKey}`
     const selectedVersion = deps.integrationStateService
@@ -686,15 +694,20 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
     async getPaymentStatus(transactionId: string, scope: { organizationId: string; tenantId: string }): Promise<GatewayPaymentStatus> {
       const transaction = await findTransactionOrThrow(transactionId, scope)
-      const { adapter, credentials } = await resolveAdapterAndCredentials(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-      )
-
-      const status = await adapter.getStatus({
-        sessionId: readProviderSessionId(transaction),
-        credentials,
-      })
+      let status: GatewayPaymentStatus
+      try {
+        const { adapter, credentials } = await resolveAdapterAndCredentials(
+          transaction.providerKey,
+          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        )
+        status = await adapter.getStatus({
+          sessionId: readProviderSessionId(transaction),
+          credentials,
+        })
+      } catch (error) {
+        await stampLastPolledAt(transaction, new Date())
+        throw error
+      }
 
       const polledAt = new Date()
       const shouldApplyStatus = status.status !== transaction.unifiedStatus
@@ -727,11 +740,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           },
         )
       } else {
-        await em.nativeUpdate(
-          GatewayTransaction,
-          { id: transaction.id, organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-          { lastPolledAt: polledAt },
-        )
+        await stampLastPolledAt(transaction, polledAt)
       }
 
       return status
