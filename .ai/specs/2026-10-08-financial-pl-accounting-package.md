@@ -1,6 +1,28 @@
 # SPEC-013: `financial_pl_accounting` package (Polish features that read the general ledger)
 
-> **Moved from `official-modules`.** Originally opened as open-mercato/official-modules#61 by @mikoajp. `official-modules` is deprecated and being archived, and `financial_pl` will not live there: the financial work continues in Core, with KSeF coming later as a separate PR (see open-mercato/official-modules#29). Content is unchanged; the `SPEC-0xx` numbers inside refer to the `official-modules` numbering. Code references to `official-modules` (for example branch `feat/financial-pl-invoice-ux`) point to that archived repository.
+> **Moved from `official-modules`.** Originally opened as open-mercato/official-modules#61 by @mikoajp. `official-modules` is deprecated and being archived, and `financial_pl` will not live there: the financial work continues in Core, with KSeF coming later as a separate PR (see open-mercato/official-modules#29). Content is unchanged apart from the Prerequisites section below and the source links in the Scope list; the `SPEC-0xx` numbers inside refer to the `official-modules` numbering. Code references to `official-modules` (for example branch `feat/financial-pl-invoice-ux`) point to that archived repository.
+
+## Prerequisites
+
+`financial_pl` is not in this repository yet, and neither is the package this document proposes. Where this document describes `financial_pl` in the present tense, it means the package as it stands in `official-modules`; the `packages/financial-pl-accounting/` paths in the File Manifest are a target layout. B1 and B3 take their models and commands (`TaxCode` rows, `JpkKrFiling`, `JpkKrDeclarationInputs`, the `jpk_kr.*` commands) from SPEC-011 and SPEC-010, which stay in `official-modules`. Read the referenced sources at these pinned revisions:
+
+| Reference | Source |
+|-----------|--------|
+| `financial_pl` code (branch `feat/financial-pl-invoice-ux`) | [`packages/financial-pl` @ `17c575c`](https://github.com/open-mercato/official-modules/tree/17c575c9eb94893c9fc3da4036f5d19dc2b9369b/packages/financial-pl) |
+| SPEC-010 JPK_KR_PD (`official-modules#54`) | [`SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md` @ `6b5dfb9`](https://github.com/open-mercato/official-modules/blob/6b5dfb9a67f66a35e791bce2e2ef998e305d8488/.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md) |
+| SPEC-011 tax engines (`official-modules#55`) | [`SPEC-011-2026-09-16-tax-management-financial-pl.md` @ `79aa0b9`](https://github.com/open-mercato/official-modules/blob/79aa0b9d3724affa35bdc54d4944c07defbeb716/.ai/specs/SPEC-011-2026-09-16-tax-management-financial-pl.md) |
+| SPEC-012 `financial_pl` integration contracts | `2026-10-08-financial-pl-integration-contracts.md` (this repository) |
+
+Open work each phase waits on:
+
+| Phase | Waits on |
+|-------|----------|
+| Phase 0 | `financial_pl` brought into Core (the KSeF work, planned as a separate PR), then SPEC-012 A1 and A3 released |
+| Phase 1, B1 tax engines | General ledger (#6340), account balances (#6013), `tax_management` (#6168) |
+| Phase 1, B2 Bilans and RZiS | #6340, #6013, ledger bulk read (#6038), posting rules (#6711), `financial_statements` (#6188) |
+| Phase 1, B3 JPK_KR_PD | #6038 and SPEC-012 A1 |
+| Phase 1, B4 VAT reconciliation | #6038 and SPEC-012 A3 |
+| Phase 2, document-level B4 | SPEC-012 A2 (Accounts Payable #5962, Contractor Registry #5955) and an in-process AP invoice read |
 
 ## TLDR
 
@@ -9,9 +31,9 @@
 - It has a hard `requires` on `financial_pl`, `ledger`, `tax_management` and `financial_statements`. `financial_pl` itself gets no `requires`.
 
 **Scope:**
-- B1 Polish tax engines (VAT, CIT, PIT), mikrorachunek podatkowy and payment instruction: SPEC-011 (`official-modules#55`), core side `open-mercato#6168`.
+- B1 Polish tax engines (VAT, CIT, PIT), mikrorachunek podatkowy and payment instruction: [SPEC-011](https://github.com/open-mercato/official-modules/blob/79aa0b9d3724affa35bdc54d4944c07defbeb716/.ai/specs/SPEC-011-2026-09-16-tax-management-financial-pl.md) (`official-modules#55`), core side `open-mercato#6168`.
 - B2 Bilans and RZiS: `open-mercato#6188`.
-- B3 JPK_KR_PD: SPEC-010 (`official-modules#54`), reading the ledger through `open-mercato#6038`.
+- B3 JPK_KR_PD: [SPEC-010](https://github.com/open-mercato/official-modules/blob/6b5dfb9a67f66a35e791bce2e2ef998e305d8488/.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md) (`official-modules#54`), reading the ledger through `open-mercato#6038`.
 - B4 VAT reconciliation report (defined in this document).
 - Package manifest, `requires`, peers, features, settings, release order.
 
@@ -236,6 +258,9 @@ None identified. Open ⚠ items above must be confirmed before implementation.
 Draft: ready for maintainer review.
 
 ## Changelog
+
+### 2026-10-09
+- Moved into Core. Added the Prerequisites section: `financial_pl` is not in this repository yet, pinned links to its code and to SPEC-010/SPEC-011 in `official-modules`, and the open work each phase waits on.
 
 ### 2026-10-08
 - Initial specification. Records the split of the ledger-dependent Polish features out of `financial_pl`, the manifest and `requires`, the feature ids, the services consumed, and the Phase 1 VAT reconciliation report.
