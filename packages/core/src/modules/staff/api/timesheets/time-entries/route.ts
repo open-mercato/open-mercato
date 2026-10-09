@@ -31,6 +31,7 @@ import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/facto
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
@@ -452,6 +453,7 @@ export async function attachTimeEntryTotals(
     })
   } catch (err) {
     logger.error('staff.timesheets.time-entries totals failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.time_entry_totals_failed' })
   }
 }
 

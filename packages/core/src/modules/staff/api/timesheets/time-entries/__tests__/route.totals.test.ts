@@ -12,6 +12,12 @@ import {
 } from 'kysely'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 
+const reportErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
+
 jest.mock('../../../../lib/time-tracking/access', () => ({
   ...jest.requireActual('../../../../lib/time-tracking/access'),
   resolveProjectAccess: jest.fn(),
@@ -84,6 +90,7 @@ function listPayload() {
 
 describe('time-entries list totals', () => {
   beforeEach(() => {
+    reportErrorMock.mockReset()
     mockResolveProjectAccess.mockResolvedValue({ canManageAll: false, projectIds: [PROJECT_ID], staffMemberId: MEMBER_ID })
   })
 
@@ -93,6 +100,7 @@ describe('time-entries list totals', () => {
     await attachTimeEntryTotals(payload, ctx)
     expect(payload).not.toHaveProperty('totals')
     expect(queries).toHaveLength(0)
+    expect(reportErrorMock).not.toHaveBeenCalled()
   })
 
   it('adds whole-set totals that respect the list filters and project access', async () => {
@@ -131,6 +139,11 @@ describe('time-entries list totals', () => {
     await expect(attachTimeEntryTotals(payload, ctx)).resolves.toBeUndefined()
     expect(payload).not.toHaveProperty('totals')
     expect(payload.items).toEqual([{ id: 'row-1' }])
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] database unavailable' }),
+      { module: 'staff', code: 'staff.time_entry_totals_failed' },
+    )
   })
 
   it('intersects ?ids= with the tag narrowing exactly like the list does', async () => {
