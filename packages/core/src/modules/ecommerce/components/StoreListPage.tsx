@@ -305,6 +305,7 @@ export function StoreListPage() {
             pageSize: STORE_LIST_PAGE_SIZE,
             total: storesQuery.data?.total ?? 0,
             totalPages: storesQuery.data?.totalPages ?? 1,
+            totalIsCapped: storesQuery.data?.totalIsCapped === true,
             onPageChange: setPage,
           }}
         />

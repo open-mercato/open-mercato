@@ -27,6 +27,7 @@ export type StoreListResponse = {
   items: StoreAdminRecord[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export const STORES_API_PATH = 'ecommerce/stores'
