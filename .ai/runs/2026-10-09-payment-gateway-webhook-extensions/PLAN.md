@@ -18,7 +18,7 @@
 | 1 | 1.3 | Add the secondary payment locator, candidate snapshot and ambiguity rejection | dispatch:capable | done | `ba928307e` |
 | 1 | 1.4 | Add typed webhook outcomes and validated provider response formatting | dispatch:capable | done | a7a16ab15 |
 | 1 | 1.5 | Document the webhook extensions and mark the specs implemented | inline | done | 84060da36 |
-| 1 | 1.5-review-fix | Classify webhook infrastructure failures and document payment-only locator narrowing | inline | done | self |
+| 1 | 1.5-review-fix | Classify webhook infrastructure failures and document payment-only locator narrowing | inline | done | 208994d5c |
 
 ## Goal
 

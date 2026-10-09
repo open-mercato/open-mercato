@@ -7,3 +7,8 @@
 - External skill URLs: none
 - Decisions (user-directed): PR in the fork `mtytula/open-mercato` against `develop`, separate from the Tpay sessions PR; single-line commit subjects without trailers.
 - Validation runner: local.
+
+## 2026-10-09T17:27:17Z — final gate and review
+- Review: no blockers; one major (payment-only locator duplicates) addressed by documentation + test, minors fixed in `208994d5c`.
+- Gate green except pre-existing `core/progressService` and load flakes; webhook integration specs pass.
+- SSH push failed again mid-run; used HTTPS with gh credentials.

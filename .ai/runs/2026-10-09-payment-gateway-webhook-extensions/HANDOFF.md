@@ -1,16 +1,16 @@
 # Handoff — 2026-10-09-payment-gateway-webhook-extensions
 
-**Last updated:** 2026-10-09T16:51:43Z
+**Last updated:** 2026-10-09T17:27:17Z
 **Branch:** mtytula/payment-gateway-webhook-extensions
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** (spec analysis commit)
+**PR:** https://github.com/mtytula/open-mercato/pull/2 (ready for review)
+**Current phase/step:** complete
+**Last commit:** 208994d5c — fix(payment_gateways): classify webhook infrastructure failures and document locator narrowing
 
 ## What just happened
-- Pre-implementation analysis written; specs updated with resolved gaps; plan drafted.
+- All steps landed, final gate recorded, review fixes applied.
 
 ## Next concrete action
-- Implement Step 1.1.
+- Stage B: Tpay notification settlement (`.ai/specs/2026-07-26-tpay-full-integration.md`) on top of this branch and the Tpay sessions branch.
 
 ## Blockers / open questions
 - none
