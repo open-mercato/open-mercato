@@ -159,6 +159,23 @@ function projectIdOf(row: EntryRow | undefined): unknown {
   return row?.time_project_id ?? row?.timeProjectId
 }
 
+/**
+ * The settings page reloads its draft when the organization scope settles, which
+ * can land after the first load. Interacting before that reload loses the edit,
+ * so wait until the page has stopped fetching its settings.
+ */
+async function waitForSettingsPageToSettle(settingsResponses: () => number[]): Promise<void> {
+  await expect
+    .poll(
+      () => {
+        const times = settingsResponses()
+        return times.length > 0 && Date.now() - times[times.length - 1] > 1_500
+      },
+      { timeout: 30_000, intervals: [250] },
+    )
+    .toBe(true)
+}
+
 async function openAddEntryDialog(page: Page): Promise<void> {
   await page.goto('/backend/staff/time-tracking/entries')
   await page.getByRole('button', { name: /^add entry$/i }).first().click()
@@ -169,8 +186,12 @@ function projectCombobox(page: Page) {
   return page.getByTestId('entry-dialog').getByTestId('entry-dialog-project').getByRole('combobox')
 }
 
+function taskSection(page: Page) {
+  return page.getByTestId('entry-dialog').getByTestId('entry-dialog-task')
+}
+
 function taskCombobox(page: Page) {
-  return page.getByTestId('entry-dialog').getByTestId('entry-dialog-task').getByRole('combobox').first()
+  return taskSection(page).getByRole('combobox').first()
 }
 
 async function pickProject(page: Page, name: string): Promise<void> {
@@ -339,7 +360,7 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       await expect(page.getByRole('option', { name: new RegExp(taskATitle) }).first()).toBeVisible({ timeout: 15_000 })
       await expect(page.getByRole('option', { name: new RegExp(taskBTitle) })).toHaveCount(0)
       await page.getByRole('option', { name: new RegExp(taskATitle) }).first().click()
-      await expect(taskCombobox(page)).toHaveAttribute('placeholder', taskATitle)
+      await expect(taskSection(page)).toContainText(taskATitle)
 
       await page.locator('#entry-dialog-duration').fill('45m')
       await page.getByTestId('entry-dialog-save').click()
@@ -356,10 +377,11 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       await pickProject(page, `QATT24 proj A ${stamp}`)
       await taskCombobox(page).fill(String(stamp))
       await page.getByRole('option', { name: new RegExp(taskATitle) }).first().click()
-      await expect(taskCombobox(page)).toHaveAttribute('placeholder', taskATitle)
+      await expect(taskSection(page)).toContainText(taskATitle)
 
       await pickProject(page, `QATT24 proj B ${stamp}`)
-      await expect(taskCombobox(page)).not.toHaveAttribute('placeholder', taskATitle)
+      await expect(taskSection(page)).not.toContainText(taskATitle)
+      await expect(taskCombobox(page)).toBeVisible()
       await expect(dialog.getByTestId('entry-dialog-task-hint')).toContainText('leave empty to log the time to the project')
     } finally {
       await deleteEntriesOnProjects(request, employeeToken, selfMember?.id ?? null, [projectA?.id, projectB?.id])
@@ -383,11 +405,19 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       await writeEntryMode(request, adminToken, original, 'task')
 
       await login(page, 'admin')
+      const settingsLoads: number[] = []
+      page.on('response', (response) => {
+        if (response.request().method() === 'GET' && new URL(response.url()).pathname === SETTINGS_PATH) {
+          settingsLoads.push(Date.now())
+        }
+      })
       await page.goto('/backend/staff/time-tracking/settings')
       const control = page.getByTestId('time-tracking-settings-entry-mode')
       await expect(control.getByRole('radio', { name: 'a task' })).toBeChecked({ timeout: 30_000 })
+      await waitForSettingsPageToSettle(() => settingsLoads)
       await control.getByRole('radio', { name: 'a project' }).click()
       await expect(control.getByRole('radio', { name: 'a project' })).toBeChecked()
+      await expect(page.getByTestId('save-settings')).toBeEnabled()
       const saved = page.waitForResponse(
         (response) => response.url().includes(SETTINGS_PATH) && response.request().method() === 'PUT',
       )
