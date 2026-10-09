@@ -353,11 +353,13 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
       leaf account's own figure is its figure as is. A syntetyk account
       with children has own figure = its rolled-up figure minus the sum of
       its direct children's rolled-up figures — that is, only what was
-      posted directly to the syntetyk account, normally `0`. **⚠ NEEDS
-      HUMAN CONFIRMATION:** this relies on #6013's roll-up being exactly
-      additive (a syntetyk row equals its own postings plus its direct
-      children's rolled-up rows). If #6013 defines the roll-up differently,
-      this step changes; confirm against #6013 before implementation.
+      posted directly to the syntetyk account, normally `0`. This relies on
+      #6013's roll-up being exactly additive, and its spec states so: *"a
+      syntetyk account's row is its own direct postings plus every
+      descendant's, for every one of the six columns"* (`closingBalance`
+      is normalized per row by that row's own `normalBalance`, hence the
+      restore to `Dr − Cr` before subtracting). A regression test asserts
+      the identity against the implemented query (Testing Strategy).
    3. **Side from the sign of the own figure.** `> 0` is debit-side
       (Wn), `< 0` is credit-side (Ma), `= 0` is skipped (no mapping
       needed). This also settles the Wn/Ma derivation: the side comes from
@@ -528,20 +530,25 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
       and normalizes to the year's **last period** = the one containing
       Dec 31; that id is returned and is the one `ClosingResolution`
       stores.
-    - **Guard.** The year's periods (all `FiscalPeriod` rows whose
-      `startDate` falls in that calendar year) must tile Jan 1 – Dec 31
-      without gaps or overlaps. Otherwise `409 FISCAL_YEAR_NOT_CALENDAR`
+    - **Guard.** The year's periods (every period returned by
+      `ledgerBulkReadService.listFiscalPeriods({ from: Jan 1, to: Dec 31 })`,
+      which includes a period that straddles a boundary) must each lie
+      inside that calendar year and together tile Jan 1 – Dec 31 without
+      gaps or overlaps. Otherwise `409 FISCAL_YEAR_NOT_CALENDAR`
       naming the offending period. This is why #6013's calendar-YTD
       columns are sufficient: for a calendar year, the last period's YTD
       *is* the fiscal year's turnover.
     - **Non-calendar fiscal years** (e.g. Jul–Jun) are out of scope
       (Out of scope): they would need either a fiscal-year-aware YTD in
       #6013 or a per-period summation here.
-    - **⚠ NEEDS HUMAN CONFIRMATION:** enumerating a year's periods needs a
-      `ledgerBulkReadService.listFiscalPeriods({ from, to })` method;
-      #6038 currently exposes only `getFiscalPeriod` by id. This document
-      assumes that method is added to #6038 (same posture as the
-      `getFiscalPeriod`/`findClosingEntries` additions of 2026-10-08).
+    - **Upstream dependency (added to #6038, 2026-10-09).** Enumerating a
+      year's periods needs `ledgerBulkReadService.listFiscalPeriods({
+      tenantId, organizationId, from, to })`, specified in #6038 on
+      2026-10-09 (overlap semantics, ordered by `startDate`). Like
+      `getFiscalPeriod`/`findClosingEntries` (2026-10-08), it must land in
+      #6038 before this document's generation command can be built; the
+      comparative column (Design decisions #8) uses it for the prior
+      year.
 
 5b. **`ClosingResolution` is tied to the specific `CLOSING` entry it was
     computed against, and a reopen supersedes rather than silently
@@ -1120,12 +1127,14 @@ banners/messages described here.)
   accounts, that fiscal-year identity and calendar-YTD were never
   reconciled, that no check proved Aktywa = Pasywa, and that the uchwała
   was recorded but never consumed (Changelog 2026-10-09). The rewritten
-  rules lean on three external facts this document cannot verify alone:
-  #6013's roll-up is additive over direct children (Design decisions #2),
-  #6038 gains `listFiscalPeriods` (Design decisions #5a), and the loss-
-  coverage categories are right (Design decisions #4). Each is marked
-  **⚠ NEEDS HUMAN CONFIRMATION** where used; none is a blocker for the
-  spec, all are blockers for implementation.
+  rules lean on three external facts. Two are settled in the upstream
+  specs: #6013's roll-up is additive over direct children (its own text,
+  Design decisions #2), and #6038 specifies `listFiscalPeriods` (2026-10-09,
+  Design decisions #5a; it must land before this document is built). The
+  third, the loss-coverage and profit-allocation categories, needs an
+  accountant (Design decisions #4), as does the missing-prior-year policy
+  (Design decisions #8); both are marked **⚠ NEEDS HUMAN CONFIRMATION**
+  and are blockers for implementation, not for the spec.
 - **Comparatives are restated on the current mapping.** A tenant editing a
   mapping after filing year N will see a changed year-N column in year
   N+1's statements (Design decisions #8). That is the standard
@@ -1626,7 +1635,7 @@ None outstanding. (One was found and fixed during this report's own preparation 
 
 ### Verdict
 
-**Compliant with the repository rules above; open domain questions remain.** The 2026-09-21 verdict ("Fully compliant") is superseded by the 2026-10-09 re-run. Items that need an accountant's or an upstream-spec owner's confirmation are marked **⚠ NEEDS HUMAN CONFIRMATION** in Design decisions #2 (#6013 roll-up additivity), #4 (loss-coverage categories), #5a (`listFiscalPeriods` in #6038) and #8 (missing prior year: warn or block). Re-review requested on PR #6188.
+**Compliant with the repository rules above; open domain questions remain.** The 2026-09-21 verdict ("Fully compliant") is superseded by the 2026-10-09 re-run. Items that still need an accountant's or a maintainer's decision are marked **⚠ NEEDS HUMAN CONFIRMATION** in Design decisions #4 (loss-coverage and profit-allocation categories) and #8 (missing prior year: warn or block). Re-review requested on PR #6188.
 
 ## Changelog
 
@@ -1865,8 +1874,11 @@ Seven major and two minor findings from the review of `c7ac9ffcb`:
   Report was re-run with a note, rows corrected, and its "Fully compliant"
   verdict superseded. (The `packages/modules/…` path fix was already in the
   2026-10-08 entry.)
+- **Confirmed against upstream specs:** #6013's roll-up is additive over
+  direct children (Design decisions #2); `listFiscalPeriods` is specified
+  in #6038 on the same date (Design decisions #5a).
 - **Open confirmations** (marked **⚠ NEEDS HUMAN CONFIRMATION** in the
-  text): #6013 roll-up additivity, `listFiscalPeriods` in #6038, loss-
-  coverage categories, and missing-prior-year warn-versus-block.
+  text): loss-coverage and profit-allocation categories (Design decisions
+  #4) and missing-prior-year warn-versus-block (Design decisions #8).
 - **Not a change in this document:** retargeting the PR from `main` to
   `develop` is a repository action on the PR itself.
