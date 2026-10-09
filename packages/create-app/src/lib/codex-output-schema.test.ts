@@ -70,7 +70,7 @@ test('Codex preserves canonical nullable references and unions while omitting tr
 
 test('Codex transport instructions encode unrequested optional values as null without changing required outputs', () => {
   const prompt = evaluator.codexOutputPrompt ?? ((value: string): string => value)
-  assert.match(prompt('Route this module publication.', read('routing-response')), /If no specRouting classification is explicitly requested, set specRouting to null/)
-  assert.match(prompt('Also return specRouting.', read('routing-response')), /does not reuse a spec, set coveringSpecPath to null/)
+  assert.match(prompt('Route this module publication.', read('routing-response')), /Use null for fields that the instructions omit or do not request/)
+  assert.doesNotMatch(prompt('Route this module publication.', read('routing-response')), /specRouting|coveringSpecPath/)
   assert.equal(prompt('Required only.', { type: 'object', properties: { result: { type: 'string' } }, required: ['result'] }), 'Required only.')
 })

@@ -15,6 +15,8 @@ test('standalone module tooling has one routed owner for creation, publication a
   assert.match(section, /existing module.*skip `init`/i)
   assert.match(section, /publication.*(?:copies|copy).*source.*(?:remains|stays)/is)
   assert.match(section, /--allow-third-party/)
+  assert.match(section, /module add @your-scope\/mercato-visits@file:\/absolute\/path\/to\/package\.tgz --allow-third-party/)
+  assert.doesNotMatch(section, /module add \/absolute\/path\/to\/package\.tgz/)
   assert.match(section, /(?:NPM_TOKEN|NODE_AUTH_TOKEN)/)
   assert.match(section, /trusted.*(?:configure|configuration).*npm/is)
   assert.match(section, /link.*local.*fresh clone/is)

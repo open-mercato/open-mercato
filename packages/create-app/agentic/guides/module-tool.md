@@ -16,7 +16,7 @@ Preview a package before remote publication:
 npx create-mercato-module publish visits --package @your-scope/mercato-visits --dry-run
 ```
 
-The dry run needs no npm or GitHub login and builds a real archive under `.mercato/module-publish/`. Inspect the archive and install it in a fresh receiving app with `yarn mercato module add /absolute/path/to/package.tgz --allow-third-party`. Validate generation and the module's runtime paths there before publishing. Imports from app-generated entity registries must be replaced in the module source with module-owned typed field literals, stable `module:entity` identifiers, or supported package exports; generated files are evidence, never edit them to fix packaging.
+The dry run needs no npm or GitHub login and builds a real archive under `.mercato/module-publish/`. Inspect the archive and install it in a fresh receiving app with `yarn mercato module add @your-scope/mercato-visits@file:/absolute/path/to/package.tgz --allow-third-party`. Validate generation and the module's runtime paths there before publishing. Imports from app-generated entity registries must be replaced in the module source with module-owned typed field literals, stable `module:entity` identifiers, or supported package exports; generated files are evidence, never edit them to fix packaging.
 
 Once the user authorizes publication to the selected npm package and optional dedicated GitHub repository:
 

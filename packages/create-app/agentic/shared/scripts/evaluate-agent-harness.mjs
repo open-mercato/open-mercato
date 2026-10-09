@@ -2957,10 +2957,7 @@ export function normalizeCodexOutput(value, schema, rootSchema = schema) {
 export function codexOutputPrompt(prompt, schema) {
   const optionalFields = Object.keys(schema.properties ?? {}).filter((key) => !(schema.required ?? []).includes(key))
   if (!optionalFields.length) return prompt
-  const routingNote = schema.properties?.specRouting
-    ? ' If no specRouting classification is explicitly requested, set specRouting to null. When a classification is requested but does not reuse a spec, set coveringSpecPath to null.'
-    : ''
-  return `${prompt}\n\nCodex wire format: nullable fields encode optional output. Use null for fields that the instructions omit or do not request; never invent optional content merely because the wire schema requires its key.${routingNote}`
+  return `${prompt}\n\nCodex wire format: nullable fields encode optional output. Use null for fields that the instructions omit or do not request; never invent optional content merely because the wire schema requires its key.`
 }
 
 function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reasoningEffort, writable, allowedReads = [], allowedWrites = [], immutableRoots = [], validateResponse = validateRoutingResponse }) {
