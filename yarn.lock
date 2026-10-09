@@ -8627,11 +8627,13 @@ __metadata:
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
     "@open-mercato/channel-apns": "workspace:*"
+    "@open-mercato/channel-brevo": "workspace:*"
     "@open-mercato/channel-discord": "workspace:*"
     "@open-mercato/channel-expo": "workspace:*"
     "@open-mercato/channel-fcm": "workspace:*"
     "@open-mercato/channel-gmail": "workspace:*"
     "@open-mercato/channel-imap": "workspace:*"
+    "@open-mercato/channel-mailjet": "workspace:*"
     "@open-mercato/channel-resend": "workspace:*"
     "@open-mercato/channel-ses": "workspace:*"
     "@open-mercato/checkout": "workspace:*"
@@ -8761,7 +8763,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/channel-brevo@workspace:packages/channel-brevo":
+"@open-mercato/channel-brevo@workspace:*, @open-mercato/channel-brevo@workspace:packages/channel-brevo":
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-brevo@workspace:packages/channel-brevo"
   dependencies:
@@ -8928,7 +8930,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/channel-mailjet@workspace:packages/channel-mailjet":
+"@open-mercato/channel-mailjet@workspace:*, @open-mercato/channel-mailjet@workspace:packages/channel-mailjet":
   version: 0.0.0-use.local
   resolution: "@open-mercato/channel-mailjet@workspace:packages/channel-mailjet"
   dependencies:

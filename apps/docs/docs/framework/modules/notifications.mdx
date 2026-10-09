@@ -35,7 +35,16 @@ registered — lives in [Notification Delivery](./notification-delivery.mdx).
 
 ## Email sender configuration
 
-Notification emails use the Communications Hub system email transport. Omit `SYSTEM_EMAIL_PROVIDER` or set it to `resend` for the Resend channel provider, or set `SYSTEM_EMAIL_PROVIDER=ses` for the Amazon SES channel provider. SES uses the AWS SDK credential chain and `AWS_SES_REGION` / `AWS_REGION` when present.
+Notification emails use the Communications Hub system email transport. Select one registered provider with `SYSTEM_EMAIL_PROVIDER`:
+
+| Provider | Value | Required credentials |
+| --- | --- | --- |
+| Resend | `resend` (also the default when omitted) | `RESEND_API_KEY` |
+| Brevo | `brevo` | `OM_INTEGRATION_BREVO_API_KEY` |
+| Mailjet | `mailjet` | `OM_INTEGRATION_MAILJET_API_KEY` and `OM_INTEGRATION_MAILJET_SECRET_KEY` |
+| Amazon SES | `ses` | AWS SDK credential chain and `AWS_SES_REGION` or `AWS_REGION` |
+
+Brevo and Mailjet publish EU data-hosting and data-processing terms, but selecting a provider does not by itself make a deployment GDPR compliant. Operators must assess their contract, lawful basis, retention, recipient consent, and configuration. Each provider also accepts an optional provider-specific sender override (`OM_INTEGRATION_BREVO_FROM_ADDRESS` or `OM_INTEGRATION_MAILJET_FROM_ADDRESS`).
 
 Notification emails resolve their sender in this order:
 
