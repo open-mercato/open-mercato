@@ -22,6 +22,7 @@
 | 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | done | b20bf71742 |
 | 1 | 1.6 | Cap the cold-build heap inside yarn ci | inline | done | e76b371720 |
 | 1 | 1.7 | Make the cold yarn ci build fit 7 GB reliably | inline | todo | — |
+| 1 | 1.8 | Ship the workflow templates in the published package | inline | todo | — |
 | 2 | 2.1 | Add opt-in app-owned spec discovery to mercato test:integration | dispatch:capable | todo | — |
 | 2 | 2.2 | Add template integration.yml workflow and its structure test | dispatch | todo | — |
 | 2 | 2.3 | Document the integration workflow and the new CLI flag | dispatch | todo | — |
@@ -99,6 +100,9 @@ Every new template-based standalone app ships a provider-neutral `yarn ci` quali
 
 #### Step 1.7 — Make the cold yarn ci build fit 7 GB reliably
 - Appended at checkpoint 1 (failed): even with the 4 GB build heap, 1 of 2 fully cold `yarn ci` runs was OOM-killed during static generation. Try `experimental.turbopackFileSystemCacheForBuild: false` gated on `OM_SKIP_NEXT_BUILD_TYPECHECK=1` first, then `NEXT_TURBOPACK_USE_WORKER=0`, then a lower heap. Accept only after ≥3 fully cold runs with `oom_kill=0` (see checkpoint-1-checks.md). Update template next.config.ts/ci.mjs, tests, docs Memory paragraph, spec Phase 0 table + Architecture → Memory.
+
+#### Step 1.8 — Ship the workflow templates in the published package
+- Appended at resume: `yarn pack` always drops `.github` directories, so the published `create-mercato-app` shipped no workflows (earlier E2E used a local template). Store them under `template/github/` and restore `.github/` at the template root while copying. Guard test on the template layout and the scaffold output.
 
 ### Phase 2 — Integration workflow
 

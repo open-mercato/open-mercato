@@ -27,7 +27,7 @@ const FORK_GUARD = "github.event.pull_request.head.repo.fork && 'ubuntu-latest'"
 
 function renderWorkflow(name: string): RenderedWorkflow {
   const templatePath = fileURLToPath(
-    new URL(`../../template/.github/workflows/${name}.yml.template`, import.meta.url),
+    new URL(`../../template/github/workflows/${name}.yml.template`, import.meta.url),
   )
   const text = applyTemplatePlaceholders(readFileSync(templatePath, 'utf-8'), PLACEHOLDERS)
   return { text, workflow: parse(text) as Workflow }

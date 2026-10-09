@@ -52,6 +52,13 @@ test('resolveCiProvider accepts explicit github and none', () => {
   assert.equal(resolveCiProvider('none', false), 'none')
 })
 
+test('template keeps workflows outside .github because yarn pack drops that directory', () => {
+  const templateDir = new URL('../../template/', import.meta.url)
+  assert.ok(!existsSync(new URL('.github', templateDir)), 'template/.github would be missing from the published package')
+  assert.ok(existsSync(new URL('github/workflows/ci.yml.template', templateDir)))
+  assert.ok(existsSync(new URL('github/workflows/integration.yml.template', templateDir)))
+})
+
 test('resolveCiProvider rejects unknown values with the valid list', () => {
   assert.throws(
     () => resolveCiProvider('gitlab', false),
@@ -73,6 +80,8 @@ test('default scaffold ships the rendered ci workflow and prints lockfile-first 
     const workflowPath = join(appDir, '.github', 'workflows', 'ci.yml')
     assert.ok(existsSync(workflowPath))
     assert.ok(!readFileSync(workflowPath, 'utf-8').includes('{{PACKAGE_VERSION}}'))
+    assert.ok(existsSync(join(appDir, '.github', 'workflows', 'integration.yml')))
+    assert.ok(!existsSync(join(appDir, 'github')), 'the template github/ directory is restored as .github/')
     assert.ok(existsSync(join(appDir, 'scripts', 'ci.mjs')))
 
     const joined = output.join('\n')

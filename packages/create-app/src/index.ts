@@ -386,6 +386,12 @@ const FILE_RENAMES: Record<string, string> = {
   gitattributes: '.gitattributes',
 }
 
+// `yarn pack` always drops `.github` directories, so the template stores the
+// workflow files under `github/` and the scaffolder restores the dot name.
+const TEMPLATE_ROOT_RENAMES: Record<string, string> = {
+  github: '.github',
+}
+
 const SKIP_DIRS = new Set(['__tests__', '__integration__'])
 
 export function applyTemplatePlaceholders(content: string, placeholders: Record<string, string>): string {
@@ -396,7 +402,12 @@ export function applyTemplatePlaceholders(content: string, placeholders: Record<
   return rendered
 }
 
-function copyDirRecursive(src: string, dest: string, placeholders: Record<string, string>): void {
+function copyDirRecursive(
+  src: string,
+  dest: string,
+  placeholders: Record<string, string>,
+  isTemplateRoot = false,
+): void {
   if (!existsSync(dest)) {
     mkdirSync(dest, { recursive: true })
   }
@@ -405,7 +416,7 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
 
   for (const entry of entries) {
     const srcPath = join(src, entry)
-    const destName = FILE_RENAMES[entry] ?? entry
+    const destName = (isTemplateRoot ? TEMPLATE_ROOT_RENAMES[entry] : undefined) ?? FILE_RENAMES[entry] ?? entry
     let destPath = join(dest, destName)
     const stat = statSync(srcPath)
 
@@ -440,7 +451,7 @@ async function scaffoldTemplateApp(
     throw new Error(`Template directory not found at ${TEMPLATE_DIR}`)
   }
 
-  copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
+  copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders, true)
   ensureGeneratedCssPlaceholder(targetDir)
 }
 
