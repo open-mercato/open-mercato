@@ -97,10 +97,13 @@ export default function ProfileCommunicationChannelsPage() {
 
   React.useEffect(() => {
     if (flashType === 'connected') {
+      const providerLabel = flashProvider
+        ? t(`communication_channels.channel.providers.${flashProvider}`, '')
+        : ''
       flash(
-        flashProvider
+        providerLabel
           ? t('communication_channels.profile.flash.connectedWithProvider', 'Channel connected ({provider}).', {
-              provider: flashProvider,
+              provider: providerLabel,
             })
           : t('communication_channels.profile.flash.connected', 'Channel connected.'),
         'success',
@@ -127,11 +130,7 @@ export default function ProfileCommunicationChannelsPage() {
                     'communication_channels.profile.flash.stateStoreUnavailable',
                     'A server error prevented completing the connection. Please try again in a moment.',
                   )
-                : flashCode
-                  ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
-                      code: flashCode,
-                    })
-                  : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
+                : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
     } else {

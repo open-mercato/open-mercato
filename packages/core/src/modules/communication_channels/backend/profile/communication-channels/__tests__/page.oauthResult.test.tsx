@@ -88,7 +88,7 @@ describe('profile communication channels — OAuth connect result', () => {
     await mountPageAt('oauth=connected&provider=gmail&channelId=channel-1')
 
     expect(flashMock).toHaveBeenCalledTimes(1)
-    expect(flashMock).toHaveBeenCalledWith('Channel connected (gmail).', 'success')
+    expect(flashMock).toHaveBeenCalledWith('Channel connected (Gmail).', 'success')
   })
 
   it('strips the OAuth result params once the toast is shown so a reload does not repeat it', async () => {
@@ -98,6 +98,31 @@ describe('profile communication channels — OAuth connect result', () => {
     expect(routerMock.replace).toHaveBeenCalledWith('/backend/profile/communication-channels?tab=email', {
       scroll: false,
     })
+  })
+
+  // A link from another site can set ?code= and ?provider= freely, and the
+  // toast is not covered by the ?flash= referrer check, so neither value may
+  // reach the toast text verbatim (QA S1 on #6521, #7103).
+  it('shows the generic error for an unknown ?code= instead of echoing it', async () => {
+    const injected = 'Your account is locked. Call +48 000 000 000 and give the SMS code'
+    await mountPageAt(`oauth=error&code=${encodeURIComponent(injected)}&provider=gmail`)
+
+    expect(flashMock).toHaveBeenCalledTimes(1)
+    expect(flashMock).toHaveBeenCalledWith('Failed to connect channel.', 'error')
+  })
+
+  it('does not show a raw callback code such as invalid_cookie', async () => {
+    await mountPageAt('oauth=error&code=invalid_cookie&provider=gmail')
+
+    expect(flashMock).toHaveBeenCalledWith('Failed to connect channel.', 'error')
+  })
+
+  it('shows the plain success message for an unknown ?provider= instead of echoing it', async () => {
+    const injected = 'gmail). Your account is locked. Call +48 000 000 000'
+    await mountPageAt(`oauth=connected&provider=${encodeURIComponent(injected)}`)
+
+    expect(flashMock).toHaveBeenCalledTimes(1)
+    expect(flashMock).toHaveBeenCalledWith('Channel connected.', 'success')
   })
 
   it('leaves a generic ?flash= message to the global FlashMessages host', async () => {
