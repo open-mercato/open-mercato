@@ -32,6 +32,10 @@ Route first; never probe unmatched context.
 
 Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Never migrate to validate.
 
+## Production Deployment
+
+For production deployment, go-live, or security-readiness work, read `.ai/guides/production-deployment.md`. Review configuration names in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or a live deployment.
+
 ## Three-Axis Context Assembler
 
 Routes are additive: ownership says WHO; other axes say WHAT. Select every match.
