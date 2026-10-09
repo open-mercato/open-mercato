@@ -57,6 +57,7 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 - The generated knowledge-change manifest passed its controller-owned base/head contract, including the required `routing` lane and OMH-238.
 - A freshly packed standalone scaffold passed OMH-238 deterministically and with a live Claude runner (1/1 in each lane).
 - The complete deterministic catalog passed 232/238 cases. Six unchanged cases (OMH-007, OMH-008, OMH-022, OMH-030, OMH-057, and OMH-064) exceed their installed external-skill context budgets; the release suite therefore stopped at the deterministic foundation before any writable action.
+- Repository gates used the local runner: package builds, generation, i18n sync/usage checks, typechecking, the application build, isolated CLI tests (2,001/2,001), and the create-app suite passed. The serial full test gate reaches two unchanged `progressService.test.ts` failures (`Progress job job-1 not found`); the same 2/102 failures reproduce in isolation, and this branch does not modify the progress module.
 
 ## Progress
 
@@ -80,5 +81,5 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 
 ### Phase 4: Final validation and review
 
-- [ ] 4.1 Run the required documentation, create-app, harness, release, and repository gates
+- [x] 4.1 Run the required documentation, create-app, harness, release, and repository gates — 5b2b3e461
 - [ ] 4.2 Complete review/autofix and publish sanitized evidence
