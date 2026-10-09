@@ -66,23 +66,30 @@ both cost views:
 
 ## Proposed Solution
 
-An event-driven subscriber (`PostingRulesEngineSubscriber`) listens for
-`ledger.journal_entry.posted` (#5663). For every posted line whose
-account resolves to zespół 4 (`LedgerAccountType.accountGroupId` →
-`LedgerAccountGroup{jurisdiction: 'PL', code: '4'}`), it immediately
-posts a second, linked `JournalEntry`: a debit to the zespół 5 account
-named by that source account's `DefaultAccountPostingRule` and a
-credit to the technical clearing account 490, for the same amount —
-tagged with a `CostCenter` dimension (via
-`journal_entry_line_dimension`) resolved through a three-step priority
-hybrid (explicit tag → default rule → suspense account; see Design
-Decisions). Two supporting mechanisms cover the event's fire-and-forget
-nature: a reconciliation sweeper (`reconcileCostRing`) that finds and
-repairs any zespół 4 posting left without its mirror, and a
-period-close guard (`posting_rules.lockFiscalPeriod`) that refuses to
-lock a fiscal period while unreclassified entries remain. Full
-reasoning for every one of these choices is in Design Decisions below;
-this section is the map of how they fit together.
+An event-driven subscriber (`PostingRulesEngineSubscriber`, declared
+`persistent: true` — see Design Decisions, "Real-time, not batch")
+listens for `ledger.journal_entry.posted` (#5663). It reacts only to
+entries of `type: 'NORMAL'` or `'REVERSAL'` (never `OPENING` or
+`CLOSING`) and, within them, only to lines whose account resolves to
+zespół 4 (`LedgerAccountType.accountGroupId` →
+`LedgerAccountGroup{jurisdiction: 'PL', code: '4'}`) and is not the
+clearing account itself (see Design Decisions, "Which entries and lines
+the engine reacts to"). For each such line it posts one second, linked
+`JournalEntry`: a debit to the zespół 5 account named by that source
+account's `DefaultAccountPostingRule` and a credit to the technical
+clearing account 490, for the same amount (a contra-side line, such as
+a storno or a credit note, gets the mirror image) — tagged with a
+`CostCenter` dimension (via `journal_entry_line_dimension`) resolved
+through a three-step priority hybrid (explicit tag → default rule → the
+seeded sentinel `CostCenter`; see Design Decisions). Each
+reclassification is keyed on its source *line*, so "already
+reclassified" is decided per line. Two supporting mechanisms make the
+result converge: a reconciliation sweeper (`reconcileCostRing`) that
+finds and repairs any source line left without its reclassification,
+and a period-close guard (`posting_rules.lockFiscalPeriod`) that
+refuses to lock a fiscal period while any remain. Full reasoning for
+every one of these choices is in Design Decisions below; this section
+is the map of how they fit together.
 
 ## Design Decisions (2026-09-07 — resolved)
 
@@ -147,85 +154,163 @@ where the 4xx and 5xx variants disagree. An earlier version of this
 decision assumed "the same transaction" as the cost's source
 `postJournalEntry` — unreachable in this system:
 `packages/events/AGENTS.md` bans direct cross-module calls, and the
-only permitted mechanism (events + subscribers) is fire-and-forget by
-design ("Inline delivery logs each handler error and continues" — a
-subscriber's error neither blocks nor rolls back the emitting
-command). Resolution: #5663's `postJournalEntry` emits
-`ledger.journal_entry.posted` (ephemeral — immediate, in-process, no
-retry — see `.ai/specs/2026-08-18-general-ledger-core-engine.md` →
-Architecture → Events); `PostingRulesEngineSubscriber` receives it,
-checks `account.type.accountGroupId` → `jurisdiction: 'PL'`,
-`code: '4'`, and immediately posts the 490→5xx reclassification with
-its own `postJournalEntry` call (`referenceType:
-'PostingRulesEngineReclassification'`, `referenceId` of the original
-entry — see Design Decisions, "The engine's own postings carry a
-distinct `referenceType`"). This is not atomic with the
-source posting — there is a microscopic window between the two
-commits, and no automatic retry if the reclassification fails. Hence
-the two additional mechanisms below.
+only permitted mechanism is events + subscribers, so a subscriber's
+failure can neither block nor roll back the emitting command.
+Resolution: #5663's `postJournalEntry` and `reverseJournalEntry` emit
+`ledger.journal_entry.posted` after commit;
+`PostingRulesEngineSubscriber` receives it and posts the
+reclassification with its own `postJournalEntry` call (`referenceType:
+'PostingRulesEngineReclassification'`, `referenceId` of the source
+*line* — see Design Decisions, "The engine's own postings carry a
+distinct `referenceType`"). **Corrected 2026-10-09 (re-review M3):**
+an earlier version called the event "ephemeral — immediate, in-process,
+no retry". #5663 has since corrected that (core engine → Events,
+2026-09-18): persistence is a property the *subscriber* declares
+(`metadata.persistent`), not the event, and #5663 names this subscriber
+as one that "must subscribe with `persistent: true`". It therefore
+declares `persistent: true` (`packages/events/AGENTS.md` → Subscription
+Types: retried on failure). The payload is `{ journalEntryId,
+sequenceNumber, type, operationDate, organizationId, tenantId,
+referenceType, referenceId, lines: { id, accountId, debit, credit }[]
+}`, so the subscriber does not re-read the entry's lines; it reads the
+`JournalEntry` once, only for `currencyId`, which the payload does not
+carry (⚠ NEEDS HUMAN CONFIRMATION: ask #5663 to add `currencyId` to the
+payload, which would remove that read).
+
+Because delivery is retried, **the subscriber must be idempotent**, and
+that is a requirement of this module, not something the event
+provides: a retry after a partial success (the reclassification
+posted, a later step such as `setJournalEntryLineDimension` failed)
+must neither post a second reclassification nor leave the first one
+untagged. Per source line the subscriber (1) takes a transaction-scoped
+advisory lock on the source line id and, in that same transaction,
+(2) looks for an existing reclassification keyed on that line (the
+marker below) and posts only if there is none — using the
+composed-transaction mechanism of #5663's `postJournalEntry` so that
+lock and posting commit together (⚠ NEEDS HUMAN CONFIRMATION against
+#6340) — and (3) always runs the tag step as "ensure the `CostCenter`
+tag exists", whether or not step (2) posted anything. The sweeper and
+the subscriber share this one code path, so a retry, a concurrent
+sweeper run and a re-delivery converge on one reclassification per
+line. Errors that a retry cannot fix (clearing account unset, no
+target account resolvable, locked period) are logged with their named
+error and the handler returns without throwing; the line stays in the
+sweeper's and the guard's result set. Only transient errors (database,
+lock timeout) are thrown, so that delivery retries them.
 
 **A repair mechanism: `ReconcileCostRingCommand` (a sweeper).** A
-scheduled / CLI-invoked command that finds "orphaned" zespół 4 entries
-with no corresponding reclassification on account 490 (e.g. after a
-server restart mid-event-handling) and generates the missing entries
-for them. Closes the no-retry risk of the ephemeral subscriber above.
+scheduled / CLI-invoked command that finds source lines (see "Which
+entries and lines the engine reacts to") with no reclassification
+keyed on them and posts the missing ones through the same idempotent
+code path as the subscriber. Persistent delivery retries transient
+failures, but it cannot repair what a retry cannot fix: a line posted
+before the module was enabled or before an admin configured
+`PostingRulesSettings`, or one whose handler returned on a named
+configuration error. **Corrected 2026-10-09:** this paragraph used to
+justify the sweeper by the "no-retry risk of the ephemeral
+subscriber".
 
-**The engine's own postings carry a distinct `referenceType`, not the
-generic `'JournalEntry'` — this is what actually stops
-re-reclassification and the sweeper's collision with storno.** An
-earlier draft relied on account-group codes alone to keep the
-subscriber from reacting to its own output, assuming account 490's
-`LedgerAccountType.accountGroupId` would resolve to a non-existent
-"zespół 4x9" — real bug caught during review: #5663 seeds only
-single-digit `LedgerAccountGroup.code`s (zespoły 0–8), so a correctly
-typed account 490 resolves to `code: '4'` like any other zespół 4
-account, since it genuinely is one for reporting purposes — relying
-on it resolving to anything else would have looped the subscriber on
-its own output. **Corrected (2026-09-14):** every reclassification
-this engine posts carries `referenceType:
-'PostingRulesEngineReclassification'` (not the generic `'JournalEntry'`
-this document used until now); the subscriber checks this marker
-first and ignores any `ledger.journal_entry.posted` event whose entry
-already carries it, independent of account-group resolution. The same
-marker fixes a second, related bug: `reconcileCostRing`/
-`lockFiscalPeriod`'s shared finder used to treat "any entry with
-`referenceType: 'JournalEntry'` pointing back to the source" as proof
-of an existing reclassification — but #5663's own `reverseJournalEntry`
-links a `REVERSAL` entry back to what it reverses the identical way,
-so a reversed-but-never-reclassified entry would satisfy that same
-predicate and be wrongly skipped by both the sweeper and the
-period-close guard (see Invariant 3, Events & Subscribers, Commands).
-Searching specifically for `'PostingRulesEngineReclassification'`
-instead of the generic pair resolves both problems at once.
-`referenceType` is a free-form field in #5663 (unlike the closed
-`JournalEntry.type` enum) — other modules already write their own
-source-entity name there; this is the same convention applied to this
-module's own output instead of the generic literal it used before.
+**Which entries and lines the engine reacts to — an explicit trigger
+set (added 2026-10-09, re-review M1).** #5663 produces more contra-side
+zespół 4 lines than the storno of a source cost, and an earlier draft
+treated every one of them as a storno of an engine reclassification.
+The *source set* is now defined once, and the subscriber, the sweeper's
+finder and the period-close guard all use that same definition. A line
+is in the source set when:
+
+- its entry's `type` is `NORMAL` or `REVERSAL`. `CLOSING` and `OPENING`
+  are skipped: the year-end closing entry credits each 4xx account
+  against 490 (or 860), and reclassifying those lines would wipe the
+  functional view at year end and post against the clearing account
+  again; an opening entry restates balances, it is not a cost incurred.
+  The event payload's `type` makes this a check on the event itself.
+- its entry's `referenceType` is not
+  `'PostingRulesEngineReclassification'` (the engine's own output);
+- its account resolves to zespół 4 **and is not
+  `PostingRulesSettings.clearingAccountId`**. Account 490 resolves to
+  `code: '4'` like any other zespół 4 account, so without this rule any
+  entry touching it that the engine did not post — a closing entry, a
+  manual adjustment, a `REVERSAL` of one of the engine's own
+  reclassifications — would enter the reclassification path. The
+  clearing account is never a source.
+
+A contra-side line in the source set that does *not* come from a
+reversal of a reclassified cost — a vendor credit note, a 4xx→4xx
+reclassification, or a `REVERSAL` whose original was never
+reclassified — has no reclassification to mirror. It is handled like a
+normal-side line with the direction inverted: target account and
+`CostCenter` are resolved through the rule and the hybrid as for a
+cost, then posted as credit target account / debit clearing account.
+Nothing is rejected for want of an original; if the original is
+reclassified later (by the sweeper), the two converge to the same net
+result.
+
+**The engine's own postings carry a distinct `referenceType`, and the
+marker points at the source line — this is what stops
+re-reclassification, the sweeper's collision with storno, and
+per-line double-posting.** An earlier draft relied on account-group
+codes alone to keep the subscriber from reacting to its own output,
+assuming account 490's `LedgerAccountType.accountGroupId` would
+resolve to a non-existent "zespół 4x9" — real bug caught during
+review: #5663 seeds only single-digit `LedgerAccountGroup.code`s
+(zespoły 0–8), so a correctly typed account 490 resolves to `code: '4'`
+like any other zespół 4 account. **Corrected (2026-09-14):** every
+reclassification this engine posts carries `referenceType:
+'PostingRulesEngineReclassification'` (not the generic
+`'JournalEntry'`), and the subscriber ignores any entry that already
+carries it. The same marker fixes a second bug: the finder used to
+treat "any entry pointing back to the source with the generic
+reference type" as proof of an existing reclassification, but
+#5663's `reverseJournalEntry` links a `REVERSAL` entry back to what it
+reverses the same way (`type: 'REVERSAL'`, `referenceType:
+'journal_entry'`), so a reversed-but-never-reclassified entry satisfied
+that predicate and was wrongly skipped. **Corrected (2026-10-09,
+re-review M2):** `referenceId` is the id of the *source
+`JournalEntryLine`*, not of the source entry. The engine reclassifies
+per line, so "already reclassified" has to be decided per line; an
+entry-level marker cannot tell a fully reclassified multi-line entry
+from a partly reclassified one (a 401 line reclassified, a 402 line
+rejected for want of a rule: once the settings are fixed the entry
+still looks done, and the period could be locked with line 402
+unreclassified). `referenceId` is a `uuid` column in #5663, which a
+line id satisfies; no `ledger` schema change. A contra-side mirror is
+keyed on the contra line's own id the same way. `referenceType` is a
+free-form field in #5663 (unlike the closed `JournalEntry.type` enum) —
+other modules already write their own source-entity name there.
 
 **Reversals are mirrored, not duplicated — the subscriber checks each
 line's side against its account's `normalBalance`.** An earlier draft
 reacted identically to every posted line whose account resolves to
 zespół 4, regardless of debit/credit side — real bug caught during
-review: #5663's `reverseJournalEntry` "posts a new REVERSAL entry
-with inverted lines," so a storno of a cost (a credit to a
-normally-debit zespół 4 account) would have been reclassified the
-*same* way as the original cost (another debit zespół 5 / credit
-490), doubling the cost in the functional P&L instead of correcting
-it. **Corrected (2026-09-14):** the subscriber compares each posted
-line's debit/credit side against its account's
-`LedgerAccountType.normalBalance`; a line on the *normal* side (a
-cost incurred) is reclassified as already described (debit zespół 5 /
-credit 490); a line on the *contra* side (a correction) gets the
-mirror-image entry instead (credit zespół 5 / debit 490), tagged with
-the *same* `CostCenter` the original reclassification carried —
-looked up via the reversed entry's own `referenceId` back to the
-source, then that source's own reclassification (found via the
-marker above) — rather than re-running the MPK priority hybrid from
-scratch, which could resolve a *different* `CostCenter` than the
-original if `DefaultAccountPostingRule` changed in between (Invariant
-5 already establishes lookups are point-in-time, not retroactive —
-re-resolving on reversal would silently violate that same principle
-by crediting the correction to the wrong department).
+review: #5663's `reverseJournalEntry` "posts a new REVERSAL entry with
+inverted lines," so a storno of a cost (a credit to a normally-debit
+zespół 4 account) would have been reclassified the *same* way as the
+original cost, doubling the cost in the functional P&L instead of
+correcting it. **Corrected (2026-09-14):** the subscriber compares each
+source line's side against `LedgerAccountType.normalBalance`; a line on
+the *normal* side (a cost incurred) is reclassified as described
+(debit zespół 5 / credit 490). **Corrected (2026-10-09, re-review
+M1/M2):** a contra-side line in a `REVERSAL` entry is mirrored (credit
+zespół 5 / debit 490), reusing the original reclassification's target
+account and `CostCenter` rather than re-running the hybrid (Invariant
+5: re-resolving could credit the correction to a different department
+than the original charged). The original is found per line, not per
+entry: from the reversal entry (`referenceType: 'journal_entry'`,
+`referenceId` = the reversed entry) take the reversed entry's
+source-set lines on the same account with the same amount that have a
+reclassification keyed on them, and pair them with the reversal's
+contra lines in a stable order (by line id on both sides). Contra-side
+lines with no such original (a `NORMAL` credit note, or a reversal
+whose original was never reclassified) follow the inverted-direction
+rule in "Which entries and lines the engine reacts to". Residual
+limitation, disclosed: #5663 records no per-line link between a
+reversal line and the line it reverses, so for several lines with the
+*same* account and amount but different explicit `CostCenter` tags the
+pairing can swap which of them a mirror reuses; ledger totals are
+unaffected, only the cost-centre attribution between those equal lines.
+⚠ NEEDS HUMAN CONFIRMATION: closing this fully needs
+`reverseJournalEntry` to record which original line each reversal line
+inverts (a #5663 change).
 
 **Period-close guard: a dedicated entry point in `posting_rules`, not
 a subscriber veto.** A subscriber cannot block #5663's
@@ -297,6 +382,23 @@ sentinel `CostCenter` exists (seeded automatically — see Module
 Setup) — without waiting for an MPK field in the AP invoice UI; once
 that field exists, it simply starts feeding path (1), with no change
 to the engine.
+
+**The sentinel `CostCenter` is protected by the commands, not by a flag
+(added 2026-10-09, re-review m3).** The sentinel is "a normal row like
+any other, distinguished only by its well-known `code`", with no
+"system row" column, so the guarantee that hybrid step (3) always has
+something to tag with has to come from the commands: `updateCostCenter`
+rejects any change to `code` or `isActive` on the row whose `code` is
+`'UNALLOCATED'`, `deleteCostCenter` rejects deleting it, and the
+generated `DELETE` route reaches the same command, so it is covered
+too. `seedDefaults` looks the sentinel up by `code` among non-deleted
+rows and creates it only when absent, so a re-run never adds a second
+one. The same fallback applies when a rule's `defaultCostCenterId`
+points at a cost centre that has since been deactivated or deleted: the
+engine treats it as unset and uses the sentinel (the tag is a
+point-in-time value, Invariant 5). An explicit
+`journal_entry_line_dimension` tag on the source line is honoured as
+written, even when that cost centre is now inactive.
 
 **`DefaultAccountPostingRule` does double duty: the 4→5 account mapping
 and the default cost centre, in one row.** Two earlier decisions each
@@ -413,51 +515,58 @@ Properties that must always hold once this engine is running for a
 tenant with `posting_rules` installed:
 
 1. **Reclassification completeness (eventual, not immediate).** Every
-   `JournalEntryLine` posted to a zespół 4 account eventually has a
-   corresponding debit line on its `DefaultAccountPostingRule`-mapped
-   zespół 5 account and a credit line on account 490, for the same
-   amount — "eventual" because the event path is fire-and-forget;
-   `reconcileCostRing` is what makes this true within a bounded window
-   rather than indefinitely.
-2. **Account 490's running credit balance always equals the sum of
-   reclassified zespół 4 costs to date — not zero.** Every
-   reclassification this engine posts is a single entry, debit
-   `targetAccountId` (zespół 5) / credit 490, for the source line's
-   amount; 490 never receives a debit from this engine, so its balance
-   accumulates rather than nets to zero during the period. **Corrected
-   from an earlier, wrong draft of this invariant**, which claimed 490
-   "nets to zero" — that would only be true if this engine also posted
-   an offsetting debit to 490 somewhere, which it deliberately does
-   not (the by-nature P&L variant needs the original zespół 4 balances
-   left untouched). Clearing 490 to zero is the standard period-end
-   P&L-closing procedure that applies to every result-affecting
-   account, not something this module does itself — out of scope here
-   (see Out of scope). The invariant this module *can* actually check:
-   at any point in time, 490's credit balance equals the sum of every
-   zespół 4 posting reclassified so far; a mismatch (checked by
-   comparing 490's balance against the sum of reclassified source
-   lines, not against zero) indicates a mapping or amount bug.
-3. **A reclassification entry is never the cause of a re-reclassification.**
-   The subscriber ignores any `ledger.journal_entry.posted` event whose
-   entry already carries `referenceType:
-   'PostingRulesEngineReclassification'` (see Design Decisions,
-   "The engine's own postings carry a distinct `referenceType`") —
-   a positive marker on the engine's own output, not a claim about
-   which `LedgerAccountGroup.code` account 490 or the zespół-5 target
-   account happen to resolve to (account 490 legitimately resolves to
-   `code: '4'` like any other zespół 4 account — **corrected
-   2026-09-14**, an earlier draft wrongly assumed a non-existent
-   "zespół 4x9" group would keep it from matching).
+   line in the source set (see Design Decisions, "Which entries and
+   lines the engine reacts to") eventually has exactly one
+   reclassification entry keyed on that line — debit the
+   `DefaultAccountPostingRule`-mapped zespół 5 account / credit the
+   clearing account for a normal-side line, the mirror image for a
+   contra-side line — for the same amount. "Eventual" because the
+   subscriber can be delayed, retried, or return on a named
+   configuration error; `reconcileCostRing` is what makes this true
+   within a bounded window rather than indefinitely. "Exactly one" is
+   the idempotency requirement of Design Decisions, "Real-time, not
+   batch".
+2. **The clearing account's engine-posted balance is net, not zero.**
+   Over the entries this engine posted (those carrying the marker), the
+   clearing account's credit balance equals the sum of normal-side
+   source lines reclassified minus the sum of contra-side source lines
+   mirrored, over the same source set. **Restated 2026-10-09** (re-review
+   m1): the engine does post a debit to the clearing account, on the
+   contra side (a storno or credit note), so "490 never receives a debit
+   from this engine" no longer holds; the by-nature variant still needs
+   the original zespół 4 balances left untouched. The check is
+   restricted to the engine's own entries on purpose: other entries
+   legitimately post to the same account (the year-end closing entry, a
+   manual adjustment), so the account's *total* balance is not expected
+   to equal this sum. Clearing the account to zero at year end is the
+   standard period-end P&L-closing procedure, not something this module
+   does (see Out of scope). A mismatch between the engine-posted net and
+   the source-set net indicates a mapping or amount bug.
+3. **A reclassification entry is never the cause of a re-reclassification,
+   and the clearing account is never a source.** The subscriber and
+   the finder ignore (a) any entry that carries `referenceType:
+   'PostingRulesEngineReclassification'` — a positive marker on the
+   engine's own output, not a claim about which
+   `LedgerAccountGroup.code` an account happens to resolve to (account
+   490 legitimately resolves to `code: '4'` like any other zespół 4
+   account — **corrected 2026-09-14**); (b) any line on
+   `PostingRulesSettings.clearingAccountId`; and (c) entries of type
+   `OPENING` and `CLOSING` (**extended 2026-10-09**, re-review M1).
 4. **A fiscal period cannot be locked through `posting_rules.lockFiscalPeriod`
    while `reconcileCostRing` would find unreclassified entries in it.**
    Locking through `ledger.lockFiscalPeriod` directly bypasses this
    guard by design (see Design Decisions) — the invariant only holds
    for callers that go through this module's guard.
 5. **`CostCenter`/`DefaultAccountPostingRule` changes never rewrite
-   history.** Both are looked up at reclassification time, not
-   snapshotted retroactively; deactivating a `CostCenter`
-   (`isActive: false`) or changing a `DefaultAccountPostingRule` row
-   (Phase 2) affects only postings made after the change.
+   history.** The target account and the `CostCenter` tag of a
+   reclassification are both fixed when it is posted and never
+   recomputed: deactivating or deleting a `CostCenter`, or changing a
+   `DefaultAccountPostingRule`, affects only reclassifications made
+   after the change, and a contra-side mirror reuses the original's
+   target account and tag rather than the current rule's
+   (**corrected 2026-10-09**: the "(Phase 2)" qualifier is dropped, rule
+   updates ship in Phase 1, and the target account is now covered as
+   well as the tag).
 
 ## Alternatives Considered
 
@@ -477,7 +586,7 @@ systems say about the two core mechanisms above — the 4→5
 reclassification itself, and the `CostCenter`/`DefaultAccountPostingRule`
 shape — rather than re-deriving them from a Polish-only quirk. All
 citations below were verified against full extracted text (not chapter
-titles alone); see `financial-module-knowledge-base.md` §3 for the
+titles alone); see `2026-09-08-financial-module-knowledge-base.md` §3 for the
 verification trail.
 
 **The reclassification mechanism (zespół 4 → zespół 5) is a real,
@@ -549,7 +658,9 @@ reference if hierarchy is ever needed here.
   locking and soft delete, per `packages/core/AGENTS.md`'s standard
   column contract). The seeded sentinel row (`code: 'UNALLOCATED'`,
   see Module Setup) is a normal row like any other, distinguished
-  only by its well-known `code` — no separate "system row" flag.
+  only by its well-known `code` — no separate "system row" flag; its
+  protection lives in the commands (see Design Decisions, "The sentinel
+  `CostCenter` is protected by the commands").
 - `DefaultAccountPostingRule` — `sourceAccountId` (FK-id to
   `ledger.LedgerAccount`), `targetAccountId` (FK-id to
   `ledger.LedgerAccount`), `defaultCostCenterId` (FK-id to this
@@ -574,7 +685,7 @@ No entity represents a reclassification itself — it *is* a
 `JournalEntry`/`JournalEntryLine` pair in `ledger`, created through
 `ledger.postJournalEntry` like any other posting, tagged as such only
 via `referenceType: 'PostingRulesEngineReclassification'`/
-`referenceId` pointing at the source entry (see API Contracts;
+`referenceId` pointing at the source *line* (see API Contracts;
 **corrected 2026-09-14** — see Design Decisions, "The engine's own
 postings carry a distinct `referenceType`"). This module owns no
 ledger data of its own beyond the three reference tables above.
@@ -663,11 +774,18 @@ stay `null` until an admin configures them, exactly like
 
 ### Commands (Command Pattern, `commands/`)
 
-- `createCostCenter` / `updateCostCenter` — standard CRUD via
-  `runCrudCommandWrite`, following `ledger`'s own `LedgerAccount`
-  command conventions. Requires `posting_rules.cost_centers.manage`.
-- `createDefaultAccountPostingRule` / `updateDefaultAccountPostingRule`
- — standard CRUD, same conventions, shipping in **Phase 1**
+- `createCostCenter` / `updateCostCenter` / `deleteCostCenter` —
+  standard CRUD via `runCrudCommandWrite`, following `ledger`'s own
+  `LedgerAccount` command conventions. Requires
+  `posting_rules.cost_centers.manage`. `updateCostCenter` rejects a
+  change to `code` or `isActive` on the sentinel row, and
+  `deleteCostCenter` rejects deleting it (Design Decisions, "The
+  sentinel `CostCenter` is protected by the commands"; **corrected
+  2026-10-09**: the delete command was not listed, although #6711 ships
+  it and the CRUD route exposes it).
+- `createDefaultAccountPostingRule` / `updateDefaultAccountPostingRule` /
+  `deleteDefaultAccountPostingRule` — standard CRUD, same conventions,
+  shipping in **Phase 1**
  (**corrected 2026-09-14**, see Design Decisions, "4→5 rules"): an
   admin wires up each source-account-to-target-account (and optional
   default `CostCenter`) mapping explicitly, since no universal
@@ -677,106 +795,137 @@ stay `null` until an admin configures them, exactly like
   upsert-only-no-create shape as `updateFixedAssetSettings`. Requires
   `posting_rules.settings.manage`.
 - `reconcileCostRing` — the sweeper (`ReconcileCostRingCommand` from
-  Design Decisions). Finds every zespół 4 `JournalEntryLine` with no
-  corresponding zespół 5/490 reclassification entry
-  (`referenceType: 'PostingRulesEngineReclassification'`, `referenceId`
-  pointing back to it — **corrected 2026-09-14**: the generic
-  `referenceType: 'JournalEntry'` this document used before collides
-  with #5663's own `REVERSAL` linkage, see Design Decisions, "The
-  engine's own postings carry a distinct `referenceType`")
-  and posts the missing reclassification for each, via the same logic
-  path as the subscriber (see Cross-module integration). Selection is
-  defined purely by absence of a matching reference — **not** a
-  time-windowed "since the last run" scan, which would need a
-  persisted checkpoint this module doesn't have any entity for; an
-  unbounded absence-based scan needs none and is what
-  `findUnreclassifiedEntries` (shared with `lockFiscalPeriod`'s guard)
-  already implements. Idempotent for the same reason: an entry already
-  reclassified no longer matches the "no corresponding entry" search
-  and is never picked up twice. Rejects with a named error if
-  `PostingRulesSettings.clearingAccountId` is unset (see Design
-  Decisions). Requires `posting_rules.reconcile.run`.
+  Design Decisions). Finds every source-set line (Design Decisions,
+  "Which entries and lines the engine reacts to") with no
+  reclassification keyed on it (`referenceType:
+  'PostingRulesEngineReclassification'`, `referenceId` = the source
+  *line's* id — **corrected 2026-10-09**: it used to be the source
+  entry, which cannot tell a fully from a partly reclassified entry;
+  see Design Decisions, "The engine's own postings carry a distinct
+  `referenceType`") and posts the missing reclassification for each,
+  via the same idempotent code path as the subscriber (see
+  Cross-module integration). The finder's predicate is at line
+  granularity: for each source-set line, does an entry exist whose
+  marker `referenceId` is that line's id? It is **not** a comparison of
+  the number of reclassification entries per source entry with the
+  number of zespół 4 lines. Selection is defined purely by absence of a
+  matching reference — not a time-windowed "since the last run" scan,
+  which would need a persisted checkpoint this module has no entity
+  for. Idempotent: a line already reclassified no longer matches and is
+  never picked up twice, and a line whose reclassification exists but
+  whose `CostCenter` tag is missing is repaired by the same pass (the
+  "ensure tag" step). Lines that cannot be reclassified (no clearing
+  account, no target account resolvable, locked period) are reported in
+  the command's result by line id with their named error, not thrown,
+  so one bad line does not stop the rest. Requires
+  `posting_rules.reconcile.run`.
 - `lockFiscalPeriod` (this module's own, distinct from `ledger`'s) —
-  the period-close guard. Calls `reconcileCostRing`'s underlying
-  finder (`findUnreclassifiedEntries(periodId)`); if it returns a
-  non-empty result, rejects with a list of the offending entry ids and
-  does not proceed. If empty, calls
+  the period-close guard. Calls `reconcileCostRing`'s underlying finder
+  (`findUnreclassifiedEntries(periodId)`, which works at the line
+  granularity above and reports the entry id of each line); if it
+  returns a non-empty result, rejects with a list of the offending
+  entry and line ids and does not proceed. If empty, calls
   `container.resolve('commandBus').execute('ledger.lockFiscalPeriod', {
   input, ctx })` — the real, two-argument `execute(commandId, options)`
-  signature (`packages/shared/src/lib/commands/command-bus.ts:223-226`,
-  per AP's own corrected citation of it), an ordinary downward call,
-  the same mechanism this module already uses for `postJournalEntry`.
-  Requires
-  `posting_rules.periods.manage` (checked here) — `ledger.lockFiscalPeriod`
-  still separately enforces its own `ledger.periods.manage` when
-  invoked this way, exactly as it would for any other caller.
+  signature (`CommandBus.execute` in
+  `packages/shared/src/lib/commands/command-bus.ts`, cited by symbol
+  because line numbers drift), an ordinary downward call, the same
+  mechanism this module already uses for `postJournalEntry`.
+  `ledger.lockFiscalPeriod` still separately enforces its own
+  `ledger.periods.manage` when invoked this way, exactly as it would
+  for any other caller. **Corrected 2026-10-09** (re-review m4):
+  `posting_rules.periods.manage` is *not* checked inside this command.
+  The repo's convention is that ACL features are enforced on the route
+  or UI layer, and #6711 follows it, but no route or UI calls this
+  command yet (see Known integration gap), so the feature is declared
+  in `acl.ts` and not yet enforced anywhere. The check belongs on the
+  route or button that will call this guard, and must be required there
+  when it is added.
 
 ### Events & Subscribers (`events.ts`, `subscribers/`)
 
-- **Subscribes to** `ledger.journal_entry.posted` (#5663, ephemeral).
-  `PostingRulesEngineSubscriber` receives the event and **first**
-  checks whether the posted entry's own `referenceType` is already
-  `'PostingRulesEngineReclassification'` — if so, returns immediately
-  without processing any line, since this is the engine's own prior
-  output (see Design Decisions, "The engine's own postings carry a
-  distinct `referenceType`"; Invariant 3; **corrected 2026-09-14**).
-  Otherwise it loads the entry's lines and, for each line whose
-  `account.type.accountGroupId` resolves to
-  `LedgerAccountGroup{jurisdiction: 'PL', code: '4'}`:
-  - Determines the line's side relative to its account's
-    `LedgerAccountType.normalBalance` — the *normal* side (a cost
-    incurred) or the *contra* side (a correction/storno, posted by
-    `ledger.reverseJournalEntry` — see Design Decisions, "Reversals
-    are mirrored, not duplicated"; **corrected 2026-09-14**, an
-    earlier draft treated every line identically regardless of side).
+- **Subscribes to** `ledger.journal_entry.posted` (#5663), declared
+  `persistent: true` (**corrected 2026-10-09**, re-review M3: #5663's
+  Events section, corrected 2026-09-18, names this subscriber as a
+  write-side, idempotent consumer that must be persistent; delivery is
+  retried on failure — `packages/events/AGENTS.md` → Subscription
+  Types). The payload, as #5663 specifies it, is `{ journalEntryId,
+  sequenceNumber, type, operationDate, organizationId, tenantId,
+  referenceType, referenceId, lines: { id, accountId, debit, credit }[]
+  }` (`debit`/`credit` as numeric strings). The subscriber works from
+  the payload and does not re-read the lines; it reads the
+  `JournalEntry` once, for `currencyId` only, which the payload does
+  not carry. Per event, in this order:
+  - **Trigger set.** Returns without processing any line unless `type`
+    is `'NORMAL'` or `'REVERSAL'` (so `OPENING` and `CLOSING` are
+    skipped), and returns when `referenceType` is
+    `'PostingRulesEngineReclassification'`, the engine's own prior
+    output (Design Decisions, "Which entries and lines the engine
+    reacts to"; Invariant 3).
+  - **Per line.** Skips a line whose account is
+    `PostingRulesSettings.clearingAccountId` (never a source). For each
+    remaining line whose `account.type.accountGroupId` resolves to
+    `LedgerAccountGroup{jurisdiction: 'PL', code: '4'}`: takes the
+    per-line advisory lock; if a reclassification keyed on this line
+    already exists, only ensures its `CostCenter` tag (see "Idempotency
+    and errors" below) and moves on; otherwise determines the line's
+    side relative to its account's `LedgerAccountType.normalBalance`.
   - **On the normal side:** resolves the target account and default
     `CostCenter` from the `DefaultAccountPostingRule` matching
     `sourceAccountId`, if one exists (`targetAccountId`;
-    `defaultCostCenterId`, itself possibly `null`); if no rule exists
-    at all, rejects with a named error unless
-    `PostingRulesSettings.unallocatedCostAccountId` is set, in which
-    case that becomes the target account instead (see Design
-    Decisions, "New settings: `PostingRulesSettings`"). Resolves the
-    `CostCenter` tag via the priority hybrid (explicit
+    `defaultCostCenterId`, itself possibly `null`); if no rule exists at
+    all, uses `PostingRulesSettings.unallocatedCostAccountId` as the
+    target account, and logs a named error and returns if that is unset
+    too (see Design Decisions, "New settings: `PostingRulesSettings`").
+    Resolves the `CostCenter` tag via the priority hybrid (explicit
     `journal_entry_line_dimension` tag → the rule's
-    `defaultCostCenterId` → the seeded sentinel `CostCenter`, `code:
-    'UNALLOCATED'` — see Design Decisions, MPK priority hybrid;
-    **corrected 2026-09-14**, replacing the earlier, fabricated
-    "suspense account 500-99"). Calls `ledger.postJournalEntry` with
-    a debit to the resolved target account and a credit to
-    `PostingRulesSettings.clearingAccountId` (rejecting with a named
-    error if unset) for the line's amount.
-  - **On the contra side:** looks up the reversed entry's own
-    `referenceId` to find the original reclassification (identified
-    by the marker above) and posts the mirror-image entry instead —
-    credit to that reclassification's target account, debit to
-    `clearingAccountId` — reusing its exact `CostCenter` tag rather
-    than re-resolving the hybrid (see Design Decisions, "Reversals
-    are mirrored, not duplicated").
-  - Either way: `operationDate` copied from the source entry (#5663
+    `defaultCostCenterId`, when that cost centre is still active → the
+    seeded sentinel `CostCenter`, `code: 'UNALLOCATED'`; see Design
+    Decisions, MPK priority hybrid and the sentinel paragraph). Calls
+    `ledger.postJournalEntry` with a debit to the resolved target
+    account and a credit to `PostingRulesSettings.clearingAccountId`
+    (logging a named error and returning if unset) for the line's
+    amount.
+  - **On the contra side, in a `REVERSAL` entry:** finds the original
+    reclassification per line (Design Decisions, "Reversals are
+    mirrored, not duplicated") and posts the mirror image — credit to
+    that reclassification's target account, debit to `clearingAccountId`
+    — reusing its `CostCenter` tag. If no original is found (it was
+    never reclassified), it falls through to the next case instead of
+    failing.
+  - **On the contra side, in any other entry** (a `NORMAL` entry such as
+    a vendor credit note or a 4xx→4xx reclassification), and as the
+    fallback above: resolves target account and `CostCenter` exactly as
+    on the normal side and posts the inverted direction (credit target
+    account / debit clearing account). Nothing needs an original to
+    mirror.
+  - **Either way:** `operationDate` copied from the source entry (#5663
     requires it as non-nullable on every `JournalEntry` — the
-    reclassification's business date is the same business event as
-    the source, not "today"), `referenceType:
-    'PostingRulesEngineReclassification'`, `referenceId` of the
-    source entry (**corrected 2026-09-14**, replacing the generic
-    `'JournalEntry'` literal — see Design Decisions). On success,
-    tags the new zespół 5 line with the resolved `CostCenter` via
-    `journal_entry_line_dimension.setJournalEntryLineDimension` —
-    always a real `CostCenter` id (the sentinel row when nothing more
-    specific resolved), never an empty array (**corrected
-    2026-09-14**: an earlier draft's third hybrid path had nothing to
-    tag with at all, which `setJournalEntryLineDimension`'s own
-    `dimensionIds: z.array(...).min(1)` validator would reject — see
-    Final Compliance Report).
+    reclassification's business date is the same business event as the
+    source, not "today"), `currencyId` from the source entry,
+    `referenceType: 'PostingRulesEngineReclassification'`, `referenceId`
+    = the **source line's id** (**corrected 2026-10-09**; it was the
+    source entry). Then **ensures** the new zespół 5 line carries the
+    resolved `CostCenter` tag via
+    `journal_entry_line_dimension.setJournalEntryLineDimension` — always
+    a real `CostCenter` id (the sentinel row when nothing more specific
+    resolved), never an empty array, which that command's own
+    `dimensionIds: z.array(...).min(1)` validator would reject.
+  - **Idempotency and errors.** A re-delivery, a retry after partial
+    success and a concurrent sweeper run all take the same lock and
+    make the same existence check, so a line is reclassified once; the
+    tag step runs on every pass and sets the tag only when it is
+    missing. Errors a retry cannot fix (clearing account unset, no
+    target account resolvable, locked period) are logged with their
+    named error and the handler returns; the line stays visible to the
+    sweeper and the guard. Transient errors (database, lock timeout) are
+    thrown, so that delivery retries them. A subscriber failure cannot
+    reject the source posting, so with the module unconfigured source
+    postings succeed and the two P&L views diverge until the sweeper
+    runs (see Risks).
 
-  **Open gap, honestly flagged, not resolved in this document**:
-  #5663 does not yet specify the exact payload shape of
-  `ledger.journal_entry.posted` — this document assumes it carries at
-  minimum `journalEntryId`, `tenantId`, `organizationId` (enough to
-  re-fetch the lines), consistent with every other ephemeral event in
-  this codebase, but that payload contract should be confirmed against
-  #5663's own implementation before this module is built, not assumed
-  from this spec alone.
+  **The payload contract is no longer an open gap.** #5663 specifies it
+  (core engine → Events, added 2026-09-18) and this section follows it.
 - Declares no events of its own in Phase 1 — nothing downstream
   reacts to a reclassification today (Fixed Assets Phase 2 reacts to
   `journal_entry_line_dimension` writes directly, not to this module).
@@ -836,6 +985,11 @@ stay `null` until an admin configures them, exactly like
   admin points `clearingAccountId`/`unallocatedCostAccountId` at real
   `LedgerAccount` rows, the same shape as Fixed Assets' own settings
   page.
+- **Unconfigured-module banner (added 2026-10-09, re-review m2).**
+  While `PostingRulesSettings.clearingAccountId` is unset, the settings
+  page and the `CostCenter`/`DefaultAccountPostingRule` pages show a
+  banner saying that zespół 4 postings are not being reclassified yet
+  and why (⚠ NEEDS HUMAN CONFIRMATION: banner versus a notification).
 
 ## Data Models
 
@@ -879,12 +1033,19 @@ PostingRulesSettings {
 }
 ```
 
-All three tenant/org-scoped per `packages/core/AGENTS.md`. Indexes
-(see API Contracts): `(organization_id, source_account_id)` unique on
-`DefaultAccountPostingRule` — Phase 1 assumes exactly one default
-target per source account; `(organization_id, code)` unique on
-`CostCenter`; `(organization_id)` unique on `PostingRulesSettings` (one
-row per organization, upserted).
+All three tenant/org-scoped per `packages/core/AGENTS.md`. Table
+names: `posting_rules_cost_centers`,
+`posting_rules_default_account_posting_rules`,
+`posting_rules_settings`. Unique keys (all include `tenant_id`):
+`(organization_id, tenant_id, source_account_id)` on
+`DefaultAccountPostingRule` — Phase 1 assumes exactly one default target
+per source account; `(organization_id, tenant_id, code)` on `CostCenter`,
+as a partial unique index `where deleted_at is null` so a deleted code
+can be reused; `(organization_id, tenant_id)` on `PostingRulesSettings`
+(one row per organization, upserted). **Corrected 2026-10-09** (re-review
+m4): names and keys now match #6711's migration; the earlier draft
+listed `cost_center`, `default_account_posting_rule` and keys without
+`tenant_id`.
 
 ## API Contracts
 
@@ -900,22 +1061,22 @@ under `api/` with no redundant subfolder, matching real sibling
 examples (`data_sync`'s `api/mappings/route.ts` →
 `/api/data_sync/mappings`).
 
-- `POST /api/posting_rules/cost-centers` / `PATCH
-  /api/posting_rules/cost-centers/:id` — thin `makeCrudRoute` wrappers
-  around `createCostCenter`/`updateCostCenter`, backing the Phase 1
-  list/edit page. Requires `posting_rules.cost_centers.manage`.
-- `POST /api/posting_rules/default-account-posting-rules` / `PATCH
-  /api/posting_rules/default-account-posting-rules/:id` — thin
-  `makeCrudRoute` wrappers around
-  `createDefaultAccountPostingRule`/`updateDefaultAccountPostingRule`
-  (Phase 1, see Design Decisions, "4→5 rules"). Requires
-  `posting_rules.cost_centers.manage`.
-- `PATCH /api/posting_rules/settings` — thin wrapper around
+- `GET` / `POST` / `PUT` / `DELETE /api/posting_rules/cost-centers` —
+  `makeCrudRoute` wrappers around `createCostCenter`/`updateCostCenter`/
+  `deleteCostCenter`, backing the Phase 1 list/edit page (**corrected
+  2026-10-09**: an earlier draft listed only `POST` and `PATCH /:id`).
+  Requires `posting_rules.cost_centers.manage`.
+- `GET` / `POST` / `PUT` / `DELETE
+  /api/posting_rules/default-account-posting-rules` — the same, around
+  `createDefaultAccountPostingRule`/`updateDefaultAccountPostingRule`/
+  `deleteDefaultAccountPostingRule` (Phase 1, see Design Decisions, "4→5
+  rules"). Requires `posting_rules.cost_centers.manage`.
+- `GET` / `PATCH /api/posting_rules/settings` — thin wrapper around
   `updatePostingRulesSettings`. Requires `posting_rules.settings.manage`.
 - `POST /api/posting_rules/reconcile` — triggers `reconcileCostRing`
   on demand (for an operator who doesn't want to wait for the next
   scheduled run). Requires `posting_rules.reconcile.run`. Returns the
-  count of entries reconciled.
+  count of lines reconciled and the lines that could not be, each with its named error.
 
 `lockFiscalPeriod` (this module's guard) is invoked the same
 non-route way #5663 documents for its own lock/unlock actions — a
@@ -925,8 +1086,8 @@ yet).
 
 ## Migration & Deployment
 
-Three new tables (`cost_center`, `default_account_posting_rule`,
-`posting_rules_settings`), zero changes to any existing `ledger` or
+Three new tables (`posting_rules_cost_centers`,
+`posting_rules_default_account_posting_rules`, `posting_rules_settings`), zero changes to any existing `ledger` or
 `journal_entry_line_dimension` table. `seedDefaults` runs once per
 organization at module-enable time, the same lifecycle point #5663's
 `seedPolishAccountGroups` uses — safe to re-run (upserts the sentinel
@@ -977,12 +1138,14 @@ already configured `PostingRulesSettings` and at least one
 |------|--------|-------|
 | `data/entities.ts` | Create | `CostCenter`, `DefaultAccountPostingRule`, `PostingRulesSettings` |
 | `data/validators.ts` | Create | Zod schemas for all three entities' commands |
-| `data/migrations/*.ts` | Create | `cost_center`, `default_account_posting_rule`, `posting_rules_settings` tables (**added 2026-09-14** — previously unlisted despite Implementation Plan step 1) |
+| `data/migrations/*.ts` | Create | `posting_rules_cost_centers`, `posting_rules_default_account_posting_rules`, `posting_rules_settings` tables (**added 2026-09-14** — previously unlisted despite Implementation Plan step 1) |
 | `commands/costCenters.ts` | Create | `createCostCenter`/`updateCostCenter` |
 | `commands/defaultAccountPostingRules.ts` | Create | `createDefaultAccountPostingRule`/`updateDefaultAccountPostingRule` (Phase 1, **corrected 2026-09-14**) |
 | `commands/postingRulesSettings.ts` | Create | `updatePostingRulesSettings` |
 | `commands/reconcileCostRing.ts` | Create | The sweeper, sharing reclassify-one-line logic with the subscriber |
 | `commands/lockFiscalPeriod.ts` | Create | The guarded period-close, calling `ledger.lockFiscalPeriod` on success |
+| `lib/reclassify.ts` | Create | `reclassifyLine`, the shared per-line helper (subscriber and sweeper): trigger-set check, advisory lock, existence check, post, ensure tag (**added 2026-10-09**) |
+| `lib/findUnreclassifiedEntries.ts` | Create | The shared finder behind the sweeper and the guard, at source-line granularity (**added 2026-10-09**) |
 | `subscribers/postingRulesEngineSubscriber.ts` | Create | Reacts to `ledger.journal_entry.posted`, ignoring its own `'PostingRulesEngineReclassification'`-marked output |
 | `lib/seedDefaults.ts` | Create | Seeds the sentinel `CostCenter` and an empty `PostingRulesSettings` row (**corrected 2026-09-14** — no 4→5 template) |
 | `acl.ts` | Create | Four features (see Architecture) |
@@ -1004,8 +1167,9 @@ already configured `PostingRulesSettings` and at least one
   mirror `JournalEntry` (debit the account resolved from
   `DefaultAccountPostingRule.targetAccountId`, credit
   `PostingRulesSettings.clearingAccountId`) with matching amount and
-  `referenceType: 'PostingRulesEngineReclassification'`/`referenceId`
-  (**corrected 2026-09-14** — both accounts are now settings/rule-
+  `referenceType: 'PostingRulesEngineReclassification'` and a
+  `referenceId` equal to the source *line's* id
+  (**corrected 2026-09-14, 2026-10-09** — both accounts are now settings/rule-
   resolved, not the fixed `targetAccountId`/"490" pair an earlier
   draft assumed).
 - Assert the MPK priority hybrid in order: explicit
@@ -1046,11 +1210,12 @@ already configured `PostingRulesSettings` and at least one
 - Assert `ledger.postJournalEntry` and `ledger.lockFiscalPeriod` are
   fully unaffected (no subscriber side effects, no guard) when
   `posting_rules` is not installed for a tenant.
-- Assert the configured clearing account's running credit balance
-  equals the sum of every reclassified zespół 4 line's amount after N
-  reclassifications (the corrected Invariant 2 — not an assertion
-  that the account is zero; **corrected 2026-09-14**, replacing the
-  earlier hardcoded "account 490" framing).
+- Assert that, over the entries carrying the marker, the clearing
+  account's credit balance equals the sum of normal-side source lines
+  reclassified minus the sum of contra-side lines mirrored, after N
+  reclassifications of each kind (the restated Invariant 2 — a net
+  balance over the engine's own entries, not zero, and not the account's
+  total balance; **restated 2026-10-09**, re-review m1).
 - Assert the subscriber ignores its own output: posting a
   `JournalEntry` whose `referenceType` is already
   `'PostingRulesEngineReclassification'` never triggers a second
@@ -1072,7 +1237,7 @@ already configured `PostingRulesSettings` and at least one
   searches specifically for `referenceType:
   'PostingRulesEngineReclassification'`, and that a
   reversed-but-never-reclassified entry (linked only via #5663's own
-  `referenceType: 'REVERSAL'`) is correctly treated as *not yet
+  `type: 'REVERSAL'`, `referenceType: 'journal_entry'`) is correctly treated as *not yet
   reclassified*, not wrongly skipped (**added 2026-09-14** — the bug
   the marker fix resolves; see Design Decisions).
 - Assert deactivating a `CostCenter` (`isActive: false`) or changing a
@@ -1095,6 +1260,46 @@ already configured `PostingRulesSettings` and at least one
   other user-editable entity (`LedgerAccount`, `LedgerAccountType`,
   `FiscalPeriod` in #5663; **corrected 2026-09-14** — adds the two
   commands that ship in Phase 1 alongside `updateCostCenter`).
+- **Trigger set (added 2026-10-09, re-review M1).** Assert the
+  subscriber and the finder skip a `CLOSING` entry that credits every
+  4xx account against 490 (no reclassification is posted and the clearing
+  account is not touched again) and an `OPENING` entry; skip a line on the
+  clearing account that the engine did not post (a manual adjustment, or
+  a `REVERSAL` of one of the engine's own reclassifications, which
+  carries `type: 'REVERSAL'` and `referenceType: 'journal_entry'`, not
+  the marker); and that none of these appears in
+  `findUnreclassifiedEntries`.
+- Assert a `NORMAL` entry with a contra-side zespół 4 line (a vendor
+  credit note referencing an AP document, a 4xx→4xx reclassification)
+  gets the inverted-direction reclassification, resolved through the rule
+  and the hybrid; that a `REVERSAL` whose original was never reclassified
+  does too; and that the later reclassification of the original brings
+  the net to zero.
+- **Per-line marker (added 2026-10-09, re-review M2).** Assert the
+  reproduction from the review: an entry with a 401 line that has a rule
+  and a 402 line that has none, `unallocatedCostAccountId` unset. Line
+  401 is reclassified and line 402 is reported, not posted; after the
+  settings are fixed, `reconcileCostRing` posts line 402 only, and
+  `posting_rules.lockFiscalPeriod` rejects until it has. Assert the
+  marker's `referenceId` is the source line's id; that changing a rule
+  after posting does not make the finder re-post a line that already
+  has its reclassification; and that a contra-side mirror, whose debit
+  line is the clearing account, is matched to its contra line and never
+  reclassified a second time.
+- **Idempotent delivery (added 2026-10-09, re-review M3).** Assert that
+  delivering the same event twice posts one reclassification per line;
+  that a failure of `setJournalEntryLineDimension` after the posting,
+  followed by a retry, ends with one reclassification that carries its
+  tag; that a concurrent `reconcileCostRing` run and subscriber delivery
+  for the same line produce one reclassification; and that a
+  configuration error (clearing account unset) is logged and does not
+  throw, while a transient database error does.
+- Assert the sentinel `CostCenter` cannot be renamed (`code`),
+  deactivated or deleted through `updateCostCenter`, `deleteCostCenter`
+  or the `DELETE` route; that re-running `seedDefaults` does not add a
+  second one; and that a rule whose `defaultCostCenterId` points at a
+  deactivated cost centre resolves to the sentinel (**added 2026-10-09**,
+  re-review m3).
 
 ## Risks & Impact Review
 
@@ -1120,16 +1325,19 @@ or residual risk.
   against zero, is what signals a bug). Residual risk: low once those
   assertions run in CI, since the balance comparison catches drift
   regardless of its specific cause.
-- **Cascading failures.** The subscriber runs synchronously in-process
-  after the source commit; a slow or failing reclassification does not
-  roll back or block the source posting (by design — see Design
-  Decisions), but a broken subscriber could, in principle, degrade
-  posting throughput if it blocks on something slow. Severity: medium.
-  Affected area: AP/AR posting latency for tenants with this module
-  enabled. Mitigation: keeping the subscriber's work minimal (one
-  lookup, one `postJournalEntry` call) and the sweeper existing
-  specifically so the subscriber never needs a retry loop of its own.
-  Residual risk: low.
+- **Cascading failures.** The subscriber runs after the source commit;
+  a slow or failing reclassification does not roll back or block the
+  source posting (by design — see Design Decisions). Because it is
+  `persistent: true`, delivery is retried on failure (**corrected
+  2026-10-09**: it used to be described as in-process with no retry), so
+  a handler that fails on something a retry cannot fix would be retried
+  pointlessly, and a non-idempotent one would post duplicates. Severity:
+  medium. Affected area: AP/AR posting latency and ledger correctness
+  for tenants with this module enabled. Mitigation: the subscriber is
+  idempotent per source line (advisory lock, existence check, ensure
+  tag), only transient errors are thrown, and its work is minimal (one
+  lookup, one `postJournalEntry` call, one tag write). Residual risk:
+  low.
 - **Tenant & data isolation.** Same profile as every other module here
   — `CostCenter`/`DefaultAccountPostingRule`/`PostingRulesSettings`
   are tenant/org-scoped (**corrected 2026-09-14** — adds
@@ -1152,37 +1360,37 @@ or residual risk.
   low. Affected area: onboarding an existing tenant onto this module.
   Mitigation: a documented manual `reconcileCostRing` run as part of
   enablement. Residual risk: low.
-- **The module rejects every posting until an admin configures it.**
-  **Added 2026-09-14**, a direct consequence of the settings-based
-  redesign (see Design Decisions, "4→5 rules"; "New settings:
-  `PostingRulesSettings`"): unlike an earlier draft that seeded a
-  working `DefaultAccountPostingRule` template out of the box, Phase 1
-  now ships with zero rules and an empty `PostingRulesSettings` row,
-  so every zespół 4 posting rejects with a named error until an admin
-  has entered the relevant `LedgerAccount` rows and configured at
-  least `PostingRulesSettings.unallocatedCostAccountId` (or added
-  explicit `DefaultAccountPostingRule` rows). Severity: medium — this
-  is a deliberate scope boundary, not a bug, but it means enabling
-  this module is not the no-op a seeded template would have been.
-  Affected area: every tenant's first zespół 4 posting after enabling
-  the module, until configuration is complete. Mitigation: the
-  rejection is a named, actionable error rather than a silent
-  misclassification, and the Backend Pages settings/rule UIs ship in
-  Phase 1 specifically so this configuration is possible without raw
-  data access. Residual risk: medium until a chart-of-accounts import
-  feature exists (see Out of scope) — until then an admin must already
-  know their `LedgerAccount` ids, which assumes those accounts were
-  entered into `ledger` by some other means first.
-- **The event-payload assumption (see Events & Subscribers).** If
-  `ledger.journal_entry.posted`'s real payload turns out not to carry
-  enough to re-fetch the lines cheaply, the subscriber's design (not
-  its correctness) needs revisiting before implementation — flagged
-  explicitly rather than guessed past. Severity: low (a build-time
-  blocker if caught before implementation starts, not a runtime
-  risk). Affected area: this module's implementation kickoff.
-  Mitigation: confirming the payload contract against #5663's actual
-  implementation before writing the subscriber. Residual risk: none
-  once confirmed.
+- **Until an admin configures the module, source postings succeed and
+  the two P&L views quietly diverge.** **Rewritten 2026-10-09**
+  (re-review m2): an earlier version said "the module rejects every
+  posting" and that "the rejection is a named, actionable error". A
+  subscriber cannot reject the source posting (subscriber failures are
+  never propagated to the emitting command — see "Period-close guard"),
+  so in an unconfigured tenant every AP posting succeeds, the subscriber
+  logs a named error and returns, and the by-nature and by-function
+  variants disagree with no error shown to the person posting. This is a
+  direct consequence of the settings-based redesign (no seeded template,
+  empty `PostingRulesSettings`; see Design Decisions, "4→5 rules").
+  Severity: medium — a deliberate scope boundary, but a silent one.
+  Affected area: every zespół 4 posting after enabling the module, until
+  configuration is complete. Where an accountant sees it: the result of
+  `reconcileCostRing` (lines that could not be reclassified, each with
+  its named error) and the offending-line list of
+  `posting_rules.lockFiscalPeriod`, which refuses to lock. Both are
+  pulled, not pushed, so Phase 1 adds a visible signal: a banner while
+  `clearingAccountId` is unset (see Backend Pages). Residual risk: medium
+  until a chart-of-accounts import exists (see Out of scope), since until
+  then an admin must already know their `LedgerAccount` ids.
+- **The event contract (see Events & Subscribers).** **Closed
+  2026-10-09** (re-review M3): #5663 now specifies the payload and this
+  subscriber's `persistent: true`, and this module's text follows it.
+  What remains is that `currencyId` is not in the payload, so the
+  subscriber reads the entry once (⚠ NEEDS HUMAN CONFIRMATION: whether to
+  ask #5663 to add it). Severity: low. Affected area: #6711's
+  `reclassifyLine`, which still declares `persistent: false` and keys on
+  the source entry, and must be aligned with this text before either PR
+  merges (see the 2026-10-09 Changelog entry). Mitigation: that
+  alignment. Residual risk: none once aligned.
 - **The period-close guard doesn't protect the existing UI button**
   (see Known integration gap, Cross-module integration) — a real,
   named gap until #5663's Fiscal Periods page is updated separately.
@@ -1279,11 +1487,11 @@ invariant, no-recursion, point-in-time lookups, both unique
 constraints, and `updateCostCenter`'s optimistic-lock check). All
 fixed in place above; full review trail matches the convention
 established in `2026-09-10-general-ledger-bulk-read-service.md`'s own
-Final Compliance Report. One gap remains flagged, not resolved, by
-design: #5663 does not document `ledger.journal_entry.posted`'s exact
-payload shape (see Events & Subscribers, Risks) — confirming it is
-implementation-time work, not something this document can settle by
-itself. Compliance Matrix and a formal pass/fail verdict against
+Final Compliance Report. The one gap this report used to flag
+is closed (2026-10-09): #5663 now documents
+`ledger.journal_entry.posted`'s payload and the subscriber's
+persistence (see Events & Subscribers); the three majors of the
+2026-10-09 re-review are recorded in the Changelog. Compliance Matrix and a formal pass/fail verdict against
 `AGENTS.md` are deferred to a maintainer review, matching this
 project's established practice.
 
@@ -1339,7 +1547,7 @@ five Testing Strategy gaps. Full detail in Final Compliance Report.
 ### 2026-09-12 — Literature & Prior Art grounding applied
 
 Per the financial-spec-writing-process: cross-checked against
-`financial-module-knowledge-base.md` §2/§3 (no conflicts), then verified
+`2026-09-08-financial-module-knowledge-base.md` §2/§3 (no conflicts), then verified
 via full-text search of the primary literature rather than titles alone.
 Confirmed the zespół 4 → zespół 5 reclassification implements Kieso's
 IFRS "dual approach" (nature- and function-of-expense presented
@@ -1461,37 +1669,54 @@ Out of scope bullet above for the precise distinction.
 
 ### 2026-09-29 — Full-module implementation shipped, PR #6711
 
-Implemented per this document's own Design Decisions and the "Cały
-moduł od razu" scope decision (full module — engine, sweeper, guard,
-CRUD, UI — in one branch/PR, matching the JELD precedent): `lib/
-reclassify.ts` (`reclassifyLine`, shared between the real-time
-subscriber and `reconcileCostRing`), full CRUD (commands, API routes,
-backend UI) for `CostCenter` and `DefaultAccountPostingRule`, a
-`PostingRulesSettings` settings page, migration, seed defaults, ACL
-features, en/pl i18n. Branch `feat/posting-rules-engine`, stacked on
-the still-unmerged GL core engine and JELD branches. Opened as
-[PR #6711](https://github.com/open-mercato/open-mercato/pull/6711)
-against `develop`.
+Implemented in [PR #6711](https://github.com/open-mercato/open-mercato/pull/6711)
+(branch `feat/posting-rules-engine`, stacked on the still-unmerged GL
+core engine and JELD branches): the full module — engine, sweeper, guard,
+CRUD, UI, migration, seed, ACL, en/pl i18n — in one PR, matching the
+JELD precedent. Implementation-session details (type-check findings,
+test counts) belong in that PR's description, not here. Divergences
+between this document and that PR are recorded in the 2026-10-09 entry
+below.
 
-A scoped `tsc` sweep over the new code (run after fetching a missing
-native `linux-arm64` platform package the environment's own `tsc`
-needed just to start) caught three real bugs before review: a
-computed-class-field ASI trap in `PostingRulesSettings` (`[OptionalProps]`
-placed after a statement missing a semicolon parsed as
-`new Date()[OptionalProps]`, not a class member); `commandBus.execute()`
-resolving `CommandExecuteResult<TResult>` (`{ result, logEntry }`)
-rather than the bare result, in four call sites across
-`postReclassification`, `lockFiscalPeriod`, and the settings/reconcile
-API routes; and a fabricated `translateCrudErrorBody` export in two
-routes' error handling that doesn't exist anywhere in this codebase,
-replaced with the real convention (`NextResponse.json(err.body, {
-status: err.status })`). Full detail recorded in
-`2026-09-08-financial-module-knowledge-base.md`'s own 2026-09-29 entry.
+### 2026-10-09 — Re-review response (om-auto-review-pr, reviewed head `7160f379`)
 
-Unit tests added for the core `reclassifyLine` engine
-(`lib/__tests__/reclassify.test.ts`, 8 passing): Invariant 3, zespół-4
-detection, both "cannot resolve where to post" rejections, and all
-three MPK priority-hybrid paths. Disclosed, not yet covered: the
-contra-side (reversal/mirror) path, which needs its own two-entry
-fixture. Full `yarn build:app`/`yarn typecheck`, CLA/label/QA-routing
-items on the PR, and doc/locale-generator updates remain open.
+The review confirmed all eight findings of the 2026-09-14 review as
+resolved and raised 0 blockers, 3 majors, 4 minors and 2 nits, addressed
+in the text above:
+
+- **M1, trigger set.** New Design Decisions paragraph "Which entries and
+  lines the engine reacts to": `NORMAL` and `REVERSAL` only; the clearing
+  account is never a source; contra-side lines with no original to mirror
+  (credit notes, 4xx→4xx, a reversal whose original was never
+  reclassified) are posted inverted through the rule and the hybrid.
+  Invariant 3 extended, Testing Strategy cases added.
+- **M2, per-line marker.** A reclassification's `referenceId` is the
+  source line's id; the finder, the sweeper and the guard decide per
+  line; the contra-side original is found per line (stable pairing,
+  residual limitation disclosed).
+- **M3, event contract.** `persistent: true`, the payload as #5663
+  specifies it, an idempotency requirement (advisory lock, existence
+  check, ensure tag) and non-throwing handling of errors a retry cannot
+  fix.
+- **m1.** Invariants 1, 2, 3 and 5, the Proposed Solution and the
+  Testing Strategy restated (net clearing-account balance over the
+  engine's own entries; point-in-time now covers the target account).
+- **m2.** The "rejects every posting" risk rewritten as the
+  silent-divergence scenario, with a visible signal added to Phase 1.
+- **m3.** Sentinel `CostCenter` protection moved into the commands;
+  inactive-cost-centre fallback stated.
+- **m4.** Text aligned with #6711 where #6711 is right: reversal linkage
+  literal (`type: 'REVERSAL'`, `referenceType: 'journal_entry'`),
+  `posting_rules.periods.manage` not enforced inside the command, table
+  names and unique keys, `GET`/`PUT`/`DELETE` routes and delete commands.
+- **n1, n2.** Citation by symbol; knowledge-base file name; the
+  2026-09-29 entry reduced to a pointer.
+
+**Divergences still open in #6711** (checked against the author's branch
+on 2026-10-09). The code does not yet follow this text in five places:
+the subscriber declares `persistent: false`; `referenceId` is the source
+entry; `findUnreclassifiedEntries` compares counts per entry; the trigger
+set is not restricted (`CLOSING`/`OPENING` entries and clearing-account
+lines are processed); the sentinel `CostCenter` is not protected. Either
+#6711 changes to follow this document or this document changes, before
+either PR merges.
