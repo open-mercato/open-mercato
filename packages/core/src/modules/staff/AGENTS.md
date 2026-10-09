@@ -814,6 +814,18 @@ The CLI enqueues onto the same queue with the same `ProgressJob` the settings
 screen uses; it does not do the work in process. An unknown `--hook` id refuses to
 start rather than silently doing nothing.
 
+## Customer support tickets
+
+Design of record: [`.ai/specs/2026-10-06-staff-helpdesk-support-tickets.md`](../../../../../.ai/specs/2026-10-06-staff-helpdesk-support-tickets.md).
+
+- **A ticket is a task.** `staff_time_tasks.source = 'portal'` plus `customer_id` (the ticket owner — never the project's customer), and a 1:1 `staff_support_tickets` row (same-module FK `task_id`) holding every helpdesk-only field. The customer's original request lives in the encrypted `customer_request_snapshot`; the portal reads it and NEVER the staff-editable task title/description.
+- **Routing** (`lib/support/routing.ts`): per-category `staff_support_routing_rules` override the organization fallback rule (`category_value IS NULL`, exactly one, cannot be deleted or paused). Paused, unusable (completed/deleted/no `isDefault` status) or orphaned overrides fall back. Categories are the per-org dictionary `staff.support_ticket_category` (exact org, no ancestors). `seedDefaults` seeds categories, the "Customer support" project and the fallback rule; existing tenants run `mercato staff seed-support-defaults`.
+- **Portal routes** `/api/staff/portal/support-tickets/*` (options, list, create, detail, messages, attachments) resolve identity via dynamic import (no static `customer_accounts` edge) and load every row WITH `portalOwnedTaskWhere` (`lib/support/portalTickets.ts`). Features `portal.support_tickets.view|manage` are customer features granted via `defaultCustomerRoleFeatures`, not `acl.ts`. Attachments load the attachments module dynamically; customer uploads carry `customer-visible` + `customer-upload:<customerUserId>` tags and only the uploader may delete.
+- **Conversation**: comment `visibility` defaults to `internal`; `customer` is refused (422) on non-portal tasks; `author_kind = 'customer'` comments are immutable for staff, `manage_all` included. Comment CRUD events carry `portalVisible`.
+- **Events**: `staff.support_ticket.created|customer_replied` are server-side only (they name the customer); `activity_recorded` is the id-only client broadcast; `portal_updated` is emitted only by `lib/support/portalBroadcast.ts` with pinned `recipientUserIds` and never with an empty list. `staff.timesheets.time_task.assignee_changed` (client broadcast, ids only, `changeKind`) is emitted by claim/release/manual edits and the portal default assignee.
+- **Assigners and default assignee**: `staff_time_project_members.is_assigner` (requires a linked user) grants claim (`POST /api/staff/timesheets/tasks/{id}/claim`, conditional update, 409 on a lost race) and release. `staff_time_projects.default_assignee_staff_member_id` applies to portal tickets ONLY — staff task creation keeps US-C1 (omitted or `null` → creator).
+- **Notification chain** (`lib/time-tracking/workRecipients.ts`): type audience → active assigners → owner → `createForFeature('staff.timesheets.projects.manage', restrictRecipientsToOrganization: true)`. The actor is excluded in steps 1–3 only. A support notification that reaches nobody sets `staff_support_tickets.unnotified_at` (cleared on assignment).
+
 ## Internal-Only Surfaces (NOT public contract)
 
 These are subject to change without deprecation; do not import them from non-staff code:
