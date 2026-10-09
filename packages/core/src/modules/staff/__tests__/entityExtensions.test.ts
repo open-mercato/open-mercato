@@ -37,12 +37,13 @@ const baseTablesByModule: Record<string, Record<string, string[]>> = {
 }
 
 describe('staff data/extensions.ts', () => {
-  it('declares the four time-tracking foreign-key links', () => {
+  it('declares the time-tracking foreign-key links', () => {
     expect(entityExtensions.map((link) => `${link.base} -> ${link.extension}.${link.join.extensionKey}`)).toEqual([
       'customers:customer_entity -> staff:staff_time_entry.customer_id',
       'customers:customer_deal -> staff:staff_time_entry.deal_id',
       'sales:sales_order -> staff:staff_time_entry.order_id',
       'customers:customer_entity -> staff:staff_time_project.customer_id',
+      'customers:customer_entity -> staff:staff_time_task.customer_id',
     ])
   })
 

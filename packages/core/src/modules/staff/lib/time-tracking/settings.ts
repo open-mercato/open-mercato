@@ -32,9 +32,10 @@ export const TIME_TRACKING_TARGETS_DAILY_HOURS_KEY = 'targets.dailyHours'
 export const TIME_TRACKING_WARNINGS_OVERLAP_KEY = 'warnings.overlap'
 export const TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY = 'warnings.runningTimer'
 export const TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY = 'access.assignmentGraceDays'
+export const TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY = 'support.referencePrefix'
 
 /**
- * The eight keys the module shipped. FROZEN — a stored config row is named after one
+ * The built-in keys the module ships. FROZEN — a stored config row is named after one
  * of these, so none may be renamed or removed. The list is no longer the whole truth:
  * `timeTrackingSettingKeyIds()` returns these plus every contributed key (EP-42).
  */
@@ -47,6 +48,7 @@ export const TIME_TRACKING_SETTING_KEYS = [
   TIME_TRACKING_WARNINGS_OVERLAP_KEY,
   TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY,
   TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY,
+  TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY,
 ] as const
 
 export type TimeTrackingSettingKey = (typeof TIME_TRACKING_SETTING_KEYS)[number]
@@ -69,12 +71,17 @@ export type TimeTrackingAccess = {
   assignmentGraceDays: number
 }
 
+export type TimeTrackingSupport = {
+  referencePrefix: string
+}
+
 export type TimeTrackingBuiltInSettings = {
   rounding: RoundingSettings
   defaults: TimeTrackingEntryDefaults
   targets: TimeTrackingTargets
   warnings: TimeTrackingWarnings
   access: TimeTrackingAccess
+  support: TimeTrackingSupport
 }
 
 /**

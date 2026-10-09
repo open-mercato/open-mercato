@@ -16,6 +16,7 @@ const settings: TimeTrackingSettings = {
   targets: { dailyHours: 8 },
   warnings: { overlap: true, runningTimer: true },
   access: { assignmentGraceDays: 14 },
+  support: { referencePrefix: 'SUP' },
 }
 
 describe('buildRoundingExamples', () => {

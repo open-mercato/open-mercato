@@ -68,6 +68,7 @@ let settings = {
   targets: { dailyHours: 8 as number | null },
   warnings: { overlap: true, runningTimer: true },
   access: { assignmentGraceDays: 14 },
+  support: { referencePrefix: 'SUP' },
 }
 
 let impactResponse: unknown = {
@@ -118,6 +119,7 @@ beforeEach(() => {
     targets: { dailyHours: 8 },
     warnings: { overlap: true, runningTimer: true },
     access: { assignmentGraceDays: 14 },
+    support: { referencePrefix: 'SUP' },
   }
   reapplyResponse = { ok: true, progressJobId: 'job-1', candidateCount: 1284 }
   confirmMock.mockResolvedValue(true)
@@ -199,6 +201,7 @@ describe('time tracking settings page', () => {
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 30 },
+      support: { referencePrefix: 'SUP' },
     })
   })
 

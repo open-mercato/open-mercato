@@ -16,7 +16,7 @@
 
 import { formatDuration } from '../time-tracking/duration'
 import { roundMinutes, type RoundingSettings, type RoundingUnitMinutes } from '../time-tracking/rounding'
-import { contributedTimeTrackingSettingKeys } from '../time-tracking/settingKeys'
+import { DEFAULT_SUPPORT_REFERENCE_PREFIX, contributedTimeTrackingSettingKeys } from '../time-tracking/settingKeys'
 import { readTimeTrackingSettingValue, type TimeTrackingSettings } from '../time-tracking/settings'
 
 export const ROUNDING_UNIT_OPTIONS: readonly RoundingUnitMinutes[] = [0, 5, 10, 15]
@@ -65,6 +65,8 @@ export type TimeTrackingSettingsDraft = {
   warningsOverlap: boolean
   warningsRunningTimer: boolean
   assignmentGraceDaysText: string
+  /** Edited on the Support settings page; carried through so this page's Save never resets it. */
+  supportReferencePrefix: string
   /**
    * EP-42 — every contributed setting key, by its `<group>.<key>` id, carried through
    * the draft untouched so the page's own Save round-trips a contribution it knows
@@ -86,6 +88,7 @@ export function toSettingsDraft(settings: TimeTrackingSettings): TimeTrackingSet
     warningsOverlap: settings.warnings.overlap,
     warningsRunningTimer: settings.warnings.runningTimer,
     assignmentGraceDaysText: String(settings.access.assignmentGraceDays),
+    supportReferencePrefix: settings.support?.referencePrefix ?? DEFAULT_SUPPORT_REFERENCE_PREFIX,
     contributed: Object.fromEntries(
       contributedTimeTrackingSettingKeys().map((entry) => [
         entry.id,
@@ -139,6 +142,7 @@ export function toSettingsPayload(draft: TimeTrackingSettingsDraft): TimeTrackin
     targets: { dailyHours },
     warnings: { overlap: draft.warningsOverlap, runningTimer: draft.warningsRunningTimer },
     access: { assignmentGraceDays },
+    support: { referencePrefix: draft.supportReferencePrefix },
   }
   for (const entry of contributedTimeTrackingSettingKeys()) {
     const group = (payload[entry.group] ?? {}) as Record<string, unknown>

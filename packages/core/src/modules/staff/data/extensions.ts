@@ -62,6 +62,14 @@ const entityExtensions: EntityExtension[] = [
     cardinality: 'one-to-many',
     description: 'Time projects owned by a customer record (D-9: the customers supertype)',
   },
+  {
+    base: 'customers:customer_entity',
+    extension: 'staff:staff_time_task',
+    join: { baseKey: 'id', extensionKey: 'customer_id' },
+    table: 'staff_time_tasks',
+    cardinality: 'one-to-many',
+    description: 'Tasks filed for a customer record, such as customer portal support tickets',
+  },
 ]
 
 export const extensions = entityExtensions

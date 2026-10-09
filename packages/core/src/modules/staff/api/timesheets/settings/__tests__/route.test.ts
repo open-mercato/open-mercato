@@ -91,6 +91,7 @@ const fullSettings = {
   targets: { dailyHours: 6 },
   warnings: { overlap: false, runningTimer: false },
   access: { assignmentGraceDays: 30 },
+  support: { referencePrefix: 'SUP' },
 }
 
 describe('staff time tracking settings route', () => {
@@ -123,6 +124,7 @@ describe('staff time tracking settings route', () => {
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 14 },
+      support: { referencePrefix: 'SUP' },
     })
   })
 
@@ -156,7 +158,7 @@ describe('staff time tracking settings route', () => {
       15,
       { tenantId: tenantA },
     )
-    expect(setValueSpy).toHaveBeenCalledTimes(8)
+    expect(setValueSpy).toHaveBeenCalledTimes(9)
   })
 
   it('applies schema defaults to a partial payload', async () => {
@@ -249,7 +251,7 @@ describe('staff time tracking settings route', () => {
     const response = await PUT(putRequest(fullSettings))
 
     expect(response.status).toBe(200)
-    expect(setValueSpy).toHaveBeenCalledTimes(8)
+    expect(setValueSpy).toHaveBeenCalledTimes(9)
     expect(afterSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceKind: 'staff.timesheets.settings',
