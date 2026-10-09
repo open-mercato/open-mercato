@@ -107,7 +107,7 @@ export const omnibusConfigSchema = z.object({
   minimizationAxis: omnibusMinimizationAxisSchema.default('gross'),
   defaultPresentedPriceKindId: z.string().uuid().optional(),
   backfillCoverage: z.record(z.string(), omnibusBackfillCoverageSchema).default({}),
-  channels: z.record(z.string(), omnibusChannelConfigSchema).default({}),
+  channels: z.record(z.string().uuid(), omnibusChannelConfigSchema).default({}),
 })
 
 export type OmnibusConfig = z.infer<typeof omnibusConfigSchema>

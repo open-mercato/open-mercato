@@ -24,6 +24,7 @@ import {
   localize,
   nonEmptyString,
   referenceId,
+  resolvePublicDefaultMediaUrls,
   resolveStorefrontAvailability,
   storefrontAvailabilityKey,
   toStorefrontAvailability,
@@ -120,6 +121,7 @@ type ProductRecord = {
   title?: string | null
   sku?: string | null
   handle?: string | null
+  default_media_id?: string | null
   default_media_url?: string | null
 }
 
@@ -274,7 +276,7 @@ async function loadProductsByIds(runtime: Runtime, ids: string[]): Promise<Produ
     organizationId: scope.organizationId,
     withDeleted: scope.withDeleted,
     filters: composeStorefrontProductFilters(scope, { id: { $in: ids } }),
-    fields: ['id', 'title', 'sku', 'handle', 'default_media_url'],
+    fields: ['id', 'title', 'sku', 'handle', 'default_media_id', 'default_media_url'],
     page: { page: 1, pageSize: ids.length },
   })
   return result.items.filter((item) => typeof item.id === 'string')
@@ -408,12 +410,21 @@ export async function suggestStorefrontSearch(
     loadPricing(runtime, rankedIds),
     loadHiddenProductIds(runtime, rankedIds),
   ])
+  const visibleRecords = records.filter((record) => !hidden.has(record.id))
+  const mediaUrls = await resolvePublicDefaultMediaUrls(
+    em,
+    ctx,
+    visibleRecords.map((record) => ({
+      id: record.id,
+      defaultMediaId: record.default_media_id,
+      defaultMediaUrl: record.default_media_url,
+    })),
+  )
   const locales = localeChain(ctx)
   const productTranslations = translations.get(STOREFRONT_PRODUCT_ENTITY_TYPE)
   const scores = new Map(ranked.map((entry) => [entry.id, entry.score]))
   const needle = term.toLowerCase()
-  const products = records
-    .filter((record) => !hidden.has(record.id))
+  const products = visibleRecords
     .map((record) => ({
       record,
       score: scores.get(record.id) ?? 0,
@@ -425,7 +436,7 @@ export async function suggestStorefrontSearch(
       id: record.id,
       handle: nonEmptyString(record.handle),
       title: localize(record.title, productTranslations?.get(record.id), 'title', locales) ?? '',
-      defaultMediaUrl: nonEmptyString(record.default_media_url),
+      defaultMediaUrl: mediaUrls.get(record.id) ?? null,
       formattedPrice: formattedPrice(pricing.get(record.id)),
     }))
   return {

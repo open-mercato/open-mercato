@@ -37,6 +37,7 @@ function createEm(existingStores: number) {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    transactional: jest.fn(async <T>(work: (tem: unknown) => Promise<T>): Promise<T> => work(em)),
   }
   return { em, created }
 }
@@ -113,6 +114,39 @@ describe('seedDraftStore', () => {
     expect(first.status).toBe('created')
     expect(second.status).toBe('exists')
     expect(created).toHaveLength(1)
+  })
+
+  it('writes the store in its own transaction so a failed insert cannot leak into the caller', async () => {
+    mockedFindOne.mockResolvedValue({ name: 'Acme' })
+    const { em } = createEm(0)
+
+    await seedDraftStore(em as never, SCOPE)
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports exists when a concurrent seed wins the unique code or slug race', async () => {
+    mockedFindOne.mockResolvedValue({ name: 'Acme' })
+    const { em } = createEm(0)
+    em.flush.mockRejectedValueOnce(
+      Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+        constraint: 'ecommerce_stores_tenant_code_unique',
+      }),
+    )
+
+    await expect(seedDraftStore(em as never, SCOPE)).resolves.toEqual({ status: 'exists' })
+    expect(mockedEmit).not.toHaveBeenCalled()
+  })
+
+  it('rethrows insert failures that are not unique violations', async () => {
+    mockedFindOne.mockResolvedValue({ name: 'Acme' })
+    const failure = new Error('[internal] connection lost')
+    const { em } = createEm(0)
+    em.flush.mockRejectedValueOnce(failure)
+
+    await expect(seedDraftStore(em as never, SCOPE)).rejects.toBe(failure)
+    expect(mockedEmit).not.toHaveBeenCalled()
   })
 
   it('uses the resolved base currency when one is supplied and falls back otherwise', async () => {

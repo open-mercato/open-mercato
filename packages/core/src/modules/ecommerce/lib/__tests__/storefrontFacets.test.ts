@@ -1,4 +1,3 @@
-import type { EcommerceStorefrontProductListQuery } from '../../data/validators'
 import type { TranslationMap } from '../storefrontCatalogSupport'
 import {
   countStorefrontFacets,
@@ -243,25 +242,29 @@ describe('labelStorefrontCountFacets', () => {
 })
 
 describe('storefront facet helpers', () => {
-  it('keys count facets on the facet filters only', () => {
-    const base: EcommerceStorefrontProductListQuery = { page: 1, pageSize: 24, availability: 'all', tagSlugs: ['sale'] }
-    const parts = storefrontCountFacetCacheParts(base)
+  it('keys count facets on the resolved selection and search term only', () => {
+    const base = selection({ tagIds: ['t-sale'] })
+    const parts = storefrontCountFacetCacheParts(base, null)
     expect(parts[0]).toBe('products-count-facets')
+    expect(storefrontCountFacetCacheParts(selection({ tagIds: ['t-sale', 't-sale'] }), null)).toEqual(parts)
+    expect(storefrontCountFacetCacheParts({ ...base, options: { color: ['red'] } }, null)).not.toEqual(parts)
+    expect(storefrontCountFacetCacheParts(base, 'dress')).not.toEqual(parts)
+    expect(storefrontCountFacetCacheParts({ ...base, categoryId: DRESS }, null)).not.toEqual(parts)
+    expect(storefrontCountFacetCacheParts({ ...base, productType: 'simple' }, null)).not.toEqual(parts)
+  })
+
+  it('normalizes the order of tags, option codes and option values in the key', () => {
     expect(
-      storefrontCountFacetCacheParts({
-        ...base,
-        page: 3,
-        pageSize: 12,
-        priceMin: 10,
-        priceMax: 20,
-        sort: 'price_asc',
-        availability: 'in_stock',
-        locale: 'de',
-      }),
-    ).toEqual(parts)
-    expect(storefrontCountFacetCacheParts({ ...base, options: { color: ['red'] } })).not.toEqual(parts)
-    expect(storefrontCountFacetCacheParts({ ...base, search: 'dress' })).not.toEqual(parts)
-    expect(storefrontCountFacetCacheParts({ ...base, categoryId: '0b8f3f0e-1d2a-4c5b-8e6f-000000000001' })).not.toEqual(parts)
+      storefrontCountFacetCacheParts(
+        selection({ tagIds: ['t-b', 't-a'], options: { size: ['l', 'm'], color: ['red'] } }),
+        null,
+      ),
+    ).toEqual(
+      storefrontCountFacetCacheParts(
+        selection({ tagIds: ['t-a', 't-b'], options: { color: ['red'], size: ['m', 'l'] } }),
+        null,
+      ),
+    )
   })
 
   it('ranges over finite amounts and is null without any', () => {

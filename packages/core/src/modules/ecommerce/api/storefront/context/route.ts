@@ -3,18 +3,22 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { ecommercePriceDisplayModeSchema, ecommerceStorefrontContextQuerySchema } from '../../../data/validators'
-import { isStorefrontResolutionError } from '../../../lib/storeContext'
+import { parseStorefrontContextQuery } from '../../../lib/storefrontQuery'
 import { enforceStorefrontRateLimit } from '../../../lib/storefrontRateLimit'
 import type { StoreContextService } from '../../../lib/storeContextService'
 import type { StoreContext } from '../../../lib/types'
-import { runInStoreCacheTenant } from '../storefrontRouteSupport'
+import {
+  runInStoreCacheTenant,
+  storefrontErrorSchema,
+  storefrontInvalidQueryErrorSchema,
+  storefrontRouteErrorResponse,
+  storefrontSuccessHeaders,
+} from '../storefrontRouteSupport'
 
 export const metadata = {
   path: '/ecommerce/storefront/context',
@@ -23,12 +27,7 @@ export const metadata = {
   },
 }
 
-const VARY_HEADER = 'Cookie, Authorization, X-Locale, Accept-Language'
 const ANONYMOUS_CACHE_CONTROL = 'public, max-age=60'
-const PRIVATE_CACHE_CONTROL = 'private, no-store'
-const ERROR_CACHE_CONTROL = 'no-store'
-
-const logger = createLogger('ecommerce').child({ component: 'storefront-context-route' })
 
 export type StorefrontBuyerNames = {
   displayName: string | null
@@ -118,43 +117,25 @@ async function loadBuyerNames(em: EntityManager, context: StoreContext): Promise
   }
 }
 
-function errorResponse(status: number, code: string): NextResponse {
-  return NextResponse.json(
-    { error: code },
-    { status, headers: { 'Cache-Control': ERROR_CACHE_CONTROL, Vary: VARY_HEADER } },
-  )
-}
-
 export async function GET(req: Request) {
-  const url = new URL(req.url)
-  const parsed = ecommerceStorefrontContextQuerySchema.safeParse(Object.fromEntries(url.searchParams.entries()))
-  if (!parsed.success) return errorResponse(400, 'invalid_query')
-
   try {
+    const query = parseStorefrontContextQuery(new URL(req.url).searchParams)
     const container = await createRequestContainer()
     const service = container.resolve('storeContextService') as StoreContextService
-    const context = await service.resolve(req, { pathname: parsed.data.path ?? '/' })
+    const context = await service.resolve(req, { pathname: query.path ?? '/' })
     return await runInStoreCacheTenant(context, async () => {
       const rateLimited = await enforceStorefrontRateLimit(container, req, context, 'context')
       if (rateLimited) return rateLimited
       const em = container.resolve('em') as EntityManager
       const names = await loadBuyerNames(em, context)
       const body = projectStorefrontContext(context, names)
-      return NextResponse.json(body, {
-        headers: {
-          'Cache-Control': context.buyer.isAuthenticated ? PRIVATE_CACHE_CONTROL : ANONYMOUS_CACHE_CONTROL,
-          Vary: VARY_HEADER,
-        },
-      })
+      return NextResponse.json(body, { headers: storefrontSuccessHeaders(context, ANONYMOUS_CACHE_CONTROL) })
     })
   } catch (error) {
-    if (isStorefrontResolutionError(error)) return errorResponse(error.status, error.code)
-    logger.error('Storefront context resolution failed', { err: error })
-    getTelemetryRuntime()?.reportError(error, {
-      module: 'ecommerce',
+    return storefrontRouteErrorResponse(error, {
+      message: 'Storefront context resolution failed',
       code: 'ecommerce.storefront_context_failed',
     })
-    return errorResponse(500, 'internal_error')
   }
 }
 
@@ -187,7 +168,7 @@ export const storefrontContextResponseSchema = z.object({
   }),
 })
 
-const storefrontContextErrorSchema = z.object({ error: z.string() })
+const storefrontContextBadRequestSchema = z.union([storefrontInvalidQueryErrorSchema, storefrontErrorSchema])
 
 const storefrontContextGetDoc: OpenApiMethodDoc = {
   summary: 'Resolve the storefront context for the current host',
@@ -199,13 +180,17 @@ const storefrontContextGetDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Storefront context resolved.', schema: storefrontContextResponseSchema },
   ],
   errors: [
-    { status: 400, description: 'Invalid query, or storeSlug used while the development flag is off', schema: storefrontContextErrorSchema },
-    { status: 401, description: 'Portal session invalid or issued for another tenant or organization', schema: storefrontContextErrorSchema },
-    { status: 403, description: 'Draft store (only when OM_ECOMMERCE_DEV_STORE_SLUG=true)', schema: storefrontContextErrorSchema },
-    { status: 404, description: 'No store serves this host or path', schema: storefrontContextErrorSchema },
-    { status: 410, description: 'Store archived', schema: storefrontContextErrorSchema },
+    {
+      status: 400,
+      description: 'Unknown, repeated or malformed query parameters, or storeSlug used while the development flag is off',
+      schema: storefrontContextBadRequestSchema,
+    },
+    { status: 401, description: 'Portal session invalid or issued for another tenant or organization', schema: storefrontErrorSchema },
+    { status: 403, description: 'Draft store (only when OM_ECOMMERCE_DEV_STORE_SLUG=true)', schema: storefrontErrorSchema },
+    { status: 404, description: 'No store serves this host or path', schema: storefrontErrorSchema },
+    { status: 410, description: 'Store archived', schema: storefrontErrorSchema },
     { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
-    { status: 503, description: 'Store misconfigured (no default channel binding)', schema: storefrontContextErrorSchema },
+    { status: 503, description: 'Store misconfigured (no default channel binding)', schema: storefrontErrorSchema },
   ],
 }
 

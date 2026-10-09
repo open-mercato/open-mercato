@@ -48,6 +48,17 @@ const STOREFRONT_RATE_LIMITED_CACHE_CONTROL = 'no-store'
 
 const logger = createLogger('ecommerce').child({ component: 'storefront-rate-limit' })
 
+let untrustedProxyWarned = false
+
+function warnOnceWithoutTrustedProxy(trustProxyDepth: number): void {
+  if (untrustedProxyWarned || (Number.isInteger(trustProxyDepth) && trustProxyDepth > 0)) return
+  untrustedProxyWarned = true
+  logger.warn(
+    'Storefront rate limits are inactive until RATE_LIMIT_TRUST_PROXY_DEPTH is set; the client IP cannot be trusted without it',
+    { trustProxyDepth },
+  )
+}
+
 export function readStorefrontRateLimitConfig(endpoint: StorefrontRateLimitEndpoint): RateLimitConfig {
   const defaults = STOREFRONT_RATE_LIMITS[endpoint]
   return readEndpointRateLimitConfig(defaults.envPrefix, {
@@ -84,7 +95,8 @@ async function resolveRateLimitMessage(): Promise<string> {
 /**
  * Per-IP-per-store limit for the public storefront routes (spec 4 §9). Called after the store is
  * resolved, because the key is `ip:storeId`. Fail-open: an unavailable limiter or an unresolvable
- * client IP (no trusted proxy depth configured) serves the request instead of rejecting it.
+ * client IP (no trusted proxy depth configured) serves the request instead of rejecting it; the
+ * missing proxy depth is logged once per process so the inactive limit is visible to operators.
  */
 export async function enforceStorefrontRateLimit(
   container: AppContainer,
@@ -95,6 +107,7 @@ export async function enforceStorefrontRateLimit(
   const limiter = resolveRateLimiter(container)
   if (!limiter) return null
   try {
+    warnOnceWithoutTrustedProxy(limiter.trustProxyDepth)
     const clientIp = getClientIp(req, limiter.trustProxyDepth)
     if (!clientIp) return null
     const limited = await checkRateLimit(

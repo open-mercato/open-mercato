@@ -70,7 +70,8 @@ type ProductRow = Record<string, unknown> & { id: string; title: string; sku: st
 
 let products: ProductFixture[] = []
 let categories: StorefrontVisibleCategory[] = []
-const counters = { engine: 0, strategy: 0 }
+const counters = { engine: 0, strategy: 0, media: 0 }
+let privateMediaProductIds = new Set<string>()
 const engineCalls: QueryOptions[] = []
 const strategyCalls: SearchOptions[] = []
 
@@ -84,6 +85,7 @@ function productRow(product: ProductFixture): ProductRow {
     title: product.title,
     sku: product.sku,
     handle: product.id,
+    default_media_id: `media-${product.id}`,
     default_media_url: `https://cdn.example.com/${product.id}.jpg`,
     tenant_id: product.tenantId ?? TENANT_ID,
     organization_id: ORGANIZATION_ID,
@@ -198,10 +200,21 @@ function searchRegistry(options: RegistryOptions) {
   }
 }
 
+const mediaKysely: Record<string, unknown> = {}
+for (const method of ['selectFrom', 'innerJoin', 'select', 'where']) {
+  mediaKysely[method] = () => mediaKysely
+}
+mediaKysely.execute = async () => {
+  counters.media += 1
+  return products
+    .filter((product) => !privateMediaProductIds.has(product.id))
+    .map((product) => ({ id: `media-${product.id}`, mime_type: 'image/jpeg' }))
+}
+
 function makeContainer(searchService: unknown = null): AwilixContainer {
   return {
     resolve: (name: string) => {
-      if (name === 'em') return { getKysely: () => ({}) }
+      if (name === 'em') return { getKysely: () => mediaKysely }
       if (name === 'queryEngine') return queryEngine
       if (name === 'searchService' && searchService) return searchService
       throw new Error(`[internal] ${name} is not registered`)
@@ -443,6 +456,22 @@ describe('suggestStorefrontSearch — one response shape for every backend (§8.
       { id: 'p-5', title: 'Hidden boot', sku: 'H-1', categoryIds: ['c-1'], score: 1, isActive: false },
     ]
     categories = [category('c-1', 'Boots'), category('c-2', 'Rain boots'), category('c-3', 'Sandals')]
+  })
+
+  it('nulls a suggestion image whose default media is not in a public partition, in one batched query', async () => {
+    privateMediaProductIds = new Set(['p-3'])
+    counters.media = 0
+    try {
+      const response = await suggest(makeContainer(), makeContext(), 'boot')
+      expect(Object.fromEntries(response.products.map((product) => [product.id, product.defaultMediaUrl]))).toEqual({
+        'p-1': 'https://cdn.example.com/p-1.jpg',
+        'p-2': 'https://cdn.example.com/p-2.jpg',
+        'p-3': null,
+      })
+      expect(counters.media).toBe(1)
+    } finally {
+      privateMediaProductIds = new Set()
+    }
   })
 
   it('returns identical payloads from ILIKE and tokens for the same fixture', async () => {

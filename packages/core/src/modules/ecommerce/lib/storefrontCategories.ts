@@ -33,6 +33,9 @@ import type { StoreContext } from './types'
  * Query shape, uncached: categories, the scoped product ids, the category assignments of those
  * products, and one multi-entity translation query — four, regardless of tree size. A buyer whose
  * assortment is deny-all (`[]`, e.g. a closed `require_authentication` channel) costs none.
+ *
+ * The product universe is capped at `STOREFRONT_FACET_UNIVERSE_CAP`: an assortment larger than
+ * that is not counted, every `productCount` is `null` and no category is dropped as empty.
  */
 
 export type StorefrontCategoryNode = {
@@ -42,7 +45,7 @@ export type StorefrontCategoryNode = {
   description: string | null
   depth: number
   parentId: string | null
-  productCount: number
+  productCount: number | null
   hasChildren: boolean
   children: StorefrontCategoryNode[]
 }
@@ -54,7 +57,7 @@ export type StorefrontCategoryTreeResponse = {
 
 export type StorefrontCategoryBreadcrumbEntry = { id: string; name: string; slug: string | null }
 
-export type StorefrontCategoryChild = { id: string; name: string; slug: string | null; productCount: number }
+export type StorefrontCategoryChild = { id: string; name: string; slug: string | null; productCount: number | null }
 
 export type StorefrontCategorySeo = { title: string | null; description: string | null; canonicalUrl: string | null }
 
@@ -68,7 +71,7 @@ export type StorefrontCategoryLanding = {
   ancestorIds: string[]
   breadcrumb: StorefrontCategoryBreadcrumbEntry[]
   children: StorefrontCategoryChild[]
-  productCount: number
+  productCount: number | null
   seo: StorefrontCategorySeo
 }
 
@@ -91,7 +94,8 @@ type CategoryRow = {
 
 type CategorySnapshot = {
   visible: Map<string, CategoryRow>
-  counts: Map<string, number>
+  /** `null` when the assortment exceeds the universe cap and was not counted. */
+  counts: Map<string, number> | null
 }
 
 type CategoryAssignmentDatabase = {
@@ -218,8 +222,9 @@ export function countProductsPerCategory(
 async function loadCategoryCounts(
   runtime: StorefrontFacetRuntime,
   rows: Map<string, CategoryRow>,
-  universe: Array<{ id?: unknown }>,
-): Promise<Map<string, number>> {
+  universe: Array<{ id?: unknown }> | null,
+): Promise<Map<string, number> | null> {
+  if (universe === null) return null
   const productIds = Array.from(
     new Set(universe.flatMap((record) => (typeof record.id === 'string' ? [record.id] : []))),
   )
@@ -252,6 +257,14 @@ async function loadCategorySnapshot(
   const visible = selectVisibleCategories(rows, runtime.ctx)
   if (visible.size === 0) return { visible, counts: new Map() }
   return { visible, counts: await loadCategoryCounts(runtime, rows, universe) }
+}
+
+function productCountOf(counts: Map<string, number> | null, id: string): number | null {
+  return counts === null ? null : counts.get(id) ?? 0
+}
+
+function isNonEmpty(counts: Map<string, number> | null, id: string): boolean {
+  return counts === null || (counts.get(id) ?? 0) > 0
 }
 
 function compareNodes(left: { name: string; id: string }, right: { name: string; id: string }): number {
@@ -314,7 +327,7 @@ export async function getStorefrontCategoryTree(
   )
   if (parentKey !== null && !visible.has(parentKey)) return { tree: [], effectiveLocale: ctx.effectiveLocale }
   const includeEmpty = query.includeEmpty === true
-  const index = childrenIndex(visible, (row) => includeEmpty || (counts.get(row.id) ?? 0) > 0)
+  const index = childrenIndex(visible, (row) => includeEmpty || isNonEmpty(counts, row.id))
   const levels = query.depth ?? Number.POSITIVE_INFINITY
   const ids: string[] = []
   collectTreeIds(index, parentKey, levels, ids)
@@ -335,7 +348,7 @@ export async function getStorefrontCategoryTree(
         description: localizedDescription(row, translations, locales),
         depth: row.depth,
         parentId: row.parentId,
-        productCount: counts.get(row.id) ?? 0,
+        productCount: productCountOf(counts, row.id),
         hasChildren: (index.get(row.id)?.length ?? 0) > 0,
         children: build(row.id, remaining - 1),
       }))
@@ -365,7 +378,7 @@ export async function getStorefrontCategoryLanding(
     return ancestor ? [ancestor] : []
   })
   const children = Array.from(visible.values()).filter(
-    (candidate) => candidate.parentId === row.id && (counts.get(candidate.id) ?? 0) > 0,
+    (candidate) => candidate.parentId === row.id && isNonEmpty(counts, candidate.id),
   )
   const translations = (
     await loadStorefrontTranslations(runtime.em, ctx, [
@@ -395,10 +408,10 @@ export async function getStorefrontCategoryLanding(
           id: child.id,
           name: localizedName(child, translations, locales),
           slug: child.slug,
-          productCount: counts.get(child.id) ?? 0,
+          productCount: productCountOf(counts, child.id),
         }))
         .sort(compareNodes),
-      productCount: counts.get(row.id) ?? 0,
+      productCount: productCountOf(counts, row.id),
       seo: { title: null, description: null, canonicalUrl: null },
     },
     effectiveLocale: ctx.effectiveLocale,

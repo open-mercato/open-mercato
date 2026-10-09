@@ -114,7 +114,7 @@ export function StoreEditPage({ storeId, tabs = STORE_EDIT_TABS }: StoreEditPage
             label={t('ecommerce.backend.store.errors.load', 'Failed to load the store.')}
             action={
               <Button type="button" variant="outline" size="sm" onClick={() => void storeQuery.refetch()}>
-                {t('common.retry', 'Retry')}
+                {t('ecommerce.backend.store.actions.retry', 'Retry')}
               </Button>
             }
           />

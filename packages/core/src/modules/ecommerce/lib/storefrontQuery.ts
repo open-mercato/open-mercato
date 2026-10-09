@@ -2,11 +2,13 @@ import type { z } from 'zod'
 import {
   ecommerceStorefrontCategoryLandingQuerySchema,
   ecommerceStorefrontCategoryTreeQuerySchema,
+  ecommerceStorefrontContextQuerySchema,
   ecommerceStorefrontProductDetailQuerySchema,
   ecommerceStorefrontProductListQuerySchema,
   ecommerceStorefrontSearchSuggestQuerySchema,
   type EcommerceStorefrontCategoryLandingQuery,
   type EcommerceStorefrontCategoryTreeQuery,
+  type EcommerceStorefrontContextQuery,
   type EcommerceStorefrontProductDetailQuery,
   type EcommerceStorefrontProductListQuery,
   type EcommerceStorefrontSearchSuggestQuery,
@@ -174,6 +176,14 @@ export function parseStorefrontCategoryTreeQuery(input: StorefrontQueryInput): E
  */
 export function parseStorefrontSearchSuggestQuery(input: StorefrontQueryInput): EcommerceStorefrontSearchSuggestQuery {
   return parseStorefrontScalarQuery(input, ecommerceStorefrontSearchSuggestQuerySchema)
+}
+
+/**
+ * Parses the `GET /context` query: the store-resolution parameters (`storeSlug`, `locale`, `path`)
+ * only, strict like the other routes.
+ */
+export function parseStorefrontContextQuery(input: StorefrontQueryInput): EcommerceStorefrontContextQuery {
+  return parseStorefrontScalarQuery(input, ecommerceStorefrontContextQuerySchema)
 }
 
 function parseStorefrontScalarQuery<T>(input: StorefrontQueryInput, schema: z.ZodType<T, unknown>): T {

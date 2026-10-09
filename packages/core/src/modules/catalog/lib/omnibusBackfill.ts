@@ -5,10 +5,10 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import { CatalogPriceHistoryEntry, CatalogProductPrice } from '../data/entities'
 import { omnibusBackfillOptionsSchema, type OmnibusBackfillOptionsInput } from '../data/validators'
 import {
+  isCompletePriceHistoryInput,
   isOmnibusTrackedPrice,
   priceHistoryInputFromRecord,
   recordPriceHistoryEntries,
-  type PriceHistoryPriceInput,
 } from './omnibus'
 import { invalidateOmnibusTenantCache } from './omnibusCache'
 import { listInScopeOmnibusChannels } from './omnibusConfig'
@@ -87,10 +87,6 @@ export function resolveOmnibusBackfillTargets(
   return [...channelTargets, unscopedTarget]
 }
 
-function isCompleteInput(input: PriceHistoryPriceInput): boolean {
-  return Boolean(input.productId && input.priceKindId)
-}
-
 async function backfillTarget(
   deps: OmnibusBackfillDeps,
   scope: { tenantId: string; organizationId: string | null },
@@ -113,8 +109,9 @@ async function backfillTarget(
   const orgFilter = scope.organizationId ? { organizationId: scope.organizationId } : {}
   let cursor: string | null = null
   for (;;) {
+    const batchEm = deps.em.fork()
     const prices: CatalogProductPrice[] = await findWithDecryption<CatalogProductPrice>(
-      deps.em,
+      batchEm,
       CatalogProductPrice,
       {
         tenantId: scope.tenantId,
@@ -129,7 +126,7 @@ async function backfillTarget(
     cursor = prices[prices.length - 1].id
     result.scanned += prices.length
     const existing = await findWithDecryption<CatalogPriceHistoryEntry>(
-      deps.em,
+      batchEm,
       CatalogPriceHistoryEntry,
       { tenantId: scope.tenantId, ...orgFilter, priceId: { $in: prices.map((price) => price.id) } },
       { fields: ['id', 'priceId'] },
@@ -141,11 +138,11 @@ async function backfillTarget(
     const inputs = uncovered.map(priceHistoryInputFromRecord)
     const tracked = inputs.filter(isOmnibusTrackedPrice)
     result.skippedUntracked += inputs.length - tracked.length
-    const complete = tracked.filter(isCompleteInput)
+    const complete = tracked.filter(isCompletePriceHistoryInput)
     result.skippedIncomplete += tracked.length - complete.length
     result.missing += complete.length
     if (!options.dryRun && complete.length) {
-      const written = await recordPriceHistoryEntries(deps.em, complete, 'create', { recordedAt, source: 'system' })
+      const written = await recordPriceHistoryEntries(batchEm, complete, 'create', { recordedAt, source: 'system' })
       result.created += written.recorded
     }
     if (prices.length < options.batchSize) break

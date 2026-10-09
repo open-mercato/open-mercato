@@ -172,7 +172,7 @@ export function StoreAvailabilityDefaultsSection({ store }: StoreAvailabilityDef
           label={t('ecommerce.backend.store.availability.errors.load', 'Failed to load the availability defaults.')}
           action={
             <Button type="button" variant="outline" size="sm" onClick={() => void policyQuery.refetch()}>
-              {t('common.retry', 'Retry')}
+              {t('ecommerce.backend.store.actions.retry', 'Retry')}
             </Button>
           }
         />

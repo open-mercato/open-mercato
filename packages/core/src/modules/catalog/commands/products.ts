@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { createLogger } from "@open-mercato/shared/lib/logger";
+import { getTelemetryRuntime } from "@open-mercato/shared/lib/telemetry/runtime";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type {
   CommandHandler,
@@ -96,6 +98,8 @@ import { resolveOmnibusCache } from "../lib/omnibusCache";
 import {
   resolveCanonicalUnitCode,
 } from "../lib/unitResolution";
+
+const logger = createLogger("catalog");
 
 type ProductSnapshot = {
   id: string;
@@ -1075,6 +1079,40 @@ async function loadProductPricesForHistory(
     scope,
   );
   return prices.map((price) => priceHistoryInputFromRecord(price));
+}
+
+async function loadRestoredPricesForHistory(
+  em: EntityManager,
+  owner: ProductDeleteOwner,
+  priceIds: string[],
+): Promise<PriceHistoryPriceInput[]> {
+  if (!priceIds.length) return [];
+  const scope = {
+    tenantId: owner.tenantId,
+    organizationId: owner.organizationId,
+  };
+  try {
+    const prices = await findWithDecryption(
+      em.fork(),
+      CatalogProductPrice,
+      { ...scope, id: { $in: priceIds } },
+      { populate: ["priceKind", "variant"] },
+      scope,
+    );
+    return prices.map((price) => priceHistoryInputFromRecord(price));
+  } catch (err) {
+    logger.error("[internal] catalog restored price lookup for history failed", {
+      priceIds,
+      ...scope,
+      err,
+    });
+    getTelemetryRuntime()?.reportError(err, {
+      module: "catalog",
+      code: "catalog.price_history_restore_lookup_failed",
+      attributes: { priceCount: priceIds.length },
+    });
+    return [];
+  }
 }
 
 async function emitProductVariantCleanupSideEffects(opts: {
@@ -2429,6 +2467,15 @@ const deleteProductCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    const restoredPrices = await loadRestoredPricesForHistory(
+      em,
+      owner,
+      (childrenPlan?.prices ?? []).map((price) => price.id),
+    );
+    await capturePriceHistoryEntries(em, restoredPrices, "undo", {
+      metadata: { undoneCommand: "catalog.products.delete" },
+      cache: resolveOmnibusCache(ctx.container),
+    });
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

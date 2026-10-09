@@ -13,6 +13,30 @@ export type LookupSource = {
 
 export type LookupRemoteItem = Record<string, unknown>
 
+export type LookupLoadFailureReason = 'forbidden' | 'failed'
+
+export class LookupLoadError extends Error {
+  readonly reason: LookupLoadFailureReason
+
+  constructor(reason: LookupLoadFailureReason, path: string) {
+    super(`[internal] lookup load failed (${reason}) for ${path}`)
+    this.name = 'LookupLoadError'
+    this.reason = reason
+  }
+}
+
+export function resolveLookupFailureReason(error: unknown): LookupLoadFailureReason {
+  if (!error || typeof error !== 'object') return 'failed'
+  const candidate = error as { name?: unknown; reason?: unknown }
+  return candidate.name === 'LookupLoadError' && candidate.reason === 'forbidden' ? 'forbidden' : 'failed'
+}
+
+function readErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null
+  const status = (error as { status?: unknown }).status
+  return typeof status === 'number' ? status : null
+}
+
 const SEARCH_PAGE_SIZE = '50'
 const RESOLVE_CHUNK_SIZE = 100
 
@@ -32,8 +56,9 @@ async function loadItems(path: string, params: Record<string, string>): Promise<
     })
     return Array.isArray(payload?.items) ? payload.items : []
   } catch (err) {
-    logger.warn('ui.lookups.load.failed', { err, path })
-    return []
+    const status = readErrorStatus(err)
+    logger.warn('ui.lookups.load.failed', { err, path, status })
+    throw new LookupLoadError(status === 401 || status === 403 ? 'forbidden' : 'failed', path)
   }
 }
 
@@ -86,34 +111,4 @@ export function createIdsLookupSource(
 
 export function lookupLabelWithCode(label: string, code: string): string {
   return code && code !== label ? `${label} (${code})` : label
-}
-
-export const categoryLookupSource = createIdsLookupSource(
-  'categories',
-  '/api/catalog/categories',
-  (item) => {
-    const value = pickLookupString(item, 'id')
-    if (!value) return null
-    return { value, label: pickLookupString(item, 'pathLabel', 'name') || value }
-  },
-  { view: 'manage' },
-)
-
-export const productLookupSource = createIdsLookupSource('products', '/api/catalog/products', (item) => {
-  const value = pickLookupString(item, 'id')
-  if (!value) return null
-  const sku = pickLookupString(item, 'sku')
-  return { value, label: pickLookupString(item, 'title', 'name') || value, description: sku || null }
-})
-
-function mapTag(item: LookupRemoteItem): LookupOption | null {
-  const value = pickLookupString(item, 'id')
-  if (!value) return null
-  return { value, label: pickLookupString(item, 'label') || value }
-}
-
-export const tagLookupSource: LookupSource = {
-  id: 'tags',
-  search: async (query) => mapItems(await loadItems('/api/catalog/tags', searchParams(query, SEARCH_PAGE_SIZE)), mapTag),
-  resolve: (ids) => resolveByIds('/api/catalog/tags', ids, mapTag),
 }

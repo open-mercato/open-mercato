@@ -18,7 +18,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 import { runOmnibusBackfill, resolveOmnibusBackfillTargets } from '../lib/omnibusBackfill'
 import { omnibusConfigSchema } from '../lib/omnibusTypes'
 import { omnibusTenantWideTag } from '../lib/omnibusCache'
-import { parseOmnibusBackfillArgs } from '../cli'
+import catalogCli, { parseOmnibusBackfillArgs } from '../cli'
 
 const TENANT = '22222222-2222-4222-8222-222222222222'
 const OTHER_TENANT = '22222222-2222-4222-8222-000000000000'
@@ -91,9 +91,17 @@ function installFindMock(store: Store) {
   )
 }
 
+type FakeEm = {
+  fork: jest.Mock
+  create: jest.Mock
+  persist: jest.Mock
+  flush: jest.Mock
+}
+
 function buildEm(store: Store): EntityManager {
   const pending: Row[] = []
-  const historyEm = {
+  const historyEm: FakeEm = {
+    fork: jest.fn(() => historyEm),
     create: jest.fn((_entity: unknown, data: Row) => ({ id: `h-${store.history.length + pending.length}`, ...data })),
     persist: jest.fn((row: Row) => {
       pending.push(row)
@@ -248,7 +256,11 @@ describe('runOmnibusBackfill', () => {
     expect(result.targets).toEqual([expect.objectContaining({ coverageKey: '', missing: 2, created: 0 })])
     expect(result.coverageRecorded).toEqual([])
     expect(store.history).toHaveLength(0)
-    expect((em as unknown as { fork: jest.Mock }).fork).not.toHaveBeenCalled()
+    const forked = (em as unknown as { fork: jest.Mock }).fork.mock.results.map((entry) => entry.value as FakeEm)
+    for (const batchEm of forked) {
+      expect(batchEm.persist).not.toHaveBeenCalled()
+      expect(batchEm.flush).not.toHaveBeenCalled()
+    }
     expect(configService.setValue).not.toHaveBeenCalled()
     expect(cache.deleteByTags).not.toHaveBeenCalled()
   })
@@ -305,6 +317,29 @@ describe('runOmnibusBackfill', () => {
     expect(priceCalls[1][2]).toMatchObject({ id: { $gt: priceId(2) } })
   })
 
+  it('reads and writes every batch through its own forked entity manager', async () => {
+    const store: Store = { prices: [1, 2, 3, 4, 5].map((index) => buildPrice(index)), history: [] }
+    installFindMock(store)
+    const batchEms: FakeEm[] = []
+    const rootEm = {
+      fork: jest.fn(() => {
+        const batchEm = (buildEm(store) as unknown as { fork: jest.Mock }).fork() as FakeEm
+        batchEms.push(batchEm)
+        return batchEm
+      }),
+    }
+    await runOmnibusBackfill(
+      { em: rootEm as unknown as EntityManager, moduleConfigService: buildConfigService(), now: NOW },
+      { tenantId: TENANT, unscoped: true, batchSize: 2 },
+    )
+    expect(store.history).toHaveLength(5)
+    expect(rootEm.fork).toHaveBeenCalledTimes(3)
+    expect(new Set(batchEms).size).toBe(3)
+    const priceCalls = findWithDecryptionMock.mock.calls.filter((call) => call[1] === CatalogProductPrice)
+    priceCalls.forEach((call, index) => expect(call[0]).toBe(batchEms[index]))
+    for (const call of findWithDecryptionMock.mock.calls) expect(call[0]).not.toBe(rootEm)
+  })
+
   it('skips price rows that cannot produce a complete history entry', async () => {
     const store: Store = { prices: [buildPrice(1, { product: null }), buildPrice(2)], history: [] }
     installFindMock(store)
@@ -346,6 +381,26 @@ describe('runOmnibusBackfill', () => {
     ).rejects.toThrow('[internal]')
     expect(store.history).toHaveLength(0)
     expect(configService.setValue).not.toHaveBeenCalled()
+  })
+})
+
+describe('omnibusConfigSchema channel keys', () => {
+  it('accepts UUID channel keys', () => {
+    expect(omnibusConfigSchema.safeParse(EU_CONFIG).success).toBe(true)
+  })
+
+  it('rejects a non-UUID channel key so the backfill never casts it to a uuid', async () => {
+    const invalid = { ...EU_CONFIG, channels: { 'web-store': { presentedPriceKindId: PRICE_KIND, countryCode: 'PL' } } }
+    expect(omnibusConfigSchema.safeParse(invalid).success).toBe(false)
+    const store: Store = { prices: [buildPrice(1, { channelId: CHANNEL_PL })], history: [] }
+    installFindMock(store)
+    await expect(
+      runOmnibusBackfill(
+        { em: buildEm(store), moduleConfigService: buildConfigService({ [TENANT]: invalid }), now: NOW },
+        { tenantId: TENANT },
+      ),
+    ).rejects.toThrow('[internal]')
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
   })
 })
 
@@ -399,5 +454,26 @@ describe('parseOmnibusBackfillArgs', () => {
 
   it('rejects a non-numeric batch size', () => {
     expect(parseOmnibusBackfillArgs(['--tenant', TENANT, '--batch-size', 'many']).success).toBe(false)
+  })
+})
+
+describe('omnibus:backfill command', () => {
+  const command = catalogCli.find((entry) => entry.command === 'omnibus:backfill')
+  const originalExitCode = process.exitCode
+
+  afterEach(() => {
+    process.exitCode = originalExitCode
+    jest.restoreAllMocks()
+  })
+
+  it('prints usage and exits with code 2 on invalid arguments without touching the database', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { createRequestContainer } = jest.requireMock('@open-mercato/shared/lib/di/container') as {
+      createRequestContainer: jest.Mock
+    }
+    await command?.run(['--dry-run'])
+    expect(process.exitCode).toBe(2)
+    expect(errorSpy).toHaveBeenCalled()
+    expect(createRequestContainer).not.toHaveBeenCalled()
   })
 })

@@ -1,12 +1,46 @@
 'use client'
 
 import * as React from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ComboboxInput } from './ComboboxInput'
 import { TagsInput } from './TagsInput'
-import type { LookupOption, LookupSource } from './lookupSources'
+import {
+  resolveLookupFailureReason,
+  type LookupLoadFailureReason,
+  type LookupOption,
+  type LookupSource,
+} from './lookupSources'
+
+function LookupFailureMessage({ failure }: { failure: LookupLoadFailureReason | null }) {
+  const t = useT()
+  if (!failure) return null
+  return (
+    <p className="mt-1 text-xs text-status-error-text" role="alert" data-testid="lookup-picker-failure">
+      {failure === 'forbidden'
+        ? t('ui.inputs.lookupPicker.forbidden', 'You do not have permission to load these options.')
+        : t('ui.inputs.lookupPicker.loadFailed', 'Could not load options. Try again.')}
+    </p>
+  )
+}
+
+function useLookupFailure() {
+  const [failure, setFailure] = React.useState<LookupLoadFailureReason | null>(null)
+  const guard = React.useCallback(async <TValue,>(run: () => Promise<TValue>, fallback: TValue): Promise<TValue> => {
+    try {
+      const value = await run()
+      setFailure(null)
+      return value
+    } catch (error) {
+      setFailure(resolveLookupFailureReason(error))
+      return fallback
+    }
+  }, [])
+  return { failure, setFailure, guard }
+}
 
 function useLookupLabels(source: LookupSource, ids: readonly string[]) {
   const [options, setOptions] = React.useState<Record<string, LookupOption>>({})
+  const { failure, setFailure, guard } = useLookupFailure()
   const requested = React.useRef(new Set<string>())
 
   const register = React.useCallback((next: readonly LookupOption[]) => {
@@ -33,29 +67,34 @@ function useLookupLabels(source: LookupSource, ids: readonly string[]) {
     void source.resolve(missing).then(
       (resolved) => {
         settled = true
-        if (!cancelled) register(resolved)
+        if (cancelled) return
+        register(resolved)
+        setFailure(null)
       },
-      () => {
+      (error: unknown) => {
         settled = true
-        if (!cancelled) release()
+        if (cancelled) return
+        release()
+        setFailure(resolveLookupFailureReason(error))
       },
     )
     return () => {
       cancelled = true
       if (!settled) release()
     }
-  }, [idsKey, register, source])
+  }, [idsKey, register, setFailure, source])
 
   const search = React.useCallback(
-    async (query?: string) => {
-      const found = await source.search(query)
-      register(found)
-      return found
-    },
-    [register, source],
+    (query?: string) =>
+      guard(async () => {
+        const found = await source.search(query)
+        register(found)
+        return found
+      }, []),
+    [guard, register, source],
   )
 
-  return { options, search }
+  return { options, search, failure }
 }
 
 type LookupMultiPickerProps = {
@@ -67,21 +106,24 @@ type LookupMultiPickerProps = {
 }
 
 export function LookupMultiPicker({ source, value, onChange, placeholder, disabled }: LookupMultiPickerProps) {
-  const { options, search } = useLookupLabels(source, value)
+  const { options, search, failure } = useLookupLabels(source, value)
   const suggestions = React.useMemo(() => Object.values(options), [options])
   return (
-    <TagsInput
-      value={value}
-      onChange={onChange}
-      suggestions={suggestions}
-      loadSuggestions={search}
-      allowCustomValues={false}
-      closeSuggestionsOnSelect
-      resolveLabel={(id) => options[id]?.label ?? id}
-      resolveDescription={(id) => options[id]?.description ?? null}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
+    <div>
+      <TagsInput
+        value={value}
+        onChange={onChange}
+        suggestions={suggestions}
+        loadSuggestions={search}
+        allowCustomValues={false}
+        closeSuggestionsOnSelect
+        resolveLabel={(id) => options[id]?.label ?? id}
+        resolveDescription={(id) => options[id]?.description ?? null}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+      <LookupFailureMessage failure={failure} />
+    </div>
   )
 }
 
@@ -102,24 +144,30 @@ export function LookupSinglePicker({
   disabled,
   clearable,
 }: LookupSinglePickerProps) {
+  const { failure, guard } = useLookupFailure()
   const resolveLabel = React.useCallback(
-    async (id: string) => {
-      const [option] = await source.resolve([id])
-      return option?.label ?? id
-    },
-    [source],
+    (id: string) =>
+      guard(async () => {
+        const [option] = await source.resolve([id])
+        return option?.label ?? id
+      }, id),
+    [guard, source],
   )
+  const search = React.useCallback((query?: string) => guard(() => source.search(query), []), [guard, source])
   return (
-    <ComboboxInput
-      value={value}
-      onChange={onChange}
-      allowCustomValues={false}
-      clearable={clearable}
-      placeholder={placeholder}
-      disabled={disabled}
-      loadSuggestions={source.search}
-      resolveLabel={resolveLabel}
-    />
+    <div>
+      <ComboboxInput
+        value={value}
+        onChange={onChange}
+        allowCustomValues={false}
+        clearable={clearable}
+        placeholder={placeholder}
+        disabled={disabled}
+        loadSuggestions={search}
+        resolveLabel={resolveLabel}
+      />
+      <LookupFailureMessage failure={failure} />
+    </div>
   )
 }
 

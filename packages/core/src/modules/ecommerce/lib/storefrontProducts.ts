@@ -55,6 +55,7 @@ import {
   localeChain,
   nonEmptyString,
   referenceId,
+  resolvePublicDefaultMediaUrls,
   resolveStorefrontAvailability,
   storefrontAvailabilityKey,
   stringList,
@@ -76,6 +77,14 @@ export type { StorefrontFacets } from './storefrontFacets'
 /** Storefront Public API §6.3: the pre-sort id set that is priced and sorted in memory. */
 export const STOREFRONT_PRICE_SORT_CAP = 5000
 
+/**
+ * The largest filtered set the `'approximate'` fallback still loads in full (candidates plus their
+ * list-price rows); past it the listing answers as under `'unavailable'`.
+ */
+export const STOREFRONT_APPROXIMATE_SORT_CEILING = 50_000
+
+const APPROXIMATE_PRICE_CHUNK = 1000
+
 const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
 
 const LIST_FIELDS = [
@@ -86,6 +95,7 @@ const LIST_FIELDS = [
   'sku',
   'product_type',
   'is_configurable',
+  'default_media_id',
   'default_media_url',
   'created_at',
 ]
@@ -142,6 +152,10 @@ export type StorefrontProductListResponse = {
 export type ListStorefrontProductsOptions = {
   /** Overrides `STOREFRONT_PRICE_SORT_CAP`; intended for tests. */
   priceSortCap?: number
+  /** Overrides `STOREFRONT_APPROXIMATE_SORT_CEILING`; intended for tests. */
+  approximateSortCeiling?: number
+  /** Overrides `STOREFRONT_FACET_UNIVERSE_CAP`; intended for tests. */
+  facetUniverseCap?: number
   date?: Date
 }
 
@@ -153,6 +167,7 @@ type ProductRecord = {
   sku?: string | null
   product_type?: string | null
   is_configurable?: unknown
+  default_media_id?: string | null
   default_media_url?: string | null
 }
 
@@ -166,6 +181,7 @@ type Runtime = {
   scope: StorefrontProductScope
   decryptionScope: { tenantId: string; organizationId: string }
   date: Date
+  facetUniverseCap?: number
 }
 
 type ResolvedFilters = {
@@ -185,6 +201,7 @@ type HydratedPage = {
 type CountFacetState = {
   cached: StorefrontCountFacets | null
   source: StorefrontFacetSource | null
+  overCap: boolean
 }
 
 const EMPTY_COUNT_FACETS: StorefrontCountFacets = { categories: [], tags: [], options: [], productTypes: [] }
@@ -551,7 +568,7 @@ async function hydratePage(
     loadCategories(runtime, productIds),
     loadTags(runtime, productIds),
   ])
-  const [pricing, translations, availability] = await Promise.all([
+  const [pricing, translations, availability, mediaUrls] = await Promise.all([
     prefetch.pricing ??
       resolveStorefrontPrices(
         container,
@@ -566,6 +583,15 @@ async function hydratePage(
       ...extraTranslations,
     ]),
     resolvePageAvailability(runtime, productIds),
+    resolvePublicDefaultMediaUrls(
+      runtime.em,
+      ctx,
+      records.map((record) => ({
+        id: record.id,
+        defaultMediaId: record.default_media_id,
+        defaultMediaUrl: record.default_media_url,
+      })),
+    ),
   ])
   const locales = localeChain(ctx)
   const productTranslations = translations.get(STOREFRONT_PRODUCT_ENTITY_TYPE)
@@ -587,7 +613,7 @@ async function hydratePage(
           handle: record.handle,
           title: record.title,
           subtitle: record.subtitle,
-          defaultMediaUrl: record.default_media_url,
+          defaultMediaUrl: mediaUrls.get(record.id) ?? null,
           productType: record.product_type,
           isConfigurable: record.is_configurable,
         },
@@ -619,32 +645,47 @@ function parseAmount(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null
 }
 
+function chunk<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < values.length; index += size) chunks.push(values.slice(index, index + size))
+  return chunks
+}
+
 /**
- * Past the cap with `price_sort_fallback = 'approximate'` (§6.3): each product's lowest list price
- * among the channel default price kind's unscoped rows (no customer, group or user), read on the
- * buyer's `taxMode` side. One query over the default kind's rows; never buyer prices.
+ * Past the cap with `price_sort_fallback = 'approximate'` (§6.3): each candidate's lowest list
+ * price among the channel default price kind's unscoped rows (no customer, group or user), read on
+ * the buyer's `taxMode` side. Only the candidates' rows are read — those on the product itself or on
+ * one of its variants — in sequential chunks of `APPROXIMATE_PRICE_CHUNK` products, so one request
+ * holds at most one connection; never buyer prices.
  */
-async function loadApproximateAmounts(runtime: Runtime): Promise<Map<string, number>> {
+async function loadApproximateAmounts(runtime: Runtime, productIds: string[]): Promise<Map<string, number>> {
   const { ctx } = runtime
   const amounts = new Map<string, number>()
   const priceKindId = ctx.channel?.priceKindId ?? null
-  if (!priceKindId) return amounts
-  const rows = await findWithDecryption(
-    runtime.em,
-    CatalogProductPrice,
-    {
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      priceKind: priceKindId,
-      currencyCode: ctx.currencyCode,
-      customerId: null,
-      customerGroupId: null,
-      userId: null,
-      userGroupId: null,
-    },
-    { populate: ['variant'] },
-    runtime.decryptionScope,
-  )
+  if (!priceKindId || !productIds.length) return amounts
+  const rows: CatalogProductPrice[] = []
+  for (const ids of chunk(productIds, APPROXIMATE_PRICE_CHUNK)) {
+    rows.push(
+      ...(await findWithDecryption(
+        runtime.em,
+        CatalogProductPrice,
+        {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          priceKind: priceKindId,
+          currencyCode: ctx.currencyCode,
+          customerId: null,
+          customerGroupId: null,
+          userId: null,
+          userGroupId: null,
+          $or: [{ product: { $in: ids } }, { variant: { product: { $in: ids } } }],
+        },
+        { populate: ['variant'] },
+        runtime.decryptionScope,
+      )),
+    )
+  }
+  const wantedIds = new Set(productIds)
   const channelId = ctx.channel?.salesChannelId ?? null
   const now = runtime.date
   for (const row of rows) {
@@ -654,7 +695,7 @@ async function loadApproximateAmounts(runtime: Runtime): Promise<Map<string, num
     if (row.endsAt && row.endsAt < now) continue
     const productId =
       referenceId(row.product) ?? (row.variant && typeof row.variant === 'object' ? referenceId(row.variant.product) : null)
-    if (!productId) continue
+    if (!productId || !wantedIds.has(productId)) continue
     const wanted = parseAmount(ctx.buyer.taxMode === 'gross' ? row.unitPriceGross : row.unitPriceNet)
     const amount = wanted ?? parseAmount(ctx.buyer.taxMode === 'gross' ? row.unitPriceNet : row.unitPriceGross)
     if (amount === null) continue
@@ -696,13 +737,18 @@ function availableSortsFor(searchTerm: string | null, priceSortsOffered: boolean
 
 async function resolveCountFacetState(
   runtime: Runtime,
-  query: EcommerceStorefrontProductListQuery,
+  selection: StorefrontFacetSelection,
+  searchTerm: string | null,
   universe: Where | null,
 ): Promise<CountFacetState> {
-  const cached = await readCachedStorefrontCountFacets(runtime.container, runtime.ctx, query)
-  if (cached) return { cached, source: null }
-  const source = await loadStorefrontFacetSource(runtime, composeStorefrontProductFilters(runtime.scope, universe))
-  return { cached: null, source }
+  const cached = await readCachedStorefrontCountFacets(runtime.container, runtime.ctx, selection, searchTerm)
+  if (cached) return { cached, source: null, overCap: false }
+  const source = await loadStorefrontFacetSource(
+    runtime,
+    composeStorefrontProductFilters(runtime.scope, universe),
+    runtime.facetUniverseCap,
+  )
+  return { cached: null, source, overCap: source === null }
 }
 
 /**
@@ -715,16 +761,19 @@ async function resolveCountFacetState(
  * the price sorts, the price filter, relevance ranking and `facets.priceRange` (the filtered set
  * without the price filter, §5.4) and is reused for the page. Past the cap the channel's
  * `priceSortFallback` decides: `'approximate'` orders, filters and ranges by the channel default
- * price kind's list rows and flags `sortApproximate` — loading every candidate and default-kind row only
- * when a price sort or price filter asks for it, otherwise `priceRange` is `null` — `'unavailable'` withdraws the price sorts from
- * `availableSorts`, applies the default sort instead (`sortUnavailable`), leaves the price filter
- * unapplied and returns `priceRange: null`. `availability=` and `hideWhenOutOfStock` are
+ * price kind's list rows and flags `sortApproximate` — loading every candidate and those candidates'
+ * default-kind rows only when a price sort or price filter asks for it, otherwise `priceRange` is
+ * `null` — `'unavailable'` withdraws the price sorts from `availableSorts`, applies the default sort
+ * instead (`sortUnavailable`), leaves the price filter unapplied and returns `priceRange: null`. A
+ * filtered set larger than `STOREFRONT_APPROXIMATE_SORT_CEILING` is never loaded in full: there
+ * `'approximate'` answers as `'unavailable'` and `priceSort.fallback` reports `'unavailable'`. `availability=` and `hideWhenOutOfStock` are
  * page-scoped (D21): the page is chosen first, then filtered, so `total` counts the
  * pre-availability set and a page may be short; `facets.availability` counts the page.
  *
  * The count facets come from `storefrontFacets` — cached per assortment scope (§9.1); on a miss
  * their universe load also supplies the variant index the pricing reads, and their labels ride on
- * the page's translation query. The whole response, `priceRange` included, is cached by the caller
+ * the page's translation query. A facet universe past `STOREFRONT_FACET_UNIVERSE_CAP` products is
+ * not loaded and the count facets are empty. The whole response, `priceRange` included, is cached by the caller
  * on the full digest.
  */
 export async function listStorefrontProducts(
@@ -745,9 +794,11 @@ export async function listStorefrontProducts(
     scope,
     decryptionScope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     date: options.date ?? new Date(),
+    facetUniverseCap: options.facetUniverseCap,
   }
   const cap = Math.max(1, options.priceSortCap ?? STOREFRONT_PRICE_SORT_CAP)
-  const fallback: EcommercePriceSortFallback = ctx.channel?.priceSortFallback ?? 'approximate'
+  const approximateCeiling = Math.max(cap, options.approximateSortCeiling ?? STOREFRONT_APPROXIMATE_SORT_CEILING)
+  const channelFallback: EcommercePriceSortFallback = ctx.channel?.priceSortFallback ?? 'approximate'
   const { page, pageSize } = query
 
   const { extra, universe, selection, applied, searchTerm } = await resolveListFilters(runtime, query)
@@ -764,11 +815,13 @@ export async function listStorefrontProducts(
     priceSortRequested || requestedSort === 'relevance' ? 'title_asc' : requestedSort
 
   const [countFacetState, first] = await Promise.all([
-    resolveCountFacetState(runtime, query, universe),
+    resolveCountFacetState(runtime, selection, searchTerm, universe),
     queryCandidates(runtime, filters, sqlSortFor(baseSort), cap),
   ])
   const facetVariants = countFacetState.source ? storefrontFacetVariantIndex(countFacetState.source) : null
   const capExceeded = first.total > cap
+  const fallback: EcommercePriceSortFallback =
+    capExceeded && first.total > approximateCeiling ? 'unavailable' : channelFallback
   const priceOnOffer = !capExceeded || fallback === 'approximate'
 
   let sortApproximate = false
@@ -795,10 +848,8 @@ export async function listStorefrontProducts(
     prefetch = { variants, pricing }
     amounts = new Map(candidateIds.map((id) => [id, pricingAmount(pricing.get(id))]))
   } else if (priceOnOffer && (priceSortRequested || priceFilterRequested)) {
-    const [all, approximate] = await Promise.all([
-      queryCandidates(runtime, filters, sqlSortFor(baseSort), first.total),
-      loadApproximateAmounts(runtime),
-    ])
+    const all = await queryCandidates(runtime, filters, sqlSortFor(baseSort), first.total)
+    const approximate = await loadApproximateAmounts(runtime, all.items.map((candidate) => candidate.id))
     amounts = new Map(all.items.map((candidate) => [candidate.id, approximate.get(candidate.id) ?? null]))
     candidates = all.items
   }
@@ -857,7 +908,7 @@ export async function listStorefrontProducts(
   }
 
   const availableSorts = availableSortsFor(searchTerm, !(capExceeded && fallback === 'unavailable'))
-  const { source, cached } = countFacetState
+  const { source, cached, overCap } = countFacetState
   const rawCounts = source ? countStorefrontFacets(source, selection) : null
   const hydrated = await hydratePage(
     runtime,
@@ -874,7 +925,9 @@ export async function listStorefrontProducts(
       assortmentScope: ctx.buyer.assortmentScope,
       productTypeLabel: await loadStorefrontProductTypeLabeler(ctx.effectiveLocale),
     })
-    await writeCachedStorefrontCountFacets(container, ctx, query, countFacets, selection)
+    await writeCachedStorefrontCountFacets(container, ctx, selection, searchTerm, countFacets)
+  } else if (overCap) {
+    await writeCachedStorefrontCountFacets(container, ctx, selection, searchTerm, EMPTY_COUNT_FACETS)
   }
   const facets: StorefrontFacets = {
     categories: countFacets.categories,

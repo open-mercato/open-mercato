@@ -39,13 +39,19 @@ async function loadPrimaryDomains(
   context: EnricherContext,
 ): Promise<Map<string, StoreListPrimaryDomain>> {
   const result = new Map<string, StoreListPrimaryDomain>()
-  const bindings = await em.find(EcommerceStoreDomainBinding, {
-    storeId: { $in: storeIds },
-    tenantId: context.tenantId,
-    organizationId: context.organizationId,
-    isPrimary: true,
-    deletedAt: null,
-  } as FilterQuery<EcommerceStoreDomainBinding>)
+  const bindings = await findWithDecryption(
+    em,
+    EcommerceStoreDomainBinding,
+    {
+      storeId: { $in: storeIds },
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      isPrimary: true,
+      deletedAt: null,
+    } as FilterQuery<EcommerceStoreDomainBinding>,
+    undefined,
+    { tenantId: context.tenantId, organizationId: context.organizationId },
+  )
   if (!bindings.length) return result
   const mappings = await loadOrganizationDomainMappings(context.container, {
     organizationId: context.organizationId,
@@ -67,13 +73,19 @@ async function loadDefaultChannels(
   context: EnricherContext,
 ): Promise<Map<string, StoreListDefaultChannel>> {
   const result = new Map<string, StoreListDefaultChannel>()
-  const bindings = await em.find(EcommerceStoreChannelBinding, {
-    storeId: { $in: storeIds },
-    tenantId: context.tenantId,
-    organizationId: context.organizationId,
-    isDefault: true,
-    deletedAt: null,
-  } as FilterQuery<EcommerceStoreChannelBinding>)
+  const bindings = await findWithDecryption(
+    em,
+    EcommerceStoreChannelBinding,
+    {
+      storeId: { $in: storeIds },
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      isDefault: true,
+      deletedAt: null,
+    } as FilterQuery<EcommerceStoreChannelBinding>,
+    undefined,
+    { tenantId: context.tenantId, organizationId: context.organizationId },
+  )
   if (!bindings.length) return result
   const channelIds = Array.from(new Set(bindings.map((binding) => binding.salesChannelId)))
   const channels = await findWithDecryption(

@@ -75,6 +75,8 @@ function makeTerms(overrides: Partial<CustomerGroupTerms> & { groupId: string })
 type MembershipWhere = { customerId?: string | { $in?: string[] } }
 type GroupWhere = { id?: { $in?: string[] } }
 
+type TermsWhere = { groupId?: { $in: string[] } }
+
 function createEm(options: {
   memberships?: CustomerGroupMembership[]
   groups?: CustomerGroup[]
@@ -85,7 +87,7 @@ function createEm(options: {
   const groupsById = new Map(groups.map((group) => [group.id, group]))
   const termsByGroupId = new Map((options.terms ?? []).map((terms) => [terms.groupId, terms]))
 
-  const find = jest.fn(async (entity: unknown, where: MembershipWhere & GroupWhere) => {
+  const find = jest.fn(async (entity: unknown, where: MembershipWhere & GroupWhere & TermsWhere) => {
     if (entity === CustomerGroupMembership) {
       const filter = where.customerId
       const ids = typeof filter === 'string' ? [filter] : filter?.$in ?? []
@@ -94,6 +96,10 @@ function createEm(options: {
     if (entity === CustomerGroup) {
       const ids: string[] = where.id?.$in ?? []
       return groups.filter((group) => ids.includes(group.id) && group.isActive)
+    }
+    if (entity === CustomerGroupTerms) {
+      const ids: string[] = where.groupId?.$in ?? []
+      return (options.terms ?? []).filter((terms) => ids.includes(terms.groupId))
     }
     throw new Error(`unexpected em.find call for ${String(entity)}`)
   })

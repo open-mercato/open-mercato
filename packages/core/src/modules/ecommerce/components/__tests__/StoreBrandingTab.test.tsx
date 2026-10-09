@@ -33,6 +33,7 @@ let access: StoreAccess
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
+  useLocale: () => 'en',
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({

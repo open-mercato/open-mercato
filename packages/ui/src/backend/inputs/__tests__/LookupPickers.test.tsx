@@ -2,8 +2,8 @@
 import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { LookupMultiPicker } from '../LookupPickers'
-import type { LookupSource } from '../lookupSources'
+import { LookupMultiPicker, LookupSinglePicker } from '../LookupPickers'
+import { LookupLoadError, type LookupSource } from '../lookupSources'
 
 const options = [
   { value: 'cat-1', label: 'Category One' },
@@ -59,5 +59,62 @@ describe('LookupMultiPicker label resolution', () => {
 
     expect(await screen.findByText('Category One')).toBeInTheDocument()
     expect(screen.getByText('Category Two')).toBeInTheDocument()
+  })
+})
+
+describe('LookupPickers load failures', () => {
+  it('shows an inline message when the options cannot be loaded', async () => {
+    const failingSource: LookupSource = {
+      id: 'offline',
+      search: jest.fn().mockRejectedValue(new LookupLoadError('failed', '/api/example')),
+      resolve: jest.fn().mockResolvedValue([]),
+    }
+    renderWithProviders(<LookupMultiPicker source={failingSource} value={[]} onChange={() => undefined} />)
+    fireEvent.focus(screen.getByRole('textbox'))
+
+    expect(await screen.findByTestId('lookup-picker-failure')).toHaveTextContent('Could not load options. Try again.')
+  })
+
+  it('tells the user when access to the options is forbidden', async () => {
+    const forbiddenSource: LookupSource = {
+      id: 'forbidden',
+      search: jest.fn().mockResolvedValue([]),
+      resolve: jest.fn().mockRejectedValue(new LookupLoadError('forbidden', '/api/example')),
+    }
+    renderWithProviders(<LookupMultiPicker source={forbiddenSource} value={['cat-1']} onChange={() => undefined} />)
+
+    expect(await screen.findByTestId('lookup-picker-failure')).toHaveTextContent(
+      'You do not have permission to load these options.',
+    )
+  })
+
+  it('clears the message once a later load succeeds', async () => {
+    const search = jest
+      .fn()
+      .mockRejectedValueOnce(new LookupLoadError('failed', '/api/example'))
+      .mockResolvedValue(options)
+    const flakySource: LookupSource = { id: 'flaky', search, resolve: jest.fn().mockResolvedValue([]) }
+    renderWithProviders(<LookupMultiPicker source={flakySource} value={[]} onChange={() => undefined} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.focus(input)
+    await screen.findByTestId('lookup-picker-failure')
+
+    fireEvent.change(input, { target: { value: 'Cat' } })
+
+    expect(await screen.findByRole('button', { name: /Category One/ })).toBeInTheDocument()
+    expect(screen.queryByTestId('lookup-picker-failure')).not.toBeInTheDocument()
+  })
+
+  it('keeps the raw id and shows the failure when a single picker cannot resolve its label', async () => {
+    const failingSource: LookupSource = {
+      id: 'single',
+      search: jest.fn().mockResolvedValue([]),
+      resolve: jest.fn().mockRejectedValue(new LookupLoadError('forbidden', '/api/example')),
+    }
+    renderWithProviders(<LookupSinglePicker source={failingSource} value="cat-1" onChange={() => undefined} />)
+
+    expect(await screen.findByTestId('lookup-picker-failure')).toHaveTextContent(
+      'You do not have permission to load these options.',
+    )
   })
 })

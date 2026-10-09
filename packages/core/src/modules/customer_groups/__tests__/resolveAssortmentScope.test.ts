@@ -54,7 +54,7 @@ function makeMembership(overrides: Partial<CustomerGroupMembership>): CustomerGr
   } as CustomerGroupMembership
 }
 
-type TermsWhere = { groupId?: string; tenantId?: string }
+type TermsWhere = { groupId?: { $in: string[] }; tenantId?: string }
 
 function createScopedEm(options: {
   groups: CustomerGroup[]
@@ -64,13 +64,23 @@ function createScopedEm(options: {
     makeMembership({ id: `m-${group.id}`, groupId: group.id }),
   )
   return {
-    find: jest.fn().mockResolvedValueOnce(memberships).mockResolvedValueOnce(options.groups),
-    findOne: jest.fn(async (entity: unknown, where: TermsWhere) => {
-      if (entity !== CustomerGroupTerms) return null
-      if (where.tenantId !== TENANT_ID || !where.groupId) return null
-      if (!Object.prototype.hasOwnProperty.call(options.scopesByGroupId, where.groupId)) return null
-      return { id: `terms-${where.groupId}`, groupId: where.groupId, tenantId: TENANT_ID, assortmentScope: options.scopesByGroupId[where.groupId] }
-    }),
+    find: jest
+      .fn()
+      .mockResolvedValueOnce(memberships)
+      .mockResolvedValueOnce(options.groups)
+      .mockImplementationOnce(async (entity: unknown, where: TermsWhere) => {
+        if (entity !== CustomerGroupTerms) return []
+        if (where.tenantId !== TENANT_ID || !where.groupId) return []
+        return where.groupId.$in
+          .filter((groupId) => Object.prototype.hasOwnProperty.call(options.scopesByGroupId, groupId))
+          .map((groupId) => ({
+            id: `terms-${groupId}`,
+            groupId,
+            tenantId: TENANT_ID,
+            assortmentScope: options.scopesByGroupId[groupId],
+          }))
+      }),
+    findOne: jest.fn(),
   }
 }
 
@@ -96,7 +106,12 @@ describe('DefaultCustomerGroupsService.resolveAssortmentScope', () => {
     const result = await service.resolveAssortmentScope({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
 
     expect(result).toEqual({ scope: [scope], sourceGroupIds: [WHOLESALE_GROUP_ID], sourceCustomerOverrideId: null })
-    expect(em.findOne).toHaveBeenCalledWith(CustomerGroupTerms, { groupId: WHOLESALE_GROUP_ID, tenantId: TENANT_ID, deletedAt: null })
+    expect(em.find).toHaveBeenCalledTimes(3)
+    expect(em.find).toHaveBeenLastCalledWith(CustomerGroupTerms, {
+      groupId: { $in: [WHOLESALE_GROUP_ID] },
+      tenantId: TENANT_ID,
+      deletedAt: null,
+    })
   })
 
   it('grants both a category-only and a tag-only product across two disjoint group scopes', async () => {
@@ -119,6 +134,28 @@ describe('DefaultCustomerGroupsService.resolveAssortmentScope', () => {
     expect(matchesScope({ id: 'category-only', categoryIds: [CATEGORY_A_ID], tagIds: [] }, result.scope)).toBe(true)
     expect(matchesScope({ id: 'tag-only', categoryIds: [], tagIds: [TAG_B_ID] }, result.scope)).toBe(true)
     expect(matchesScope({ id: 'neither', categoryIds: ['other-category'], tagIds: ['other-tag'] }, result.scope)).toBe(false)
+  })
+
+  it('loads the terms of every matching group in one tenant-scoped query', async () => {
+    const em = createScopedEm({
+      groups: [
+        makeGroup({ id: WHOLESALE_GROUP_ID, code: 'wholesale', priority: 10 }),
+        makeGroup({ id: PREVIEW_GROUP_ID, code: 'preview', priority: 20 }),
+      ],
+      scopesByGroupId: {
+        [WHOLESALE_GROUP_ID]: { categoryIds: [CATEGORY_A_ID] },
+        [PREVIEW_GROUP_ID]: { tagIds: [TAG_B_ID] },
+      },
+    })
+    const service = new DefaultCustomerGroupsService(em as any)
+
+    await service.resolveAssortmentScope({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    const termsCalls = em.find.mock.calls.filter(([entity]) => entity === CustomerGroupTerms)
+    expect(termsCalls).toEqual([
+      [CustomerGroupTerms, { groupId: { $in: [PREVIEW_GROUP_ID, WHOLESALE_GROUP_ID] }, tenantId: TENANT_ID, deletedAt: null }],
+    ])
+    expect(em.findOne).not.toHaveBeenCalled()
   })
 
   it('treats a terms scope made only of empty lists as unrestricted', async () => {
@@ -172,7 +209,7 @@ describe('DefaultCustomerGroupsService.resolveAssortmentScope', () => {
     const result = await service.resolveAssortmentScope({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
 
     expect(result.scope).toBeNull()
-    expect(em.findOne).not.toHaveBeenCalledWith(CustomerGroupTerms, expect.objectContaining({ groupId: PARENT_GROUP_ID }))
+    expect(em.find).toHaveBeenLastCalledWith(CustomerGroupTerms, expect.objectContaining({ groupId: { $in: [WHOLESALE_GROUP_ID] } }))
   })
 
   it('unions the unrestricted scope of a single matching group without a terms row', async () => {
@@ -180,7 +217,7 @@ describe('DefaultCustomerGroupsService.resolveAssortmentScope', () => {
     const memberships = [makeMembership({ id: 'm-1', groupId: GROUP_ID })]
     const groups = [makeGroup({ id: GROUP_ID, code: 'wholesale', name: 'Wholesale', priority: 10 })]
     const em = {
-      find: jest.fn().mockResolvedValueOnce(memberships).mockResolvedValueOnce(groups),
+      find: jest.fn().mockResolvedValueOnce(memberships).mockResolvedValueOnce(groups).mockResolvedValueOnce([]),
       findOne: jest.fn(),
     }
     const service = new DefaultCustomerGroupsService(em as any)
@@ -223,7 +260,7 @@ describe('DefaultCustomerGroupsService.resolveAssortmentScope', () => {
   it('resolves an anonymous customer to the tenant default group as its sole source', async () => {
     const defaultGroup = makeGroup({ id: GROUP_ID, code: 'default', name: 'Default', isDefault: true })
     const em = {
-      find: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(defaultGroup),
     }
     const service = new DefaultCustomerGroupsService(em as any)
@@ -237,7 +274,7 @@ describe('DefaultCustomerGroupsService.resolveAssortmentScope', () => {
     const memberships = [makeMembership({ id: 'm-1', groupId: GROUP_ID })]
     const groups = [makeGroup({ id: GROUP_ID })]
     const em = {
-      find: jest.fn().mockResolvedValueOnce(memberships).mockResolvedValueOnce(groups),
+      find: jest.fn().mockResolvedValueOnce(memberships).mockResolvedValueOnce(groups).mockResolvedValueOnce([]),
       findOne: jest.fn(),
     }
     const service = new DefaultCustomerGroupsService(em as any)

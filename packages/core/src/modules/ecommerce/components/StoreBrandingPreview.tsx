@@ -1,10 +1,22 @@
 'use client'
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildBrandingPreviewDocument } from './storeBrandingForm'
 
 export const BRANDING_PREVIEW_DEBOUNCE_MS = 250
+
+const SAMPLE_PRODUCT_PRICE = 29
+
+export function formatPreviewPrice(amount: number, currencyCode: string, locale: string): string {
+  const code = currencyCode.trim().toUpperCase()
+  try {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: code }).format(amount)
+  } catch {
+    const formatted = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
+    return code ? `${formatted} ${code}` : formatted
+  }
+}
 
 type StoreBrandingPreviewProps = {
   values: Record<string, unknown>
@@ -23,6 +35,7 @@ function useDebouncedValue<TValue>(value: TValue, delayMs: number): TValue {
 
 export function StoreBrandingPreview({ values, storeName, currencyCode }: StoreBrandingPreviewProps) {
   const t = useT()
+  const locale = useLocale()
   const debouncedValues = useDebouncedValue(values, BRANDING_PREVIEW_DEBOUNCE_MS)
   const document = React.useMemo(
     () =>
@@ -38,9 +51,9 @@ export function StoreBrandingPreview({ values, storeName, currencyCode }: StoreB
         ),
         heroButton: t('ecommerce.backend.store.branding.preview.heroButton', 'Shop now'),
         productName: t('ecommerce.backend.store.branding.preview.productName', 'Sample product'),
-        productPrice: `29.00 ${currencyCode}`,
+        productPrice: formatPreviewPrice(SAMPLE_PRODUCT_PRICE, currencyCode, locale),
       }),
-    [currencyCode, debouncedValues, storeName, t],
+    [currencyCode, debouncedValues, locale, storeName, t],
   )
 
   return (

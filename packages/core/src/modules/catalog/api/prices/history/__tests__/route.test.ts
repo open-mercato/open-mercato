@@ -127,6 +127,11 @@ function request(query: string): Request {
   return new Request(`http://localhost/api/catalog/prices/history${query}`)
 }
 
+function scopedRequest(query: string): Request {
+  const params = query.startsWith('?') ? `&${query.slice(1)}` : query
+  return request(`?productId=${productId}${params}`)
+}
+
 async function readJson(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>
 }
@@ -165,6 +170,9 @@ describe('GET /api/catalog/prices/history', () => {
     ['invalid from date', '?from=yesterday'],
     ['from after to', '?from=2026-06-02T00:00:00.000Z&to=2026-06-01T00:00:00.000Z'],
     ['invalid includeTotal', '?includeTotal=maybe'],
+    ['neither productId nor variantId', ''],
+    ['an unscoped total', '?includeTotal=true'],
+    ['only non-scoping filters', `?priceKindId=${priceKindId}&currencyCode=PLN`],
   ])('returns 400 for %s', async (_label, query) => {
     const response = await GET(request(query))
     expect(response.status).toBe(400)
@@ -195,7 +203,7 @@ describe('GET /api/catalog/prices/history', () => {
     authValue = { tenantId, sub: userId, orgId: null }
     scopeValue = { selectedId: null, filterIds: [], allowedIds: [], tenantId }
     dataset = [makeRow(1)]
-    const response = await GET(request('?includeTotal=true'))
+    const response = await GET(scopedRequest('?includeTotal=true'))
     await expect(readJson(response)).resolves.toEqual({ items: [], nextCursor: null, total: 0 })
     expect(findWithDecryptionMock).not.toHaveBeenCalled()
   })
@@ -210,7 +218,7 @@ describe('GET /api/catalog/prices/history', () => {
     const from = new Date(Date.UTC(2026, 4, 1, 9, 0, 1)).toISOString()
     const to = new Date(Date.UTC(2026, 4, 1, 9, 0, 5)).toISOString()
     const response = await GET(
-      request(`?priceKindId=${priceKindId}&currencyCode=pln&from=${from}&to=${to}`),
+      scopedRequest(`?priceKindId=${priceKindId}&currencyCode=pln&from=${from}&to=${to}`),
     )
     const body = await readJson(response)
     expect((body.items as Row[]).map((item) => item.id)).toEqual([uuidFor(1)])
@@ -218,7 +226,7 @@ describe('GET /api/catalog/prices/history', () => {
 
   it('serializes money as fixed 4-decimal strings and omits total by default', async () => {
     dataset = [makeRow(1, { isAnnounced: true, startsAt: new Date('2026-06-01T00:00:00.000Z') })]
-    const response = await GET(request(''))
+    const response = await GET(scopedRequest(''))
     const body = await readJson(response)
     expect(body).not.toHaveProperty('total')
     expect(body.nextCursor).toBeNull()
@@ -250,7 +258,7 @@ describe('GET /api/catalog/prices/history', () => {
     let pages = 0
     do {
       const query: string = cursor ? `?pageSize=2&cursor=${encodeURIComponent(cursor)}` : '?pageSize=2&includeTotal=true'
-      const body = await readJson(await GET(request(query)))
+      const body = await readJson(await GET(scopedRequest(query)))
       if (pages === 0) expect(body.total).toBe(5)
       seen.push(...(body.items as Row[]).map((item) => String(item.id)))
       cursor = body.nextCursor as string | null
@@ -262,17 +270,26 @@ describe('GET /api/catalog/prices/history', () => {
 
   it('treats an invalid cursor as the first page', async () => {
     dataset = [makeRow(1), makeRow(2)]
-    const response = await GET(request('?cursor=not-a-valid-cursor'))
+    const response = await GET(scopedRequest('?cursor=not-a-valid-cursor'))
     expect(response.status).toBe(200)
     const body = await readJson(response)
     expect((body.items as Row[]).map((item) => item.id)).toEqual([uuidFor(2), uuidFor(1)])
   })
 
+  it('accepts a variantId-only query', async () => {
+    const variantId = uuidFor(500)
+    dataset = [makeRow(1, { variantId }), makeRow(2)]
+    const response = await GET(request(`?variantId=${variantId}`))
+    expect(response.status).toBe(200)
+    const body = await readJson(response)
+    expect((body.items as Row[]).map((item) => item.id)).toEqual([uuidFor(1)])
+  })
+
   it('counts the filtered set independently of the cursor', async () => {
     dataset = [makeRow(1), makeRow(2), makeRow(3)]
-    const firstPage = await readJson(await GET(request('?pageSize=1&includeTotal=true')))
+    const firstPage = await readJson(await GET(scopedRequest('?pageSize=1&includeTotal=true')))
     const secondPage = await readJson(
-      await GET(request(`?pageSize=1&includeTotal=true&cursor=${encodeURIComponent(String(firstPage.nextCursor))}`)),
+      await GET(scopedRequest(`?pageSize=1&includeTotal=true&cursor=${encodeURIComponent(String(firstPage.nextCursor))}`)),
     )
     expect(firstPage.total).toBe(3)
     expect(secondPage.total).toBe(3)

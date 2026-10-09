@@ -193,6 +193,28 @@ describe('applyIndexDocEnrichers', () => {
     )
   })
 
+  it('reports a collision once per enricher key for the whole batch with a count and sample of ids', async () => {
+    registerIndexDocEnricher(makeEnricher())
+    const targets = ['p1', 'p2', 'p3'].map((id) => target(id, { scope_keys: `base-${id}` }))
+    await applyIndexDocEnrichers(fakeDb, ENTITY, targets)
+    expect(targets.map((entry) => entry.doc.scope_keys)).toEqual(['base-p1', 'base-p2', 'base-p3'])
+    expect(mockRecordIndexerError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockRecordIndexerError).toHaveBeenCalledWith(
+      { db: fakeDb },
+      expect.objectContaining({
+        handler: 'query_index:doc-enricher:collision',
+        recordId: null,
+        payload: {
+          enricherId: 'catalog.scope_keys',
+          collidingKey: 'scope_keys',
+          collidingRecordCount: 3,
+          sampleRecordIds: ['p1', 'p2', 'p3'],
+        },
+      }),
+    )
+  })
+
   it('ignores keys the enricher did not declare', async () => {
     registerIndexDocEnricher(makeEnricher({
       enrich: async () => new Map([['p1', { scope_keys: ['tag:t1'], title: 'hijacked' }]]),

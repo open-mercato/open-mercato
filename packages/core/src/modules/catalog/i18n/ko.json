@@ -141,6 +141,7 @@
   "catalog.omnibus.priceEditor.lowestInDays": "최근 {{days}}일 중 최저 가격",
   "catalog.omnibus.priceEditor.missingChannel": "기준 가격을 계산하려면 채널을 선택하세요.",
   "catalog.omnibus.priceEditor.notApplicable": "Omnibus 기준 가격이 적용되지 않음",
+  "catalog.omnibus.priceEditor.perChannelReference": "기준 가격은 판매 채널별로 계산됩니다.",
   "catalog.omnibus.priceEditor.previousPrice": "인하 전 가격: {{price}}",
   "catalog.omnibus.priceEditor.progressiveRef": "기준 가격(단계적 인하로 고정됨)",
   "catalog.omnibus.reason.announcedPromotion": "공지된 프로모션",

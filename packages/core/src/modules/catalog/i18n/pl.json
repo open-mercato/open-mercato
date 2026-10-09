@@ -141,6 +141,7 @@
   "catalog.omnibus.priceEditor.lowestInDays": "Najniższa cena z ostatnich {{days}} dni",
   "catalog.omnibus.priceEditor.missingChannel": "Wybierz kanał, aby obliczyć cenę referencyjną.",
   "catalog.omnibus.priceEditor.notApplicable": "Cena referencyjna Omnibus nie ma zastosowania",
+  "catalog.omnibus.priceEditor.perChannelReference": "Cena referencyjna jest obliczana dla każdego kanału sprzedaży.",
   "catalog.omnibus.priceEditor.previousPrice": "Cena przed obniżką: {{price}}",
   "catalog.omnibus.priceEditor.progressiveRef": "Cena referencyjna (zamrożona dla obniżki stopniowej)",
   "catalog.omnibus.reason.announcedPromotion": "Ogłoszona promocja",

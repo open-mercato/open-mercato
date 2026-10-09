@@ -316,13 +316,27 @@ function uniquePricesById(prices: PriceHistoryPriceInput[]): PriceHistoryPriceIn
   return unique
 }
 
+export function isCompletePriceHistoryInput(price: PriceHistoryPriceInput): boolean {
+  return Boolean(price.productId && price.priceKindId)
+}
+
 export async function recordPriceHistoryEntries(
   em: EntityManager,
   prices: PriceHistoryPriceInput[],
   changeType: PriceHistoryChangeType,
   options: BuildHistoryEntryOptions = {},
 ): Promise<RecordPriceHistoryBatchResult> {
-  const unique = uniquePricesById(prices.filter(isOmnibusTrackedPrice))
+  const tracked = uniquePricesById(prices.filter(isOmnibusTrackedPrice))
+  const unique = tracked.filter(isCompletePriceHistoryInput)
+  if (unique.length < tracked.length) {
+    const skipped = tracked.filter((price) => !isCompletePriceHistoryInput(price))
+    logger.warn('[internal] catalog price history skipped prices without a product or price kind', {
+      priceIds: skipped.map((price) => price.id),
+      changeType,
+      tenantId: skipped[0].tenantId,
+      organizationId: skipped[0].organizationId,
+    })
+  }
   if (!unique.length) return { recorded: 0, duplicates: 0 }
   const batchOptions: BuildHistoryEntryOptions = { ...options, recordedAt: options.recordedAt ?? new Date() }
   const entries = unique.map((price) => buildHistoryEntry(price, changeType, batchOptions))

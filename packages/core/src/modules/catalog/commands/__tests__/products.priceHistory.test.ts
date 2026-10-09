@@ -31,6 +31,18 @@ jest.mock('../shared', () => {
   return { ...actual, emitCatalogQueryIndexEvent: jest.fn().mockResolvedValue(undefined) }
 })
 
+const planProductDeleteChildrenRestore = jest.fn()
+
+jest.mock('../productDeleteChildren', () => {
+  const actual = jest.requireActual('../productDeleteChildren')
+  return {
+    ...actual,
+    planProductDeleteChildrenRestore: (...args: unknown[]) => planProductDeleteChildrenRestore(...args),
+    buildProductDeleteChildrenRestorePhases: () => [],
+    emitProductDeleteChildrenRestoreSideEffects: jest.fn().mockResolvedValue(undefined),
+  }
+})
+
 const TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const ORG_ID = '33333333-3333-4333-8333-333333333333'
 const PRODUCT_ID = '44444444-4444-4444-8444-444444444444'
@@ -95,7 +107,7 @@ function buildProduct(): Row {
   }
 }
 
-function buildHarness(options: { historyFlushError?: unknown } = {}) {
+function buildHarness(options: { historyFlushError?: unknown; cache?: unknown } = {}) {
   const historyRows: Row[] = []
   const pendingHistory: Row[] = []
   const variants = [{ id: VARIANT_ID, organizationId: ORG_ID, tenantId: TENANT_ID }]
@@ -129,6 +141,7 @@ function buildHarness(options: { historyFlushError?: unknown } = {}) {
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
     count: jest.fn().mockResolvedValue(0),
+    getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     fork: jest.fn(),
   }
   em.fork.mockReturnValue(em)
@@ -137,6 +150,8 @@ function buildHarness(options: { historyFlushError?: unknown } = {}) {
       resolve: jest.fn((token: string) => {
         if (token === 'em') return em
         if (token === 'dataEngine') return { markOrmEntityChange: jest.fn() }
+        if (token === 'cache') return options.cache
+
         return undefined
       }),
     },
@@ -148,7 +163,10 @@ function buildHarness(options: { historyFlushError?: unknown } = {}) {
   return { em, ctx, historyRows }
 }
 
-type DeleteCommand = { execute: (input: Row, ctx: unknown) => Promise<{ productId: string }> }
+type DeleteCommand = {
+  execute: (input: Row, ctx: unknown) => Promise<{ productId: string }>
+  undo: (input: { logEntry: unknown; ctx: unknown }) => Promise<void>
+}
 
 let deleteCommand: DeleteCommand
 
@@ -206,6 +224,87 @@ describe('catalog.products.delete records omnibus price history', () => {
     })
     expect(harness.em.nativeDelete).toHaveBeenCalledTimes(2)
     expect(harness.em.remove).toHaveBeenCalled()
+    expect(harness.historyRows).toHaveLength(0)
+  })
+})
+
+describe('catalog.products.delete undo records omnibus price history', () => {
+  function buildUndoLogEntry() {
+    const product = buildProduct()
+    const before = {
+      ...product,
+      optionSchemaId: null,
+      createdAt: (product.createdAt as Date).toISOString(),
+      updatedAt: (product.updatedAt as Date).toISOString(),
+    }
+    return { commandPayload: { undo: { before, children: { variants: [], prices: [], unitConversions: [], optionSchemaTemplate: null } } } }
+  }
+
+  it('records one undo entry per restored price and invalidates the omnibus cache', async () => {
+    const cache = { deleteByTags: jest.fn().mockResolvedValue(0) }
+    const harness = buildHarness({ cache })
+    planProductDeleteChildrenRestore.mockResolvedValueOnce({
+      variants: [],
+      prices: [{ id: PRODUCT_PRICE_ID }, { id: VARIANT_PRICE_ID }],
+      unitConversions: [],
+      optionSchemaTemplate: null,
+    })
+
+    await deleteCommand.undo({ logEntry: buildUndoLogEntry(), ctx: harness.ctx })
+
+    const priceQuery = harness.em.find.mock.calls.find(([entity]) => entity === CatalogProductPrice)
+    expect(priceQuery?.[1]).toEqual({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      id: { $in: [PRODUCT_PRICE_ID, VARIANT_PRICE_ID] },
+    })
+    expect(harness.historyRows).toHaveLength(2)
+    expect(harness.historyRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          priceId: PRODUCT_PRICE_ID,
+          productId: PRODUCT_ID,
+          changeType: 'undo',
+          metadata: expect.objectContaining({ undoneCommand: 'catalog.products.delete' }),
+        }),
+        expect.objectContaining({
+          priceId: VARIANT_PRICE_ID,
+          productId: PRODUCT_ID,
+          variantId: VARIANT_ID,
+          changeType: 'undo',
+        }),
+      ]),
+    )
+    expect(cache.deleteByTags).toHaveBeenCalled()
+  })
+
+  it('still completes the undo when the restored price lookup for history fails', async () => {
+    const harness = buildHarness()
+    const findImplementation = harness.em.find.getMockImplementation()
+    harness.em.find.mockImplementation((entity: unknown, ...rest: unknown[]) =>
+      entity === CatalogProductPrice
+        ? Promise.reject(new Error('connection dropped'))
+        : findImplementation?.(entity, ...rest),
+    )
+    planProductDeleteChildrenRestore.mockResolvedValueOnce({
+      variants: [],
+      prices: [{ id: PRODUCT_PRICE_ID }],
+      unitConversions: [],
+      optionSchemaTemplate: null,
+    })
+
+    await expect(deleteCommand.undo({ logEntry: buildUndoLogEntry(), ctx: harness.ctx })).resolves.toBeUndefined()
+
+    expect(harness.historyRows).toHaveLength(0)
+  })
+
+  it('records no history when the undo restores no prices', async () => {
+    const harness = buildHarness()
+    planProductDeleteChildrenRestore.mockResolvedValueOnce(null)
+
+    await deleteCommand.undo({ logEntry: buildUndoLogEntry(), ctx: harness.ctx })
+
+    expect(harness.em.find.mock.calls.some(([entity]) => entity === CatalogProductPrice)).toBe(false)
     expect(harness.historyRows).toHaveLength(0)
   })
 })

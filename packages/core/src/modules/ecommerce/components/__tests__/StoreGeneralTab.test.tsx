@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StoreGeneralTab } from '../StoreGeneralTab'
 import type { StoreAdminRecord } from '../storeAdmin'
@@ -45,7 +45,12 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: (...args: un
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: (props: CapturedForm) => {
     forms.push(props)
-    return <div data-testid={props.fields.some((field) => field.id === 'name') ? 'store-form' : 'availability-form'} />
+    const testId = props.fields.some((field) => field.id === 'name') ? 'store-form' : 'availability-form'
+    return (
+      <div data-testid={testId}>
+        <input data-testid={`${testId}-draft`} defaultValue="" />
+      </div>
+    )
   },
 }))
 
@@ -295,6 +300,33 @@ describe('StoreGeneralTab', () => {
       expect(await screen.findByText('Failed to load the availability defaults.')).toBeInTheDocument()
       await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument())
       expect(screen.queryByTestId('availability-form')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('escape to reset', () => {
+    it('discards unsaved store edits when Escape is pressed inside the form', async () => {
+      renderTab()
+      await screen.findByTestId('store-form')
+      const draft = screen.getByTestId('store-form-draft') as HTMLInputElement
+      fireEvent.change(draft, { target: { value: 'Unsaved name' } })
+      expect(draft.value).toBe('Unsaved name')
+
+      fireEvent.keyDown(draft, { key: 'Escape' })
+
+      expect((screen.getByTestId('store-form-draft') as HTMLInputElement).value).toBe('')
+    })
+
+    it('keeps the edits when an inner control already handled Escape', async () => {
+      renderTab()
+      await screen.findByTestId('store-form')
+      const draft = screen.getByTestId('store-form-draft') as HTMLInputElement
+      fireEvent.change(draft, { target: { value: 'Unsaved name' } })
+      draft.addEventListener('keydown', (event) => event.preventDefault())
+
+      fireEvent.keyDown(draft, { key: 'Escape' })
+      fireEvent.keyDown(draft, { key: 'Enter' })
+
+      expect((screen.getByTestId('store-form-draft') as HTMLInputElement).value).toBe('Unsaved name')
     })
   })
 })

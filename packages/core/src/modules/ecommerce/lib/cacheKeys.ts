@@ -40,8 +40,9 @@ export type EcommerceResolutionCache = {
 
 /**
  * Buyer-context cache (§8, step 6): one entry per (store, customerUserId | anonymous), holding the
- * locale-independent buyer layer only. Tagged per store, per identity in `customerIds` and per
- * contributing group so membership, terms, group and price events can evict it.
+ * locale-independent buyer layer only. Tagged per store, per portal user, per identity in
+ * `customerIds` and per contributing group so user, membership, terms, group and price events can
+ * evict it.
  */
 export type BuyerContextCache = {
   get(customerUserId: string | null): Promise<BuyerContext | null>
@@ -147,6 +148,11 @@ export function ecommerceCustomerTag(customerId: string): string {
   return `customer:${customerId}`
 }
 
+/** One portal user's buyer contexts: evicted when the user is updated (e.g. deactivated) or deleted. */
+export function ecommerceCustomerUserTag(customerUserId: string): string {
+  return `customer-user:${customerUserId}`
+}
+
 export function ecommerceCustomerGroupTag(customerGroupId: string): string {
   return `customer-group:${customerGroupId}`
 }
@@ -183,10 +189,11 @@ export function ecommerceUngroupedBuyerTag(tenantId: string): string {
 }
 
 export function buyerContextTags(
-  buyer: Pick<BuyerContext, 'customerIds' | 'customerGroupIds'>,
+  buyer: Pick<BuyerContext, 'customerIds' | 'customerGroupIds'> & { customerUserId?: string | null },
   tenantId?: string,
 ): string[] {
   return [
+    ...(buyer.customerUserId ? [ecommerceCustomerUserTag(buyer.customerUserId)] : []),
     ...buyer.customerIds.map(ecommerceCustomerTag),
     ...buyer.customerGroupIds.map(ecommerceCustomerGroupTag),
     ...(tenantId && buyer.customerGroupIds.length === 0 ? [ecommerceUngroupedBuyerTag(tenantId)] : []),

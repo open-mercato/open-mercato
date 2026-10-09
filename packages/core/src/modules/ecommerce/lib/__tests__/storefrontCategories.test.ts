@@ -110,6 +110,7 @@ const TRANSLATIONS: Record<string, Record<string, Record<string, Record<string, 
 const counters = { engine: 0, find: 0, assignments: 0, translations: 0 }
 const engineCalls: QueryOptions[] = []
 let lastUniverseIds: string[] = []
+let extraUniverseTotal = 0
 let tenantCategories: CategoryFixture[] = [...CATEGORIES, ...OTHER_TENANT_CATEGORIES]
 
 function totalQueries(): number {
@@ -123,6 +124,7 @@ function resetCounters() {
   counters.translations = 0
   engineCalls.length = 0
   lastUniverseIds = []
+  extraUniverseTotal = 0
 }
 
 function indexRow(product: ProductFixture): Record<string, unknown> & { id: string } {
@@ -187,7 +189,12 @@ const queryEngine = {
         rowMatches(row, (options.filters ?? {}) as Where),
     )
     lastUniverseIds = rows.map((row) => row.id)
-    return { items: rows.map((row) => ({ id: row.id })), total: rows.length, page: 1, pageSize: options.page?.pageSize ?? 20 }
+    return {
+      items: rows.map((row) => ({ id: row.id })),
+      total: rows.length + extraUniverseTotal,
+      page: 1,
+      pageSize: options.page?.pageSize ?? 20,
+    }
   },
 }
 
@@ -395,6 +402,19 @@ describe('getStorefrontCategoryTree', () => {
     expect(clothing?.children[1].productCount).toBe(0)
   })
 
+  it('reports null counts and keeps empty categories when the assortment exceeds the universe cap', async () => {
+    extraUniverseTotal = 1
+    const result = await getStorefrontCategoryTree(makeContainer(), makeContext(null, 'en'), treeQuery())
+    expect(counters.assignments).toBe(0)
+    expect(engineCalls[0].page?.pageSize).toBe(10_000)
+    const clothing = result.tree.find((node) => node.id === ROOT)
+    expect(clothing?.productCount).toBeNull()
+    expect(clothing?.children.map((child) => [child.id, child.productCount])).toEqual([
+      [DRESS, null],
+      [SKIRT, null],
+    ])
+  })
+
   it('limits the depth, keeping hasChildren on the cut level', async () => {
     const result = await getStorefrontCategoryTree(makeContainer(), makeContext(null, 'en'), treeQuery({ depth: 1 }))
     const clothing = result.tree.find((node) => node.id === ROOT)
@@ -471,6 +491,16 @@ describe('getStorefrontCategoryLanding', () => {
     const parent = await getStorefrontCategoryLanding(makeContainer(), makeContext(null, 'en'), 'clothing')
     expect(parent?.category.children).toEqual([{ id: DRESS, name: 'Dresses', slug: 'dresses', productCount: 2 }])
     expect(parent?.category.productCount).toBe(2)
+  })
+
+  it('reports null counts on the landing when the assortment exceeds the universe cap', async () => {
+    extraUniverseTotal = 1
+    const result = await getStorefrontCategoryLanding(makeContainer(), makeContext(null, 'en'), 'clothing')
+    expect(result?.category.productCount).toBeNull()
+    expect(result?.category.children).toEqual([
+      { id: DRESS, name: 'Dresses', slug: 'dresses', productCount: null },
+      { id: SKIRT, name: 'Skirts', slug: 'skirts', productCount: null },
+    ])
   })
 
   it('localizes the block through one translation query', async () => {

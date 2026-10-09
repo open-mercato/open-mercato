@@ -6,8 +6,9 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OmnibusApplicabilityReason, OmnibusBlock } from '../lib/omnibusTypes'
 
 const logger = createLogger('catalog').child({ component: 'PriceEditorOmnibusRow' })
@@ -47,6 +48,7 @@ export type PriceEditorOmnibusRowProps = {
   variantId?: string | null
   offerId?: string | null
   channelId?: string | null
+  channelSelectable?: boolean
 }
 
 function isOmnibusBlock(value: unknown): value is OmnibusBlock {
@@ -59,17 +61,23 @@ function pickAxisAmount(block: OmnibusBlock, net: string | null, gross: string |
   return block.minimizationAxis === 'net' ? net ?? gross : gross ?? net
 }
 
-function formatAmount(amount: string | null, currencyCode: string): string | null {
+function formatAmount(amount: string | null, currencyCode: string, locale: string): string | null {
   if (!amount) return null
   const numeric = Number(amount)
-  const formatted = Number.isFinite(numeric) ? numeric.toFixed(2) : amount
-  return `${currencyCode.toUpperCase()} ${formatted}`
+  const code = currencyCode.toUpperCase()
+  if (!Number.isFinite(numeric)) return `${code} ${amount}`
+  try {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: code }).format(numeric)
+  } catch {
+    const formatted = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(numeric)
+    return `${code} ${formatted}`
+  }
 }
 
-function formatDate(value: string | null): string | null {
+function formatDate(value: string | null, locale: string): string | null {
   if (!value) return null
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
 }
 
 export function PriceEditorOmnibusRow({
@@ -79,8 +87,10 @@ export function PriceEditorOmnibusRow({
   variantId,
   offerId,
   channelId,
+  channelSelectable = true,
 }: PriceEditorOmnibusRowProps) {
   const t = useT()
+  const locale = useLocale()
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
   const canView = chromeReady && hasFeature(chromePayload?.grantedFeatures, PRICE_HISTORY_VIEW_FEATURE)
   const normalizedCurrency = typeof currencyCode === 'string' ? currencyCode.trim().toUpperCase() : ''
@@ -110,6 +120,7 @@ export function PriceEditorOmnibusRow({
       })
       .catch((err) => {
         logger.error('catalog.omnibus.preview.load failed', { err })
+        getTelemetryRuntime()?.reportError(err, { module: 'catalog', code: 'catalog.omnibus_preview_load_failed' })
         if (!cancelled) setState({ status: 'error' })
       })
     return () => {
@@ -154,7 +165,7 @@ export function PriceEditorOmnibusRow({
   const reasonBadge = (
     <StatusBadge variant={REASON_VARIANTS[reason] ?? 'neutral'}>{reasonLabels[reason] ?? reason}</StatusBadge>
   )
-  const lowest = formatAmount(pickAxisAmount(block, block.lowestPriceNet, block.lowestPriceGross), block.currencyCode)
+  const lowest = formatAmount(pickAxisAmount(block, block.lowestPriceNet, block.lowestPriceGross), block.currencyCode, locale)
 
   if (NOT_APPLICABLE_REASONS.has(reason) || !lowest) {
     return (
@@ -165,7 +176,9 @@ export function PriceEditorOmnibusRow({
         </div>
         {reason === 'missing_channel_context' ? (
           <p className="text-status-warning-text">
-            {t('catalog.omnibus.priceEditor.missingChannel', 'Select a channel to compute the reference price.')}
+            {channelSelectable
+              ? t('catalog.omnibus.priceEditor.missingChannel', 'Select a channel to compute the reference price.')
+              : t('catalog.omnibus.priceEditor.perChannelReference', 'The reference price is computed per sales channel.')}
           </p>
         ) : null}
       </div>
@@ -174,9 +187,9 @@ export function PriceEditorOmnibusRow({
 
   const isProgressive = reason === 'progressive_reduction_frozen'
   const previous = isProgressive
-    ? formatAmount(pickAxisAmount(block, block.previousPriceNet, block.previousPriceGross), block.currencyCode)
+    ? formatAmount(pickAxisAmount(block, block.previousPriceNet, block.previousPriceGross), block.currencyCode, locale)
     : null
-  const coverageStart = reason === 'insufficient_history' ? formatDate(block.coverageStartAt) : null
+  const coverageStart = reason === 'insufficient_history' ? formatDate(block.coverageStartAt, locale) : null
 
   return (
     <div className="mt-2 space-y-1 text-xs" data-testid="catalog-price-omnibus-row">

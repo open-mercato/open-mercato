@@ -18,6 +18,10 @@ jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
   invalidateCrudCache: (...args: unknown[]) => invalidateCrudCacheMock(...args),
 }))
+const reportErrorMock = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: reportErrorMock }),
+}))
 jest.mock('../../../events', () => ({
   ...jest.requireActual('../../../events'),
   emitEcommerceEvent: (...args: unknown[]) => emitMock(...args),
@@ -542,6 +546,24 @@ describe('ecommerce store CRUD route', () => {
       expect(em.nativeUpdate).not.toHaveBeenCalled()
       expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
       expect(invalidateCrudCacheMock).not.toHaveBeenCalled()
+    })
+
+    it('reports but does not fail the delete when announcing a committed cascade fails', async () => {
+      const failure = new Error('[internal] flush failed')
+      const { em } = createFakeEm({
+        findRows: (entity) => (entity === EcommerceStoreDomainBinding ? [makeDomainBinding()] : []),
+      })
+      const dataEngine = createDataEngine()
+      dataEngine.flushOrmEntityChanges.mockRejectedValueOnce(failure)
+      reportErrorMock.mockClear()
+
+      await expect(opts.hooks!.afterDelete!(STORE_ID, createCtx(em, { dataEngine }))).resolves.toBeUndefined()
+
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(EcommerceStore, expect.anything(), { deletedAt: null })
+      expect(reportErrorMock).toHaveBeenCalledWith(
+        failure,
+        expect.objectContaining({ module: 'ecommerce', code: 'ecommerce.store_binding_cascade_announce_failed' }),
+      )
     })
 
     it('restores the store and announces nothing when the binding cascade fails', async () => {

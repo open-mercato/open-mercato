@@ -183,6 +183,18 @@ describe('catalog omnibus config route', () => {
     expect(setValueMock).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['a slug channel key', 'web-store'],
+    ['a blank channel key', ' '],
+  ])('rejects %s with a 400 instead of storing it', async (_label, channelKey) => {
+    const response = await PATCH(patchRequest({ channels: { [channelKey]: { presentedPriceKindId: priceKindId } } }))
+    expect(response.status).toBe(400)
+    const payload = await response.json()
+    expect(payload.error).toBe('Invalid config')
+    expect(Object.keys(payload.details.fieldErrors).some((key) => key.startsWith('channels'))).toBe(true)
+    expect(setValueMock).not.toHaveBeenCalled()
+  })
+
   it('accepts valid alpha-2 country codes and lookback bounds', async () => {
     for (const lookbackDays of [1, 365]) {
       const response = await PATCH(patchRequest({ enabledCountryCodes: ['PL', 'DE'], lookbackDays }))

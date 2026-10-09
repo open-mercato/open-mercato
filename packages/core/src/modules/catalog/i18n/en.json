@@ -141,6 +141,7 @@
   "catalog.omnibus.priceEditor.lowestInDays": "Lowest price in the last {{days}} days",
   "catalog.omnibus.priceEditor.missingChannel": "Select a channel to compute the reference price.",
   "catalog.omnibus.priceEditor.notApplicable": "Omnibus reference price not applicable",
+  "catalog.omnibus.priceEditor.perChannelReference": "The reference price is computed per sales channel.",
   "catalog.omnibus.priceEditor.previousPrice": "Price before the reduction: {{price}}",
   "catalog.omnibus.priceEditor.progressiveRef": "Reference price (frozen for the progressive reduction)",
   "catalog.omnibus.reason.announcedPromotion": "Announced promotion",

@@ -24,7 +24,6 @@ import {
   optionLabelTranslationField,
 } from '@open-mercato/core/modules/catalog/lib/optionSchemaTranslations'
 import { compareCodeUnits } from '@open-mercato/core/modules/catalog/lib/productScopeKeys'
-import type { EcommerceStorefrontProductListQuery } from '../data/validators'
 import { catalogCategoryTag, catalogProductsTag, storefrontCache, storefrontCacheValueHash } from './cacheKeys'
 import {
   STOREFRONT_CATEGORY_ENTITY_TYPE,
@@ -56,12 +55,16 @@ import type { StoreContext } from './types'
  * counts for `options[color]` keep `options[size]` applied (on the same variant) but not
  * `options[color]`. The price filter is not applied to count facets — it depends on the buyer's
  * prices, which the assortment-keyed entry must not.
+ *
+ * The universe is hard-capped at `STOREFRONT_FACET_UNIVERSE_CAP` products: past it the universe is
+ * never loaded and the count facets degrade to empty lists (§10 query budget over completeness).
  */
 
 export const STOREFRONT_COUNT_FACETS_TTL_MS = 30_000
 
 const COUNT_FACETS_CACHE_SEGMENT = 'products-count-facets'
-const UNIVERSE_PAGE_SIZE = 10_000
+/** The most products a facet or category-count universe ever loads; larger universes are not counted. */
+export const STOREFRONT_FACET_UNIVERSE_CAP = 10_000
 const VARIANT_ID_CHUNK = 10_000
 const CATALOG_PRODUCT_TYPE_LABEL_PREFIX = 'catalog.products.types.'
 
@@ -173,19 +176,26 @@ function increment<K>(counts: Map<K, number>, key: K): void {
 }
 
 /**
- * The count-facet key part: the facet-relevant query parameters only. Price, sort, paging,
- * availability and locale are excluded (locale is already part of the assortment scope segment).
+ * The count-facet key part: the resolved facet selection (unknown or out-of-assortment category
+ * and tag slugs already dropped; option values are validator-bounded, sorted and de-duplicated)
+ * plus the sanitized search term. Price,
+ * sort, paging, availability and locale are excluded (locale is already part of the assortment
+ * scope segment).
  */
-export function storefrontCountFacetCacheParts(query: EcommerceStorefrontProductListQuery): string[] {
+export function storefrontCountFacetCacheParts(selection: StorefrontFacetSelection, searchTerm: string | null): string[] {
+  const options: Record<string, string[]> = {}
+  for (const code of Object.keys(selection.options).sort(compareCodeUnits)) {
+    const values = Array.from(new Set(selection.options[code])).sort(compareCodeUnits)
+    if (values.length) options[code] = values
+  }
   return [
     COUNT_FACETS_CACHE_SEGMENT,
     storefrontCacheValueHash({
-      search: query.search,
-      categoryId: query.categoryId,
-      categorySlug: query.categorySlug,
-      tagSlugs: query.tagSlugs,
-      options: query.options,
-      productType: query.productType,
+      search: searchTerm ?? null,
+      categoryId: selection.categoryId,
+      tagIds: Array.from(new Set(selection.tagIds)).sort(compareCodeUnits),
+      productType: selection.productType,
+      options,
     }),
   ]
 }
@@ -197,9 +207,10 @@ export function storefrontCountFacetCacheTags(ctx: StoreContext, selection: Pick
 export async function readCachedStorefrontCountFacets(
   container: AwilixContainer,
   ctx: StoreContext,
-  query: EcommerceStorefrontProductListQuery,
+  selection: StorefrontFacetSelection,
+  searchTerm: string | null,
 ): Promise<StorefrontCountFacets | null> {
-  return storefrontCache(container, ctx).get<StorefrontCountFacets>(storefrontCountFacetCacheParts(query), {
+  return storefrontCache(container, ctx).get<StorefrontCountFacets>(storefrontCountFacetCacheParts(selection, searchTerm), {
     scope: 'assortment',
   })
 }
@@ -207,30 +218,35 @@ export async function readCachedStorefrontCountFacets(
 export async function writeCachedStorefrontCountFacets(
   container: AwilixContainer,
   ctx: StoreContext,
-  query: EcommerceStorefrontProductListQuery,
+  selection: StorefrontFacetSelection,
+  searchTerm: string | null,
   facets: StorefrontCountFacets,
-  selection: Pick<StorefrontFacetSelection, 'categoryId'>,
 ): Promise<void> {
-  await storefrontCache(container, ctx).set(storefrontCountFacetCacheParts(query), facets, {
+  await storefrontCache(container, ctx).set(storefrontCountFacetCacheParts(selection, searchTerm), facets, {
     scope: 'assortment',
     ttlMs: STOREFRONT_COUNT_FACETS_TTL_MS,
     tags: storefrontCountFacetCacheTags(ctx, selection),
   })
 }
 
-export async function queryStorefrontProductUniverse(runtime: StorefrontFacetRuntime, filters: Where): Promise<UniverseRecord[]> {
-  const run = (pageSize: number) =>
-    runtime.queryEngine.query<UniverseRecord>(E.catalog.catalog_product, {
-      tenantId: runtime.scope.tenantId,
-      organizationId: runtime.scope.organizationId,
-      withDeleted: runtime.scope.withDeleted,
-      filters,
-      fields: ['id', 'product_type', 'option_schema_id'],
-      page: { page: 1, pageSize },
-    })
-  const first = await run(UNIVERSE_PAGE_SIZE)
-  if (first.total <= first.items.length) return first.items
-  return (await run(first.total)).items
+/**
+ * The scoped product ids of a facet or category-count universe, or `null` when it holds more than
+ * `cap` products — one query either way, never more than `cap` rows.
+ */
+export async function queryStorefrontProductUniverse(
+  runtime: StorefrontFacetRuntime,
+  filters: Where,
+  cap: number = STOREFRONT_FACET_UNIVERSE_CAP,
+): Promise<UniverseRecord[] | null> {
+  const result = await runtime.queryEngine.query<UniverseRecord>(E.catalog.catalog_product, {
+    tenantId: runtime.scope.tenantId,
+    organizationId: runtime.scope.organizationId,
+    withDeleted: runtime.scope.withDeleted,
+    filters,
+    fields: ['id', 'product_type', 'option_schema_id'],
+    page: { page: 1, pageSize: Math.max(1, cap) },
+  })
+  return result.total > result.items.length ? null : result.items
 }
 
 async function loadAssignments(runtime: StorefrontFacetRuntime, productIds: string[]): Promise<AssignmentRow[]> {
@@ -354,14 +370,17 @@ async function loadTemplates(
  * The facet universe and everything the count facets read: the scoped products (one query-engine
  * call composing `filters`, normally the assortment scope plus the search clause), their category
  * and tag assignments (one union query), the tenant's categories, the products' active variants
- * and the option schema templates they use. Five queries regardless of the universe size up to
- * 10 000 products; the variant list doubles as the listing's variant index.
+ * and the option schema templates they use. Five queries for a universe of at most `cap` products;
+ * `null` after the single universe query when it is larger. The variant list doubles as the
+ * listing's variant index.
  */
 export async function loadStorefrontFacetSource(
   runtime: StorefrontFacetRuntime,
   filters: Where,
-): Promise<StorefrontFacetSource> {
-  const records = await queryStorefrontProductUniverse(runtime, filters)
+  cap: number = STOREFRONT_FACET_UNIVERSE_CAP,
+): Promise<StorefrontFacetSource | null> {
+  const records = await queryStorefrontProductUniverse(runtime, filters, cap)
+  if (!records) return null
   const products = new Map<string, StorefrontFacetProduct>()
   for (const record of records) {
     if (typeof record.id !== 'string' || products.has(record.id)) continue

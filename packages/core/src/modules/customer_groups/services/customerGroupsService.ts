@@ -376,22 +376,20 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
 
   async resolveAssortmentScope(input: ResolveAssortmentScopeInput): Promise<ResolvedAssortmentScope> {
     const { groupIds } = await this.resolveGroups(input)
-    const termsCache = new Map<string, CustomerGroupTerms | null>()
-    const groupOwnScopes: Array<AssortmentScope | null> = []
-    for (const groupId of groupIds) {
-      groupOwnScopes.push(await this.loadGroupOwnAssortmentScope(groupId, input.tenantId, termsCache))
+    const termsRows = groupIds.length
+      ? await this.em.find(CustomerGroupTerms, {
+          groupId: { $in: groupIds },
+          tenantId: input.tenantId,
+          deletedAt: null,
+        })
+      : []
+    const ownScopeByGroupId = new Map<string, AssortmentScope | null>()
+    for (const terms of termsRows) {
+      ownScopeByGroupId.set(terms.groupId, normalizeAuthoredAssortmentScope(terms.assortmentScope))
     }
+    const groupOwnScopes = groupIds.map((groupId) => ownScopeByGroupId.get(groupId) ?? null)
     const scope = unionScopes(groupOwnScopes)
     return { scope, sourceGroupIds: groupIds, sourceCustomerOverrideId: null }
-  }
-
-  private async loadGroupOwnAssortmentScope(
-    groupId: string,
-    tenantId: string,
-    termsCache: Map<string, CustomerGroupTerms | null>,
-  ): Promise<AssortmentScope | null> {
-    const terms = await this.loadTerms(groupId, tenantId, termsCache)
-    return normalizeAuthoredAssortmentScope(terms?.assortmentScope)
   }
 
   private async loadTerms(

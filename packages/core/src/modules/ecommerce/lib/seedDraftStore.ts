@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -93,21 +94,31 @@ export async function seedDraftStore(
     isPrimary: false,
   })
 
-  const store = em.create(EcommerceStore, {
-    organizationId: input.organizationId,
-    tenantId: input.tenantId,
-    code: input.code,
-    name: input.name,
-    slug: input.slug,
-    status: input.status,
-    defaultLocale: input.defaultLocale,
-    supportedLocales: input.supportedLocales,
-    defaultCurrencyCode: input.defaultCurrencyCode,
-    isPrimary: false,
-    settings: input.settings,
-  })
-  em.persist(store)
-  await em.flush()
+  let store: EcommerceStore
+  try {
+    store = await em.transactional(async (tem) => {
+      const created = tem.create(EcommerceStore, {
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        code: input.code,
+        name: input.name,
+        slug: input.slug,
+        status: input.status,
+        defaultLocale: input.defaultLocale,
+        supportedLocales: input.supportedLocales,
+        defaultCurrencyCode: input.defaultCurrencyCode,
+        isPrimary: false,
+        settings: input.settings,
+      })
+      tem.persist(created)
+      await tem.flush()
+      return created
+    })
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err
+    logger.info('draft store already seeded concurrently', { tenantId: scope.tenantId, organizationId: scope.organizationId })
+    return { status: 'exists' }
+  }
   await announceCreated(store)
   logger.info('draft store seeded', { tenantId: scope.tenantId, organizationId: scope.organizationId, storeId: store.id })
   return { status: 'created', storeId: store.id }

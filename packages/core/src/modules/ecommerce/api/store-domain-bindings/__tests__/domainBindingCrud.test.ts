@@ -7,6 +7,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: { find: (entity: unknown, where: unknown) => Promise<unknown> }, entity: unknown, where: unknown) =>
+    em.find(entity, where),
   findOneWithDecryption: (em: { findOne: (entity: unknown, where: unknown) => Promise<unknown> }, entity: unknown, where: unknown) =>
     em.findOne(entity, where),
 }))

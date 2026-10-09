@@ -200,9 +200,8 @@ test.describe('TC-CAT-OMNI-003: Omnibus config validation, ACL and tenant isolat
       expect(foreignByProduct.body?.total).toBe(0);
 
       const foreignUnfiltered = await fetchPriceHistory(request, actor.token, { pageSize: '100' });
-      expect(foreignUnfiltered.status).toBe(200);
-      const foreignIds = (foreignUnfiltered.body?.items ?? []).map((item) => item.id);
-      expect(foreignIds.some((id) => ownEntryIds.includes(id))).toBe(false);
+      expect(foreignUnfiltered.status, 'an unscoped history listing is rejected').toBe(400);
+      expect(foreignUnfiltered.body?.items).toBeUndefined();
 
       const foreignPreview = await fetchOmnibusPreview(request, actor.token, {
         productId,

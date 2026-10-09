@@ -13,6 +13,10 @@ const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const MAPPING_ID = '33333333-3333-4333-8333-333333333333'
 const CHANNEL_ID = '44444444-4444-4444-8444-444444444444'
 
+function isBindingEntity(entity: unknown): boolean {
+  return entity === EcommerceStoreDomainBinding || entity === EcommerceStoreChannelBinding
+}
+
 type FindCall = { entity: unknown; where: Record<string, unknown> }
 
 function createContext(options: { domainService?: unknown } = {}) {
@@ -55,7 +59,10 @@ function createContext(options: { domainService?: unknown } = {}) {
 
 describe('ecommerce.store-binding-summary enricher', () => {
   beforeEach(() => {
-    findWithDecryptionMock.mockReset().mockResolvedValue([{ id: CHANNEL_ID, name: 'Web channel' }])
+    findWithDecryptionMock.mockReset().mockImplementation(
+      async (em: { find: (entity: unknown, where: unknown) => Promise<unknown> }, entity: unknown, where: unknown) =>
+        isBindingEntity(entity) ? em.find(entity, where) : [{ id: CHANNEL_ID, name: 'Web channel' }],
+    )
   })
 
   it('is registered for the store entity behind the stores.view feature and never cached across list hits', () => {
@@ -83,7 +90,10 @@ describe('ecommerce.store-binding-summary enricher', () => {
     ])
     expect(em.find).toHaveBeenCalledTimes(2)
     expect(findByOrganization).toHaveBeenCalledTimes(1)
-    expect(findWithDecryptionMock).toHaveBeenCalledTimes(1)
+    expect(findWithDecryptionMock).toHaveBeenCalledTimes(3)
+    for (const call of findWithDecryptionMock.mock.calls) {
+      expect(call[4]).toEqual({ tenantId: TENANT_ID, organizationId: ORG_ID })
+    }
     for (const call of findCalls) {
       expect(call.where).toMatchObject({
         storeId: { $in: ['store-1', 'store-2', 'store-3'] },
@@ -94,7 +104,8 @@ describe('ecommerce.store-binding-summary enricher', () => {
     }
     expect(findCalls.find((call) => call.entity === EcommerceStoreDomainBinding)?.where).toMatchObject({ isPrimary: true })
     expect(findCalls.find((call) => call.entity === EcommerceStoreChannelBinding)?.where).toMatchObject({ isDefault: true })
-    expect(findWithDecryptionMock.mock.calls[0][2]).toMatchObject({
+    const channelCall = findWithDecryptionMock.mock.calls.find((call) => !isBindingEntity(call[1]))
+    expect(channelCall?.[2]).toMatchObject({
       tenantId: TENANT_ID,
       organizationId: ORG_ID,
       deletedAt: null,

@@ -14,6 +14,8 @@ import productHandler, { metadata as productMetadata } from '../catalog-product-
 import variantHandler, { metadata as variantMetadata } from '../catalog-variant-cache-invalidation'
 import categoryHandler, { metadata as categoryMetadata } from '../catalog-category-cache-invalidation'
 import policyHandler, { metadata as policyMetadata } from '../availability-policy-cache-invalidation'
+import customerUserUpdatedHandler, { metadata as customerUserUpdatedMetadata } from '../customer-user-updated-cache-invalidation'
+import customerUserDeletedHandler, { metadata as customerUserDeletedMetadata } from '../customer-user-deleted-cache-invalidation'
 
 type DeleteCall = { tenant: string | null; tags: string[] }
 
@@ -247,6 +249,49 @@ describe('ecommerce cache invalidation subscribers', () => {
       createCtx({ cache: strategy }, { eventName: 'customer_groups.group.created', organizationId: undefined }),
     )
     expect(await anonymous.get(null)).toBeNull()
+  })
+
+  it('subscribes to customer user updates and deletes', () => {
+    expect(customerUserUpdatedMetadata).toMatchObject({ event: 'customer_accounts.user.updated', persistent: false })
+    expect(customerUserDeletedMetadata).toMatchObject({ event: 'customer_accounts.user.deleted', persistent: false })
+  })
+
+  it('evicts the buyer contexts of an updated or deleted customer user inside the tenant', async () => {
+    const { cache, calls } = createRecordingCache()
+    await customerUserUpdatedHandler(
+      { id: 'user-1', tenantId: TENANT_ID, organizationId: ORG_ID },
+      createCtx({ cache }, { eventName: 'customer_accounts.user.updated' }),
+    )
+    await customerUserDeletedHandler(
+      { id: 'user-2', tenantId: TENANT_ID, organizationId: ORG_ID },
+      createCtx({ cache }, { eventName: 'customer_accounts.user.deleted' }),
+    )
+    expect(calls).toEqual([
+      { tenant: null, tags: ['customer-user:user-1'] },
+      { tenant: TENANT_ID, tags: ['customer-user:user-1'] },
+      { tenant: null, tags: ['customer-user:user-2'] },
+      { tenant: TENANT_ID, tags: ['customer-user:user-2'] },
+    ])
+  })
+
+  it('evicts a cached authenticated buyer context when its customer user is deactivated', async () => {
+    const strategy = createMemoryStrategy()
+    const container = { resolve: (name: string) => (name === 'cache' ? strategy : undefined) }
+    const buyers = buyerContextCache(container, { tenantId: TENANT_ID, storeId: 'store-1' })
+    await buyers.set({ ...anonymousBuyer(), customerUserId: 'user-1', isAuthenticated: true, customerGroupIds: ['group-1'] })
+    await buyers.set({ ...anonymousBuyer(), customerUserId: 'user-2', isAuthenticated: true, customerGroupIds: ['group-1'] })
+    await customerUserUpdatedHandler(
+      { id: 'user-1', tenantId: TENANT_ID, organizationId: ORG_ID },
+      createCtx({ cache: strategy }, { eventName: 'customer_accounts.user.updated' }),
+    )
+    expect(await buyers.get('user-1')).toBeNull()
+    expect(await buyers.get('user-2')).not.toBeNull()
+  })
+
+  it('ignores a customer user payload without an id', async () => {
+    const { cache, calls } = createRecordingCache()
+    await customerUserDeletedHandler({ tenantId: TENANT_ID }, createCtx({ cache }, { eventName: 'customer_accounts.user.deleted' }))
+    expect(calls).toEqual([])
   })
 
   it('evicts the owning group tag (not the terms id) on terms updates', async () => {

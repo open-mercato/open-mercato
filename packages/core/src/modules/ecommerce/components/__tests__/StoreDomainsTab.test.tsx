@@ -251,6 +251,29 @@ describe('StoreDomainsTab', () => {
     expect(within(row).getByText('Not checked yet')).toBeTruthy()
   })
 
+  it.each([
+    [{ tlsFailureReason: 'HTTP 503', dnsFailureReason: null }, 'The TLS health check returned HTTP 503'],
+    [
+      { tlsFailureReason: null, dnsFailureReason: 'CNAME points to old.example.net instead of edge.example.com' },
+      'The CNAME record points to old.example.net instead of edge.example.com',
+    ],
+  ])('translates a known failure reason code', async (reasons, expected) => {
+    mockApi([
+      binding('a', {
+        _domainMapping: {
+          state: 'found',
+          hostname: 'shop.example.com',
+          status: reasons.tlsFailureReason ? 'tls_failed' : 'dns_failed',
+          lastDnsCheckAt: null,
+          ...reasons,
+        },
+      }),
+    ])
+    renderTab()
+    const row = await screen.findByTestId('row-a')
+    expect(within(row).getByText(expected)).toBeTruthy()
+  })
+
   it('renders the domain removed diagnostic with a link to domain management for a dangling binding', async () => {
     mockApi([binding('a', { pathPrefix: '/de', _domainMapping: { state: 'removed' } })])
     renderTab()

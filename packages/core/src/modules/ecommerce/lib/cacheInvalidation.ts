@@ -8,6 +8,7 @@ import {
   catalogProductsTag,
   ecommerceCustomerGroupTag,
   ecommerceCustomerTag,
+  ecommerceCustomerUserTag,
   ecommerceDomainMappingTag,
   ecommerceDomainTag,
   ecommerceStoreTag,
@@ -38,6 +39,7 @@ const STORE_CACHE_ACTIONS: ReadonlySet<string> = new Set(['created', 'updated', 
 const CUSTOMER_GROUP_CACHE_ACTIONS: ReadonlySet<string> = new Set(['created', 'updated', 'deleted'])
 const CUSTOMER_GROUP_DEFAULT_CANDIDATE_ACTIONS: ReadonlySet<string> = new Set(['created', 'updated'])
 const CATALOG_CRUD_ACTIONS: ReadonlySet<string> = new Set(['created', 'updated', 'deleted'])
+const CUSTOMER_USER_CACHE_ACTIONS: ReadonlySet<string> = new Set(['updated', 'deleted'])
 
 function tagsFrom(values: Array<string | null>, toTag: (value: string) => string): string[] {
   return values.filter((value): value is string => value !== null).map(toTag)
@@ -72,6 +74,15 @@ export const domainMappingEventTags: TagDeriver = (payload) => [
     ecommerceDomainTag,
   ),
 ]
+
+/**
+ * `customer_accounts.user.updated|deleted`: the user's buyer contexts, so a deactivated or deleted
+ * portal user stops resolving to their cached identity (and contract prices) before the TTL ends.
+ */
+export const customerUserEventTags: TagDeriver = (payload, action) => {
+  if (action && !CUSTOMER_USER_CACHE_ACTIONS.has(action)) return []
+  return tagsFrom([readPayloadString(payload, 'id')], ecommerceCustomerUserTag)
+}
 
 export const customerGroupMembershipEventTags: TagDeriver = (payload) =>
   tagsFrom([readPayloadString(payload, 'customerId')], ecommerceCustomerTag)

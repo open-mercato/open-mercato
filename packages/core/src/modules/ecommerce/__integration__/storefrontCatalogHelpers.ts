@@ -415,7 +415,7 @@ export type StorefrontCategoryNodeBody = {
   slug: string | null;
   depth: number;
   parentId: string | null;
-  productCount: number;
+  productCount: number | null;
   hasChildren: boolean;
   children: StorefrontCategoryNodeBody[];
 };
@@ -431,8 +431,8 @@ export type StorefrontCategoryLandingBody = {
     parentId: string | null;
     ancestorIds: string[];
     breadcrumb: Array<{ id: string; name: string; slug: string | null }>;
-    children: Array<{ id: string; name: string; slug: string | null; productCount: number }>;
-    productCount: number;
+    children: Array<{ id: string; name: string; slug: string | null; productCount: number | null }>;
+    productCount: number | null;
   };
   products: StorefrontProductListBody;
   effectiveLocale: string;

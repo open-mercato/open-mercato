@@ -211,10 +211,17 @@ describe('GET /api/ecommerce/storefront/context', () => {
     expect(findOneMock).toHaveBeenCalledTimes(1)
   })
 
-  it('rejects unknown query parameters with 400 before resolving', async () => {
-    const response = await GET(request('?foo=bar'))
-    expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'invalid_query' })
+  it('rejects unknown, repeated and malformed query parameters with 400 and the offending fields before resolving', async () => {
+    const unknown = await GET(request('?foo=bar'))
+    expect(unknown.status).toBe(400)
+    expect(unknown.headers.get('cache-control')).toBe('no-store')
+    expect(unknown.headers.get('vary')).toBe('Cookie, Authorization, X-Locale, Accept-Language')
+    expect(await unknown.json()).toEqual({ error: 'invalid_query', fields: { foo: 'unknown parameter' } })
+    const repeated = await GET(request('?locale=en&locale=de'))
+    expect(await repeated.json()).toEqual({ error: 'invalid_query', fields: { locale: 'parameter given more than once' } })
+    const oversized = await GET(request(`?storeSlug=${'x'.repeat(121)}`))
+    expect(oversized.status).toBe(400)
+    expect(Object.keys((await oversized.json()).fields)).toEqual(['storeSlug'])
     expect(resolveMock).not.toHaveBeenCalled()
   })
 

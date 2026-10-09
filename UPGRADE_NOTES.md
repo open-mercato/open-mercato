@@ -173,6 +173,36 @@ regains live wildcards. Bind the **raw** search term to `buildAccentInsensitiveC
 instead — it unaccents first, then escapes, and adds the surrounding `%`. The deprecated helper is
 unchanged and will be removed no earlier than 0.9.0.
 
+### New `ecommerce` module (stores, storefront read API) is enabled in `apps/mercato`
+
+`apps/mercato/src/modules.ts` now enables `{ id: 'ecommerce', from: '@open-mercato/core' }`. It
+requires `catalog`, `sales`, `customer_accounts` and `customer_groups`; the `create-app` template keeps
+it off.
+
+- **Migrations.** `ecommerce` ships new tables (`ecommerce_stores` and its domain/channel binding
+  tables). `customer_groups` adds a nullable `customer_group_terms.assortment_scope` (jsonb) column;
+  `NULL` keeps today's behavior (no assortment restriction).
+- **Non-transactional index build.** `query_index`'s `Migration20261005201500_query_index` builds a GIN
+  index (`entity_indexes_catalog_product_scope_keys_gin_idx`) on `entity_indexes` with
+  `CREATE INDEX CONCURRENTLY`, outside a transaction. It does not block writes, but it can take a long
+  time on a large `entity_indexes` table. If the build is interrupted, PostgreSQL leaves an `INVALID`
+  index behind; re-running the migration drops it and builds it again.
+- **New ACL features** `ecommerce.stores.view`, `ecommerce.stores.manage`, `ecommerce.branding.manage`,
+  `ecommerce.domains.manage` and `ecommerce.channels.manage`. New tenants get them from `setup.ts`;
+  existing tenants get nothing until you run `yarn mercato auth sync-role-acls`.
+- **Upgrade action `ecommerce.seed-draft-store`.** Existing organizations get one draft store, named
+  after the organization, when an admin runs the action from the upgrade banner. It does nothing when the
+  tenant already has a store. New tenants get it automatically.
+- **Additive `customerIds` on `ResolveGroupsInput` / `ResolveTermsInput`**
+  (`@open-mercato/core/modules/customer_groups/services/customerGroupsService`). When it is non-empty it
+  takes precedence over `customerId` and resolves the groups of all listed buyer identities (for example a
+  person and their company), earlier ids winning ties. Callers that pass
+  only `customerId` see no change.
+
+**Action for operators:** apply the migrations (allow time for the concurrent index build on large
+installations), run `yarn mercato auth sync-role-acls`, then run the "Create the default store" upgrade
+action per organization if you want a starting store. **Action for module authors:** none.
+
 ### `FilterOp` gained `overlap` and `noverlap` members; `query_index` gained a doc-enrichment hook (storefront public API §3.3, §14a)
 
 `FilterOp` (`@open-mercato/shared/lib/query/types`) is now

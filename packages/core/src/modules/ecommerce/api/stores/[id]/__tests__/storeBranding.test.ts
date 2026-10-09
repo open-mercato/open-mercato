@@ -4,6 +4,7 @@ const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const OTHER_ORG_ID = '99999999-9999-4999-8999-999999999999'
 const STORE_ID = '33333333-3333-4333-8333-333333333333'
+const SWITCHED_TENANT_ID = '44444444-4444-4444-8444-444444444444'
 const INITIAL_UPDATED_AT = '2026-01-01T00:00:00.000Z'
 
 type StoreState = {
@@ -124,6 +125,7 @@ jest.mock('../../../../events', () => ({
 }))
 
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE, OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
@@ -215,6 +217,30 @@ describe('ecommerce store branding routes', () => {
         branding: { primaryColor: '#AABBCC', borderRadius: '0.5rem', fontFamilyBase: 'inter' },
       })
       expect(flushCount).toBe(1)
+    })
+
+    it('writes into the tenant a superadmin switched to, like the store CRUD route', async () => {
+      store.tenantId = SWITCHED_TENANT_ID
+      authValue = { sub: 'user-1', tenantId: TENANT_ID, orgId: OTHER_ORG_ID, isSuperAdmin: true }
+      ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValueOnce({
+        selectedId: ORG_ID,
+        filterIds: [ORG_ID],
+        allowedIds: null,
+        tenantId: SWITCHED_TENANT_ID,
+      })
+
+      const response = await PUT(putRequest({ primaryColor: '#AABBCC' }), params())
+
+      expect(response.status).toBe(200)
+      expect(store.settings.branding).toEqual({ primaryColor: '#AABBCC' })
+      const [, options] = commandBus.execute.mock.calls[0]
+      expect(options.input).toMatchObject({ tenantId: SWITCHED_TENANT_ID, organizationId: ORG_ID })
+      expect(options.ctx).toMatchObject({ auth: { tenantId: SWITCHED_TENANT_ID, orgId: ORG_ID } })
+      expect(emitMock).toHaveBeenCalledWith(
+        'ecommerce.store.branding_updated',
+        { id: STORE_ID, tenantId: SWITCHED_TENANT_ID, organizationId: ORG_ID },
+        { persistent: true, tenantId: SWITCHED_TENANT_ID, organizationId: ORG_ID },
+      )
     })
 
     it('clears keys that are omitted or sent empty, and stores nothing else', async () => {

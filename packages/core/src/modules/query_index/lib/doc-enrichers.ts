@@ -173,6 +173,7 @@ async function reportEnricherFailure(
     recordId?: string
     error: unknown
     handler: string
+    details?: Record<string, unknown>
   },
 ): Promise<void> {
   logger.error('Index doc enricher failed; contributed keys written as null', {
@@ -181,6 +182,7 @@ async function reportEnricherFailure(
     tenantId: input.tenantId,
     organizationId: input.organizationId,
     recordId: input.recordId ?? null,
+    ...input.details,
     err: input.error,
   })
   getTelemetryRuntime()?.reportError(input.error, {
@@ -197,10 +199,12 @@ async function reportEnricherFailure(
       recordId: input.recordId ?? null,
       tenantId: input.tenantId,
       organizationId: input.organizationId,
-      payload: { enricherId: input.enricher.id },
+      payload: { enricherId: input.enricher.id, ...input.details },
     },
   ).catch(() => undefined)
 }
+
+const COLLISION_SAMPLE_SIZE = 10
 
 function nullOut(targets: readonly IndexDocEnrichmentTarget[], keys: readonly string[], baseKeys: Map<string, Set<string>>): void {
   for (const target of targets) {
@@ -256,16 +260,15 @@ export async function applyIndexDocEnrichers(
         continue
       }
 
+      const collidingRecordIdsByKey = new Map<string, string[]>()
       for (const target of group) {
         const contribution = result.get(target.recordId)
         const ownKeys = baseKeys.get(target.recordId)
         for (const key of enricher.keys) {
           if (ownKeys?.has(key)) {
-            await reportEnricherFailure(db, {
-              enricher, entityType, tenantId, organizationId, recordId: target.recordId,
-              error: new Error(`[internal] Index doc enricher "${enricher.id}" key "${key}" collides with a base document key of ${entityType}`),
-              handler: 'query_index:doc-enricher:collision',
-            })
+            const colliding = collidingRecordIdsByKey.get(key)
+            if (colliding) colliding.push(target.recordId)
+            else collidingRecordIdsByKey.set(key, [target.recordId])
             continue
           }
           const value = contribution && Object.prototype.hasOwnProperty.call(contribution, key)
@@ -284,6 +287,19 @@ export async function applyIndexDocEnrichers(
             })
           }
         }
+      }
+      for (const [key, recordIds] of collidingRecordIdsByKey) {
+        await reportEnricherFailure(db, {
+          enricher, entityType, tenantId, organizationId,
+          recordId: recordIds.length === 1 ? recordIds[0] : undefined,
+          error: new Error(`[internal] Index doc enricher "${enricher.id}" key "${key}" collides with a base document key of ${entityType} on ${recordIds.length} record(s)`),
+          handler: 'query_index:doc-enricher:collision',
+          details: {
+            collidingKey: key,
+            collidingRecordCount: recordIds.length,
+            sampleRecordIds: recordIds.slice(0, COLLISION_SAMPLE_SIZE),
+          },
+        })
       }
     }
   }

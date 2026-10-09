@@ -105,7 +105,8 @@ export const enabledModules: ModuleEntry[] = [
   // then enable it in the template.
   // { id: 'availability', from: '@open-mercato/core' },
   // Ecommerce store module (.ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md).
-  // Stays commented out with customer_groups and availability, which it requires, until
+  // Stays commented out with customer_groups, which it requires, and availability, which it
+  // integrates with when enabled, until
   // the module-sets `commerce` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
   // Phase 3) enables the suite together with its standalone-harness coverage.
   // { id: 'ecommerce', from: '@open-mercato/core' },

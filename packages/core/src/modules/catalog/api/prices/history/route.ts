@@ -124,13 +124,13 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List recorded price history entries',
       description:
-        'Returns immutable price history snapshots ordered by recordedAt DESC, id DESC with keyset pagination. Monetary values are fixed 4-decimal strings. An invalid cursor returns the first page.',
+        'Returns immutable price history snapshots for one product and/or variant, ordered by recordedAt DESC, id DESC with keyset pagination. At least one of productId or variantId is required (400 otherwise) so every read stays on a scoped index. Monetary values are fixed 4-decimal strings. An invalid cursor returns the first page.',
       query: priceHistoryQuerySchema,
       responses: [
         { status: 200, description: 'Price history page', schema: priceHistoryResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid query', schema: errorSchema },
+        { status: 400, description: 'Invalid query, or neither productId nor variantId provided', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Missing catalog.price_history.view', schema: errorSchema },
       ],

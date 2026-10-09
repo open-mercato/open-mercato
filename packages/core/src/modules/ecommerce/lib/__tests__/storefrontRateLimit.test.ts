@@ -190,6 +190,43 @@ describe('storefront rate limit', () => {
     expect(await drain(container, '203.0.113.7', STORE_A, 'products', 3)).toBeNull()
   })
 
+  it('warns once per process that the limits are inactive without a trusted proxy depth', async () => {
+    const warn = jest.fn()
+    const childLogger = { warn, info: jest.fn(), error: jest.fn(), debug: jest.fn() }
+    let isolated: typeof import('../storefrontRateLimit') | null = null
+    jest.isolateModules(() => {
+      jest.doMock('@open-mercato/shared/lib/logger', () => ({
+        createLogger: () => ({ ...childLogger, child: () => childLogger }),
+      }))
+      isolated = require('../storefrontRateLimit')
+    })
+    if (!isolated) throw new Error('[internal] storefrontRateLimit did not load')
+    const { enforceStorefrontRateLimit: enforce } = isolated as typeof import('../storefrontRateLimit')
+    const untrusted = containerWith(memoryLimiter(0))
+    await enforce(untrusted, request('203.0.113.7'), makeContext(STORE_A), 'products')
+    await enforce(untrusted, request('203.0.113.7'), makeContext(STORE_B), 'categories')
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toContain('RATE_LIMIT_TRUST_PROXY_DEPTH')
+    jest.dontMock('@open-mercato/shared/lib/logger')
+  })
+
+  it('does not warn when a trusted proxy depth is configured', async () => {
+    const warn = jest.fn()
+    const childLogger = { warn, info: jest.fn(), error: jest.fn(), debug: jest.fn() }
+    let isolated: typeof import('../storefrontRateLimit') | null = null
+    jest.isolateModules(() => {
+      jest.doMock('@open-mercato/shared/lib/logger', () => ({
+        createLogger: () => ({ ...childLogger, child: () => childLogger }),
+      }))
+      isolated = require('../storefrontRateLimit')
+    })
+    if (!isolated) throw new Error('[internal] storefrontRateLimit did not load')
+    const { enforceStorefrontRateLimit: enforce } = isolated as typeof import('../storefrontRateLimit')
+    await enforce(containerWith(memoryLimiter(1)), request('203.0.113.7'), makeContext(STORE_A), 'products')
+    expect(warn).not.toHaveBeenCalled()
+    jest.dontMock('@open-mercato/shared/lib/logger')
+  })
+
   it('fails open when the limiter cannot be resolved', async () => {
     const container = { resolve: () => { throw new Error('[internal] rateLimiterService is not registered') } } as unknown as AppContainer
     const result = await enforceStorefrontRateLimit(container, request('203.0.113.7'), makeContext(STORE_A), 'products')

@@ -1,5 +1,6 @@
 import type { EntityData, EntityManager, EntityName, FilterQuery } from '@mikro-orm/postgresql'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export type ExclusiveFlagRow = { id: string }
 
@@ -40,7 +41,10 @@ export async function clearExclusiveFlag<T extends ExclusiveFlagRow>(
   keepId: string | null,
 ): Promise<T[]> {
   const where = flaggedRowsWhere(config, scope, keepId)
-  const cleared = await em.find(config.entity, where)
+  const cleared = await findWithDecryption(em, config.entity, where, undefined, {
+    tenantId: scope.tenantId ?? null,
+    organizationId: scope.organizationId ?? null,
+  })
   if (!cleared.length) return []
   await em.nativeUpdate(config.entity, where, flagData(config, false, new Date()))
   return cleared

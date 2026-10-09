@@ -185,6 +185,27 @@ const TEMPLATES = [
   },
 ]
 
+const PUBLIC_PARTITION = 'product-images'
+const PRIVATE_PARTITION = 'private-files'
+
+const MEDIA_PRODUCTS: Record<string, { partitionCode: string; mimeType: string }> = {
+  'p-alpha': { partitionCode: PUBLIC_PARTITION, mimeType: 'image/jpeg' },
+  'p-bravo': { partitionCode: PRIVATE_PARTITION, mimeType: 'image/jpeg' },
+  'p-charlie': { partitionCode: PUBLIC_PARTITION, mimeType: 'application/pdf' },
+}
+
+const ATTACHMENTS = Object.entries(MEDIA_PRODUCTS).map(([productId, media]) => ({
+  id: `media-${productId}`,
+  ...media,
+  tenantId: TENANT_ID,
+  organizationId: ORGANIZATION_ID,
+}))
+
+const PARTITIONS = [
+  { id: 'partition-public', code: PUBLIC_PARTITION, isPublic: true, tenantId: null, organizationId: null },
+  { id: 'partition-private', code: PRIVATE_PARTITION, isPublic: false, tenantId: null, organizationId: null },
+]
+
 type IndexRow = Record<string, unknown> & { id: string }
 
 function indexRow(product: ProductFixture): IndexRow {
@@ -208,6 +229,7 @@ function indexRow(product: ProductFixture): IndexRow {
     sku: product.sku,
     product_type: product.productType ?? 'simple',
     is_configurable: product.isConfigurable ?? false,
+    default_media_id: MEDIA_PRODUCTS[product.id] ? `media-${product.id}` : null,
     default_media_url: `/media/${product.id}.jpg`,
     option_schema_id: product.templateId ?? null,
     created_at: new Date(`${product.createdAt}T00:00:00Z`),
@@ -293,7 +315,7 @@ type World = {
 
 let world: World
 
-const counters = { queryEngine: 0, find: 0, assignments: 0, translations: 0, availability: 0, policies: 0 }
+const counters = { queryEngine: 0, find: 0, assignments: 0, media: 0, translations: 0, availability: 0, policies: 0 }
 const queryEngineCalls: QueryOptions[] = []
 const returnedIds: string[] = []
 
@@ -301,6 +323,7 @@ function resetCounters() {
   counters.queryEngine = 0
   counters.find = 0
   counters.assignments = 0
+  counters.media = 0
   counters.translations = 0
   counters.availability = 0
   counters.policies = 0
@@ -313,6 +336,7 @@ function totalQueries(): number {
     counters.queryEngine +
     counters.find +
     counters.assignments +
+    counters.media +
     counters.translations +
     counters.availability +
     counters.policies
@@ -514,11 +538,28 @@ function assignmentRows(): AssignmentRowFixture[] {
   ])
 }
 
+function publicMediaRows(): Array<{ id: string; mime_type: string }> {
+  const publicCodes = new Set(PARTITIONS.filter((partition) => partition.isPublic).map((partition) => partition.code))
+  return ATTACHMENTS.filter((attachment) => publicCodes.has(attachment.partitionCode)).map((attachment) => ({
+    id: attachment.id,
+    mime_type: attachment.mimeType,
+  }))
+}
+
+let kyselyTable = ''
 const kyselyBuilder: Record<string, unknown> = {}
-for (const method of ['selectFrom', 'innerJoin', 'select', 'where', 'unionAll']) {
+for (const method of ['innerJoin', 'select', 'where', 'unionAll']) {
   kyselyBuilder[method] = () => kyselyBuilder
 }
+kyselyBuilder.selectFrom = (table: string) => {
+  kyselyTable = table
+  return kyselyBuilder
+}
 kyselyBuilder.execute = async () => {
+  if (kyselyTable.startsWith('attachments')) {
+    counters.media += 1
+    return publicMediaRows()
+  }
   counters.assignments += 1
   return assignmentRows()
 }
@@ -665,6 +706,8 @@ async function list(
     buyer?: Partial<BuyerContext>
     fallback?: EcommercePriceSortFallback
     cap?: number
+    ceiling?: number
+    universeCap?: number
     cache?: CacheStrategy
   } = {},
 ) {
@@ -672,7 +715,12 @@ async function list(
     makeContainer(options.cache),
     makeContext(options.buyer, { priceSortFallback: options.fallback }),
     parseStorefrontProductListQuery(new URLSearchParams(queryString)),
-    { priceSortCap: options.cap, date: NOW },
+    {
+      priceSortCap: options.cap,
+      approximateSortCeiling: options.ceiling,
+      facetUniverseCap: options.universeCap,
+      date: NOW,
+    },
   )
 }
 
@@ -771,6 +819,18 @@ describe('listStorefrontProducts — listing payload', () => {
       categories: [{ id: CAT_SHOES, name: 'Shoes', slug: 'shoes' }],
     })
     expect(delta?.priceRange).toMatchObject({ min: 20, max: 20 })
+  })
+
+  it('shows a card image only when the default media is an image in a public partition', async () => {
+    const response = await list('sort=title_asc')
+    const media = Object.fromEntries(response.items.map((item) => [item.id, item.defaultMediaUrl]))
+    expect(media).toEqual({
+      'p-alpha': '/media/p-alpha.jpg',
+      'p-bravo': null,
+      'p-charlie': null,
+      'p-delta': null,
+    })
+    expect(counters.media).toBe(1)
   })
 
   it('hides a category under an inactive ancestor from product cards and the category filter', async () => {
@@ -981,6 +1041,37 @@ describe('listStorefrontProducts — sorting', () => {
     expect(response.appliedFilters.price).toEqual({ min: null, max: 35, approximate: true })
   })
 
+  it('reads list prices only for the candidates, on the product or on its variants', async () => {
+    const response = await list('sort=price_asc', { cap: 2 })
+    expect(ids(response)).toEqual(['p-delta', 'p-bravo', 'p-alpha', 'p-charlie'])
+    const listPriceLoads = mockedFind.mock.calls.filter(
+      ([, entity, where]) => entity === CatalogProductPrice && (where as Record<string, unknown>).customerId === null,
+    )
+    expect(listPriceLoads).toHaveLength(1)
+    const where = listPriceLoads[0][2] as { $or: Array<Record<string, { $in?: string[]; product?: { $in: string[] } }>> }
+    const productIds = where.$or[0].product?.$in ?? []
+    expect([...productIds].sort()).toEqual(['p-alpha', 'p-bravo', 'p-charlie', 'p-delta'])
+    expect(where.$or[1]).toEqual({ variant: { product: { $in: productIds } } })
+  })
+
+  it("past the approximate ceiling answers as 'unavailable' without loading the full set", async () => {
+    const response = await list('sort=price_asc&priceMax=35', { cap: 2, ceiling: 3 })
+    expect(response.sortUnavailable).toBe(true)
+    expect(response.sortApproximate).toBe(false)
+    expect(response.appliedSort).toBe('featured')
+    expect(response.priceSort).toEqual({ cap: 2, fallback: 'unavailable', capExceeded: true })
+    expect(response.availableSorts).not.toContain('price_asc')
+    expect(response.appliedFilters.price).toBeUndefined()
+    expect(response.facets.priceRange).toBeNull()
+    expect(response.total).toBe(4)
+    expect(queryEngineCalls.filter((call) => call.fields?.join(',') === 'id,title,sku').map((call) => call.page?.pageSize)).toEqual([2])
+    expect(
+      mockedFind.mock.calls.filter(
+        ([, entity, where]) => entity === CatalogProductPrice && (where as Record<string, unknown>).customerId === null,
+      ),
+    ).toHaveLength(0)
+  })
+
   it("past the cap with 'unavailable' withdraws the price sorts and applies the default", async () => {
     const response = await list('sort=price_asc', { fallback: 'unavailable', cap: 2 })
     expect(response.appliedSort).toBe('featured')
@@ -1054,16 +1145,16 @@ describe('listStorefrontProducts — page-scoped availability (D21)', () => {
 })
 
 describe('listStorefrontProducts — query budget (§10)', () => {
-  it('stays within 14 queries for a plain page', async () => {
+  it('stays within 15 queries (one of them the public card-media check) for a plain page', async () => {
     await list('')
-    expect(totalQueries()).toBeLessThanOrEqual(14)
+    expect(totalQueries()).toBeLessThanOrEqual(15)
     expect(counters.queryEngine).toBe(3)
     expect(counters.translations).toBe(1)
   })
 
-  it('stays within 14 queries for a price-sorted page', async () => {
+  it('stays within 15 queries for a price-sorted page', async () => {
     await list('sort=price_asc')
-    expect(totalQueries()).toBeLessThanOrEqual(14)
+    expect(totalQueries()).toBeLessThanOrEqual(15)
   })
 
   it('does not issue per-item queries as the page grows', async () => {
@@ -1197,6 +1288,24 @@ describe('listStorefrontProducts — facets (§5.3, §5.4)', () => {
     expect(response.facets.availability.reduce((sum, entry) => sum + entry.count, 0)).toBe(2)
   })
 
+  it('degrades the count facets to empty past the universe cap without loading the universe', async () => {
+    const cache = createMemoryStrategy()
+    const response = await list('', { universeCap: 3, cache })
+    expect(response.facets).toMatchObject({ categories: [], tags: [], options: [], productTypes: [] })
+    expect(response.total).toBe(4)
+    expect(ids(response)).toHaveLength(4)
+    expect(counters.assignments).toBe(0)
+    const universeQueries = queryEngineCalls.filter((call) => call.fields?.join(',') === 'id,product_type,option_schema_id')
+    expect(universeQueries.map((call) => call.page?.pageSize)).toEqual([3])
+    expect(
+      mockedFind.mock.calls.filter(([, entity]) => entity === CatalogProductVariant || entity === CatalogOptionSchemaTemplate),
+    ).toHaveLength(1)
+
+    resetCounters()
+    await list('', { universeCap: 3, cache })
+    expect(queryEngineCalls.filter((call) => call.fields?.join(',') === 'id,product_type,option_schema_id')).toHaveLength(0)
+  })
+
   it('loads the facet universe once whatever filters are active', async () => {
     await list('')
     const plain = { ...counters }
@@ -1243,15 +1352,25 @@ describe('listStorefrontProducts — facet cache split (§9.1)', () => {
     expect(counters.assignments).toBe(0)
   })
 
-  it('stays within 14 queries with facets for a plain and a price-sorted page, fewer on a count-facet hit', async () => {
+  it('keys count facets on the resolved selection, so unknown slugs share the unfiltered entry', async () => {
     const cache = createMemoryStrategy()
     await list('', { cache })
-    expect(totalQueries()).toBeLessThanOrEqual(14)
+    resetCounters()
+    await list('tagSlugs=nope-1', { cache })
+    expect(counters.assignments).toBe(0)
+    await list('tagSlugs=nope-2&categorySlug=missing', { cache })
+    expect(counters.assignments).toBe(0)
+  })
+
+  it('stays within 15 queries with facets for a plain and a price-sorted page, fewer on a count-facet hit', async () => {
+    const cache = createMemoryStrategy()
+    await list('', { cache })
+    expect(totalQueries()).toBeLessThanOrEqual(15)
     resetCounters()
     await list('sort=price_asc', { cache: createMemoryStrategy() })
-    expect(totalQueries()).toBeLessThanOrEqual(14)
+    expect(totalQueries()).toBeLessThanOrEqual(15)
     resetCounters()
     await list('', { cache })
-    expect(totalQueries()).toBeLessThanOrEqual(10)
+    expect(totalQueries()).toBeLessThanOrEqual(11)
   })
 })

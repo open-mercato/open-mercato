@@ -13,6 +13,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: [string, RequestInit?]) => mockApiCall(...args),
 }))
 
+let mockLocale = 'en'
 let mockGrantedFeatures: string[] = ['catalog.price_history.view']
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
   useBackendChrome: () => ({
@@ -29,8 +30,13 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
     if (vars) return base.replace(/\{\{(\w+)\}\}/g, (_, token: string) => String(vars[token] ?? ''))
     return base
   }
-  return { useT: () => translate }
+  return { useT: () => translate, useLocale: () => mockLocale }
 })
+
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 
 const VARIANT_ID = '33333333-3333-4333-8333-333333333333'
 const PRICE_KIND_ID = '22222222-2222-4222-8222-222222222222'
@@ -55,21 +61,26 @@ function buildBlock(overrides: Partial<OmnibusBlock> = {}): OmnibusBlock {
   }
 }
 
-function renderRow() {
-  return render(<PriceEditorOmnibusRow variantId={VARIANT_ID} priceKindId={PRICE_KIND_ID} currencyCode="pln" />)
+function renderRow(props: { channelSelectable?: boolean } = {}) {
+  return render(<PriceEditorOmnibusRow variantId={VARIANT_ID} priceKindId={PRICE_KIND_ID} currencyCode="pln" {...props} />)
+}
+
+function money(amount: number, currency = 'PLN', locale = 'en'): string {
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount).replace(/\s+/g, ' ')
 }
 
 describe('PriceEditorOmnibusRow', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGrantedFeatures = ['catalog.price_history.view']
+    mockLocale = 'en'
   })
 
   it('renders the reference price from omnibus-preview with the applicability reason', async () => {
     mockApiCall.mockResolvedValue({ ok: true, status: 200, result: buildBlock() })
     renderRow()
 
-    expect(await screen.findByTestId('catalog-price-omnibus-reference')).toHaveTextContent('PLN 100.00')
+    expect(await screen.findByTestId('catalog-price-omnibus-reference')).toHaveTextContent(money(100))
     expect(screen.getByText('Lowest price in the last 30 days')).toBeInTheDocument()
     expect(screen.getByText('Announced promotion')).toBeInTheDocument()
     const [url] = mockApiCall.mock.calls[0]
@@ -83,7 +94,7 @@ describe('PriceEditorOmnibusRow', () => {
   it('uses the net amount when the minimization axis is net', async () => {
     mockApiCall.mockResolvedValue({ ok: true, status: 200, result: buildBlock({ minimizationAxis: 'net' }) })
     renderRow()
-    expect(await screen.findByTestId('catalog-price-omnibus-reference')).toHaveTextContent('PLN 81.30')
+    expect(await screen.findByTestId('catalog-price-omnibus-reference')).toHaveTextContent(money(81.3008))
   })
 
   it('hides entirely when Omnibus is disabled (preview returns null)', async () => {
@@ -119,9 +130,9 @@ describe('PriceEditorOmnibusRow', () => {
       result: buildBlock({ applicabilityReason: 'progressive_reduction_frozen', lowestPriceGross: '90.0000', previousPriceGross: '120.0000' }),
     })
     renderRow()
-    expect(await screen.findByTestId('catalog-price-omnibus-reference')).toHaveTextContent('PLN 90.00')
+    expect(await screen.findByTestId('catalog-price-omnibus-reference')).toHaveTextContent(money(90))
     expect(screen.getByText('Reference price (frozen for the progressive reduction)')).toBeInTheDocument()
-    expect(screen.getByText('Price before the reduction: PLN 120.00')).toBeInTheDocument()
+    expect(screen.getByText(`Price before the reduction: ${money(120)}`)).toBeInTheDocument()
   })
 
   it('warns when the history does not cover the full window', async () => {
@@ -135,5 +146,55 @@ describe('PriceEditorOmnibusRow', () => {
       await screen.findByText('Price history does not cover the full window; the reference may be incomplete.'),
     ).toBeInTheDocument()
     expect(screen.getByText('Insufficient history')).toBeInTheDocument()
+  })
+
+  it('formats amounts and dates with the active locale', async () => {
+    mockLocale = 'de'
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: buildBlock({ applicabilityReason: 'insufficient_history', coverageStartAt: '2026-05-10T12:00:00.000Z' }),
+    })
+    renderRow()
+    expect(await screen.findByTestId('catalog-price-omnibus-reference')).toHaveTextContent(money(100, 'PLN', 'de'))
+    const date = new Intl.DateTimeFormat('de', { dateStyle: 'medium' }).format(new Date('2026-05-10T12:00:00.000Z')).replace(/\s+/g, ' ')
+    expect(
+      screen.getByText(`Price history is only available since ${date}; the reference may be incomplete.`),
+    ).toBeInTheDocument()
+  })
+
+  it('falls back to the raw currency code when it is not a valid ISO currency', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, status: 200, result: buildBlock({ currencyCode: 'POINTS' }) })
+    renderRow()
+    expect(await screen.findByTestId('catalog-price-omnibus-reference')).toHaveTextContent('POINTS 100.00')
+  })
+
+  it('asks for a channel when the host can select one', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: buildBlock({ applicable: false, applicabilityReason: 'missing_channel_context', lowestPriceGross: null, lowestPriceNet: null }),
+    })
+    renderRow()
+    expect(await screen.findByText('Select a channel to compute the reference price.')).toBeInTheDocument()
+  })
+
+  it('explains per-channel computation when the host has no channel selector', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: buildBlock({ applicable: false, applicabilityReason: 'missing_channel_context', lowestPriceGross: null, lowestPriceNet: null }),
+    })
+    renderRow({ channelSelectable: false })
+    expect(await screen.findByText('The reference price is computed per sales channel.')).toBeInTheDocument()
+    expect(screen.queryByText('Select a channel to compute the reference price.')).not.toBeInTheDocument()
+  })
+
+  it('reports an unexpected preview failure', async () => {
+    const failure = new Error('network down')
+    mockApiCall.mockRejectedValue(failure)
+    renderRow()
+    expect(await screen.findByText('Could not load the Omnibus reference price.')).toBeInTheDocument()
+    expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'catalog', code: 'catalog.omnibus_preview_load_failed' })
   })
 })

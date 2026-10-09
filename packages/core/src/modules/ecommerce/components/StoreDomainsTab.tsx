@@ -29,6 +29,7 @@ import {
   DOMAIN_BINDINGS_PAGE_SIZE,
   DOMAIN_MAPPINGS_API_URL,
   DOMAIN_SETTINGS_HREF,
+  describeDomainFailureReason,
   describeDomainStatus,
   findPreviousPrimary,
   formatBindingAddress,
@@ -287,7 +288,10 @@ export function StoreDomainsTab({ store, reload }: StoreDomainsTabProps) {
         cell: ({ row }) => {
           const mapping = row.original._domainMapping
           if (mapping?.state !== 'found') return '—'
-          return mapping.tlsFailureReason ?? mapping.dnsFailureReason ?? '—'
+          const reason = mapping.tlsFailureReason ?? mapping.dnsFailureReason
+          if (!reason) return '—'
+          const described = describeDomainFailureReason(reason)
+          return described ? t(described.key, described.fallback, described.params) : reason
         },
       },
       {

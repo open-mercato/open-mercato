@@ -8,7 +8,7 @@ export type StorefrontCategoryNodeSchema = {
   description: string | null
   depth: number
   parentId: string | null
-  productCount: number
+  productCount: number | null
   hasChildren: boolean
   children: StorefrontCategoryNodeSchema[]
 }
@@ -21,7 +21,13 @@ export const storefrontCategoryNodeSchema: z.ZodType<StorefrontCategoryNodeSchem
     description: z.string().nullable(),
     depth: z.number().int(),
     parentId: z.string().uuid().nullable(),
-    productCount: z.number().int().describe('Products of the buyer\'s effective assortment in this category or a descendant'),
+    productCount: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        'Products of the buyer\'s effective assortment in this category or a descendant; null when the assortment is too large to count',
+      ),
     hasChildren: z.boolean(),
     children: z.array(storefrontCategoryNodeSchema),
   }),
@@ -43,9 +49,9 @@ export const storefrontCategoryLandingResponseSchema = z.object({
     ancestorIds: z.array(z.string().uuid()),
     breadcrumb: z.array(z.object({ id: z.string().uuid(), name: z.string(), slug: z.string().nullable() })),
     children: z.array(
-      z.object({ id: z.string().uuid(), name: z.string(), slug: z.string().nullable(), productCount: z.number().int() }),
+      z.object({ id: z.string().uuid(), name: z.string(), slug: z.string().nullable(), productCount: z.number().int().nullable() }),
     ),
-    productCount: z.number().int(),
+    productCount: z.number().int().nullable(),
     seo: z.object({
       title: z.string().nullable(),
       description: z.string().nullable(),

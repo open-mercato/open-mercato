@@ -205,6 +205,7 @@ const omnibusBackfillCommand: ModuleCli = {
       for (const issue of parsed.error.issues) {
         console.error(`  ${issue.path.join('.') || 'options'}: ${issue.message}`)
       }
+      process.exitCode = 2
       return
     }
     const container = await createRequestContainer()

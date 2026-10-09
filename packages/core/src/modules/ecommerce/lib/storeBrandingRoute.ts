@@ -38,15 +38,16 @@ export async function resolveBrandingRouteContext(request: Request): Promise<Bra
       organizationId: translate('ecommerce.errors.organizationRequired', 'Select an organization first.'),
     })
   }
+  const scopedAuth = { ...auth, tenantId, orgId: organizationId }
   const commandCtx: CommandRuntimeContext = {
     container,
-    auth,
+    auth: scopedAuth,
     organizationScope: scope,
     selectedOrganizationId: organizationId,
     organizationIds: scope?.filterIds ?? [organizationId],
     request,
   }
-  return { container, auth: { ...auth, tenantId: auth.tenantId }, tenantId, organizationId, commandCtx }
+  return { container, auth: scopedAuth, tenantId, organizationId, commandCtx }
 }
 
 export async function resolveGrantedFeatures(context: BrandingRouteContext): Promise<string[]> {

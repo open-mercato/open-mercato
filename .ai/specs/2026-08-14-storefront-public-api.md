@@ -259,7 +259,7 @@ Query: `locale`, `parentId`, `depth`, `includeEmpty` (default `false`).
   tree: Array<{
     id: string; name: string; slug: string | null; description: string | null
     depth: number; parentId: string | null
-    productCount: number          // within the effective assortment
+    productCount: number | null   // within the effective assortment; null when the assortment exceeds the 10 000-product facet universe cap
     hasChildren: boolean
     children: CategoryNode[]
   }>
@@ -277,8 +277,8 @@ Counts respect the assortment intersection, so a B2B buyer restricted to one cat
     id: string; name: string; slug: string | null; description: string | null
     depth: number; parentId: string | null; ancestorIds: string[]
     breadcrumb: Array<{ id: string; name: string; slug: string | null }>
-    children: Array<{ id: string; name: string; slug: string | null; productCount: number }>
-    productCount: number
+    children: Array<{ id: string; name: string; slug: string | null; productCount: number | null }>
+    productCount: number | null
     seo: { title: string | null; description: string | null; canonicalUrl: string | null }
   }
   products: { /* identical shape to §4.1 */ }
@@ -857,6 +857,11 @@ No `ecommerce` storefront contract existed before this spec, so there is nothing
 ---
 
 ## 16) Changelog
+
+### 2026-10-09 — review hardening (PR #7142)
+- The facet/category product universe is hard-capped at 10 000 products: past the cap count facets are empty and category `productCount` is `null` (no category is dropped as empty). The count-facet cache key is built from the resolved selection, so unknown slugs share one entry.
+- The approximate price-sort fallback reads only the candidates' price rows and is withdrawn above 50 000 candidates (behaves as `'unavailable'`).
+- Card `defaultMediaUrl` is `null` unless the default media is an image in a public partition.
 
 ### 2026-10-06 — rev 4.1 (owner decision D2a)
 - **§6.1 promotions overlay the `priceKindId` filter (D2a).** With D2's kind filter a buyer resolved to a regular kind never saw promotional rows; rows of `isPromotion` kinds are now admitted alongside the resolved kind, `originalAmount` comes from the resolved kind, and the Omnibus presentation gate is unchanged.

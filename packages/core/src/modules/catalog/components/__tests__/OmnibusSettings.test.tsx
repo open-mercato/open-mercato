@@ -55,6 +55,11 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   return { useT: () => translate }
 })
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 jest.mock('../prices/PriceScopeSelectors', () => ({
   PriceChannelSelect: ({ value, onChange, disabled }: { value: string; onChange: (next: string) => void; disabled?: boolean }) => (
     <input data-testid="channel-select" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
@@ -220,6 +225,26 @@ describe('OmnibusSettings', () => {
     expect(screen.getByTestId('catalog-omnibus-backfill-stale')).toHaveTextContent(CHANNEL_ID)
   })
 
+  it('names the channels in the stale-backfill warning', async () => {
+    const config = {
+      ...STORED_CONFIG,
+      backfillCoverage: { [CHANNEL_ID]: { completedAt: '2026-06-01T00:00:00.000Z', lookbackDays: 30 } },
+    }
+    mockApiCall.mockImplementation(async (url) => {
+      if (url.startsWith('/api/sales/channels')) {
+        return { ok: true, status: 200, result: { items: [{ id: CHANNEL_ID, name: 'Online EU' }] } }
+      }
+      return { ok: true, status: 200, result: config }
+    })
+    await renderLoaded()
+    fireEvent.change(screen.getByTestId('catalog-omnibus-lookback'), { target: { value: '60' } })
+
+    await waitFor(() => expect(screen.getByTestId('catalog-omnibus-backfill-stale')).toHaveTextContent(`Online EU (${CHANNEL_ID})`))
+    fireEvent.change(screen.getByTestId('catalog-omnibus-lookback'), { target: { value: '61' } })
+    const lookups = mockApiCall.mock.calls.filter(([url]) => url.startsWith('/api/sales/channels'))
+    expect(lookups).toHaveLength(1)
+  })
+
   it('renders read-only without catalog.settings.manage', async () => {
     mockGrantedFeatures = ['catalog.settings.view']
     mockLoad()
@@ -248,5 +273,13 @@ describe('OmnibusSettings', () => {
     mockApiCall.mockResolvedValue({ ok: false, status: 500, result: { error: 'Internal server error' } })
     render(<OmnibusSettings />)
     expect(await screen.findByText('Failed to load Omnibus settings.')).toBeInTheDocument()
+  })
+
+  it('reports an unexpected load failure', async () => {
+    const failure = new Error('network down')
+    mockApiCall.mockRejectedValue(failure)
+    render(<OmnibusSettings />)
+    expect(await screen.findByText('Failed to load Omnibus settings.')).toBeInTheDocument()
+    expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'catalog', code: 'catalog.omnibus_settings_load_failed' })
   })
 })

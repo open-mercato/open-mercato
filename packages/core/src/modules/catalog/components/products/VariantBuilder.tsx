@@ -450,6 +450,7 @@ export function VariantPricesSection({
                     variantId={values.id}
                     priceKindId={kind.id}
                     currencyCode={draft.currencyCode ?? kind.currencyCode}
+                    channelSelectable={false}
                   />
                 ) : null}
               </div>

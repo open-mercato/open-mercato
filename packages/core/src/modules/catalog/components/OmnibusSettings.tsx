@@ -25,6 +25,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type {
   OmnibusConfig,
   OmnibusMinimizationAxis,
@@ -213,8 +214,14 @@ export function OmnibusSettings() {
   const requiredMessage = t('catalog.omnibus.errors.required', 'This field is required.')
   const duplicateChannelMessage = t('catalog.omnibus.errors.duplicateChannel', 'This channel is already configured.')
   const saveErrorMessage = t('catalog.omnibus.errors.save', 'Failed to save Omnibus settings.')
+  const staleBackfillScopes = React.useMemo(() => listStaleBackfillScopes(stored, form), [form, stored])
+  const channelNameLookupKey = React.useMemo(
+    () => Array.from(new Set([...(backfillChannels ?? []), ...staleBackfillScopes].filter((channelId) => channelId.length > 0))).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)).join(','),
+    [backfillChannels, staleBackfillScopes],
+  )
+
   React.useEffect(() => {
-    const channelIds = backfillChannels?.filter((channelId) => channelId.length > 0) ?? []
+    const channelIds = channelNameLookupKey ? channelNameLookupKey.split(',') : []
     if (!channelIds.length) return
     let cancelled = false
     const query = new URLSearchParams({ ids: channelIds.join(','), pageSize: String(Math.min(channelIds.length, 100)) })
@@ -226,15 +233,16 @@ export function OmnibusSettings() {
         for (const item of items) {
           if (typeof item.id === 'string' && typeof item.name === 'string' && item.name.length) names[item.id] = item.name
         }
-        setBackfillChannelNames(names)
+        setBackfillChannelNames((previous) => ({ ...previous, ...names }))
       })
       .catch((err) => {
         logger.warn('catalog.omnibus.settings.backfillChannelNames failed', { err })
+        getTelemetryRuntime()?.reportError(err, { module: 'catalog', code: 'catalog.omnibus_channel_names_load_failed' })
       })
     return () => {
       cancelled = true
     }
-  }, [backfillChannels])
+  }, [channelNameLookupKey])
 
   const loadErrorMessage = t('catalog.omnibus.errors.load', 'Failed to load Omnibus settings.')
 
@@ -259,6 +267,7 @@ export function OmnibusSettings() {
       })
       .catch((err) => {
         logger.error('catalog.omnibus.settings.load failed', { err })
+        getTelemetryRuntime()?.reportError(err, { module: 'catalog', code: 'catalog.omnibus_settings_load_failed' })
         if (!cancelled) setLoadError(loadErrorMessage)
       })
       .finally(() => {
@@ -402,6 +411,7 @@ export function OmnibusSettings() {
         return
       }
       logger.error('catalog.omnibus.settings.save failed', { err })
+      getTelemetryRuntime()?.reportError(err, { module: 'catalog', code: 'catalog.omnibus_settings_save_failed' })
       setFormError(err instanceof Error && !err.message.startsWith('[internal]') ? err.message : saveErrorMessage)
     } finally {
       setSaving(false)
@@ -455,11 +465,14 @@ export function OmnibusSettings() {
     setForm((prev) => ({ ...prev, channels: prev.channels.filter((row) => row.key !== rowKey) }))
   }, [])
 
-  const staleBackfillScopes = React.useMemo(() => listStaleBackfillScopes(stored, form), [form, stored])
+  const formatChannel = React.useCallback(
+    (channelId: string) => (backfillChannelNames[channelId] ? `${backfillChannelNames[channelId]} (${channelId})` : channelId),
+    [backfillChannelNames],
+  )
 
   const formatScope = React.useCallback(
-    (scopeId: string) => (scopeId ? scopeId : t('catalog.omnibus.settings.backfill.globalScope', 'All channels (unscoped)')),
-    [t],
+    (scopeId: string) => (scopeId ? formatChannel(scopeId) : t('catalog.omnibus.settings.backfill.globalScope', 'All channels (unscoped)')),
+    [formatChannel, t],
   )
 
   if (!chromeReady) {
@@ -529,9 +542,7 @@ export function OmnibusSettings() {
                   {backfillChannels.length > 0 ? (
                     <p className="mt-1">
                       {t('catalog.omnibus.settings.backfill.channels', 'Channels without backfill: {{channels}}', {
-                        channels: backfillChannels
-                          .map((channelId) => (backfillChannelNames[channelId] ? `${backfillChannelNames[channelId]} (${channelId})` : channelId))
-                          .join(', '),
+                        channels: backfillChannels.map(formatChannel).join(', '),
                       })}
                     </p>
                   ) : null}

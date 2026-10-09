@@ -54,6 +54,85 @@ export const DOMAIN_STATUS_LABELS: Record<DomainMappingStatus, { key: string; fa
   tls_failed: { key: 'ecommerce.backend.store.domains.status.tlsFailed', fallback: 'TLS failed' },
 }
 
+export type DomainFailureReasonLabel = { key: string; fallback: string; params: Record<string, string> }
+
+type DomainFailureReasonPattern = {
+  pattern: RegExp
+  key: string
+  fallback: string
+  params: readonly string[]
+}
+
+const DOMAIN_FAILURE_REASON_PATTERNS: readonly DomainFailureReasonPattern[] = [
+  {
+    pattern: /^HTTP (\d{3})$/,
+    key: 'ecommerce.backend.store.domains.failure.httpStatus',
+    fallback: 'The TLS health check returned HTTP {status}',
+    params: ['status'],
+  },
+  {
+    pattern: /^TLS health check timed out$/,
+    key: 'ecommerce.backend.store.domains.failure.tlsTimeout',
+    fallback: 'The TLS health check timed out',
+    params: [],
+  },
+  {
+    pattern: /^TLS health check failed$/,
+    key: 'ecommerce.backend.store.domains.failure.tlsFailed',
+    fallback: 'The TLS health check failed',
+    params: [],
+  },
+  {
+    pattern: /^DNS lookup error \((CNAME|A)\): /,
+    key: 'ecommerce.backend.store.domains.failure.dnsLookup',
+    fallback: 'The DNS lookup for the {recordType} record failed',
+    params: ['recordType'],
+  },
+  {
+    pattern: /^CNAME points to (.+) instead of (.+)$/,
+    key: 'ecommerce.backend.store.domains.failure.cnameMismatch',
+    fallback: 'The CNAME record points to {actual} instead of {expected}',
+    params: ['actual', 'expected'],
+  },
+  {
+    pattern: /^No CNAME or A record found for /,
+    key: 'ecommerce.backend.store.domains.failure.noRecords',
+    fallback: 'No CNAME or A record was found',
+    params: [],
+  },
+  {
+    pattern: /^A record points to a known proxy IP, but reverse-resolve over HTTPS did not reach our server$/,
+    key: 'ecommerce.backend.store.domains.failure.proxyUnreachable',
+    fallback: 'The domain is behind a proxy that does not forward traffic to this platform',
+    params: [],
+  },
+  {
+    pattern: /^A record points to (.+) instead of (.+)$/,
+    key: 'ecommerce.backend.store.domains.failure.aRecordMismatch',
+    fallback: 'The A record points to {actual} instead of {expected}',
+    params: ['actual', 'expected'],
+  },
+  {
+    pattern: /^A record points to (.+) but apex-domain registration is not enabled on this deployment$/,
+    key: 'ecommerce.backend.store.domains.failure.apexNotEnabled',
+    fallback: 'The A record points to {actual}, but apex domains are not enabled on this deployment',
+    params: ['actual'],
+  },
+]
+
+export function describeDomainFailureReason(reason: string): DomainFailureReasonLabel | null {
+  for (const entry of DOMAIN_FAILURE_REASON_PATTERNS) {
+    const match = entry.pattern.exec(reason)
+    if (!match) continue
+    const params: Record<string, string> = {}
+    entry.params.forEach((name, index) => {
+      params[name] = match[index + 1] ?? ''
+    })
+    return { key: entry.key, fallback: entry.fallback, params }
+  }
+  return null
+}
+
 export function isServingStatus(status: string): boolean {
   return status === 'active'
 }

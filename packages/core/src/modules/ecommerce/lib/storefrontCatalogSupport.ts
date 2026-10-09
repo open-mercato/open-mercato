@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
 import {
   availabilityItemKey,
   resolveAvailability,
@@ -12,6 +13,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AssortmentScope, EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import { CatalogProductCategory } from '@open-mercato/core/modules/catalog/data/entities'
 import { batchLoadTranslationsMany } from '@open-mercato/core/modules/translations/lib/batch'
 import type { StorefrontPrice, StorefrontPriceRange, StorefrontProductPricing } from './storefrontPricing'
@@ -288,6 +290,87 @@ export async function loadStorefrontTranslations(
     })
     return new Map()
   }
+}
+
+export function isImageMimeType(mimeType: string | null | undefined): boolean {
+  return typeof mimeType === 'string' && mimeType.trim().toLowerCase().startsWith('image/')
+}
+
+/** The codes among `codes` naming a public attachment partition visible to the store's tenant and organization. */
+export async function loadPublicPartitionCodes(em: EntityManager, ctx: StoreContext, codes: string[]): Promise<Set<string>> {
+  if (!codes.length) return new Set()
+  const partitions = await findWithDecryption(
+    em,
+    AttachmentPartition,
+    {
+      code: { $in: codes },
+      isPublic: true,
+      $and: [
+        { $or: [{ tenantId: null }, { tenantId: ctx.tenantId }] },
+        { $or: [{ organizationId: null }, { organizationId: ctx.organizationId }] },
+      ],
+    },
+    { fields: ['id', 'code'] },
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+  return new Set(partitions.map((partition) => partition.code))
+}
+
+export type StorefrontDefaultMediaRef = { id: string; defaultMediaId?: unknown; defaultMediaUrl?: unknown }
+
+type PublicMediaDatabase = {
+  attachments: {
+    id: string
+    tenant_id: string | null
+    organization_id: string | null
+    partition_code: string
+    mime_type: string
+  }
+  attachment_partitions: {
+    code: string
+    is_public: boolean
+    tenant_id: string | null
+    organization_id: string | null
+  }
+}
+
+/**
+ * Card `defaultMediaUrl`s held to the gallery rule of the product detail: a product's stored URL is
+ * returned only while its `defaultMediaId` names an `image/*` attachment of the store's tenant and
+ * organization in a public partition; otherwise it is `null`. One query for the whole page (the
+ * attachments joined to their partitions, plain non-encrypted columns), none when no product
+ * carries a default media id.
+ */
+export async function resolvePublicDefaultMediaUrls(
+  em: EntityManager,
+  ctx: StoreContext,
+  refs: StorefrontDefaultMediaRef[],
+): Promise<Map<string, string | null>> {
+  const urls = new Map<string, string | null>()
+  const pending: Array<{ productId: string; mediaId: string; url: string }> = []
+  for (const ref of refs) {
+    urls.set(ref.id, null)
+    const url = nonEmptyString(ref.defaultMediaUrl)
+    const mediaId = nonEmptyString(ref.defaultMediaId)
+    if (url && mediaId) pending.push({ productId: ref.id, mediaId, url })
+  }
+  if (!pending.length) return urls
+  const mediaIds = Array.from(new Set(pending.map((entry) => entry.mediaId)))
+  const rows = await em
+    .getKysely<PublicMediaDatabase>()
+    .selectFrom('attachments as a')
+    .innerJoin('attachment_partitions as p', 'p.code', 'a.partition_code')
+    .select(['a.id as id', 'a.mime_type as mime_type'])
+    .where(sql<boolean>`${sql.ref('a.id')} = any(${mediaIds}::uuid[])`)
+    .where('a.tenant_id', '=', ctx.tenantId)
+    .where('a.organization_id', '=', ctx.organizationId)
+    .where('p.is_public', '=', true)
+    .where((eb) => eb.or([eb('p.tenant_id', 'is', null), eb('p.tenant_id', '=', ctx.tenantId)]))
+    .where((eb) => eb.or([eb('p.organization_id', 'is', null), eb('p.organization_id', '=', ctx.organizationId)]))
+    .execute()
+  const publicIds = new Set(rows.filter((row) => isImageMimeType(row.mime_type)).map((row) => row.id))
+  for (const entry of pending) if (publicIds.has(entry.mediaId)) urls.set(entry.productId, entry.url)
+  return urls
 }
 
 export type StorefrontListItemSource = {

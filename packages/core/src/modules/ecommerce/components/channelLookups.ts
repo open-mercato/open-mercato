@@ -1,14 +1,15 @@
 import {
-  categoryLookupSource,
   createIdsLookupSource,
   lookupLabelWithCode,
   pickLookupString,
-  productLookupSource,
-  tagLookupSource,
 } from '@open-mercato/ui/backend/inputs/lookupSources'
 
 export type { LookupOption, LookupSource } from '@open-mercato/ui/backend/inputs/lookupSources'
-export { categoryLookupSource, productLookupSource, tagLookupSource }
+export {
+  categoryLookupSource,
+  productLookupSource,
+  tagLookupSource,
+} from '@open-mercato/core/modules/catalog/components/lookupSources'
 
 export const salesChannelLookupSource = createIdsLookupSource('sales-channels', '/api/sales/channels', (item) => {
   const value = pickLookupString(item, 'id')

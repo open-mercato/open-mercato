@@ -374,6 +374,24 @@ describe('recordPriceHistoryEntries', () => {
     expect(rows.map((row) => row.priceId)).toEqual([SECOND_PRICE.id])
   })
 
+  it('skips incomplete prices instead of losing the whole batch', async () => {
+    const fake = buildFakeEm()
+    const noProduct: PriceHistoryPriceInput = { ...PRICE, id: '99999999-9999-4999-8999-000000000001', productId: null }
+    const noKind: PriceHistoryPriceInput = { ...PRICE, id: '99999999-9999-4999-8999-000000000002', priceKindId: null }
+    await expect(
+      recordPriceHistoryEntries(fake.em, [noProduct, PRICE, noKind, SECOND_PRICE], 'delete', { recordedAt: RECORDED_AT }),
+    ).resolves.toEqual({ recorded: 2, duplicates: 0 })
+    expect(fake.rows.map((row) => row.priceId)).toEqual([PRICE.id, SECOND_PRICE.id])
+  })
+
+  it('writes nothing when every price is incomplete', async () => {
+    const fake = buildFakeEm()
+    await expect(
+      recordPriceHistoryEntries(fake.em, [{ ...PRICE, productId: null }], 'delete'),
+    ).resolves.toEqual({ recorded: 0, duplicates: 0 })
+    expect(fake.fork).not.toHaveBeenCalled()
+  })
+
   it('rethrows other database errors', async () => {
     const fake = buildFakeEm(new Error('connection refused'))
     await expect(recordPriceHistoryEntries(fake.em, [PRICE], 'delete')).rejects.toThrow('connection refused')

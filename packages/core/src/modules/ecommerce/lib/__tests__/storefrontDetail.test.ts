@@ -341,12 +341,13 @@ type World = {
 
 let world: World
 
-const counters = { queryEngine: 0, find: 0, translations: 0, availability: 0, policies: 0 }
+const counters = { queryEngine: 0, find: 0, media: 0, translations: 0, availability: 0, policies: 0 }
 const queryEngineCalls: QueryOptions[] = []
 
 function resetCounters() {
   counters.queryEngine = 0
   counters.find = 0
+  counters.media = 0
   counters.translations = 0
   counters.availability = 0
   counters.policies = 0
@@ -354,7 +355,14 @@ function resetCounters() {
 }
 
 function totalQueries(): number {
-  return counters.queryEngine + counters.find + counters.translations + counters.availability + counters.policies
+  return (
+    counters.queryEngine +
+    counters.find +
+    counters.media +
+    counters.translations +
+    counters.availability +
+    counters.policies
+  )
 }
 
 function referenceValue(value: unknown): unknown {
@@ -531,12 +539,30 @@ const policyResolutionService = {
   },
 }
 
+function publicMediaRows(): Array<{ id: string; mime_type: string }> {
+  const visibleCodes = new Set(
+    PARTITIONS.filter((partition) => partition.isPublic && (partition.tenantId === null || partition.tenantId === TENANT_ID)).map(
+      (partition) => partition.code,
+    ),
+  )
+  return MEDIA.filter((entry) => visibleCodes.has(entry.partitionCode)).map((entry) => ({ id: entry.id, mime_type: entry.mimeType }))
+}
+
+const mediaKysely: Record<string, unknown> = {}
+for (const method of ['selectFrom', 'innerJoin', 'select', 'where']) {
+  mediaKysely[method] = () => mediaKysely
+}
+mediaKysely.execute = async () => {
+  counters.media += 1
+  return publicMediaRows()
+}
+
 const em = {
   fork() {
     return em
   },
   getKysely() {
-    return {}
+    return mediaKysely
   },
 }
 
@@ -741,6 +767,41 @@ describe('getStorefrontProductDetail — payload (§5.2)', () => {
     expect(mediaIds).not.toContain('media-foreign')
     const partitionCall = mockedFind.mock.calls.find(([, entity]) => entity === AttachmentPartition)
     expect(partitionCall?.[2]).toMatchObject({ isPublic: true, code: { $in: ['productsMedia', 'privateAttachments', 'otherTenantMedia'] } })
+  })
+
+  it('derives defaultMediaUrl from the public gallery when the default media is not public', async () => {
+    const main = world.products.find((product) => product.id === MAIN_ID)
+    if (!main?.extra) throw new Error('[internal] fixture lacks the main product')
+    main.extra.defaultMediaId = 'media-private'
+    const privateDefault = await detail(MAIN_ID)
+    expect(privateDefault?.media[0]?.url).toBe('/files/one.jpg')
+    expect(privateDefault?.defaultMediaUrl).toBe('/files/one.jpg')
+    main.extra.defaultMediaId = null
+    const noDefault = await detail(MAIN_ID)
+    expect(noDefault?.defaultMediaUrl).toBe('/files/one.jpg')
+  })
+
+  it('returns a null defaultMediaUrl when the product has no public image', async () => {
+    const plain = world.products.find((product) => product.id === PLAIN_ID)
+    if (!plain) throw new Error('[internal] fixture lacks the plain product')
+    plain.extra = { defaultMediaId: 'media-private', defaultMediaUrl: '/files/secret.jpg' }
+    const result = await detail('plain')
+    expect(result?.media).toEqual([])
+    expect(result?.defaultMediaUrl).toBeNull()
+  })
+
+  it('shows a related card image only when its default media is a public image, in one query', async () => {
+    const sibling = world.products.find((product) => product.id === SIBLING_ID)
+    const cousin = world.products.find((product) => product.id === COUSIN_ID)
+    if (!sibling || !cousin) throw new Error('[internal] fixture lacks the related products')
+    sibling.extra = { defaultMediaId: 'media-1', defaultMediaUrl: '/media/sibling.jpg' }
+    cousin.extra = { defaultMediaId: 'media-private', defaultMediaUrl: '/media/cousin.jpg' }
+    const result = await detail(MAIN_ID)
+    expect(Object.fromEntries(result?.relatedProducts.map((item) => [item.id, item.defaultMediaUrl]) ?? [])).toEqual({
+      [SIBLING_ID]: '/media/sibling.jpg',
+      [COUSIN_ID]: null,
+    })
+    expect(counters.media).toBe(1)
   })
 
   it('returns categories with ancestor ids and a root-first breadcrumb', async () => {

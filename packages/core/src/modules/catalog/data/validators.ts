@@ -613,6 +613,10 @@ export const priceHistoryQuerySchema = z
     includeTotal: z.enum(['true', 'false']).optional(),
   })
   .strict()
+  .refine((value) => Boolean(value.productId || value.variantId), {
+    message: 'one of productId or variantId is required',
+    path: ['productId'],
+  })
   .refine(
     (value) => !value.from || !value.to || new Date(value.from).getTime() <= new Date(value.to).getTime(),
     { message: 'from must not be later than to', path: ['from'] },
@@ -669,7 +673,7 @@ export const omnibusConfigPatchSchema = z
     lookbackDays: omnibusLookbackDaysSchema.optional(),
     minimizationAxis: omnibusMinimizationAxisSchema.optional(),
     defaultPresentedPriceKindId: uuid().nullable().optional(),
-    channels: z.record(z.string().trim().min(1), omnibusChannelConfigPatchSchema).optional(),
+    channels: z.record(uuid(), omnibusChannelConfigPatchSchema).optional(),
     backfillCoverage: unsupportedOmnibusField('omnibus_backfill_coverage_read_only'),
   })
   .strict()

@@ -11,12 +11,12 @@ import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LookupMultiPicker } from '@open-mercato/ui/backend/inputs/LookupPickers'
+import type { LookupSource } from '@open-mercato/ui/backend/inputs/lookupSources'
 import {
   categoryLookupSource,
   productLookupSource,
   tagLookupSource,
-  type LookupSource,
-} from '@open-mercato/ui/backend/inputs/lookupSources'
+} from '@open-mercato/core/modules/catalog/components/lookupSources'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CustomerGroupTermsPriceKindField } from './CustomerGroupTermsPriceKindField'
 import {

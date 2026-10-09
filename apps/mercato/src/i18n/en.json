@@ -994,6 +994,8 @@
   "ui.inputs.eventSelect.empty": "No events available",
   "ui.inputs.eventSelect.loading": "Loading...",
   "ui.inputs.eventSelect.placeholder": "Select an event...",
+  "ui.inputs.lookupPicker.forbidden": "You do not have permission to load these options.",
+  "ui.inputs.lookupPicker.loadFailed": "Could not load options. Try again.",
   "ui.inputs.passwordInput.hide": "Hide password",
   "ui.inputs.passwordInput.show": "Show password",
   "ui.inputs.phoneNumberField.checking": "Checking for duplicates…",

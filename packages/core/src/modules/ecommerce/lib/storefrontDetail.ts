@@ -4,7 +4,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sanitizeRichTextHtml } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { SortDir, type QueryEngine, type Where } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
-import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
+import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import {
   CatalogProduct,
   CatalogProductCategory,
@@ -30,6 +30,9 @@ import {
   STOREFRONT_VARIANT_ENTITY_TYPE,
   buildStorefrontListItem,
   isCategoryInAssortment,
+  isImageMimeType,
+  loadPublicPartitionCodes,
+  resolvePublicDefaultMediaUrls,
   selectCategoriesWithActiveAncestors,
   type ActiveCategoryAncestor,
   loadStorefrontTranslations,
@@ -319,30 +322,6 @@ function breadcrumbAncestors(
   })
 }
 
-function isImageMimeType(mimeType: string | null | undefined): boolean {
-  return typeof mimeType === 'string' && mimeType.trim().toLowerCase().startsWith('image/')
-}
-
-async function loadPublicPartitionCodes(runtime: DetailRuntime, codes: string[]): Promise<Set<string>> {
-  if (!codes.length) return new Set()
-  const { ctx } = runtime
-  const partitions = await findWithDecryption(
-    runtime.em,
-    AttachmentPartition,
-    {
-      code: { $in: codes },
-      isPublic: true,
-      $and: [
-        { $or: [{ tenantId: null }, { tenantId: ctx.tenantId }] },
-        { $or: [{ organizationId: null }, { organizationId: ctx.organizationId }] },
-      ],
-    },
-    { fields: ['id', 'code'] },
-    runtime.decryptionScope,
-  )
-  return new Set(partitions.map((partition) => partition.code))
-}
-
 /**
  * The product's gallery: only `image/*` attachments stored in a public partition, the only files an
  * anonymous storefront visitor can fetch; private-partition files and documents are never listed.
@@ -365,7 +344,8 @@ async function loadMedia(runtime: DetailRuntime, product: CatalogProduct): Promi
     (attachment) => nonEmptyString(attachment.url) !== null && isImageMimeType(attachment.mimeType),
   )
   const publicPartitions = await loadPublicPartitionCodes(
-    runtime,
+    runtime.em,
+    ctx,
     Array.from(new Set(images.map((attachment) => attachment.partitionCode))),
   )
   const defaultMediaId = product.defaultMediaId ?? null
@@ -378,6 +358,17 @@ async function loadMedia(runtime: DetailRuntime, product: CatalogProduct): Promi
         left.index - right.index,
     )
     .map(({ attachment }, sortOrder) => ({ id: attachment.id, url: attachment.url, alt: null, sortOrder }))
+}
+
+/**
+ * The detail's `defaultMediaUrl`, consistent with its public gallery: the stored URL while the
+ * default media is in `media`, otherwise the first public image, otherwise `null`.
+ */
+function detailDefaultMediaUrl(product: CatalogProduct, media: StorefrontProductMedia[]): string | null {
+  const defaultMediaId = product.defaultMediaId ?? null
+  const stored = nonEmptyString(product.defaultMediaUrl)
+  if (defaultMediaId && stored && media.some((entry) => entry.id === defaultMediaId)) return stored
+  return media[0]?.url ?? null
 }
 
 function localizeOptionSchema(
@@ -428,6 +419,7 @@ function relatedListItems(
     tagTranslations?: TranslationMap
     pricing: Awaited<ReturnType<typeof resolveStorefrontPrices>>
     availability: Awaited<ReturnType<typeof resolveStorefrontAvailability>>
+    mediaUrls: Map<string, string | null>
   },
 ): StorefrontProductListItem[] {
   const items: StorefrontProductListItem[] = []
@@ -443,7 +435,7 @@ function relatedListItems(
           handle: product.handle,
           title: product.title,
           subtitle: product.subtitle,
-          defaultMediaUrl: product.defaultMediaUrl,
+          defaultMediaUrl: context.mediaUrls.get(product.id) ?? null,
           productType: product.productType,
           isConfigurable: product.isConfigurable,
         },
@@ -473,6 +465,7 @@ function relatedListItems(
  * A found product is hydrated with a constant number of batched queries regardless of its variant
  * count: one joined product load, its active-ancestor lookup (which also yields the breadcrumb),
  * related-product lookup and load (plus an ancestor lookup only for ancestors not already known), media,
+ * the related cards' public default-media check (one query, skipped when none has default media),
  * one price query (§6.1, per variant and with tiers), one translation query for every overlaid
  * entity type, one availability state and one policy resolution. `relatedProducts` are up to 8
  * products sharing a category (or a category's subtree) within the same scope.
@@ -522,7 +515,7 @@ export async function getStorefrontProductDetail(
     ...related.map((entry) => ({ productId: entry.product.id, variantId: null })),
   ]
 
-  const [pricing, translations, availability] = await Promise.all([
+  const [pricing, translations, availability, relatedMediaUrls] = await Promise.all([
     resolveStorefrontPrices(
       container,
       ctx,
@@ -540,6 +533,15 @@ export async function getStorefrontProductDetail(
       { entityType: STOREFRONT_OPTION_SCHEMA_ENTITY_TYPE, ids: templateId ? [templateId] : [] },
     ]),
     resolveStorefrontAvailability(container, ctx, em, availabilityTargets),
+    resolvePublicDefaultMediaUrls(
+      em,
+      ctx,
+      related.map((entry) => ({
+        id: entry.product.id,
+        defaultMediaId: entry.product.defaultMediaId,
+        defaultMediaUrl: entry.product.defaultMediaUrl,
+      })),
+    ),
   ])
 
   const locales = localeChain(ctx, options.locale)
@@ -558,7 +560,7 @@ export async function getStorefrontProductDetail(
       handle: product.handle,
       title: product.title,
       subtitle: product.subtitle,
-      defaultMediaUrl: product.defaultMediaUrl,
+      defaultMediaUrl: detailDefaultMediaUrl(product, media),
       productType: product.productType,
       isConfigurable: product.isConfigurable,
     },
@@ -641,6 +643,7 @@ export async function getStorefrontProductDetail(
       tagTranslations,
       pricing,
       availability,
+      mediaUrls: relatedMediaUrls,
     }),
     seo: {
       title: localize(product.seoTitle, overlay, 'seoTitle', locales),

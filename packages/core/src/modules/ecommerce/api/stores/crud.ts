@@ -6,6 +6,8 @@ import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/ecommerce_store'
 import { EcommerceStore } from '../../data/entities'
@@ -39,6 +41,8 @@ import {
   STORE_EVENT_ENTITY,
 } from '../../lib/crudEvents'
 import { announceStoreBindingCascade, cascadeStoreBindingDelete } from '../../lib/storeBindingCascade'
+
+const logger = createLogger('ecommerce').child({ component: 'store-crud' })
 
 const rawBodySchema = z.object({}).passthrough()
 type RawStoreInput = z.infer<typeof rawBodySchema>
@@ -426,7 +430,20 @@ export const storeCrud = makeCrudRoute<RawStoreInput, RawStoreInput, StoreListQu
     afterDelete: async (id, ctx) => {
       const em = ctx.container.resolve('em') as EntityManager
       const cascade = await cascadeStoreBindingDelete(em, id, ctx)
-      await announceStoreBindingCascade(ctx.container, cascade)
+      try {
+        await announceStoreBindingCascade(ctx.container, cascade)
+      } catch (err) {
+        logger.error('[internal] store binding cascade committed but could not be announced', {
+          storeId: id,
+          domainBindingCount: cascade.domainBindings.length,
+          channelBindingCount: cascade.channelBindings.length,
+          err,
+        })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'ecommerce',
+          code: 'ecommerce.store_binding_cascade_announce_failed',
+        })
+      }
     },
   },
 })
