@@ -71,6 +71,23 @@ describe('recomputeOrderPaymentTotals — payment status (#7082)', () => {
     ;(findWithDecryption as jest.Mock).mockReset()
   })
 
+  it('ignores allocations of a failed payment while counting allocations of a captured one', async () => {
+    ;(findWithDecryption as jest.Mock)
+      .mockResolvedValueOnce([
+        { payment: { id: 'p-1' }, amount: '100' },
+        { payment: { id: 'p-2' }, amount: '30' },
+      ])
+      .mockResolvedValueOnce([
+        buildPayment({ id: 'p-1', status: 'failed', amount: '100' }),
+        buildPayment({ id: 'p-2', status: 'received', amount: '30' }),
+      ])
+    const order = buildOrder()
+
+    const totals = await recomputeOrderPaymentTotals(em, order)
+
+    expect(totals).toEqual({ paidTotalAmount: 30, refundedTotalAmount: 0, outstandingAmount: 70 })
+  })
+
   describe.each([
     ['with allocations', true],
     ['without allocations', false],
