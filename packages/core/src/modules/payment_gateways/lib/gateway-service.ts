@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { QueryOrder } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -695,13 +696,16 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         credentials,
       })
 
-      if (status.status !== transaction.unifiedStatus && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)) {
+      const polledAt = new Date()
+      const shouldApplyStatus = status.status !== transaction.unifiedStatus
+        && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)
+      if (shouldApplyStatus) {
         const previousStatus = transaction.unifiedStatus
         transaction.unifiedStatus = status.status
         alignCapturedAmountWithStatus(transaction, status.status)
         transaction.gatewayStatus = status.status
         transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), statusResult: status.providerData ?? null }
-        transaction.lastPolledAt = new Date()
+        transaction.lastPolledAt = polledAt
         await em.flush()
         await emitStatusEvent(status.status, {
           transactionId: transaction.id,
@@ -721,6 +725,12 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             previousStatus,
             nextStatus: status.status,
           },
+        )
+      } else {
+        await em.nativeUpdate(
+          GatewayTransaction,
+          { id: transaction.id, organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+          { lastPolledAt: polledAt },
         )
       }
 
@@ -846,7 +856,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         GatewayTransaction,
         where,
         {
-          orderBy: { updatedAt: 'asc' },
+          orderBy: { lastPolledAt: QueryOrder.ASC_NULLS_FIRST, createdAt: QueryOrder.ASC },
           limit: scope?.limit ?? 100,
         },
         scope,
