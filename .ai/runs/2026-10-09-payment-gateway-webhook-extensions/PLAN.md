@@ -13,7 +13,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add the shared webhook extension contracts and bounded byte reader | dispatch | todo | — |
+| 1 | 1.1 | Add the shared webhook extension contracts and bounded byte reader | dispatch | done | self |
 | 1 | 1.2 | Pass raw locator context and optional exact bytes through the webhook route | dispatch | todo | — |
 | 1 | 1.3 | Add the secondary payment locator, candidate snapshot and ambiguity rejection | dispatch:capable | todo | — |
 | 1 | 1.4 | Add typed webhook outcomes and validated provider response formatting | dispatch:capable | todo | — |
