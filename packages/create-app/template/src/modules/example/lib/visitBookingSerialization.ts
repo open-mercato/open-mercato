@@ -174,9 +174,8 @@ async function assertVisitAvailable(
 
 export function createVisitBookingSerializingCommandBus(args: {
   commandBus: CommandBus
-  em: EntityManager
 }): CommandBus {
-  const { commandBus, em } = args
+  const { commandBus } = args
 
   async function execute<TInput = unknown, TResult = unknown>(
     commandId: string,
@@ -191,7 +190,6 @@ export function createVisitBookingSerializingCommandBus(args: {
     const originalInput = options.input as VisitRow
     const updating = commandId === 'customers.interactions.update'
 
-    const writeEm = options.ctx.transactionalEm ?? em
     const previousBeforeWrite = options.ctx.beforeTransactionalWrite
     const beforeTransactionalWrite = async (lockEm: EntityManager, effectiveInput?: unknown) => {
       await previousBeforeWrite?.(lockEm, effectiveInput)
@@ -261,7 +259,6 @@ export function createVisitBookingSerializingCommandBus(args: {
       ...options,
       ctx: {
         ...options.ctx,
-        transactionalEm: writeEm,
         beforeTransactionalWrite: async (lockEm: EntityManager, effectiveInput?: unknown) => {
           try {
             await beforeTransactionalWrite(lockEm, effectiveInput)

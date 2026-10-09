@@ -111,11 +111,17 @@ function lockingEntityManager(manager: AdvisoryLockManager, acquiredKeys: string
   return em
 }
 
-function createContendingCommandBus(state: { bookings: number }, transactionContexts: unknown[], sideEffectStates: boolean[]) {
+function createContendingCommandBus(
+  state: { bookings: number },
+  transactionContexts: unknown[],
+  sideEffectStates: boolean[],
+  handlerEm: unknown,
+) {
   return {
     execute: jest.fn(async (_commandId: string, options: { ctx: { transactionalEm?: unknown; beforeTransactionalWrite?: (em: never) => Promise<void> } }) => {
-      transactionContexts.push(options.ctx.transactionalEm)
-      const transactionEm = options.ctx.transactionalEm as {
+      expect(options.ctx.transactionalEm).toBeUndefined()
+      transactionContexts.push(handlerEm)
+      const transactionEm = handlerEm as {
         begin: () => Promise<void>
         commit: () => Promise<void>
         rollback: () => Promise<void>
@@ -185,12 +191,10 @@ describe('Visit booking command serialization', () => {
       container: visitContainer(),
     }
     const first = createVisitBookingSerializingCommandBus({
-      commandBus: createContendingCommandBus(state, transactionContexts, sideEffectStates) as never,
-      em: lockingEntityManager(manager, acquiredKeys, statements) as never,
+      commandBus: createContendingCommandBus(state, transactionContexts, sideEffectStates, lockingEntityManager(manager, acquiredKeys, statements)) as never,
     })
     const second = createVisitBookingSerializingCommandBus({
-      commandBus: createContendingCommandBus(state, transactionContexts, sideEffectStates) as never,
-      em: lockingEntityManager(manager, acquiredKeys, statements) as never,
+      commandBus: createContendingCommandBus(state, transactionContexts, sideEffectStates, lockingEntityManager(manager, acquiredKeys, statements)) as never,
     })
 
     const outcomes = await Promise.allSettled([
@@ -227,7 +231,8 @@ describe('Visit booking command serialization', () => {
       id: 'customers.interactions.create',
       execute: async (input: Record<string, unknown>, ctx) => {
         handlerInputs.push(input)
-        const writeEm = ctx.transactionalEm as typeof transactionEm
+        expect(ctx.transactionalEm).toBeUndefined()
+        const writeEm = transactionEm
         await writeEm.begin()
         try {
           await ctx.beforeTransactionalWrite?.(writeEm as never, input)
@@ -276,7 +281,6 @@ describe('Visit booking command serialization', () => {
     })
     const bus = createVisitBookingSerializingCommandBus({
       commandBus: new CommandBus(),
-      em: transactionEm as never,
     })
     const input = {
       tenantId: TENANT_ID,
@@ -317,6 +321,64 @@ describe('Visit booking command serialization', () => {
       input: expect.objectContaining({ staffUserIds: [MODIFIED_USER_ID] }),
       queryEngine: expect.anything(),
     }))
+  })
+
+  it('leaves the command transaction to the handler so a system actor RBAC lookup failure stays non-fatal', async () => {
+    const executedContexts: Array<{ transactionalEm?: unknown }> = []
+    registerCommand({
+      id: 'customers.interactions.create',
+      execute: async (_input: Record<string, unknown>, ctx) => {
+        executedContexts.push(ctx)
+        return { interactionId: 'task-from-sync' }
+      },
+    })
+    registerCommandInterceptors([{
+      moduleId: 'test-observer',
+      interceptors: [{
+        id: 'test.observe-interactions',
+        targetCommand: 'customers.interactions.create',
+        async beforeExecute() {
+          return { ok: true }
+        },
+      }],
+    }])
+    const getGrantedFeatures = jest.fn(async () => {
+      throw new Error('invalid input syntax for type uuid: "system:example_customers_sync:inbound"')
+    })
+    const getGrantedFeaturesWithEntityManager = jest.fn(async () => {
+      throw new Error('invalid input syntax for type uuid: "system:example_customers_sync:inbound"')
+    })
+    const bus = createVisitBookingSerializingCommandBus({ commandBus: new CommandBus() })
+
+    await expect(bus.execute('customers.interactions.create', {
+      input: {
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        entityId: ENTITY_ID,
+        interactionType: 'task',
+        title: 'Synced todo',
+      },
+      ctx: {
+        auth: {
+          sub: 'system:example_customers_sync:inbound',
+          tenantId: TENANT_ID,
+          orgId: ORGANIZATION_ID,
+        },
+        selectedOrganizationId: ORGANIZATION_ID,
+        organizationIds: [ORGANIZATION_ID],
+        organizationScope: null,
+        container: {
+          resolve: (token: string) => token === 'rbacService'
+            ? { getGrantedFeatures, getGrantedFeaturesWithEntityManager }
+            : undefined,
+        },
+      } as never,
+    })).resolves.toMatchObject({ result: { interactionId: 'task-from-sync' } })
+
+    expect(getGrantedFeaturesWithEntityManager).not.toHaveBeenCalled()
+    expect(getGrantedFeatures).toHaveBeenCalledTimes(1)
+    expect(executedContexts).toHaveLength(1)
+    expect(executedContexts[0].transactionalEm).toBeUndefined()
   })
 
   describe('update path', () => {
@@ -370,12 +432,10 @@ describe('Visit booking command serialization', () => {
         })))
       const input = { id: INTERACTION_ID, scheduledAt: new Date('2026-10-01T11:00:00.000Z'), durationMinutes: 30 }
       const first = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus(state, [], []) as never,
-        em: lockingEntityManager(manager, acquiredKeys, statements) as never,
+        commandBus: createContendingCommandBus(state, [], [], lockingEntityManager(manager, acquiredKeys, statements)) as never,
       })
       const second = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus(state, [], []) as never,
-        em: lockingEntityManager(manager, acquiredKeys, statements) as never,
+        commandBus: createContendingCommandBus(state, [], [], lockingEntityManager(manager, acquiredKeys, statements)) as never,
       })
 
       const outcomes = await Promise.allSettled([
@@ -401,8 +461,7 @@ describe('Visit booking command serialization', () => {
         { type: 'staff', id: USER_ID, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
       ])
       const bus = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
-        em: lockingEntityManager(manager, [], []) as never,
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], [], lockingEntityManager(manager, [], [])) as never,
       })
       await expect(bus.execute('customers.interactions.update', {
         input: { id: INTERACTION_ID, status: 'planned' },
@@ -415,8 +474,7 @@ describe('Visit booking command serialization', () => {
       const manager = new AdvisoryLockManager()
       mockQuery.mockImplementation(async () => ({ items: [storedVisit({ status: 'canceled' })], total: 1 }))
       const bus = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
-        em: lockingEntityManager(manager, [], []) as never,
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], [], lockingEntityManager(manager, [], [])) as never,
       })
       await expect(bus.execute('customers.interactions.update', {
         input: {
@@ -438,8 +496,7 @@ describe('Visit booking command serialization', () => {
         { type: 'staff', id: USER_ID, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
       ])
       const bus = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
-        em: lockingEntityManager(manager, [], []) as never,
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], [], lockingEntityManager(manager, [], [])) as never,
       })
       mockQuery.mockImplementation(async () => ({ items: [storedVisit({ status: 'canceled' })], total: 1 }))
       await expect(bus.execute('customers.interactions.update', {
@@ -459,8 +516,7 @@ describe('Visit booking command serialization', () => {
       const acquiredKeys: string[] = []
       mockQuery.mockImplementation(async () => ({ items: [storedVisit({ interaction_type: 'task' })], total: 1 }))
       const bus = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
-        em: lockingEntityManager(manager, acquiredKeys, []) as never,
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], [], lockingEntityManager(manager, acquiredKeys, [])) as never,
       })
       await expect(bus.execute('customers.interactions.update', {
         input: { id: INTERACTION_ID, interactionType: 'task', scheduledAt: new Date('2026-10-01T11:00:00.000Z') },
@@ -476,8 +532,7 @@ describe('Visit booking command serialization', () => {
       const acquiredKeys: string[] = []
       mockQuery.mockImplementation(async () => ({ items: [storedVisit({ interaction_type: 'task' })], total: 1 }))
       const bus = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
-        em: lockingEntityManager(manager, acquiredKeys, []) as never,
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], [], lockingEntityManager(manager, acquiredKeys, [])) as never,
       })
       await expect(bus.execute('customers.interactions.update', {
         input: { id: INTERACTION_ID, scheduledAt: new Date('2026-10-01T11:00:00.000Z') },
@@ -492,8 +547,7 @@ describe('Visit booking command serialization', () => {
       const manager = new AdvisoryLockManager()
       mockQuery.mockRejectedValue(new Error('connection reset'))
       const bus = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
-        em: lockingEntityManager(manager, [], []) as never,
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], [], lockingEntityManager(manager, [], [])) as never,
       })
       await expect(bus.execute('customers.interactions.update', {
         input: { id: INTERACTION_ID, scheduledAt: new Date('2026-10-01T11:00:00.000Z') },
@@ -505,8 +559,7 @@ describe('Visit booking command serialization', () => {
       const manager = new AdvisoryLockManager()
       mockQuery.mockImplementation(async () => ({ items: [storedVisit({ participants: '{not json' })], total: 1 }))
       const bus = createVisitBookingSerializingCommandBus({
-        commandBus: createContendingCommandBus({ bookings: 0 }, [], []) as never,
-        em: lockingEntityManager(manager, [], []) as never,
+        commandBus: createContendingCommandBus({ bookings: 0 }, [], [], lockingEntityManager(manager, [], [])) as never,
       })
       await expect(bus.execute('customers.interactions.update', {
         input: { id: INTERACTION_ID, scheduledAt: new Date('2026-10-01T11:00:00.000Z') },

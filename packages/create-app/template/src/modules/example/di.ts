@@ -1,5 +1,4 @@
 import type { CalendarEventTypeRegistry } from '@open-mercato/core/modules/customers/calendar-event-types'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import calendarVisitWidget from './widgets/injection/calendar-visit/widget'
 import { asFunction, asValue } from 'awilix'
@@ -44,11 +43,10 @@ export function register(container: AppContainer) {
     for (const patch of calendarVisitWidget.eventTypePatches ?? []) calendarRegistry.patch('example', patch)
   }
 
-  if (container.hasRegistration('commandBus') && container.hasRegistration('em')) {
+  if (container.hasRegistration('commandBus')) {
     const commandBus = container.resolve<CommandBus>('commandBus')
-    const em = container.resolve<EntityManager>('em')
     container.register({
-      commandBus: asValue(createVisitBookingSerializingCommandBus({ commandBus, em })),
+      commandBus: asValue(createVisitBookingSerializingCommandBus({ commandBus })),
     })
   }
 
