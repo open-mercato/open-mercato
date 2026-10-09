@@ -36,8 +36,10 @@ same id through `registerTimeTrackingSettingKey({ group: 'defaults', key: 'entry
 A contribution cannot replace a built-in, so that registration now throws at load; rename
 your key. Code that asserted the exact `defaults` group shape or counted
 `TIME_TRACKING_SETTING_KEYS` should expect the extra key. `TimeTrackingEntryDefaults` (and
-therefore `TimeTrackingSettings`) gains a required `entryMode: TimeEntryMode` field: an object
-literal typed as either one must add `entryMode: 'task'` to compile. Payloads sent to
+therefore `TimeTrackingSettings`) gains an optional `entryMode?: TimeEntryMode` field, so
+object literals written against the previous shape keep compiling. Settings read through
+`readTimeTrackingSettings` / `normalizeTimeTrackingSettings` always carry it; code that reads
+it from a hand-built object should treat an absent value as `'task'`. Payloads sent to
 `PUT /api/staff/timesheets/settings` and `writeTimeTrackingSettings` may still omit it — the
 registry fills in the default.
 

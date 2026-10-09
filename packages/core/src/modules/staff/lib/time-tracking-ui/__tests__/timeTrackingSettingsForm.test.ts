@@ -122,6 +122,24 @@ describe('settings draft', () => {
     expect(isSettingsDraftDirty({ ...baseline, assignmentGraceDaysText: '0' }, baseline)).toBe(true)
   })
 
+  it('treats a settings object without entryMode (pre-#6989 shape) as task mode', () => {
+    const legacySettings: TimeTrackingSettings = {
+      ...settings,
+      defaults: { billable: true, chainStartFromPreviousEnd: true },
+    }
+    const draft = toSettingsDraft(legacySettings)
+    expect(draft.defaultsEntryMode).toBe('task')
+    expect(toSettingsPayload(draft)?.defaults.entryMode).toBe('task')
+  })
+
+  it('treats a draft without defaultsEntryMode as task mode', () => {
+    const { defaultsEntryMode: _omitted, ...legacyDraft } = toSettingsDraft(settings)
+    const baseline = toSettingsDraft(settings)
+    expect(isSettingsDraftDirty(legacyDraft, baseline)).toBe(false)
+    expect(isSettingsDraftDirty(legacyDraft, { ...baseline, defaultsEntryMode: 'project' })).toBe(true)
+    expect(toSettingsPayload(legacyDraft)?.defaults.entryMode).toBe('task')
+  })
+
   it('exposes the candidate rounding rule the preview is driven by', () => {
     const draft = { ...toSettingsDraft(settings), roundingUnitMinutes: 10 as const, roundingDirection: 'nearest' as const }
     expect(draftRounding(draft)).toEqual({ unitMinutes: 10, direction: 'nearest' })

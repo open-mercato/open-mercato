@@ -10,6 +10,7 @@ import {
   normalizeTimeTrackingSettings,
   readTimeTrackingSettings,
   writeTimeTrackingSettings,
+  type TimeTrackingEntryDefaults,
 } from '../settings'
 
 const TENANT = 'tenant-1'
@@ -132,6 +133,18 @@ describe('time tracking entry mode setting', () => {
     const { service } = createConfigService({ [TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY]: 'tasks' })
     const read = await readTimeTrackingSettings(service, SCOPE)
     expect(read.defaults.entryMode).toBe('task')
+  })
+
+  it('normalizes and writes a pre-#6989 defaults group without entryMode as task', async () => {
+    const legacyDefaults: TimeTrackingEntryDefaults = { billable: false, chainStartFromPreviousEnd: true }
+    expect(normalizeTimeTrackingSettings({ defaults: legacyDefaults }).defaults).toEqual({
+      billable: false,
+      chainStartFromPreviousEnd: true,
+      entryMode: 'task',
+    })
+    const { store, service } = createConfigService()
+    await writeTimeTrackingSettings(service, SCOPE, { defaults: legacyDefaults })
+    expect(store.get(TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY)).toBe('task')
   })
 
   it('round-trips project mode and keeps the other defaults', async () => {

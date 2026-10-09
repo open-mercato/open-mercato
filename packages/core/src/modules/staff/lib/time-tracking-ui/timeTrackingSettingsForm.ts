@@ -60,7 +60,7 @@ export type TimeTrackingSettingsDraft = {
   roundingDirection: RoundingSettings['direction']
   defaultsBillable: boolean
   defaultsChainStartFromPreviousEnd: boolean
-  defaultsEntryMode: TimeEntryMode
+  defaultsEntryMode?: TimeEntryMode
   /** Free text: empty means "no daily target", which is a real, storable value. */
   dailyHoursText: string
   warningsOverlap: boolean
@@ -83,7 +83,7 @@ export function toSettingsDraft(settings: TimeTrackingSettings): TimeTrackingSet
     roundingDirection: settings.rounding.direction,
     defaultsBillable: settings.defaults.billable,
     defaultsChainStartFromPreviousEnd: settings.defaults.chainStartFromPreviousEnd,
-    defaultsEntryMode: settings.defaults.entryMode,
+    defaultsEntryMode: settings.defaults.entryMode ?? 'task',
     dailyHoursText: settings.targets.dailyHours === null ? '' : String(settings.targets.dailyHours),
     warningsOverlap: settings.warnings.overlap,
     warningsRunningTimer: settings.warnings.runningTimer,
@@ -137,7 +137,7 @@ export function toSettingsPayload(draft: TimeTrackingSettingsDraft): TimeTrackin
     defaults: {
       billable: draft.defaultsBillable,
       chainStartFromPreviousEnd: draft.defaultsChainStartFromPreviousEnd,
-      entryMode: draft.defaultsEntryMode,
+      entryMode: draft.defaultsEntryMode ?? 'task',
     },
     targets: { dailyHours },
     warnings: { overlap: draft.warningsOverlap, runningTimer: draft.warningsRunningTimer },
@@ -160,7 +160,7 @@ export function isSettingsDraftDirty(
     draft.roundingDirection !== baseline.roundingDirection ||
     draft.defaultsBillable !== baseline.defaultsBillable ||
     draft.defaultsChainStartFromPreviousEnd !== baseline.defaultsChainStartFromPreviousEnd ||
-    draft.defaultsEntryMode !== baseline.defaultsEntryMode ||
+    (draft.defaultsEntryMode ?? 'task') !== (baseline.defaultsEntryMode ?? 'task') ||
     draft.dailyHoursText.trim() !== baseline.dailyHoursText.trim() ||
     draft.warningsOverlap !== baseline.warningsOverlap ||
     draft.warningsRunningTimer !== baseline.warningsRunningTimer ||

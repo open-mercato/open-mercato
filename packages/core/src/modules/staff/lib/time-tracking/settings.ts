@@ -58,7 +58,12 @@ export type TimeEntryMode = 'task' | 'project'
 export type TimeTrackingEntryDefaults = {
   billable: boolean
   chainStartFromPreviousEnd: boolean
-  entryMode: TimeEntryMode
+  /**
+   * Optional so a literal written against the pre-#6989 shape still compiles. Read
+   * through `normalizeTimeTrackingSettings`, it is always present; when absent, treat
+   * it as `'task'`.
+   */
+  entryMode?: TimeEntryMode
 }
 
 export type TimeTrackingTargets = {

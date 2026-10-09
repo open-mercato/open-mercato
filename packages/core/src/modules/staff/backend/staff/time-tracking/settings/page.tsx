@@ -477,7 +477,7 @@ export default function TimeTrackingSettingsPage() {
                     {t('staff.time_tracking.settings.defaults.entryMode', 'New entries are logged against')}
                   </Label>
                   <SegmentedControl
-                    value={draft.defaultsEntryMode}
+                    value={draft.defaultsEntryMode ?? 'task'}
                     onValueChange={(value) => {
                       if (value !== 'task' && value !== 'project') return
                       patchDraft({ defaultsEntryMode: value })
