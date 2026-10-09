@@ -54,6 +54,9 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 - Failure-first focused test (local runner): `node --import tsx --test packages/create-app/src/lib/agent-production-deployment-guidance.test.ts` failed 1/2 before the owner change with the semantic assertion `missing routed production deployment guide`; the OMH-238 catalog contract itself passed.
 - Post-change local focused gate: production routing/safety, shared emission/ownership, and instruction-budget tests passed 13/13; CLI agentic ownership passed 18/18.
 - Documentation gate after merging and tightening the canonical page: `yarn workspace open-mercato-docs test` built the Docusaurus site and passed 23/23 tests.
+- The generated knowledge-change manifest passed its controller-owned base/head contract, including the required `routing` lane and OMH-238.
+- A freshly packed standalone scaffold passed OMH-238 deterministically and with a live Claude runner (1/1 in each lane).
+- The complete deterministic catalog passed 232/238 cases. Six unchanged cases (OMH-007, OMH-008, OMH-022, OMH-030, OMH-057, and OMH-064) exceed their installed external-skill context budgets; the release suite therefore stopped at the deterministic foundation before any writable action.
 
 ## Progress
 
@@ -72,8 +75,8 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 
 ### Phase 3: Harness synchronization and knowledge proof
 
-- [x] 3.1 Synchronize the governing spec/count surfaces and pass the new case — c77da7c06, fd7e12d1f
-- [ ] 3.2 Generate and validate the knowledge-change manifest and certified lane
+- [x] 3.1 Synchronize the governing spec/count surfaces and pass the new case — c77da7c06, fd7e12d1f, 35fde9759, b08b5f235
+- [x] 3.2 Generate and validate the knowledge-change manifest and certified lane — b08b5f235
 
 ### Phase 4: Final validation and review
 
