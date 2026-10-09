@@ -267,9 +267,13 @@ jobs:
           exit $rc
           INNER
           chmod +x "$WORK/inner.sh"
+          # Docker cannot hide the host's cores from os.cpus(), so Next would
+          # start one build worker per host core minus one. CIRCLE_NODE_TOTAL is
+          # the core count Next honors instead, so 2 gives the single worker a
+          # real 2-vCPU runner gets.
           docker run --rm --memory=7g --memory-swap=7g --cpus=2 \
             -u "$(id -u):$(id -g)" \
-            -e HOME=/home/runner -e COREPACK_HOME=/corepack -e CI=true \
+            -e HOME=/home/runner -e COREPACK_HOME=/corepack -e CI=true -e CIRCLE_NODE_TOTAL=2 \
             -v "$WORK/home:/home/runner" -v "$WORK/corepack:/corepack" \
             -v "$WORK/inner.sh:/inner.sh:ro" \
             -v "/tmp/standalone-app:/tmp/standalone-app" \

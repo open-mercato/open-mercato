@@ -118,6 +118,7 @@ test('develop snapshot standalone post-publish canary runs before .env is writte
   const canaryStep = workflow.slice(canaryIndex, configureIndex)
   assert.match(canaryStep, /\byarn ci\b/)
   assert.match(canaryStep, /docker run --rm --memory=7g --memory-swap=7g --cpus=2/)
+  assert.match(canaryStep, /-e CIRCLE_NODE_TOTAL=2\b/, 'Next must start one build worker, as on a real 2-vCPU runner')
 })
 
 test('standalone example activation helper is executable through the workflow CJS entrypoint', () => {
