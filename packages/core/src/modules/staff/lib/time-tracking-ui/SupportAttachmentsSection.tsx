@@ -1,0 +1,160 @@
+"use client"
+
+import * as React from 'react'
+import { Download, Paperclip } from 'lucide-react'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+const ENTITY_ID = 'staff:staff_time_task'
+const CUSTOMER_VISIBLE_TAG = 'customer-visible'
+const CUSTOMER_UPLOAD_PREFIX = 'customer-upload:'
+const MUTATION_CONTEXT_ID = 'staff-task-drawer-support-attachments'
+
+type StaffAttachment = {
+  id: string
+  url: string
+  fileName: string
+  fileSize: number
+  tags?: string[]
+}
+
+type SupportAttachmentsSectionProps = {
+  taskId: string
+}
+
+function formatSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/**
+ * Files on a portal ticket. Customer uploads and files staff chose to share carry
+ * the `customer-visible` tag and are the only ones the portal lists; everything
+ * else stays internal. "Share with customer" is unchecked by default.
+ */
+export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionProps) {
+  const t = useT()
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: MUTATION_CONTEXT_ID,
+    blockedMessage: t('staff.support.attachments.uploadFailed', 'Could not upload the file.'),
+  })
+  const [items, setItems] = React.useState<StaffAttachment[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [uploading, setUploading] = React.useState(false)
+  const [share, setShare] = React.useState(false)
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+
+  const load = React.useCallback(async () => {
+    try {
+      const response = await apiCall<{ items?: StaffAttachment[] }>(
+        `/api/attachments?entityId=${encodeURIComponent(ENTITY_ID)}&recordId=${encodeURIComponent(taskId)}`,
+      )
+      setItems(response.ok ? response.result?.items ?? [] : [])
+    } finally {
+      setLoading(false)
+    }
+  }, [taskId])
+
+  React.useEffect(() => {
+    void load()
+  }, [load])
+
+  const upload = React.useCallback(async (list: FileList | null) => {
+    if (!list || !list.length) return
+    setUploading(true)
+    try {
+      for (const file of Array.from(list)) {
+        const form = new FormData()
+        form.set('entityId', ENTITY_ID)
+        form.set('recordId', taskId)
+        form.set('file', file)
+        if (share) form.set('tags', JSON.stringify([CUSTOMER_VISIBLE_TAG]))
+        const result = await runMutation({
+          operation: () => apiCall('/api/attachments', { method: 'POST', body: form }),
+          context: {
+            formId: MUTATION_CONTEXT_ID,
+            resourceKind: 'attachments.attachment',
+            resourceId: taskId,
+            retryLastMutation,
+          },
+          mutationPayload: { taskId, fileName: file.name, shared: share },
+        })
+        if (!result.ok) flash(t('staff.support.attachments.uploadFailed', 'Could not upload the file.'), 'error')
+      }
+      await load()
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }, [load, retryLastMutation, runMutation, share, t, taskId])
+
+  return (
+    <section className="space-y-2" data-testid="support-attachments-section">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{t('staff.support.attachments.title', 'Ticket files')}</h3>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox
+              checked={share}
+              onCheckedChange={(value) => setShare(value === true)}
+              aria-label={t('staff.support.attachments.shareWithCustomer', 'Share with customer')}
+            />
+            {t('staff.support.attachments.shareWithCustomer', 'Share with customer')}
+          </label>
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            className="sr-only"
+            data-testid="support-attachments-input"
+            onChange={(event) => void upload(event.target.files)}
+          />
+          <Button type="button" variant="outline" size="sm" disabled={uploading} onClick={() => inputRef.current?.click()}>
+            {uploading ? <Spinner className="mr-2 h-4 w-4" /> : <Paperclip className="mr-2 h-4 w-4" />}
+            {t('staff.support.attachments.upload', 'Upload')}
+          </Button>
+        </div>
+      </div>
+      {loading ? (
+        <Spinner />
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t('staff.support.attachments.empty', 'No files on this ticket.')}</p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item) => {
+            const tags = item.tags ?? []
+            const visible = tags.includes(CUSTOMER_VISIBLE_TAG)
+            const fromCustomer = tags.some((tag) => tag.startsWith(CUSTOMER_UPLOAD_PREFIX))
+            return (
+              <li key={item.id} className="flex items-center justify-between gap-2 text-sm">
+                <a className="flex min-w-0 items-center gap-2 text-foreground hover:underline" href={item.url}>
+                  <Download className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.fileName}</span>
+                  <span className="shrink-0 text-muted-foreground">{formatSize(item.fileSize)}</span>
+                </a>
+                <div className="flex shrink-0 gap-1">
+                  {fromCustomer ? (
+                    <Badge variant="outline">{t('staff.support.attachments.fromCustomer', 'From customer')}</Badge>
+                  ) : null}
+                  <Badge variant={visible ? 'secondary' : 'outline'}>
+                    {visible
+                      ? t('staff.support.attachments.visible', 'Visible to customer')
+                      : t('staff.support.attachments.internal', 'Internal')}
+                  </Badge>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}

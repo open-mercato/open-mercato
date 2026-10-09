@@ -40,7 +40,7 @@ import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@ope
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { StaffTeamMember, StaffTimeProject, StaffTimeTask, StaffTimeTaskStatus } from '../data/entities'
+import { StaffSupportTicket, StaffTeamMember, StaffTimeProject, StaffTimeTask, StaffTimeTaskStatus } from '../data/entities'
 import {
   staffTimeTaskCreateSchema,
   staffTimeTaskStatusChangeSchema,
@@ -102,7 +102,7 @@ export const TASK_REFERENCE_CONFLICT_CODE = 'task_reference_conflict'
 
 const logger = createLogger('staff').child({ component: 'commands/timesheets-tasks' })
 
-const taskCrudIndexer: CrudIndexerConfig<StaffTimeTask> = {
+export const taskCrudIndexer: CrudIndexerConfig<StaffTimeTask> = {
   entityType: 'staff:staff_time_task',
 }
 
@@ -111,7 +111,7 @@ const taskCrudIndexer: CrudIndexerConfig<StaffTimeTask> = {
  * lifecycle `…status_changed` event belongs to the dedicated status endpoint that
  * owns the drag-and-drop move, not to these generic writes.
  */
-const taskCrudEvents: CrudEventsConfig<StaffTimeTask> = {
+export const taskCrudEvents: CrudEventsConfig<StaffTimeTask> = {
   module: 'staff',
   entity: 'timesheets.time_task',
   persistent: true,
@@ -136,7 +136,7 @@ const taskCrudEvents: CrudEventsConfig<StaffTimeTask> = {
  * "changed by someone else" until the entry expired. `ENABLE_CRUD_API_CACHE` off
  * hides it; the ephemeral QA and integration environments run with it on.
  */
-const TASK_LIST_CACHE_RESOURCE = `${taskCrudEvents.module}.${taskCrudEvents.entity}`
+export const TASK_LIST_CACHE_RESOURCE = `${taskCrudEvents.module}.${taskCrudEvents.entity}`
 
 type Translate = (key: string, fallback: string) => string
 
@@ -336,7 +336,7 @@ async function requireProject(
  * otherwise the project's `is_default` entry point. The board invariants guarantee one
  * exists; the positional fallback only covers a board repaired by hand.
  */
-async function resolveTaskStatus(
+export async function resolveTaskStatus(
   em: EntityManager,
   timeProjectId: string,
   requestedStatusId: string | null | undefined,
@@ -408,7 +408,7 @@ async function requireStaffMember(
  * Order within a column, on the same gap grid the columns themselves use: a drop
  * between two cards writes one row instead of renumbering the stack.
  */
-async function nextTaskPosition(
+export async function nextTaskPosition(
   em: EntityManager,
   timeProjectId: string,
   taskStatusId: string,
@@ -427,7 +427,7 @@ async function nextTaskPosition(
  * the next task reuse that reference — and a closed report quoting the old one would
  * suddenly read as the new one.
  */
-async function readHighestSequenceNumber(
+export async function readHighestSequenceNumber(
   em: EntityManager,
   timeProjectId: string,
   scope: StaffCommandScope,
@@ -457,7 +457,7 @@ function assertNoProjectMove(rawInput: unknown, task: StaffTimeTask, translate: 
   })
 }
 
-function applyStatusToTask(task: StaffTimeTask, status: StaffTimeTaskStatus, now: Date): void {
+export function applyStatusToTask(task: StaffTimeTask, status: StaffTimeTaskStatus, now: Date): void {
   task.taskStatusId = status.id
   // Done-ness comes from the column, never from a boolean on the task: landing on a
   // terminal column closes it, leaving one re-opens it.
@@ -622,6 +622,30 @@ const createTaskCommand: CommandHandler<StaffTimeTaskCreateInput, { taskId: stri
   },
 }
 
+export type TaskAssigneeChangeReason = 'default' | 'claim' | 'release' | 'manual'
+
+export function emitTaskAssigneeChanged(
+  task: Pick<StaffTimeTask, 'id' | 'tenantId' | 'organizationId' | 'timeProjectId' | 'assigneeStaffMemberId'>,
+  previousAssigneeStaffMemberId: string | null,
+  changeKind: TaskAssigneeChangeReason,
+  actorUserId: string | null = null,
+): void {
+  void emitStaffEvent(
+    'staff.timesheets.time_task.assignee_changed',
+    {
+      id: task.id,
+      tenantId: task.tenantId,
+      organizationId: task.organizationId,
+      timeProjectId: task.timeProjectId,
+      previousAssigneeStaffMemberId,
+      assigneeStaffMemberId: task.assigneeStaffMemberId ?? null,
+      changeKind,
+      actorUserId,
+    },
+    { persistent: true },
+  ).catch((err) => logger.error('staff.timesheets.time_task.assignee_changed emit failed', { err, taskId: task.id }))
+}
+
 const updateTaskCommand: CommandHandler<StaffTimeTaskUpdateInput, { taskId: string }> = {
   id: staffTimeTaskCommandIds.update,
   async prepare(rawInput, ctx) {
@@ -650,6 +674,7 @@ const updateTaskCommand: CommandHandler<StaffTimeTaskUpdateInput, { taskId: stri
     let targetStatus: StaffTimeTaskStatus | null = null
     let targetParentTaskId: string | null | undefined
     let targetAssigneeStaffMemberId: string | null | undefined
+    const previousAssigneeStaffMemberId = task.assigneeStaffMemberId ?? null
 
     await withAtomicFlush(
       em,
@@ -706,6 +731,11 @@ const updateTaskCommand: CommandHandler<StaffTimeTaskUpdateInput, { taskId: stri
       events: taskCrudEvents,
       indexer: taskCrudIndexer,
     })
+
+    const nextAssigneeStaffMemberId = task.assigneeStaffMemberId ?? null
+    if (targetAssigneeStaffMemberId !== undefined && nextAssigneeStaffMemberId !== previousAssigneeStaffMemberId) {
+      emitTaskAssigneeChanged(task, previousAssigneeStaffMemberId, 'manual', ctx.auth?.sub ?? null)
+    }
 
     return { taskId: task.id }
   },
@@ -798,6 +828,7 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
 
     let children: StaffTimeTask[] = []
     let childIds: string[] = []
+    let supportTickets: StaffSupportTicket[] = []
 
     await withAtomicFlush(
       em,
@@ -811,6 +842,12 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
                 StaffTimeTask,
                 applyScopeToWhere<StaffTimeTask>({ parentTaskId: task.id, deletedAt: null }, scope),
               )
+          supportTickets = await em.find(StaffSupportTicket, {
+            taskId: { $in: [task.id, ...children.map((child) => child.id)] },
+            tenantId: task.tenantId,
+            organizationId: task.organizationId,
+            deletedAt: null,
+          })
         },
         () => {
           const plan = planTaskSoftDelete(task, children)
@@ -824,6 +861,12 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
             if (!child) continue
             child.deletedAt = now
             child.updatedAt = now
+          }
+          const removedTaskIds = new Set([task.id, ...childIds])
+          for (const ticket of supportTickets) {
+            if (!removedTaskIds.has(ticket.taskId)) continue
+            ticket.deletedAt = now
+            ticket.updatedAt = now
           }
           // Time entries are untouched on purpose: a closed report still has to
           // resolve this task's label months after it was removed from the board.
@@ -876,6 +919,7 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const ids = [before.id, ...(payload?.cascadedChildren ?? []).map((child) => child.id)]
     const restored: StaffTimeTask[] = []
+    const restoredTickets: StaffSupportTicket[] = []
 
     await withAtomicFlush(
       em,
@@ -886,12 +930,22 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, { taskId: string; child
             ...snapshotScopeWhere(snapshotScope),
           })
           restored.push(...tasks)
+          const tickets = await em.find(StaffSupportTicket, {
+            taskId: { $in: ids },
+            ...snapshotScopeWhere(snapshotScope),
+            deletedAt: { $ne: null },
+          })
+          restoredTickets.push(...tickets)
         },
         () => {
           // Undo restores the whole set the cascade removed, not just the parent.
           for (const task of restored) {
             task.deletedAt = null
             task.updatedAt = new Date()
+          }
+          for (const ticket of restoredTickets) {
+            ticket.deletedAt = null
+            ticket.updatedAt = new Date()
           }
         },
       ],

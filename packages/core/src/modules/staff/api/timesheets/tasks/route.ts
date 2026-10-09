@@ -31,7 +31,7 @@ import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shar
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { StaffTimeTask, StaffTimeTaskTag } from '../../../data/entities'
+import { StaffSupportTicket, StaffTimeTask, StaffTimeTaskStatus, StaffTimeTaskTag } from '../../../data/entities'
 import { staffTimeTaskCreateSchema, staffTimeTaskUpdateSchema } from '../../../data/validators'
 import { staffTimeTaskCommandIds } from '../../../commands/timesheets-tasks'
 import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
@@ -57,6 +57,8 @@ const F = {
   position: 'position',
   created_by_user_id: 'created_by_user_id',
   closed_at: 'closed_at',
+  source: 'source',
+  customer_id: 'customer_id',
   created_at: 'created_at',
   updated_at: 'updated_at',
 } as const
@@ -87,6 +89,13 @@ const listSchema = z
     parentTaskId: z.string().uuid().optional(),
     tagIds: z.string().optional(),
     topLevelOnly: z.string().optional(),
+    unassigned: z.string().optional(),
+    source: z.enum(['internal', 'portal']).optional(),
+    customerId: z.string().uuid().optional(),
+    supportCategory: z.string().optional(),
+    supportReference: z.string().optional(),
+    portalStatus: z.enum(['received', 'in_progress', 'resolved']).optional(),
+    supportUnnotified: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -214,6 +223,55 @@ async function resolveTaskIdsForTags(ctx: CrudCtx, tagIds: string[]): Promise<st
   }
 }
 
+type SupportFilterCriteria = {
+  supportCategory?: string
+  supportReference?: string
+  supportUnnotified?: boolean
+}
+
+/**
+ * Task ids whose support ticket row matches the requested support criteria. Like the
+ * tag lookup, a failed lookup narrows to nothing rather than widening the page.
+ */
+async function resolveTaskIdsForSupport(ctx: CrudCtx, criteria: SupportFilterCriteria): Promise<string[]> {
+  const tenantId = ctx.auth?.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  if (!tenantId || !organizationId) return []
+  try {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const where: Record<string, unknown> = { tenantId, organizationId, deletedAt: null }
+    if (criteria.supportCategory) where.categoryValue = criteria.supportCategory
+    if (criteria.supportReference) where.supportReference = { $ilike: `${escapeLikePattern(criteria.supportReference)}%` }
+    if (criteria.supportUnnotified) where.unnotifiedAt = { $ne: null }
+    const rows = await em.find(StaffSupportTicket, where, { fields: ['taskId'] })
+    return rows.map((row) => row.taskId)
+  } catch (err) {
+    logger.error('staff.timesheets.tasks support filter resolution failed', { err })
+    return []
+  }
+}
+
+async function resolveStatusIdsForPortalStatus(
+  ctx: CrudCtx,
+  portalStatus: 'received' | 'in_progress' | 'resolved',
+): Promise<string[]> {
+  const tenantId = ctx.auth?.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  if (!tenantId || !organizationId) return []
+  try {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const where: Record<string, unknown> = { tenantId, organizationId, deletedAt: null }
+    if (portalStatus === 'resolved') where.isDone = true
+    else if (portalStatus === 'received') Object.assign(where, { isDone: false, isDefault: true })
+    else Object.assign(where, { isDone: false, isDefault: false })
+    const rows = await em.find(StaffTimeTaskStatus, where, { fields: ['id'] })
+    return rows.map((row) => row.id)
+  } catch (err) {
+    logger.error('staff.timesheets.tasks portal status filter resolution failed', { err })
+    return []
+  }
+}
+
 /**
  * Every task query narrows to the projects the caller may actually see. Exported so
  * the access intersection is testable without standing up the CRUD factory.
@@ -235,6 +293,18 @@ export async function buildTaskListFilters(
   if (requestedTagIds !== null) {
     const tagged = requestedTagIds.length === 0 ? [] : await resolveTaskIdsForTags(ctx, requestedTagIds)
     narrowIds = narrowIds ? narrowIds.filter((id) => tagged.includes(id)) : tagged
+  }
+
+  const supportCategory = typeof query.supportCategory === 'string' ? query.supportCategory.trim() : ''
+  const supportReference = sanitizeSearchTerm(query.supportReference) ?? ''
+  const supportUnnotified = parseBooleanFlag(query.supportUnnotified)
+  if (supportCategory || supportReference || supportUnnotified) {
+    const supportTaskIds = await resolveTaskIdsForSupport(ctx, {
+      supportCategory: supportCategory || undefined,
+      supportReference: supportReference || undefined,
+      supportUnnotified,
+    })
+    narrowIds = narrowIds ? narrowIds.filter((id) => supportTaskIds.includes(id)) : supportTaskIds
   }
 
   const access = await resolveListProjectAccess(ctx)
@@ -266,10 +336,17 @@ export async function buildTaskListFilters(
 
   if (typeof query.taskStatusId === 'string' && query.taskStatusId.trim().length > 0) {
     filters[F.task_status_id] = query.taskStatusId.trim()
+  } else if (query.portalStatus) {
+    const statusIds = await resolveStatusIdsForPortalStatus(ctx, query.portalStatus)
+    filters[F.task_status_id] = { $in: statusIds.length > 0 ? statusIds : [IMPOSSIBLE_ID] }
   }
   if (typeof query.assigneeStaffMemberId === 'string' && query.assigneeStaffMemberId.trim().length > 0) {
     filters[F.assignee_staff_member_id] = query.assigneeStaffMemberId.trim()
+  } else if (parseBooleanFlag(query.unassigned)) {
+    filters[F.assignee_staff_member_id] = { $eq: null }
   }
+  if (query.source) filters[F.source] = query.source
+  if (query.customerId) filters[F.customer_id] = query.customerId
   if (typeof query.parentTaskId === 'string' && query.parentTaskId.trim().length > 0) {
     // The drawer's checklist: one parent's children, in position order.
     filters[F.parent_task_id] = query.parentTaskId.trim()
@@ -320,6 +397,8 @@ export const taskListFields = [
   F.position,
   F.created_by_user_id,
   F.closed_at,
+  F.source,
+  F.customer_id,
   F.created_at,
   F.updated_at,
 ] as const
@@ -408,6 +487,8 @@ export const taskListItemSchema = z.object({
   position: z.number().int().nullable().optional(),
   created_by_user_id: z.string().uuid().nullable().optional(),
   closed_at: z.string().nullable().optional(),
+  source: z.enum(['internal', 'portal']).nullable().optional(),
+  customer_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
   /** This task's own entries, in raw minutes. */

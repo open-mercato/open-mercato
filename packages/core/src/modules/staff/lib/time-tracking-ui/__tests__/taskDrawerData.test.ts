@@ -128,7 +128,16 @@ describe('taskDrawerData', () => {
         authorName: 'Anna Nowak',
         authorEmail: null,
         createdAt: '2026-07-17T14:22:00.000Z',
+        visibility: 'internal',
+        authorKind: 'staff',
+        updatedAt: null,
       })
+    })
+
+    it('reads the support visibility and author kind of a comment row', () => {
+      expect(
+        toDrawerComment({ id: 'c2', body: 'Thanks', visibility: 'customer', authorKind: 'customer' }),
+      ).toMatchObject({ visibility: 'customer', authorKind: 'customer' })
     })
 
     it('drops a comment row with no body', () => {

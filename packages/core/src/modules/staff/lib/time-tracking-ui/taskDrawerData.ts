@@ -22,6 +22,9 @@ export type DrawerComment = {
   authorName: string | null
   authorEmail: string | null
   createdAt: string | null
+  visibility: 'internal' | 'customer'
+  authorKind: 'staff' | 'customer'
+  updatedAt: string | null
 }
 
 export type DrawerEntry = {
@@ -57,6 +60,9 @@ export function toDrawerComment(row: BoardApiRow): DrawerComment | null {
     authorName: readString(row, 'authorName', 'author_name'),
     authorEmail: readString(row, 'authorEmail', 'author_email'),
     createdAt: readString(row, 'createdAt', 'created_at'),
+    visibility: readString(row, 'visibility') === 'customer' ? 'customer' : 'internal',
+    authorKind: readString(row, 'authorKind', 'author_kind') === 'customer' ? 'customer' : 'staff',
+    updatedAt: readString(row, 'updatedAt', 'updated_at'),
   }
 }
 

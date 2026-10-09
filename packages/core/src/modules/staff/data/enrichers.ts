@@ -5,6 +5,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import {
+  StaffSupportTicket,
   StaffTeamMember,
   StaffTimeProject,
   StaffTimeReport,
@@ -22,6 +23,7 @@ import {
   type MemberPreview,
 } from '../lib/timesheets-projects/listProjectMembersPreview'
 import { computeTaskRollups, EMPTY_TASK_ROLLUP } from '../lib/timesheets-tasks/computeTaskRollups'
+import { derivePortalStatus } from '../lib/support/portalStatus'
 
 const MANAGE_FEATURE = 'staff.timesheets.projects.manage'
 const RATES_FEATURE = 'staff.timesheets.rates.view'
@@ -635,6 +637,107 @@ const taskContextEnricher: ResponseEnricher<EntityRecord, TaskContextEnrichment>
   },
 }
 
+export type SupportTicketEnrichment = {
+  _staffSupport: {
+    ticket: {
+      id: string
+      supportReference: string
+      category: { value: string; label: string }
+      routedVia: string
+      portalStatus: string
+      customerSnapshot: Record<string, unknown> | null
+      reportedByCustomerUserId: string | null
+      unnotifiedAt: string | null
+      customerRequest: { subject: string; body: string } | null
+    } | null
+  }
+}
+
+const EMPTY_SUPPORT_TICKET: SupportTicketEnrichment = { _staffSupport: { ticket: null } }
+
+/**
+ * The customer request behind a portal ticket. Internal tasks get `ticket: null`.
+ * `customerRequest` is the encrypted original the portal shows, read here so the
+ * drawer can show staff exactly what the customer sees.
+ */
+const supportTicketEnricher: ResponseEnricher<EntityRecord, SupportTicketEnrichment> = {
+  id: 'staff.timesheets-tasks-support-ticket',
+  targetEntity: 'staff:staff_time_task',
+  priority: 4,
+  timeout: 3000,
+  critical: false,
+  fallback: { ...EMPTY_SUPPORT_TICKET },
+  cacheableOnListHit: false,
+
+  async enrichOne(record, context) {
+    const enriched = await this.enrichMany!([record], context)
+    return enriched[0]
+  },
+
+  async enrichMany(records, context) {
+    if (records.length === 0) return records as (EntityRecord & SupportTicketEnrichment)[]
+    const ctx = context as InternalContext
+    if (!ctx.tenantId || !ctx.organizationId) {
+      return records.map((record) => ({ ...record, ...EMPTY_SUPPORT_TICKET }))
+    }
+    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    const portalRecordIds = records
+      .filter((record) => record.source === 'portal' || record.source === undefined)
+      .map((record) => record.id)
+      .filter((id): id is string => typeof id === 'string')
+    if (portalRecordIds.length === 0) {
+      return records.map((record) => ({ ...record, ...EMPTY_SUPPORT_TICKET }))
+    }
+    const tickets = await findWithDecryption(
+      ctx.em.fork(),
+      StaffSupportTicket,
+      { taskId: { $in: portalRecordIds }, ...scope, deletedAt: null },
+      undefined,
+      scope,
+    )
+    if (tickets.length === 0) {
+      return records.map((record) => ({ ...record, ...EMPTY_SUPPORT_TICKET }))
+    }
+    const ticketByTask = new Map(tickets.map((ticket) => [ticket.taskId, ticket]))
+    const tasks = await ctx.em.fork().find(
+      StaffTimeTask,
+      { id: { $in: tickets.map((ticket) => ticket.taskId) }, ...scope },
+      { fields: ['id', 'taskStatusId'] },
+    )
+    const statusIds = [...new Set(tasks.map((task) => task.taskStatusId))]
+    const statuses = statusIds.length
+      ? await ctx.em.fork().find(StaffTimeTaskStatus, { id: { $in: statusIds }, ...scope }, { fields: ['id', 'isDefault', 'isDone'] })
+      : []
+    const statusById = new Map(statuses.map((status) => [status.id, status]))
+    const statusByTask = new Map(tasks.map((task) => [task.id, statusById.get(task.taskStatusId) ?? null]))
+
+    return records.map((record) => {
+      const ticket = typeof record.id === 'string' ? ticketByTask.get(record.id) : undefined
+      if (!ticket) return { ...record, ...EMPTY_SUPPORT_TICKET }
+      const request = ticket.customerRequestSnapshot
+      return {
+        ...record,
+        _staffSupport: {
+          ticket: {
+            id: ticket.id,
+            supportReference: ticket.supportReference,
+            category: ticket.categorySnapshot,
+            routedVia: ticket.routedVia,
+            portalStatus: derivePortalStatus(statusByTask.get(ticket.taskId) ?? null),
+            customerSnapshot: ticket.customerSnapshot ?? null,
+            reportedByCustomerUserId: ticket.reportedByCustomerUserId ?? null,
+            unnotifiedAt: ticket.unnotifiedAt ? ticket.unnotifiedAt.toISOString() : null,
+            customerRequest:
+              request && typeof request === 'object' && typeof request.subject === 'string'
+                ? { subject: request.subject, body: typeof request.body === 'string' ? request.body : '' }
+                : null,
+          },
+        },
+      }
+    })
+  },
+}
+
 /**
  * What a report row cannot say about itself: whether it is frozen, how many entries
  * the freeze holds, and whether anyone has taken a file out of it.
@@ -787,6 +890,7 @@ const apiEnrichers: ResponseEnricher[] = [
   taskRollupEnricher,
   taskTagEnricher,
   taskContextEnricher,
+  supportTicketEnricher,
   timeEntryEnricher,
   reportEnricher,
 ]

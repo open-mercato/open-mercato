@@ -184,6 +184,7 @@ describe('query-engine surface', () => {
     'staff.timesheets-tasks-rollup',
     'staff.timesheets-tasks-tags',
     'staff.timesheets-tasks-context',
+    'staff.timesheets-tasks-support-ticket',
     'staff.timesheets-time-entries',
     'staff.timesheets-reports',
   ]

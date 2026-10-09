@@ -597,7 +597,7 @@ describe('TaskDrawer', () => {
     await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/comments`).length).toBe(1))
     const [, init] = writeCalls(`/tasks/${TASK_ID}/comments`)[0]
     expect(init?.method).toBe('POST')
-    expect(JSON.parse(String(init?.body))).toEqual({ body: 'Rabaty liczymy od netto.' })
+    expect(JSON.parse(String(init?.body))).toEqual({ body: 'Rabaty liczymy od netto.', visibility: 'internal' })
   })
 
   it('shows the inclusive rollup as the headline and the own/children split beneath it', async () => {
