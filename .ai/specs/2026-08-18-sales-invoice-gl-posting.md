@@ -423,11 +423,19 @@ only, never the invoice's `outstandingAmount`/`paidTotalAmount`. Resolution:
 - **Receipt posting into `ledger` — #6055.** Not this module. Invariant 2
   names it: receivable balance = Σ `grandTotalGrossAmount` of posted
   invoices less the receipts #6055 posts against the account. The event
-  contract is #6055's too.
+  contract is #6055's too. #6055 sizes each receipt on the ledger side
+  (invoice gross less its own earlier matches) and refuses an invoice with
+  no `JournalEntry` carrying this module's reference
+  (`referenceType: 'sales:sales_invoice'`, `referenceId: invoice.id`), so it
+  does not depend on `sales` balances and that reference is a contract:
+  changing it breaks #6055's `INVOICE_NOT_POSTED` check.
 - **The `sales`-side payment bridge — this module, Phase 2.** A subscriber on
   `cash_bank_management.statement_line.matched` that resolves the invoice to
   its order and currency and calls `commandBus.execute('sales.payments.create',
-  ...)` with an allocation to the invoice. A standalone invoice (nullable
+  ...)` with an allocation to the invoice. The event carries `settledAmount` and
+  `currencyCode` in the invoice's currency and `bankStatementLineId`, which
+  the bridge uses as the payment's `paymentReference` so a repeated event
+  does not create a second payment. A standalone invoice (nullable
   `SalesInvoice.order`) cannot be paid through that command at all today, so
   the bridge skips it and the gap is part of the `sales` change. It lives here because this is the
   only financial module with a hard dependency on `sales`; a `sales`-owned
@@ -438,7 +446,9 @@ only, never the invoice's `outstandingAmount`/`paidTotalAmount`. Resolution:
   manually (`POST /api/sales/payments`).
 - **Invoice-balance maintenance — `sales` (OM Core).** The payments commands
   must recompute the invoice's `outstandingAmount`/`paidTotalAmount` from
-  its allocations. Without it the bridge only updates orders. This is a
+  its allocations. Without it the bridge only updates orders. #6055's ledger correctness does
+  not wait for it (it sizes receipts ledger-side); the change serves the
+  invoice's displayed balances, aging and the bridge. This is a
   change to `sales`, outside the financial-module family and not designed
   here; it needs its own issue.
 - **#6055's text needs aligning** (its "follow-up change to
@@ -1553,3 +1563,6 @@ first round was confirmed fixed.
   carry the subscriber, which this document had not said; its text still
   needs aligning. Both the ownership split and API-only Phase 1 are decided
   by the author as the final design.
+  #6055 was also corrected on its side: it no longer reads
+  `SalesInvoice.outstandingAmount`, requires the invoice to be posted by this
+  module, and takes `settledAmount` as an explicit input.
