@@ -2198,3 +2198,32 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   `ec85ede99` (#6055).
 - **Wording (n1).** "planned" and "draft" for the Posting Rules Engine are now
   "unmerged".
+
+### 2026-10-09 (cont. — Cash & Bank / Sales Invoice GL Posting: receipt posting, overpayments)
+
+- **`sales` does not maintain invoice balances.** `sales.payments.create`
+  recalculates the *order's* `outstandingAmount`/`paidTotalAmount` only, and
+  requires an `orderId`; `sales.invoices.create`/`update` take
+  `outstandingAmount` from caller input (default `0`). Neither #6046 nor #6055
+  may size a posting from `SalesInvoice.outstandingAmount`. Maintaining invoice
+  balances from payment allocations is an OM Core `sales` change, outside the
+  financial family (needs its own issue).
+- **Ownership of receipt posting (decided by the spec author).** #6055 posts the
+  receipt into `ledger` and owns `cash_bank_management.statement_line.matched`;
+  #6046 owns the Phase 2 payment bridge to `sales.payments.create` (the only
+  financial module that may depend on `sales`; a `sales`-owned subscriber would
+  reverse the dependency direction); `sales` owns invoice-balance maintenance.
+  #6046 stays API-only in Phase 1.
+- **Cash & Bank sizing corrected.** The settled portion is an explicit
+  `settledAmount` (derived from the line it made the FX gain/loss identically
+  zero and booked overpayments as FX gain); the remaining balance is invoice
+  gross less this module's own earlier matches; the invoice must have a
+  `sales:sales_invoice` `JournalEntry` (`409 INVOICE_NOT_POSTED`).
+- **Overpayments (UoR art. 7 ust. 3).** A customer's overpayment is a liability
+  and is shown in liabilities, not netted against receivables; the only
+  exceptions (art. 37 ust. 7, art. 46 ust. 2a) do not cover trade settlements.
+  Hence a separate `customerOverpaymentAccountId` in #6055. Sources checked:
+  two secondary articles on poradnikprzedsiebiorcy.pl (overpayments in the
+  balance sheet; per-saldo presentation). **Unverified against the primary
+  text** (the statute page could not be fetched); Kieso not consulted (no copy
+  in the session). The account number is the tenant's chart, not prescribed.
