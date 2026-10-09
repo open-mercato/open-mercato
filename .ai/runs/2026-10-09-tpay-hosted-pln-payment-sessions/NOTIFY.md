@@ -9,3 +9,9 @@
 - Decisions (user-directed): push to the `fork` remote and open the PR in `mtytula/open-mercato` against `develop`; keep the existing branch `mtytula/tpay-spec-implementation` (already on `origin/develop` + spec commit) instead of a new `feat/` branch; single-line commit subjects without trailers; no changes to `.github/workflows/package-previews.yml`; no `yarn db:migrate`.
 - Decision: fork has only GitHub default labels — label guard skips missing pipeline/priority/risk labels.
 - Validation runner: local (no Open Mercato app container running).
+
+## 2026-10-09T13:30:12Z — checkpoint 1
+- Steps 1.1..1.4 (incl. 1.3-review-fix) verified: package typecheck, 128 unit tests, build, i18n sync, eslint all green. UI checks skipped (no UI files).
+- Delegations: 1.1, 1.2, 1.4 executor subagents (cheap/standard tier → smaller model); 1.3 executor at capable tier.
+- Decision: Tasks-table `Commit` cells are filled by the following commit (a commit cannot embed its own SHA).
+- Decision: Tpay HTTP client takes `environment` per call; amounts accept number or decimal string per Tpay OpenAPI "numeric"; adapter registered as `tpay:v1` + default; errors are `CrudHttpError` with translated text and `gateway_tpay.errors.*` code.
