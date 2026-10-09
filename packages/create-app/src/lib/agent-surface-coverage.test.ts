@@ -5,6 +5,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const agenticRoot = fileURLToPath(new URL('../../agentic/', import.meta.url))
+const workspaceRoot = path.resolve(agenticRoot, '../../..')
 
 function read(relativePath: string): string {
   return fs.readFileSync(path.join(agenticRoot, relativePath), 'utf8')
@@ -12,6 +13,10 @@ function read(relativePath: string): string {
 
 function readPackageDoc(relativePath: string): string {
   return fs.readFileSync(path.join(agenticRoot, '..', relativePath), 'utf8')
+}
+
+function readWorkspace(relativePath: string): string {
+  return fs.readFileSync(path.join(workspaceRoot, relativePath), 'utf8')
 }
 
 test('standalone discovery catalog covers every public module contribution family', () => {
@@ -529,7 +534,7 @@ test('every published case count states the shipped catalog or the portability s
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string }>
   const validators = JSON.parse(read('shared/ai/harness/validators.json')) as { catalog: { writableCaseIds: string[] } }
   // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
-  // "49 writable implementation/regression cases" and "231 live-routing cases" are checked too; a
+  // "49 writable implementation/regression cases" and "238 live-routing cases" are checked too; a
   // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
   const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)[ -][a-z/ -]{0,120}cases?\b/g
   const allowed = new Map([
@@ -555,6 +560,33 @@ test('every published case count states the shipped catalog or the portability s
         `${label}: "${match[0]}" states ${stated}, but ${[...allowed].map(([count, source]) => `${source} has ${count}`).join(' and ')}`,
       )
     }
+  }
+
+  const activeCountSurfaces: Array<[string, string, RegExp, number]> = [
+    [
+      '.ai/specs/2026-07-24-standalone-ai-development-harness.md risk matrix',
+      readWorkspace('.ai/specs/2026-07-24-standalone-ai-development-harness.md'),
+      /Rewriting generated guidance changes agent behavior broadly\. \| High \| ([0-9]+) semantic cases,/,
+      cases.length,
+    ],
+    [
+      '.ai/specs/2026-07-24-standalone-ai-development-harness.md writable runner',
+      readWorkspace('.ai/specs/2026-07-24-standalone-ai-development-harness.md'),
+      /Writable live runner \|[^\n]*all ([0-9]+) implementation\/regression cases,/,
+      validators.catalog.writableCaseIds.length,
+    ],
+    [
+      '.ai/skills/om-refresh-standalone-harness/SKILL.md portability lane',
+      readWorkspace('.ai/skills/om-refresh-standalone-harness/SKILL.md'),
+      /writable case set, currently ([0-9]+)\)/,
+      validators.catalog.writableCaseIds.length,
+    ],
+  ]
+
+  for (const [label, contents, pattern, expected] of activeCountSurfaces) {
+    const match = contents.match(pattern)
+    assert.ok(match, `${label}: active count surface is missing`)
+    assert.equal(Number(match[1]), expected, `${label}: active count must match the catalog`)
   }
 })
 

@@ -642,7 +642,7 @@ The case assertions cover every frozen/stable surface even though the harness do
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Rewriting generated guidance changes agent behavior broadly. | High | 214 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
+| Rewriting generated guidance changes agent behavior broadly. | High | 238 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
 | Root instructions are silently truncated by a default agent budget. | High | 12 KiB byte cap on both root sources plus representative generated initial-chain checks against 32,768 bytes (issue #4484). | Other tools may impose smaller undocumented budgets. |
 | Context files still drift from framework contracts. | High | Generated facts, installed source/AGENTS escape hatch, semantic contradiction scan, release version stamps. | Hand-written conceptual guides still require maintenance. |
 | Installer removes user content or breaks Windows. | High | Node path-safe implementation, ownership checks, junction tests, preserve stable flags/wrapper, generated-app tests. | Windows junction semantics vary by corporate policy. |
@@ -676,7 +676,7 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
 | Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 238 cases, one fresh session per case. |
 | Optional portability live runner | A different explicitly requested runner executes the exact 49-case representative read-only target; omission is recorded without blocking release. |
-| Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 48 implementation/regression cases, with bounded controller-materialized installed-package context when declared by the case. |
+| Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 49 implementation/regression cases, with bounded controller-materialized installed-package context when declared by the case. |
 | Writable route uniqueness | Every generated API, backend page, and frontend page route is normalized (including dynamic-segment names), compared with app-owned peers and the installed-route baseline in module facts, and duplicate URLs fail before semantic judging. Page metadata cannot override the filesystem-derived route used by the generator. |
 | Generated test execution | Fixed-argv execution of the generated Jest units plus Linux/Bubblewrap-isolated Playwright API and browser cases in canonical module-local paths; a host-loopback listener remains unreachable. |
 | Mandatory generative judge | Post-oracle/command/test judgment of every writable result in a bounded source-only bundle using `om-judge-agent-session`, pinned `om-code-review`, and the applicable design-system references. |
