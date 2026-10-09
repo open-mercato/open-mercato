@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   assignEmployeeToProjectFixture,
   deleteStaffEntityIfExists,
@@ -20,12 +21,18 @@ export const integrationMeta = {
  * the picked task's project read-only.
  *
  * The setting is tenant-global, so the spec reads it first and restores the exact
- * previous value in `finally`.
+ * previous value in `finally`. The employee's staff profile is created through the
+ * self endpoint when the tenant has none (no example data), and removed afterwards
+ * only when this spec created it.
  */
 
 const SETTINGS_PATH = '/api/staff/timesheets/settings'
 const TIME_ENTRIES_PATH = '/api/staff/timesheets/time-entries'
 const TASKS_PATH = '/api/staff/timesheets/tasks'
+const SELF_MEMBER_PATH = '/api/staff/team-members/self'
+const TEAM_MEMBERS_PATH = '/api/staff/team-members'
+
+type SelfStaffMember = { id: string; created: boolean }
 
 type SettingsBody = { defaults?: Record<string, unknown> } & Record<string, unknown>
 
@@ -48,13 +55,35 @@ async function writeEntryMode(
   expect(response.ok(), `PUT /api/staff/timesheets/settings (entryMode=${entryMode}) should succeed`).toBeTruthy()
 }
 
-async function readEmployeeStaffMemberId(request: APIRequestContext, token: string): Promise<string> {
-  const response = await apiRequest(request, 'GET', '/api/staff/team-members/self', { token })
-  expect(response.ok(), 'GET /api/staff/team-members/self should succeed').toBeTruthy()
-  const body = (await response.json()) as { member?: { id?: string } }
-  const id = body.member?.id ?? ''
-  expect(id.length > 0, 'Employee must have a staff member profile').toBeTruthy()
-  return id
+async function readSelfStaffMemberId(request: APIRequestContext, token: string): Promise<string | null> {
+  const response = await apiRequest(request, 'GET', SELF_MEMBER_PATH, { token })
+  expect(response.ok(), `GET ${SELF_MEMBER_PATH} should succeed: ${response.status()}`).toBeTruthy()
+  const body = await readJsonSafe<{ member?: { id?: string } | null }>(response)
+  const id = body?.member?.id
+  return typeof id === 'string' && id.length > 0 ? id : null
+}
+
+async function ensureSelfStaffMember(
+  request: APIRequestContext,
+  token: string,
+  displayName: string,
+): Promise<SelfStaffMember> {
+  const existing = await readSelfStaffMemberId(request, token)
+  if (existing) return { id: existing, created: false }
+  const response = await apiRequest(request, 'POST', SELF_MEMBER_PATH, { token, data: { displayName } })
+  expect(response.ok(), `POST ${SELF_MEMBER_PATH} should create the staff profile: ${response.status()}`).toBeTruthy()
+  const created = await readSelfStaffMemberId(request, token)
+  expect(created, 'The staff profile should be readable right after creation').toBeTruthy()
+  return { id: created as string, created: true }
+}
+
+async function removeSelfStaffMemberIfCreated(
+  request: APIRequestContext,
+  adminToken: string,
+  member: SelfStaffMember | null,
+): Promise<void> {
+  if (!member?.created) return
+  await deleteStaffEntityIfExists(request, adminToken, TEAM_MEMBERS_PATH, member.id)
 }
 
 async function openAddEntryDialog(page: Page): Promise<void> {
@@ -73,10 +102,12 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
     const original = await readSettings(request, adminToken)
     let assigned: TestTimeProjectFixture | null = null
     let unassigned: TestTimeProjectFixture | null = null
+    let selfMember: SelfStaffMember | null = null
     const entryIds: string[] = []
 
     try {
-      const staffMemberId = await readEmployeeStaffMemberId(request, employeeToken)
+      selfMember = await ensureSelfStaffMember(request, employeeToken, `QATT24 Employee ${stamp}`)
+      const staffMemberId = selfMember.id
       assigned = await createTestTimeProject(request, adminToken, {
         name: `QATT24 assigned ${stamp}`,
         code: `QA24A-${stamp}`,
@@ -147,6 +178,7 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       await writeEntryMode(request, adminToken, original, original.defaults?.entryMode === 'project' ? 'project' : 'task')
       if (assigned) await assigned.cleanup()
       if (unassigned) await unassigned.cleanup()
+      await removeSelfStaffMemberIfCreated(request, adminToken, selfMember)
     }
   })
 
@@ -159,9 +191,11 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
     const original = await readSettings(request, adminToken)
     let project: TestTimeProjectFixture | null = null
     let taskId: string | null = null
+    let selfMember: SelfStaffMember | null = null
 
     try {
-      const staffMemberId = await readEmployeeStaffMemberId(request, employeeToken)
+      selfMember = await ensureSelfStaffMember(request, employeeToken, `QATT24 Employee ${stamp}`)
+      const staffMemberId = selfMember.id
       project = await createTestTimeProject(request, adminToken, {
         name: `QATT24 task mode ${stamp}`,
         code: `QA24T-${stamp}`,
@@ -188,6 +222,7 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       await writeEntryMode(request, adminToken, original, original.defaults?.entryMode === 'project' ? 'project' : 'task')
       if (taskId) await deleteStaffEntityIfExists(request, adminToken, TASKS_PATH, taskId)
       if (project) await project.cleanup()
+      await removeSelfStaffMemberIfCreated(request, adminToken, selfMember)
     }
   })
 })
