@@ -135,6 +135,20 @@ describe('tpay client', () => {
     await expect(getTransaction(TOKEN, 'sandbox', 'x')).rejects.toMatchObject({ code: 'invalid_response' })
   })
 
+  it('normalizes numeric string amounts to numbers', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ transactionId: 'x', amount: '123.45', payments: { amountPaid: '100.00' } }),
+    )
+    const result = await getTransaction(TOKEN, 'sandbox', 'x')
+    expect(result.amount).toBe(123.45)
+    expect(result.payments?.amountPaid).toBe(100)
+  })
+
+  it.each(['', 'NaN', 'Infinity', '1e3', '12,50'])('rejects a non-numeric amount string %p', async (amount) => {
+    fetchMock.mockResolvedValue(jsonResponse({ transactionId: 'x', amount }))
+    await expect(getTransaction(TOKEN, 'sandbox', 'x')).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
   it('fails on an unexpected field type', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ transactionId: 'x', amount: 'ten' }))
     await expect(getTransaction(TOKEN, 'sandbox', 'x')).rejects.toMatchObject({ code: 'invalid_response' })

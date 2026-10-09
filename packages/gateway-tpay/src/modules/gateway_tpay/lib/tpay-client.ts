@@ -35,17 +35,22 @@ const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
 })
 
+const numericSchema = z
+  .union([z.number(), z.string().trim().regex(/^-?\d+(\.\d+)?$/)])
+  .transform((value) => Number(value))
+  .refine((value) => Number.isFinite(value))
+
 const transactionResponseSchema = z.object({
   transactionId: z.string().min(1).optional(),
   title: z.string().optional(),
   status: z.string().optional(),
   transactionPaymentUrl: z.string().optional(),
-  amount: z.number().optional(),
+  amount: numericSchema.optional(),
   currency: z.string().optional(),
   hiddenDescription: z.string().optional(),
   payments: z
     .object({
-      amountPaid: z.number().optional(),
+      amountPaid: numericSchema.optional(),
     })
     .passthrough()
     .optional(),

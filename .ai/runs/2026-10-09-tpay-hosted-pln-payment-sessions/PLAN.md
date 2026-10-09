@@ -14,8 +14,8 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Scaffold the gateway-tpay package with module metadata, ACL, setup and locales | dispatch:cheap | done | 7ec44b8a3 |
-| 1 | 1.2 | Add the bounded Tpay HTTP client | dispatch | done | self |
-| 1 | 1.3 | Add the Tpay status map and v1 gateway adapter | dispatch:capable | todo | — |
+| 1 | 1.2 | Add the bounded Tpay HTTP client | dispatch | done | aebaa8bae |
+| 1 | 1.3 | Add the Tpay status map and v1 gateway adapter | dispatch:capable | done | self |
 | 1 | 1.4 | Add the integration definition, callback URL validation, health check and DI registration | dispatch | todo | — |
 | 1 | 1.5 | Add the Tpay env preset, configure-from-env CLI and tenant setup hook | dispatch:cheap | todo | — |
 | 1 | 1.6 | Forward payer email and name from checkout submit to the session metadata | inline | todo | — |
