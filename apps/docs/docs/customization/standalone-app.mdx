@@ -218,7 +218,7 @@ The workflow installs with `yarn install --immutable`, so it needs the real lock
 
 The workflow runs on `ubuntu-latest` by default. To use a different runner without editing the file, set the **repository variable** `OM_CI_RUNS_ON` (Settings → Secrets and variables → Actions → Variables) to a single runner label, for example `self-hosted` or a larger hosted runner. A multi-label array such as `[self-hosted, linux, x64]` cannot be expressed through the variable; edit `runs-on` in `ci.yml` instead.
 
-Pull requests from forks always run on `ubuntu-latest`, whatever `OM_CI_RUNS_ON` says.
+Pull requests opened from another repository, such as a fork, always run on `ubuntu-latest`, whatever `OM_CI_RUNS_ON` says. Pull requests between branches of your own repository use the variable, even when that repository is itself a fork.
 
 :::warning Self-hosted runners on public repositories
 Code from a pull request runs on the runner that executes the workflow. The fork guard above keeps fork pull requests on GitHub-hosted runners, but if you edit `runs-on` yourself, do not send pull requests from untrusted contributors to a self-hosted runner.

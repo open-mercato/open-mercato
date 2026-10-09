@@ -468,8 +468,9 @@ jobs:
           export PATH="$HOME/bin:$PATH"
           yarn ci
           rc=$?
-          oom=$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events)
-          echo "[canary] rc=$rc peak_mib=$(( $(cat /sys/fs/cgroup/memory.peak) / 1048576 )) oom_kill=$oom"
+          oom=$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events 2>/dev/null)
+          peak=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo 0)
+          echo "[canary] rc=$rc peak_mib=$(( peak / 1048576 )) oom_kill=${oom:-unknown}"
           exit $rc
           INNER
           chmod +x "$WORK/inner.sh"

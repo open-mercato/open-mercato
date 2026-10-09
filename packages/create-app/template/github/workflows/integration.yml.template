@@ -19,7 +19,7 @@ concurrency:
 jobs:
   integration:
     name: Integration tests
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.OM_CI_INTEGRATION_RUNS_ON || vars.OM_CI_RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.OM_CI_INTEGRATION_RUNS_ON || vars.OM_CI_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 45
     steps:
       - name: Checkout

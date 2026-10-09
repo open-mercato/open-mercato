@@ -517,7 +517,7 @@ function removeCiWorkflows(targetDir: string): void {
 function listCiWorkflows(targetDir: string): string[] {
   const workflowsDir = join(targetDir, '.github', 'workflows')
   if (!existsSync(workflowsDir)) return []
-  return readdirSync(workflowsDir).sort()
+  return readdirSync(workflowsDir).sort((left, right) => left.localeCompare(right))
 }
 
 async function maybeRunAgenticSetup(

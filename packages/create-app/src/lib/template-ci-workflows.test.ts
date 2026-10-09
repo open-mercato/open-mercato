@@ -23,7 +23,7 @@ type RenderedWorkflow = { text: string; workflow: Workflow }
 
 const PLACEHOLDERS = { APP_NAME: 'demo-app', PACKAGE_VERSION: '9.9.9', REGISTRY_CONFIG: '' }
 const OWNERSHIP_SENTENCE = 'This file is yours: edit freely. No Open Mercato command rewrites it.'
-const FORK_GUARD = "github.event.pull_request.head.repo.fork && 'ubuntu-latest'"
+const FORK_GUARD = "github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest'"
 
 function renderWorkflow(name: string): RenderedWorkflow {
   const templatePath = fileURLToPath(
@@ -77,7 +77,7 @@ test('ci.yml quality-gate job keeps fork PRs on hosted runners and runs yarn ci 
   assert.equal(job.name, 'Quality gate')
   assert.equal(
     job['runs-on'],
-    "${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.OM_CI_RUNS_ON || 'ubuntu-latest' }}",
+    "${{ github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.OM_CI_RUNS_ON || 'ubuntu-latest' }}",
   )
   assert.equal(job['timeout-minutes'], 45)
 
@@ -125,7 +125,7 @@ test('integration.yml job runs the app-only suite and uploads the report on fail
   assert.equal(job.name, 'Integration tests')
   assert.equal(
     job['runs-on'],
-    "${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.OM_CI_INTEGRATION_RUNS_ON || vars.OM_CI_RUNS_ON || 'ubuntu-latest' }}",
+    "${{ github.event.pull_request && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.OM_CI_INTEGRATION_RUNS_ON || vars.OM_CI_RUNS_ON || 'ubuntu-latest' }}",
   )
   assert.equal(job['timeout-minutes'], 45)
 
