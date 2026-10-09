@@ -109,6 +109,18 @@ const taskStatusChanged = scope
   })
   .passthrough()
 
+/** Ids only: the event is `clientBroadcast: true`, so no names, no customer and no text. */
+const taskAssigneeChanged = scope
+  .extend({
+    id: z.string(),
+    timeProjectId: z.string(),
+    previousAssigneeStaffMemberId: z.string().nullable(),
+    assigneeStaffMemberId: z.string().nullable(),
+    changeKind: z.enum(['default', 'claim', 'release', 'manual']),
+    actorUserId: z.string().nullable().optional(),
+  })
+  .passthrough()
+
 /**
  * No `customerId`: the event is `clientBroadcast: true` and the DOM Event Bridge
  * applies no feature check, so the one field linking a report to a named client is
@@ -241,6 +253,7 @@ export const staffTimeTrackingEventPayloadSchemas = {
   'staff.timesheets.time_task.updated': crudPayload,
   'staff.timesheets.time_task.deleted': crudPayload,
   'staff.timesheets.time_task.status_changed': taskStatusChanged,
+  'staff.timesheets.time_task.assignee_changed': taskAssigneeChanged,
   'staff.timesheets.time_task_status.created': crudPayload,
   'staff.timesheets.time_task_status.updated': crudPayload,
   'staff.timesheets.time_task_status.deleted': crudPayload,

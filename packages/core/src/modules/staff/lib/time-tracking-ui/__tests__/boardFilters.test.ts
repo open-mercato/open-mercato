@@ -24,7 +24,7 @@ describe('boardFilters', () => {
         taskStatusId: STATUS_ID,
         tagIds: ['tag-a', 'tag-a', 42, ''],
       }),
-    ).toEqual({ assigneeStaffMemberId: null, taskStatusId: STATUS_ID, tagIds: ['tag-a'] })
+    ).toEqual({ assigneeStaffMemberId: null, taskStatusId: STATUS_ID, tagIds: ['tag-a'], unassigned: false })
   })
 
   it('counts every active filter, tags included', () => {

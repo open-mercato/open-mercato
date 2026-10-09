@@ -321,3 +321,132 @@ export function ProjectRoundingNotice() {
 
 /** Exported for unit tests only. */
 export const __testing = { memberLabel }
+
+const NO_DEFAULT_ASSIGNEE = '__none__'
+
+export type ProjectDefaultAssigneeFieldProps = {
+  projectId: string | null
+  value: string | null
+  onChange: (value: string | null) => void
+  disabled?: boolean
+}
+
+type DefaultAssigneeOption = { id: string; label: string; active: boolean }
+
+/**
+ * The project's default assignee for customer portal tickets. Only active project
+ * members are offered; a stored default whose membership has since gone inactive or
+ * been removed stays visible with a warning, because new tickets then fall to the
+ * project's assigners instead of failing.
+ */
+export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabled }: ProjectDefaultAssigneeFieldProps) {
+  const t = useT()
+  const [options, setOptions] = React.useState<DefaultAssigneeOption[]>([])
+  const [loaded, setLoaded] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!projectId) {
+      setOptions([])
+      setLoaded(true)
+      return
+    }
+    let cancelled = false
+    async function load() {
+      try {
+        const membersRes = await apiCall<{ items?: ProjectMemberRow[] }>(
+          `/api/staff/timesheets/time-projects/${projectId}/employees?pageSize=100`,
+        )
+        const memberRows = Array.isArray(membersRes.result?.items) ? membersRes.result.items : []
+        const memberships = memberRows
+          .map((row) => ({
+            staffMemberId: readString(row.staffMemberId) ?? readString(row.staff_member_id),
+            active: readString(row.status) !== 'inactive',
+          }))
+          .filter((row): row is { staffMemberId: string; active: boolean } => row.staffMemberId !== null)
+        if (memberships.length === 0) {
+          if (!cancelled) setOptions([])
+          return
+        }
+        const staffRes = await apiCall<{ items?: TeamMemberRow[] }>(
+          `/api/staff/team-members?ids=${memberships.map((row) => row.staffMemberId).join(',')}&pageSize=100`,
+        )
+        const staffRows = Array.isArray(staffRes.result?.items) ? staffRes.result.items : []
+        const labels = new Map(
+          staffRows
+            .map((row) => [readString(row.id), memberLabel(row)] as const)
+            .filter((entry): entry is readonly [string, string] => entry[0] !== null),
+        )
+        if (!cancelled) {
+          setOptions(
+            memberships.map((row) => ({
+              id: row.staffMemberId,
+              label: labels.get(row.staffMemberId) || row.staffMemberId,
+              active: row.active,
+            })),
+          )
+        }
+      } catch {
+        if (!cancelled) setOptions([])
+      } finally {
+        if (!cancelled) setLoaded(true)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [projectId])
+
+  const selected = value ? options.find((option) => option.id === value) ?? null : null
+  const activeOptions = options.filter((option) => option.active)
+  const showWarning = loaded && !!value && (!selected || !selected.active)
+
+  return (
+    <div className="flex flex-col gap-2" data-testid="project-default-assignee">
+      <Label htmlFor="project-default-assignee-select">
+        {t('staff.time_tracking.assigners.defaultAssignee', 'Default assignee for portal tickets')}
+      </Label>
+      <select
+        id="project-default-assignee-select"
+        className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+        value={value ?? NO_DEFAULT_ASSIGNEE}
+        disabled={disabled || !projectId}
+        onChange={(event) => {
+          const next = event.target.value
+          onChange(next === NO_DEFAULT_ASSIGNEE ? null : next)
+        }}
+      >
+        <option value={NO_DEFAULT_ASSIGNEE}>
+          {t('staff.time_tracking.assigners.defaultAssigneeNone', 'No default assignee')}
+        </option>
+        {activeOptions.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+        {value && (!selected || !selected.active) ? (
+          <option value={value}>{selected?.label ?? value}</option>
+        ) : null}
+      </select>
+      <p className="text-xs text-muted-foreground">
+        {t(
+          'staff.time_tracking.assigners.defaultAssigneeHelp',
+          'New customer portal tickets routed to this project are assigned to this member. Tasks created on the board stay assigned to their creator.',
+        )}
+      </p>
+      {showWarning ? (
+        <Alert variant="warning">
+          <AlertDescription>
+            {t(
+              'staff.time_tracking.assigners.defaultAssigneeInactive',
+              'This member is no longer an active project member. New tickets will be left unassigned and the assigners notified.',
+            )}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {!projectId ? (
+        <p className="text-xs text-muted-foreground">
+          {t('staff.time_tracking.assigners.defaultAssigneeAfterCreate', 'Save the project and add members to choose a default assignee.')}
+        </p>
+      ) : null}
+    </div>
+  )
+}
