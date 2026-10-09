@@ -422,7 +422,9 @@ only, never the invoice's `outstandingAmount`/`paidTotalAmount`. Resolution:
 
 - **Receipt posting into `ledger` — #6055.** Not this module. Invariant 2
   names it: receivable balance = Σ `grandTotalGrossAmount` of posted
-  invoices less the receipts #6055 posts against the account. The event
+  invoices less the settled part of the receipts #6055 posts against the account
+  (an overpayment goes to a separate liability account there, never to this
+  one). The event
   contract is #6055's too. #6055 sizes each receipt on the ledger side
   (invoice gross less its own earlier matches) and refuses an invoice with
   no `JournalEntry` carrying this module's reference
