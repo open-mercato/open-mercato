@@ -190,6 +190,9 @@ describe('OmnibusSettings', () => {
           result: { field: 'enabled', error: 'backfill_required_before_enable', channels: [CHANNEL_ID] },
         }
       }
+      if (_url.startsWith('/api/sales/channels')) {
+        return { ok: true, status: 200, result: { items: [{ id: CHANNEL_ID, name: 'Online EU' }] } }
+      }
       return { ok: true, status: 200, result: STORED_CONFIG }
     })
     await renderLoaded()
@@ -199,7 +202,8 @@ describe('OmnibusSettings', () => {
     const alert = await screen.findByTestId('catalog-omnibus-backfill-required')
     expect(alert).toHaveTextContent('Backfill required before enabling')
     expect(alert).toHaveTextContent('omnibus:backfill')
-    expect(alert).toHaveTextContent(CHANNEL_ID)
+    await waitFor(() => expect(alert).toHaveTextContent(`Online EU (${CHANNEL_ID})`))
+    expect(mockApiCall.mock.calls.some(([url]) => url === `/api/sales/channels?ids=${CHANNEL_ID}&pageSize=1`)).toBe(true)
     const [[, init]] = patchCalls()
     expect(JSON.parse(String(init?.body)).enabled).toBe(true)
   })

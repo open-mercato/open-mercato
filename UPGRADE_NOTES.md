@@ -120,11 +120,15 @@ Indication Directive, Art. 6a). Omnibus itself stays off until a tenant enables 
 - **Production hardening (recommended):** grant the application role `INSERT`/`SELECT` only:
   `REVOKE UPDATE, DELETE ON catalog_price_history_entries FROM <app_db_role>;`. The trigger is the
   active guard until you do.
-- **Backfill before enabling.** Run `mercato catalog omnibus:backfill --tenant <tenantId>` (optionally
-  `--channel-id <channelId>` per channel, `--dry-run` first) before turning Omnibus on. It writes one
-  baseline row per price that has no history yet and records the backfill coverage that the
-  configuration endpoint requires before it accepts `enabled: true`. Re-run it after raising
-  `lookbackDays`.
+- **Backfill before enabling.** Run `mercato catalog omnibus:backfill --tenant <tenantId>` (`--dry-run`
+  first) before turning Omnibus on. It writes one baseline row per price that has no history yet and
+  records the backfill coverage that the configuration endpoint requires before it accepts
+  `enabled: true`. Re-run it after raising `lookbackDays`.
+- **Which channels a tenant-wide run covers.** Without `--channel-id`, the backfill covers channel-less
+  prices plus the EU channels **already saved** in the Omnibus configuration. Enabling Omnibus and
+  mapping a new channel in one save is refused until that channel is backfilled. Either save the
+  channel mapping with Omnibus still off, run the backfill, then enable it; or run
+  `--channel-id <channelId>` for each channel listed in the "Backfill required" alert, then save again.
 - **Coverage is tenant-wide.** `--org <organizationId>` narrows which prices are backfilled, but such a
   run does **not** record coverage — only a run without `--org` does, so recorded coverage always means
   every organization of the tenant has its baselines.

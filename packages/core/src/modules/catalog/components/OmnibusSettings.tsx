@@ -189,6 +189,7 @@ export function OmnibusSettings() {
   const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({})
   const [formError, setFormError] = React.useState<string | null>(null)
   const [backfillChannels, setBackfillChannels] = React.useState<string[] | null>(null)
+  const [backfillChannelNames, setBackfillChannelNames] = React.useState<Record<string, string>>({})
   const [reloadToken, setReloadToken] = React.useState(0)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<OmnibusMutationContext>({
@@ -212,6 +213,29 @@ export function OmnibusSettings() {
   const requiredMessage = t('catalog.omnibus.errors.required', 'This field is required.')
   const duplicateChannelMessage = t('catalog.omnibus.errors.duplicateChannel', 'This channel is already configured.')
   const saveErrorMessage = t('catalog.omnibus.errors.save', 'Failed to save Omnibus settings.')
+  React.useEffect(() => {
+    const channelIds = backfillChannels?.filter((channelId) => channelId.length > 0) ?? []
+    if (!channelIds.length) return
+    let cancelled = false
+    const query = new URLSearchParams({ ids: channelIds.join(','), pageSize: String(Math.min(channelIds.length, 100)) })
+    apiCall<{ items?: Array<Record<string, unknown>> }>(`/api/sales/channels?${query.toString()}`)
+      .then((call) => {
+        if (cancelled || !call?.ok) return
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
+        const names: Record<string, string> = {}
+        for (const item of items) {
+          if (typeof item.id === 'string' && typeof item.name === 'string' && item.name.length) names[item.id] = item.name
+        }
+        setBackfillChannelNames(names)
+      })
+      .catch((err) => {
+        logger.warn('catalog.omnibus.settings.backfillChannelNames failed', { err })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [backfillChannels])
+
   const loadErrorMessage = t('catalog.omnibus.errors.load', 'Failed to load Omnibus settings.')
 
   React.useEffect(() => {
@@ -505,7 +529,9 @@ export function OmnibusSettings() {
                   {backfillChannels.length > 0 ? (
                     <p className="mt-1">
                       {t('catalog.omnibus.settings.backfill.channels', 'Channels without backfill: {{channels}}', {
-                        channels: backfillChannels.join(', '),
+                        channels: backfillChannels
+                          .map((channelId) => (backfillChannelNames[channelId] ? `${backfillChannelNames[channelId]} (${channelId})` : channelId))
+                          .join(', '),
                       })}
                     </p>
                   ) : null}
