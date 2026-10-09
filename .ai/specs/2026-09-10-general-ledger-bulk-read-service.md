@@ -60,7 +60,10 @@ one is filed).
   accounts doesn't grow the way a journal does; no pagination needed).
 - `getFiscalPeriod` / `findClosingEntries` (added 2026-10-08) — the
   period's dates and lock state, and the posted `CLOSING` entries dated
-  inside it. A statement or filing generator (annual financial statements,
+  inside it. `listFiscalPeriods` (added 2026-10-09) — the periods that
+  overlap a date range, so a caller can find a fiscal year's periods
+  (annual financial statements need a year's last period, a continuity
+  check and the prior year's periods). A statement or filing generator (annual financial statements,
   JPK_KR_PD) needs both and neither #6013 nor the REST routes offer them
   to an in-process caller.
 - Registered in `ledger`'s `di.ts` under a named token, resolved by any
@@ -174,7 +177,7 @@ established, and re-implements balance logic GL already owns).
 ## Proposed Solution
 
 A single new service, registered by `ledger` in its own DI container,
-exposing seven read-only methods. Every method takes `tenantId`/
+exposing eight read-only methods. Every method takes `tenantId`/
 `organizationId` as required, explicit arguments — not inferred from an
 HTTP request's auth context, because a caller here may not be inside an
 HTTP request at all (a background worker generating an annual filing,
@@ -225,8 +228,16 @@ export interface LedgerBulkReadService {
   findClosingEntries(params: {
     tenantId: string
     organizationId: string
-    periodId: string
+        periodId: string
   }): Promise<ClosingEntryDto[]>        // { id, operationDate, sequenceNumber, isReversed }
+
+  // Added 2026-10-09
+  listFiscalPeriods(params: {
+    tenantId: string
+    organizationId: string
+    from: Date
+    to: Date
+  }): Promise<FiscalPeriodDto[]>        // ordered by startDate
 }
 ```
 
@@ -235,10 +246,18 @@ caller's scope or is soft-deleted. `findClosingEntries` returns the posted
 entries of type `CLOSING` whose `operationDate` falls inside the period,
 ordered by `sequenceNumber`, with `isReversed` set when a `REVERSAL` of the
 entry exists (derived from the reversal link GL core already keeps), so a
-caller can tell a superseded closing entry from the live one. Neither
-method returns anything a caller cannot already read through the REST
-routes; neither writes, and neither exposes the `FiscalPeriod` or
-`JournalEntry` entities.
+caller can tell a superseded closing entry from the live one. `listFiscalPeriods`
+returns every non-deleted period of the caller's scope that **overlaps**
+the inclusive `from`–`to` range (a period overlaps when `startDate <= to`
+and `endDate >= from`), ordered by `startDate`, as the same
+`FiscalPeriodDto` `getFiscalPeriod` returns. Overlap rather than
+containment is deliberate: a caller checking that a calendar year is
+tiled by whole periods must also see a period that straddles a boundary.
+It returns an empty array when nothing overlaps, and has no pagination
+because the number of periods per year is small (twelve is typical).
+None of the three methods returns anything a caller cannot already read
+through the REST routes; none writes, and none exposes the `FiscalPeriod`
+or `JournalEntry` entities.
 
 `getZois` calls #6013's existing `getTrialBalance`/`getAccountBalance`
 functions directly — it does not recompute anything. `iterateJournalEntries`/
@@ -481,7 +500,7 @@ single-entity-designed tool); Apache Fineract remains not yet checked
 ### New files
 
 - `packages/ledger/src/modules/ledger/services/bulk-read-service.ts` —
-  the seven methods above, each delegating to existing query logic.
+  the eight methods above, each delegating to existing query logic.
 - `packages/ledger/src/modules/ledger/di.ts` — register the service
   under a named token (e.g. `ledgerBulkReadService`) resolvable via
   `container.resolve('ledgerBulkReadService')` by any module declaring
@@ -582,6 +601,10 @@ without hardcoding them client-side.
   period; `findClosingEntries` returns the `CLOSING` entry dated in the
   period, flags a reversed one with `isReversed`, and never returns
   entries of another type, another period or another tenant.
+- `listFiscalPeriods` returns the periods overlapping a range in
+  `startDate` order, including one that straddles the range boundary,
+  excludes soft-deleted periods and periods of another tenant or
+  organization, and returns `[]` for a range with no period.
 - `getZois` returns byte-identical figures to
   `GET /api/ledger/reports/trial-balance` for the same
   `periodId`/`organizationId`/`tenantId` — a regression guard against
@@ -754,7 +777,7 @@ tests.
    `iterateJournalEntryLines` (cursor-paginated, wrapping step 1's
    query), `getZois` (delegating to #6013's `getAccountBalance`/
    `getTrialBalance`), `listAccounts`/`listAccountGroups`,
-   `getFiscalPeriod`/`findClosingEntries` (thin reads over the existing
+   `getFiscalPeriod`/`findClosingEntries`/`listFiscalPeriods` (thin reads over the existing
    `FiscalPeriod` and `JournalEntry` queries; no new locking or posting
    logic).
 3. Register the service in `di.ts` under a named, documented token.
@@ -929,3 +952,17 @@ Findings recorded in `financial-module-knowledge-base.md` §3.
   a separate package (`financial_pl_accounting`) that
   declares `requires` on `ledger` and resolves this service; `financial_pl`
   itself does not.
+
+### 2026-10-09 — listing a range of fiscal periods
+
+- **Gap found while resolving the second review of the annual financial
+  statements spec (PR #6188).** A statement for a fiscal year needs the
+  year's last period, a check that the year's periods tile the calendar
+  year (#6013 supports calendar fiscal years only), and the prior year's
+  periods for the comparative column. `getFiscalPeriod` reads one period
+  by id and cannot answer any of these.
+- **Decision (2026-10-09).** One more read-only method,
+  `listFiscalPeriods({ tenantId, organizationId, from, to })`, returning
+  the periods that overlap the range ordered by `startDate`. The service
+  goes from seven to eight methods. No change to the data model, ACL,
+  events or Phase 2.
