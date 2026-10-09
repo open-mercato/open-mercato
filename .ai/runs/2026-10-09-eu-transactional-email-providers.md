@@ -51,10 +51,11 @@ Ship tested Brevo and Mailjet system-email provider packages on the existing Com
 ### Phase 4: Verification and review
 
 - [x] 4.1 Refresh generated artifacts and run focused validation — e4c3fe1cc
-- [ ] 4.2 Run the configured validation gate and address review findings
+- [x] 4.2 Run the configured validation gate and address review findings — eb14fd92b
 
 ## Validation Notes
 
-- Provider typechecks and tests pass: Brevo 22/22, Mailjet 27/27.
+- Provider typechecks and tests pass: Brevo 23/23, Mailjet 29/29.
 - Generation, package builds, app build, template sync, dependency checks, and i18n sync/usage checks pass.
-- The repository test gate exposed two baseline `progressService` fixtures that omitted the tenant scope now enforced by the service. The fixtures were corrected; the focused suite passes 102/102 before the full gate rerun.
+- An independent re-review approved the exact implementation head after reproducing the Mailjet size boundary and checking CLI reruns, secret-safe logs, partial presets, and documentation.
+- The full local test gate reached 42/48 package tasks and failed only two reproducible assertions in unchanged progress-service files. Focused provider tests pass, and GitHub CI remains authoritative for the repository-wide gate.
