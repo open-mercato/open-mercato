@@ -127,4 +127,20 @@ describe('DataTable — placement of injected columns that arrive after the firs
     )
     await waitFor(() => expect(headerOrder()).toEqual(['Amount', 'Status', 'Gateway status', 'Reference']))
   })
+
+  it('follows a Before anchor that a stored column order moved', async () => {
+    await renderWithLateInjectedColumn(
+      { position: InjectionPosition.Before, relativeTo: 'status' },
+      { columnOrder: ['amount', 'status', 'reference'] },
+    )
+    await waitFor(() => expect(headerOrder()).toEqual(['Amount', 'Gateway status', 'Status', 'Reference']))
+  })
+
+  it('follows an After anchor on the last defined column that a stored column order moved', async () => {
+    await renderWithLateInjectedColumn(
+      { position: InjectionPosition.After, relativeTo: 'amount' },
+      { columnOrder: ['amount', 'status', 'reference'] },
+    )
+    await waitFor(() => expect(headerOrder()).toEqual(['Amount', 'Gateway status', 'Status', 'Reference']))
+  })
 })
