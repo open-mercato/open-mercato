@@ -42,6 +42,9 @@ The source PR was revised on 2026-09-29 after the original execution plan and St
 | 3 | 3.1 | Add self-contained event-type and custom-panel integration coverage | group:D:capable | done | 4bb14a34c |
 | 3 | 3.2 | Document the frozen extension contract and refresh standalone coverage | group:D:capable | done | 437dbcace |
 | 3 | 3.3 | Verify live UI flows and publish screenshot evidence to the PR | group:D:capable | done | 2ebe740d7 |
+| 4 | 4.1 | Fix Customers status dictionaries on mobile and cover the responsive layout | group:C:capable | todo | — |
+| 4 | 4.2 | Audit and complete the Example Visit availability E2E matrix | group:D:capable | todo | — |
+| 4 | 4.3 | Run the configured validation, review, and refreshed mobile QA evidence | group:D:capable | todo | — |
 
 ## Progress
 
@@ -71,6 +74,12 @@ The source PR was revised on 2026-09-29 after the original execution plan and St
 - [x] 3.2 Document the frozen extension contract and refresh standalone coverage — 437dbcace
 - [x] 3.3 Verify live UI flows and publish screenshot evidence to the PR — 2ebe740d7
 
+### Phase 4: Mobile dictionary follow-up and Visit coverage audit
+
+- [ ] 4.1 Fix Customers status dictionaries on mobile and cover the responsive layout
+- [ ] 4.2 Audit and complete the Example Visit availability E2E matrix
+- [ ] 4.3 Run the configured validation, review, and refreshed mobile QA evidence
+
 ## Goal
 
 Implement all three current specifications from PR #6687 so administrators can configure bounded calendar event-type behavior and enabled modules can add, patch, hide, wrap, or replace event types without coupling to the Customers module. The example module must add `visit` through a headless widget, rename Meeting and hide Note through module configuration, validate availability in the mounted form widget and server, and render an availability-aware Visit panel through UMES.
@@ -83,6 +92,7 @@ Implement all three current specifications from PR #6687 so administrators can c
 - Additive `CrudForm` fieldset filtering; calendar editor resolution, fallback warnings, destructive-switch confirmation, and the frozen `section:customers.calendar-event-editor.type-panel` UMES handle.
 - Authoritative Customers dictionary behavior editor plus removal of the duplicate display-only calendar settings inputs in favor of a link.
 - Mirrored `apps/mercato` and `packages/create-app/template` example contributions, including Visit availability checks, custom panel, and tests that prove add/patch/tombstone behavior.
+- Responsive Customers dictionary rendering for customer statuses and deal statuses, plus an explicit audit of staff/resource Visit coverage across weekly, one-off, unavailable, recurring-booking, and existing-booking cases.
 - Unit, module-decoupling, Playwright integration, design-system, documentation, upgrade-note, and standalone-harness coverage required by the three specs.
 
 ## Non-goals
@@ -209,6 +219,26 @@ The originally committed generator approach was superseded by the current source
 - Add the required `UPGRADE_NOTES.md` compatibility/deprecation entry and update the existing CRM calendar spec changelog/status where available on `develop`; reference source PR #6687 for the three pending specs.
 - Refresh module facts/standalone harness expectations and template-sync checks for the mirrored example surface.
 - Run documentation/link-focused checks as scratch verification; final validation remains in the final gate.
+
+### Phase 4 — Mobile dictionary follow-up and Visit coverage audit
+
+#### Step 4.1 — Fix Customers status dictionaries on mobile and cover the responsive layout
+
+- Reproduce the narrow-viewport overflow visible in PR #6688's activity-type/settings screenshot, focusing on the customer Statuses and Deal statuses sections.
+- Keep the shared DataTable contract intact while containing the dictionary table at narrow widths and preserving horizontal access to every column and row action.
+- Add focused component coverage for the responsive container without changing dictionary CRUD behavior or public contracts.
+
+#### Step 4.2 — Audit and complete the Example Visit availability E2E matrix
+
+- Map `TC-EXAMPLE-018` against staff/resource available and unavailable intervals, weekly recurrence, one-off/date-specific availability, and already-booked subjects from one-off and recurring Customers events.
+- Add only missing, self-contained cases; keep API-created fixtures, bounded planner rules, deterministic dates, and complete cleanup in `finally` blocks.
+- Preserve byte-identical parity between the monorepo Example module and the create-app template copy.
+
+#### Step 4.3 — Run validation, review, and refreshed mobile QA evidence
+
+- Run focused UI/unit and Visit integration checks, then the configured validation gate in order.
+- Run the authoritative `om-auto-review-pr` autofix pass and refresh mobile screenshot evidence at the final pushed head.
+- Update the PR body, plan, labels, and resume summary, then release the claim lock.
 
 ## Verification cadence
 
