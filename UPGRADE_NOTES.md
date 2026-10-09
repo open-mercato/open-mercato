@@ -573,7 +573,8 @@ The time-entries list (`/backend/staff/time-tracking/entries`) now asks
 `GET /api/staff/timesheets/time-entries` for `includeTotals=true`, which adds an optional `totals`
 object (`entryCount`, `durationMinutes`, `roundedMinutes`, and `money` per currency for a holder of
 `staff.timesheets.rates.view`) computed over every row matching the filters, not just the page.
-Without the parameter the response is unchanged.
+`money` is priced per entry exactly like the row `cost` (`entryAmount`), so it equals the sum of
+the row costs. Without the parameter the response is unchanged.
 
 The totals footer is no longer a separate card under the pagination. It renders inside the table
 frame through the `data-table:staff.time_entries.list:footer` injection spot (widget
