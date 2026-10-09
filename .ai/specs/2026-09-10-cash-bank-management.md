@@ -243,27 +243,33 @@ takes a hand-entered opening balance, closing balance, and an array of
 lines (date, amount, description) — no file parser, no format
 plugin. Automated import is a named Phase 2 (see Out of scope).
 
-**This module computes the realized FX gain/loss, on the settled
-amount only — never the invoice's full gross total.** Resolved via
-Open Question Q4, then corrected during review: the first draft's
-formula compared the statement line against the matched
-`SalesInvoice`'s full `grandTotalGrossAmount`, which silently
-misstates every partial payment. `sales` models partial/multi-payment settlement (`SalesPayment`'s own
-allocation to specific documents/amounts; `SalesInvoice` carries
-`outstandingAmount`/`paidTotalAmount`, though `sales` does not maintain
-those on invoices today — see Cross-module integration) — a customer paying a foreign-currency invoice in
-two installments must have each installment's gain/loss computed
-against *that installment's own amount*, not the invoice total. The
-corrected formula: `gainLoss = statementLineAmountInBankCurrency -
-(matchedAmountInInvoiceCurrency * bookedExchangeRate)`, where
-`matchedAmountInInvoiceCurrency` is the portion of the invoice this
-specific statement line settles (equal to the full outstanding amount
-only when it is paid in one line). `ledger`'s own Out of scope
-confirms `JournalEntry.currencyId`/`exchangeRate` support "a normal
-balanced posting with a realized-FX-gain/loss line" as a primitive,
-but the engine itself never computes the figure — it only accepts
-whatever lines a caller constructs, which is why this module owns the
-calculation.
+**This module computes the realized FX gain/loss on the settled amount
+only — never the invoice's full gross total — and the settled amount is an
+explicit input, not derived from the statement line.** Resolved via Open
+Question Q4, then corrected twice during review. The first draft compared
+the statement line against the matched `SalesInvoice`'s full
+`grandTotalGrossAmount`, which misstates every partial payment. The second
+derived the settled portion as the lesser of the invoice's
+`outstandingAmount` and `statementLineAmount / bookedExchangeRate`, which is
+wrong three ways. Defining the settled amount from the line itself makes
+`line − settled × rate` cancel, so the gain/loss is zero whenever the line is
+smaller than the balance; any excess over the balance is then booked as an FX
+gain, an overpayment mislabelled. And `SalesInvoice.outstandingAmount` is not
+maintained by `sales` for invoices (a payment recalculates the order's totals
+only; a created invoice carries whatever the caller wrote, default `0`), so
+the settled portion came out as `0` and the whole line became a gain.
+
+Corrected: the accountant supplies `settledAmount` (in the invoice's
+currency: what the customer's payment settles) and, on a currency mismatch,
+`bookedExchangeRate` (the invoice's booking-date rate). Then
+`gainLoss = statementLineAmountInBankCurrency − (settledAmount ×
+bookedExchangeRate)` is a real figure: what the bank received minus the book
+value of the receivable that payment clears. Same currency: `settledAmount`
+defaults to the line's absolute amount and the gain/loss is `0`. `ledger`'s
+own Out of scope confirms `JournalEntry.currencyId`/`exchangeRate` support "a
+normal balanced posting with a realized-FX-gain/loss line" as a primitive,
+but the engine itself never computes the figure — it only accepts whatever
+lines a caller constructs, which is why this module owns the calculation.
 
 **`bookedExchangeRate` is required whenever the matched invoice's
 currency differs from the `BankAccount`'s own — never silently
@@ -555,7 +561,11 @@ automate-then-verify-before-posting model.
   `internal_transfer` in with `payment_batch`'s non-posting case, which
   would have left an `internal_transfer` posting with no recorded
   back-reference to its own `JournalEntry`, see Commands),
-  `amountMismatch` (nullable boolean, default `null` until matched —
+  `settledAmount` (nullable numeric(19,4), in the invoice's currency — set only
+  on a `sales_invoice` match: the portion of the invoice that line settles.
+  The running sum per invoice is what the remaining-balance check reads, so
+  the table carries an index on `(tenantId, organizationId,
+  matchedDocumentType, matchedDocumentId)`), `amountMismatch` (nullable boolean, default `null` until matched —
   added after review: set only on a `payment_batch` match, `true` when
   the statement line's absolute amount differs from
   `PaymentBatch.total_amount`, `false` when it agrees; stays `null` for
@@ -640,7 +650,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
   `ledger`, and does so on three of its four paths (`payment_batch` is
   the one exception — corrected after review, see Design decisions for
   why it isn't symmetric with `sales_invoice`). Input:
-  `{ bankStatementLineId, matchedDocumentType: 'sales_invoice' | 'payment_batch' | 'internal_transfer' | 'manual_gl_entry', matchedDocumentId?: string, ledgerAccountId?: string, description?: string, bookedExchangeRate?: number }`.
+  `{ bankStatementLineId, matchedDocumentType: 'sales_invoice' | 'payment_batch' | 'internal_transfer' | 'manual_gl_entry', matchedDocumentId?: string, ledgerAccountId?: string, description?: string, bookedExchangeRate?: number, settledAmount?: number }`.
   Rejects if the line is already matched (Invariant 1). Branches on
   `matchedDocumentType`:
   - **`payment_batch` (confirmation/audit only, no `ledger` write).**
@@ -666,23 +676,37 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     different, unmodeled flow, explicitly out of scope (see Out of
     scope) rather than silently handled with an undefined posting
     direction. Loads the target `SalesInvoice` directly via
-    `entityManager` (scoped by `tenantId`/`organizationId`), validates
-    it resolves to a real, non-`CANCELLED` invoice, and reads its
-    `currencyCode` and `outstandingAmount` (not
-    `grandTotalGrossAmount` — see Design decisions, partial-payment
-    correction).
+    `entityManager` (scoped by `tenantId`/`organizationId`), validates it
+    resolves to a real, non-`CANCELLED` invoice, and reads its `currencyCode`
+    and `grandTotalGrossAmount`. It does **not** read `outstandingAmount`:
+    `sales` does not maintain it for invoices (see Cross-module
+    integration), and a ledger posting must not be sized from a field this
+    module cannot trust. Three checks follow, in one transaction, under a
+    transaction-scoped advisory lock keyed on `(tenantId, invoiceId)` so two
+    lines matched to one invoice concurrently cannot both pass:
 
-    `bookedExchangeRate` is defined as *units of the `BankAccount`'s
-    own currency per 1 unit of the invoice's currency* (the same
-    direction `SalesOrder.exchangeRate` already uses elsewhere in
-    `sales`) — so an amount in invoice currency converts to bank
-    currency by **multiplying** by `bookedExchangeRate`, and an amount
-    in bank currency converts to invoice currency by **dividing** by
-    it. The portion of the invoice this line settles,
-    `matchedAmountInInvoiceCurrency`, is therefore the lesser of
-    `outstandingAmount` and `(statementLineAmount / bookedExchangeRate)`
-    (same-currency case: `bookedExchangeRate` is implicitly `1`, so
-    dividing is a no-op). If the invoice's `currencyCode` differs from
+    1. **The invoice is posted.** A `JournalEntry` with
+       `referenceType: 'sales:sales_invoice'` and `referenceId: invoice.id`
+       (the reference `sales_invoice_gl_posting` writes) must exist, else
+       `409 INVOICE_NOT_POSTED`. Crediting the receivable for an invoice
+       that never debited it would drive the account negative. This needs
+       only `ledger`, not that module's tables.
+    2. **Remaining balance.** `remaining = grandTotalGrossAmount − Σ
+       settledAmount` of this invoice's earlier `sales_invoice` matches
+       (stored on `BankStatementLine`, in the invoice's currency).
+       `settledAmount` must be `> 0` and `≤ remaining`, else
+       `409 SETTLED_AMOUNT_EXCEEDS_REMAINING`. A line paying more than the
+       balance cannot be matched to the invoice in Phase 1: a line is matched
+       at most once, so it cannot be split (see Out of scope).
+    3. **Settled amount.** `settledAmount` is the invoice-currency amount
+       this payment settles. Same currency: optional, defaults to the line's
+       absolute amount, and if supplied must equal it. Different currency:
+       required, together with `bookedExchangeRate`.
+
+    `bookedExchangeRate` is defined as *units of the `BankAccount`'s own
+    currency per 1 unit of the invoice's currency* (the same direction
+    `SalesOrder.exchangeRate` already uses elsewhere in `sales`), so
+    `settledAmount` converts to bank currency by **multiplying** by it. If the invoice's `currencyCode` differs from
     the `BankAccount`'s own `currencyId`, `bookedExchangeRate` is
     **required**; a same-currency match with a supplied
     `bookedExchangeRate` that isn't `1` is also rejected (nothing to
@@ -715,9 +739,8 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     precondition is applied yet; both land together with
     `fx_revaluation`'s own implementation. Computes the realized
     gain/loss as
-    `statementLineAmountInBankCurrency - (matchedAmountInInvoiceCurrency * bookedExchangeRate)`
-    (the same multiplication direction, converting the settled invoice
-    amount back into bank currency for comparison) and, when non-zero,
+    `statementLineAmountInBankCurrency - (settledAmount * bookedExchangeRate)`
+    (converting the settled invoice amount into bank currency for comparison) and, when non-zero,
     adds a line to `gainLossAccountId` (Module Config) on whichever
     side keeps the posting balanced. Reads `sales_invoice_gl_posting`'s
     own `receivableAccountId` via a scoped
@@ -729,17 +752,17 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     with: a debit to the bank account's `ledgerAccountId` (always a
     debit — the line is always incoming, per the rejection above), a
     credit line to `sales_invoice_gl_posting`'s `receivableAccountId`
-    for `matchedAmountInInvoiceCurrency * bookedExchangeRate` (i.e.
+    for `settledAmount * bookedExchangeRate` (i.e.
     converted to the bank account's own currency), and the gain/loss
     line when present; `referenceType: 'cash_bank_management:bank_statement_line'`,
     `referenceId: bankStatementLineId` (no `type` override — defaults
     to GL's own `'NORMAL'`, the same pattern Accounts Payable's
     `postVendorInvoice` call already uses). Persists
     `matchedDocumentType: 'sales_invoice'`, `matchedDocumentId`,
-    `matchedJournalEntryId`, `matchedAt` on the line in the same
-    transaction; `amountMismatch` stays `null` — there is no
-    independent "expected amount" to compare against, the invoice's own
-    `outstandingAmount` is the source of truth. Emits
+    `matchedJournalEntryId`, `settledAmount`, `matchedAt` on the line in
+    the same transaction; `amountMismatch` stays `null` — there is no
+    independent "expected amount" to compare against; the remaining-balance
+    check above is the guard. Emits
     `cash_bank_management.statement_line.matched` after the transaction
     commits.
   - **`internal_transfer`.** Posts a balanced two-line `JournalEntry` —
@@ -784,7 +807,10 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
 ### Events (`events.ts`)
 
 - `cash_bank_management.statement_line.matched` — payload
-  `{ documentType: 'sales_invoice', documentId, matchedAmount, bankAccountId, currencyId, bookedExchangeRate, matchedAt }`.
+  `{ documentType: 'sales_invoice', documentId, bankStatementLineId, settledAmount, currencyCode, bankAccountId, bookedExchangeRate, matchedAt }`.
+  `settledAmount` and `currencyCode` are in the invoice's currency (what a
+  `sales` payment against the invoice needs); `bankStatementLineId` is the
+  consumer's idempotency key.
   `documentType` is fixed to the literal `'sales_invoice'` in this
   payload shape — corrected after review: a `payment_batch` match posts
   no `ledger` entry and has no `sales`-side consumer to notify (Accounts
@@ -806,13 +832,15 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
 ### Cross-module integration
 
 - **`ledger` (hard dependency).** Writes exclusively through
-  `commandBus.execute('ledger.postJournalEntry', { input, ctx })`.
+  `commandBus.execute('ledger.postJournalEntry', { input, ctx })`. Also reads
+  `JournalEntry` by `referenceType`/`referenceId` for the `INVOICE_NOT_POSTED`
+  check (hard-dependency direct read).
 - **`currencies` (hard dependency).** Reads `Currency` directly to
   validate `BankAccount.currencyId` and to compare a matched
   invoice's currency against the bank account's own.
 - **`sales` (read-only, scoped, no hard dependency).** Reads
   `SalesInvoice` directly (scoped by `tenantId`/`organizationId`) to
-  validate a match target and read `outstandingAmount`/`currencyCode`
+  validate a match target and read `currencyCode`/`grandTotalGrossAmount`
   during `matchBankStatementLine`'s `sales_invoice` path — the same
   direct-entity-read precedent this document family already
   establishes. Never calls `sales.payments.create` itself (see Design
@@ -841,12 +869,13 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
 - **`sales` — invoice balances are not maintained today (dependency this
   document does not design).** `sales.payments.create` recalculates only the
   order's totals; `sales.invoices.create`/`update` take `outstandingAmount`
-  from caller input (default `0`). The `sales_invoice` match path reads
-  `SalesInvoice.outstandingAmount` to size the settled portion, so it is
-  only as accurate as whatever `sales` or the caller wrote there. Having
-  `sales` recompute an invoice's `outstandingAmount`/`paidTotalAmount` from
-  payment allocations is a change to `sales` (OM Core), outside this
-  document family; it needs its own issue.
+  from caller input (default `0`). This module does not read it: the remaining balance is computed
+  from this module's own matches (see Commands), so ledger correctness does
+  not wait for that change. Having `sales` recompute an invoice's
+  `outstandingAmount`/`paidTotalAmount` from payment allocations is still
+  needed for the invoice's displayed balances, for aging, and for the Phase 2
+  bridge to be useful; it is a change to `sales` (OM Core), outside this
+  document family, and needs its own issue.
 - **This module is never imported or resolved by `ledger`, `currencies`,
   `sales`, `accounts_payable`, `accounts_payable_payments`, or
   `sales_invoice_gl_posting`.** One-way dependency direction, matching
@@ -1073,10 +1102,24 @@ automatically.
   `BankAccount.ledgerAccountId` (the reverse of the incoming case),
   and the posting still balances.
 - Assert a foreign-currency `sales_invoice` match with a supplied
-  `bookedExchangeRate` computes the gain/loss on the **settled portion
-  only** (`matchedAmountInInvoiceCurrency`, not the invoice's full
-  `outstandingAmount`) against a partially-paid fixture, adds a
-  correctly signed gain/loss line, and the posting still balances.
+  `settledAmount` and `bookedExchangeRate` computes the gain/loss as
+  `line − settledAmount × bookedExchangeRate`, adds a correctly signed
+  gain/loss line, and the posting still balances. Include a partial
+  `settledAmount` (below the remaining balance) with an actual rate that
+  differs from the booked one and assert the gain/loss is non-zero
+  (regression for the earlier formula, which cancelled to zero).
+- Assert a same-currency match without `settledAmount` defaults it to the
+  line's absolute amount and posts no gain/loss line.
+- Assert two lines matched to one invoice in turn: the second sees the
+  remaining balance reduced by the first, and a second line whose
+  `settledAmount` exceeds it is rejected with
+  `SETTLED_AMOUNT_EXCEEDS_REMAINING` and persists nothing. Assert two
+  concurrent matches cannot both pass (advisory lock).
+- Assert a match against an invoice with no `sales:sales_invoice`
+  `JournalEntry` is rejected with `INVOICE_NOT_POSTED`, no partial write.
+- Assert a match succeeds against a `SalesInvoice` whose
+  `outstandingAmount` is `0` (the `sales` default), since sizing does not
+  read it.
 - Assert a foreign-currency `sales_invoice` match with **no**
   `bookedExchangeRate` supplied is rejected with
   `EXCHANGE_RATE_REQUIRED`, and persists nothing (no line update, no
@@ -1191,8 +1234,10 @@ automatically.
   invoice's own balances only once `sales` maintains them from allocations.
   Until then a matched `sales_invoice` line posts correctly into `ledger`
   but emits an event nobody consumes, the payment has to be recorded in
-  `sales` by hand, and the `outstandingAmount` this module reads to size a
-  match is whatever was written to the invoice, not a running balance. It also
+  `sales` by hand, The remaining balance this module checks is ledger-side (invoice gross less
+  its own earlier matches), so it does not see payments recorded in `sales`
+  by other means (cash or card entered by hand): those never credit the
+  receivable in `ledger` at all, and no spec covers that path. It also
   depends on that module's `receivableAccountId` Module Config value
   being set — `matchBankStatementLine`'s `sales_invoice` path rejects
   cleanly when it isn't (see Commands, Testing Strategy), but a tenant
@@ -1256,6 +1301,11 @@ automatically.
   by that document (its Phase 2); this document only emits the event (see
   Implementation Plan step 7). Invoice-balance maintenance in `sales` is an
   OM Core change designed by neither.
+- **Overpayments.** A line larger than the invoice's remaining balance is
+  rejected (`SETTLED_AMOUNT_EXCEEDS_REMAINING`) and cannot be split, so the
+  excess has no home in Phase 1. **⚠ NEEDS HUMAN CONFIRMATION** (accountant):
+  whether the excess should post to a configured advance/overpayment account
+  instead of rejecting.
 - **Reversing a matched line** — a future `unmatchBankStatementLine`
   would call `ledger.reverseJournalEntry`; not designed here, no
   confirmed need yet.
@@ -1632,4 +1682,18 @@ Problem Statement no longer claims `sales.payments.create` updates invoice
 balances (it recalculates the order's only); the event-to-command gap
 (`orderId`, `currencyCode`) is named; and the dependency on `sales`
 maintaining `SalesInvoice.outstandingAmount` is recorded in Cross-module
-integration and Risks. The match formula is unchanged.
+integration and Risks.
+
+The same pass found that the match sizing was wrong and corrected it. The
+settled portion was derived as `min(outstandingAmount, line / rate)`, which
+makes the FX gain/loss zero for any partial payment, books an overpayment as
+an FX gain, and — because `sales` does not maintain
+`SalesInvoice.outstandingAmount` — sized every default-created invoice at `0`
+so the whole line became a gain. Now: `settledAmount` is an explicit input;
+the remaining balance is invoice gross less this module's own earlier
+matches (new `BankStatementLine.settledAmount`); the invoice must be posted
+(`409 INVOICE_NOT_POSTED`); an excess is rejected
+(`409 SETTLED_AMOUNT_EXCEEDS_REMAINING`, ⚠ accountant question in Out of
+scope); the event payload carries `bankStatementLineId`, `settledAmount` and
+the invoice's `currencyCode`. Ledger correctness no longer depends on `sales`
+maintaining invoice balances.
