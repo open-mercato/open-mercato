@@ -55,6 +55,7 @@ import { assertLocalSplashRequest, resolveSplashBindHost } from './dev-splash-sh
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import { DevRuntimeConfigError, resolveDevRuntimeConfig } from './dev-runtime-config.mjs'
 import { createDevRuntimeSupervisor } from './dev-runtime-supervisor.mjs'
+import { selectRuntimeProbeBaseUrl } from './dev-runtime-probe.mjs'
 import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
 import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
 import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
@@ -429,12 +430,12 @@ function resolveExpectedAppBaseUrl() {
   return resolveDevBaseUrl(process.env).url
 }
 
-// The continuous probe always talks to the managed runtime directly, so in
-// gateway mode it must target the internal loopback port rather than the public
-// gateway it is meant to diagnose.
 function resolveRuntimeProbeBaseUrl() {
-  if (gatewayMode && devUpstreamPort) return `http://127.0.0.1:${devUpstreamPort}`
-  return resolveExpectedAppBaseUrl()
+  return selectRuntimeProbeBaseUrl({
+    upstreamPort: gatewayMode ? devUpstreamPort : null,
+    runtimeUrl: readSplashChildState()?.readyUrl,
+    configuredUrl: resolveExpectedAppBaseUrl(),
+  })
 }
 
 function resolveExpectedBackendUrl() {

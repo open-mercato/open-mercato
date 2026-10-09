@@ -30,6 +30,11 @@ export type CustomerGroupTermsDTO = {
   updatedAt: string
 }
 
+// Lock token sent with the first save of a group that has no terms row yet. No real
+// row can carry this `updated_at`, so if another editor created the row meanwhile the
+// route's lock check against that row answers 409 instead of silently overwriting it.
+export const TERMS_NOT_YET_CREATED_LOCK_TOKEN = new Date(0).toISOString()
+
 // `inherit` maps to `null` on the wire: the field is left unset on this group and
 // resolves from the parent chain / tenant default, like the other terms fields.
 const PURCHASE_ON_ACCOUNT_VALUES = ['inherit', 'allow', 'deny'] as const
@@ -206,9 +211,8 @@ export function CustomerGroupTermsSection({
         minOrderValue: typeof values.minOrderValue === 'number' ? values.minOrderValue : null,
       }
       // `updateCrud` PUTs to `/api/customer_groups/customer-groups/{groupId}/terms`, matching the
-      // upsert route (Step 2.4). `optimisticLockUpdatedAt` below is `null` on the
-      // first save (no `terms` row yet), so CrudForm skips the lock header entirely —
-      // mirrors the route's own "no lock check on creation" behavior.
+      // upsert route (Step 2.4). `optimisticLockUpdatedAt` below is
+      // `TERMS_NOT_YET_CREATED_LOCK_TOKEN` on the first save (no `terms` row yet).
       const call = await updateCrud<{ terms: CustomerGroupTermsDTO }>(`customer_groups/customer-groups/${groupId}/terms`, payload, {
         errorMessage: t('customer_groups.groups.form.terms.errors.save', 'Failed to save commercial terms.'),
       })
@@ -252,7 +256,7 @@ export function CustomerGroupTermsSection({
           schema={schema}
           fields={fields}
           initialValues={initialValues}
-          optimisticLockUpdatedAt={terms?.updatedAt ?? null}
+          optimisticLockUpdatedAt={terms?.updatedAt ?? TERMS_NOT_YET_CREATED_LOCK_TOKEN}
           readOnly={!canManage}
           readOnlyOverlay={(
             <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 text-sm text-muted-foreground shadow-sm">
