@@ -44,15 +44,7 @@ let hasEmitted = false
 // not the version: a first announcement repeating the cookie still dispatches, so
 // `useOrganizationScopeDetail()` subscribers sync while the version holds.
 //
-// MAINTAINER NOTE: the three constants below are duplicated rather than imported.
-// `@open-mercato/shared` must not depend on `@open-mercato/core`, so it already
-// inlines the same values twice — `ALL_ORGANIZATIONS_COOKIE_VALUE` and both cookie
-// names in `lib/auth/server.ts`, and `SELECTED_ORG_COOKIE` in `lib/crud/factory.ts`
-// — against `core`'s `modules/directory/constants`. This makes a third copy. The
-// tidier resolution is to hoist all three into `shared` (say `lib/scope/cookies.ts`)
-// and have `core/modules/directory/constants` re-export them; that touches a surface
-// listed in BACKWARD_COMPATIBILITY.md, so it is a follow-up rather than part of this
-// behaviour fix.
+// Duplicated pending the hoist into `@open-mercato/shared/lib/scope/cookies` (#5713, #5715).
 const SELECTED_ORG_COOKIE = 'om_selected_org'
 const SELECTED_TENANT_COOKIE = 'om_selected_tenant'
 /** Mirrors `ALL_ORGANIZATIONS_COOKIE_VALUE` in `@open-mercato/core` (modules/directory/constants). */
