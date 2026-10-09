@@ -45,8 +45,8 @@ Ship tested Brevo and Mailjet system-email provider packages on the existing Com
 
 ### Phase 3: Distribution and documentation
 
-- [ ] 3.1 Wire both packages into app and template discovery
-- [ ] 3.2 Document provider selection, privacy boundary, and env presets
+- [x] 3.1 Wire both packages into app and template discovery — 632bd34b5d
+- [x] 3.2 Document provider selection, privacy boundary, and env presets — 632bd34b5d
 
 ### Phase 4: Verification and review
 
