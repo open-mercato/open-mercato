@@ -2180,6 +2180,14 @@ function buildReusableEnvironment(
     CACHE_SQLITE_PATH: EPHEMERAL_CACHE_DB_PATH,
     JWT_SECRET: resolveEphemeralJwtSecret(),
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // The forms module refuses its DEV-ONLY deterministic KMS adapter under
+    // NODE_ENV=production (which is how this app runs), so without a master key
+    // `formsEncryptionService` fails to resolve and every encrypted-payload
+    // route answers a bare 500: the whole public/portal runtime, the submissions
+    // inbox, revisions, audit, anonymize, export, PDF and analytics. Admin CRUD
+    // keeps working, which is what makes the omission easy to miss.
+    FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
+      ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
     // Integration probe + tests expect `admin@acme.com / secret` and
     // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
     // password resolution through the random-fallback branch unless these
@@ -3562,6 +3570,14 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       PLATFORM_PORTAL_BASE_URL: applicationBaseUrl,
       JWT_SECRET: resolveEphemeralJwtSecret(),
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // The forms module refuses its DEV-ONLY deterministic KMS adapter under
+    // NODE_ENV=production (which is how this app runs), so without a master key
+    // `formsEncryptionService` fails to resolve and every encrypted-payload
+    // route answers a bare 500: the whole public/portal runtime, the submissions
+    // inbox, revisions, audit, anonymize, export, PDF and analytics. Admin CRUD
+    // keeps working, which is what makes the omission easy to miss.
+    FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
+      ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
       NODE_ENV: 'production',
       // See the auth-probe block above: pin derived-user passwords to the
       // documented 'secret' so the ephemeral login probe converges under
