@@ -7,7 +7,8 @@ import {
   DummyDriver,
   type CompiledQuery,
 } from 'kysely'
-import { computeTimeEntryTotals } from '../timeEntryTotals'
+import { computeTimeEntryTotals, sumTimeEntryMoneyGroups } from '../timeEntryTotals'
+import { entryAmount, sumAmounts } from '../../time-tracking/cost'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -101,8 +102,9 @@ describe('computeTimeEntryTotals', () => {
     const { db, queries } = recordingDb((query) =>
       query.sql.includes('currency_code')
         ? [
-            { currency_code: 'EUR', amount: '200.00' },
-            { currency_code: 'PLN', amount: '4315.50' },
+            { currency_code: 'EUR', rounded_minutes: '60', rate_override_amount: null, hourly_rate: '200.0000', entry_count: '1' },
+            { currency_code: 'PLN', rounded_minutes: '90', rate_override_amount: '150.0000', hourly_rate: '120.0000', entry_count: '2' },
+            { currency_code: 'PLN', rounded_minutes: '45', rate_override_amount: null, hourly_rate: '0.3000', entry_count: '3' },
           ]
         : [{ entry_count: '3', duration_minutes: '120', rounded_minutes: '135' }],
     )
@@ -110,15 +112,60 @@ describe('computeTimeEntryTotals', () => {
 
     expect(totals.money).toEqual([
       { currencyCode: 'EUR', amount: 200 },
-      { currencyCode: 'PLN', amount: 4315.5 },
+      { currencyCode: 'PLN', amount: 450.66 },
     ])
     expect(queries).toHaveLength(2)
     const moneySql = queries[1].sql
     expect(moneySql).toContain('left join "staff_time_projects" as "p"')
     expect(moneySql).toContain('"p"."deleted_at" is null')
     expect(moneySql).toContain('"e"."is_billable" = $')
-    expect(moneySql).toContain('round(coalesce(e.rounded_minutes, 0)::numeric / 60 * coalesce(e.rate_override_amount, p.hourly_rate), 2)')
-    expect(moneySql).toContain("group by coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)")
+    expect(moneySql).not.toMatch(/\bround\(/)
+    expect(moneySql).toContain(
+      "group by coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code), coalesce(e.rounded_minutes, 0), e.rate_override_amount, p.hourly_rate",
+    )
+  })
+
+  it('prices a half-cent entry exactly like entryAmount instead of rounding the exact decimal', () => {
+    const rowCost = entryAmount({ isBillable: true, roundedMinutes: 45, rateOverrideAmount: null }, { hourlyRate: 0.3 })
+    expect(rowCost).toBe(0.22)
+    expect(
+      sumTimeEntryMoneyGroups([
+        { currency_code: 'EUR', rounded_minutes: 45, rate_override_amount: null, hourly_rate: '0.3000', entry_count: '1' },
+      ]),
+    ).toEqual([{ currencyCode: 'EUR', amount: rowCost }])
+  })
+
+  it('equals the sum of the row costs for every grouped entry, override winning over the project rate', () => {
+    const entries = [
+      { minutes: 45, override: null, projectRate: 0.3 },
+      { minutes: 45, override: null, projectRate: 0.3 },
+      { minutes: 20, override: 33.3333, projectRate: 10 },
+      { minutes: 7, override: null, projectRate: 99.99 },
+      { minutes: 135, override: 0.15, projectRate: null },
+    ]
+    const rowCosts = entries.map((entry) =>
+      entryAmount({ isBillable: true, roundedMinutes: entry.minutes, rateOverrideAmount: entry.override }, { hourlyRate: entry.projectRate }),
+    )
+    const groups = [
+      { currency_code: 'USD', rounded_minutes: '45', rate_override_amount: null, hourly_rate: '0.3000', entry_count: '2' },
+      { currency_code: 'USD', rounded_minutes: '20', rate_override_amount: '33.3333', hourly_rate: '10.0000', entry_count: '1' },
+      { currency_code: 'USD', rounded_minutes: '7', rate_override_amount: null, hourly_rate: '99.9900', entry_count: '1' },
+      { currency_code: 'USD', rounded_minutes: '135', rate_override_amount: '0.1500', hourly_rate: null, entry_count: '1' },
+    ]
+    expect(sumTimeEntryMoneyGroups(groups)).toEqual([{ currencyCode: 'USD', amount: sumAmounts(rowCosts) }])
+  })
+
+  it('keeps currencies apart and maps a blank currency to null', () => {
+    expect(
+      sumTimeEntryMoneyGroups([
+        { currency_code: 'EUR', rounded_minutes: '60', rate_override_amount: '10', hourly_rate: null, entry_count: '1' },
+        { currency_code: null, rounded_minutes: '60', rate_override_amount: null, hourly_rate: '5', entry_count: '2' },
+        { currency_code: '', rounded_minutes: '30', rate_override_amount: null, hourly_rate: '5', entry_count: '1' },
+      ]),
+    ).toEqual([
+      { currencyCode: 'EUR', amount: 10 },
+      { currencyCode: null, amount: 12.5 },
+    ])
   })
 
   it('never queries money for a caller without the rates feature', async () => {

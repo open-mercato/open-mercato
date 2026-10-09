@@ -47,7 +47,11 @@ function buildCtx(query: Record<string, unknown>, world: World) {
   executor.executeQuery = async (compiled: CompiledQuery) => {
     if (world.failQueries) throw new Error('[internal] database unavailable')
     queries.push(compiled)
-    if (compiled.sql.includes('currency_code')) return { rows: [{ currency_code: 'PLN', amount: '900.00' }] }
+    if (compiled.sql.includes('currency_code')) {
+      return {
+        rows: [{ currency_code: 'PLN', rounded_minutes: '450', rate_override_amount: null, hourly_rate: '120.0000', entry_count: '1' }],
+      }
+    }
     return { rows: [{ entry_count: '120', duration_minutes: '7200', rounded_minutes: '7230' }] }
   }
   const em = {

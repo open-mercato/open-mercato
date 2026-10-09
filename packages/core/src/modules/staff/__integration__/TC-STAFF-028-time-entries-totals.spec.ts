@@ -164,4 +164,92 @@ test.describe('TC-STAFF-028: time-entries totals for the whole filtered set', ()
       }
     }
   })
+
+  test('money totals equal the summed row costs when an entry lands on a half cent', async ({ request }) => {
+    test.setTimeout(120_000)
+
+    const stamp = String(Date.now()).slice(-9)
+    const token = await getAuthToken(request, 'admin')
+    const halfCentRate = 0.075
+    const halfCentDates = ['2031-03-03', '2031-03-04']
+    const halfCentMinutes = 180
+
+    let customer: TestCustomerFixture | null = null
+    let projectId: string | null = null
+    let selfMember: { id: string; created: boolean } | null = null
+    const entryIds: string[] = []
+
+    try {
+      selfMember = await ensureSelfStaffMemberId(request, token, `QA028H Member ${stamp}`)
+      customer = await createTestCustomer(request, token, { displayName: `QA028H Customer ${stamp}` })
+
+      const projectResponse = await apiRequest(request, 'POST', PROJECTS_PATH, {
+        token,
+        data: {
+          name: `QA028H Project ${stamp}`,
+          code: `Q028H-${stamp}`,
+          customerId: customer.id,
+          status: 'active',
+          hourlyRate: halfCentRate,
+          currencyCode: 'EUR',
+          billableByDefault: true,
+        },
+      })
+      expect(projectResponse.ok(), `POST ${PROJECTS_PATH}: ${projectResponse.status()}`).toBeTruthy()
+      projectId = ((await readJsonSafe<{ id?: string }>(projectResponse))?.id ?? null) as string | null
+      expect(projectId, 'The project create response should carry an id').toBeTruthy()
+
+      const assignResponse = await apiRequest(request, 'POST', `${PROJECTS_PATH}/${projectId}/employees`, {
+        token,
+        data: { staffMemberId: selfMember.id, status: 'active', assignedStartDate: halfCentDates[0] },
+      })
+      expect(assignResponse.ok(), `Assigning the member should succeed: ${assignResponse.status()}`).toBeTruthy()
+
+      for (const date of halfCentDates) {
+        const entryResponse = await apiRequest(request, 'POST', ENTRIES_PATH, {
+          token,
+          data: {
+            staffMemberId: selfMember.id,
+            timeProjectId: projectId,
+            date,
+            durationMinutes: halfCentMinutes,
+            source: 'manual',
+            isBillable: true,
+            notes: `QA028H entry ${date} ${stamp}`,
+          },
+        })
+        expect(entryResponse.status(), `POST ${ENTRIES_PATH} should create the ${date} entry`).toBe(201)
+        const id = (await readJsonSafe<{ id?: string }>(entryResponse))?.id
+        expect(typeof id === 'string' && id.length > 0).toBeTruthy()
+        entryIds.push(id as string)
+      }
+
+      const filter = `projectId=${projectId}&from=${halfCentDates[0]}&to=${halfCentDates[1]}`
+      const body = await readList(request, token, `${filter}&pageSize=50&includeTotals=true`)
+      const rows = body.items ?? []
+      expect(rows).toHaveLength(halfCentDates.length)
+      for (const row of rows) {
+        expect(Number(row.roundedMinutes ?? row.rounded_minutes), 'the half-cent case needs the unrounded 3 h').toBe(halfCentMinutes)
+        expect(row.cost, '3 h × 0.075 is 0.225 exactly; the row cost (entryAmount) reads 0.22').toBe(0.22)
+      }
+      const costSum = rows.reduce((sum, row) => sum + (typeof row.cost === 'number' ? row.cost : 0), 0)
+      expect(body.totals?.entryCount).toBe(halfCentDates.length)
+      expect(body.totals?.money, 'the PostgreSQL-backed total agrees with the summed row costs').toEqual([
+        { currencyCode: 'EUR', amount: Math.round(costSum * 100) / 100 },
+      ])
+    } finally {
+      for (const entryId of entryIds) {
+        await apiRequest(request, 'DELETE', `${ENTRIES_PATH}?id=${encodeURIComponent(entryId)}`, { token }).catch(() => {})
+      }
+      if (projectId) {
+        await apiRequest(request, 'DELETE', `${PROJECTS_PATH}?id=${encodeURIComponent(projectId)}`, { token }).catch(() => {})
+      }
+      if (customer) await customer.cleanup()
+      if (selfMember?.created) {
+        await apiRequest(request, 'DELETE', `/api/staff/team-members?id=${encodeURIComponent(selfMember.id)}`, { token }).catch(
+          () => {},
+        )
+      }
+    }
+  })
 })

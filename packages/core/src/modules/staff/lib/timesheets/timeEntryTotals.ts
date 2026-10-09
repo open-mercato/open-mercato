@@ -11,13 +11,18 @@
  * route then omits `totals` rather than answering a different question than the
  * list did.
  *
- * Money mirrors `decorateTimeEntryRows` + `entryAmount`: a billable entry costs
- * `round2(rounded_minutes / 60 × (rate override ?? project hourly rate))`, in the
- * entry's snapshot currency or else the project's. Non-billable or unpriced rows
- * add no money. Currencies are never added together.
+ * Money is produced by `entryAmount` — the single place an amount is produced
+ * (D-7) — and summed in cents like `sumAmounts`, so the total always equals the
+ * sum of the row `cost` values and the report totals. PostgreSQL only groups the
+ * billable, priced entries by currency, rounded minutes and both rates, and
+ * counts them; pricing each group in SQL would round exact decimals
+ * (0.75 h × 0.30 = 0.225 → 0.23) where `entryAmount` rounds a float
+ * (0.22499… → 0.22). The currency is the entry's snapshot currency or else the
+ * project's; currencies are never added together.
  */
 
 import { sql, type Expression, type ExpressionBuilder, type Kysely, type SqlBool } from 'kysely'
+import { entryAmount, round2 } from '../time-tracking/cost'
 
 export type TimeEntryMoneyTotal = {
   currencyCode: string | null
@@ -160,6 +165,12 @@ function toNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function baseQuery(db: Kysely<TotalsDb>, filters: Record<string, unknown>, scope: TimeEntryTotalsScope) {
   const scoped = db
     .selectFrom('staff_time_entries as e')
@@ -198,10 +209,45 @@ export function buildTimeEntryMoneyTotalsQuery(
     .where(sql<SqlBool>`coalesce(e.rate_override_amount, p.hourly_rate) is not null`)
     .select([
       sql<string | null>`coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)`.as('currency_code'),
-      sql<string>`sum(round(coalesce(e.rounded_minutes, 0)::numeric / 60 * coalesce(e.rate_override_amount, p.hourly_rate), 2))`.as('amount'),
+      sql<string>`coalesce(e.rounded_minutes, 0)`.as('rounded_minutes'),
+      sql<string | null>`e.rate_override_amount`.as('rate_override_amount'),
+      sql<string | null>`p.hourly_rate`.as('hourly_rate'),
+      sql<string>`count(*)`.as('entry_count'),
     ])
-    .groupBy(sql`coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)`)
+    .groupBy([
+      sql`coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)`,
+      sql`coalesce(e.rounded_minutes, 0)`,
+      sql`e.rate_override_amount`,
+      sql`p.hourly_rate`,
+    ])
     .orderBy(sql`coalesce(nullif(trim(e.rate_currency_code), ''), p.currency_code)`)
+}
+
+type MoneyGroupRow = {
+  currency_code: string | null
+  rounded_minutes: unknown
+  rate_override_amount: unknown
+  hourly_rate: unknown
+  entry_count: unknown
+}
+
+export function sumTimeEntryMoneyGroups(groups: readonly MoneyGroupRow[]): TimeEntryMoneyTotal[] {
+  const centsByCurrency = new Map<string | null, number>()
+  for (const group of groups) {
+    const amount = entryAmount(
+      {
+        isBillable: true,
+        roundedMinutes: toNumber(group.rounded_minutes),
+        rateOverrideAmount: toNullableNumber(group.rate_override_amount),
+      },
+      { hourlyRate: toNullableNumber(group.hourly_rate) },
+    )
+    if (amount === null) continue
+    const currencyCode = typeof group.currency_code === 'string' && group.currency_code.length > 0 ? group.currency_code : null
+    const cents = Math.round(round2(amount) * 100) * toNumber(group.entry_count)
+    centsByCurrency.set(currencyCode, (centsByCurrency.get(currencyCode) ?? 0) + cents)
+  }
+  return Array.from(centsByCurrency, ([currencyCode, cents]) => ({ currencyCode, amount: round2(cents / 100) }))
 }
 
 export async function computeTimeEntryTotals(
@@ -220,10 +266,6 @@ export async function computeTimeEntryTotals(
     roundedMinutes: toNumber(row?.rounded_minutes),
   }
   if (!scope.canSeeRates) return totals
-  const moneyRows = await buildTimeEntryMoneyTotalsQuery(typedDb, filters, scope).execute()
-  totals.money = moneyRows.map((moneyRow) => ({
-    currencyCode: typeof moneyRow.currency_code === 'string' && moneyRow.currency_code.length > 0 ? moneyRow.currency_code : null,
-    amount: toNumber(moneyRow.amount),
-  }))
+  totals.money = sumTimeEntryMoneyGroups(await buildTimeEntryMoneyTotalsQuery(typedDb, filters, scope).execute())
   return totals
 }
