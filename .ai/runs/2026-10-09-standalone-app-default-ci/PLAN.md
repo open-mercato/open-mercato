@@ -18,8 +18,8 @@
 | 1 | 1.1 | Add template scripts/ci.mjs quality gate and the ci package script | dispatch | done | 683f415967 |
 | 1 | 1.2 | Add template ci.yml workflow and its structure test | dispatch | done | 2f0b503f53 |
 | 1 | 1.3 | Add the --ci flag, conditional workflow copy and lockfile-first next steps | dispatch | done | 0444716196 |
-| 1 | 1.4 | Assert no agentic generator writes under .github/workflows | dispatch | done | pending |
-| 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | todo | — |
+| 1 | 1.4 | Assert no agentic generator writes under .github/workflows | dispatch | done | 9131dfc486 |
+| 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | done | pending |
 | 2 | 2.1 | Add opt-in app-owned spec discovery to mercato test:integration | dispatch:capable | todo | — |
 | 2 | 2.2 | Add template integration.yml workflow and its structure test | dispatch | todo | — |
 | 2 | 2.3 | Document the integration workflow and the new CLI flag | dispatch | todo | — |
