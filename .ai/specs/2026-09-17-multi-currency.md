@@ -224,9 +224,12 @@ opposite of the adjusting entry made in the previous period."*
 
 7. **Realized gain/loss stays exactly as Cash & Bank Management (#6055)
    already designed it — this spec does not re-derive that formula.**
-   `matchBankStatementLine`'s `sales_invoice` path already computes
-   `statementLineAmountInBankCurrency - (matchedAmountInInvoiceCurrency
-   * bookedExchangeRate)` at settlement, consistent with
+   `matchBankStatementLine`'s `sales_invoice` path computes
+   `statementLineAmountInBankCurrency - (settledAmount * bookedExchangeRate)
+   - overpaymentAmount` at settlement (`settledAmount` is an explicit input
+   since #6055's 2026-10-09 correction; the earlier derived
+   `matchedAmountInInvoiceCurrency` made the figure zero for partial
+   payments), consistent with
    `currencies.AGENTS.md`'s own canonical formula `(payment rate −
    invoice rate) × foreign amount`. Once `VendorInvoice.exchangeRate`/
    `SalesInvoice.exchangeRate` exist (this spec, part A), that
@@ -450,8 +453,8 @@ opposite of the adjusting entry made in the previous period."*
 13. **`valuationDate` must be recent, not arbitrarily historical — this
     module reconstructs nothing.** An earlier draft let
     `valuationDate` default to "the period's end date" with no
-    freshness check, but `VendorInvoice.outstandingAmount`/
-    `SalesInvoice.outstandingAmount` are **current-state** columns, not
+    freshness check, but `VendorInvoice.outstandingAmount` and the sales-invoice open amount
+    (Design decision 17) are **current-state** values, not
     a point-in-time ledger a historical run could reconstruct from —
     a document open on Dec 31 but paid Jan 3, or partially paid after
     the cutoff, would already show a changed `outstandingAmount` by
@@ -566,7 +569,35 @@ opposite of the adjusting entry made in the previous period."*
     and should itself be gated once that module's own spec is next
     touched (see Risks).
 
+17. **The open amount of a sales invoice is read ledger-side, never from
+    `SalesInvoice.outstandingAmount`, and only for invoices that are in the
+    ledger.** `sales` does not maintain that column for invoices (a payment
+    recalculates the order's totals only; a created invoice carries whatever
+    the caller wrote, default `0`), so reading it would exclude every
+    default-created invoice as "fully settled" and misstate the rest. The
+    revaluation entry adjusts the receivable control account, so its base
+    must be what the ledger actually holds for the invoice:
+    `grandTotalGrossAmount − Σ BankStatementLine.settledAmount` over the
+    invoice's `sales_invoice` matches in Cash & Bank Management (#6055; a
+    soft read: no `cash_bank_management`, no settlements), and only for an
+    invoice with an unreversed `JournalEntry` carrying
+    `referenceType: 'sales:sales_invoice'`, `referenceId: invoice.id` (the
+    reference #6046 writes). An unposted invoice is not in the ledger and is
+    never revalued. This is consistent with the settlement path:
+    `matchBankStatementLine` clears the receivable by `settledAmount` and
+    checks the same remaining balance. Known gap: a payment recorded in
+    `sales` by hand never credits the receivable in `ledger`, so it does not
+    reduce this open amount either (see #6046, Risks). An overpayment goes to
+    a separate liability account in #6055 and is not revalued here. Vendor
+    invoices are unchanged: `accounts_payable` maintains
+    `VendorInvoice.outstandingAmount` itself. (Alternative rejected: wait for
+    `sales` to maintain invoice balances and read the column — that change
+    is wanted for aging and display, but a column fed by payments the ledger
+    never saw would revalue amounts the ledger does not hold.)
+
 ## Architecture
+
+### New module: `fx_revaluation` (Core)## Architecture
 
 ### New module: `fx_revaluation` (Core)
 
@@ -603,8 +634,9 @@ opposite of the adjusting entry made in the previous period."*
   `exchangeRate` is null; MUST read the FiscalPeriod lock state before
   posting.
 - **Depends on**: `currencies` (hard — rate lookups),
-  `ledger` (hard — posts `JournalEntry`), `accounts_payable`/`sales`
-  (soft, direct entity reads only — no ORM relations, matching the
+  `ledger` (hard — posts `JournalEntry`, and reads the
+  `sales:sales_invoice` posting), `accounts_payable`/`sales`/
+  `cash_bank_management` (soft, direct entity reads only — no ORM relations, matching the
   root AGENTS.md "no direct ORM relationships between modules" rule
   already enforced everywhere else in this family of specs).
 
@@ -659,7 +691,7 @@ opposite of the adjusting entry made in the previous period."*
 | `documentType` | `'vendor_invoice' \| 'sales_invoice'` | drives the sign convention, Design decision 11 |
 | `documentId` | `uuid` (FK-id, no ORM relation) | |
 | `currencyId` | `uuid` (FK-id → `currencies.Currency`) | the document's own currency |
-| `outstandingAmountInDocumentCurrency` | `numeric(18,4)` | read from the document at run time |
+| `outstandingAmountInDocumentCurrency` | `numeric(18,4)` | `VendorInvoice.outstandingAmount`, or for a `sales_invoice` the ledger-side open amount (Design decision 17), computed at run time |
 | `bookedExchangeRate` | `numeric(18,8)` | the document's own stored rate |
 | `valuationExchangeRate` | `numeric(18,8)` | resolved for the run's valuation date |
 | `valuationRateSource` | `text` | the `ExchangeRate.source` actually selected (Design decision 9c/9e provenance) |
@@ -692,9 +724,10 @@ route (it isn't CRUD — it computes and posts); `GET /runs` and
 - Locks the current `'POSTED'` `FxRevaluationRun` row for this
   tenant/org with `SELECT ... FOR UPDATE`, then validates fully before
   any write (Design decision 10):
-  - Reads all open `VendorInvoice`/`SalesInvoice` rows
-    (`outstandingAmount > 0`, `currencyId` ≠ tenant base currency) as
-    of `valuationDate`.
+    - Reads all open `VendorInvoice` rows (`outstandingAmount > 0`,
+    `currencyId` ≠ tenant base currency) and all open, posted
+    `SalesInvoice` rows (ledger-side open amount `> 0`, `currencyId` ≠
+    tenant base currency; Design decision 17) as of `valuationDate`.
   - Resolves rates per Design decision 9; **422
     `EXCHANGE_RATE_UNAVAILABLE`** (rate genuinely not found after
     lookback/auto-fetch) or **422 `EXCHANGE_RATE_AMBIGUOUS`**
@@ -822,10 +855,12 @@ line detail.
   implement (Design decision 14); this spec does not silently
   substitute one for the other.
 - **Partial settlement between the document's issue date and
-  valuation date.** Revaluation uses the document's *current*
-  `outstandingAmount`, not its original total — the same field Cash &
-  Bank Management already reads for partial-payment matching.
-  Fully-settled documents (outstandingAmount = 0) are excluded.
+  valuation date.** Revaluation uses the document's *current* open
+  amount, not its original total. For a vendor invoice that is
+  `VendorInvoice.outstandingAmount`; for a sales invoice it is the
+  ledger-side open amount (Design decision 17), because `sales` does not
+  maintain `SalesInvoice.outstandingAmount`. Fully-settled documents (open
+  amount = 0) are excluded.
 - **Running the command twice for the same period before close.** The
   second call reverses the first run's entry and reposts fresh — no
   manual cleanup needed, and no double-counted unrealized balance.
@@ -1077,9 +1112,9 @@ base / EUR foreign currency):
 | 14 | Settling a document still covered by an unreversed run | `matchBankStatementLine` → `409 PRIOR_VALUATION_NOT_REVERSED` |
 | 15 | Same settlement, after the covering run is reversed | Succeeds, realized gain/loss posts per Cash & Bank Management's existing formula |
 | 16 | Three-currency settlement (PLN base, EUR invoice, USD bank) | `bookedExchangeRate` is not defaulted from the invoice; explicit entry or cross-rate required (Design decision 14) |
-| 17 | Partial settlement between issue date and valuation date | Revaluation uses current `outstandingAmount`, not original total |
+| 17 | Partial settlement between issue date and valuation date | Revaluation uses the current open amount (vendor: `outstandingAmount`; sales: ledger-side, Design decision 17), not original total |
 | 18 | `FiscalPeriod` already `CLOSED` | `409` |
-| 19 | Preview (`GET /runs/preview`) then a change to a document's `outstandingAmount` before posting | Posting reflects the *new* state; UI must re-preview, not reuse the stale one |
+| 19 | Preview (`GET /runs/preview`) then a change to a document's open amount before posting | Posting reflects the *new* state; UI must re-preview, not reuse the stale one |
 
 ## Canonical Mechanisms
 
@@ -1414,3 +1449,17 @@ Table A support before `fx_revaluation` can post statutorily-correct
 valuations — a `currencies`-module task, out of this document's own
 boundary, now blocking Implementation Plan Step 3 instead of an
 unresolved legal question blocking it.
+
+## Changelog addendum — 2026-10-09 (sales invoice open amount, #6055 alignment)
+
+Found while aligning #6046/#6055: this spec read
+`SalesInvoice.outstandingAmount` as the revaluation base and described it as
+"the same field Cash & Bank Management already reads". Neither holds:
+`sales` does not maintain that column for invoices (default `0`), and #6055
+no longer reads it (it sizes settlements ledger-side). Added Design decision
+17: a sales invoice's open amount is its gross total less the settled amounts
+of its #6055 matches, and only invoices posted by #6046 are revalued. Updated
+the run's read step, the line's source column, two edge cases, the dependency
+list (`cash_bank_management`, soft) and the quoted settlement formula
+(`settledAmount`, `overpaymentAmount`). Vendor invoices are unchanged. Not yet
+reviewed by a maintainer.
