@@ -101,17 +101,23 @@ export async function restoreTpayBaseline(
   token: string,
   baseline: TpayBaseline,
 ): Promise<void> {
-  await apiRequest(request, 'PUT', `/api/integrations/${TPAY_INTEGRATION_ID}/credentials`, {
+  const credentialsResponse = await apiRequest(request, 'PUT', `/api/integrations/${TPAY_INTEGRATION_ID}/credentials`, {
     token,
     data: {
       credentials: baseline.nonSecretCredentials,
       unchangedSecretFields: baseline.configuredSecretKeys,
     },
   })
-  await apiRequest(request, 'PUT', `/api/integrations/${TPAY_INTEGRATION_ID}/state`, {
+  if (!credentialsResponse.ok()) {
+    throw new Error(`Failed to restore Tpay credentials: ${credentialsResponse.status()}`)
+  }
+  const stateResponse = await apiRequest(request, 'PUT', `/api/integrations/${TPAY_INTEGRATION_ID}/state`, {
     token,
     data: { isEnabled: baseline.isEnabled },
   })
+  if (!stateResponse.ok()) {
+    throw new Error(`Failed to restore Tpay state: ${stateResponse.status()}`)
+  }
 }
 
 export async function createTpaySession(

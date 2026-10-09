@@ -14,7 +14,7 @@ import type {
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { toTpayAmount } from '../amount'
+import { toGrosze, toTpayAmount } from '../amount'
 import { resolveTpayNotificationUrl } from '../callback-url'
 import { tpayHttpError, translateTpayText } from '../errors'
 import { mapTpayStatus } from '../status-map'
@@ -94,6 +94,19 @@ async function withProviderErrors<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
+function resolveSettledStatus(
+  status: UnifiedPaymentStatus,
+  amount: number | undefined,
+  amountPaid: number | undefined,
+): UnifiedPaymentStatus {
+  if (status !== 'captured' || amount === undefined || amountPaid === undefined) return status
+  const expected = toGrosze(amount)
+  const paid = toGrosze(amountPaid)
+  if (expected === null || paid === null || paid >= expected) return status
+  logger.warn('Tpay reported a settled transaction with a partial payment')
+  return 'pending'
+}
+
 async function unsupportedOperation(): Promise<never> {
   throw await tpayHttpError(422, 'unsupportedOperation')
 }
@@ -167,7 +180,11 @@ export const tpayAdapterV1: GatewayAdapter = {
       })
       const transaction = await getTransaction(token, credentials.environment, input.sessionId)
       const providerStatus = bounded(transaction.status)
-      const status = mapTpayStatus(transaction.status)
+      const status = resolveSettledStatus(
+        mapTpayStatus(transaction.status),
+        transaction.amount,
+        transaction.payments?.amountPaid,
+      )
       if (status === 'unknown') {
         logger.warn('Unknown Tpay transaction status', { providerStatus: providerStatus ?? null })
       }

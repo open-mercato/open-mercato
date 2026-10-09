@@ -23,6 +23,7 @@
 | 1 | 1.7 | Wire gateway-tpay into the app, create-app template, Dockerfile and ACL catalog | dispatch:capable | done | 8b8840abd |
 | 1 | 1.8 | Add Tpay API integration tests | dispatch | done | 7b34fc735 |
 | 1 | 1.9 | Add the Tpay user guide and align the spec with the implementation | inline | done | 71a6ed1e3 |
+| 1 | 1.9-review-fix | Address om-auto-review-pr findings: underpayment guard, CLI preset errors, test cleanup checks, zod dependency | inline | done | self |
 
 ## Goal
 
@@ -135,3 +136,10 @@ None (`--skill-url` not supplied). Tpay contract facts come from the official Tp
 
 - `apps/docs/docs/user-guide/tpay-payments.mdx` (setup in Tpay Merchant Panel, credentials, environment, notification URL note, limitations: PLN only, no notifications yet, no refunds/cancel, sandbox acceptance pending) + `apps/docs/sidebars.ts` entry next to Stripe.
 - Spec update: integration tests live in the module `__integration__` folder (not `.ai/qa/tests/`), label/i18n decision for credential fields, `package-previews.yml` deferral, implementation notes, changelog entry; keep `Status` as `in-progress` (sandbox acceptance outstanding).
+
+#### 1.9-review-fix Address om-auto-review-pr findings: underpayment guard, CLI preset errors, test cleanup checks, zod dependency
+
+- `getStatus` keeps a `paid`/`correct` transaction `pending` when `payments.amountPaid` is below the expected amount (core aligns the captured amount to the full order amount on `captured`).
+- `configure-from-env` catches invalid preset env values, reports them, and exits with code 1 instead of crashing.
+- Integration fixture restore asserts the credentials/state PUTs succeeded (no delete API exists, so an empty credentials row remains when the tenant had none before).
+- Declare `zod` as a runtime dependency of the package.

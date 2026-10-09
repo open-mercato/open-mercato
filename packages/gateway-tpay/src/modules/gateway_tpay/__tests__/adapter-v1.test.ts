@@ -249,6 +249,25 @@ describe('tpayAdapterV1', () => {
       })
     })
 
+    it('keeps an underpaid settled transaction pending', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ access_token: TOKEN }))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            transactionId: 'ta_under',
+            status: 'paid',
+            amount: 123.45,
+            currency: 'PLN',
+            payments: { amountPaid: '100.00' },
+          }),
+        )
+      const result = await tpayAdapterV1.getStatus({
+        sessionId: 'ta_under',
+        credentials: { clientId: 'client-id', clientSecret: CLIENT_SECRET, environment: 'sandbox' },
+      })
+      expect(result).toMatchObject({ status: 'pending', amount: 123.45, amountReceived: 100 })
+    })
+
     it('defaults amount received to zero and maps unknown statuses', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ access_token: TOKEN }))

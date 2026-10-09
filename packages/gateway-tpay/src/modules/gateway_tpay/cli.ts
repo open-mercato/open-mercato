@@ -61,7 +61,16 @@ const configureFromEnvCommand: ModuleCli = {
       return
     }
 
-    const preset = await readTpayEnvPreset()
+    let preset: Awaited<ReturnType<typeof readTpayEnvPreset>>
+    try {
+      preset = await readTpayEnvPreset()
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'gateway_tpay', code: 'gateway_tpay.preset_failed' })
+      const message = error instanceof Error ? error.message : 'Unknown Tpay preset error'
+      console.error(`[gateway_tpay] ${message}`)
+      process.exitCode = 1
+      return
+    }
     if (!preset) {
       console.error('[gateway_tpay] No Tpay env preset was found.')
       printHelp()
