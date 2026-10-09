@@ -79,6 +79,21 @@ describe('BrevoChannelAdapter', () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
+  it('fails before making a request when the subject is missing', async () => {
+    const result = await getBrevoChannelAdapter().sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'brevo-key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: ['user@example.com'] },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Email send requires a subject',
+    }))
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
   it('returns a sanitized provider error for non-success responses', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(
       JSON.stringify({ message: 'invalid sender\r\nsecret-header' }),

@@ -123,4 +123,35 @@ describe('MailjetChannelAdapter', () => {
     }))
     expect(global.fetch).not.toHaveBeenCalled()
   })
+
+  it('fails before making a request when the subject is missing', async () => {
+    const result = await getMailjetChannelAdapter().sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: ['user@example.com'] },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Email send requires a subject',
+    }))
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('returns a stable failure when the provider request rejects', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network unavailable\r\nprovider-detail'))
+
+    const result = await getMailjetChannelAdapter().sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: ['user@example.com'], subject: 'Hello' },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: 'MAILJET_SEND_FAILED: network unavailable provider-detail',
+    }))
+  })
 })

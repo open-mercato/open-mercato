@@ -55,4 +55,18 @@ describe('channelMailjetHealthCheck', () => {
     }))
     expect(global.fetch).not.toHaveBeenCalled()
   })
+
+  it('reports provider network failures as unhealthy', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network unavailable'))
+
+    const result = await channelMailjetHealthCheck.check(
+      { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
+      { tenantId: 'tenant-1', organizationId: 'organization-1' },
+    )
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'unhealthy',
+      details: { reason: 'request_failed' },
+    }))
+  })
 })

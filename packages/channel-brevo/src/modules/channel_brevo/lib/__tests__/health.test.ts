@@ -53,4 +53,18 @@ describe('channelBrevoHealthCheck', () => {
     }))
     expect(global.fetch).not.toHaveBeenCalled()
   })
+
+  it('reports provider network failures as unhealthy', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('network unavailable'))
+
+    const result = await channelBrevoHealthCheck.check(
+      { apiKey: 'brevo_test', fromAddress: 'from@example.com' },
+      { tenantId: 'tenant-1', organizationId: 'organization-1' },
+    )
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'unhealthy',
+      details: { reason: 'request_failed' },
+    }))
+  })
 })
