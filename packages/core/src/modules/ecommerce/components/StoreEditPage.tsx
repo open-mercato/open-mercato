@@ -172,7 +172,7 @@ export function StoreEditPage({ storeId, tabs = STORE_EDIT_TABS }: StoreEditPage
           </Card>
           {activeTab ? (
             <Tabs value={activeTab} onValueChange={handleTabChange} variant="underline">
-              <TabsList aria-label={t('ecommerce.backend.store.tabs.ariaLabel', 'Store sections')}>
+              <TabsList className="max-w-full overflow-x-auto" aria-label={t('ecommerce.backend.store.tabs.ariaLabel', 'Store sections')}>
                 {tabs.map((tab) => (
                   <TabsTrigger key={tab.id} value={tab.id}>
                     {t(tab.labelKey, tab.fallbackLabel)}

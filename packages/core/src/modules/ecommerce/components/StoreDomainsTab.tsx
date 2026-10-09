@@ -390,16 +390,18 @@ export function StoreDomainsTab({ store, reload }: StoreDomainsTabProps) {
             </AlertDescription>
           </Alert>
         )}
-        <DataTable<DomainBindingRecord>
-          columns={columns}
-          data={bindings}
-          isLoading={bindingsQuery.isLoading}
-          error={bindingsQuery.isError ? t('ecommerce.backend.store.domains.errors.load', 'Failed to load the domain bindings.') : null}
-          actions={addAction}
-          rowActions={canManageDomains ? (row) => <RowActions items={buildRowActions(row)} /> : undefined}
-          emptyState={emptyState}
-          embedded
-        />
+        <div className="overflow-x-auto">
+          <DataTable<DomainBindingRecord>
+            columns={columns}
+            data={bindings}
+            isLoading={bindingsQuery.isLoading}
+            error={bindingsQuery.isError ? t('ecommerce.backend.store.domains.errors.load', 'Failed to load the domain bindings.') : null}
+            actions={addAction}
+            rowActions={canManageDomains ? (row) => <RowActions items={buildRowActions(row)} /> : undefined}
+            emptyState={emptyState}
+            embedded
+          />
+        </div>
         {canManageDomains && dialog.mode !== 'closed' ? (
           <StoreDomainBindingDialog
             open
