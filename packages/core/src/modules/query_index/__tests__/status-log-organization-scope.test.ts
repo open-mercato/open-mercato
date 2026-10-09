@@ -15,6 +15,11 @@
  * populate it and were invisible in that view, while the fulltext worker did not and was
  * visible. Recording it on the fulltext worker - the point of this change - would have
  * moved those rows from one blind spot into the other.
+ *
+ * "All organizations" still means all organizations in the caller's TENANT. A tenant-less
+ * row that names an organization (`query_index rebuild --org` without `--tenant`) may name
+ * another tenant's, so the unrestricted view admits only tenant-less rows that are also
+ * organization-less, i.e. genuinely platform-wide.
  */
 const mockGetAuthFromRequest = jest.fn()
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -72,8 +77,12 @@ function makeFakeDb(tableRows: Record<string, FakeRow[]>) {
     chain.where = (...args: unknown[]) => {
       if (typeof args[0] === 'function') {
         const eb = ((column: unknown, operator: unknown, value: unknown) =>
-          makeComparison(column, operator, value)) as typeof makeComparison & { or: (items: FakePredicate[]) => FakePredicate }
+          makeComparison(column, operator, value)) as typeof makeComparison & {
+          or: (items: FakePredicate[]) => FakePredicate
+          and: (items: FakePredicate[]) => FakePredicate
+        }
         eb.or = (items: FakePredicate[]) => (row: FakeRow) => items.some((item) => item(row))
+        eb.and = (items: FakePredicate[]) => (row: FakeRow) => items.every((item) => item(row))
         const predicate = args[0](eb)
         if (typeof predicate === 'function') predicates.push(predicate)
       } else if (typeof args[0] === 'string') {
@@ -92,22 +101,22 @@ function makeFakeDb(tableRows: Record<string, FakeRow[]>) {
 const TENANT = 'tenant-1'
 
 /** One row per (writer, organization) shape the two log tables really contain. */
-function logRow(handler: string, organizationId: string | null): FakeRow {
+function logRow(handler: string, organizationId: string | null, tenantId: string | null = TENANT): FakeRow {
   return {
     id: `${handler}:${organizationId ?? 'null'}`,
     source: 'fulltext',
     handler,
     message: 'indexed',
     level: 'info',
-    tenant_id: TENANT,
+    tenant_id: tenantId,
     organization_id: organizationId,
     occurred_at: new Date(),
     details: null,
   }
 }
 
-function errorRow(handler: string, organizationId: string | null): FakeRow {
-  return { ...logRow(handler, organizationId), stack: null, payload: null }
+function errorRow(handler: string, organizationId: string | null, tenantId: string | null = TENANT): FakeRow {
+  return { ...logRow(handler, organizationId, tenantId), stack: null, payload: null }
 }
 
 const ROWS: Record<string, FakeRow[]> = {
@@ -117,11 +126,15 @@ const ROWS: Record<string, FakeRow[]> = {
     logRow('worker:fulltext:index', 'org-1'),
     logRow('worker:vector-indexing:index', 'org-2'),
     logRow('cli:query_index.reindex', null),
+    logRow('cli:query_index.purge', null, null),
+    logRow('cli:query_index.rebuild', 'org-other-tenant', null),
   ],
   indexer_error_logs: [
     errorRow('worker:fulltext:index', 'org-1'),
     errorRow('worker:vector-indexing:index', 'org-2'),
     errorRow('cli:query_index.reindex', null),
+    errorRow('cli:query_index.purge', null, null),
+    errorRow('cli:query_index.rebuild', 'org-other-tenant', null),
   ],
 }
 
@@ -176,7 +189,32 @@ describe('query_index status route — which log rows each scope sees', () => {
       'worker:vector-indexing:index:org-2',
       'cli:query_index.reindex:null',
     ]))
-    expect(errors).toHaveLength(3)
+    expect(errors).toEqual(expect.arrayContaining([
+      'worker:fulltext:index:org-1',
+      'worker:vector-indexing:index:org-2',
+      'cli:query_index.reindex:null',
+    ]))
+  })
+
+  it('keeps tenant-less rows that name an organization out of the unrestricted view', async () => {
+    // `mercato query_index rebuild --org <id>` without `--tenant` writes `tenant_id: null`
+    // next to a real organization, which may belong to another tenant. The all-organizations
+    // view covers every organization in the caller's tenant, not across tenants, so such a
+    // row - with its message, and on the error table its stack and payload - must not reach
+    // it. A tenant-less row with no organization is platform-wide and still shows.
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId: TENANT,
+    })
+
+    const { logs, errors } = await readIds(await GET(new Request('http://localhost/api/query_index/status')))
+
+    for (const ids of [logs, errors]) {
+      expect(ids).not.toContain('cli:query_index.rebuild:org-other-tenant')
+      expect(ids).toContain('cli:query_index.purge:null')
+    }
   })
 
   it('keeps a scoped view to its own organizations only, null-organization rows included (#3887)', async () => {

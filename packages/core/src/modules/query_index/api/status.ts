@@ -514,31 +514,26 @@ export async function GET(req: Request) {
     } catch {}
   }
 
+  // Scoped callers keep #3887's strict `IN`. The all-organizations view may see every
+  // organization in its tenant, but a tenant-less row that names an organization may name
+  // another tenant's, so it only sees tenant-less rows that are platform-wide.
+  const organizationScoped = Array.isArray(organizationScopeIds) && organizationScopeIds.length > 0
+  const tenantlessRow = (eb: any) => organizationScoped
+    ? eb('tenant_id' as any, 'is', null)
+    : eb.and([eb('tenant_id' as any, 'is', null), eb('organization_id' as any, 'is', null)])
+
   let errorQuery = db
     .selectFrom('indexer_error_logs' as any)
     .selectAll()
   if (tenantId != null) {
     errorQuery = errorQuery.where((eb: any) => eb.or([
       eb('tenant_id' as any, '=', tenantId),
-      eb('tenant_id' as any, 'is', null),
+      tenantlessRow(eb),
     ]))
   } else {
-    errorQuery = errorQuery.where('tenant_id' as any, 'is', null as any)
+    errorQuery = errorQuery.where((eb: any) => tenantlessRow(eb))
   }
-  // An org-SCOPED caller keeps the strict `IN`, with no NULL branch: a null-organization
-  // diagnostic row carries a stack and a payload from a platform-wide operation that may
-  // concern another organization, and #3887 decided deliberately that those must not reach
-  // a scoped caller. That is stricter than `cfQuery` earlier in this file, on purpose.
-  //
-  // An UNRESTRICTED caller (`filterIds === null`, the all-organizations view) is a different
-  // question, and the `else` answered it wrongly: it returned ONLY the null-organization
-  // rows. There is no isolation argument there - the caller may see every organization in
-  // the tenant - so the effect was to make the panel's contents depend on whether a writer
-  // happened to record the organization. `worker:vector-indexing:*` and `cli:search.reindex`
-  // populate it and were invisible in that view; the fulltext worker did not and was
-  // visible. Recording it on the fulltext worker, which is what this change does, would
-  // have moved those rows from one blind spot into the other.
-  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+  if (organizationScoped) {
     errorQuery = errorQuery.where('organization_id' as any, 'in', organizationScopeIds)
   }
   const errorRows = await errorQuery
@@ -569,14 +564,12 @@ export async function GET(req: Request) {
   if (tenantId != null) {
     logsQuery = logsQuery.where((eb: any) => eb.or([
       eb('tenant_id' as any, '=', tenantId),
-      eb('tenant_id' as any, 'is', null),
+      tenantlessRow(eb),
     ]))
   } else {
-    logsQuery = logsQuery.where('tenant_id' as any, 'is', null as any)
+    logsQuery = logsQuery.where((eb: any) => tenantlessRow(eb))
   }
-  // Same two cases as the error query above, for the same reasons: #3887's strict `IN` for
-  // a scoped caller, no organization filter at all for the unrestricted one.
-  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+  if (organizationScoped) {
     logsQuery = logsQuery.where('organization_id' as any, 'in', organizationScopeIds)
   }
   const logRows = await logsQuery
