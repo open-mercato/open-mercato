@@ -78,8 +78,11 @@ entry, and — optionally — which verified contractor stood behind the
 sale.
 
 This document is not a full Accounts Receivable subledger. Customer
-statements, aging, dunning, collections and **receipt posting** (the
-credit to the receivable when a customer pays) are not designed here.
+statements, aging, dunning and collections are not designed here, and neither
+is **receipt posting** (the credit to the receivable when a customer pays):
+that belongs to Cash & Bank Management (#6055), which posts DR bank / CR the
+receivable account configured here (Design decisions, "Contract with Cash &
+Bank Management").
 `sales.SalesInvoice` carries `outstandingAmount`/`paidTotalAmount`, but
 `sales` does not maintain them for invoices — payments recalculate the
 *order's* totals only, and an invoice's balances are whatever the caller
@@ -389,8 +392,8 @@ input (default `0`) and `update` copies input as is, the same
 no-derivation pattern as the header totals (see "Header-level discounts
 are out of scope"). So an invoice created without an explicit `outstandingAmount`
 posts `DR receivable = gross` while its `outstandingAmount` is `0`, and
-nothing ever credits the receivable afterwards, because no receipt
-posting exists here or in a sibling spec. Consequences for this
+nothing in this module credits the receivable afterwards: receipt posting
+is Cash & Bank Management's (#6055), not this module's. Consequences for this
 document:
 
 - The reconciliation the Literature section cites (Kieso Ch.7 p.7-12 fn.
@@ -398,12 +401,54 @@ document:
   be performed from `sales` data today**. Phase 1 does not claim it.
 - Invariant 2 is restated on what this module controls: the receivable
   account's balance is `Σ grandTotalGrossAmount` of the invoices it has
-  posted, less receipts posted by a path that does not exist yet (see
-  Invariants).
+  posted, less the receipts #6055 posts against that account (see Invariants).
 - Per-customer receivable balances and aging need two prerequisites,
-  both outside this document: `sales` maintaining invoice balances from
-  payment allocations, and a receipt posting into `ledger`. They are
-  named as dependencies in Out of scope, not designed here.
+  both outside this module: `sales` maintaining invoice balances from
+  payment allocations (an OM Core `sales` change), and the receipt posting
+  into `ledger`, which #6055 specifies. Both are named in Out of scope; the
+  split of ownership is in the next decision.
+
+**Contract with Cash & Bank Management (#6055): who owns what.** #6055 as
+written posts the receipt itself (DR `BankAccount.ledgerAccountId`, CR this
+module's `receivableAccountId`, read through `ModuleConfigService`) and
+emits `cash_bank_management.statement_line.matched`. It then assumes a
+subscriber "owned by `sales_invoice_gl_posting`" that calls
+`sales.payments.create` to keep the invoice's balances right. This document
+did not provide that, and the code shows it is not a one-line call:
+`sales.payments.create` rejects a payment without `orderId` (400), while the
+event payload carries only the invoice id and a `currencyId` where the
+command wants a `currencyCode`; and it recalculates the *order's* totals
+only, never the invoice's `outstandingAmount`/`paidTotalAmount`. Resolution:
+
+- **Receipt posting into `ledger` — #6055.** Not this module. Invariant 2
+  names it: receivable balance = Σ `grandTotalGrossAmount` of posted
+  invoices less the receipts #6055 posts against the account. The event
+  contract is #6055's too.
+- **The `sales`-side payment bridge — this module, Phase 2.** A subscriber on
+  `cash_bank_management.statement_line.matched` that resolves the invoice to
+  its order and currency and calls `commandBus.execute('sales.payments.create',
+  ...)` with an allocation to the invoice. A standalone invoice (nullable
+  `SalesInvoice.order`) cannot be paid through that command at all today, so
+  the bridge skips it and the gap is part of the `sales` change. It lives here because this is the
+  only financial module with a hard dependency on `sales`; a `sales`-owned
+  subscriber would make `sales` depend on a financial module's event, the
+  reverse of the dependency direction, and #6055 deliberately has no `sales`
+  dependency. Phase 1 stays read-only toward `sales`, with no events and no
+  subscribers; until the bridge exists a payment is recorded in `sales`
+  manually (`POST /api/sales/payments`).
+- **Invoice-balance maintenance — `sales` (OM Core).** The payments commands
+  must recompute the invoice's `outstandingAmount`/`paidTotalAmount` from
+  its allocations. Without it the bridge only updates orders. This is a
+  change to `sales`, outside the financial-module family and not designed
+  here; it needs its own issue.
+- **#6055's text needs aligning** (its "follow-up change to
+  `sales_invoice_gl_posting`'s own spec" becomes "Phase 2 of that spec", and
+  its statement that `sales.payments.create` keeps invoice balances correct
+  holds only after the `sales` change). That is a change to #6055 and is not
+  made here.
+
+**⚠ NEEDS HUMAN CONFIRMATION:** the ownership split above (architecture
+decision; autonomous default taken to unblock both specs).
 
 **`documentType: 'external_own'` — a sales invoice is a dowód
 wystawiony przez naszą firmę, the opposite case from Accounts
@@ -457,9 +502,9 @@ this document's scope can fix.
    is rejected, not silently re-posted.
 2. **The receivable control account's balance equals the sum of
    `grandTotalGrossAmount` across every `SalesInvoice` this module has
-   posted, until a receipt-posting path exists.** Once receipts are
-   posted into `ledger` (a path this document does not design), the
-   balance equals that sum minus the posted receipts. It is deliberately
+   posted, less the receipts Cash & Bank Management (#6055) has posted
+   against it.** Until #6055 is deployed nothing credits the account and
+   the balance equals the sum. It is deliberately
    *not* compared to `outstandingAmount`: for invoices `sales` does not
    maintain it (Design decisions, "No subsidiary ledger in Phase 1").
    The invariant holds only for invoices this module has posted — an
@@ -490,7 +535,7 @@ this document's scope can fix.
 | An automatic subscriber on `sales.invoice.created`, mirroring Posting Rules Engine | Rejected: `sales.SalesInvoice.status` is a free-form, tenant-configurable dictionary value with no generic "this means finalized" signal — the same problem space as Accounts Payable's explicit-command choice, not Posting Rules Engine's structural-fact one (see Design decisions) |
 | Add `accountId` directly to `sales.SalesInvoiceLine`, mirroring `VendorInvoiceLine.accountId` | Not this module's table to alter — `sales` owns that entity and its migrations; a thin, additive `SalesInvoiceLineRevenueAccount` table achieves the same per-line assignment without touching `sales`'s schema |
 | Build the `customers.CustomerEntity` ↔ `contractors.Contractor` bridge as part of this document | Rejected as premature: no confirmed need for *automatic* resolution exists anywhere in this codebase yet (Contractor Registry itself only names this document as an undesigned, indirect consumer); an explicit, optional `contractorId` argument covers the one real, confirmed need (contractor snapshotting) without speculatively designing a mapping nobody has asked for |
-| A new subsidiary-ledger table for per-customer receivable balances | Deferred, not rejected: `sales` does not maintain invoice balances (payments update orders only), so neither `sales` nor this module can supply per-customer balances today. It needs receipt posting and invoice-balance maintenance first (see Design decisions, "No subsidiary ledger in Phase 1", and Out of scope) |
+| A new subsidiary-ledger table for per-customer receivable balances | Deferred, not rejected: `sales` does not maintain invoice balances (payments update orders only), so neither `sales` nor this module can supply per-customer balances today. It needs receipt posting (#6055) and invoice-balance maintenance in `sales` first (see Design decisions, "No subsidiary ledger in Phase 1", and Out of scope) |
 
 ## Literature & Prior Art
 
@@ -704,7 +749,8 @@ before the first posting (see Migration & Deployment).
 
 ### Events (`events.ts`)
 
-None in Phase 1. No downstream consumer has been named for "a sales
+None in Phase 1, and no subscribers (the Phase 2 payment bridge adds one;
+see Design decisions, "Contract with Cash & Bank Management"). No downstream consumer has been named for "a sales
 invoice was posted to the ledger" — adding an event now would be
 speculative (see this project's own discipline against designing
 ahead of a real consumer, applied consistently across every document
@@ -716,9 +762,11 @@ in this family).
   `SalesInvoice`/`SalesInvoiceLine` directly via `entityManager`,
   scoped by `tenantId`/`organizationId` — the same hard-dependency
   direct-entity-read precedent `sales` itself establishes for reading
-  `catalog`'s `CatalogProduct`. Never writes to any `sales` entity —
-  `sales`'s own invoice lifecycle (status, payments) is entirely
-  outside this module's authority.
+  `catalog`'s `CatalogProduct`. Never writes to any `sales` entity in
+  Phase 1 — `sales`'s own invoice lifecycle (status, payments) is outside
+  this module's authority. The Phase 2 payment bridge is the one planned
+  write, through `commandBus.execute('sales.payments.create', ...)`, not a
+  direct entity write.
 - **`ledger` (hard dependency).** Writes exclusively through
   `commandBus.execute('ledger.postJournalEntry', { input, ctx })` —
   the real, two-argument `execute(commandId, options)` signature.
@@ -762,9 +810,12 @@ the `GET` route; both are ordinary authenticated, feature-gated routes.
   either an invoices section on the order detail page or a new invoice
   detail surface in `sales`. Neither exists, and designing one is
   `sales`'s scope, not this module's. This is a named dependency, not a
-  Phase 1 deliverable. **⚠ NEEDS HUMAN CONFIRMATION:** whether an API-only
-  Phase 1 is acceptable to the product owner, or whether the invoice
-  surface in `sales` should be specified first.
+  Phase 1 deliverable. Decision taken (autonomous default): Phase 1 ships API-only,
+  because the posting action and its tests do not depend on a UI, and the
+  invoice surface is a `sales` deliverable that would otherwise gate this
+  module. **⚠ NEEDS HUMAN CONFIRMATION:** product owner — if a button is
+  needed from day one, the invoice surface in `sales` must be specified
+  first and Phase 1 moves behind it.
 - **The module-config settings page** (`backend/settings/page.tsx`,
   File Manifest) is a minimal `<CrudForm>` (from
   `@open-mercato/ui/backend/CrudForm`) with two `<FormField>`-wrapped
@@ -1048,15 +1099,14 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   must read `sales.SalesInvoiceLine` directly, not this module's
   posting.
 
-- **The receivable only grows until a receipt-posting path exists.** This
-  module credits revenue and VAT and debits the receivable on invoice
-  recognition; nothing credits the receivable when a customer pays, and
-  `sales` does not maintain invoice balances either (Design decisions, "No
-  subsidiary ledger in Phase 1"). A tenant using only this module will see
-  an ever-growing receivable account and no way to reconcile it against
-  `sales` data. Acceptable only as a staged delivery: receipt posting and
-  invoice-balance maintenance are named prerequisites for any receivable
-  reconciliation or aging.
+- **The receivable only grows until #6055 is deployed.** This module credits
+  revenue and VAT and debits the receivable on invoice recognition; receipts
+  are credited by Cash & Bank Management (#6055), not here. A tenant running
+  this module without #6055 sees an ever-growing receivable account. Even
+  with #6055, an invoice's balances in `sales` stay stale until the Phase 2
+  payment bridge and the `sales` invoice-balance change land (Design
+  decisions, "Contract with Cash & Bank Management"). Acceptable as a staged
+  delivery; per-customer reconciliation and aging need both.
 - **API-only in Phase 1.** There is no UI button to post an invoice until
   `sales` has an invoice surface (Backend Pages). Posting is done through
   the route by an integration or an operator script.
@@ -1067,13 +1117,14 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 - A full Accounts Receivable subledger (customer statements, aging,
   dunning, collections) — needs two prerequisites that do not exist:
   `sales` maintaining invoice `outstandingAmount`/`paidTotalAmount` from
-  payment allocations (today payments update orders only), and a receipt
-  posting into `ledger` (see Design decisions, "No subsidiary ledger in
-  Phase 1"). Both are named dependencies of any future receivable
-  reconciliation, not designed here.
+  payment allocations (today payments update orders only), and the receipt posting into `ledger`, which #6055 specifies (see Design
+  decisions, "No subsidiary ledger in Phase 1"). Both are named dependencies
+  of any future receivable reconciliation, not designed here.
 - **Receipt posting** (debit bank/cash, credit the receivable when a
-  customer pays) — no spec covers it yet; until one does, the receivable
-  account only grows (Invariant 2).
+  customer pays) — specified in Cash & Bank Management (#6055); not designed
+  here. The `sales`-side payment bridge is Phase 2 of this module, and
+  invoice-balance maintenance is a `sales` change (Design decisions,
+  "Contract with Cash & Bank Management").
 - **The posting widget** — Phase 2, blocked on an invoice surface in
   `sales` (Backend Pages).
 - Reversing or voiding a posted invoice's journal entry — a future
@@ -1493,3 +1544,14 @@ first round was confirmed fixed.
   claims no own check, the `GET` description no longer promises a
   `sequenceNumber`, the cache row carries `tenant_id`. **n4** `sales` line
   citations replaced with function/schema names.
+- **Follow-up, same day — receipt posting and the payment subscriber.** The
+  M1/B1 edits above said no sibling spec covers receipt posting; that was
+  wrong: #6055 specifies it. Corrected throughout (Overview, Design
+  decisions, Invariant 2, Risks, Out of scope). Added "Contract with Cash &
+  Bank Management": #6055 owns the ledger receipt posting and the
+  `statement_line.matched` event; this module owns the Phase 2 `sales`
+  payment bridge (the only financial module allowed to depend on `sales`);
+  `sales` owns invoice-balance maintenance. #6055 expects this module to
+  carry the subscriber, which this document had not said; its text still
+  needs aligning. **⚠ NEEDS HUMAN CONFIRMATION:** the ownership split, and
+  API-only Phase 1.
