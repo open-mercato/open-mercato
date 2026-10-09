@@ -4,6 +4,8 @@ export const WEBHOOK_EVENTS_IDEMPOTENCY_UNIQUE = 'gateway_webhook_events_idempot
 
 export class Migration20261009120000_payment_gateways extends Migration {
   override async up(): Promise<void> {
+    this.addSql(`lock table "gateway_webhook_events" in share row exclusive mode;`)
+
     this.addSql(`
       delete from "gateway_webhook_events" duplicate
       using (

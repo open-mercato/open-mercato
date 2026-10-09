@@ -39,7 +39,9 @@ describe('Migration20261009120000_payment_gateways', () => {
   test('removes duplicate claims, keeping the earliest processed one, before enforcing uniqueness', async () => {
     const statements = await collectSql(Migration20261009120000_payment_gateways, 'up')
 
-    expect(statements).toHaveLength(2)
+    expect(statements).toHaveLength(3)
+    expect(statements[0]).toBe('lock table "gateway_webhook_events" in share row exclusive mode;')
+    statements.shift()
     expect(statements[0]).toContain('delete from "gateway_webhook_events" duplicate')
     expect(statements[0]).toContain(
       'partition by event."idempotency_key", event."provider_key", event."organization_id", event."tenant_id"',
