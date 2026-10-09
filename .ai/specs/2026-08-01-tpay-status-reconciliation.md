@@ -1,6 +1,6 @@
 # Tpay Scheduled Payment Status Reconciliation
 
-- **Status:** planned
+- **Status:** in-progress (implemented; sandbox repair acceptance outstanding)
 - **Date:** 2026-08-01
 - **Type:** OSS payment-provider recovery capability
 - **Provider package:** `@open-mercato/gateway-tpay` (`gateway_tpay`)
@@ -172,6 +172,12 @@ Acceptance requires a missed-notification sandbox transaction to reach `captured
 - Disabling the schedule cleanly restores the previous notification/return-poll behavior.
 - If implementation needs a shared/core change beyond existing scheduler and worker contracts, update this specification and run the compatibility review before coding it.
 
+## Implementation Notes
+
+- Worker `packages/gateway-tpay/src/modules/gateway_tpay/workers/status-poller.ts` (`gateway_tpay:status-poller`, queue `gateway-tpay-status-poller`, concurrency 2): scope from the scheduler payload (`scope.*` or top-level), `limit` clamped to 1..100, `providerKey: 'tpay'`, per-transaction isolation with `gateway_tpay.status_poll_failed` reporting, summary log `{ scanned, changed, failed }`.
+- Schedule `lib/reconciliation-schedule.ts`: local `stableScheduleUuid` (the payment_gateways helper is not exported), `timezone: 'UTC'`, skips when no scheduler is registered.
+- Subscriber `subscribers/integration-state-updated.ts` (`gateway_tpay:integration-state-updated`) and `setup.ts` `seedDefaults` (only when the integration is enabled); failures report `gateway_tpay.reconciliation_schedule_failed` and never break tenant setup.
+
 ## Implementation Plan
 
 1. Register the stable scoped schedule from `gateway_tpay` setup using a soft scheduler-service dependency.
@@ -214,6 +220,10 @@ None identified.
 Fully compliant — ready for implementation after authoritative Tpay notification settlement.
 
 ## Changelog
+
+### 2026-10-09 (implementation)
+
+- Implemented the provider-owned reconciliation worker, schedule registration on integration enable/disable and `seedDefaults`, tests, and user-guide section. Sandbox repair acceptance pending.
 
 ### 2026-10-09
 

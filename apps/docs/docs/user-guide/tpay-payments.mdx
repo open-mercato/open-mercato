@@ -72,8 +72,16 @@ Each notification is checked before anything changes:
 
 An overpayment still captures the expected amount; the paid amount is kept in the transaction details.
 
+## Scheduled status check
+
+When the Tpay integration is enabled for an organization, Open Mercato registers a scheduled job (**Tpay status reconciliation**, every 5 minutes) that asks Tpay for the current status of that organization's Tpay transactions that are still pending. It repairs payments whose notification never arrived, for example because the notification address was misconfigured or Tpay exhausted its retries.
+
+- The job is created or re-enabled when you enable the integration and disabled when you disable it. You can also pause it in the scheduler.
+- Each run checks at most 100 of the oldest pending transactions; larger backlogs are drained over the following runs.
+- It needs the scheduler module. Without it, notifications and the return-page check still work.
+
 ## Limitations
 
 - **PLN only.** Sessions in any other currency are rejected.
-- **One Tpay transaction per payment.** If a payment was retried and Tpay holds several transactions with the same amount for it, notifications cannot tell them apart and are rejected; the scheduled status check settles such payments instead.
+- **One Tpay transaction per payment.** If a payment was retried and Tpay holds several transactions with the same amount for it, notifications cannot tell them apart and are rejected; the scheduled status check settles such payments instead (within about 5 minutes).
 - **No refunds, cancellation, or manual capture** from Open Mercato. Use the Tpay Merchant Panel for these operations.

@@ -18,8 +18,8 @@
 | 1 | 1.3 | Add the Tpay notification handler and webhook registration | dispatch:capable | done | f6058f8f7 |
 | 1 | 1.4 | Document Tpay notifications and update the notification spec | inline | done | 50d4d0c76 |
 | 2 | 2.1 | Add the Tpay status reconciliation worker | dispatch | done | f4729c6eb |
-| 2 | 2.2 | Register the Tpay reconciliation schedule on setup and integration state changes | dispatch:capable | done | self |
-| 2 | 2.3 | Document Tpay reconciliation and update the reconciliation spec | inline | todo | — |
+| 2 | 2.2 | Register the Tpay reconciliation schedule on setup and integration state changes | dispatch:capable | done | ffcbb78b1 |
+| 2 | 2.3 | Document Tpay reconciliation and update the reconciliation spec | inline | done | self |
 
 ## Goal
 
