@@ -32,13 +32,17 @@ import { resolveProjectAccess, type ProjectAccess } from '../lib/time-tracking/a
 // commands must be in the registry before this file asks the bus to run one.
 import { staffTimeTagCommandIds, TAG_TARGET_LOCKED_CODE } from './timesheets-tags'
 
-// The time-entries CRUD list route caches under `staff.timesheet`. What actually
-// flushes that tag on execute AND undo is the command bus: `deriveResourceFromCommandId`
-// maps every `staff.timesheets.*` id onto it, which is why the ids below keep that
-// prefix (#2609). `cacheAliases` is declared for the `packages/core/AGENTS.md`
-// convention only — no runtime reader consumes `CrudIndexerConfig.cacheAliases` today
-// (the bus reads `buildLog(...).context.cacheAliases`), so do not rely on it to reach
-// a tag the command id cannot derive.
+// The time-entries CRUD list route caches under `staff.timesheets.time.entry` — the
+// canonical tag of its CRUD events config (`staff` + `timesheets.time_entry`). What
+// flushes that tag on execute AND undo is the `resourceKind: 'staff.timesheets.time_entry'`
+// every command below returns from `buildLog`: the command bus skips cache invalidation
+// entirely when the log carries no `resourceKind` (#2609), so that value is the
+// load-bearing part — keep it in sync with the list route's events config. The bus also
+// flushes the tag `deriveResourceFromCommandId` derives from the command id
+// (`staff.timesheets.*` → `staff.timesheet`); that alias is extra, not what reaches the
+// list cache. `cacheAliases` is declared for the `packages/core/AGENTS.md` convention
+// only — no runtime reader consumes `CrudIndexerConfig.cacheAliases` today (the bus
+// reads `buildLog(...).context.cacheAliases`), so do not rely on it to reach a tag.
 const timeEntryCrudIndexer: CrudIndexerConfig<StaffTimeEntry> = {
   entityType: 'staff:staff_time_entry',
   cacheAliases: ['staff.timesheet'],
