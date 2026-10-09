@@ -49,14 +49,18 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 - The knowledge-contract gate intentionally fails closed if fail-before evidence, source ownership, count surfaces, fresh-scaffold proof, or the release lane is incomplete.
 - The full harness release lane may be unavailable because of runner capacity or containment prerequisites; report an environment blocker rather than weakening the gate.
 
+## Evidence
+
+- Failure-first focused test (local runner): `node --import tsx --test packages/create-app/src/lib/agent-production-deployment-guidance.test.ts` failed 1/2 before the owner change with the semantic assertion `missing routed production deployment guide`; the OMH-238 catalog contract itself passed.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Failure-first harness contract
 
-- [ ] 1.1 Add the production-readiness case and focused fail-before test
-- [ ] 1.2 Synchronize case schema, validators, relations, and catalog docs
+- [x] 1.1 Add the production-readiness case and focused fail-before test — f7930ddca
+- [x] 1.2 Synchronize case schema, validators, relations, and catalog docs — c77da7c06
 
 ### Phase 2: Canonical documentation and emitted guidance
 
