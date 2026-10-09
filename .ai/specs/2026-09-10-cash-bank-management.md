@@ -10,9 +10,9 @@ payments](2026-09-06-accounts-payable-payments.md) (#5962,
 currently-unresolvable FK to "a future Bank Management entity", and
 `accounts_payable_payments.defaultCashAccountId` is an explicitly
 temporary fallback for the same gap), [Sales Invoice GL
-Posting](2026-08-18-sales-invoice-gl-posting.md) (#6046 — owns
-`sales.payments.create`'s only accounting-side caller once this
-document exists; see Design decisions), [Contractor
+Posting](2026-08-18-sales-invoice-gl-posting.md) (#6046 — owns the
+Phase 2 bridge that records a matched payment in `sales`; see Design
+decisions), [Contractor
 Registry](2026-09-06-contractor-registry.md) (`ContractorBankAccount`
 — the *vendor's* bank account, a distinct concept from this
 document's `BankAccount`, which is the tenant's own account — see
@@ -61,17 +61,18 @@ is a FK to an entity that doesn't exist — that document's own
 exists." Second, `sales.payments.create` is a real, shipped command
 (`packages/core/src/modules/sales/commands/payments.ts`,
 `POST /api/sales/payments`) that records a payment against a
-`SalesOrder`/`SalesInvoice` and updates `outstandingAmount`/
-`paidTotalAmount` — but nothing today calls it automatically when a
+`SalesOrder` (with optional `SalesInvoice` allocations) and recalculates the
+*order's* `outstandingAmount`/`paidTotalAmount` — it does not recalculate the
+invoice's own balances today, and nothing calls it automatically when a
 customer pays directly into the tenant's bank account rather than
 through any flow `sales` itself initiates. This document supplies the
-entity the first gap needs (`BankAccount`) and is the trigger that
-turns "money arrived in the bank" into a real `sales.payments.create`
-call for the second — actually wiring `accounts_payable_payments`'s
+entity the first gap needs (`BankAccount`) and the event that
+`sales_invoice_gl_posting`'s Phase 2 payment bridge turns into a real
+`sales.payments.create` call for the second — actually wiring `accounts_payable_payments`'s
 own validators/config to this module's `BankAccount` is a small,
 explicitly named follow-up (see Design decisions, Out of scope), the
-same shape as the `sales_invoice_gl_posting` subscriber this document
-also specifies but doesn't itself implement.
+same shape as the `sales_invoice_gl_posting` payment bridge, which that
+document owns (its Phase 2) and this one does not implement.
 
 It is not a general ledger reporting tool, a cash-flow forecaster, or
 a payment-initiation system — `sales`/`accounts_payable_payments`
@@ -134,11 +135,12 @@ settled amount's currency or rate differs from the invoice's own
 booked rate) and posts one balanced `JournalEntry` itself (bank
 account debit, `sales_invoice_gl_posting`'s own `receivableAccountId`
 credit, plus a gain/loss line when non-zero), then emits
-`cash_bank_management.statement_line.matched` so
-`sales_invoice_gl_posting`'s own subscriber can call
-`commandBus.execute('sales.payments.create', ...)` and keep `sales`'s
-`outstandingAmount`/`paidTotalAmount` correct — a `sales`-side
-bookkeeping update, not a second `ledger` posting. `INTERNAL_TRANSFER`
+`cash_bank_management.statement_line.matched` so the payment bridge that
+`sales_invoice_gl_posting` owns (its Phase 2) can record the payment in
+`sales` through `commandBus.execute('sales.payments.create', ...)` — a
+`sales`-side bookkeeping update, not a second `ledger` posting. Keeping the
+invoice's own `outstandingAmount`/`paidTotalAmount` correct additionally
+needs a change in `sales` itself (see Cross-module integration). `INTERNAL_TRANSFER`
 is one of two match types that can go either direction (debit or
 credit the bank account, following the line's own sign) — it also
 posts, but against a configured suspense account rather than a
@@ -190,11 +192,10 @@ leg at all. The corrected design, per match type:
   `accounts_payable.liabilityAccountId` — no hard `requires` needed for
   a read), plus a gain/loss line when the settled amount's currency or
   rate differs from the invoice's own. It then emits
-  `cash_bank_management.statement_line.matched` purely so
-  `sales_invoice_gl_posting`'s own subscriber can call
+  `cash_bank_management.statement_line.matched` purely so the payment
+  bridge owned by `sales_invoice_gl_posting` (its Phase 2) can call
   `commandBus.execute('sales.payments.create', ...)` — a `sales`-side
-  bookkeeping update (`outstandingAmount`/`paidTotalAmount`), not
-  another `ledger` posting. No event is emitted for a `PaymentBatch`
+  bookkeeping update, not another `ledger` posting. No event is emitted for a `PaymentBatch`
   or `internal_transfer` match — there is no Phase 1 consumer for
   either, and promising a payload nobody consumes was itself a defect
   in the first draft.
@@ -247,10 +248,10 @@ amount only — never the invoice's full gross total.** Resolved via
 Open Question Q4, then corrected during review: the first draft's
 formula compared the statement line against the matched
 `SalesInvoice`'s full `grandTotalGrossAmount`, which silently
-misstates every partial payment. `sales` already supports partial/
-multi-payment settlement natively (`SalesInvoice.outstandingAmount`/
-`paidTotalAmount`, plus `SalesPayment`'s own allocation to specific
-documents/amounts) — a customer paying a foreign-currency invoice in
+misstates every partial payment. `sales` models partial/multi-payment settlement (`SalesPayment`'s own
+allocation to specific documents/amounts; `SalesInvoice` carries
+`outstandingAmount`/`paidTotalAmount`, though `sales` does not maintain
+those on invoices today — see Cross-module integration) — a customer paying a foreign-currency invoice in
 two installments must have each installment's gain/loss computed
 against *that installment's own amount*, not the invoice total. The
 corrected formula: `gainLoss = statementLineAmountInBankCurrency -
@@ -828,13 +829,24 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
   Module Config value during the `sales_invoice` path — the same soft,
   scoped cross-module-config read `accounts_payable_payments` already
   uses for `accounts_payable.liabilityAccountId` (see Design
-  decisions). Also the one real Phase 1 event consumer, but owned by
-  that module, not this one: it subscribes to
-  `cash_bank_management.statement_line.matched` and calls
-  `commandBus.execute('sales.payments.create', { input, ctx })`. This
-  document does not implement that subscriber — it is a follow-up
-  change to `sales_invoice_gl_posting`'s own spec, out of this
-  document's own file boundary (see Out of scope, Risks).
+  decisions). Also the intended consumer of that event: its Phase 2 payment bridge
+  subscribes to `cash_bank_management.statement_line.matched` and calls
+  `commandBus.execute('sales.payments.create', { input, ctx })`. That
+  command requires an `orderId`, while the event carries the invoice id and
+  a `currencyId`, so the bridge resolves the invoice to its order and
+  currency itself (decided in `sales_invoice_gl_posting`'s "Contract with
+  Cash & Bank Management"). This document does not implement the bridge
+  (see Out of scope, Risks). Until it exists, a matched payment is recorded
+  in `sales` manually (`POST /api/sales/payments`).
+- **`sales` — invoice balances are not maintained today (dependency this
+  document does not design).** `sales.payments.create` recalculates only the
+  order's totals; `sales.invoices.create`/`update` take `outstandingAmount`
+  from caller input (default `0`). The `sales_invoice` match path reads
+  `SalesInvoice.outstandingAmount` to size the settled portion, so it is
+  only as accurate as whatever `sales` or the caller wrote there. Having
+  `sales` recompute an invoice's `outstandingAmount`/`paidTotalAmount` from
+  payment allocations is a change to `sales` (OM Core), outside this
+  document family; it needs its own issue.
 - **This module is never imported or resolved by `ledger`, `currencies`,
   `sales`, `accounts_payable`, `accounts_payable_payments`, or
   `sales_invoice_gl_posting`.** One-way dependency direction, matching
@@ -1008,9 +1020,10 @@ automatically.
    + `acl.ts` + `setup.ts` + `encryption.ts`.
 5. The five API routes (with `openApi`, per `packages/core/AGENTS.md`).
 6. Bank-account list page + statement-entry/matching page.
-7. Follow-up (separate PR, this document's own boundary ends here):
-   add the `cash_bank_management.statement_line.matched` subscriber
-   to `sales_invoice_gl_posting`.
+7. Follow-up (not part of this document): `sales_invoice_gl_posting`'s
+   Phase 2 payment bridge subscribes to
+   `cash_bank_management.statement_line.matched`; invoice-balance
+   maintenance is a separate change in `sales`.
 8. Integration tests: (a) match one line to a real `SalesInvoice`
    fixture, assert the `JournalEntry` and the emitted event both exist
    and balance, with the correct DR/CR direction; (b) match one line to
@@ -1173,11 +1186,13 @@ automatically.
   but a *wrong* rate entered deliberately is still undetectable by the
   system.
 - **Cross-module integration depends on a sibling document's future
-  change, in two ways.** The AR settlement path only works once
-  `sales_invoice_gl_posting` actually implements the subscriber this
-  document specifies — until that follow-up ships, matched
-  `sales_invoice` lines emit an event nobody consumes, and `sales`'s
-  own `outstandingAmount` never updates from a bank match. It also
+  change, in two ways.** The `sales`-side settlement only works
+  once `sales_invoice_gl_posting`'s Phase 2 payment bridge exists, and the
+  invoice's own balances only once `sales` maintains them from allocations.
+  Until then a matched `sales_invoice` line posts correctly into `ledger`
+  but emits an event nobody consumes, the payment has to be recorded in
+  `sales` by hand, and the `outstandingAmount` this module reads to size a
+  match is whatever was written to the invoice, not a running balance. It also
   depends on that module's `receivableAccountId` Module Config value
   being set — `matchBankStatementLine`'s `sales_invoice` path rejects
   cleanly when it isn't (see Commands, Testing Strategy), but a tenant
@@ -1237,10 +1252,10 @@ automatically.
   see Design decisions, Commands) — a subscriber would add continuous,
   unprompted monitoring on top of that, not a missing write (see
   Risks).
-- **The `sales_invoice_gl_posting` subscriber itself** — specified
-  here (Cross-module integration, Events) but implemented as a
-  follow-up change to that document, not this one (see Implementation
-  Plan step 7).
+- **The `sales_invoice_gl_posting` payment bridge** — owned and specified
+  by that document (its Phase 2); this document only emits the event (see
+  Implementation Plan step 7). Invoice-balance maintenance in `sales` is an
+  OM Core change designed by neither.
 - **Reversing a matched line** — a future `unmatchBankStatementLine`
   would call `ledger.reverseJournalEntry`; not designed here, no
   confirmed need yet.
@@ -1605,3 +1620,16 @@ Phase 1's manual-only design is a deliberate simplification relative to
 real market baseline, and gives Phase 2 two concrete reference shapes.
 Symfonia/enova365 not independently checked this pass. Written directly
 above in the new "Literature & Prior Art" section.
+
+### 2026-10-09 — Ownership of the `sales` payment bridge aligned with #6046
+
+`sales_invoice_gl_posting` (#6046) decided that this document owns the
+ledger receipt posting and the `statement_line.matched` event, that its own
+Phase 2 payment bridge records the payment in `sales`, and that `sales`
+owns invoice-balance maintenance. Aligned the text here: the subscriber is
+no longer a "follow-up change to #6046's spec" but its Phase 2; the
+Problem Statement no longer claims `sales.payments.create` updates invoice
+balances (it recalculates the order's only); the event-to-command gap
+(`orderId`, `currencyCode`) is named; and the dependency on `sales`
+maintaining `SalesInvoice.outstandingAmount` is recorded in Cross-module
+integration and Risks. The match formula is unchanged.
