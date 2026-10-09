@@ -365,4 +365,33 @@ describe('FeatureTogglesService', () => {
             }
         });
     });
+
+    describe('cache-disabled invalidation', () => {
+        const originalCacheDisabled = process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED;
+
+        beforeEach(() => {
+            process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED = '1';
+            service = new FeatureTogglesService(mockCache, mockEm);
+        });
+
+        afterAll(() => {
+            if (originalCacheDisabled === undefined) {
+                delete process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED;
+            } else {
+                process.env.OM_FEATURE_TOGGLES_CACHE_DISABLED = originalCacheDisabled;
+            }
+        });
+
+        it('should skip identifier and key invalidation when the resolution cache is disabled', async () => {
+            mockCache.deleteByTags.mockRejectedValue(new Error('cache unavailable'));
+            mockCache.delete.mockRejectedValue(new Error('cache unavailable'));
+
+            await expect(service.invalidateIsEnabledCacheByIdentifierTag(mockIdentifier)).resolves.toBeUndefined();
+            await expect(service.invalidateIsEnabledCacheByKey(mockIdentifier, mockTenantId)).resolves.toBeUndefined();
+
+            expect(mockCache.deleteByTags).not.toHaveBeenCalled();
+            expect(mockCache.delete).not.toHaveBeenCalled();
+            expect(mockRunWithCacheTenant).not.toHaveBeenCalled();
+        });
+    });
 });

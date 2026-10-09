@@ -91,6 +91,13 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       const taskRow = page.getByRole('row', { name: new RegExp(taskName) })
       await expect(taskRow).toBeVisible({ timeout: 15_000 })
       await expect(taskRow.getByText('Failed', { exact: true })).toBeVisible({ timeout: 10_000 })
+      // The broadcast is not replayed: an event emitted before the SSE stream is
+      // registered (or while it reconnects after a scope-cookie change) is lost.
+      await page.waitForFunction(
+        () => (window as unknown as { __omEventBridgeReady?: boolean }).__omEventBridgeReady === true,
+        undefined,
+        { timeout: 30_000 },
+      )
 
       // Leg 2 — Run-now via API (always-async 202, emits process.execution.started with
       // clientBroadcast). The open list's coalesced subscription refetches the
