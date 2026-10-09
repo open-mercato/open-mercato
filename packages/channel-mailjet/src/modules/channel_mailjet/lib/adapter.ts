@@ -22,7 +22,8 @@ import { mailjetCredentialsSchema, type MailjetCredentials } from './credentials
 
 const MAILJET_SEND_URL = 'https://api.mailjet.com/v3.1/send'
 const MAILJET_MAX_RECIPIENTS = 50
-const MAILJET_MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024
+const MAILJET_MAX_MESSAGE_BYTES = 15_000_000
+const MAILJET_MESSAGE_OVERHEAD_BYTES = 64 * 1024
 
 type MailjetAttachment = {
   Filename: string
@@ -51,14 +52,8 @@ function attachmentsFromMeta(value: unknown): MailjetAttachment[] | undefined {
   return attachments.length ? attachments : undefined
 }
 
-function decodedBase64Bytes(content: string): number {
-  const normalized = content.replace(/\s/g, '')
-  const padding = normalized.endsWith('==') ? 2 : normalized.endsWith('=') ? 1 : 0
-  return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding)
-}
-
-function attachmentBytes(attachments: MailjetAttachment[] | undefined): number {
-  return attachments?.reduce((total, attachment) => total + decodedBase64Bytes(attachment.Base64Content), 0) ?? 0
+function estimatedMessageBytes(message: Record<string, unknown>): number {
+  return Buffer.byteLength(JSON.stringify(message), 'utf8') + MAILJET_MESSAGE_OVERHEAD_BYTES
 }
 
 function safeErrorMessage(value: unknown): string | null {
@@ -123,23 +118,24 @@ class MailjetChannelAdapter implements ChannelAdapter {
 
     const replyTo = stringOrUndefined(meta.replyTo)
     const attachments = attachmentsFromMeta(meta.attachments)
-    if (attachmentBytes(attachments) > MAILJET_MAX_ATTACHMENT_BYTES) {
+    const message = {
+      From: { Email: sanitizeHeaderValue(stringOrUndefined(meta.from) ?? credentials.fromAddress) },
+      To: to.map((Email) => ({ Email })),
+      Subject: sanitizeHeaderValue(subject),
+      ...(input.content.html ? { HTMLPart: input.content.html } : {}),
+      ...(input.content.text ? { TextPart: input.content.text } : {}),
+      ...(replyTo ? { ReplyTo: { Email: sanitizeHeaderValue(replyTo) } } : {}),
+      ...(attachments ? { Attachments: attachments } : {}),
+    }
+    if (estimatedMessageBytes(message) > MAILJET_MAX_MESSAGE_BYTES) {
       return {
         externalMessageId: '',
         status: 'failed',
-        error: '[internal] Mailjet attachments exceed the 15 MB aggregate limit',
+        error: '[internal] Mailjet message exceeds the 15 MB total size limit',
       }
     }
     const payload = {
-      Messages: [{
-        From: { Email: sanitizeHeaderValue(stringOrUndefined(meta.from) ?? credentials.fromAddress) },
-        To: to.map((Email) => ({ Email })),
-        Subject: sanitizeHeaderValue(subject),
-        ...(input.content.html ? { HTMLPart: input.content.html } : {}),
-        ...(input.content.text ? { TextPart: input.content.text } : {}),
-        ...(replyTo ? { ReplyTo: { Email: sanitizeHeaderValue(replyTo) } } : {}),
-        ...(attachments ? { Attachments: attachments } : {}),
-      }],
+      Messages: [message],
     }
 
     try {

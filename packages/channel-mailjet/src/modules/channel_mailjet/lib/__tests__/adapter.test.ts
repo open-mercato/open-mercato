@@ -160,8 +160,8 @@ describe('MailjetChannelAdapter', () => {
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
-  it('fails before making a request when Mailjet attachment limits are exceeded', async () => {
-    const oversizedContent = Buffer.alloc((15 * 1024 * 1024) + 1).toString('base64')
+  it('fails before making a request when the encoded Mailjet message exceeds 15 MB', async () => {
+    const oversizedContent = Buffer.alloc(11_250_000).toString('base64')
     const result = await getMailjetChannelAdapter().sendMessage({
       content: { text: 'Hello' },
       credentials: { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
@@ -175,7 +175,22 @@ describe('MailjetChannelAdapter', () => {
 
     expect(result).toEqual(expect.objectContaining({
       status: 'failed',
-      error: '[internal] Mailjet attachments exceed the 15 MB aggregate limit',
+      error: '[internal] Mailjet message exceeds the 15 MB total size limit',
+    }))
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('includes message body size in the Mailjet preflight limit', async () => {
+    const result = await getMailjetChannelAdapter().sendMessage({
+      content: { text: 'x'.repeat(15_000_000) },
+      credentials: { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: ['user@example.com'], subject: 'Hello' },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Mailjet message exceeds the 15 MB total size limit',
     }))
     expect(global.fetch).not.toHaveBeenCalled()
   })
