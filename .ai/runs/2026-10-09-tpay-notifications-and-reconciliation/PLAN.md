@@ -13,8 +13,8 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add Tpay notification form parsing and MD5 checksum | dispatch | done | self |
-| 1 | 1.2 | Add Tpay JWS verification with bundled per-environment trust anchors | dispatch:capable | todo | — |
+| 1 | 1.1 | Add Tpay notification form parsing and MD5 checksum | dispatch | done | dcab00283 |
+| 1 | 1.2 | Add Tpay JWS verification with bundled per-environment trust anchors | dispatch:capable | done | self |
 | 1 | 1.3 | Add the Tpay notification handler and webhook registration | dispatch:capable | todo | — |
 | 1 | 1.4 | Document Tpay notifications and update the notification spec | inline | todo | — |
 | 2 | 2.1 | Add the Tpay status reconciliation worker | dispatch | todo | — |
