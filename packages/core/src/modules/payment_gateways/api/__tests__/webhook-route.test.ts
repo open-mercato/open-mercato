@@ -1,7 +1,11 @@
 /** @jest-environment node */
 import { POST } from '@open-mercato/core/modules/payment_gateways/api/webhook/[provider]/route'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { getWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
+import {
+  getWebhookHandler,
+  WebhookVerificationUnavailableError,
+  type WebhookResponseOutcome,
+} from '@open-mercato/shared/modules/payment_gateways/types'
 import { getPaymentGatewayQueue } from '@open-mercato/core/modules/payment_gateways/lib/queue'
 import { processPaymentGatewayWebhookJob } from '@open-mercato/core/modules/payment_gateways/lib/webhook-processor'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -22,6 +26,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('@open-mercato/shared/modules/payment_gateways/types', () => ({
+  ...jest.requireActual('@open-mercato/shared/modules/payment_gateways/types'),
   getWebhookHandler: jest.fn(),
 }))
 
@@ -279,6 +284,33 @@ describe('payment gateway webhook route security', () => {
       expect((findWithDecryption as jest.Mock).mock.calls[0][3]).toEqual({ limit: 10, orderBy: { createdAt: 'desc' } })
     })
 
+    test('uses a non-empty session hint exactly as returned', async () => {
+      registerHandler({ handler: jest.fn().mockRejectedValue(new Error('nope')), session: ' sess_1 ' })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+      await POST(createMockRequest('{}'), { params: { provider: 'stripe' } })
+
+      expect((findWithDecryption as jest.Mock).mock.calls[0][2]).toEqual({
+        providerKey: 'stripe',
+        providerSessionId: ' sess_1 ',
+        deletedAt: null,
+      })
+    })
+
+    test('accepts a non-v4 UUID as a payment id hint', async () => {
+      const legacyPaymentId = '11111111-1111-1111-1111-111111111111'
+      registerHandler({ handler: jest.fn().mockRejectedValue(new Error('nope')), payment: legacyPaymentId })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+      await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+      expect((findWithDecryption as jest.Mock).mock.calls[0][2]).toEqual({
+        providerKey: 'mock',
+        paymentId: legacyPaymentId,
+        deletedAt: null,
+      })
+    })
+
     test('locates candidates by payment id only', async () => {
       registerHandler({ handler: jest.fn().mockRejectedValue(new Error('nope')), payment: paymentId })
       ;(findWithDecryption as jest.Mock).mockResolvedValue([])
@@ -323,7 +355,7 @@ describe('payment gateway webhook route security', () => {
 
     test('does not query and rejects when no valid hint is present', async () => {
       const handler = jest.fn()
-      registerHandler({ handler, session: '   ', payment: 'invalid' })
+      registerHandler({ handler, session: '', payment: 'invalid' })
 
       const response = await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
 
@@ -430,6 +462,273 @@ describe('payment gateway webhook route security', () => {
         if (originalStrategy === undefined) delete process.env.QUEUE_STRATEGY
         else process.env.QUEUE_STRATEGY = originalStrategy
       }
+    })
+  })
+
+  describe('typed webhook outcomes and provider response formatting', () => {
+    const mockReportError = jest.fn()
+    const acceptedEvent = { eventType: 'payment.captured', eventId: 'evt_1', data: {}, idempotencyKey: 'evt_1' }
+    const transaction = {
+      id: 'txn_1',
+      paymentId: '11111111-1111-4111-8111-111111111111',
+      providerSessionId: 'sess_1',
+      amount: '100.0000',
+      currencyCode: 'PLN',
+      organizationId: 'org_1',
+      tenantId: 'tenant_1',
+    }
+    const outcomes: WebhookResponseOutcome[] = [
+      'accepted',
+      'no_candidate',
+      'verification_failed',
+      'verification_unavailable',
+      'processing_failed',
+      'payload_too_large',
+      'rate_limited',
+    ]
+    const fixtureResponses: Record<WebhookResponseOutcome, { status: number; body: string }> = {
+      accepted: { status: 200, body: 'TRUE' },
+      no_candidate: { status: 400, body: 'FALSE - no candidate' },
+      verification_failed: { status: 401, body: 'FALSE - verification failed' },
+      verification_unavailable: { status: 503, body: 'RETRY - verification unavailable' },
+      processing_failed: { status: 500, body: 'RETRY - processing failed' },
+      payload_too_large: { status: 413, body: 'FALSE - payload too large' },
+      rate_limited: { status: 429, body: 'RETRY - rate limited' },
+    }
+    const legacyResponses: Record<WebhookResponseOutcome, { status: number; body: Record<string, unknown> }> = {
+      accepted: { status: 202, body: { received: true, queued: true } },
+      no_candidate: { status: 401, body: { error: 'Webhook verification failed' } },
+      verification_failed: { status: 401, body: { error: 'Webhook verification failed' } },
+      verification_unavailable: { status: 401, body: { error: 'Webhook verification failed' } },
+      processing_failed: { status: 401, body: { error: 'Webhook verification failed' } },
+      payload_too_large: { status: 413, body: { error: 'Webhook payload too large' } },
+      rate_limited: { status: 429, body: { error: 'Too many requests. Please try again later.' } },
+    }
+    let originalStrategy: string | undefined
+    let consoleSpies: jest.SpyInstance[] = []
+
+    function register(handler: jest.Mock, extra: Record<string, unknown> = {}) {
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({
+        handler,
+        readSessionIdHint: () => 'sess_1',
+        ...extra,
+      })
+    }
+
+    function arrange(outcome: WebhookResponseOutcome, extra: Record<string, unknown> = {}): Request {
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([transaction])
+      const handler = jest.fn().mockResolvedValue(acceptedEvent)
+      if (outcome === 'no_candidate') (findWithDecryption as jest.Mock).mockResolvedValue([])
+      if (outcome === 'verification_failed') handler.mockRejectedValue(new Error('bad signature'))
+      if (outcome === 'verification_unavailable') handler.mockRejectedValue(new WebhookVerificationUnavailableError())
+      if (outcome === 'processing_failed') {
+        ;(processPaymentGatewayWebhookJob as jest.Mock).mockRejectedValue(new Error('database down'))
+      }
+      if (outcome === 'rate_limited') {
+        mockRateLimiterService.consume.mockResolvedValueOnce({
+          allowed: false,
+          remainingPoints: 0,
+          msBeforeNext: 30_000,
+          consumedPoints: 61,
+        })
+      }
+      register(handler, { ...(outcome === 'payload_too_large' ? { maxBodyBytes: 4 } : {}), ...extra })
+      return createMockRequest('{"session":"sess_1"}')
+    }
+
+    function fixtureFormatter(outcome: WebhookResponseOutcome) {
+      return fixtureResponses[outcome]
+    }
+
+    beforeEach(() => {
+      originalStrategy = process.env.QUEUE_STRATEGY
+      delete process.env.QUEUE_STRATEGY
+      mockReportError.mockReset()
+      ;(getTelemetryRuntime as jest.Mock).mockReturnValue({ reportError: mockReportError })
+      ;(processPaymentGatewayWebhookJob as jest.Mock).mockResolvedValue(undefined)
+      mockQueue.enqueue.mockResolvedValue(undefined)
+      consoleSpies = (['info', 'warn', 'error'] as const).map((method) =>
+        jest.spyOn(console, method).mockImplementation(() => undefined),
+      )
+    })
+
+    afterEach(() => {
+      consoleSpies.forEach((spy) => spy.mockRestore())
+      if (originalStrategy === undefined) delete process.env.QUEUE_STRATEGY
+      else process.env.QUEUE_STRATEGY = originalStrategy
+    })
+
+    test.each(outcomes)('keeps the exact legacy response for %s without a formatter', async (outcome) => {
+      const response = await POST(arrange(outcome), { params: { provider: 'stripe' } })
+
+      expect(response.status).toBe(legacyResponses[outcome].status)
+      expect(response.headers.get('content-type')).toBe('application/json')
+      expect(await response.text()).toBe(JSON.stringify(legacyResponses[outcome].body))
+    })
+
+    test('keeps the legacy rate limiter response headers without a formatter', async () => {
+      const response = await POST(arrange('rate_limited'), { params: { provider: 'stripe' } })
+
+      expect(response.headers.get('retry-after')).toBe('30')
+      expect(response.headers.get('x-ratelimit-limit')).toBe('60')
+    })
+
+    test.each(outcomes)('formats the %s outcome with the provider formatter', async (outcome) => {
+      const formatResponse = jest.fn(fixtureFormatter)
+
+      const response = await POST(arrange(outcome, { formatResponse }), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenCalledWith(outcome)
+      expect(response.status).toBe(fixtureResponses[outcome].status)
+      expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+      expect(await response.text()).toBe(fixtureResponses[outcome].body)
+      expect(mockReportError).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        code: 'payment_gateways.webhook_formatter_invalid',
+      }))
+    })
+
+    test('keeps the rate limiter headers on a formatted rate limited response', async () => {
+      const response = await POST(arrange('rate_limited', { formatResponse: fixtureFormatter }), {
+        params: { provider: 'tpay' },
+      })
+
+      expect(response.status).toBe(429)
+      expect(response.headers.get('retry-after')).toBe('30')
+      expect(response.headers.get('x-ratelimit-remaining')).toBe('0')
+      expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    })
+
+    test('formats an object body as JSON with a custom JSON content type', async () => {
+      const formatResponse = () => ({ status: 200, body: { ok: true }, contentType: 'application/vnd.provider+json' })
+
+      const response = await POST(arrange('accepted', { formatResponse }), { params: { provider: 'tpay' } })
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('application/vnd.provider+json')
+      expect(await response.text()).toBe('{"ok":true}')
+    })
+
+    test.each(['async', 'local'])('never reports accepted when %s processing fails', async (mode) => {
+      if (mode === 'async') {
+        process.env.QUEUE_STRATEGY = 'async'
+        mockQueue.enqueue.mockRejectedValue(new Error('redis down'))
+      } else {
+        ;(processPaymentGatewayWebhookJob as jest.Mock).mockRejectedValue(new Error('database down'))
+      }
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([transaction])
+      const formatResponse = jest.fn(fixtureFormatter)
+      register(jest.fn().mockResolvedValue(acceptedEvent), { formatResponse })
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenCalledWith('processing_failed')
+      expect(formatResponse).not.toHaveBeenCalledWith('accepted')
+      expect(response.status).toBe(500)
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'payment_gateways',
+        code: 'payment_gateways.webhook_processing_failed',
+      })
+    })
+
+    test('returns the legacy 401 when async enqueue fails without a formatter', async () => {
+      process.env.QUEUE_STRATEGY = 'async'
+      mockQueue.enqueue.mockRejectedValue(new Error('redis down'))
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([transaction])
+      register(jest.fn().mockResolvedValue(acceptedEvent))
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'stripe' } })
+
+      expect(response.status).toBe(401)
+      expect(await response.text()).toBe('{"error":"Webhook verification failed"}')
+    })
+
+    test('classifies unavailable verification separately from failed verification', async () => {
+      const formatResponse = jest.fn(fixtureFormatter)
+      const handler = jest.fn()
+        .mockRejectedValueOnce(new Error('bad signature'))
+        .mockRejectedValueOnce(new WebhookVerificationUnavailableError())
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([transaction, { ...transaction, id: 'txn_2' }])
+      register(handler, { formatResponse })
+
+      const unavailable = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenLastCalledWith('verification_unavailable')
+      expect(unavailable.status).toBe(503)
+
+      handler.mockRejectedValue(new Error('bad signature'))
+      const failed = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenLastCalledWith('verification_failed')
+      expect(failed.status).toBe(401)
+    })
+
+    test('classifies an ambiguous match as verification failed', async () => {
+      const formatResponse = jest.fn(fixtureFormatter)
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([transaction, { ...transaction, id: 'txn_2' }])
+      register(jest.fn().mockResolvedValue(acceptedEvent), { formatResponse })
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenCalledWith('verification_failed')
+      expect(response.status).toBe(401)
+      expect(processPaymentGatewayWebhookJob).not.toHaveBeenCalled()
+    })
+
+    test.each([
+      ['status below range', () => ({ status: 199, body: 'x' })],
+      ['status above range', () => ({ status: 600, body: 'x' })],
+      ['fractional status', () => ({ status: 1.5, body: 'x' })],
+      ['array body', () => ({ status: 200, body: ['x'] })],
+      ['class instance body', () => ({ status: 200, body: new Date() })],
+      ['content type with a newline', () => ({ status: 200, body: 'x', contentType: 'text/plain\nX-Injected: 1' })],
+      ['text body with JSON content type', () => ({ status: 200, body: 'x', contentType: 'application/json' })],
+      ['object body with text content type', () => ({ status: 200, body: { ok: true }, contentType: 'text/plain' })],
+      ['throwing formatter', () => {
+        throw new Error('formatter exploded')
+      }],
+    ])('fails closed with a generic 500 for %s', async (_label, formatResponse) => {
+      const response = await POST(arrange('accepted', { formatResponse }), { params: { provider: 'tpay' } })
+
+      expect(response.status).toBe(500)
+      expect(response.headers.get('content-type')).toBe('application/json')
+      expect(await response.text()).toBe('{"error":"Internal server error"}')
+      expect(response.headers.get('x-injected')).toBeNull()
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'payment_gateways',
+        code: 'payment_gateways.webhook_formatter_invalid',
+      })
+    })
+
+    test.each([
+      ['without a formatter', undefined],
+      ['with a formatter', fixtureFormatter],
+    ])('stops before locating, resolving credentials or verifying on body overflow %s', async (_label, formatter) => {
+      const handler = jest.fn()
+      const readSessionIdHint = jest.fn(() => 'sess_1')
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({
+        handler,
+        readSessionIdHint,
+        maxBodyBytes: 4,
+        ...(formatter ? { formatResponse: formatter } : {}),
+      })
+
+      const response = await POST(createMockRequest('{"session":"sess_1"}'), { params: { provider: 'tpay' } })
+
+      expect(response.status).toBe(413)
+      expect(readSessionIdHint).not.toHaveBeenCalled()
+      expect(findWithDecryption).not.toHaveBeenCalled()
+      expect(mockCredentialsService.resolve).not.toHaveBeenCalled()
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    test('returns 404 for an unknown provider without formatting', async () => {
+      ;(getWebhookHandler as jest.Mock).mockReturnValue(undefined)
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'unknown' } })
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: 'No webhook handler for provider: unknown' })
+      expect(mockRateLimiterService.consume).not.toHaveBeenCalled()
     })
   })
 })

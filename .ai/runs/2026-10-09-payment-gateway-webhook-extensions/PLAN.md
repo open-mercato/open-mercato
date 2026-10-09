@@ -15,8 +15,8 @@
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Add the shared webhook extension contracts and bounded byte reader | dispatch | done | b5e7c09d8 |
 | 1 | 1.2 | Pass raw locator context and optional exact bytes through the webhook route | dispatch | done | `d74e6db83` |
-| 1 | 1.3 | Add the secondary payment locator, candidate snapshot and ambiguity rejection | dispatch:capable | done | self |
-| 1 | 1.4 | Add typed webhook outcomes and validated provider response formatting | dispatch:capable | todo | — |
+| 1 | 1.3 | Add the secondary payment locator, candidate snapshot and ambiguity rejection | dispatch:capable | done | `ba928307e` |
+| 1 | 1.4 | Add typed webhook outcomes and validated provider response formatting | dispatch:capable | done | self |
 | 1 | 1.5 | Document the webhook extensions and mark the specs implemented | inline | todo | — |
 
 ## Goal

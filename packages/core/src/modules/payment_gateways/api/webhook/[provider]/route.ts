@@ -6,7 +6,13 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { getWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
+import {
+  getWebhookHandler,
+  WebhookVerificationUnavailableError,
+  type WebhookHandlerRegistration,
+  type WebhookHttpResponse,
+  type WebhookResponseOutcome,
+} from '@open-mercato/shared/modules/payment_gateways/types'
 import { markQueueJobOrigin } from '@open-mercato/shared/lib/queue/dispatchOrigin'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import type { PaymentGatewayService } from '../../../lib/gateway-service'
@@ -27,14 +33,20 @@ export const metadata = {
 }
 
 const WEBHOOK_VERIFICATION_FAILED = 'Webhook verification failed'
+const WEBHOOK_PAYLOAD_TOO_LARGE = 'Webhook payload too large'
+const INTERNAL_SERVER_ERROR = 'Internal server error'
+const DEFAULT_TEXT_CONTENT_TYPE = 'text/plain; charset=utf-8'
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/
 
-const paymentIdHintSchema = z.uuid()
+const paymentIdHintSchema = z.guid()
 
 const paymentGatewayWebhookRateLimitConfig = {
   points: 60,
   duration: 60,
   keyPrefix: 'payment_gateways:webhook',
 }
+
+type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 
 export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> | { provider: string } }) {
   const resolvedParams = await params
@@ -46,8 +58,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   }
 
   const rateLimitResponse = await checkProviderWebhookRateLimit(container, req, providerKey)
-  if (rateLimitResponse) return rateLimitResponse
+  const outcome: WebhookResponseOutcome = rateLimitResponse
+    ? 'rate_limited'
+    : await receiveWebhook(req, providerKey, registration, container)
+  const response = respond(registration, outcome, rateLimitResponse)
+  const logFields = { providerKey, outcome, status: response.status }
+  if (outcome === 'accepted') logger.info('Webhook handled', logFields)
+  else logger.warn('Webhook handled', logFields)
+  return response
+}
 
+async function receiveWebhook(
+  req: Request,
+  providerKey: string,
+  registration: WebhookHandlerRegistration,
+  container: RequestContainer,
+): Promise<WebhookResponseOutcome> {
   let rawBody: string | Buffer
   let bodyText: string
   try {
@@ -64,9 +90,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       rawBody = bodyText
     }
   } catch (error) {
-    if (error instanceof WebhookBodyTooLargeError) {
-      return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 })
-    }
+    if (error instanceof WebhookBodyTooLargeError) return 'payload_too_large'
     throw error
   }
   const headers: Record<string, string> = {}
@@ -88,7 +112,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     // GatewayTransaction whose per-tenant credentials successfully verify the inbound
     // signature — NEVER from attacker-controlled payload metadata. If no candidate
     // transaction can be located by the provider-reported session or payment id, or no
-    // candidate's credentials can verify the signature, we fail closed with 401. This
+    // candidate's credentials can verify the signature, we fail closed. This
     // prevents forged webhooks (e.g. mock gateway PoC) from mutating another tenant's
     // payment state via `event.data.metadata.{organizationId,tenantId}`. When more than one
     // candidate verifies, the scope is ambiguous and we also fail closed.
@@ -106,12 +130,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       )
       : []
 
+    if (candidates.length === 0) return 'no_candidate'
+
     const verifiedMatches: Array<{
       transaction: GatewayTransaction
       scope: { organizationId: string; tenantId: string }
       event: Awaited<ReturnType<typeof registration.handler>>
     }> = []
     let lastVerificationError: unknown = null
+    let verificationUnavailable = false
 
     for (const candidate of candidates) {
       const candidateScope = { organizationId: candidate.organizationId, tenantId: candidate.tenantId }
@@ -132,6 +159,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
         verifiedMatches.push({ transaction: candidate, scope: candidateScope, event: candidateEvent })
       } catch (error: unknown) {
         lastVerificationError = error
+        if (error instanceof WebhookVerificationUnavailableError) verificationUnavailable = true
       }
     }
 
@@ -144,48 +172,114 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
         new Error('[internal] Webhook matched multiple verified candidates'),
         { module: 'payment_gateways', code: 'payment_gateways.webhook_ambiguous_candidates' },
       )
-      return NextResponse.json({ error: WEBHOOK_VERIFICATION_FAILED }, { status: 401 })
+      return 'verification_failed'
     }
 
     const [match] = verifiedMatches
     if (!match) {
-      throw lastVerificationError ?? new Error('Webhook verification failed: no matching transaction')
+      logger.warn('Webhook verification failed', { providerKey, err: lastVerificationError })
+      return verificationUnavailable ? 'verification_unavailable' : 'verification_failed'
     }
-
-    const { transaction, event } = match
-    const scope = match.scope
 
     const jobPayload = markQueueJobOrigin({
       providerKey,
-      event,
-      transactionId: transaction.id,
-      scope,
+      event: match.event,
+      transactionId: match.transaction.id,
+      scope: match.scope,
     }, 'inbound-webhook')
 
-    if (process.env.QUEUE_STRATEGY === 'async') {
-      await queue.enqueue(jobPayload)
-    } else {
-      await processPaymentGatewayWebhookJob(
-        {
-          em: container.resolve('em') as EntityManager,
-          paymentGatewayService: service,
-          integrationLogService: container.resolve('integrationLogService') as IntegrationLogService,
-        },
-        jobPayload,
-      )
+    try {
+      if (process.env.QUEUE_STRATEGY === 'async') {
+        await queue.enqueue(jobPayload)
+      } else {
+        await processPaymentGatewayWebhookJob(
+          {
+            em: container.resolve('em') as EntityManager,
+            paymentGatewayService: service,
+            integrationLogService: container.resolve('integrationLogService') as IntegrationLogService,
+          },
+          jobPayload,
+        )
+      }
+    } catch (error: unknown) {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'payment_gateways',
+        code: 'payment_gateways.webhook_processing_failed',
+      })
+      return 'processing_failed'
     }
 
-    return NextResponse.json({ received: true, queued: true }, { status: 202 })
+    return 'accepted'
   } catch (err: unknown) {
     logger.warn('Webhook verification failed', { providerKey, err })
-    return NextResponse.json({ error: WEBHOOK_VERIFICATION_FAILED }, { status: 401 })
+    return 'verification_failed'
   }
 }
 
+function respond(
+  registration: WebhookHandlerRegistration,
+  outcome: WebhookResponseOutcome,
+  rateLimitResponse: NextResponse | null,
+): NextResponse {
+  if (!registration.formatResponse) return legacyResponse(outcome, rateLimitResponse)
+  try {
+    const response = toValidatedResponse(registration.formatResponse(outcome))
+    if (outcome === 'rate_limited' && rateLimitResponse) {
+      rateLimitResponse.headers.forEach((value, key) => {
+        if (key !== 'content-type' && key !== 'content-length') response.headers.set(key, value)
+      })
+    }
+    return response
+  } catch (error: unknown) {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'payment_gateways',
+      code: 'payment_gateways.webhook_formatter_invalid',
+    })
+    return NextResponse.json({ error: INTERNAL_SERVER_ERROR }, { status: 500 })
+  }
+}
+
+function legacyResponse(outcome: WebhookResponseOutcome, rateLimitResponse: NextResponse | null): NextResponse {
+  if (outcome === 'rate_limited' && rateLimitResponse) return rateLimitResponse
+  if (outcome === 'accepted') return NextResponse.json({ received: true, queued: true }, { status: 202 })
+  if (outcome === 'payload_too_large') return NextResponse.json({ error: WEBHOOK_PAYLOAD_TOO_LARGE }, { status: 413 })
+  return NextResponse.json({ error: WEBHOOK_VERIFICATION_FAILED }, { status: 401 })
+}
+
+function toValidatedResponse(formatted: WebhookHttpResponse): NextResponse {
+  const { status, body, contentType } = formatted
+  if (!Number.isInteger(status) || status < 200 || status > 599) {
+    throw new Error('[internal] Webhook formatter returned an invalid status')
+  }
+  if (contentType !== undefined && (typeof contentType !== 'string' || CONTROL_CHARACTERS.test(contentType))) {
+    throw new Error('[internal] Webhook formatter returned an invalid content type')
+  }
+  const normalizedContentType = contentType?.toLowerCase()
+  if (typeof body === 'string') {
+    if (normalizedContentType !== undefined && !normalizedContentType.startsWith('text/')) {
+      throw new Error('[internal] Webhook formatter returned a non-text content type for a text body')
+    }
+    return new NextResponse(body, { status, headers: { 'content-type': contentType ?? DEFAULT_TEXT_CONTENT_TYPE } })
+  }
+  if (!isPlainObject(body)) {
+    throw new Error('[internal] Webhook formatter returned an invalid body')
+  }
+  if (normalizedContentType !== undefined && !normalizedContentType.includes('json')) {
+    throw new Error('[internal] Webhook formatter returned a non-JSON content type for an object body')
+  }
+  const response = NextResponse.json(body, { status })
+  if (contentType !== undefined) response.headers.set('content-type', contentType)
+  return response
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
 function normalizeSessionIdHint(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 function normalizePaymentIdHint(value: unknown): string | null {
@@ -225,10 +319,15 @@ export const openApi = {
       summary: 'Process inbound webhook from payment provider',
       tags: [paymentGatewaysTag],
       responses: [
-        { status: 202, description: 'Webhook accepted for async processing' },
-        { status: 401, description: 'Signature verification failed' },
-        { status: 413, description: 'Webhook payload too large' },
+        { status: 200, description: 'Webhook accepted (provider-defined acknowledgement may apply)' },
+        { status: 202, description: 'Webhook accepted for processing (default acknowledgement)' },
+        { status: 400, description: 'Webhook rejected (provider-defined response may apply)' },
+        { status: 401, description: 'Webhook could not be verified or processed (default failure response)' },
         { status: 404, description: 'Unknown provider' },
+        { status: 413, description: 'Webhook payload too large' },
+        { status: 429, description: 'Too many webhook requests' },
+        { status: 500, description: 'Internal server error (provider-defined response may apply)' },
+        { status: 503, description: 'Webhook temporarily unavailable (provider-defined response may apply)' },
       ],
     },
   },
