@@ -164,6 +164,10 @@ Fully compliant — ready for implementation.
 
 ## Changelog
 
+### 2026-10-09 (implementation)
+
+- Added the route test proving no locator, credential, or verifier work after a body-limit overflow (with and without a response formatter).
+
 ### 2026-10-09
 
 - Marked implemented: registration validation, header preflight, streamed limit, `413`, OpenAPI, unit tests, and `UPGRADE_NOTES.md` landed in #4512. A route test proving no locator/credential/verifier work after overflow is added with the webhook extensions PR.

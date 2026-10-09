@@ -1,6 +1,6 @@
 # Payment Gateway Webhook Secondary Payment Locator and Candidate Snapshot
 
-- **Status:** planned
+- **Status:** implemented
 - **Date:** 2026-08-01
 - **Type:** OSS shared/core webhook candidate capability
 - **Hub:** `payment_gateways`
@@ -187,6 +187,10 @@ None identified; protected type/route architecture approval remains required.
 Fully compliant — ready for implementation after raw locator context.
 
 ## Changelog
+
+### 2026-10-09 (implementation)
+
+- Implemented: `readPaymentIdHint` (any-version UUID via `z.guid()`), locator intersection, safe `candidate` snapshot, all-candidate verification with ambiguity rejection and `payment_gateways.webhook_ambiguous_candidates` reporting, route tests, docs, and `UPGRADE_NOTES.md`.
 
 ### 2026-10-09
 

@@ -1,6 +1,6 @@
 # Payment Gateway Webhook Raw Locator Context
 
-- **Status:** planned
+- **Status:** implemented
 - **Date:** 2026-08-01
 - **Type:** OSS shared/core framework capability
 - **Hub:** `payment_gateways`
@@ -177,6 +177,10 @@ None identified; architecture review remains required for the protected shared c
 Fully compliant — ready for implementation.
 
 ## Changelog
+
+### 2026-10-09 (implementation)
+
+- Implemented: `rawBody: 'text' | 'bytes'`, raw locator context, `readBoundedRequestBytes`, route tests (`packages/core/src/modules/payment_gateways/api/__tests__/webhook-route.test.ts`), docs, and `UPGRADE_NOTES.md`.
 
 ### 2026-10-09
 

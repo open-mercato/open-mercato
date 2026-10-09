@@ -1,6 +1,6 @@
 # Payment Gateway Webhook Typed Outcomes and Response Formatting
 
-- **Status:** planned
+- **Status:** implemented
 - **Date:** 2026-08-01
 - **Type:** OSS shared/core webhook acknowledgement capability
 - **Hub:** `payment_gateways`
@@ -204,6 +204,10 @@ None identified; architecture review remains required for public registration/ro
 Fully compliant — ready for implementation.
 
 ## Changelog
+
+### 2026-10-09 (implementation)
+
+- Implemented: typed outcomes, legacy byte-identical responses, validated `formatResponse` with generic `500` fallback, rate-limit header preservation, `payment_gateways.webhook_processing_failed`/`webhook_formatter_invalid` reporting, structured outcome log, provider-neutral OpenAPI, route tests, docs, and `UPGRADE_NOTES.md`.
 
 ### 2026-10-09
 
