@@ -68,16 +68,54 @@ Package responsibilities:
 | `health.ts` | Credential, callback URL, OAuth, and provider reachability checks. |
 | `preset.ts`, `cli.ts`, `setup.ts`, `acl.ts`, i18n | Standard provider configuration and discovery. |
 
-The package does not import core entities, create a public route, register a queue worker, or include app/storefront code.
+The package does not import core entities, create a public route, register a queue worker or webhook handler, or include app/storefront code.
+
+The only change outside the package is additive: the checkout submit route (`packages/checkout/src/modules/checkout/api/pay/[slug]/submit/route.ts`) forwards the payer email and full name it already collects as `metadata.customerEmail` and `metadata.customerName`. The `customerEmail` key is shared with the Autopay provider proposal (PR #6047) so both providers read the same convention.
+
+### Credentials and environments
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `clientId` | `text` | yes | Tpay Open API client ID. |
+| `clientSecret` | `secret` | yes | Tpay Open API client secret. |
+| `environment` | `select` (`sandbox`, `production`) | yes, default `sandbox` | Selects a fixed base URL; never a free-form URL. |
+| `notificationUrl` | `text` | no | See Callback URL configuration. |
+| `notificationSecurityCode` | `secret` | no | Stored now, consumed only by `.ai/specs/2026-07-26-tpay-full-integration.md`. |
+
+The integration credentials service encrypts the whole credential blob; `secret` controls UI masking only. Base URLs are fixed constants: `production` → `https://api.tpay.com`, `sandbox` → `https://openapi.sandbox.tpay.com`. OAuth uses the fixed path `POST /oauth/auth` (`application/x-www-form-urlencoded`, `client_id`, `client_secret`). A `transactionPaymentUrl` whose origin is not a Tpay-owned HTTPS host is rejected.
+
+Env preset keys follow the Stripe pattern: `OM_INTEGRATION_TPAY_CLIENT_ID`, `OM_INTEGRATION_TPAY_CLIENT_SECRET`, `OM_INTEGRATION_TPAY_ENVIRONMENT`, `OM_INTEGRATION_TPAY_NOTIFICATION_URL`, `OM_INTEGRATION_TPAY_NOTIFICATION_SECURITY_CODE`, `OM_INTEGRATION_TPAY_ENABLED`, and `OM_INTEGRATION_TPAY_FORCE_PRECONFIGURE`. Client ID and secret are required together.
 
 ### Session creation
 
 - Accept only `currencyCode = 'PLN'`; reject before any provider request otherwise.
-- Use the canonical decimal amount from the existing service contract and serialize it according to Tpay's API without binary-float rounding.
-- Set `hiddenDescription` to the Open Mercato `paymentId`, never an organization or tenant ID.
-- Use the existing stable operation/idempotency input so a local retry does not create a second stored session. If Tpay exposes no provider-native idempotency key, document the residual create-before-commit window and recover by provider correlation/status lookup rather than silently duplicating effects.
-- Return `transactionPaymentUrl` through the existing redirect client session and store the Tpay transaction ID as `providerSessionId`.
-- Keep token, connect, read, and response-size limits bounded; never log OAuth tokens or credentials.
+- `CreateSessionInput.amount` is a JS `number`; reject non-finite or non-positive values, round half-up to whole grosze via integer arithmetic, and send the 2-decimal value as Tpay's `amount` number.
+- Require `metadata.customerEmail` (non-empty, valid email) and `metadata.customerName` (non-empty, trimmed, bounded); reject before any provider request when missing. Payer data is sent to Tpay only and never written to metadata or logs.
+- Set `hiddenDescription` to the hub `paymentId` (the checkout transaction ID, or the generated ID from the admin sessions route), never an organization or tenant ID.
+- Local re-entry is already guarded by the hub's `GatewaySessionInitialization` claim when `idempotencyKey` is supplied. Tpay exposes no provider-native idempotency key, so the residual create-before-commit window stays documented and is recovered by provider correlation/status lookup rather than silently duplicating effects.
+- Return `transactionPaymentUrl` as `redirectUrl` and as `clientSession: { type: 'redirect', redirectUrl }`; store the Tpay `transactionId` as `providerSessionId` and the human-readable `title` in bounded provider data.
+- OAuth tokens are not cached in this phase: each operation requests a token (documented lifetime 7200 s), so no cross-tenant token cache exists.
+- HTTP calls use a 10 s timeout and a 256 KiB response cap; never log OAuth tokens, credentials, or payer data.
+
+### Status mapping
+
+`GET /transactions/{transactionId}` reports `status` from a closed set:
+
+| Tpay status | Unified status |
+| --- | --- |
+| `pending` | `pending` |
+| `paid` | `captured` |
+| `correct` | `captured` |
+| `refund` | `refunded` |
+| `canceled` | `cancelled` |
+| anything else | `unknown` |
+
+`unknown` has no transition in the hub status machine, so it never changes stored state. `amountReceived` comes from `payments.amountPaid` when present, otherwise `0`. `mapStatus` implements the same table.
+
+### Adapter members outside this phase
+
+- `capture`, `refund`, and `cancel` throw `CrudHttpError(422)` with a translated `gateway_tpay.errors.unsupportedOperation` message; they never simulate success.
+- `verifyWebhook` throws an `[internal]` unsupported error. No webhook handler is registered until the notification capability lands.
 
 ### Callback URL configuration
 
@@ -86,7 +124,7 @@ Session creation may send `callbacks.notification.url` for the later notificatio
 - resolve only from the per-tenant `notificationUrl` credential or `OM_INTEGRATION_TPAY_NOTIFICATION_URL` preset;
 - never fall back to request origin or Host;
 - require HTTPS, no user info/query/fragment, and port 443 in production;
-- explicitly enabled sandbox development may use Tpay-supported ports 80, 8080, or 443;
+- with `environment = sandbox`, development may use Tpay-supported ports 80, 8080, or 443;
 - fail health/session creation when configured but invalid;
 - permit an operator to omit it only when the Merchant Panel already owns the final, non-redirecting URL.
 
@@ -96,13 +134,13 @@ No schema change is required.
 
 | Existing field | Use |
 | --- | --- |
-| `GatewayTransaction.paymentId` | Sent as Tpay `hiddenDescription`. |
+| `GatewayTransaction.paymentId` | Hub payment correlation ID (checkout transaction ID or admin-generated ID); sent as Tpay `hiddenDescription`. |
 | `GatewayTransaction.providerSessionId` | Stores the Tpay transaction identifier. |
 | `GatewayTransaction.amount` / `currencyCode` | Authoritative expected PLN amount. |
 | `GatewayTransaction.redirectUrl` | Stores the hosted payment URL. |
 | `GatewayTransaction.gatewayMetadata` | Stores bounded non-secret provider status details. |
 
-Existing integration credential services encrypt `clientId`, `clientSecret`, `notificationSecurityCode`, and `notificationUrl` where configured as secret/sensitive fields. No payer email, token, raw response, or credential value is added to metadata or logs.
+Existing integration credential services encrypt the whole credential blob, including `clientId`, `clientSecret`, `notificationSecurityCode`, and `notificationUrl`. No payer email, token, raw response, or credential value is added to transaction metadata or logs.
 
 ## API Contracts
 
@@ -111,8 +149,26 @@ No new public route is added. The stable session/status API and `GatewayAdapter`
 ### `createSession`
 
 - Input: existing `CreateSessionInput`, PLN only, tenant/organization scope and encrypted credentials supplied by the canonical service.
-- Provider request: OAuth followed by Tpay `POST /transactions` with amount, description, payer data required by the existing flow, `hiddenDescription = paymentId`, return URLs, and validated callback URL when configured.
-- Output: existing `CreateSessionResult` with provider session ID, `pending`, redirect URL, redirect client session, and bounded provider metadata.
+- Provider request: OAuth followed by Tpay `POST /transactions` (JSON):
+
+```json
+{
+  "amount": 123.45,
+  "currency": "PLN",
+  "description": "<input.description or bounded fallback>",
+  "hiddenDescription": "<paymentId>",
+  "lang": "pl",
+  "payer": { "email": "<metadata.customerEmail>", "name": "<metadata.customerName>" },
+  "callbacks": {
+    "payerUrls": { "success": "<successUrl>", "error": "<cancelUrl>" },
+    "notification": { "url": "<validated notificationUrl, omitted when not configured>" }
+  }
+}
+```
+
+- `pay`: the published OpenAPI marks it required, while a hosted redirect without a preselected channel needs no channel data. The exact hosted form (omitted, or `{ "method": "pay_by_link" }` without `groupId`/`channelId`) is confirmed in sandbox before merge and pinned by a contract-test fixture.
+- `description` is required by Tpay; when `input.description` is absent, use a translated, bounded fallback.
+- Output: existing `CreateSessionResult` with provider session ID, `pending`, redirect URL, redirect client session, and bounded provider metadata (`title`, provider `status`).
 
 ### `getStatus`
 
@@ -120,15 +176,19 @@ No new public route is added. The stable session/status API and `GatewayAdapter`
 - Provider request: Tpay `GET /transactions/{id}`.
 - Output: existing `GatewayPaymentStatus` with explicit unified status, amount received, currency, and bounded provider data.
 
-Unsupported capture/refund/cancel operations return explicit capability errors; they do not simulate success.
+Unsupported capture/refund/cancel operations return explicit `CrudHttpError(422)` capability errors; they do not simulate success.
+
+### Checkout submit route (additive)
+
+`createPaymentSession` metadata gains `customerEmail` and `customerName` (first and last name joined) when the checkout collected them. Existing keys are unchanged, and providers that ignore them are unaffected.
 
 ## Internationalization
 
-All provider labels, credential/callback help, validation errors, health messages, and visible status text use `gateway_tpay` locale keys. English, Polish, German, and Spanish catalogs ship together and pass sync/usage checks. Internal-only errors use `[internal]`.
+All provider labels, credential/callback help, validation errors, health messages, and visible status text use `gateway_tpay` locale keys. English, Polish, German, Spanish, and Korean catalogs ship together and pass sync/usage checks, and the auth ACL catalog (`packages/core/src/modules/auth/i18n/*.json`) gains `auth.acl.features.gateway_tpay.*` and `auth.acl.modules.gateway_tpay` in the same five locales. Internal-only errors use `[internal]`.
 
 ## UI/UX
 
-Reuse the existing integration credential form, hosted redirect renderer, payment page, transaction detail, and payment status UI. No new UI primitive or provider-specific payment form is added.
+Reuse the existing integration credential form, payment page, transaction detail, and payment status UI. The payment descriptor declares `presentation: 'redirect'` with no embedded renderer, so the existing pay page follows `redirectUrl`. No new UI primitive or provider-specific payment form is added.
 
 The implementation PR requires manual payment-path QA because it adds a payer-visible redirect. This docs/spec PR remains `skip-qa`.
 
@@ -137,13 +197,15 @@ The implementation PR requires manual payment-path QA because it adds a payer-vi
 | Scenario | Required behavior |
 | --- | --- |
 | Non-PLN session | Reject before OAuth/provider calls. |
+| Payer email or name missing (e.g. admin sessions route) | Reject with a translated error before OAuth/provider calls. |
+| Hosted URL origin is not a Tpay HTTPS host | Fail creation; never redirect the payer there. |
 | Callback URL uses Host fallback, redirect, query, user info, or unsafe production port | Reject configuration; never advertise it to Tpay. |
-| OAuth expires | Refresh once through the bounded client; do not log token material. |
+| OAuth fails or token rejected | Fail the operation with a bounded error; tokens are not cached, so the next operation re-authenticates. Do not log token material. |
 | Provider create succeeds before local commit fails | Re-entry uses local operation identity/provider correlation; surface unresolved ambiguity for operator action. |
 | Provider omits transaction ID or redirect URL | Fail creation; do not persist a usable session. |
 | Unknown provider status | Map to `unknown`, log bounded status, never guess captured. |
 | Payer never returns | Transaction can remain pending until the separately specified notification/reconciliation capabilities run. |
-| Refund/cancel/capture is requested | Return explicit unsupported behavior; no fake state transition. |
+| Refund/cancel/capture is requested | Return `CrudHttpError(422)` unsupported behavior; no fake state transition. |
 
 ## Rollout and Operations
 
@@ -160,13 +222,16 @@ Metrics cover OAuth/session/status latency and failures, unknown statuses, inval
 
 | Surface | Required coverage |
 | --- | --- |
-| Wiring | Package discovery, adapter/descriptor/integration/health, preset, CLI rerun, setup, ACL, and locales. |
-| Session | PLN success, non-PLN rejection, amount serialization, payment correlation, redirect, callback precedence/validation, and no Host fallback. |
+| Wiring | Package discovery, adapter/descriptor/integration/health, preset, CLI rerun, setup, ACL dependencies, and locales. |
+| Session | PLN success, non-PLN rejection, amount rounding, payer-data requirement, payment correlation, redirect origin check, callback precedence/validation, and no Host fallback. |
 | Idempotency | Same operation re-entry does not create a second local/provider session; create-before-commit ambiguity is explicit. |
-| HTTP | OAuth refresh, timeout, response limit, malformed/failed provider response, and secret-safe logs. |
-| Status | Every documented hosted status maps explicitly; unknown status never maps to success. |
+| HTTP | OAuth failure, timeout, response limit, malformed/failed provider response, fixed base URL per environment, and secret-safe logs. |
+| Status | Every documented status (`pending`, `paid`, `correct`, `refund`, `canceled`) maps per the table; unknown status never maps to success. |
+| Unsupported members | `capture`/`refund`/`cancel` return 422 errors; `verifyWebhook` throws. |
+| Checkout | Submit route forwards `customerEmail`/`customerName` in session metadata. |
 | Tenant scope | Two tenants use independent encrypted credentials and cannot read each other's provider session. |
-| Integration E2E | Sandbox hosted payment returns and reaches captured through existing status polling. |
+| Integration (CI) | Self-contained API integration test under `.ai/qa/tests/` with the Tpay HTTP layer mocked: configure credentials, create a checkout session, follow redirect URL, read status to `captured`, clean up fixtures. |
+| Sandbox acceptance (manual) | Sandbox hosted payment returns and reaches captured through existing status polling; evidence recorded in this spec. |
 
 Acceptance requires one sandbox hosted PLN payment to redirect and reach `captured` through the existing return-page status read, with exact payment correlation, no duplicate session on local retry, and no credential/cross-tenant leakage.
 
@@ -207,17 +272,23 @@ Acceptance requires one sandbox hosted PLN payment to redirect and reach `captur
 
 - New workspace package, provider key, integration, descriptor, and registrations are additive and disabled by default.
 - Existing adapter signatures, routes, events, DI keys, database schema, and UI contracts remain unchanged.
+- The checkout submit route only adds optional `metadata` keys (`customerEmail`, `customerName`); no shared type changes.
 - `hiddenDescription = paymentId` affects only newly created Tpay sessions.
 - No schema migration, backfill, or tenant action is required.
 - Auto-discovery/generator and CLI/ACL contracts follow established additive conventions and are covered by tests.
 
 ## Implementation Plan
 
-1. Scaffold the package from `gateway-stripe` and register integration, DI, descriptor, health, setup, ACL, preset, CLI, and locales.
-2. Implement bounded Tpay OAuth/session/status client behavior and PLN-only adapter mapping.
-3. Add session correlation, callback validation, explicit unsupported operations, and structured metrics/docs.
-4. Add unit/integration coverage and validate one sandbox return-page settlement.
-5. Run `yarn generate`, affected package tests/builds, integration tests, all configured validation commands, and payment-path manual QA.
+Single phase, one PR:
+
+1. Scaffold `packages/gateway-tpay` from `gateway-stripe` (package version equal to `packages/shared`, no unused `@open-mercato/ui` dependency) and register integration, DI, descriptor, health, setup, ACL, preset, CLI, and five-locale catalogs.
+2. Implement the bounded Tpay HTTP client (fixed base URLs, OAuth, `POST /transactions`, `GET /transactions/{id}`) with unit tests.
+3. Implement the adapter: PLN/amount/payer validation, callback validation, status mapping, unsupported members, with unit tests.
+4. Forward `customerEmail`/`customerName` from the checkout submit route, with a checkout unit test.
+5. Repository wiring: `apps/mercato` (`package.json`, `src/modules.ts`, `.env.example`), create-app template (`package.json.template`, `src/modules.ts`, `.env.example`, `scripts/template-sync.ts`, module kept in `TEMPLATE_COMMENTED_MODULES` until sandbox acceptance), `Dockerfile` package manifest copies, `scripts/package-peer-deps-allowlist.json` when needed, auth ACL i18n catalog. Changes to `.github/workflows/package-previews.yml` need maintainer approval.
+6. Docs: `apps/docs/docs/user-guide/tpay-payments.mdx` and sidebar entry.
+7. Self-contained API integration test with mocked Tpay HTTP; run `yarn generate` and all configured validation commands.
+8. Sandbox acceptance and payment-path manual QA before enabling the provider for any tenant.
 
 The provider foundation lands in one PR and is useful before notification settlement.
 
@@ -253,6 +324,10 @@ None identified.
 Fully compliant — ready for implementation as the Tpay provider foundation.
 
 ## Changelog
+
+### 2026-10-09
+
+- Applied pre-implementation analysis (`.ai/specs/analysis/ANALYSIS-2026-08-01-tpay-hosted-pln-payment-sessions.md`): payer data via checkout metadata, Tpay request body and status map from the published OpenAPI, credential/environment fields, unsupported adapter members, five locales, CI-runnable integration test, and repository wiring steps.
 
 ### 2026-08-01
 
