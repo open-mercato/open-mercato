@@ -1,3 +1,4 @@
+import { z } from 'zod'
 const mockReportError = jest.fn()
 const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }
 const mockIsEnabled = jest.fn()
@@ -55,6 +56,12 @@ describe('gateway_tpay reconciliation schedule', () => {
     expect(first).toMatch(UUID_SHAPE)
     expect(first).toBe(second)
     expect(other).not.toBe(first)
+  })
+
+  it('derives an RFC 4122 UUID accepted by the scheduler trigger API', () => {
+    const id = tpayReconciliationScheduleId({ tenantId: TENANT, organizationId: ORG })
+    expect(z.uuid().safeParse(id).success).toBe(true)
+    expect(id[14]).toBe('5')
   })
 
   it('registers the exact module-owned schedule', async () => {

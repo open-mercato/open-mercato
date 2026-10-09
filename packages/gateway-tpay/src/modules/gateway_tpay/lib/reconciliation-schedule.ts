@@ -39,7 +39,9 @@ export type ScheduleContainer = {
 
 export function stableScheduleUuid(stableKey: string): string {
   const hex = createHash('sha256').update(stableKey).digest('hex')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+  const version = `5${hex.slice(13, 16)}`
+  const variant = `${((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${version}-${variant}-${hex.slice(20, 32)}`
 }
 
 export function tpayReconciliationScheduleId(scope: TpayScheduleScope): string {
