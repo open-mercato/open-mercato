@@ -19,7 +19,8 @@
 | 1 | 1.2 | Add template ci.yml workflow and its structure test | dispatch | done | 2f0b503f53 |
 | 1 | 1.3 | Add the --ci flag, conditional workflow copy and lockfile-first next steps | dispatch | done | 0444716196 |
 | 1 | 1.4 | Assert no agentic generator writes under .github/workflows | dispatch | done | 9131dfc486 |
-| 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | done | pending |
+| 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | done | b20bf71742 |
+| 1 | 1.6 | Cap the cold-build heap inside yarn ci | inline | done | pending |
 | 2 | 2.1 | Add opt-in app-owned spec discovery to mercato test:integration | dispatch:capable | todo | — |
 | 2 | 2.2 | Add template integration.yml workflow and its structure test | dispatch | todo | — |
 | 2 | 2.3 | Document the integration workflow and the new CLI flag | dispatch | todo | — |
@@ -91,6 +92,9 @@ Every new template-based standalone app ships a provider-neutral `yarn ci` quali
 
 #### Step 1.5 — Document the quality gate and route it from the standalone AGENTS.md
 - `standalone-app.mdx`: `--ci` row, a "Continuous integration" section (what ships, `yarn ci`, `OM_CI_RUNS_ON`, fork guard, ownership, copying into existing apps, commit `yarn.lock`). One routing line in `template/AGENTS.md` and `agentic/shared/AGENTS.md.template`; budget test passes.
+
+#### Step 1.6 — Cap the cold-build heap inside yarn ci
+- Appended at checkpoint 1: a cold `yarn ci` build OOMed on 7 GB (2 of 4 cold runs at the 8 GB heap ceiling). The template `build` script appends `${OM_NEXT_BUILD_NODE_OPTIONS:-}` after its default heap; `ci.mjs` sets it to `--max-old-space-size=4096` for `build` only. Tests, docs memory paragraph, spec.
 
 ### Phase 2 — Integration workflow
 

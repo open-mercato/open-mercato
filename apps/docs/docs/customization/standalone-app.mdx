@@ -225,7 +225,7 @@ Code from a pull request runs on the runner that executes the workflow. The fork
 
 ### Memory
 
-The gate is sized for a standard GitHub-hosted Linux runner (2 vCPU, 7 GB RAM); `typecheck` alone peaks at about 6.5 GB. Next.js normally type-checks again during `next build`, and that second pass does not fit in 7 GB next to the compiled app. Because `typecheck` has already passed, `yarn ci` runs its `build` step with `OM_SKIP_NEXT_BUILD_TYPECHECK=1`, which makes `next.config.ts` skip that second check (`typescript.ignoreBuildErrors`). A plain `yarn build` still type-checks.
+The gate is sized for a standard GitHub-hosted Linux runner (2 vCPU, 7 GB RAM); `typecheck` alone peaks at about 6.5 GB. Next.js normally type-checks again during `next build`, and that second pass does not fit in 7 GB next to the compiled app. Because `typecheck` has already passed, `yarn ci` runs its `build` step with `OM_SKIP_NEXT_BUILD_TYPECHECK=1`, which makes `next.config.ts` skip that second check (`typescript.ignoreBuildErrors`). `yarn ci` also sets `OM_NEXT_BUILD_NODE_OPTIONS=--max-old-space-size=4096`, which the template's `build` script appends after its 8 GB default heap: with the 8 GB ceiling a cold build lets the heap grow until a 7 GB runner kills it. A plain `yarn build` still type-checks and keeps the 8 GB default.
 
 ### The files are yours
 

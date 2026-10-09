@@ -9,6 +9,8 @@ import test from 'node:test'
 import {
   GATE_STEPS,
   SKIP_NEXT_BUILD_TYPECHECK_ENV,
+  NEXT_BUILD_NODE_OPTIONS_ENV,
+  CI_BUILD_NODE_OPTIONS,
   STUB_LOCKFILE_MESSAGE,
   checkLockfile,
   isStubLockfile,
@@ -103,9 +105,11 @@ test('only the build step skips the redundant Next type check', () => {
   for (const call of calls) {
     if (call.step === 'build') {
       assert.equal(call.env[SKIP_NEXT_BUILD_TYPECHECK_ENV], '1')
+      assert.equal(call.env[NEXT_BUILD_NODE_OPTIONS_ENV], CI_BUILD_NODE_OPTIONS)
       assert.equal(call.env.PATH, '/usr/bin')
     } else {
       assert.equal(call.env[SKIP_NEXT_BUILD_TYPECHECK_ENV], undefined, `${call.step} must type-check normally`)
+      assert.equal(call.env[NEXT_BUILD_NODE_OPTIONS_ENV], undefined, `${call.step} keeps its own heap`)
     }
   }
 
@@ -113,6 +117,19 @@ test('only the build step skips the redundant Next type check', () => {
   assert.equal(stepEnv('typecheck', baseEnv), baseEnv)
   assert.equal(stepEnv('build', baseEnv)[SKIP_NEXT_BUILD_TYPECHECK_ENV], '1')
   assert.equal(Object.hasOwn(baseEnv, SKIP_NEXT_BUILD_TYPECHECK_ENV), false, 'stepEnv must not mutate its input')
+})
+
+test('the template build script lets the gate lower its heap after the default', () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(fileURLToPath(new URL('../../template/package.json.template', import.meta.url)), 'utf8'),
+  )
+  const buildScript: string = packageJson.scripts.build
+  const defaultHeapIndex = buildScript.indexOf('--max-old-space-size=8192')
+  const overrideIndex = buildScript.indexOf(`\${${NEXT_BUILD_NODE_OPTIONS_ENV}:-}`)
+  assert.ok(defaultHeapIndex >= 0, buildScript)
+  assert.ok(overrideIndex > defaultHeapIndex, 'the override must follow the default so the last --max-old-space-size wins')
+  assert.ok(!buildScript.includes(`$${NEXT_BUILD_NODE_OPTIONS_ENV} `), 'Yarn\'s shell rejects an unbound variable, so the override needs the :- default form')
+  assert.match(CI_BUILD_NODE_OPTIONS, /^--max-old-space-size=\d+$/)
 })
 
 test('the template next.config only skips the build type check when the gate asks for it', () => {
