@@ -33,4 +33,3 @@ npx create-mercato-module link visits
 ```
 
 The tool checks GitHub login, clones under `.mercato`, backs up the original module source, and replaces the app module folder with a link to the checkout's module source. Keep editing and testing through this app. Use the checkout's normal Git branch/commit/PR workflow for review; `publish` does not create a PR. The link is local: a fresh clone of the app must restore or link the module again. Without `link`, keep development in the original app and rerun `publish` to export changes. Do not manually replace app source with compiled npm output or edit `node_modules`.
-

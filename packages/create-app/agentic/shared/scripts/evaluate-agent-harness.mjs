@@ -2954,6 +2954,15 @@ export function normalizeCodexOutput(value, schema, rootSchema = schema) {
   return normalized
 }
 
+export function codexOutputPrompt(prompt, schema) {
+  const optionalFields = Object.keys(schema.properties ?? {}).filter((key) => !(schema.required ?? []).includes(key))
+  if (!optionalFields.length) return prompt
+  const routingNote = schema.properties?.specRouting
+    ? ' If no specRouting classification is explicitly requested, set specRouting to null. When a classification is requested but does not reuse a spec, set coveringSpecPath to null.'
+    : ''
+  return `${prompt}\n\nCodex wire format: nullable fields encode optional output. Use null for fields that the instructions omit or do not request; never invent optional content merely because the wire schema requires its key.${routingNote}`
+}
+
 function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reasoningEffort, writable, allowedReads = [], allowedWrites = [], immutableRoots = [], validateResponse = validateRoutingResponse }) {
   const canonicalRoot = fs.realpathSync(root)
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-result-'))
@@ -3015,7 +3024,7 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reason
     })
     const processResult = spawnSync(contained.command, contained.args, {
       cwd: contained.cwd,
-      input: prompt,
+      input: runner === 'codex' ? codexOutputPrompt(prompt, canonicalSchema) : prompt,
       encoding: 'utf8',
       timeout,
       maxBuffer: 8 * 1024 * 1024,

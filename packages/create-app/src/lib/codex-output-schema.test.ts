@@ -5,6 +5,7 @@ import test from 'node:test'
 type Schema = { type?: string | string[]; properties?: Record<string, Schema>; required?: string[]; anyOf?: Schema[]; $defs?: Record<string, Schema>; items?: Schema; additionalProperties?: boolean; uniqueItems?: boolean }
 const evaluator = await import(new URL('../../agentic/shared/scripts/evaluate-agent-harness.mjs', import.meta.url).href) as {
   codexOutputSchema?: (schema: Schema) => Schema
+  codexOutputPrompt?: (prompt: string, schema: Schema) => string
   normalizeCodexOutput?: (value: unknown, schema: Schema) => unknown
 }
 const wireSchema = evaluator.codexOutputSchema ?? ((schema: Schema): Schema => schema)
@@ -65,4 +66,11 @@ test('Codex preserves canonical nullable references and unions while omitting tr
     $defs: { nullable: { type: ['string', 'null'] } },
   }
   assert.deepEqual(normalize({ reference: null, union: null, nonNullUnion: null }, schema), { reference: null, union: null })
+})
+
+test('Codex transport instructions encode unrequested optional values as null without changing required outputs', () => {
+  const prompt = evaluator.codexOutputPrompt ?? ((value: string): string => value)
+  assert.match(prompt('Route this module publication.', read('routing-response')), /If no specRouting classification is explicitly requested, set specRouting to null/)
+  assert.match(prompt('Also return specRouting.', read('routing-response')), /does not reuse a spec, set coveringSpecPath to null/)
+  assert.equal(prompt('Required only.', { type: 'object', properties: { result: { type: 'string' } }, required: ['result'] }), 'Required only.')
 })
