@@ -126,6 +126,11 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'eudr:EudrRiskAssessment': { status: 'enabled', resourceKind: 'eudr.risk_assessment', reason: 'enabled — presence + CRUD decorator.' },
   'eudr:EudrMitigationAction': { status: 'enabled', resourceKind: 'eudr.mitigation_action', reason: 'enabled — presence + CRUD decorator.' },
 
+  // --- forms ---
+  'forms:Form': { status: 'enabled', resourceKind: 'forms.form', reason: 'enabled — hand-written form commands use the async command guard seam, preserving the OSS updated_at floor and optional record_locks enrichment.' },
+  'forms:FormVersion': { status: 'enabled', resourceKind: 'forms.form_version', reason: 'enabled — draft update, publish, and archive commands use the async command guard seam; the browser editor sends the loaded version token.' },
+  'forms:FormDistribution': { status: 'enabled', resourceKind: 'forms.distribution', reason: 'enabled — distribution update/close commands use the async command guard seam and their custom UI sends the row version.' },
+
   // --- messages ---
   'messages:Message': { status: 'exempt', resourceKind: 'messages.message', reason: 'OSS-floor-only — draft edits + message actions are hand-written command routes (no makeCrudRoute decorator surface); they enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surface the conflict on the shared banner (#3260). The two call sites are allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
 
