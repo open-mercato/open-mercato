@@ -489,6 +489,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           metadata: {
             checkoutLinkId: link.id,
             checkoutSlug: link.slug,
+            // Some providers (e.g. Autopay) require the payer's email on the
+            // session request itself; checkout already collects and
+            // validates it above, so forward it here rather than have every
+            // such provider invent its own out-of-band way to obtain it.
+            ...(typeof collectedCustomerData.email === 'string' && collectedCustomerData.email
+              ? { customerEmail: collectedCustomerData.email }
+              : {}),
           },
           presentation: rendererKey || rendererSettings || presentationMode
             ? {
