@@ -1,4 +1,5 @@
 import type { CreateSessionInput } from '@open-mercato/shared/modules/payment_gateways/types'
+import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { tpayAdapterV1 } from '../lib/adapters/v1'
 import { TPAY_BASE_URLS } from '../lib/tpay-client'
 
@@ -203,6 +204,21 @@ describe('tpayAdapterV1', () => {
       fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'invalid_client' }, 401))
       await expect(tpayAdapterV1.createSession(baseInput())).rejects.toMatchObject({ status: 502 })
       expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports provider failures through the telemetry runtime', async () => {
+      const reportError = jest.fn()
+      const unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+      try {
+        fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'invalid_client' }, 401))
+        await expect(tpayAdapterV1.createSession(baseInput())).rejects.toMatchObject({ status: 502 })
+        expect(reportError).toHaveBeenCalledWith(expect.any(Error), {
+          module: 'gateway_tpay',
+          code: 'gateway_tpay.provider_failed',
+        })
+      } finally {
+        unregister()
+      }
     })
   })
 

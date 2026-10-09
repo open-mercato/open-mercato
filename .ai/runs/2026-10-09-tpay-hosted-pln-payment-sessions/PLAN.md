@@ -15,7 +15,8 @@
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Scaffold the gateway-tpay package with module metadata, ACL, setup and locales | dispatch:cheap | done | 7ec44b8a3 |
 | 1 | 1.2 | Add the bounded Tpay HTTP client | dispatch | done | aebaa8bae |
-| 1 | 1.3 | Add the Tpay status map and v1 gateway adapter | dispatch:capable | done | self |
+| 1 | 1.3 | Add the Tpay status map and v1 gateway adapter | dispatch:capable | done | 6a5c4d9e5 |
+| 1 | 1.3-review-fix | Report swallowed Tpay provider and translation errors to telemetry | inline | done | self |
 | 1 | 1.4 | Add the integration definition, callback URL validation, health check and DI registration | dispatch | todo | — |
 | 1 | 1.5 | Add the Tpay env preset, configure-from-env CLI and tenant setup hook | dispatch:cheap | todo | — |
 | 1 | 1.6 | Forward payer email and name from checkout submit to the session metadata | inline | todo | — |
@@ -87,6 +88,10 @@ None (`--skill-url` not supplied). Tpay contract facts come from the official Tp
   - Provider failures → `CrudHttpError(502)` with `providerUnavailable` (bounded message), never leaking provider body.
 - `lib/callback-url.ts`: `resolveTpayNotificationUrl({ credential, environment })` — HTTPS (http allowed only in sandbox), no userinfo/query/fragment, production port 443 only, sandbox ports 80/8080/443; returns `null` when unset; throws `CrudHttpError(422, invalidNotificationUrl)` when set but invalid. Never derived from request origin/Host.
 - Tests: status map exhaustiveness, amount rounding (e.g. 0.1+0.2, 10.005), PLN/payer rejections make **no** `fetch` call, request body snapshot fixture (pins the hosted body incl. absence of `pay`), notification URL included/omitted, redirect URL origin rejection, getStatus mapping, unsupported members, verifyWebhook throw, callback URL validation matrix.
+
+#### 1.3-review-fix Report swallowed Tpay provider and translation errors to telemetry
+
+- `withProviderErrors` and `translateTpayText` convert errors instead of rethrowing; per `apps/docs/docs/framework/runtime/error-reporting.mdx` they log a bounded record and call `getTelemetryRuntime()?.reportError` (`gateway_tpay.provider_failed`, `gateway_tpay.translation_unavailable`). Test asserts the provider path reports.
 
 #### 1.4 Add the integration definition, callback URL validation, health check and DI registration
 

@@ -13,6 +13,7 @@ import type {
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { toTpayAmount } from '../amount'
 import { resolveTpayNotificationUrl } from '../callback-url'
 import { tpayHttpError, translateTpayText } from '../errors'
@@ -23,6 +24,7 @@ import {
   getTransaction,
   requestAccessToken,
   resolveTpayEnvironment,
+  TpayClientError,
   type TpayCreateTransactionBody,
   type TpayEnvironment,
 } from '../tpay-client'
@@ -83,6 +85,11 @@ async function withProviderErrors<T>(operation: () => Promise<T>): Promise<T> {
     return await operation()
   } catch (error) {
     if (isCrudHttpError(error)) throw error
+    logger.warn('Tpay provider call failed', {
+      code: error instanceof TpayClientError ? error.code : 'unexpected',
+      httpStatus: error instanceof TpayClientError ? error.status : null,
+    })
+    getTelemetryRuntime()?.reportError(error, { module: 'gateway_tpay', code: 'gateway_tpay.provider_failed' })
     throw await tpayHttpError(502, 'providerUnavailable')
   }
 }

@@ -1,5 +1,6 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 export const TPAY_ERROR_FALLBACKS = {
   currencyNotSupported: 'Tpay supports payments in PLN only.',
@@ -17,7 +18,8 @@ export async function translateTpayText(key: string, fallback: string): Promise<
   try {
     const { translate } = await resolveTranslations()
     return translate(key, fallback)
-  } catch {
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, { module: 'gateway_tpay', code: 'gateway_tpay.translation_unavailable' })
     return fallback
   }
 }
