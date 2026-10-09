@@ -3,6 +3,7 @@ import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { SELECTED_ORGANIZATION_COOKIE } from '@open-mercato/shared/lib/scope/cookies'
 import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -10,7 +11,6 @@ import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@ope
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { SELECTED_ORGANIZATION_COOKIE } from '@open-mercato/shared/lib/scope/cookies'
 import {
   runMutationGuards,
   bridgeLegacyGuard,

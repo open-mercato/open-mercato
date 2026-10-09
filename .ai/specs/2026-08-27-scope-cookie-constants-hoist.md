@@ -143,6 +143,12 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
   return a richer `{ value, hasCookie, raw }` shape with its own `__all__` folding: replacing
   them is a behaviour-preserving rewrite of a client component with its own tests, a different
   review from a contract-surface bridge, and it is the highest-value remaining follow-up.
+- **`packages/ui/src/backend/injection/eventBridge.ts`** gained its own copy of both names
+  (`SCOPE_COOKIE_NAMES`) on `develop` with #6932, after this branch was last refreshed, so
+  it is not in this diff. It is a plain tuple with no richer shape, so collapsing it is the
+  same one-line substitution as `[...slug]/page.tsx`: import both constants and keep
+  `as const` — the tuple's type stays `readonly ['om_selected_org', 'om_selected_tenant']`.
+  Do it when the branch is next refreshed onto `develop`, or as a follow-up.
 - **`lib/frontend/organizationEvents.ts`** is not on `develop`; its copy arrives with
   #5690. Switching it over is a two-line follow-up on that branch and does not conflict
   with this one. It must use `readScopeCookieRaw`/`decodeScopeCookieValue`, not the
@@ -277,7 +283,7 @@ runtime behaviour changes for any consumer, inside the monorepo or out.
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| Every remaining copy of the wire format is named | Pass | Repository-wide sweep for both literals outside tests and fixtures leaves only the two `OrganizationSwitcher` files, both named |
+| Every remaining copy of the wire format is named | Pass | Repository-wide sweep for both literals outside tests and fixtures, against `develop` as of 2026-10-09, leaves the two `OrganizationSwitcher` files and `eventBridge.ts` (from #6932) — all named in *Deliberately out of scope* |
 | Spec claims match the code | Pass | The "carries no constant duplication" claim about the template switcher was inaccurate and is corrected |
 | Risks cover all write operations | Pass | No writes; the write *of the cookie itself* is covered by the blank-cookie risk |
 | Tests are non-vacuous | Pass | Mutation claims listed under *Testing* |
@@ -288,6 +294,17 @@ None. One declared deviation (`@deprecated`), reasoned above and awaiting a main
 note on the record.
 
 ## Changelog
+
+### 2026-10-09
+
+- `develop` had moved 434 commits and conflicted on one line of `lib/crud/factory.ts`, where
+  `develop` added `import { resolveTranslations }` at the same spot as this branch's
+  `SELECTED_ORGANIZATION_COOKIE` import. Moved this branch's import up beside the
+  `lib/auth/server` import, which it groups with anyway; the branch now merges into current
+  `develop` cleanly. No behaviour change.
+- Re-swept for the literals: `develop` gained a new copy in
+  `packages/ui/src/backend/injection/eventBridge.ts` (#6932). Named under *Deliberately out
+  of scope* and in the Internal Consistency Check so the sweep claim stays true.
 
 ### 2026-08-28
 
