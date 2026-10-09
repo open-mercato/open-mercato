@@ -226,6 +226,57 @@ jobs:
           bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" \
             npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
 
+      - name: Install standalone app dependencies
+        working-directory: /tmp/standalone-app
+        # The scaffolded app ships an empty yarn.lock.template; `yarn install`
+        # must resolve ~1.6k deps fresh. Yarn 4.12 auto-enables hardened mode
+        # on pull_request workflows, which forces immutable installs and fails
+        # with YN0028. Disable both for this scaffolded-app install only — the
+        # monorepo install above still runs with --immutable.
+        env:
+          YARN_ENABLE_HARDENED_MODE: '0'
+          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
+        # Retry through npm's post-publish quarantine window (see the script).
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn install
+
+      - name: Post-publish canary - yarn ci on a clean scaffold (7 GB cap)
+        # Exercises the scaffold's OWN quality gate on the clean, just-installed
+        # app — before this job writes its own .env or activates enterprise/
+        # example modules — so the .env.example -> .env path a real user's
+        # `yarn ci` takes is the one exercised here. Runs inside a container
+        # shaped like a 7 GB / 2 vCPU GitHub-hosted private-repo runner, the
+        # same cap Phase 0 measured, so a template or memory regression goes
+        # red here within one snapshot cycle (spec Architecture -> Integration
+        # Test Coverage, Q11). Not a pre-merge gate: unit and YAML-structure
+        # tests are the pre-merge line.
+        run: |
+          WORK="${RUNNER_TEMP:-/tmp}/om-ci-canary"
+          mkdir -p "$WORK/home" "$WORK/corepack"
+          YARN_CACHE_DIR="$(yarn config get cacheFolder)"
+          mkdir -p "$YARN_CACHE_DIR"
+          cat > "$WORK/inner.sh" <<'INNER'
+          #!/usr/bin/env bash
+          set -uo pipefail
+          mkdir -p "$HOME/bin"
+          corepack enable --install-directory "$HOME/bin" >/dev/null 2>&1
+          export PATH="$HOME/bin:$PATH"
+          yarn ci
+          rc=$?
+          oom=$(awk '$1=="oom_kill"{print $2}' /sys/fs/cgroup/memory.events)
+          echo "[canary] rc=$rc peak_mib=$(( $(cat /sys/fs/cgroup/memory.peak) / 1048576 )) oom_kill=$oom"
+          exit $rc
+          INNER
+          chmod +x "$WORK/inner.sh"
+          docker run --rm --memory=7g --memory-swap=7g --cpus=2 \
+            -u "$(id -u):$(id -g)" \
+            -e HOME=/home/runner -e COREPACK_HOME=/corepack -e CI=true \
+            -v "$WORK/home:/home/runner" -v "$WORK/corepack:/corepack" \
+            -v "$WORK/inner.sh:/inner.sh:ro" \
+            -v "/tmp/standalone-app:/tmp/standalone-app" \
+            -v "$YARN_CACHE_DIR:/home/runner/.yarn/berry/cache" \
+            -w /tmp/standalone-app \
+            node:24.19.0-trixie bash /inner.sh
+
       - name: Configure standalone app environment
         working-directory: /tmp/standalone-app
         run: |
@@ -302,19 +353,6 @@ jobs:
           # path must be absolute and identical on both sides (see the matching
           # OM_TEST_EMAIL_CAPTURE_PATH on the integration-test step).
           echo "OM_TEST_EMAIL_CAPTURE_PATH=${GITHUB_WORKSPACE}/.ai/qa/email-capture.jsonl" >> .env
-
-      - name: Install standalone app dependencies
-        working-directory: /tmp/standalone-app
-        # The scaffolded app ships an empty yarn.lock.template; `yarn install`
-        # must resolve ~1.6k deps fresh. Yarn 4.12 auto-enables hardened mode
-        # on pull_request workflows, which forces immutable installs and fails
-        # with YN0028. Disable both for this scaffolded-app install only — the
-        # monorepo install above still runs with --immutable.
-        env:
-          YARN_ENABLE_HARDENED_MODE: '0'
-          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
-        # Retry through npm's post-publish quarantine window (see the script).
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn install
 
       - name: Install standalone enterprise package
         working-directory: /tmp/standalone-app

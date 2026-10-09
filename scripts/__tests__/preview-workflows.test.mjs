@@ -92,14 +92,32 @@ test('published standalone lanes verify the disabled baseline before activating 
 test('develop snapshot standalone initialization replaces the scaffold database URL', () => {
   const workflow = readText(snapshotWorkflowPath)
   const configureStart = stepIndex(workflow, 'Configure standalone app environment')
-  const installStart = stepIndex(workflow, 'Install standalone app dependencies')
-  const configureStep = workflow.slice(configureStart, installStart)
+  const configureEnd = stepIndex(workflow, 'Install standalone enterprise package')
+  const configureStep = workflow.slice(configureStart, configureEnd)
   const appendedEnvironment = configureStep.slice(configureStep.indexOf("cat >> .env"))
 
   assert.ok(configureStep.includes(
     "sed -i 's|^DATABASE_URL=.*$|DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test|' .env",
   ))
   assert.equal(countOccurrences(appendedEnvironment, 'DATABASE_URL='), 0)
+})
+
+test('develop snapshot standalone post-publish canary runs before .env is written or modules are activated', () => {
+  const workflow = readText(snapshotWorkflowPath)
+  const installIndex = stepIndex(workflow, 'Install standalone app dependencies')
+  const canaryIndex = stepIndex(workflow, 'Post-publish canary - yarn ci on a clean scaffold (7 GB cap)')
+  const configureIndex = stepIndex(workflow, 'Configure standalone app environment')
+  const enterpriseIndex = stepIndex(workflow, 'Install standalone enterprise package')
+  const exampleActivationIndex = stepIndex(workflow, 'Verify disabled baseline and activate example integration fixture')
+
+  assert.ok(installIndex < canaryIndex, 'The canary must run on an installed, not merely scaffolded, app')
+  assert.ok(canaryIndex < configureIndex, 'The canary must run before the job writes its own .env')
+  assert.ok(canaryIndex < enterpriseIndex, 'The canary must run before the enterprise package is activated')
+  assert.ok(canaryIndex < exampleActivationIndex, 'The canary must run before the example integration fixture is activated')
+
+  const canaryStep = workflow.slice(canaryIndex, configureIndex)
+  assert.match(canaryStep, /\byarn ci\b/)
+  assert.match(canaryStep, /docker run --rm --memory=7g --memory-swap=7g --cpus=2/)
 })
 
 test('standalone example activation helper is executable through the workflow CJS entrypoint', () => {
