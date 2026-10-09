@@ -4,13 +4,14 @@ import * as React from 'react'
 import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
-import { isOpenInteractionStatus } from '../../lib/interactionStatus'
+import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 import { ActivityAiActions } from './ActivityAiActions'
 import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -127,6 +128,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
     : activity.interactionType === 'call' || activity.interactionType === 'meeting'
       ? t('customers.activityLog.direction.with', 'with')
       : ''
+  const isCanceled = isCanceledInteractionStatus(activity.status)
   const showExternalLink = Boolean(activity._integrations && Object.keys(activity._integrations).length > 0)
   const [markingDone, setMarkingDone] = React.useState(false)
 
@@ -189,7 +191,19 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <h4 className="truncate text-sm font-semibold text-foreground">{title}</h4>
+              <h4
+                className={cn(
+                  'truncate text-sm font-semibold',
+                  isCanceled ? 'text-muted-foreground line-through' : 'text-foreground',
+                )}
+              >
+                {title}
+              </h4>
+              {isCanceled ? (
+                <StatusBadge variant="neutral" className="shrink-0">
+                  {t('customers.interactions.status.canceled', 'Canceled')}
+                </StatusBadge>
+              ) : null}
               {showExternalLink ? <ExternalLink className="size-3.5 text-muted-foreground" /> : null}
             </div>
             {activity.location ? (
