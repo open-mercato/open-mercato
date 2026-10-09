@@ -1,5 +1,6 @@
 import { features } from '../acl'
 import { mailjetCapabilities } from '../capabilities'
+import cliCommands from '../cli'
 import { integration } from '../integration'
 import { metadata } from '../index'
 
@@ -23,5 +24,9 @@ describe('channel_mailjet contracts', () => {
       { id: 'channel_mailjet.configure', title: expect.any(String), module: 'channel_mailjet' },
     ])
     expect(mailjetCapabilities.fileSharing).toBe(false)
+  })
+
+  it('exposes rerunnable env configuration commands', () => {
+    expect(cliCommands.map((entry) => entry.command)).toEqual(['configure-from-env', 'help'])
   })
 })

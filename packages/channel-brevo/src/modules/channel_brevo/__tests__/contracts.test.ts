@@ -1,5 +1,6 @@
 import { features } from '../acl'
 import { brevoCapabilities } from '../capabilities'
+import cliCommands from '../cli'
 import { integration } from '../integration'
 import { metadata } from '../index'
 
@@ -23,5 +24,9 @@ describe('channel_brevo contracts', () => {
       { id: 'channel_brevo.configure', title: expect.any(String), module: 'channel_brevo' },
     ])
     expect(brevoCapabilities.fileSharing).toBe(false)
+  })
+
+  it('exposes rerunnable env configuration commands', () => {
+    expect(cliCommands.map((entry) => entry.command)).toEqual(['configure-from-env', 'help'])
   })
 })

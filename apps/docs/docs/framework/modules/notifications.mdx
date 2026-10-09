@@ -44,7 +44,11 @@ Notification emails use the Communications Hub system email transport. Select on
 | Mailjet | `mailjet` | `OM_INTEGRATION_MAILJET_API_KEY` and `OM_INTEGRATION_MAILJET_SECRET_KEY` |
 | Amazon SES | `ses` | AWS SDK credential chain and `AWS_SES_REGION` or `AWS_REGION` |
 
-Brevo and Mailjet publish EU data-hosting and data-processing terms, but selecting a provider does not by itself make a deployment GDPR compliant. Operators must assess their contract, lawful basis, retention, recipient consent, and configuration. Each provider also accepts an optional provider-specific sender override (`OM_INTEGRATION_BREVO_FROM_ADDRESS` or `OM_INTEGRATION_MAILJET_FROM_ADDRESS`).
+Brevo and Mailjet publish European database-hosting and data-processing terms, but selecting a provider does not by itself make a deployment GDPR compliant or prevent international processing. Operators must assess their contract, subprocessors, lawful basis, retention, recipient consent, and configuration. Each provider also accepts an optional provider-specific sender override (`OM_INTEGRATION_BREVO_FROM_ADDRESS` or `OM_INTEGRATION_MAILJET_FROM_ADDRESS`).
+
+After changing provider env variables for an existing tenant, reapply them with `yarn mercato channel_brevo configure-from-env --tenant <tenantId> --org <organizationId>` or the corresponding `channel_mailjet` command. The command persists credentials through the Integrations service and never prints secret values.
+
+The integration health check verifies API authentication and reachability without sending email or retaining the account/profile response. Verify the configured sender or domain in the provider console separately before routing production mail.
 
 Notification emails resolve their sender in this order:
 

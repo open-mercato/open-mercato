@@ -8,14 +8,20 @@ describe('channelMailjetHealthCheck', () => {
   })
 
   it('performs a bounded authenticated profile probe', async () => {
-    global.fetch = jest.fn().mockResolvedValue(new Response('{}', { status: 200 }))
+    const readBody = jest.fn()
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, json: readBody } as unknown as Response)
 
     const result = await channelMailjetHealthCheck.check(
       { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
       { tenantId: 'tenant-1', organizationId: 'organization-1' },
     )
 
-    expect(result.status).toBe('healthy')
+    expect(result).toEqual({
+      status: 'healthy',
+      message: 'Mailjet API credentials are valid',
+      details: { endpoint: 'myprofile' },
+    })
+    expect(readBody).not.toHaveBeenCalled()
     expect(global.fetch).toHaveBeenCalledWith(
       'https://api.mailjet.com/v3/REST/myprofile',
       expect.objectContaining({

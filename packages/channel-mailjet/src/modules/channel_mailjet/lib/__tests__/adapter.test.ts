@@ -69,6 +69,24 @@ describe('MailjetChannelAdapter', () => {
     expect(result).toEqual(expect.objectContaining({ status: 'sent', externalMessageId: expect.stringMatching(/^mailjet:/) }))
   })
 
+  it('uses a binary MIME fallback when an attachment has no content type', async () => {
+    await getMailjetChannelAdapter().sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        attachments: [{ filename: 'data.bin', content: 'dGVzdA==' }],
+      },
+    })
+
+    const request = (global.fetch as jest.Mock).mock.calls[0]
+    expect(JSON.parse(String(request[1].body)).Messages[0].Attachments).toEqual([
+      { Filename: 'data.bin', ContentType: 'application/octet-stream', Base64Content: 'dGVzdA==' },
+    ])
+  })
+
   it('treats a message-level error in a successful HTTP response as failed', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       Messages: [{
@@ -120,6 +138,44 @@ describe('MailjetChannelAdapter', () => {
     expect(result).toEqual(expect.objectContaining({
       status: 'failed',
       error: '[internal] Email send requires at least one recipient',
+    }))
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('fails before making a request when Mailjet recipient limits are exceeded', async () => {
+    const result = await getMailjetChannelAdapter().sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: Array.from({ length: 51 }, (_, index) => `user-${index}@example.com`),
+        subject: 'Hello',
+      },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Mailjet supports at most 50 recipients per message',
+    }))
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('fails before making a request when Mailjet attachment limits are exceeded', async () => {
+    const oversizedContent = Buffer.alloc((15 * 1024 * 1024) + 1).toString('base64')
+    const result = await getMailjetChannelAdapter().sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        attachments: [{ filename: 'oversized.bin', content: oversizedContent }],
+      },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Mailjet attachments exceed the 15 MB aggregate limit',
     }))
     expect(global.fetch).not.toHaveBeenCalled()
   })
