@@ -259,6 +259,7 @@ Apps scaffolded before CI was added do not get it automatically. Scaffold a thro
 
 - `scripts/ci.mjs`
 - the `"ci": "node ./scripts/ci.mjs"` entry in `package.json` `scripts`
+- the `build` script in `package.json`: it must append `${OM_NEXT_BUILD_NODE_OPTIONS:-}` after its `--max-old-space-size` flag (for example `NODE_OPTIONS="--max-old-space-size=8192 ${OM_NEXT_BUILD_NODE_OPTIONS:-}"`), otherwise `yarn ci` cannot lower the build heap and the build runs out of memory on a 7 GB runner
 - the `isCiGateBuild` constant in `next.config.ts` and the two settings that use it (`typescript.ignoreBuildErrors` and `experimental.turbopackFileSystemCacheForBuild`)
 - `.github/workflows/ci.yml`
 - `.github/workflows/integration.yml` (needs a `@open-mercato/cli` version that supports `mercato test:integration --app-only`)

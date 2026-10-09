@@ -232,7 +232,7 @@ Deploy (Railway has its own path), Dependabot/Renovate, CodeQL, GitLab/Bitbucket
 | 0 | done | Measured on a 7 GB / 2 vCPU container; see Phase 0 results. |
 | 1 | done | `scripts/ci.mjs` + `yarn ci`, `ci.yml`, `--ci`, ownership tests, docs. Checkpoint fixes: 4 GB build heap (1.6), Turbopack build cache off for the gate build (1.7), workflow templates stored under `template/github/` so they survive `yarn pack` (1.8). |
 | 2 | done | `mercato test:integration --app-only`, `integration.yml`, docs. Specs under `.ai/qa/tests/` count as app-owned but run only when the app's Playwright config discovers that folder; the docs point app specs at `src/modules/<module>/__integration__/`. |
-| 3 | done | `snapshot.yml` → `standalone-integration` runs `yarn ci` on the clean scaffold under `docker run --memory=7g --memory-swap=7g --cpus=2` with `CIRCLE_NODE_TOTAL=2` (one Next worker, as on a 2-vCPU runner). The first post-merge snapshot run is its evidence. |
+| 3 | done | `snapshot.yml` → `standalone-integration` copies the clean scaffold right after `yarn install` (before `.env` and module activation) and, as its last step, runs `yarn ci` on that copy under `docker run --memory=7g --memory-swap=7g --cpus=2` with `CIRCLE_NODE_TOTAL=2` (one Next worker, as on a 2-vCPU runner). The first post-merge snapshot run is its evidence. |
 
 Deferred (manual, Q12): push a canary scaffold to a throwaway GitHub repository and confirm `ci.yml` and an empty and a non-empty `integration.yml` run on hosted runners.
 
@@ -245,6 +245,7 @@ Deferred (manual, Q12): push a canary scaffold to a throwaway GitHub repository 
 
 ## 📝 Changelog
 
+- 2026-10-09: Review follow-up: the canary runs on a clean copy as the job's last step, so a canary failure never skips the integration suite; docs list the `build` script change for existing apps.
 - 2026-10-09: Implementation complete (Phases 0–3). Workflow templates moved to `template/github/` because `yarn pack` drops `.github`; snapshot canary pins one Next worker.
 - 2026-10-09: Step 1.7: the CI build also turns off Turbopack's filesystem build cache. Fully cold `yarn ci` under 7 GB / 2 vCPU: 4 of 4 pass with it off, 2 of 2 OOM-killed with it on (colima VM, 1 Next worker). The snapshot canary passes `CIRCLE_NODE_TOTAL=2` so Next starts the single worker a 2-vCPU runner gets.
 - 2026-10-09: Skeleton, Q1–Q9 resolved, full draft.
