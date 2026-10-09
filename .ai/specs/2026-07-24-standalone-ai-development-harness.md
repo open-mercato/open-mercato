@@ -766,7 +766,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 ## Changelog
 
-- 2026-10-09: Added OMH-238 for the supported `create-mercato-module` init, dry-run, publish, authentication and optional repository-link workflow. The architecture guide owns the contract; root routing and the module-scaffold skill point to it. The catalog now contains 238 cases, including 49 writable cases. No new writable or runtime contract is introduced.
+- 2026-10-09: Added OMH-238 for the supported `create-mercato-module` init, dry-run, publish, authentication and optional repository-link workflow. The focused module-tool guide owns the contract; root routing, architecture, and the module-scaffold skill point to it. The catalog now contains 238 cases, including 49 writable cases. No new writable or runtime contract is introduced.
 
 - **2026-08-18** — Reconciled with the upstream 233-case expansion (OMH-232 push-notification phone reach, OMH-233 tenant-wide push credentials) by moving the Documents facts-first reuse decision to OMH-234 and synchronizing the 234-case/49-writable schema, documentation, and tests.
 - **2026-08-17** — Reconciled with the upstream 231-case expansion by moving the Documents facts-first reuse decision to OMH-232, keeping the upstream OMH-230/OMH-231 identities intact, and synchronizing the 232-case/49-writable schema, documentation, and tests.

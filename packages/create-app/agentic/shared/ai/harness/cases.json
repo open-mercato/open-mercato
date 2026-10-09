@@ -21447,7 +21447,7 @@
     ],
     "owner": {
       "kind": "guide",
-      "path": ".ai/guides/architecture.md",
+      "path": ".ai/guides/module-tool.md",
       "ruleIds": [
         "BC-01",
         "BC-04"
@@ -21463,9 +21463,9 @@
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/architecture.md"
+        ".ai/guides/module-tool.md"
       ],
-      "allowedExtra": [],
+      "allowedExtra": [".ai/guides/architecture.md"],
       "forbidden": [
         ".env*",
         ".git/**",
@@ -21493,9 +21493,9 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 2,
-    "maxInitialContextBytes": 24576,
-    "maxTotalContextBytes": 24576,
+    "maxContextFiles": 3,
+    "maxInitialContextBytes": 32768,
+    "maxTotalContextBytes": 32768,
     "relatedCases": [
       "OMH-002",
       "OMH-046",
