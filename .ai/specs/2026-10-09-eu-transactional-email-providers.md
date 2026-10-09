@@ -2,7 +2,7 @@
 
 ## TLDR
 
-Add Brevo and Mailjet as independent, outbound-only `communication_channels` provider packages for system transactional email. Both providers publish EU-only data-hosting commitments and DPA material, giving EEA operators alternatives to Resend while preserving the existing `sendEmail()` API, Communications Hub routing, Resend default, and SES support.
+Add Brevo and Mailjet as independent, outbound-only `communication_channels` provider packages for system transactional email. Both providers publish European database-hosting information and DPA material, giving EEA operators alternatives to Resend while preserving the existing `sendEmail()` API, Communications Hub routing, Resend default, and SES support.
 
 The integrations expose provider capabilities and configuration; they do not certify that an operator's deployment is GDPR-compliant. Operators remain responsible for their DPA, subprocessor, retention, lawful-basis, tracking, and transfer assessments.
 
@@ -10,16 +10,16 @@ The integrations expose provider capabilities and configuration; they do not cer
 
 | Decision | Default used | Rationale |
 | --- | --- | --- |
-| Provider selection | Brevo and Mailjet | Both publish EU-only hosting statements, DPA material, mature transactional APIs, attachment and Reply-To support, and non-sending account endpoints suitable for health checks. |
-| Scope grouping | One spec and implementation PR, two independent packages | The user explicitly requested at least two connectors in one delivery. Package boundaries keep either provider independently installable and removable. |
+| Provider selection | Brevo and Mailjet | Both publish European hosting information, DPA material, mature transactional APIs, attachment and Reply-To support, and non-sending account endpoints suitable for health checks. Their contracts and subprocessors can still involve international processing. |
+| Scope grouping | One spec and implementation PR, two independent packages | Maintainer exception: the user explicitly requested at least two connectors in one PR. Each package has an independent acceptance gate, release surface, and rollback path; neither provider may depend on the other. |
 | HTTP integration | Provider-local `fetch` clients with shared timeout utilities; no new SDK dependencies | Both APIs are small, stable HTTP surfaces. This avoids adding production dependencies while keeping provider code isolated. |
 | Delivery status | Return `sent` when the provider accepts the request | The existing synchronous system-email contract reports provider acceptance, not eventual delivery. Webhook delivery receipts remain out of scope. |
-| Data-residency wording | “EU-hosted/GDPR-oriented,” never “makes Open Mercato GDPR-compliant” | Compliance depends on operator contracts and processing choices beyond connector code. |
+| Data-residency wording | “EU database hosting/GDPR-oriented,” never “EU-only” or “makes Open Mercato GDPR-compliant” | Compliance and international-transfer posture depend on operator contracts, subprocessors, and processing choices beyond connector code. |
 | Existing defaults | Resend remains the default when `SYSTEM_EMAIL_PROVIDER` is unset | Changing the default would break existing deployments. |
 
 ## Problem Statement
 
-Open Mercato now routes transactional email through the Communications Hub, but the built-in system-email providers are Resend and Amazon SES. Operators whose procurement or data-governance policy requires a European provider with published EU-only data hosting still need to build and maintain their own adapter.
+Open Mercato now routes transactional email through the Communications Hub, but the built-in system-email providers are Resend and Amazon SES. Operators whose procurement or data-governance policy favors a European provider with published European database-hosting terms still need to build and maintain their own adapter.
 
 Issue #5556 originally described the older Resend-only implementation. PR #4471 removed that architectural blocker by preserving `sendEmail()` and introducing provider packages. The remaining gap is provider coverage: two European transactional-email integrations that plug into the existing registry, tenant credential storage, env preconfiguration, and system-email selection flow.
 
@@ -37,7 +37,8 @@ Each package owns:
 - a provider-local HTTP client;
 - a non-sending account health check;
 - `SYSTEM_EMAIL_PROVIDER` env resolution and tenant preset seeding;
-- ACL metadata, capabilities, DI/setup registration, and focused tests.
+- a provider-local, rerunnable `configure-from-env` CLI for existing tenants;
+- localized ACL metadata, capabilities, DI/setup registration, and focused tests.
 
 The packages mirror `channel_resend` and `channel_ses`. No provider-specific branch is added to `shared`, `core`, or existing email call sites.
 
@@ -72,7 +73,7 @@ The packages declare `baseEmailCapabilities` with file sharing and conversation 
 | attachments | `attachment[]` with `name`, base64 `content`, optional content-type omitted because the API infers it |
 | external message id | `messageId` from `POST /v3/smtp/email` |
 
-Health checks call `GET /v3/account` with the same API key and never send email.
+Health checks call `GET /v3/account` with the same API key and never send email. The response body is discarded because it can contain account PII; the returned details are restricted to the constant endpoint identifier or the allowlisted failure reason and HTTP status.
 
 ### Mailjet mapping
 
@@ -86,7 +87,7 @@ Health checks call `GET /v3/account` with the same API key and never send email.
 | attachments | `Messages[0].Attachments[]` with `Filename`, `ContentType`, base64 `Base64Content` |
 | external message id | first successful message's `To[0].MessageID`, stringified |
 
-Mailjet uses HTTPS Basic Auth with the public API key as username and secret key as password. Health checks call `GET /v3/REST/myprofile` and never send email.
+Mailjet uses HTTPS Basic Auth with the public API key as username and secret key as password. The adapter rejects more than 50 recipients and rejects aggregate decoded attachment content above 15 MB before calling Mailjet. Missing attachment MIME types normalize to `application/octet-stream`; messages are not split automatically because the hub contract represents one send operation. Health checks call `GET /v3/REST/myprofile`, discard its PII-bearing response body, return only allowlisted details, and never send email.
 
 ## Data Model
 
@@ -133,6 +134,13 @@ Canonical env presets:
 
 Presets seed credentials and a tenant-wide system-email channel only when their provider is selected and all required values plus a sender address resolve successfully. A partial preset logs a credential-name-only warning and seeds nothing.
 
+Existing tenants can reapply a complete selected preset without exposing credentials in output:
+
+```bash
+yarn mercato channel_brevo configure-from-env --tenant <tenantId> --org <organizationId>
+yarn mercato channel_mailjet configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
 ## UI/UX
 
 No provider-specific React surface is added. Auto-discovered integration metadata makes both providers visible in the existing Integrations UI, where operators can:
@@ -154,7 +162,9 @@ All user-facing metadata follows the existing provider-package pattern. No claim
 - Brevo accepts but omits `messageId`: use a provider-prefixed local fallback id, matching current adapter behavior.
 - Mailjet returns HTTP 200 with message-level `Status: error`: treat the send as failed and surface the first documented Mailjet error message.
 - Mailjet returns multiple recipient results: use the first successful message id while preserving the existing one-call/multi-recipient semantics.
-- Unsupported or malformed attachment entries: ignore invalid entries using the existing adapter normalization pattern; provider rejection remains a send failure.
+- Mailjet receives more than 50 recipients: fail before the network call; callers must split the logical notification explicitly.
+- Mailjet aggregate decoded attachment content exceeds 15 MB: fail before the network call rather than relying on a provider rejection.
+- Unsupported or malformed attachment entries: ignore invalid entries using the existing adapter normalization pattern; Mailjet uses `application/octet-stream` when MIME type is absent, and provider rejection remains a send failure.
 - Selected provider package is absent: existing Communications Hub behavior reports that no adapter/config resolver is registered; no fallback silently transfers data to another provider.
 - Provider privacy terms change: code continues to function, while docs and issue research must be updated; the adapter itself never encodes a compliance guarantee.
 
@@ -167,16 +177,19 @@ Automated coverage ships with the provider packages:
 - credential tests cover required/invalid values;
 - health tests cover valid account responses, invalid credentials, non-2xx responses, and timeouts with mocked HTTP;
 - preset tests cover selected/unselected provider, full/partial env, sender fallback, credential persistence, enabled integration state, and tenant-wide channel creation;
-- generated registry checks prove both modules are discoverable;
+- CLI contract tests prove each selected preset can be reapplied for an existing tenant without logging secrets;
+- generated registry checks prove both modules and their CLI commands are discoverable;
 - existing `sendEmail()` and Communications Hub suites remain green, proving Resend and SES compatibility.
 
-Key UI path `/backend/integrations` is covered through generated integration discovery and contract tests; no new rendering component is introduced. Manual smoke verification may confirm that both cards appear, credentials remain masked, and health checks show provider results.
+Executable integration coverage under `packages/channel-brevo/src/modules/channel_brevo/__integration__/` authenticates as an administrator, verifies both providers through the real integrations list/detail APIs, and renders both `/backend/integrations/<provider>` pages. Existing self-contained integration coverage for the shared integrations form verifies secret masking; provider health tests invoke the non-sending endpoint with mocked HTTP and assert the response body is not read; preset, registry, adapter, and Communications Hub `sendSystemEmail` tests cover configuration-to-send routing without live credentials. No provider-specific React component is introduced.
+
+Distribution verification covers every static surface: all three Dockerfile workspace-manifest copy stages, `.github/workflows/package-previews.yml`, app and create-app workspace manifests/module lists, env examples, and generated CLI/module registries.
 
 ## Risks & Impact Review
 
 | Risk | Severity | Mitigation | Residual risk |
 | --- | --- | --- | --- |
-| Marketing copy is mistaken for legal certification | High | Use factual EU-hosting/DPA wording and explicit operator-responsibility caveat in spec/docs. | Medium: provider terms can change after release. |
+| Marketing copy is mistaken for legal certification | High | Use factual European database-hosting/DPA wording, cite the source and access date, and state operator responsibility and international-processing caveats. | Medium: provider terms can change after release. |
 | Secrets leak through Basic Auth or provider errors | High | Build auth headers locally, never log them, sanitize/cap error bodies, and test failures. | Low. |
 | Provider API response drift breaks parsing | Medium | Runtime-narrow responses and fail with stable provider-prefixed errors. | Low. |
 | Mailjet message-level failure is mistaken for HTTP success | Medium | Inspect each message status and errors even on 2xx responses. | Low. |
@@ -207,25 +220,37 @@ Rollback removes the two packages and their app/template module entries after op
 
 ### Phase 1 — Brevo provider package
 
-Ship a complete, independently installable Brevo system-email connector with env preset, health check, docs, and tests.
+Ship a complete, independently installable Brevo system-email connector with env preset, CLI, health check, docs, and tests. Acceptance gate: its package builds and tests without Mailjet installed, its registry entry resolves independently, and removing it leaves existing providers unchanged.
 
 ### Phase 2 — Mailjet provider package
 
-Ship a complete, independently installable Mailjet connector with message-level error handling, env preset, health check, docs, and tests.
+Ship a complete, independently installable Mailjet connector with message-level error handling, documented recipient/attachment limits, env preset, CLI, health check, docs, and tests. Acceptance gate: its package builds and tests without Brevo installed, its registry entry resolves independently, and removing it leaves existing providers unchanged.
 
 ### Phase 3 — Distribution and verification
 
-Wire both packages into the monorepo app and create-app template, refresh generated registries, and run focused plus repository validation.
+Wire both packages into the three Docker build stages, package previews, monorepo app, and create-app template; refresh generated registries; and run executable integration, focused, and repository validation.
 
 ## Implementation Plan
 
 1. Add `packages/channel-brevo` by mirroring the Resend provider package structure, with provider-specific credentials, HTTP client, adapter, health check, preset, metadata, ACL, DI/setup, capabilities, build config, and tests.
 2. Prove Brevo request/response and failure mapping with mocked HTTP tests, including Reply-To and base64 attachments.
 3. Add `packages/channel-mailjet` with the same package boundaries and provider-specific Basic Auth, Send API v3.1 response narrowing, health check, env preset, and tests.
-4. Prove Mailjet HTTP-level and message-level failure handling, multiple recipients, Reply-To, and attachment mapping.
-5. Add both workspace dependencies and module entries to the monorepo app and create-app template using the repository's template-sync workflow; update public email-provider documentation and env examples with the canonical `OM_INTEGRATION_*` variables.
-6. Run `yarn install`, `yarn generate`, focused package tests/typechecks, template sync checks, dependency/version checks, and the configured validation gate.
-7. Review the final diff for secret handling, provider-only boundaries, generated-file ownership, unchanged Resend/SES behavior, and implementation-accurate spec/changelog notes.
+4. Prove Mailjet HTTP-level and message-level failure handling, its 50-recipient and 15 MB aggregate attachment limits, MIME fallback, multiple recipients, Reply-To, and attachment mapping.
+5. Add provider-local `configure-from-env` commands, localized ACL metadata, and executable discovery/detail-page integration coverage.
+6. Add both workspace dependencies and module entries to all three Dockerfile package-manifest stages, package previews, the monorepo app, and the create-app template using the repository's template-sync workflow; update public email-provider documentation and env examples with the canonical `OM_INTEGRATION_*` variables.
+7. Run `yarn install`, `yarn generate`, focused package tests/typechecks, integration spec coverage, template sync checks, dependency/version checks, and the configured validation gate.
+8. Review the final diff for secret handling, non-PII health results, provider-only boundaries, generated-file ownership, unchanged Resend/SES behavior, and implementation-accurate spec/changelog notes.
+
+## Sources
+
+Accessed 2026-10-09:
+
+- Brevo data storage and processing: https://help.brevo.com/hc/en-us/articles/360001005510-Where-is-my-data-stored and https://www.brevo.com/legal/termsofuse/
+- Brevo API endpoints: https://developers.brevo.com/reference/sendtransacemail and https://developers.brevo.com/reference/getaccount
+- Mailjet data storage and processing: https://documentation.mailjet.com/hc/en-us/articles/360042992933-Where-is-my-data-stored and https://sinch.com/legal/data-protection-agreement/
+- Mailjet subprocessors: https://sinch.com/legal/sub-processors/
+- Mailjet Send API v3.1 and limits: https://documentation.mailjet.com/hc/en-us/articles/360043229473-How-to-send-an-email-with-Mailjet-API and https://dev.mailjet.com/email/guides/send-api-v31/
+- Scaleway Transactional Email comparison: https://www.scaleway.com/en/docs/transactional-email/reference-content/tem-limits/ and https://www.scaleway.com/en/developers/api/transactional-email/
 
 ## Final Compliance Report
 
@@ -239,3 +264,4 @@ Wire both packages into the monorepo app and create-app template, refresh genera
 ## Changelog
 
 - 2026-10-09: Initial specification for Brevo and Mailjet system transactional-email connectors, researched from current provider documentation and scoped to the existing Communications Hub architecture.
+- 2026-10-09: Added the maintainer-requested two-provider scope exception, independent acceptance gates, distribution and executable-test surfaces, Mailjet limits, non-PII health semantics, CLI/i18n requirements, and source citations after architectural review.
