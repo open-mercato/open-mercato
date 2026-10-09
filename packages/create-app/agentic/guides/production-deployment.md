@@ -1,6 +1,6 @@
 # Production Deployment Readiness
 
-Use this provider-neutral checklist before recommending that a standalone Open Mercato app go live. Review configuration names and comments in the checked-in `.env.example`; do not read, copy, or report live `.env` values. Never expose credentials in commands, logs, plans, or reports.
+Use this provider-neutral checklist before recommending that a standalone Open Mercato app go live. During task routing, do not open `.env*`; this guide carries the safe configuration inventory. When performing the later readiness review, inspect only names and comments in the checked-in `.env.example`; do not read, copy, or report live `.env` values. Never expose credentials in commands, logs, plans, or reports.
 
 Classify findings as **required**, **recommended**, or **module-specific**. Do not present every `.env.example` key as mandatory. Ask before accessing or changing credentials, creating billable infrastructure, or starting, changing, or rolling back a live deployment. This guide supports a readiness review; do not perform or claim a live deployment or an unrun check.
 

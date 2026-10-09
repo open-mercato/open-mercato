@@ -34,7 +34,7 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 ## Production Deployment
 
-For production deployment, go-live, or security-readiness work, read `.ai/guides/production-deployment.md`. Review configuration names in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or a live deployment.
+Route production deployment, go-live, or security-readiness work to `architecture` and read `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; the guide carries the safe configuration inventory. During the later readiness review, inspect only names and comments in the checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or a live deployment.
 
 ## Three-Axis Context Assembler
 
