@@ -20,7 +20,8 @@
 | 2 | 2.1 | Add the Tpay status reconciliation worker | dispatch | done | f4729c6eb |
 | 2 | 2.2 | Register the Tpay reconciliation schedule on setup and integration state changes | dispatch:capable | done | ffcbb78b1 |
 | 2 | 2.3 | Document Tpay reconciliation and update the reconciliation spec | inline | done | a48659ca1 |
-| 2 | 2.3-review-fix | Address review findings on schedule activation, certificate rotation, help text, subscriber retries, and form limits | inline | done | self |
+| 2 | 2.3-review-fix | Address review findings on schedule activation, certificate rotation, help text, subscriber retries, and form limits | inline | done | 46daa24f6 |
+| 2 | 2.4 | Add the Tpay notification route integration test | inline | done | self |
 
 ## Goal
 
@@ -107,3 +108,7 @@ Tpay notifications docs `https://docs-api.tpay.com/en/webhooks/`; certificates `
 - `subscribers/integration-state-updated.ts` rethrows after reporting so the persistent delivery is retried.
 - `lib/notification-form.ts` applies the 256-char limit only to the fields the handler reads.
 - User guide: accurate per-run limit, exact schedule name, open statuses, 400 row; spec Implementation Notes record the core polling-order starvation and the `onTenantCreated` schedule gap as known limitations.
+
+#### 2.4 Add the Tpay notification route integration test
+
+- `TC-TPAY-004`: unauthenticated form posts to `/api/payment_gateways/webhook/tpay` return `503 FALSE` (`text/plain`) for an unknown `tr_crc` and `413 FALSE` above 64 KiB; no stored data or Tpay call involved.
