@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -92,7 +93,7 @@ async function resolveLeaveRequestAccess(ctx: any): Promise<LeaveRequestAccess> 
     return { canManage: false, canSend: false, canView: false, memberId: null }
   }
   const tenantId = ctx.organizationScope?.tenantId ?? auth.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? auth.orgId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? resolveSingleOrganizationIdOrDeny(ctx.organizationScope, auth) ?? null
   const rbac = (ctx.container.resolve('rbacService') as RbacService)
   const [canManage, canSendLegacy, canSendSelf, canViewSelf] = await Promise.all([
     rbac.userHasAllFeatures(auth.sub, [MANAGE_FEATURE], { tenantId, organizationId }),

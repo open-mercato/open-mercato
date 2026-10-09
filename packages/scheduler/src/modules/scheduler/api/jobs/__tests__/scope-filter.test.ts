@@ -22,7 +22,9 @@ const makeCtx = (overrides: Partial<{
     orgId: overrides.orgId === undefined ? 'o1' : overrides.orgId,
     isSuperAdmin: overrides.isSuperAdmin === undefined ? false : overrides.isSuperAdmin,
   },
-  organizationIds: overrides.organizationIds === undefined ? ['o1'] : overrides.organizationIds,
+  organizationIds: Object.prototype.hasOwnProperty.call(overrides, 'organizationIds')
+    ? overrides.organizationIds
+    : ['o1'],
 })
 
 describe('buildSchedulerJobsFilters — scope visibility (#815, #1587)', () => {
@@ -89,6 +91,27 @@ describe('buildSchedulerJobsFilters — scope visibility (#815, #1587)', () => {
     )
     const or = filters.$or as Record<string, unknown>[]
     expect(or[0]).toEqual({ organization_id: { $in: ['o1', 'o2'] }, tenant_id: { $eq: 't1' } })
+  })
+
+  it('returns an unmatchable filter for an explicit empty organization scope', async () => {
+    const filters = await buildSchedulerJobsFilters(
+      {},
+      makeCtx({ organizationIds: [] }),
+    )
+
+    expect(filters).toEqual({ id: { $eq: '00000000-0000-0000-0000-000000000000' } })
+  })
+
+  it.each([null, undefined])('preserves the home-organization fallback for %s scope', async (organizationIds) => {
+    const filters = await buildSchedulerJobsFilters(
+      {},
+      makeCtx({ organizationIds: organizationIds as null | undefined }),
+    )
+
+    expect(filters.$or).toEqual([
+      { organization_id: { $eq: 'o1' }, tenant_id: { $eq: 't1' } },
+      { organization_id: { $eq: null }, tenant_id: { $eq: 't1' }, scope_type: { $eq: 'tenant' } },
+    ])
   })
 
   it('distributes search across every visibility branch (name + description)', async () => {
