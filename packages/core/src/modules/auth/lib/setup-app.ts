@@ -7,11 +7,17 @@ import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/
 import { normalizeTenantId } from './tenantAccess'
 import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
-import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import { upsertCanonicalEncryptionMap } from '@open-mercato/core/modules/entities/lib/encryption-maps'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  lockRoleAclWriterAuthorizationState,
+  lockUserRoleWriterAuthorizationState,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -163,6 +169,39 @@ export type SetupInitialTenantResult = {
   reusedExistingUser: boolean
 }
 
+export async function upsertSetupEncryptionMaps(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string,
+  specs: readonly ModuleEncryptionMap[],
+): Promise<string[]> {
+  const materializedEntityIds: string[] = []
+  for (const spec of specs) {
+    if (spec.keyScope === 'system') continue
+    await upsertCanonicalEncryptionMap(em, {
+      entityId: spec.entityId,
+      tenantId,
+      organizationId,
+      fields: spec.fields,
+      isActive: true,
+    })
+    materializedEntityIds.push(spec.entityId)
+  }
+  return materializedEntityIds
+}
+
+export async function invalidateSetupEncryptionMaps(
+  encryptionService: Pick<TenantDataEncryptionService, 'invalidateMap'>,
+  entityIds: readonly string[],
+  tenantId: string,
+  organizationId: string,
+): Promise<void> {
+  for (const entityId of entityIds) {
+    await encryptionService.invalidateMap(entityId, tenantId, organizationId)
+  }
+  await encryptionService.invalidateMap('auth:user', tenantId, null)
+}
+
 export async function setupInitialTenant(
   em: EntityManager,
   options: SetupInitialTenantOptions,
@@ -224,6 +263,7 @@ export async function setupInitialTenant(
   let tenantId: string | undefined
   let organizationId: string | undefined
   let reusedExistingUser = false
+  let materializedEncryptionEntityIds: string[] = []
   const userSnapshots: Array<{ user: User; roles: string[]; created: boolean; generatedPassword?: string | null }> = []
 
   await em.transactional(async (tem) => {
@@ -240,6 +280,13 @@ export async function setupInitialTenant(
     await tem.flush()
 
     const requiredRoleSet = new Set([...roleNames, ...primaryRoles])
+    const requiredRoles = await Promise.all(
+      Array.from(requiredRoleSet).map((roleName) => findRoleByNameOrFail(tem, roleName, roleTenantId)),
+    )
+    await lockUserRoleWriterAuthorizationState(tem, {
+      userIds: [String(existingUser.id)],
+      roleIds: requiredRoles.map((role) => String(role.id)),
+    })
     const links = await findWithDecryption(
       tem,
       UserRole,
@@ -248,9 +295,9 @@ export async function setupInitialTenant(
       { tenantId: roleTenantId, organizationId: null },
     )
     const currentRoles = new Set(links.map((link) => link.role.name))
-    for (const roleName of requiredRoleSet) {
+    for (const role of requiredRoles) {
+      const roleName = role.name
       if (!currentRoles.has(roleName)) {
-        const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
         tem.persist(tem.create(UserRole, { user: existingUser, role, createdAt: new Date() }))
       }
     }
@@ -375,25 +422,12 @@ export async function setupInitialTenant(
         // Persisting one here would make the tenant-scoped encryption CLIs believe they
         // own that entity and re-wrap its `system:<entityId>` ciphertext under the tenant
         // DEK, which runtime decryption can no longer read.
-        for (const spec of defaultEncryptionMaps) {
-          if (spec.keyScope === 'system') continue
-          const existing = await findOneWithDecryption(tem, EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null }, {}, { tenantId: String(tenant.id), organizationId: String(organization.id) })
-          if (!existing) {
-            tem.persist(tem.create(EncryptionMap, {
-              entityId: spec.entityId,
-              tenantId: tenant.id,
-              organizationId: organization.id,
-              fieldsJson: spec.fields,
-              isActive: true,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            }))
-          } else {
-            existing.fieldsJson = spec.fields
-            existing.isActive = true
-          }
-        }
-        await tem.flush()
+        materializedEncryptionEntityIds = await upsertSetupEncryptionMaps(
+          tem,
+          String(tenant.id),
+          String(organization.id),
+          defaultEncryptionMaps,
+        )
       }
     })
 
@@ -404,8 +438,12 @@ export async function setupInitialTenant(
         ? new TenantDataEncryptionService(tem as any, { kms: createKmsService() })
         : null
       if (encryptionService) {
-        await encryptionService.invalidateMap('auth:user', String(tenantId), String(organizationId))
-        await encryptionService.invalidateMap('auth:user', String(tenantId), null)
+        await invalidateSetupEncryptionMaps(
+          encryptionService,
+          materializedEncryptionEntityIds,
+          String(tenantId),
+          String(organizationId),
+        )
       }
 
       for (const base of baseUsers) {
@@ -442,8 +480,14 @@ export async function setupInitialTenant(
           userSnapshots.push({ user, roles: base.roles, created: true, generatedPassword: base.generatedPassword ?? null })
         }
         await tem.flush()
-        for (const roleName of base.roles) {
-          const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
+        const assignedRoles = await Promise.all(
+          base.roles.map((roleName) => findRoleByNameOrFail(tem, roleName, roleTenantId)),
+        )
+        await lockUserRoleWriterAuthorizationState(tem, {
+          userIds: [String(user.id)],
+          roleIds: assignedRoles.map((role) => String(role.id)),
+        })
+        for (const role of assignedRoles) {
           const existingLink = await findOneWithDecryption(tem, UserRole, { user, role }, {}, { tenantId: tenantId ?? null, organizationId: null })
           if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
         }
@@ -667,30 +711,33 @@ async function ensureRoleAclFor(
   // so a first init used to store the string twice while the second run silently collapsed it.
   // Same list, two shapes, depending only on how many times setup had run.
   const uniqueFeatures = Array.from(new Set(features))
-  const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
-  if (!existing) {
-    const acl = em.create(RoleAcl, {
-      role,
-      tenantId,
-      featuresJson: uniqueFeatures,
-      isSuperAdmin: !!options.isSuperAdmin,
-      createdAt: new Date(),
-    })
-    await em.persist(acl).flush()
-    return
-  }
-  const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
-  const merged = Array.from(new Set([...currentFeatures, ...uniqueFeatures]))
-  const changed =
-    merged.length !== currentFeatures.length ||
-    merged.some((value, index) => value !== currentFeatures[index])
-  if (changed) existing.featuresJson = merged
-  if (options.isSuperAdmin && !existing.isSuperAdmin) {
-    existing.isSuperAdmin = true
-  }
-  if (changed || options.isSuperAdmin) {
-    await em.persist(existing).flush()
-  }
+  await withAtomicFlush(em, [async () => {
+    await lockRoleAclWriterAuthorizationState(em, [String(role.id)])
+    const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
+    if (!existing) {
+      const acl = em.create(RoleAcl, {
+        role,
+        tenantId,
+        featuresJson: uniqueFeatures,
+        isSuperAdmin: !!options.isSuperAdmin,
+        createdAt: new Date(),
+      })
+      await em.persist(acl).flush()
+      return
+    }
+    const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
+    const merged = Array.from(new Set([...currentFeatures, ...uniqueFeatures]))
+    const changed =
+      merged.length !== currentFeatures.length ||
+      merged.some((value, index) => value !== currentFeatures[index])
+    if (changed) existing.featuresJson = merged
+    if (options.isSuperAdmin && !existing.isSuperAdmin) {
+      existing.isSuperAdmin = true
+    }
+    if (changed || options.isSuperAdmin) {
+      await em.persist(existing).flush()
+    }
+  }], { transaction: true, label: 'auth.ensure-role-acl' })
 }
 
 /**

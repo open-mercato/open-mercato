@@ -4,7 +4,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type FieldTrace = { value: unknown; policySourceId: string | null }
-type PolicyTrace = Record<string, FieldTrace>
+export type PolicyTrace = Record<string, FieldTrace>
 
 type ResponsePayload = { policyTrace?: PolicyTrace }
 
@@ -23,7 +23,7 @@ const TRACE_FIELDS: Array<{ key: string; labelKey: string }> = [
 
 function formatValue(value: unknown, t: (key: string) => string): string {
   if (value === null || value === undefined) return t('availability.policies.form.preview.notSet')
-  if (typeof value === 'boolean') return value ? t('common.yes') : t('common.no')
+  if (typeof value === 'boolean') return value ? t('availability.common.yes') : t('availability.common.no')
   return String(value)
 }
 
@@ -37,20 +37,26 @@ export function ResolutionPreviewPanel({
   productId,
   variantId,
   storeId,
+  onTraceChange,
 }: {
   productId: string
   variantId: string | null
   storeId: string | null
+  onTraceChange?: (trace: PolicyTrace | null) => void
 }) {
   const t = useT()
   const [trace, setTrace] = React.useState<PolicyTrace | null>(null)
   const [isLoading, setIsLoading] = React.useState(false)
+  const onTraceChangeRef = React.useRef(onTraceChange)
+  onTraceChangeRef.current = onTraceChange
 
   React.useEffect(() => {
-    if (!productId) {
-      setTrace(null)
-      return
-    }
+    onTraceChangeRef.current?.(trace)
+  }, [trace])
+
+  React.useEffect(() => {
+    setTrace(null)
+    if (!productId) return
     let cancelled = false
     const handle = setTimeout(() => {
       setIsLoading(true)
@@ -83,7 +89,7 @@ export function ResolutionPreviewPanel({
     <div className="rounded-md border bg-muted p-4 text-sm" data-testid="availability-resolution-preview">
       <div className="mb-2 font-medium">{t('availability.policies.form.preview.title')}</div>
       {isLoading && !trace ? (
-        <div className="text-muted-foreground">{t('common.loading')}</div>
+        <div className="text-muted-foreground">{t('availability.common.loading')}</div>
       ) : (
         <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {TRACE_FIELDS.map(({ key, labelKey }) => {

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -50,7 +51,7 @@ async function buildContext(
     container,
     auth,
     organizationScope: scope,
-    selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+    selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request: req,
   }

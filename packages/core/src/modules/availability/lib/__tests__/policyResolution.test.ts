@@ -177,6 +177,69 @@ describe('policy resolution chain', () => {
   })
 })
 
+describe('is_stock_managed inheritance (M1 regression)', () => {
+  it('an org-wide default row that leaves is_stock_managed unset does not switch tracking off', async () => {
+    const { em } = makeEm(
+      [row({ id: 'org-default', productId: null, variantId: null, storeId: null, isStockManaged: null, lowStockThreshold: 5 })],
+      null,
+      [{ catalogProductId: PRODUCT, catalogVariantId: null }],
+    )
+    const service = createPolicyResolutionService(makeContainer(true))
+    const result = await service.resolve(em, scope)
+    expect(result.isStockManaged).toEqual({ value: true, policySourceId: null })
+    expect(result.lowStockThreshold).toEqual({ value: 5, policySourceId: 'org-default' })
+  })
+
+  it('a product row that leaves is_stock_managed unset inherits an explicit store-default value', async () => {
+    const { em } = makeEm(
+      [
+        row({ id: 'product-only', productId: PRODUCT, variantId: null, storeId: null, isStockManaged: null }),
+        row({ id: 'store-default', productId: null, variantId: null, storeId: STORE, isStockManaged: false }),
+      ],
+      null,
+      [{ catalogProductId: PRODUCT, catalogVariantId: null }],
+    )
+    const service = createPolicyResolutionService(makeContainer(true))
+    const result = await service.resolve(em, scope)
+    expect(result.isStockManaged).toEqual({ value: false, policySourceId: 'store-default' })
+  })
+
+  it('an explicit value on a more specific row still wins over the store default', async () => {
+    const { em } = makeEm([
+      row({ id: 'variant-only', variantId: VARIANT, storeId: null, isStockManaged: true }),
+      row({ id: 'store-default', productId: null, variantId: null, storeId: STORE, isStockManaged: false }),
+    ])
+    const service = createPolicyResolutionService(makeContainer(false))
+    const result = await service.resolve(em, scope)
+    expect(result.isStockManaged).toEqual({ value: true, policySourceId: 'variant-only' })
+  })
+
+  it('an explicit false on the org-wide default row still decides when set on purpose', async () => {
+    const { em } = makeEm(
+      [row({ id: 'org-default', productId: null, variantId: null, storeId: null, isStockManaged: false })],
+      null,
+      [{ catalogProductId: PRODUCT, catalogVariantId: null }],
+    )
+    const service = createPolicyResolutionService(makeContainer(true))
+    const result = await service.resolve(em, scope)
+    expect(result.isStockManaged).toEqual({ value: false, policySourceId: 'org-default' })
+  })
+
+  it('resolveMany computes the module default for scopes whose matched rows all leave it unset', async () => {
+    const { em, find } = makeEm(
+      [row({ id: 'org-default', productId: null, variantId: null, storeId: null, isStockManaged: null })],
+      null,
+      [{ catalogProductId: PRODUCT, catalogVariantId: null }],
+    )
+    const service = createPolicyResolutionService(makeContainer(true))
+    const other = { ...scope, productId: 'other-product', variantId: null }
+    const [tracked, untracked] = await service.resolveMany(em, [scope, other])
+    expect(tracked.isStockManaged).toEqual({ value: true, policySourceId: null })
+    expect(untracked.isStockManaged).toEqual({ value: false, policySourceId: null })
+    expect(find).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('resolveIsStockManagedModuleDefault', () => {
   it('returns false when the ProductInventoryProfile DI key is unregistered', async () => {
     const { em } = makeEm([])

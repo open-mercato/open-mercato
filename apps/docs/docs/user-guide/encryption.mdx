@@ -58,6 +58,34 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
   - `yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`
 - During `auth:setup`, the app collects `defaultEncryptionMaps` from enabled modules and applies them automatically when encryption is enabled.
 
+### Adding a map to a module that is already deployed
+
+`defaultEncryptionMaps` only reaches tenants created **after** the change. Nothing re-seeds existing tenants: not `yarn db:migrate`, not the start scripts. Without a backfill, every existing tenant keeps writing the new field as plaintext, silently.
+
+When you add a map, or a field to an existing map, in a module that may already run somewhere, ship a migration in the same module that backfills it:
+
+```ts
+import { Migration } from '@mikro-orm/migrations'
+import { buildEncryptionMapBackfillSql } from '@open-mercato/shared/lib/encryption/migration-backfill'
+
+export class Migration20260929120000 extends Migration {
+  override async up(): Promise<void> {
+    this.addSql(buildEncryptionMapBackfillSql({
+      entityId: 'customers:customer_address',
+      fields: [{ field: 'postal_code' }],
+    }))
+  }
+
+  override async down(): Promise<void> {}
+}
+```
+
+The helper inserts the map for every existing tenant/organization that already has active encryption maps, and appends missing fields to maps that already exist. Tenants with encryption disabled are skipped. It is idempotent and leaves fields added by admins untouched. The entity id and fields are written literally, not imported from `encryption.ts`, so the migration keeps meaning the same thing later. Keep `down()` empty: deleting by `entity_id` would also remove maps seeded at tenant creation or edited in the UI, and switch encryption off for that entity.
+
+`yarn db:generate` warns when the connected database has tenants missing a declared field and no migration backfills it. Set `OM_ENCRYPTION_BACKFILL_CHECK=off` to silence it.
+
+Rows written before the backfill ran stay plaintext. Encrypt them with `yarn mercato entities rotate-encryption-key --tenant <tenantId>` (without `--old-key` it only encrypts plaintext values), or by re-saving the records.
+
 ## Manage maps in the UI
 
 Open **Configuration → Encryption**. Pick an entity, toggle **Encryption enabled for this entity**, and choose which fields are encrypted plus optional hash columns.

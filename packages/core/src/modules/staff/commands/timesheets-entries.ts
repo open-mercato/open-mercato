@@ -650,8 +650,9 @@ export function buildTimeEntryLockedError(
  *
  * No permission lifts it — not `staff.timesheets.manage_all`. An entry frozen in
  * a closed report has already been billed at those minutes (D-7), so the only way
- * back is the Phase-6 unlock command, which clears `locked_report_id` itself and
- * therefore never reaches this gate.
+ * back is the Phase-6 unlock command, which clears `locked_report_id` itself — or
+ * hands it to another closed report still quoting the entry — and therefore never
+ * reaches this gate.
  */
 export function assertTimeEntryUnlocked(
   entry: { id: string; lockedReportId?: string | null },

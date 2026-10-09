@@ -6,6 +6,7 @@ import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictio
 const uuid = () => z.string().uuid()
 
 export const CUSTOMER_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+export const CUSTOMER_EMAIL_INVALID_MESSAGE_KEY = 'customers.people.form.primaryEmail.invalid'
 export const CUSTOMER_URL_INVALID_MESSAGE_KEY = 'customers.people.form.websiteUrl.invalid'
 export const ACTIVITY_DATE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.dateRequired'
 export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.timeRequired'
@@ -37,7 +38,7 @@ const phoneSchema = z.preprocess(
 
 const clearableEmailSchema = z.preprocess(
   emptyStringToNull,
-  z.string().email().max(320).nullable().optional(),
+  z.string().email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY).max(320).nullable().optional(),
 )
 
 const clearableUrlSchema = z.preprocess(
@@ -219,8 +220,8 @@ export const activityCreateSchema = scopedSchema.extend({
   activityType: z.string().min(1).max(100),
   subject: z.string().max(200).optional(),
   body: z.string().max(8000).optional(),
-  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
   phoneNumber: interactionPhoneNumberSchema,
   occurredAt: z.coerce.date().optional(),
   dealId: uuid().optional(),
@@ -500,8 +501,10 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   // rows, external writers, and the dispatch-crm MCP keep working. Open/terminal semantics
   // live in lib/interactionStatus.ts, not in this validator.
   status: z.string().max(50).optional().default('planned'),
-  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+  // Nullable like the sibling `scheduledAt` below: an undated activity (a
+  // backlog task) says "no date" with an explicit null, not by omission (#5941).
+  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
   phoneNumber: interactionPhoneNumberSchema,
   scheduledAt: z.coerce.date().optional().nullable(),
   occurredAt: z.coerce.date().optional().nullable(),
@@ -515,7 +518,7 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   ...interactionExtendedFields,
 })
 
-function deriveScheduledAtFromDateTime(date?: string, time?: string): Date | null {
+function deriveScheduledAtFromDateTime(date?: string | null, time?: string | null): Date | null {
   if (!date || typeof date !== 'string') return null
   const trimmedDate = date.trim()
   if (!trimmedDate) return null
@@ -563,12 +566,17 @@ const interactionUpdateBaseSchema = z
   .merge(
     scopedSchema
       .extend({
+        // Re-link an existing interaction to a different person/company, the same way
+        // `dealId` below already re-links it to a different deal (#5938). Not nullable:
+        // `CustomerInteraction.entity` is a required relation, so there is no "detach"
+        // state to express — that depends on #5935 making the column nullable first.
+        entityId: z.string().uuid().optional(),
         interactionType: z.string().trim().min(1).max(100).optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
         status: z.string().max(50).optional(),
-        date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-        time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+        date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+        time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
         phoneNumber: interactionPhoneNumberSchema,
         scheduledAt: z.coerce.date().optional().nullable(),
         occurredAt: z.coerce.date().optional().nullable(),
@@ -608,6 +616,9 @@ export const interactionUpdateSchema = interactionUpdateBaseSchema
   // the update doesn't silently leave `scheduled_at` stale.
   .transform((value) => {
     if (value.scheduledAt !== undefined) return value
+    // An explicit `date: null` is how a caller drops the due date; mirror it
+    // onto `scheduledAt` rather than leaving the old timestamp behind (#5941).
+    if (value.date === null) return { ...value, scheduledAt: null }
     if (!value.date && !value.time) return value
     const derived = deriveScheduledAtFromDateTime(value.date, value.time)
     return derived ? { ...value, scheduledAt: derived } : value
@@ -791,6 +802,23 @@ export const labelUnassignCommandSchema = scopedSchema.extend({
 
 export type LabelAssignCommandInput = z.infer<typeof labelAssignCommandSchema>
 export type LabelUnassignCommandInput = z.infer<typeof labelUnassignCommandSchema>
+
+/**
+ * Set (or clear) the caller's own email-conversation share for one Person.
+ *
+ * Deliberately carries NO owner field: the command derives the owner from the
+ * authenticated actor, so there is no request shape that could share another
+ * user's mailbox.
+ */
+export const emailConversationShareSetCommandSchema = scopedSchema.extend({
+  personEntityId: uuid(),
+  shared: z.boolean(),
+  expectedUpdatedAt: z.string().min(1).nullable().optional(),
+})
+
+export type EmailConversationShareSetCommandInput = z.infer<
+  typeof emailConversationShareSetCommandSchema
+>
 
 export const personCompanyLinkCreateSchema = scopedSchema.extend({
   personEntityId: uuid(),
