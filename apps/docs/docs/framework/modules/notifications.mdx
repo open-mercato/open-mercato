@@ -804,7 +804,10 @@ The notifications module emits the following events:
 | `PUT` | `/api/notifications/:id/read` | Mark as read |
 | `POST` | `/api/notifications/:id/action` | Execute action |
 | `PUT` | `/api/notifications/:id/dismiss` | Dismiss notification |
+| `PUT` | `/api/notifications/:id/restore` | Undo a dismissal (`status`: `read` or `unread`) |
 | `PUT` | `/api/notifications/mark-all-read` | Mark all as read |
+
+An action runs once. While a notification's action has been executed, `POST /api/notifications/:id/action` answers `409` with `code: "notification_action_already_executed"` — also after the notification was dismissed or restored. A `409` without that code comes from a mutation guard or from the action's own command; the action was not recorded as executed and can be retried. Restoring a dismissed notification whose action was executed brings it back as `actioned`, whatever `status` is requested.
 
 ## Frontend Components
 

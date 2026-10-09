@@ -3,6 +3,13 @@ import type { ComponentType } from 'react'
 export type NotificationStatus = 'unread' | 'read' | 'actioned' | 'dismissed'
 export type NotificationSeverity = 'info' | 'warning' | 'success' | 'error'
 
+/**
+ * `code` of the 409 body `POST /api/notifications/:id/action` answers with when the notification's
+ * action has already been executed. Lets a client tell that refusal apart from a 409 raised by
+ * the action's own command.
+ */
+export const NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE = 'notification_action_already_executed'
+
 export type NotificationAction = {
   id: string
   label: string
