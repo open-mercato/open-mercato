@@ -2355,9 +2355,10 @@ export function LineItemDialog({
             event: React.ChangeEvent<HTMLSelectElement>,
           ) => {
             const nextId = event.target.value || null;
-            const option = nextId ? (taxRateMap.get(nextId) ?? null) : null;
+            if (!nextId) return;
+            const option = taxRateMap.get(nextId) ?? null;
             setValue(nextId);
-            const rate = normalizeNumber(option?.rate);
+            const rate = normalizeNumber(option?.rate, Number.NaN);
             setFormValue?.("taxRate", Number.isFinite(rate) ? rate : null);
           };
           return (
@@ -2778,10 +2779,11 @@ export function LineItemDialog({
         ? metaRec.taxRateId
         : null;
     const fallbackTaxRateId = findTaxRateIdByValue(nextForm.taxRate);
-    nextForm.taxRateId =
-      metaTaxRateId ??
-      fallbackTaxRateId ??
-      (defaultTaxRateRef.current ? defaultTaxRateRef.current.id : null);
+    const defaultTaxRateId =
+      !Number.isFinite(nextForm.taxRate) && defaultTaxRateRef.current
+        ? defaultTaxRateRef.current.id
+        : null;
+    nextForm.taxRateId = metaTaxRateId ?? fallbackTaxRateId ?? defaultTaxRateId;
     if (!Number.isFinite(nextForm.taxRate) && nextForm.taxRateId) {
       const matched = taxRatesRef.current.find(
         (rate) => rate.id === nextForm.taxRateId,
