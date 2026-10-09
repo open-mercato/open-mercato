@@ -31,6 +31,13 @@ Keep the backend organization switcher expandable for a superadmin when the sele
 - [ ] 2.1 Add a component regression test for a superadmin payload with no organizations, then run the configured validation gate and resolve failures.
 - [ ] 2.2 Complete the authoritative PR review/autofix pass and record the final verification result.
 
+### Validation notes
+
+- Targeted regression test passes: 1 suite, 5 tests.
+- `yarn generate`, `TURBO_CONCURRENCY=4 yarn build:packages`, `TURBO_CONCURRENCY=2 yarn typecheck`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, and `TURBO_CONCURRENCY=2 yarn build:app` pass.
+- Full `TURBO_CONCURRENCY=2 yarn test` reaches the configured gate but fails in unrelated pre-existing `@open-mercato/core` tests; no failure references the organization switcher change.
+- Automated diff review found no correctness, security, compatibility, or scope findings. GitHub cannot accept an approval from the PR author, and the CLA check remains pending because the commit email is not linked to the GitHub account.
+
 ## Risks
 
 - The change touches app-shell UI and its byte-identical standalone template mirror, so parity and user-facing validation are required.
