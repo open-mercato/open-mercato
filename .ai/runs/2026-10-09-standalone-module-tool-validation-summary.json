@@ -1,0 +1,86 @@
+{
+  "archive": "create-mercato-app-0.8.0.tgz",
+  "sha256": "1032e0f9ae9b5cc41b57cbc4457d8a23143b940e1bf5538e3ab53807f81e3a1f",
+  "assetEquality": true,
+  "presets": [
+    {
+      "preset": "classic",
+      "case": "OMH-238",
+      "status": "pass"
+    },
+    {
+      "preset": "empty",
+      "case": "OMH-238",
+      "status": "pass"
+    },
+    {
+      "preset": "crm",
+      "case": "OMH-238",
+      "status": "pass"
+    },
+    {
+      "preset": "wms",
+      "case": "OMH-238",
+      "status": "pass"
+    }
+  ],
+  "kind": "sanitized-validation-summary",
+  "description": "Derived summary of executed checks; native controller files remain outside Git. Relative result names and raw SHA-256 values identify the live runs.",
+  "deterministic": {
+    "preset": "classic",
+    "passed": 238,
+    "total": 238
+  },
+  "live": [
+    {
+      "result": "2026-10-09T09-31-57-529Z-codex-OMH-238.json",
+      "sha256": "0fa03b6787d67897334185c9c53d83136bcd5e40420e899995601029df961af6",
+      "caseId": "OMH-238",
+      "status": "pass",
+      "runner": "codex",
+      "runnerVersion": "codex-cli 0.161.0",
+      "selectedRouter": [
+        "architecture"
+      ],
+      "selectedSkills": [],
+      "selectedContext": [
+        "AGENTS.md",
+        ".ai/guides/module-tool.md",
+        ".ai/guides/architecture.md"
+      ],
+      "decisions": [
+        "module-tool-init-or-existing",
+        "dry-run-before-publication",
+        "fresh-consumer-third-party",
+        "app-source-preserved",
+        "optional-repository-source-link",
+        "npm-auth-mode-boundaries"
+      ],
+      "violations": [],
+      "attempts": 1,
+      "corrections": 0
+    },
+    {
+      "result": "2026-10-09T09-34-35-550Z-codex-OMH-216.json",
+      "sha256": "424c6d29a3e12dbcf2508e52637f42f35f68c67f5ccfec5929ebd3ddb6a0d5bb",
+      "caseId": "OMH-216",
+      "status": "pass",
+      "runner": "codex",
+      "runnerVersion": "codex-cli 0.161.0",
+      "selectedRouter": [
+        "module-data"
+      ],
+      "selectedSkills": [],
+      "selectedContext": [
+        "AGENTS.md",
+        ".ai/guides/contracts.md"
+      ],
+      "decisions": [
+        "direct"
+      ],
+      "violations": [],
+      "attempts": 2,
+      "corrections": 1
+    }
+  ]
+}

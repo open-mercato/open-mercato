@@ -10,6 +10,7 @@ Teach agents in scaffolded Open Mercato applications to use `create-mercato-modu
 - Cover local authoring, GitHub/npm publication, saved preferences, authentication, dry runs, and linked development using the published tool's actual interface.
 - Add a framework documentation page and relevant navigation links.
 - Extend focused harness coverage and supply the required knowledge-change evidence.
+- Repair validation prerequisites exposed by real execution: preserve supported Arch Linux merged-usr aliases in the existing sandbox whitelist, adapt Codex strict output schemas at the transport boundary, calibrate five stale compatibility context totals, and supply tenant/organization scope in two progress test fixtures. Canonical response contracts, sandbox permissions, and production progress behavior remain unchanged.
 
 Non-goals: changing the framework CLI or module contracts, sandbox images, release automation, npm account permissions, or the user's PR #6688 checkout.
 
@@ -37,6 +38,8 @@ Source doc: `.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md`
 - Agent routing is a knowledge contract: owner/case/evaluator evidence must remain consistent.
 - npm publication requires the user's physical 2FA; the guide must distinguish supported authentication modes from configuration performed automatically.
 - The harness release gate may require external runner credentials and isolated targets; unavailable prerequisites must be reported rather than represented as passing.
+- Codex transport normalization must preserve canonical nullable values and leave invalid required fields, unknown fields, and duplicates for canonical rejection.
+- Sandbox alias compatibility must preserve only explicit accepted relative targets; it must not add mounts or process permissions.
 
 ## Progress
 
@@ -50,9 +53,11 @@ Source doc: `.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md`
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Validate focused coverage, knowledge-change evidence, emitted assets, instruction budgets, and fresh scaffold output.
-- [ ] 2.2 Run the applicable repository validation gate and record any external blockers honestly.
+- [x] 2.1 Validate focused coverage, knowledge-change evidence, emitted assets, instruction budgets, and fresh scaffold output. — focused31/31, evaluator58/58, real base/head knowledge controller PASS, final packed four-preset OMH-238 checks PASS, classic deterministic238/238, actual isolated Codex OMH-238 and OMH-216 PASS. Adjacent evidence, manifest, sanitized controller projection, and derived validation summary record the scope and limitations.
+- [x] 2.2 Run the applicable repository validation gate and record any external blockers honestly. — local ordered gate passed: build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck, test, build:app. Documentation production build and agent instruction-budget check also passed.
 
 ### Phase 3: Review and delivery
 
 - [ ] 3.1 Run the authoritative `om-auto-review-pr` pass, address findings, and finalize the PR with verification evidence.
+
+PR: #7126
