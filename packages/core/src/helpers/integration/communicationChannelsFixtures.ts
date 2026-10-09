@@ -325,6 +325,49 @@ export async function ingestInboundChatMessage(
   };
 }
 
+export type InspectedMessageLinks = {
+  links: Array<{
+    id: string;
+    direction: string;
+    providerKey: string;
+    channelType: string;
+    deliveryStatus: string;
+    externalConversationId: string | null;
+  }>;
+  threadMappings: Array<{
+    id: string;
+    messageThreadId: string;
+    channelId: string;
+    externalConversationId: string;
+  }>;
+};
+
+/**
+ * Report the `MessageChannelLink` rows and `ChannelThreadMapping` rows a
+ * platform message carries. No product API exposes them, so this is the only way
+ * to assert that a send really was routed through the hub rather than the
+ * platform sender.
+ */
+export async function inspectMessageChannelLinks(
+  request: APIRequestContext,
+  token: string,
+  messageId: string,
+): Promise<InspectedMessageLinks> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'inspect-message-links', messageId },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (inspect-message-links) should return 200',
+  ).toBe(200);
+  const body = await readJsonSafe<InspectedMessageLinks>(response);
+  return {
+    links: Array.isArray(body?.links) ? body.links : [],
+    threadMappings: Array.isArray(body?.threadMappings) ? body.threadMappings : [],
+  };
+}
+
 export async function deleteChannelIfExists(
   request: APIRequestContext,
   token: string | null,
