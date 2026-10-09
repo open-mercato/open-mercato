@@ -167,6 +167,42 @@ describe('time-entries list totals', () => {
     expect(queries[0].sql).not.toContain('deleted_at')
   })
 
+  it('narrows the totals by the advanced filter the list merges', async () => {
+    const { ctx, queries } = buildCtx(
+      {
+        includeTotals: 'true',
+        'filter[conditions][0][field]': 'notes',
+        'filter[conditions][0][op]': 'contains',
+        'filter[conditions][0][value]': 'audit',
+      },
+      { canSeeRates: false },
+    )
+    const payload = listPayload()
+    await attachTimeEntryTotals(payload, ctx)
+    expect(payload).toHaveProperty('totals')
+    expect(queries[0].sql).toContain('"e"."notes" ilike $')
+    expect(queries[0].parameters).toContain('%audit%')
+  })
+
+  it('omits and reports totals when an advanced filter uses an operator the aggregate cannot compile', async () => {
+    const { ctx, queries } = buildCtx(
+      {
+        includeTotals: 'true',
+        'filter[conditions][0][field]': 'notes',
+        'filter[conditions][0][op]': 'is_empty',
+      },
+      { canSeeRates: true },
+    )
+    const payload = listPayload()
+    await attachTimeEntryTotals(payload, ctx)
+    expect(payload).not.toHaveProperty('totals')
+    expect(queries).toHaveLength(0)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('unsupported filter operator "$exists"') }),
+      { module: 'staff', code: 'staff.time_entry_totals_failed' },
+    )
+  })
+
   it('drops totals carried over from a cached payload when the aggregate fails', async () => {
     const { ctx } = buildCtx({ includeTotals: 'true' }, { canSeeRates: true, failQueries: true })
     const payload = { ...listPayload(), totals: { entryCount: 1, durationMinutes: 1, roundedMinutes: 1, money: [] } }
