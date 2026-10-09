@@ -2,7 +2,7 @@
 
 **Recorded:** 2026-10-09
 **Runner:** local mode (no compose `app` container). macOS host, Node 24.19.0, `TMPDIR=/tmp` (the cezar in-repo TMPDIR breaks tsx IPC pipes). Containers via colima (installed for this run).
-**Head at gate:** e32d7426c (code); later commits touch only the run folder.
+**Head at gate:** e32d7426c, rebased onto `develop` at the user's request as 6918eaf3b (the rebase raised no conflicts). One CI-only fix followed: `scripts/__tests__/repo-wide-guards.test.mjs` (new on develop) classified `packages/create-app/src/lib/ci-flag.test.ts` as a cross-package audit (`process.cwd()` plus `scripts/` literals inside its temp scaffold). It is now listed in `CROSS_PACKAGE_EXCEPTIONS` with a reason; guard 16/16.
 
 ## `validation.commands`
 
@@ -30,7 +30,7 @@ The 8 failures come from the local environment, not from this PR, which touches 
 
 The only runner code this PR changes (`--app-only`, `--help`) is opt-in. The default discovery path ran the full suite above.
 
-`yarn test:create-app:integration`: see below.
+`yarn test:create-app:integration`: not completed. The first run failed in the harness, not the app. `scripts/test-create-app-integration.ts` waits a hard-coded 240 s for the standalone ephemeral app, and on this host the production build alone took 152 s, so the app reported ready just after the harness gave up. A second run with the deadline raised locally (never committed) reached the suite, but it was stopped when the user asked for a rebase onto develop. The standalone lane in PR CI (`snapshot`/standalone jobs) remains the authority. The PR's own standalone behavior is covered end to end in `checkpoint-2-checks.md`.
 
 ## Standalone scaffold end to end
 

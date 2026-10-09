@@ -13,21 +13,21 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 0 | 0.1 | Add the spec and fold in the analysis decisions | inline | done | 37dbf48c67 |
-| 0 | 0.2 | Measure the gate on a 7 GB / 2 vCPU container and record results in the spec | inline | done | 4f02386a64 |
-| 1 | 1.1 | Add template scripts/ci.mjs quality gate and the ci package script | dispatch | done | 683f415967 |
-| 1 | 1.2 | Add template ci.yml workflow and its structure test | dispatch | done | 2f0b503f53 |
-| 1 | 1.3 | Add the --ci flag, conditional workflow copy and lockfile-first next steps | dispatch | done | 0444716196 |
-| 1 | 1.4 | Assert no agentic generator writes under .github/workflows | dispatch | done | 9131dfc486 |
-| 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | done | b20bf71742 |
-| 1 | 1.6 | Cap the cold-build heap inside yarn ci | inline | done | e76b371720 |
-| 1 | 1.7 | Make the cold yarn ci build fit 7 GB reliably | inline | done | d016273d8f |
-| 1 | 1.8 | Ship the workflow templates in the published package | inline | done | 1d09a45951 |
-| 2 | 2.1 | Add opt-in app-owned spec discovery to mercato test:integration | dispatch:capable | done | ba3d7d1e3a |
-| 2 | 2.2 | Add template integration.yml workflow and its structure test | dispatch | done | b411babd3b |
-| 2 | 2.3 | Document the integration workflow and the new CLI flag | dispatch | done | 4209cad690 |
-| 3 | 3.1 | Run yarn ci on a clean scaffold in snapshot.yml under a 7 GB cap | inline | done | fbeb07c3fa |
-| 3 | 3.2 | Record implementation status and changelog in the spec | inline | done | dda9be9db1 |
+| 0 | 0.1 | Add the spec and fold in the analysis decisions | inline | done | 53ffdc5d3f |
+| 0 | 0.2 | Measure the gate on a 7 GB / 2 vCPU container and record results in the spec | inline | done | a5c570bc67 |
+| 1 | 1.1 | Add template scripts/ci.mjs quality gate and the ci package script | dispatch | done | 466c0fba74 |
+| 1 | 1.2 | Add template ci.yml workflow and its structure test | dispatch | done | d00d0ef79b |
+| 1 | 1.3 | Add the --ci flag, conditional workflow copy and lockfile-first next steps | dispatch | done | eea3835741 |
+| 1 | 1.4 | Assert no agentic generator writes under .github/workflows | dispatch | done | bb960eb3eb |
+| 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | done | 4911d24be3 |
+| 1 | 1.6 | Cap the cold-build heap inside yarn ci | inline | done | cffdf9c81d |
+| 1 | 1.7 | Make the cold yarn ci build fit 7 GB reliably | inline | done | 6c92af8a71 |
+| 1 | 1.8 | Ship the workflow templates in the published package | inline | done | c2c5e55e90 |
+| 2 | 2.1 | Add opt-in app-owned spec discovery to mercato test:integration | dispatch:capable | done | f9c5ba3369 |
+| 2 | 2.2 | Add template integration.yml workflow and its structure test | dispatch | done | b1af9231ee |
+| 2 | 2.3 | Document the integration workflow and the new CLI flag | dispatch | done | 1c3f3e1766 |
+| 3 | 3.1 | Run yarn ci on a clean scaffold in snapshot.yml under a 7 GB cap | inline | done | 9c4b199b7c |
+| 3 | 3.2 | Record implementation status and changelog in the spec | inline | done | faaf7753df |
 
 ## Goal
 
