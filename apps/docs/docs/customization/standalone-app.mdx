@@ -226,7 +226,7 @@ Code from a pull request runs on the runner that executes the workflow. The fork
 
 ### Memory
 
-The gate is sized for a standard GitHub-hosted Linux runner (2 vCPU, 7 GB RAM); `typecheck` alone peaks at about 6.5 GB. Next.js normally type-checks again during `next build`, and that second pass does not fit in 7 GB next to the compiled app. Because `typecheck` has already passed, `yarn ci` runs its `build` step with `OM_SKIP_NEXT_BUILD_TYPECHECK=1`, which makes `next.config.ts` skip that second check (`typescript.ignoreBuildErrors`). `yarn ci` also sets `OM_NEXT_BUILD_NODE_OPTIONS=--max-old-space-size=4096`, which the template's `build` script appends after its 8 GB default heap: with the 8 GB ceiling a cold build lets the heap grow until a 7 GB runner kills it. A plain `yarn build` still type-checks and keeps the 8 GB default.
+The gate is sized for a standard GitHub-hosted Linux runner (2 vCPU, 7 GB RAM); `typecheck` alone peaks at about 6.5 GB. Next.js normally type-checks again during `next build`, and that second pass does not fit in 7 GB next to the compiled app. Because `typecheck` has already passed, `yarn ci` runs its `build` step with `OM_SKIP_NEXT_BUILD_TYPECHECK=1`, which makes `next.config.ts` skip that second check (`typescript.ignoreBuildErrors`). `yarn ci` also sets `OM_NEXT_BUILD_NODE_OPTIONS=--max-old-space-size=4096`, which the template's `build` script appends after its 8 GB default heap: with the 8 GB ceiling a cold build lets the heap grow until a 7 GB runner kills it. The same flag turns off Turbopack's build cache (`experimental.turbopackFileSystemCacheForBuild`): a CI build starts cold and throws the cache away, and writing it keeps the compiler's memory alive while Next generates pages. A plain `yarn build` still type-checks, keeps the 8 GB default and keeps the build cache.
 
 ### Integration tests workflow
 
@@ -259,7 +259,7 @@ Apps scaffolded before CI was added do not get it automatically. Scaffold a thro
 
 - `scripts/ci.mjs`
 - the `"ci": "node ./scripts/ci.mjs"` entry in `package.json` `scripts`
-- the `typescript: { ignoreBuildErrors: ... }` line in `next.config.ts`
+- the `isCiGateBuild` constant in `next.config.ts` and the two settings that use it (`typescript.ignoreBuildErrors` and `experimental.turbopackFileSystemCacheForBuild`)
 - `.github/workflows/ci.yml`
 - `.github/workflows/integration.yml` (needs a `@open-mercato/cli` version that supports `mercato test:integration --app-only`)
 

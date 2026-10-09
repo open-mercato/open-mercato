@@ -137,10 +137,8 @@ test('the template next.config only skips the build type check when the gate ask
     fileURLToPath(new URL('../../template/next.config.ts', import.meta.url)),
     'utf8',
   )
-  assert.match(
-    nextConfigSource,
-    /typescript:\s*\{\s*ignoreBuildErrors:\s*process\.env\.OM_SKIP_NEXT_BUILD_TYPECHECK === '1'\s*\}/,
-  )
+  assert.match(nextConfigSource, /const isCiGateBuild = process\.env\.OM_SKIP_NEXT_BUILD_TYPECHECK === '1'/)
+  assert.match(nextConfigSource, /typescript:\s*\{\s*ignoreBuildErrors:\s*isCiGateBuild\s*\}/)
 })
 
 test('the template package.json exposes the gate as `yarn ci`', () => {
