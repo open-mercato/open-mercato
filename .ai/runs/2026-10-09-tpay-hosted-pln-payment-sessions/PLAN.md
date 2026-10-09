@@ -22,7 +22,7 @@
 | 1 | 1.6 | Forward payer email and name from checkout submit to the session metadata | inline | done | d87a80d42 |
 | 1 | 1.7 | Wire gateway-tpay into the app, create-app template, Dockerfile and ACL catalog | dispatch:capable | done | 8b8840abd |
 | 1 | 1.8 | Add Tpay API integration tests | dispatch | done | 7b34fc735 |
-| 1 | 1.9 | Add the Tpay user guide and align the spec with the implementation | inline | done | self |
+| 1 | 1.9 | Add the Tpay user guide and align the spec with the implementation | inline | done | 71a6ed1e3 |
 
 ## Goal
 

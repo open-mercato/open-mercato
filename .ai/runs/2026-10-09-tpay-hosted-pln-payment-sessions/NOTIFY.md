@@ -15,3 +15,8 @@
 - Delegations: 1.1, 1.2, 1.4 executor subagents (cheap/standard tier → smaller model); 1.3 executor at capable tier.
 - Decision: Tasks-table `Commit` cells are filled by the following commit (a commit cannot embed its own SHA).
 - Decision: Tpay HTTP client takes `environment` per call; amounts accept number or decimal string per Tpay OpenAPI "numeric"; adapter registered as `tpay:v1` + default; errors are `CrudHttpError` with translated text and `gateway_tpay.errors.*` code.
+
+## 2026-10-09T15:48:57Z — final gate
+- Validation gate green except the pre-existing upstream `core/progressService` failure; Tpay integration specs pass on a fresh ephemeral app after the full run degraded.
+- Decision: push via HTTPS with `gh` credentials after the SSH agent stopped signing ("communication with agent failed").
+- Note: Step 1.5 landed as two commits (`47a912c48` code + `881cd0793` plan flip) because the executor's plan edit missed the first commit.
