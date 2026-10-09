@@ -20,3 +20,7 @@
 - Validation gate green except the pre-existing upstream `core/progressService` failure; Tpay integration specs pass on a fresh ephemeral app after the full run degraded.
 - Decision: push via HTTPS with `gh` credentials after the SSH agent stopped signing ("communication with agent failed").
 - Note: Step 1.5 landed as two commits (`47a912c48` code + `881cd0793` plan flip) because the executor's plan edit missed the first commit.
+
+## 2026-10-09T15:54:39Z — run completed
+- om-auto-review-pr (--autofix): approve-level findings only; minors fixed in `4b22e8e99` (underpayment guard, CLI preset errors, fixture restore checks, zod dependency).
+- PR: https://github.com/mtytula/open-mercato/pull/1 — flipped to ready; Status complete. Outstanding: live sandbox acceptance.
