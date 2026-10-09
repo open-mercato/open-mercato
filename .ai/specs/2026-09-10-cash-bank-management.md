@@ -263,7 +263,7 @@ Corrected: the accountant supplies `settledAmount` (in the invoice's
 currency: what the customer's payment settles) and, on a currency mismatch,
 `bookedExchangeRate` (the invoice's booking-date rate). Then
 `gainLoss = statementLineAmountInBankCurrency − (settledAmount ×
-bookedExchangeRate)` is a real figure: what the bank received minus the book
+bookedExchangeRate) − overpaymentAmount` is a real figure: what the bank received minus the book
 value of the receivable that payment clears. Same currency: `settledAmount`
 defaults to the line's absolute amount and the gain/loss is `0`. `ledger`'s
 own Out of scope confirms `JournalEntry.currencyId`/`exchangeRate` support "a
@@ -271,7 +271,32 @@ normal balanced posting with a realized-FX-gain/loss line" as a primitive,
 but the engine itself never computes the figure — it only accepts whatever
 lines a caller constructs, which is why this module owns the calculation.
 
-**`bookedExchangeRate` is required whenever the matched invoice's
+**A payment larger than the invoice's remaining balance is split: the settled
+part clears the receivable, the excess is booked to a separate liability
+account — never left on the receivable account, never rejected.** A
+customer's overpayment is a liability to that customer (a credit balance on a
+settlement account is a liability; it can be refunded, or kept until the claim
+expires, and is written off to other operating income only after limitation),
+and the balance sheet shows it in liabilities, not netted against receivables
+(UoR art. 7 ust. 3: no offsetting of assets and liabilities of different
+kinds; the only exceptions, art. 37 ust. 7 and art. 46 ust. 2a, do not cover
+trade settlements). `sales_invoice_gl_posting` posts to one
+`receivableAccountId` with no per-customer accounts, so an excess credited
+there would silently reduce the reported receivables and hide the liability.
+Hence a third Module Config value, `customerOverpaymentAccountId` (a
+`ledger.LedgerAccount` the tenant maps to liabilities in the annual-statement
+mapping). Rejecting instead would leave the line unmatched and, because a line
+is matched at most once, the accountant could not settle the invoice part and
+book the excess in one go. Same currency: `settledAmount` defaults to
+`min(|line|, remaining)` and the excess is computed (`|line| − settledAmount`).
+Different currency: `settledAmount` and `bookedExchangeRate` are required and
+the excess is the explicit `overpaymentAmount` (bank currency, default `0`).
+The legal basis was checked against secondary sources only (see the
+knowledge base); the account number is the tenant's chart, not prescribed.
+Refunding an overpayment and offsetting it against a later invoice are
+separate movements, not designed here.
+
+**`bookedExchangeRate` is required whenever the matched invoice's**`bookedExchangeRate` is required whenever the matched invoice's
 currency differs from the `BankAccount`'s own — never silently
 defaulted.** Corrected during review: the first draft left this input
 optional with no stated rejection behavior, which would have let a
@@ -449,6 +474,7 @@ adopted as a citation here.
 
 | Alternative | Why Rejected |
 |-------------|---------------|
+| Reject a payment larger than the invoice's balance, or credit the excess to the receivable account | Rejected: a line is matched at most once, so rejecting leaves the invoice part unsettled; crediting the one shared `receivableAccountId` nets a customer's liability into receivables, which UoR art. 7 ust. 3 forbids. The excess goes to `customerOverpaymentAccountId` (see Design decisions) |
 | Automated statement import (MT940/CAMT/BAI2) in Phase 1 | Rejected: never discussed at the Event Storming workshop (Q3); this project's own "manual first" phasing applies here as everywhere else |
 | Direct `commandBus.execute('sales.payments.create', ...)` call instead of an event | Rejected: would force a hard `requires` on `sales` (and, symmetrically, `accounts_payable_payments`) just to reconcile a statement — a tenant should be able to use this module without either installed (Q2) |
 | A single shared "clearing account" both match types post against | Rejected during review: nothing was ever designed to zero it for a `PaymentBatch` match (Accounts Payable already posted the real cash movement at send time), so it would accumulate a permanent, unreconciled balance while double-recording the same cash movement — see Design decisions, Changelog |
@@ -565,7 +591,10 @@ automate-then-verify-before-posting model.
   on a `sales_invoice` match: the portion of the invoice that line settles.
   The running sum per invoice is what the remaining-balance check reads, so
   the table carries an index on `(tenantId, organizationId,
-  matchedDocumentType, matchedDocumentId)`), `amountMismatch` (nullable boolean, default `null` until matched —
+  matchedDocumentType, matchedDocumentId)`), `overpaymentAmount` (nullable numeric(19,4), in the bank account's currency —
+  set only on a `sales_invoice` match: the part of the line booked to
+  `customerOverpaymentAccountId`; `0` or `null` when the line settles no more
+  than the balance), `amountMismatch` (nullable boolean, default `null` until matched —
   added after review: set only on a `payment_batch` match, `true` when
   the statement line's absolute amount differs from
   `PaymentBatch.total_amount`, `false` when it agrees; stays `null` for
@@ -650,7 +679,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
   `ledger`, and does so on three of its four paths (`payment_batch` is
   the one exception — corrected after review, see Design decisions for
   why it isn't symmetric with `sales_invoice`). Input:
-  `{ bankStatementLineId, matchedDocumentType: 'sales_invoice' | 'payment_batch' | 'internal_transfer' | 'manual_gl_entry', matchedDocumentId?: string, ledgerAccountId?: string, description?: string, bookedExchangeRate?: number, settledAmount?: number }`.
+  `{ bankStatementLineId, matchedDocumentType: 'sales_invoice' | 'payment_batch' | 'internal_transfer' | 'manual_gl_entry', matchedDocumentId?: string, ledgerAccountId?: string, description?: string, bookedExchangeRate?: number, settledAmount?: number, overpaymentAmount?: number }`.
   Rejects if the line is already matched (Invariant 1). Branches on
   `matchedDocumentType`:
   - **`payment_batch` (confirmation/audit only, no `ledger` write).**
@@ -695,13 +724,18 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
        settledAmount` of this invoice's earlier `sales_invoice` matches
        (stored on `BankStatementLine`, in the invoice's currency).
        `settledAmount` must be `> 0` and `≤ remaining`, else
-       `409 SETTLED_AMOUNT_EXCEEDS_REMAINING`. A line paying more than the
-       balance cannot be matched to the invoice in Phase 1: a line is matched
-       at most once, so it cannot be split (see Out of scope).
+       `409 SETTLED_AMOUNT_EXCEEDS_REMAINING` (this can only be hit with an
+       explicit `settledAmount`; a same-currency line larger than the balance
+       settles the balance and the excess is an overpayment, below).
     3. **Settled amount.** `settledAmount` is the invoice-currency amount
-       this payment settles. Same currency: optional, defaults to the line's
-       absolute amount, and if supplied must equal it. Different currency:
-       required, together with `bookedExchangeRate`.
+       this payment settles. Same currency: optional, defaults to
+       `min(|line|, remaining)`; the excess, `|line| − settledAmount`, is the
+       overpayment. Different currency: required, together with
+       `bookedExchangeRate`; the overpayment is the explicit
+       `overpaymentAmount` (bank currency, default `0`).
+    4. **Overpayment account.** If the overpayment is `> 0`,
+       `customerOverpaymentAccountId` (Module Config) must be set, else
+       `409 OVERPAYMENT_ACCOUNT_NOT_CONFIGURED`, no partial write.
 
     `bookedExchangeRate` is defined as *units of the `BankAccount`'s own
     currency per 1 unit of the invoice's currency* (the same direction
@@ -739,7 +773,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     precondition is applied yet; both land together with
     `fx_revaluation`'s own implementation. Computes the realized
     gain/loss as
-    `statementLineAmountInBankCurrency - (settledAmount * bookedExchangeRate)`
+    `statementLineAmountInBankCurrency - (settledAmount * bookedExchangeRate) - overpaymentAmount`
     (converting the settled invoice amount into bank currency for comparison) and, when non-zero,
     adds a line to `gainLossAccountId` (Module Config) on whichever
     side keeps the posting balanced. Reads `sales_invoice_gl_posting`'s
@@ -753,13 +787,14 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     debit — the line is always incoming, per the rejection above), a
     credit line to `sales_invoice_gl_posting`'s `receivableAccountId`
     for `settledAmount * bookedExchangeRate` (i.e.
-    converted to the bank account's own currency), and the gain/loss
-    line when present; `referenceType: 'cash_bank_management:bank_statement_line'`,
+    converted to the bank account's own currency), the excess as a credit to
+    `customerOverpaymentAccountId` when `overpaymentAmount > 0`, and the
+    gain/loss line when present; `referenceType: 'cash_bank_management:bank_statement_line'`,
     `referenceId: bankStatementLineId` (no `type` override — defaults
     to GL's own `'NORMAL'`, the same pattern Accounts Payable's
     `postVendorInvoice` call already uses). Persists
     `matchedDocumentType: 'sales_invoice'`, `matchedDocumentId`,
-    `matchedJournalEntryId`, `settledAmount`, `matchedAt` on the line in
+    `matchedJournalEntryId`, `settledAmount`, `overpaymentAmount`, `matchedAt` on the line in
     the same transaction; `amountMismatch` stays `null` — there is no
     independent "expected amount" to compare against; the remaining-balance
     check above is the guard. Emits
@@ -976,12 +1011,13 @@ BankStatementLine {
 
 ### Module Config
 
-`internalTransferSuspenseAccountId`, `gainLossAccountId` (both FK-id to
-`ledger.LedgerAccount`) via `ModuleConfigService`, owned by this
-module. Both required before the first `matchBankStatementLine` call
-against `internal_transfer` (`internalTransferSuspenseAccountId`) or a
-foreign-currency `sales_invoice` match
-(`gainLossAccountId`). **`bankReconciliationClearingAccountId` is
+`internalTransferSuspenseAccountId`, `gainLossAccountId`,
+`customerOverpaymentAccountId` (all FK-id to `ledger.LedgerAccount`) via
+`ModuleConfigService`, owned by this module. Each required before the first
+`matchBankStatementLine` call that needs it: `internal_transfer`
+(`internalTransferSuspenseAccountId`), a foreign-currency `sales_invoice`
+match (`gainLossAccountId`), a `sales_invoice` match with an overpayment
+(`customerOverpaymentAccountId`, a liability account). **`bankReconciliationClearingAccountId` is
 dropped** — corrected after review: the shared clearing-account design
 it backed was rejected (see Design decisions, Alternatives Considered);
 no replacement config value is owned here for the `sales_invoice`
@@ -1028,7 +1064,7 @@ All five routes are `openApi`-documented, per `packages/core/AGENTS.md`
 Three new tables (`bank_account`, `bank_statement`,
 `bank_statement_line`), zero changes to any `sales`/`accounts_payable`/
 `ledger` table. No seed data — `internalTransferSuspenseAccountId`/
-`gainLossAccountId` must be configured before first use (see Module
+`gainLossAccountId`/`customerOverpaymentAccountId` must be configured before first use (see Module
 Config); `sales_invoice_gl_posting.receivableAccountId` is that
 module's own configuration, not this one's, but must also be set
 before a `sales_invoice` match can complete (see Risks). No backfill:
@@ -1040,8 +1076,9 @@ automatically.
 1. `BankAccount`/`BankStatement`/`BankStatementLine` entities +
    migration.
 2. `data/validators.ts` for all three commands' inputs.
-3. `ModuleConfigService` registration for the two owned account-id
-   settings (`internalTransferSuspenseAccountId`, `gainLossAccountId`)
+3. `ModuleConfigService` registration for the three owned account-id
+   settings (`internalTransferSuspenseAccountId`, `gainLossAccountId`,
+   `customerOverpaymentAccountId`)
    + a minimal settings page.
 4. `createBankAccount`, `createBankStatement`, `matchBankStatementLine`
    commands (the latter's four branches — `payment_batch` audit-only,
@@ -1075,7 +1112,7 @@ automatically.
 | `commands/createBankAccount.ts` | Create | |
 | `commands/createBankStatement.ts` | Create | |
 | `commands/matchBankStatementLine.ts` | Create | Posts to `ledger` on its `sales_invoice`/`internal_transfer`/`manual_gl_entry` branches; the `payment_batch` branch never posts |
-| `lib/moduleConfig.ts` | Create | Registers the two suspense/gain-loss account settings (`internalTransferSuspenseAccountId`, `gainLossAccountId`) |
+| `lib/moduleConfig.ts` | Create | Registers the three account settings (`internalTransferSuspenseAccountId`, `gainLossAccountId`, `customerOverpaymentAccountId`) |
 | `acl.ts` | Create | Two features |
 | `setup.ts` | Create | `defaultRoleFeatures`, no seed data |
 | `events.ts` | Create | `cash_bank_management.statement_line.matched` |
@@ -1108,11 +1145,20 @@ automatically.
   `settledAmount` (below the remaining balance) with an actual rate that
   differs from the booked one and assert the gain/loss is non-zero
   (regression for the earlier formula, which cancelled to zero).
-- Assert a same-currency match without `settledAmount` defaults it to the
-  line's absolute amount and posts no gain/loss line.
+- Assert a same-currency match without `settledAmount` and a line within the
+  balance defaults it to the line's absolute amount, posts no gain/loss line
+  and no overpayment line.
+- Assert a same-currency line larger than the remaining balance settles the
+  balance, credits the excess to `customerOverpaymentAccountId`, the posting
+  balances, and `overpaymentAmount` is persisted; assert it is rejected with
+  `OVERPAYMENT_ACCOUNT_NOT_CONFIGURED` (no partial write) when that setting is
+  unset.
+- Assert a foreign-currency match with `settledAmount`,
+  `bookedExchangeRate` and `overpaymentAmount` books
+  `line − settledAmount × rate − overpaymentAmount` as gain/loss.
 - Assert two lines matched to one invoice in turn: the second sees the
-  remaining balance reduced by the first, and a second line whose
-  `settledAmount` exceeds it is rejected with
+  remaining balance reduced by the first, and a second line with an
+  explicit `settledAmount` above it is rejected with
   `SETTLED_AMOUNT_EXCEEDS_REMAINING` and persists nothing. Assert two
   concurrent matches cannot both pass (advisory lock).
 - Assert a match against an invoice with no `sales:sales_invoice`
@@ -1244,6 +1290,12 @@ automatically.
   that installs this module without ever configuring
   `sales_invoice_gl_posting` cannot complete a `sales_invoice` match at
   all.
+- **Overpayments are a liability without a per-customer view.** The excess
+  goes to one tenant-configured liability account, so the total is right but a
+  customer's credit balance is visible only through the matched lines (and,
+  later, `journal_entry_line_dimension`/`contractorSnapshot`). The account must
+  be mapped to liabilities in the annual-statement mapping; an unmapped one is
+  caught by `MAPPING_INCOMPLETE`.
 - **`BankAccount.accountNumber` encryption is new for this document
   family's write path, not just its data model.** Declaring the
   encryption map (this revision) is necessary but not sufficient — the
@@ -1301,11 +1353,11 @@ automatically.
   by that document (its Phase 2); this document only emits the event (see
   Implementation Plan step 7). Invoice-balance maintenance in `sales` is an
   OM Core change designed by neither.
-- **Overpayments.** A line larger than the invoice's remaining balance is
-  rejected (`SETTLED_AMOUNT_EXCEEDS_REMAINING`) and cannot be split, so the
-  excess has no home in Phase 1. **⚠ NEEDS HUMAN CONFIRMATION** (accountant):
-  whether the excess should post to a configured advance/overpayment account
-  instead of rejecting.
+- **Refunding or offsetting an overpayment.** The excess sits on
+  `customerOverpaymentAccountId` with no per-customer identity in Phase 1
+  (the line's `matchedDocumentId` links it to the invoice). Returning it to
+  the customer, offsetting it against a later invoice, and writing it off
+  after limitation are manual `PK` entries, not designed here.
 - **Reversing a matched line** — a future `unmatchBankStatementLine`
   would call `ledger.reverseJournalEntry`; not designed here, no
   confirmed need yet.
@@ -1697,3 +1749,13 @@ matches (new `BankStatementLine.settledAmount`); the invoice must be posted
 scope); the event payload carries `bankStatementLineId`, `settledAmount` and
 the invoice's `currencyCode`. Ledger correctness no longer depends on `sales`
 maintaining invoice balances.
+
+Overpayments (same day): resolved the open ⚠. An excess over the remaining
+balance is no longer rejected: the settled part clears the receivable and the
+excess is credited to a new `customerOverpaymentAccountId` (a liability
+account), because a customer's overpayment is a liability shown in
+liabilities, not netted against receivables (UoR art. 7 ust. 3, checked via
+secondary sources). Same currency computes the excess; foreign currency takes
+an explicit `overpaymentAmount`. New field `BankStatementLine.overpaymentAmount`,
+error `OVERPAYMENT_ACCOUNT_NOT_CONFIGURED`, gain/loss formula subtracts the
+overpayment.
