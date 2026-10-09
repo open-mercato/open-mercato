@@ -1,6 +1,6 @@
 # Tpay Hosted PLN Payment Sessions
 
-- **Status:** in-progress (implemented; live sandbox acceptance outstanding)
+- **Status:** implemented (sandbox acceptance passed 2026-10-09; awaiting upstream merge)
 - **Date:** 2026-08-01
 - **Type:** OSS payment-provider foundation
 - **Provider package:** `@open-mercato/gateway-tpay` (`gateway_tpay`)
@@ -166,7 +166,7 @@ No new public route is added. The stable session/status API and `GatewayAdapter`
 }
 ```
 
-- `pay`: the published OpenAPI marks it required, while a hosted redirect without a preselected channel needs no channel data. The exact hosted form (omitted, or `{ "method": "pay_by_link" }` without `groupId`/`channelId`) is confirmed in sandbox before merge and pinned by a contract-test fixture.
+- `pay`: omitted. The published OpenAPI marks it required, but the Tpay sandbox accepts a hosted transaction without it (confirmed 2026-10-09); the contract-test fixture pins the body without `pay`.
 - `description` is required by Tpay; when `input.description` is absent, use a translated, bounded fallback.
 - Output: existing `CreateSessionResult` with provider session ID, `pending`, redirect URL, redirect client session, and bounded provider metadata (`title`, provider `status`).
 
@@ -323,20 +323,33 @@ None identified.
 
 Fully compliant — ready for implementation as the Tpay provider foundation.
 
+## Sandbox Acceptance — 2026-10-09
+
+Run against a live Tpay sandbox merchant account on an ephemeral Open Mercato app (`gateway-tpay` at `4b22e8e99`):
+
+- Integration configured through the integrations API with sandbox Open API keys; health check `healthy` (OAuth token issued).
+- Checkout link `fixed`, 12.34 PLN, provider `tpay`, customer details collected.
+- Public pay page → **Pay now** → redirect to `secure.sandbox.tpay.com` with title, amount, payer name, and email prefilled.
+- Sandbox bank simulator **Payment successful** → return to `/pay/<slug>/success/<checkoutTransactionId>` showing **Payment completed**.
+- API: checkout transaction `completed` / `captured`, 12.34 PLN; gateway transaction `providerKey: tpay`, `unifiedStatus: captured`, `providerSessionId` = Tpay transaction id.
+- Tpay merchant panel: transaction **Poprawna**, 12.34 PLN paid, CRC column equals the checkout transaction id (`hiddenDescription`).
+- **Payment failed** in the simulator leaves the Tpay transaction **Oczekująca** and the Open Mercato transaction `pending` (no false capture).
+
 ## Implementation Notes
 
 - Package: `packages/gateway-tpay` (`@open-mercato/gateway-tpay`), adapter registered as `tpay:v1` and as the default `tpay` adapter; integration declares `apiVersions: [v1]`.
 - Errors: validation and unsupported operations throw `CrudHttpError(422)`, provider failures `CrudHttpError(502)`; bodies carry a translated `error` and a stable `code` (`gateway_tpay.errors.*`). Swallowed provider, health, preset, and translation errors are reported through the telemetry runtime (`gateway_tpay.provider_failed`, `gateway_tpay.health_check_failed`, `gateway_tpay.preset_failed`, `gateway_tpay.translation_unavailable`).
 - Amounts: Tpay types response `amount`/`payments.amountPaid` as "numeric"; the client accepts a number or a plain decimal string.
 - Labels: credential field and payment descriptor labels are plain English strings because the integrations UI renders them verbatim (same as `gateway_stripe`); module title, errors, and health messages use `gateway_tpay.*` keys.
-- Repository wiring: app and create-app template (module commented out in the template via `TEMPLATE_COMMENTED_MODULES` until sandbox acceptance), Dockerfile manifest copies, auth ACL catalog, and peer-dependency allowlist entries matching the `storage-s3` precedent. `.github/workflows/package-previews.yml` is unchanged and needs a maintainer decision before the package joins preview publishing.
+- Repository wiring: app and create-app template (opt-in in the template via `TEMPLATE_COMMENTED_MODULES`; enabling by default needs an AI-harness evaluation case), Dockerfile manifest copies, auth ACL catalog, and peer-dependency allowlist entries matching the `storage-s3` precedent. `.github/workflows/package-previews.yml` is unchanged and needs a maintainer decision before the package joins preview publishing.
 - User guide: `apps/docs/docs/user-guide/tpay-payments.mdx`.
 
 ## Changelog
 
 ### 2026-10-09 (implementation)
 
-- Implemented the provider package, checkout payer metadata, repository wiring, unit and integration tests, and the user guide; status set to in-progress until live sandbox acceptance is recorded.
+- Implemented the provider package, checkout payer metadata, repository wiring, unit and integration tests, and the user guide.
+- Recorded live sandbox acceptance (hosted body without `pay`, redirect → `captured`, failed payment stays `pending`); status set to implemented.
 
 ### 2026-10-09
 

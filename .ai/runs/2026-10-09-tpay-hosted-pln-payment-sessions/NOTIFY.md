@@ -24,3 +24,8 @@
 ## 2026-10-09T15:54:39Z — run completed
 - om-auto-review-pr (--autofix): approve-level findings only; minors fixed in `4b22e8e99` (underpayment guard, CLI preset errors, fixture restore checks, zod dependency).
 - PR: https://github.com/mtytula/open-mercato/pull/1 — flipped to ready; Status complete. Outstanding: live sandbox acceptance.
+
+## 2026-10-09T16:19:29Z — sandbox acceptance
+- Live Tpay sandbox E2E passed (redirect → simulator success → return → checkout `completed`, gateway `captured`); Tpay panel shows the transaction as paid with CRC = checkout transaction id. Failed-payment path stays `pending`.
+- Tpay accepts hosted transactions without `pay`.
+- Decision: keep `gateway_tpay` opt-in in the create-app template; enabling by default needs an AI-harness evaluation case (maintainer call).

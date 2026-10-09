@@ -36,7 +36,7 @@ OM_INTEGRATION_TPAY_ENABLED=true
 OM_INTEGRATION_TPAY_FORCE_PRECONFIGURE=false
 ```
 
-Client ID and Client Secret are required together. New tenants pick the preset up automatically. To apply it to an existing tenant:
+Client ID and Client Secret are required together. In standalone apps created with `create-mercato-app`, the module is opt-in: uncomment `gateway_tpay` in `src/modules.ts`. New tenants pick the preset up automatically. To apply it to an existing tenant:
 
 ```bash
 yarn mercato gateway_tpay configure-from-env --tenant <tenantId> --org <organizationId> [--force]
@@ -55,4 +55,3 @@ After paying, the payer returns to the checkout success page, which reads the tr
 - **PLN only.** Sessions in any other currency are rejected.
 - **No payment notifications yet.** The status is read when the payer returns to the checkout page. If the payer closes the browser on Tpay's page, the transaction stays pending until notification handling and scheduled status checks are added.
 - **No refunds, cancellation, or manual capture** from Open Mercato. Use the Tpay Merchant Panel for these operations.
-- **Sandbox acceptance pending.** Before enabling Tpay for live payments, run a full sandbox payment (redirect, payment, return, captured status).

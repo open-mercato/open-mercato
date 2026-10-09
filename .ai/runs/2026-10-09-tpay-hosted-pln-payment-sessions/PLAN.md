@@ -24,6 +24,7 @@
 | 1 | 1.8 | Add Tpay API integration tests | dispatch | done | 7b34fc735 |
 | 1 | 1.9 | Add the Tpay user guide and align the spec with the implementation | inline | done | 71a6ed1e3 |
 | 1 | 1.9-review-fix | Address om-auto-review-pr findings: underpayment guard, CLI preset errors, test cleanup checks, zod dependency | inline | done | 4b22e8e99 |
+| 2 | 2.1 | Record live Tpay sandbox acceptance and make the template module opt-in | inline | done | self |
 
 ## Goal
 
@@ -143,3 +144,10 @@ None (`--skill-url` not supplied). Tpay contract facts come from the official Tp
 - `configure-from-env` catches invalid preset env values, reports them, and exits with code 1 instead of crashing.
 - Integration fixture restore asserts the credentials/state PUTs succeeded (no delete API exists, so an empty credentials row remains when the tenant had none before).
 - Declare `zod` as a runtime dependency of the package.
+
+### Phase 2 — Sandbox acceptance
+
+#### 2.1 Record live Tpay sandbox acceptance and make the template module opt-in
+
+- End-to-end sandbox payment through the checkout pay page on an ephemeral app (credentials via 1Password `op run`): redirect, simulator success, return, `captured`; failed payment stays `pending`.
+- Spec gains a Sandbox Acceptance section and status `implemented`; the user guide drops the pending-acceptance limitation; the create-app template comment now describes the module as opt-in.
