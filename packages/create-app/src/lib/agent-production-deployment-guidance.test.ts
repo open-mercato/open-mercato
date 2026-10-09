@@ -51,6 +51,12 @@ test('standalone production requests route to one TLS-first secrets-safe guide',
   assert.match(guide, /required/i)
   assert.match(guide, /recommended/i)
   assert.match(guide, /module-specific/i)
+  for (const setting of [
+    'RATE_LIMIT_TRUST_PROXY_DEPTH',
+    'APP_ALLOWED_ORIGINS',
+    'CHECKOUT_ALLOWED_ORIGINS',
+    'DOCUMENTS_COLLAB_ALLOWED_ORIGINS',
+  ]) assert.match(guide, new RegExp(`\\b${setting}\\b`), `missing safe production setting ${setting}`)
   assert.match(guide, /do not read.{0,80}\.env/i)
   assert.match(guide, /do not.{0,80}(?:perform|claim).{0,80}live deployment/i)
 })

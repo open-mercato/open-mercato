@@ -28,7 +28,7 @@ Record the owner and evidence for each item. Do not paste secret values into tic
 
    - [ ] Compare the deployment's variable **names** with `packages/create-app/template/.env.example` from the exact release. Do not read live values into a ticket or copy development values into production.
    - [ ] Set `NODE_ENV=production`; set `APP_URL` and, when the topology uses them, `INTERNAL_APP_ORIGIN` and `PLATFORM_PRIMARY_HOST` to exact production origins. Configure database/cache connections for the production services.
-   - [ ] Generate unique high-entropy authentication, session, JWT, lookup-hash, and tenant-encryption secrets for this environment. Never commit `.env*`, secret exports, private keys, or token caches.
+   - [ ] Generate unique high-entropy authentication, session, JWT, lookup-hash, and tenant-encryption secrets for this environment. Never commit live `.env*`, secret exports, private keys, or token caches; sanitized `.env.example` templates are the intentional exception and must contain names, comments, and safe placeholders only.
    - [ ] Remove placeholders, demo autologin, test injections, debugging/profiling switches, DevTools, and emergency authentication bypasses.
 
    **Recommended settings and process**

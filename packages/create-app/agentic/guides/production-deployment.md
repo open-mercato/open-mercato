@@ -8,7 +8,7 @@ Classify findings as **required**, **recommended**, or **module-specific**. Do n
 
 - **Required:** Serve every public route over HTTPS with a valid, auto-renewing certificate. Redirect HTTP to HTTPS and verify the redirect, certificate chain, supported TLS versions, and renewal path.
 - **Required:** Point the production domain deliberately and verify DNS before cutover. Set the app's canonical public URL/origin and any primary-host or custom-domain settings named in `.env.example` to the real HTTPS origin.
-- **Required:** Configure the reverse proxy or load balancer to pass the original scheme, host, and client address only from trusted hops. Set the exact trusted-proxy depth/origin behavior for the deployed topology; never trust arbitrary forwarded headers.
+- **Required:** Configure the reverse proxy or load balancer to pass the original scheme, host, and client address only from trusted hops. Set `RATE_LIMIT_TRUST_PROXY_DEPTH` to the exact number of trusted proxy hops for the deployed topology; never trust arbitrary forwarded headers.
 - **Recommended:** Apply current edge limits and security policy for request size, timeouts, abusive traffic, and known administrative routes. Preserve the security headers declared by `next.config.ts`; verify them at the public edge instead of assuming an intermediary kept them.
 
 ## 2. Runtime environment and secrets
@@ -38,7 +38,7 @@ Classify findings as **required**, **recommended**, or **module-specific**. Do n
 
 - **Required:** Review RBAC/ACL grants for least privilege across tenant, organization, administrative, integration, worker, and support access. Remove or rotate bootstrap and demo credentials.
 - **Recommended:** Require MFA or passkeys for privileged users where available and define a controlled, auditable recovery path.
-- **Required:** Restrict browser origins and CORS to intended HTTPS origins. Keep collaboration and other real-time origins equally constrained.
+- **Required:** Restrict browser origins and CORS with `APP_ALLOWED_ORIGINS` and, when those capabilities are enabled, `CHECKOUT_ALLOWED_ORIGINS` and `DOCUMENTS_COLLAB_ALLOWED_ORIGINS`. Use only the intended HTTPS origins; keep collaboration and other real-time origins equally constrained.
 - **Required:** Enable rate limits at the edge and application boundaries appropriate to authentication, public APIs, uploads, and expensive operations.
 - **Module-specific:** Verify inbound webhook signatures against raw bodies, enforce timestamp/replay bounds and body-size limits, and make delivery processing idempotent. Restrict outbound webhook destinations and redact signed URLs or payload secrets.
 - **Recommended:** Review the deployed CSP and other security headers from `next.config.ts` against enabled providers; add only the narrowly required origins.
