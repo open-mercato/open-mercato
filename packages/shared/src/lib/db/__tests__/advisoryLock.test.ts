@@ -458,6 +458,39 @@ describe('withAdvisoryXactLock', () => {
       expect(settled.settledAt - start).toBe(200)
     })
 
+    it('gives the slot back while an attempt that lost the lock backs off', async () => {
+      const db = createFakeDatabase()
+      const namespace = freshNamespace()
+      const contendedKey = `${namespace}:contended`
+      db.heldKeys.add(contendedKey)
+      const contender = track(withAdvisoryXactLock(db.em, contendedKey, async () => 'contender', { maxConcurrentHolders: 1 }))
+      await jest.advanceTimersByTimeAsync(0)
+      expect(db.lockQueries).toHaveLength(1)
+      expect(db.openTransactions()).toBe(0)
+
+      await expect(
+        withAdvisoryXactLock(db.em, `${namespace}:other`, async () => 'other', { maxConcurrentHolders: 1, waitDeadlineMs: 0 }),
+      ).resolves.toBe('other')
+      expect(contender.result()).toBeNull()
+
+      db.heldKeys.delete(contendedKey)
+      await jest.advanceTimersByTimeAsync(100)
+      expect((await contender.done).value).toBe('contender')
+    })
+
+    it('gives the slot back when an attempt fails with transient_db', async () => {
+      const db = createFakeDatabase()
+      const namespace = freshNamespace()
+      db.queueFaults({ begin: new Error('timeout exceeded when trying to connect') })
+
+      await expect(
+        withAdvisoryXactLock(db.em, `${namespace}:first`, async () => 'first', { maxConcurrentHolders: 1 }),
+      ).rejects.toMatchObject({ reason: 'transient_db' })
+      await expect(
+        withAdvisoryXactLock(db.em, `${namespace}:second`, async () => 'second', { maxConcurrentHolders: 1, waitDeadlineMs: 0 }),
+      ).resolves.toBe('second')
+    })
+
     it('never hands a slot to a waiter that already reached its deadline', async () => {
       const db = createFakeDatabase()
       const namespace = freshNamespace()

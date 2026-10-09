@@ -202,6 +202,8 @@ async function attemptLock<T>(
 /**
  * Runs `fn` in one transaction that holds `pg_try_advisory_xact_lock(hashtextextended(key, 0))`.
  * - `key` is `<namespace>:<parts>` with namespace `^[a-z][a-z0-9_]*$`; anything else throws `TypeError`.
+ * - `waitDeadlineMs` must be a finite number ≥ 0 and `maxConcurrentHolders` a positive integer;
+ *   anything else throws `TypeError` before any connection is taken.
  * - Pass the request (container) EntityManager. The helper forks it with
  *   `{ disableContextResolution: true, clear: true, useContext: false, cloneEventManager: true }`,
  *   so the lock transaction never nests in a caller's transaction and commits on its own.
