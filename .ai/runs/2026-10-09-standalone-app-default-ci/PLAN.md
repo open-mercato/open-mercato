@@ -20,7 +20,8 @@
 | 1 | 1.3 | Add the --ci flag, conditional workflow copy and lockfile-first next steps | dispatch | done | 0444716196 |
 | 1 | 1.4 | Assert no agentic generator writes under .github/workflows | dispatch | done | 9131dfc486 |
 | 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | done | b20bf71742 |
-| 1 | 1.6 | Cap the cold-build heap inside yarn ci | inline | done | pending |
+| 1 | 1.6 | Cap the cold-build heap inside yarn ci | inline | done | e76b371720 |
+| 1 | 1.7 | Make the cold yarn ci build fit 7 GB reliably | inline | todo | — |
 | 2 | 2.1 | Add opt-in app-owned spec discovery to mercato test:integration | dispatch:capable | todo | — |
 | 2 | 2.2 | Add template integration.yml workflow and its structure test | dispatch | todo | — |
 | 2 | 2.3 | Document the integration workflow and the new CLI flag | dispatch | todo | — |
@@ -95,6 +96,9 @@ Every new template-based standalone app ships a provider-neutral `yarn ci` quali
 
 #### Step 1.6 — Cap the cold-build heap inside yarn ci
 - Appended at checkpoint 1: a cold `yarn ci` build OOMed on 7 GB (2 of 4 cold runs at the 8 GB heap ceiling). The template `build` script appends `${OM_NEXT_BUILD_NODE_OPTIONS:-}` after its default heap; `ci.mjs` sets it to `--max-old-space-size=4096` for `build` only. Tests, docs memory paragraph, spec.
+
+#### Step 1.7 — Make the cold yarn ci build fit 7 GB reliably
+- Appended at checkpoint 1 (failed): even with the 4 GB build heap, 1 of 2 fully cold `yarn ci` runs was OOM-killed during static generation. Try `experimental.turbopackFileSystemCacheForBuild: false` gated on `OM_SKIP_NEXT_BUILD_TYPECHECK=1` first, then `NEXT_TURBOPACK_USE_WORKER=0`, then a lower heap. Accept only after ≥3 fully cold runs with `oom_kill=0` (see checkpoint-1-checks.md). Update template next.config.ts/ci.mjs, tests, docs Memory paragraph, spec Phase 0 table + Architecture → Memory.
 
 ### Phase 2 — Integration workflow
 
