@@ -233,6 +233,7 @@ The gate is sized for a standard GitHub-hosted Linux runner (2 vCPU, 7 GB RAM); 
 `integration.yml` installs dependencies, prepares `.env` with `node scripts/ci.mjs --prepare-env`, installs Chromium, and runs `yarn test:integration:ephemeral --app-only`. That command boots a disposable Postgres container and a built copy of the app, then runs only the specs your app owns. The platform specs inside `node_modules/@open-mercato/*` are skipped (see [`--app-only`](../cli/test-integration#app-owned-specs-only)).
 
 - **Where specs go:** `src/modules/<module>/__integration__/*.spec.ts`. A new app has none, so the workflow prints `No app-owned integration specs found` and passes after install without starting Docker.
+- **Memory:** the test step sets the same `OM_SKIP_NEXT_BUILD_TYPECHECK=1` and `OM_NEXT_BUILD_NODE_OPTIONS=--max-old-space-size=4096` that `yarn ci` uses for its build (see [Memory](#memory)), so the app build fits a 7 GB runner. `ci.yml` type-checks the same commit.
 - **Docker:** the ephemeral environment needs a Docker daemon. GitHub's `ubuntu-latest` runners have one; a self-hosted runner must have Docker installed and usable by the runner user.
 - **Runner:** set the repository variable `OM_CI_INTEGRATION_RUNS_ON` to pick a runner for this workflow only. Without it, the workflow uses `OM_CI_RUNS_ON`, then `ubuntu-latest`. Pull requests from forks always run on `ubuntu-latest`.
 - **Failures:** the Playwright results in `.ai/qa/test-results` are uploaded as the `playwright-report` artifact when the run fails.

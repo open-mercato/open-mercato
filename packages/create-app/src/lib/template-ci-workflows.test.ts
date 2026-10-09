@@ -152,6 +152,11 @@ test('integration.yml job runs the app-only suite and uploads the report on fail
     'upload playwright report',
   )
 
+  assert.deepEqual(steps[runTests].env, {
+    OM_SKIP_NEXT_BUILD_TYPECHECK: '1',
+    OM_NEXT_BUILD_NODE_OPTIONS: '--max-old-space-size=4096',
+  })
+
   assert.ok(lockfileCheck < install, 'lockfile check must run before install')
   assert.ok(install < prepareEnv, 'install must run before preparing the environment')
   assert.ok(prepareEnv < playwrightInstall, 'env prep must run before installing browsers')

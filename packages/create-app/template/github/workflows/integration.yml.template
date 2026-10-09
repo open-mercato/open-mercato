@@ -55,6 +55,12 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run integration tests
+        # The suite builds the app with `yarn build`. ci.yml already type-checks
+        # this commit, so build the way `yarn ci` does: skip Next's in-build
+        # type check and cap the heap, which a 7 GB runner needs.
+        env:
+          OM_SKIP_NEXT_BUILD_TYPECHECK: '1'
+          OM_NEXT_BUILD_NODE_OPTIONS: --max-old-space-size=4096
         run: yarn test:integration:ephemeral --app-only
 
       - name: Upload Playwright report
