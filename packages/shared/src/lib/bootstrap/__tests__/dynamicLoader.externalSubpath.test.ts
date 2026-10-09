@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createCliBundlePlugins } from '../dynamicLoader'
+import { compileAppSourceFile, createCliBundlePlugins } from '../dynamicLoader'
 
 function writePackage(appRoot: string, name: string, manifest: Record<string, unknown>, files: Record<string, string>) {
   const packageDir = path.join(appRoot, 'node_modules', ...name.split('/'))
@@ -113,5 +113,29 @@ describe('createCliBundlePlugins — externalized package subpaths', () => {
     expect(result.stderr).not.toContain('ERR_MODULE_NOT_FOUND')
     expect(result.status).toBe(0)
     expect(JSON.parse(result.stdout.trim())).toEqual(['legacy-link', 'exports-feature'])
+  })
+
+  it('records the rewritten package manifest so a package upgrade invalidates the cached bundle', async () => {
+    fs.writeFileSync(path.join(appRoot, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022' } }))
+    const generatedDir = path.join(appRoot, '.mercato', 'generated')
+    fs.mkdirSync(generatedDir, { recursive: true })
+    const entry = path.join(generatedDir, 'registry.generated.ts')
+    fs.writeFileSync(entry, "import link from 'legacy-pkg/link'\nexport const value = link\n")
+    const outFile = path.join(generatedDir, 'registry.generated.mjs')
+
+    await compileAppSourceFile(entry, { appRoot, outFile })
+    const metadata = JSON.parse(fs.readFileSync(`${outFile}.cache.json`, 'utf8')) as {
+      dependencies: Record<string, string>
+    }
+    expect(Object.keys(metadata.dependencies)).toContain('node_modules/legacy-pkg/package.json')
+
+    const firstOutputMtime = fs.statSync(outFile).mtimeMs
+    await compileAppSourceFile(entry, { appRoot, outFile })
+    expect(fs.statSync(outFile).mtimeMs).toBe(firstOutputMtime)
+
+    writePackage(appRoot, 'legacy-pkg', { exports: { './link': './link.js' } }, {})
+    await compileAppSourceFile(entry, { appRoot, outFile })
+    expect(fs.readFileSync(outFile, 'utf8')).toContain('"legacy-pkg/link"')
+    expect(fs.readFileSync(outFile, 'utf8')).not.toContain('"legacy-pkg/link.js"')
   })
 })

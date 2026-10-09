@@ -93,17 +93,22 @@ function splitBareSpecifier(specifier: string): { packageName: string; subpath: 
  * that already carry an extension and anything that fails to resolve keep the original
  * specifier, so the bundle never gets worse than before.
  */
-function rewriteLegacySubpathSpecifier(specifier: string, appRequire: NodeRequire): string {
+function rewriteLegacySubpathSpecifier(
+  specifier: string,
+  appRequire: NodeRequire,
+  onRewrite: (manifestPath: string) => void,
+): string {
   if (isBuiltin(specifier)) return specifier
   const parts = splitBareSpecifier(specifier)
   if (!parts || path.posix.extname(parts.subpath)) return specifier
   try {
     const manifestPath = appRequire.resolve(`${parts.packageName}/package.json`)
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { exports?: unknown }
-    if (manifest.exports !== undefined) return specifier
+    if (manifest.exports != null) return specifier
     const resolvedFile = appRequire.resolve(specifier)
     const relativeFile = path.relative(path.dirname(manifestPath), resolvedFile)
     if (!relativeFile || relativeFile.startsWith('..') || path.isAbsolute(relativeFile)) return specifier
+    onRewrite(manifestPath)
     return `${parts.packageName}/${relativeFile.split(path.sep).join('/')}`
   } catch {
     return specifier
@@ -118,7 +123,10 @@ function rewriteLegacySubpathSpecifier(specifier: string, appRequire: NodeRequir
  * `createClientOnlyStubPlugin` in isolation stays green if the plugin is dropped from this
  * list, which would silently reintroduce #4623.
  */
-export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugin[] {
+export function createCliBundlePlugins(
+  appRoot: string,
+  options: { onLegacySubpathRewrite?: (manifestPath: string) => void } = {},
+): import('esbuild').Plugin[] {
   // Plugin to resolve the @/ alias the way the app tsconfig maps it:
   // `@/.mercato/*` to the app root, every other `@/*` to the app's src/ directory.
   const aliasPlugin: import('esbuild').Plugin = {
@@ -150,10 +158,11 @@ export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugi
   // package publishes an `exports` map; legacy packages need the real file path instead.
   const appRequire = createRequire(path.join(appRoot, 'package.json'))
   const externalSpecifierCache = new Map<string, string>()
+  const onLegacySubpathRewrite = options.onLegacySubpathRewrite ?? (() => undefined)
   const resolveExternalSpecifier = (specifier: string): string => {
     const cached = externalSpecifierCache.get(specifier)
     if (cached !== undefined) return cached
-    const resolved = rewriteLegacySubpathSpecifier(specifier, appRequire)
+    const resolved = rewriteLegacySubpathSpecifier(specifier, appRequire, onLegacySubpathRewrite)
     externalSpecifierCache.set(specifier, resolved)
     return resolved
   }
@@ -478,6 +487,7 @@ async function compileAppSourceFileWithActiveEsbuild(
   // Dynamically import esbuild only when needed
   const esbuild = await getEsbuildRuntime()
 
+  const rewrittenPackageManifests = new Set<string>()
   // Use esbuild.build with bundling to handle JSON imports
   const result = await esbuild.build({
     entryPoints: [tsPath],
@@ -489,7 +499,9 @@ async function compileAppSourceFileWithActiveEsbuild(
     platform: 'node',
     target: 'node18',
     tsconfig: appTsconfig,
-    plugins: createCliBundlePlugins(appRoot),
+    plugins: createCliBundlePlugins(appRoot, {
+      onLegacySubpathRewrite: (manifestPath) => rewrittenPackageManifests.add(manifestPath),
+    }),
     // Allow JSON imports
     loader: { '.json': 'json' },
   })
@@ -500,6 +512,7 @@ async function compileAppSourceFileWithActiveEsbuild(
     dependencies: {
       ...collectDependencyHashes(appRoot, result.metafile.inputs),
       ...hashFilesRelativeTo(appRoot, tsconfigPaths),
+      ...hashFilesRelativeTo(appRoot, [...rewrittenPackageManifests]),
     },
   }
   fs.writeFileSync(metadataPath, JSON.stringify(metadata))
