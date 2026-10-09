@@ -95,9 +95,9 @@ the backstop (Design decisions #5).
 > Bilans balances or that its net result equals RZiS's (#3b, new); the
 > statutory prior-year column was missing (#8, new); the mapping had no
 > create/delete path (#7, rewritten); and `ClosingResolution` was recorded
-> but never consumed, with no loss case (#4, rewritten). Items that need an
-> accountant's decision are marked **⚠ NEEDS HUMAN CONFIRMATION** where
-> they occur. Changelog: 2026-10-09.
+> but never consumed, with no loss case (#4, rewritten). Open domain
+> questions were closed by the author on 2026-10-09 (Design decisions #4,
+> #8). Changelog: 2026-10-09.
 
 ## Problem Statement
 
@@ -471,11 +471,16 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
      `allocations: { category, amount, note? }[]`, each `amount > 0`, summing
      to the absolute net result. The permitted categories depend on the sign
      of the net result (the server derives `resolutionKind` from it):
-     - profit: `dividend`, `supplementary_capital` (kapitał zapasowy),
-       `reserve_capital` (kapitał rezerwowy), `retained_earnings`
-       (niepodzielony zysk), `other`;
+     - profit: `dividend` (for a partnership: payout to partners),
+       `supplementary_capital` (kapitał zapasowy), `reserve_capital`
+       (kapitał rezerwowy), `share_capital_increase` (podwyższenie kapitału
+       zakładowego), `prior_loss_coverage` (pokrycie straty z lat
+       ubiegłych), `social_benefits_fund` (zakładowy fundusz świadczeń
+       socjalnych), `employee_bonuses`, `retained_earnings` (niepodzielony
+       zysk), `other`;
      - loss: `covered_from_supplementary_capital`,
-       `covered_from_reserve_capital`, `carried_forward` (strata z lat
+       `covered_from_reserve_capital`, `covered_from_partner_contributions`
+       (dopłaty / wkłady wspólników), `carried_forward` (strata z lat
        ubiegłych), `other`.
 
      Each category appears at most once, and `other` requires a `note`. A
@@ -490,12 +495,18 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
      leave it carried forward; a profit goes to a dividend (art. 191 §1
      KSH, S.A.: art. 348 §1), to those same capitals, or stays
      undistributed. Reducing the share capital is a separate procedure and
-     is not a category here. **⚠ NEEDS HUMAN CONFIRMATION:** an accountant
-     should confirm the category list, in particular whether an allocation
-     to the company social benefits fund (ZFŚS) or other special funds is
-     needed, and whether the list differs for partnerships and sole
-     proprietors, where there may be no such resolution at all. Category
-     labels are translation keys (i18n), not statutory text.
+     is not a category here. **Decided (2026-10-09, author):** the list
+     above is final for this document. It rests on secondary sources, not
+     statute text, and one of them dates from 2009: capital companies and
+     partnerships both allocate profit by a resolution to a dividend or
+     payout, supplementary and reserve capital, a share-capital increase,
+     covering prior losses, the company social benefits fund and employee
+     bonuses; partners' contributions are a way to cover a loss. Because a new
+     category is a new enum value and not a schema change, a missing one is a
+     cheap addition, not a redesign. For a sole proprietor there is no
+     resolution at all: `ClosingResolution` is optional disclosure and never a
+     precondition for generating a statement. Category labels are translation
+     keys (i18n), not statutory text.
 5. **Statement generation requires the fiscal year's last `FiscalPeriod`
    to be locked via `posting_rules.lockFiscalPeriod` — not a bare
    `CLOSING`-entry existence check.** GL core engine's `CLOSING` entry
@@ -678,12 +689,20 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
    - First year of operation (no prior fiscal period): every
      `previousAmount` is `null` and `comparative: { available: false,
      reason: 'first_year' }` — this is not an error.
-   - Prior year exists but its last period is unlocked or has no `CLOSING`
-     entry: `previousAmount` is `null` and `comparative: { available:
-     false, reason: 'prior_year_not_closed' }` plus a warning in the UI.
-     **⚠ NEEDS HUMAN CONFIRMATION:** warn-and-continue versus block
-     generation; a statutory filing without a comparative is usually
-     wrong, so an accountant may prefer a hard `409`.
+      - Prior year exists but its last period is unlocked or has no `CLOSING`
+     entry: **`409 PRIOR_YEAR_NOT_CLOSED`**, statements not produced, with
+     `scope: 'previous_year'` and the failing period named. The comparative
+     is computed from the prior year's own `CLOSING`-adjusted figures (above),
+     so without that entry it cannot be computed correctly, and a statutory
+     statement with a silently missing comparative is worse than a stop (the
+     same reasoning as the next bullet). The caller can opt out explicitly with
+     `comparatives: 'none'` in the request: every `previousAmount` is `null`
+     and `comparative: { available: false, reason: 'skipped' }`, so management
+     or draft figures remain possible without the absence being silent.
+     First year (no prior fiscal period at all) is the only case where an
+     absent comparative needs no opt-out. **Decided (2026-10-09, author):**
+     block by default with an explicit opt-out; not left for a separate
+     review.
    - A prior year that exists and is closed but fails the calendar guard
      or mapping coverage is `409` (same codes, `scope: 'previous_year'`),
      because a silently missing column would be worse than a stop.
@@ -874,13 +893,14 @@ selected organization), never accepted from the body.)
 
 ### `POST /api/financial-pl-accounting/statements/generate`
 
-- **Body**: `{ fiscalPeriodId: string }` — any period of the fiscal year;
+- **Body**: `{ fiscalPeriodId: string, comparatives?: 'include' | 'none' }`
+  (default `'include'`; Design decisions #8) — any period of the fiscal year;
   the response's `fiscalPeriodId` is the year's last period (Design
   decisions #5a).
 - **Response 200**: `{ fiscalYear, fiscalPeriodId, closingEntryId, bilans:
   ReportFormat, rzisPorownawczy: ReportFormat, rzisKalkulacyjny:
   ReportFormat, comparative: { available: true } | { available: false,
-  reason: 'first_year' | 'prior_year_not_closed' }, integrity: {
+  reason: 'first_year' | 'skipped' }, integrity: {
   balanceSheet: { aktywa, pasywa, balanced }, netResult: { bilans, rzis,
   matches } }, netResultParity: { porownawczy: number, kalkulacyjny:
   number, matches: boolean }, closingResolution: ClosingResolution | null
@@ -888,6 +908,8 @@ selected organization), never accepted from the body.)
   when `comparative.available` is `false`).
 - **Response 409** (statements are not produced; body carries a `code`):
   `PERIOD_NOT_LOCKED` or `CLOSING_ENTRY_MISSING` (Design decisions #5),
+  `PRIOR_YEAR_NOT_CLOSED` (Design decisions #8; not returned with
+  `comparatives: 'none'`),
   `FISCAL_YEAR_NOT_CALENDAR` (Design decisions #5a),
   `MAPPING_INCOMPLETE` with `uncovered: [{ accountId, side, statementCode
   }]` (Design decisions #2), or the mutation guard registry blocks the
@@ -1048,10 +1070,10 @@ banners/messages described here.)
   figure (usually zero) follows the parent's.
 - **Non-calendar fiscal year, or periods with a gap/overlap.** `409
   FISCAL_YEAR_NOT_CALENDAR` (Design decisions #5a).
-- **First fiscal year / prior year not yet closed.** `previousAmount` is
-  `null` and the reason is returned in `comparative` (Design decisions #8);
-  an unclosed prior year is a UI warning, with the block-vs-warn choice
-  pending confirmation.
+- **First fiscal year / prior year not yet closed.** First year: `previousAmount`
+  is `null` with `reason: 'first_year'`, not an error. A prior year that
+  exists but is not closed: `409 PRIOR_YEAR_NOT_CLOSED`, unless the request
+  sets `comparatives: 'none'` (Design decisions #8).
 - **Aktywa ≠ Pasywa, or Bilans net result ≠ RZiS net result.** `422`, both
   figures in the body, statements still returned (Design decisions #3b).
 - **Loss-making year.** The resolution takes the loss categories (Design
@@ -1149,10 +1171,9 @@ banners/messages described here.)
   specs: #6013's roll-up is additive over direct children (its own text,
   Design decisions #2), and #6038 specifies `listFiscalPeriods` (2026-10-09,
   Design decisions #5a; it must land before this document is built). The
-  third, the loss-coverage and profit-allocation categories, needs an
-  accountant (Design decisions #4), as does the missing-prior-year policy
-  (Design decisions #8); both are marked **⚠ NEEDS HUMAN CONFIRMATION**
-  and are blockers for implementation, not for the spec.
+third, the loss-coverage and profit-allocation categories (Design decisions
+#4) and the missing-prior-year policy (Design decisions #8), were decided by
+the author on 2026-10-09; the category list rests on secondary sources.
 - **Comparatives are restated on the current mapping.** A tenant editing a
   mapping after filing year N will see a changed year-N column in year
   N+1's statements (Design decisions #8). That is the standard
@@ -1350,9 +1371,10 @@ cross-module fallout.
   passing a mid-year period id resolves to the year's last period.
 - **Comparatives** (Design decisions #8): second-year generation fills
   `previousAmount` from the prior year's own `CLOSING`-adjusted figures;
-  first year returns `null` with `reason: 'first_year'`; unclosed prior year
-  returns `null` with `reason: 'prior_year_not_closed'`; a prior year
-  failing coverage returns `409` with `scope: 'previous_year'`.
+  first year returns `null` with `reason: 'first_year'`; an unclosed prior year
+  returns `409 PRIOR_YEAR_NOT_CLOSED` (`scope: 'previous_year'`), and the same
+  call with `comparatives: 'none'` returns `null` with `reason: 'skipped'`; a
+  prior year failing coverage returns `409` with `scope: 'previous_year'`.
 - **Resolution allocations** (Design decisions #4): a profit year accepts
   any permitted combination of profit categories summing to the profit and
   a loss year the loss categories summing to the loss; a category of the
@@ -1655,7 +1677,7 @@ None outstanding. (One was found and fixed during this report's own preparation 
 
 ### Verdict
 
-**Compliant with the repository rules above; open domain questions remain.** The 2026-09-21 verdict ("Fully compliant") is superseded by the 2026-10-09 re-run. Items that still need an accountant's or a maintainer's decision are marked **⚠ NEEDS HUMAN CONFIRMATION** in Design decisions #4 (loss-coverage and profit-allocation categories) and #8 (missing prior year: warn or block). Re-review requested on PR #6188.
+**Compliant with the repository rules above.** The 2026-09-21 verdict ("Fully compliant") is superseded by the 2026-10-09 re-run. The two open domain points (Design decisions #4 allocation categories, #8 missing prior year) were decided by the author on 2026-10-09; the category list rests on secondary sources. Not yet approved by a maintainer. Re-review requested on PR #6188.
 
 ## Changelog
 
@@ -1897,9 +1919,10 @@ Seven major and two minor findings from the review of `c7ac9ffcb`:
 - **Confirmed against upstream specs:** #6013's roll-up is additive over
   direct children (Design decisions #2); `listFiscalPeriods` is specified
   in #6038 on the same date (Design decisions #5a).
-- **Open confirmations** (marked **⚠ NEEDS HUMAN CONFIRMATION** in the
-  text): loss-coverage and profit-allocation categories (Design decisions
-  #4) and missing-prior-year warn-versus-block (Design decisions #8).
+- **Decided by the author, 2026-10-09:** the allocation category list
+  (Design decisions #4, extended) and the prior-year policy (Design decisions
+  #8: `409 PRIOR_YEAR_NOT_CLOSED` with an explicit `comparatives: 'none'`
+  opt-out).
 - **Not a change in this document:** retargeting the PR from `main` to
   `develop` is a repository action on the PR itself.
 - **Follow-up, same day: allocation list and the resolving body.** The
@@ -1909,6 +1932,13 @@ Seven major and two minor findings from the review of `c7ac9ffcb`:
   sets, adding a reserve-capital category the fixed fields lacked (art. 396
   §4–5 KSH). "Board resolution (uchwała zarządu)" was corrected to the
   owners' resolution (zgromadzenie wspólników / walne zgromadzenie, arts.
-  191 §1 and 396 §5 KSH). The category list stays marked **⚠ NEEDS HUMAN
-  CONFIRMATION** (ZFŚS and special funds, partnerships and sole proprietors
-  were not verified).
+  191 §1 and 396 §5 KSH). The category list was later extended and closed (see the
+  next entry).
+- **Follow-up, same day: open points closed.** Missing prior year is now
+  `409 PRIOR_YEAR_NOT_CLOSED`, with `comparatives: 'none'` as the explicit
+  opt-out (`reason: 'skipped'`); the earlier "null with a UI warning" was a
+  silent absence. The allocation lists gained `share_capital_increase`,
+  `prior_loss_coverage`, `social_benefits_fund`, `employee_bonuses` (profit)
+  and `covered_from_partner_contributions` (loss), from secondary sources
+  (one dated 2009), and sole proprietors need no resolution. No ⚠ remains in
+  this document; the category list is the least verified part.
