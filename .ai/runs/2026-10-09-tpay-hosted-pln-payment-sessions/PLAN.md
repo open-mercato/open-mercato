@@ -19,8 +19,8 @@
 | 1 | 1.3-review-fix | Report swallowed Tpay provider and translation errors to telemetry | inline | done | 75d7119fe |
 | 1 | 1.4 | Add the integration definition, callback URL validation, health check and DI registration | dispatch | done | 5d33e4bd1 |
 | 1 | 1.5 | Add the Tpay env preset, configure-from-env CLI and tenant setup hook | dispatch:cheap | done | 47a912c48 |
-| 1 | 1.6 | Forward payer email and name from checkout submit to the session metadata | inline | done | self |
-| 1 | 1.7 | Wire gateway-tpay into the app, create-app template, Dockerfile and ACL catalog | dispatch:capable | todo | — |
+| 1 | 1.6 | Forward payer email and name from checkout submit to the session metadata | inline | done | d87a80d42 |
+| 1 | 1.7 | Wire gateway-tpay into the app, create-app template, Dockerfile and ACL catalog | dispatch:capable | done | self |
 | 1 | 1.8 | Add Tpay API integration tests | dispatch | todo | — |
 | 1 | 1.9 | Add the Tpay user guide and align the spec with the implementation | inline | todo | — |
 

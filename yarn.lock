@@ -8642,6 +8642,7 @@ __metadata:
     "@open-mercato/enterprise": "workspace:*"
     "@open-mercato/events": "workspace:*"
     "@open-mercato/gateway-stripe": "workspace:*"
+    "@open-mercato/gateway-tpay": "workspace:*"
     "@open-mercato/onboarding": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/scheduler": "workspace:*"
@@ -9252,7 +9253,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/gateway-tpay@workspace:packages/gateway-tpay":
+"@open-mercato/gateway-tpay@workspace:*, @open-mercato/gateway-tpay@workspace:packages/gateway-tpay":
   version: 0.0.0-use.local
   resolution: "@open-mercato/gateway-tpay@workspace:packages/gateway-tpay"
   dependencies:
