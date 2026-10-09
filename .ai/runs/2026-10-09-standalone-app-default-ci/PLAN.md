@@ -14,8 +14,8 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 0 | 0.1 | Add the spec and fold in the analysis decisions | inline | done | 37dbf48c67 |
-| 0 | 0.2 | Measure the gate on a 7 GB / 2 vCPU container and record results in the spec | inline | done | pending |
-| 1 | 1.1 | Add template scripts/ci.mjs quality gate and the ci package script | dispatch | todo | — |
+| 0 | 0.2 | Measure the gate on a 7 GB / 2 vCPU container and record results in the spec | inline | done | 4f02386a64 |
+| 1 | 1.1 | Add template scripts/ci.mjs quality gate and the ci package script | dispatch | done | pending |
 | 1 | 1.2 | Add template ci.yml workflow and its structure test | dispatch | todo | — |
 | 1 | 1.3 | Add the --ci flag, conditional workflow copy and lockfile-first next steps | dispatch | todo | — |
 | 1 | 1.4 | Assert no agentic generator writes under .github/workflows | dispatch | todo | — |

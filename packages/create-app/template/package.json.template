@@ -23,6 +23,7 @@
     "i18n:check-hardcoded": "node scripts/i18n-check-hardcoded.mjs",
     "typecheck": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit",
     "test": "jest --config jest.config.cjs",
+    "ci": "node ./scripts/ci.mjs",
     "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
     "test:integration:ephemeral": "yarn mercato test:integration",
     "test:integration:ephemeral:start": "yarn mercato test:ephemeral",

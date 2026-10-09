@@ -38,6 +38,11 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig & { agentRules?: boolean } = {
   distDir: '.mercato/next',
+  // `yarn ci` (scripts/ci.mjs) runs `tsc` in its typecheck step and sets this
+  // flag for its build step only: Next's in-build type check would re-run it
+  // while the compiled graph is still in memory, which OOMs a 7 GB CI runner.
+  // A plain `yarn build` still type-checks.
+  typescript: { ignoreBuildErrors: process.env.OM_SKIP_NEXT_BUILD_TYPECHECK === '1' },
   // Mirror apps/mercato: scaffolded apps ship their own AGENTS.md/CLAUDE.md
   // from the template, so let Next 16.3+ leave them alone rather than
   // appending its managed agent-rules block on every `next dev`.
