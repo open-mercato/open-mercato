@@ -256,6 +256,21 @@ describe('requestTokenEndpoint', () => {
     expectNoSecrets(failure)
   })
 
+  it.each([
+    ['an oversized timeoutMs', 60_000, 10_000],
+    ['no timeoutMs', undefined, 10_000],
+    ['a shorter timeoutMs', 1_500, 1_500],
+  ])('bounds the call with %s', async (_case, timeoutMs, expectedMs) => {
+    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout')
+    try {
+      await requestTokenEndpoint({ url: server.url, client: BASIC_CLIENT, params: {}, timeoutMs })
+      expect(timeoutSpy).toHaveBeenCalledTimes(1)
+      expect(timeoutSpy).toHaveBeenCalledWith(expectedMs)
+    } finally {
+      timeoutSpy.mockRestore()
+    }
+  })
+
   it('reports the caller signal aborting as a timeout', async () => {
     server.respondWith(() => undefined)
     const controller = new AbortController()
@@ -346,6 +361,20 @@ describe('revokeToken', () => {
     const failure = await captureError(revokeToken({ url: server.url, client: BASIC_CLIENT, token: 'rt' }))
     expect(failure).toMatchObject({ kind: 'invalid_response', status: 500 })
     expectNoSecrets(failure)
+  })
+
+  it.each([
+    ['an oversized timeoutMs', 60_000, 8_000],
+    ['no timeoutMs', undefined, 8_000],
+  ])('bounds the call with %s', async (_case, timeoutMs, expectedMs) => {
+    const timeoutSpy = jest.spyOn(AbortSignal, 'timeout')
+    try {
+      await revokeToken({ url: server.url, client: BASIC_CLIENT, token: 'rt', timeoutMs })
+      expect(timeoutSpy).toHaveBeenCalledTimes(1)
+      expect(timeoutSpy).toHaveBeenCalledWith(expectedMs)
+    } finally {
+      timeoutSpy.mockRestore()
+    }
   })
 
   it('times out while the headers are pending', async () => {
