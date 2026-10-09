@@ -58,6 +58,6 @@ Source doc: `.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md`
 
 ### Phase 3: Review and delivery
 
-- [ ] 3.1 Run the authoritative `om-auto-review-pr` pass, address findings, and finalize the PR with verification evidence.
+- [x] 3.1 Run the authoritative `om-auto-review-pr` pass, address findings, and finalize the PR with verification evidence. — full review at3f704b864 found no blocker, major, minor, or nit findings. GitHub rejected formal self-approval; the complete review is posted as a comment and independent approval remains required. PR body, labels, and run summary record verification and pending CI. No merge performed.
 
 PR: #7126
