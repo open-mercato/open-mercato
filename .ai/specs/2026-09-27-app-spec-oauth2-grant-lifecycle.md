@@ -593,6 +593,7 @@ It ships **dark**: no existing integration holds a grant (the only always-on pat
 | Generic `/api/integrations/[id]/oauth/*` routes (provider in the path), a generic Connect UI deriving the `oauth` field from the descriptor, the state cookie moved to core with hub bridges | a second tenant-level OAuth provider is committed (e.g. the Google Workspace spec) | ~5 |
 | Hub delegates to the grant service; fix `isReauthError`; per-user strict reads; PKCE for Gmail | a strict-rotation per-user provider, or consolidation; after #6433 (#6478 merged) | ~3 |
 | `reportResourceChallenge` (`tryOnce` lock mode), `revokePreviousOnReconnect`, `listGrantOwners` | a consumer needs them | ~1–2 |
+| A per-integration holder sub-cap under the grant service's 4-slot ceiling, as an optional lock-helper option (additive, BC §2) | a second provider uses the grant service: a second tenant-level OAuth provider is committed, or the hub delegates to it | ~1 |
 | `integrations.oauth_grant.invalidated` event + `integrations.integration.reauth_required` notification, with the `reauthRequired` projection and its runtime `integrations.state.updated` emission | admins miss revoked grants, or a second consumer needs the event; the projection after the `upsert` fix | ~2–3 |
 | `integrations.oauth_grant.connected` / `.disconnected` events with a data_sync subscriber that pauses schedules | a consumer needs schedules paused | ~1–2 |
 | A partial unique index on live `…__oauth_grant` rows (R4); PKCE and state-cookie crypto moved into `shared` (§4.5.4) | grants exist in production; the generic routes, or a third PKCE user | ~2 |
@@ -605,7 +606,7 @@ It ships **dark**: no existing integration holds a grant (the only always-on pat
 Related: upsert defaults fix         1 PR        (issue #6915, independent bug fix; gates the Phase 3 projection)
 Phase 1: grant-lifecycle core      12 commits   capabilities for WF2–WF4 (+ WF1/WF5 primitives incl. PKCE)
 Phase 2: first consumer            ~5 commits   WF1–WF4 end-to-end (official module, own spec)
-Phase 3: triggered            ~14–25 commits   each item only when its trigger fires (many are optional)
+Phase 3: triggered            ~15–26 commits   each item only when its trigger fires (many are optional)
 Total to production-ready:         ~17 commits  (Phases 1–2)
 ```
 
@@ -697,6 +698,7 @@ Contract surfaces touched (`BACKWARD_COMPATIBILITY.md`). All changes are additiv
 | R14 | A dedicated `integration_oauth_grants` table | A migration, a new encryption map and a second credential store to cover; revisit when grant enumeration or status queries must avoid decryption. |
 | R15 | A core route-handler factory called from provider-owned route files in Phase 1 | It would fix the route shape from a single consumer, like the generic routes (R2); the route contract (§1.4.3) and its Phase 2 tests cover the routes until a second shape exists. |
 | R16 | Revocation as a queue job with retries | The job payload would carry the refresh token (I4, I5); revocation is best-effort by design, and its outcome is logged (WF4). |
+| R17 | A refresh lease instead of the lock transaction across the token call: a short transaction marks the grant as being refreshed, the token call runs with no transaction open, and the result commits with a compare-and-set on the lease | It would hold no pooled connection during the call, but a lease expires on its own clock, not with its holder: a holder paused past it (an event-loop or GC pause, a stalled KMS or DB step around the bounded call) is still alive when a second refresher takes over and redeems the same refresh token. The compare-and-set keeps the stale result out of the row, but strict rotation (RFC 9700 §4.14.2) can answer the double redemption by revoking the grant. The lock transaction is freed at once when its holder's process exits, and its only clock is the 120 s `idle_in_transaction_session_timeout` backstop (§1.4.6); a lease that long would block a crashed holder's grant for 120 s, and a shorter one lets a shorter pause cause the double redemption. The connection the lock costs is bounded by I6 and the per-process holder cap. |
 
 ## Production Readiness `PM`
 
@@ -723,6 +725,10 @@ Repository evidence: file references in §1.4.1 (line-level in the Phase 1 featu
 **PKCE policy:** **on (S256) by default** for every auth-code grant, including confidential clients. RFC 9700 §2.1.1 recommends it for confidential clients (and requires it for public ones) and OAuth 2.1 (draft) requires it; it binds the authorization code to the session that requested it, so an intercepted or injected code can't be redeemed; it costs one verifier in the already-encrypted state. Providers can opt out via the descriptor only when the provider rejects PKCE. Gmail (hub) keeps its current behaviour until Phase 3.
 
 ## Changelog
+
+### 2026-10-09
+- §11 R17: a refresh lease with a compare-and-set commit is rejected; a lease as safe as the lock, whose only clock is the 120 s idle-in-transaction backstop, would block a crashed holder's grant that long, so the lock keeps one pooled connection per holder, bounded by I6 and the holder cap.
+- §7 Phase 3: a per-integration holder sub-cap, triggered when a second provider uses the grant service.
 
 ### 2026-10-08
 - §4.1 (P3), §4.5.1 and §10.1: `createCredentialsService` takes `{ kms }` as an optional third parameter, after the existing `encryptionService`; grant writes use `CredentialsWriteOptions.ensureEncryptionMap: 'when-not-canonical'`.

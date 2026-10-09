@@ -23,7 +23,7 @@ The App Spec is the single source of truth and **wins on any conflict**. This sp
 | Commit list and scores, placement, library choice, SSO boundary | App Spec §4.1, §4.5 |
 | Acceptance (domain and business criteria), phasing, contract surfaces and sign-off | App Spec §7, §10.1 |
 | Cross-spec conflicts, including the superseded SPEC-045a §8 (OAuth credential type, refresh worker, reauth flag) | App Spec §8 |
-| Rejected alternatives R1–R16 | App Spec §11 |
+| Rejected alternatives R1–R17 | App Spec §11 |
 
 ## Problem Statement
 
@@ -45,7 +45,7 @@ Implementation-level decisions (the product decisions are the App Spec's):
 | The lock `fn` **returns an outcome**; the service throws after the lock transaction commits | A throw inside `fn` rolls back, which would drop an invalidation or a failure diagnostic that §1.4.5 requires to persist. |
 | The transient-DB matcher is **exported** from the lock-helper module as `isTransientLockDbError` | The grant service must classify DB errors raised inside `fn` (its own flush, `txEm.execute`) exactly like the helper classifies its own; a second copy would drift. It lives at the already listed path `@open-mercato/shared/lib/db/advisoryLock` (§10.1 sign-off covers the module). |
 | The descriptor, the owner, the closed unions and `OAuthGrantError` / `OAuthDescriptorError` live in `lib/oauth/descriptor.ts`; every other contract export sits in another §10.1 file (`token-endpoint.ts`, `grant-service.ts`, `health.ts`, …) | Every contract symbol stays inside the exact file paths App Spec §10.1 lists. The internal helpers (`grant-blob.ts`, `pin-tenant-dek.ts`) resolve through core's `./*` export (`packages/core/package.json:158-164`) but are not contract surfaces: their exports carry `@internal` JSDoc and the BC section excludes them. |
-| Concurrent lock holders per process are capped by the lock helper's `maxConcurrentHolders` (the grant service passes 4) | Each holder keeps one extra pooled connection for up to the 10 s token exchange (App Spec I6); with a pool of 20, four holders leave 16 connections to everything else. Waiting for a slot holds no connection and counts against the waiter deadline. |
+| Concurrent lock holders per process are capped by the lock helper's `maxConcurrentHolders` (the grant service passes 4) | Each holder keeps one extra pooled connection for up to the 10 s token exchange (App Spec I6; a refresh lease that would avoid it is rejected in R17); with a pool of 20, four holders leave 16 connections to everything else. Waiting for a slot holds no connection and counts against the waiter deadline. |
 | The fake authorization server runs in-process (Jest) and inside the app's web process behind the test-only route (Playwright) | App Spec R12. One implementation serves both. |
 
 ## Architecture
@@ -649,7 +649,7 @@ export function startPgTestOrm(options?: { poolMax?: number; acquireTimeoutMs?: 
 ### CI steps
 
 - No new job. The suites run as steps of the existing `documents-multi-instance` job (`ci.yml:817-866`), which already runs a gated `testcontainers` suite on every PR, on a runner with Docker and with `build-artifacts` downloaded (`:860-863`). P1b adds `yarn workspace @open-mercato/shared test:pg-integration`, P3 adds `yarn workspace @open-mercato/core test:pg-integration` and P6 adds the publish-shape check.
-- Each new step has a name that says what it runs and `if: ${{ !cancelled() }}`, so a failing suite never hides the result of the next one. Renaming the job is left to maintainers, because it renames the check.
+- Each new step has a name that says what it runs and `if: ${{ !cancelled() }}`, so a failing suite never hides the result of the next one. The job keeps its name, because other files name the documents regression gate by it (`.ai/specs/2026-07-08-documents-collaborative-editor.md:688,698`, `packages/documents/README.md:87`, `packages/documents/src/modules/documents/__integration__/helpers/collabSidecar.ts:14`, `scripts/__tests__/yarn-install-crash-retry.test.mjs:9`, and in `ci.yml` the `needs:` of `merge-coverage`, `:1109`, and a comment, `:909`), so a rename is a cross-module change outside these specs, while the step names already say which suite failed.
 - The job takes about 1 min on a `node_modules` cache hit and about 3–4.5 min on PR runs that install dependencies, against its 15-minute timeout (`:819`); P4e compares the measured total of a PR run with it and raises the timeout if needed.
 - No branch-protection change: `develop` requires no status checks (the branch API reports `required_status_checks.enforcement_level: off` with no contexts, and no ruleset applies to the branch), so these steps gate a merge like every other CI job.
 
@@ -742,7 +742,7 @@ Labels: **[Jest]** in-process unit tests (the fake server is a real HTTP server,
 | A37 | Banner: admin sees it with a link whose `href` carries `?tab=<connectTabId>` (`health` for the test integration), and following it activates that tab without a reload; a Viewer without the link and with the `askAdmin` ending; neither link nor ending while access loads; hidden for `unavailable`; a flag set through the state PUT on an integration without a grant shows none | Playwright + Jest (component) | P5 |
 | A38 | Every App Spec §10.1 import path resolves against the built `dist` and the file exists | CI script | P6 |
 | A39 | Encryption disabled (`TENANT_DATA_ENCRYPTION=no`): `completeConnect`, a forced refresh, `updateProviderData`, `inspectGrant` and `disconnect` succeed with no KMS call, and the grant row is plaintext at both layers like an admin-path row. A row sealed while encryption was on (envelope or field-level ciphertext) → `platform_unavailable` from `getAccessToken`, `unavailable` from `inspectGrant`, `disconnect_tokens_unreadable` from a default `disconnect`; `force` erases it and a following Connect writes a plaintext grant | Jest real-PG | P4e |
-| A40 | Holder cap (I6): with pool max 6 and a 1 s acquire timeout, 8 Grant Owners refreshing at once against a fake that holds token responses until the test releases them hold at most 4 lock transactions at a time, and an unrelated query issued meanwhile gets a connection without an acquire timeout (without the cap it would time out); the test then releases the fake | Jest real-PG | P4c |
+| A40 | Holder cap (I6): with pool max 6 and a 1 s acquire timeout, 8 Grant Owners of one integration refreshing at once against a fake that holds token responses until the test releases them hold at most 4 lock transactions at a time, and an unrelated query issued meanwhile gets a connection without an acquire timeout (without the cap it would time out); a refresh for a Grant Owner of a second integration, issued while the 4 slots are held, waits for a slot without holding a connection (once it is queued for a slot, after its fast-path reads and the unrelated query, the test takes two connections, which fill the pool beside the 4 holders without an acquire timeout) and completes after the test releases the fake; the slot deadline stays with A2 | Jest real-PG | P4c |
 
 ## Implementation Plan
 
@@ -840,6 +840,12 @@ Product-level risks (persist window, KMS fallback, field-level layer, stalled ho
 - **Severity:** Medium. **Affected area:** integrations API surface.
 - **Mitigation:** guards before the handler, writes limited to `test_oauth_grant`, loopback fake only, a visible marketplace entry, never in `.env.example`, docs warning.
 - **Residual risk:** a credentials manager can create junk rows for the test integration in their own organization; no real integration's secrets are reachable.
+
+#### One hanging token endpoint holds every holder slot of a process
+- **Scenario:** holder slots are counted per key namespace (Lock section, Slots) and every Grant Lock key is in the namespace `oauth_grant` (Data Models), so all integrations share the grant service's 4 slots in a process. When one provider's token endpoint hangs until the 10 s exchange bound (App Spec I6), four refreshes of its Grant Owners hold every slot. Refreshes of other integrations in that process wait for a slot, holding no connection, and fail `transient` at their 15 s deadline while the hanging provider's refreshes keep every slot taken: before expiry with a `degraded` token (none for a `rejectedAccessToken` call), after expiry with none. Their Connect, External Account save and Disconnect wait the same way and fail at their own deadlines.
+- **Severity:** Low: Phase 1 ships no consumer in this repository and the first consumer is a single provider (App Spec §7), so the case needs a second provider on the grant service in the same deployment (a second tenant-level OAuth integration, or the Phase 3 hub migration). **Affected area:** grant operations of other integrations in the same process (I6).
+- **Mitigation:** waiting for a slot holds no connection (A2, A40); each waiter loses at most its own deadline per call; fast failures (5xx, 429, a refused connection) release the slot at once; slots are per process, so only processes that refresh the hanging provider's grants are affected.
+- **Residual risk:** while one provider keeps hanging, other integrations' expired grants can get no token in that process until it recovers: the no-retry-storm rule (`getAccessToken` 5.3) spares only callers that started before a failure was recorded, so every later call to the hanging provider takes a slot again. A per-integration sub-cap under the 4-slot ceiling arrives as a new optional lock-helper option (additive, `BACKWARD_COMPATIBILITY.md` §2) when a second provider uses the grant service (App Spec §7, Phase 3); a namespace per integration is ruled out, because it would change the frozen lock key.
 
 #### The exported matcher and new closed unions become STABLE
 - **Scenario:** `isTransientLockDbError`, the unions in `descriptor.ts` and `OAUTH_HEALTH_CODES` are frozen once released.
@@ -951,6 +957,10 @@ No migration or deprecation; the only narrowings are the `__oauth_grant` reserva
 Ready for implementation; the implementation PR's merge waits for App Spec Q3 (surfaces, CI steps) and Q7 (consumer gate).
 
 ## Changelog
+
+### 2026-10-09
+- All integrations share the grant service's 4 holder slots per process; one hanging token endpoint holding them is an accepted Phase 1 risk with its bound (Risks), A40 pins that a second integration's refresh waits without a connection, and a per-integration sub-cap arrives as an optional lock-helper option when a second provider uses the grant service (App Spec §7, Phase 3).
+- The real-Postgres steps stay in the `documents-multi-instance` job under its current name, which other files use for the documents regression gate; the holder-cap decision points to App Spec R17 (refresh lease rejected).
 
 ### 2026-10-08
 - Baseline `develop` @ `85ee5f16b`.
