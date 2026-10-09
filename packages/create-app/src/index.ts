@@ -377,6 +377,14 @@ const FILE_RENAMES: Record<string, string> = {
 
 const SKIP_DIRS = new Set(['__tests__', '__integration__'])
 
+export function applyTemplatePlaceholders(content: string, placeholders: Record<string, string>): string {
+  let rendered = content
+  for (const [key, value] of Object.entries(placeholders)) {
+    rendered = rendered.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
+  }
+  return rendered
+}
+
 function copyDirRecursive(src: string, dest: string, placeholders: Record<string, string>): void {
   if (!existsSync(dest)) {
     mkdirSync(dest, { recursive: true })
@@ -396,13 +404,7 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
     } else if (entry.endsWith('.template')) {
       const finalName = entry.replace('.template', '')
       destPath = join(dest, finalName)
-      let content = readFileSync(srcPath, 'utf-8')
-
-      for (const [key, value] of Object.entries(placeholders)) {
-        content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
-      }
-
-      writeFileSync(destPath, content)
+      writeFileSync(destPath, applyTemplatePlaceholders(readFileSync(srcPath, 'utf-8'), placeholders))
     } else {
       copyFileSync(srcPath, destPath)
     }
