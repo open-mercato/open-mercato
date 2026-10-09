@@ -1591,7 +1591,7 @@ function DefaultTimeEntryDialog({
             aria-invalid={fieldIssues.task ? true : undefined}
             aria-describedby={fieldIssues.task ? 'entry-dialog-task-message' : undefined}
           >
-            <TaskPicker
+            <TaskPicker key={mode}
               value={taskId}
               onChange={(next) => setTaskId(next || null)}
               items={pickerItems}

@@ -1354,6 +1354,28 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
     await waitFor(() => expect(document.activeElement).toBe(projectSelect()))
   })
 
+  it('remounts the task picker when the mode flips late, so a list opened in task mode does not linger', async () => {
+    let releaseSettings: () => void = () => {}
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/settings')) {
+        await new Promise<void>((resolve) => {
+          releaseSettings = resolve
+        })
+        return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    renderDialog()
+
+    const taskModePicker = await screen.findByTestId('task-picker-query')
+    releaseSettings()
+    await screen.findByTestId('entry-dialog-project')
+
+    expect(taskModePicker.isConnected).toBe(false)
+    expect(screen.getByTestId('task-picker-query')).not.toBe(taskModePicker)
+  })
+
   it('leaves focus where the person moved it when the settings flip the mode late', async () => {
     let releaseSettings: () => void = () => {}
     const base = mockApiCall.getMockImplementation()
