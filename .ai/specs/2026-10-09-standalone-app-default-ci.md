@@ -94,8 +94,8 @@ flowchart LR
 - **Template copy:** workflow files live at `packages/create-app/template/.github/workflows/*.yml`. GitHub only reads the repository-root `.github/workflows/`, so the nested copy never runs in the monorepo. Dot-directories already ship in the published `template/` (e.g. `template/.ai/`). The version header uses a `.template` suffix for placeholder substitution, the existing mechanism. `copyDirRecursive` gains a skip for `.github/workflows` when `--ci none`.
 - **Integration discovery in a fresh app:** `discoverIntegrationSpecFiles` (`packages/cli/src/lib/testing/integration-discovery.ts`) also walks `node_modules/@open-mercato`. Only `core`, `documents` and `enterprise` exclude `__integration__` from their published files, so packages such as `webhooks`, `search` and `checkout` ship platform specs into every app. Those specs need ~40 env vars and would run for hours on 2 vCPU. Discovery happens inside the Playwright config, after the ephemeral environment has started and the app has been built, and with zero specs a standalone app's Playwright exits 1 ("No tests found").
   - **Decision (Q10):** `mercato test:integration --app-only` (opt-in) computes the app-owned spec list in the CLI before anything starts: discovered specs outside `node_modules/` (`src/modules/**/__integration__`, plus `.ai/qa/tests/**` where the app's Playwright config discovers it). An empty list prints `No app-owned integration specs found` and exits 0 without starting Docker or building. A non-empty list is passed to Playwright explicitly, so platform specs never run. Without the flag nothing changes.
-- **Build env without `.env`:** `.env` is gitignored, so CI checkouts have none. When `.env` is absent, `scripts/ci.mjs` copies `.env.example` to `.env` and fills only the variables `generate`/`build` provably need (identified in Phase 0; `DOCUMENTS_COLLAB_JWT_SECRET_V2` is a known candidate per the comment in `snapshot.yml`) with throwaway `ci-placeholder-*` values. It never reads or prints repository secrets, and it never overwrites an existing `.env`. The same materialization is exposed as `node scripts/ci.mjs --prepare-env`, which `integration.yml` calls before the ephemeral runner builds and boots the app.
-- **Heap:** the template's `typecheck` and `build` scripts pin `NODE_OPTIONS=--max-old-space-size=8192` through `cross-env`. Phase 0 measures whether the gate fits a 7 GB runner as is. If it does not, the fix goes into those scripts (honor a pre-set heap) so `scripts/ci.mjs` keeps calling the same scripts. There is never a second gate definition.
+- **Build env without `.env`:** `.env` is gitignored, so CI checkouts have none. When `.env` is absent, `scripts/ci.mjs` copies `.env.example` to `.env`. Phase 0 found that no variable needs a placeholder: `generate`, `typecheck` and `build` pass on an unmodified `.env.example` copy (`mercato generate` already performs the same copy as a side effect; `ci.mjs` makes it explicit). It never reads or prints repository secrets, and it never overwrites an existing `.env`. The same materialization is exposed as `node scripts/ci.mjs --prepare-env`, which `integration.yml` calls before the ephemeral runner builds and boots the app.
+- **Memory (decided by Phase 0):** `tsc` needs its 8 GB heap ceiling and peaks at ~6.5 GB, which fits. `next build` does not fit, because it re-runs the TypeScript check in a worker while the main process still holds the compiled graph. It is OOM-killed at 7 GB whatever the heap setting. Since `yarn ci` has just run `typecheck`, that second check is redundant. The template's `next.config.ts` therefore sets `typescript.ignoreBuildErrors` only when `OM_SKIP_NEXT_BUILD_TYPECHECK=1`, and `scripts/ci.mjs` sets that variable for its `build` step only. A plain `yarn build` still type-checks. The gate still calls the same `yarn build` script, so there is one gate definition. The heap scripts are unchanged.
 
 ## 📝 Data Model
 
@@ -136,7 +136,7 @@ No HTTP API or UI path changes, so no Playwright specs are added. Coverage is:
 
 | Scenario | What the user sees | Handling |
 |---|---|---|
-| Gate exceeds 7 GB on a private-repo runner | OOM-killed `typecheck`/`build`, red check | Phase 0 measures this. If the gate does not fit, `ci.mjs` runs memory-heavy steps with a tuned `NODE_OPTIONS` (calling `tsc`/`next build` directly instead of the `cross-env`-pinned scripts). The upstream guard runs the gate under a 7 GB memory cap so regressions surface upstream. |
+| Gate exceeds 7 GB on a private-repo runner | OOM-killed `typecheck`/`build`, red check | Measured in Phase 0: `build` only fits with Next's redundant type check skipped inside `yarn ci`; `typecheck` peaks at ~6.5 GB. The canary runs `yarn ci` under the same 7 GB cap so a regression surfaces upstream. |
 | `yarn.lock` is still the scaffold stub (user pushed before `yarn install`/`yarn setup`) | Red first check | Design fix: the next-steps summary puts `yarn install` + commit `yarn.lock` before the GitHub publish block, and the workflow's `--check-lockfile` step fails first with `run yarn install and commit yarn.lock` instead of Yarn's YN0028. |
 | Self-hosted runner without Docker | `integration.yml` fails at testcontainers | Documented requirement. `OM_CI_INTEGRATION_RUNS_ON` lets integration stay on hosted runners. |
 | Fresh app with zero app-owned integration specs | Must be green | `--app-only` exits 0 before building (Q10); CLI unit test covers it. |
@@ -173,6 +173,28 @@ No HTTP API or UI path changes, so no Playwright specs are added. Coverage is:
 3. Record how many integration specs a fresh app discovers (app-owned vs `node_modules`) and the current zero-app-spec behavior.
 4. Update this spec with the numbers and the decisions they force (heap tuning, placeholder list, empty-suite handling). **Gate:** if step 1 cannot pass at 7 GB with heap tuning, stop and escalate the default (see Risks).
 
+#### Phase 0 results (2026-10-09)
+
+Setup: `develop` @ `352b5843d8` published to a local Verdaccio, `create-mercato-app --preset classic --agents all`, `yarn install` on the host, then each step in `docker run --memory=7g --memory-swap=7g --cpus=2` (`node:24.20.0-trixie`, no swap). Peak is the container's cgroup `memory.peak`, which includes reclaimable page cache, so values at the 7,168 MiB cap are an upper bound, not proof of pressure. Docker cannot hide the host's 12 cores from `os.cpus()`, so the build was also measured with Next's `experimental.cpus: 1`, which is what a 2-vCPU runner gets by default.
+
+| Step | Result | Wall time | Peak memory |
+|---|---|---|---|
+| `yarn install` (cold cache) | pass | ~1.5 min | host (not capped) |
+| `generate` | pass | 46 s | 2,822 MiB |
+| `typecheck` | pass | 166–183 s | 6,587–6,668 MiB |
+| `typecheck` at `--max-old-space-size=4096` | V8 heap abort | 150 s | 4,398 MiB |
+| `lint` | pass | 14 s | 1,257 MiB |
+| `ds:check` | pass | 1 s | 156 MiB |
+| `test` | pass (no unit tests yet) | 1 s | 171 MiB |
+| `build` as shipped (1 worker) | OOM-killed in "Running TypeScript" | 164 s | 7,168 MiB (cap) |
+| `build` at heap 6144 / 4096 | OOM-killed in "Running TypeScript" | ~122 s | 7,168 MiB (cap) |
+| `build` with the Next type check skipped (1 worker) | **pass** | 189 s | 7,168 MiB (cap, incl. page cache) |
+
+- **Total gate** ≈ 7.5 min after install on 2 vCPU. **Disk:** app 3.3 GB (`node_modules` 1.9 GB, `.mercato` 1.4 GB) plus a 1.5 GB Yarn cache, so ~5 GB of the runner's 14 GB.
+- **Decisions forced:** skip Next's redundant in-build type check during `yarn ci` (see Architecture → Memory). No `.env` placeholders are needed. Typecheck headroom is ~0.5 GB under 7 GB; hosted runners also have swap, but this is the first number to watch and the canary runs under the same cap.
+- **Integration discovery:** the fresh app discovers **153 specs, all under `node_modules/@open-mercato/*`** (15 packages, including `webhooks`, `search`, `checkout`, `ai-assistant`, `scheduler` and the channel packages), and **0 app-owned specs**. With `--agents` (as here) the agentic Playwright config ignores `node_modules/**`, so Playwright would find nothing and exit 1 after the full environment boot and build. With `--agents none` the template config runs all 153. Both paths need `--app-only` (Q10). Zero-spec behavior comes from tracing the code, not from executing `test:integration`.
+- **Gate verdict:** passes at 7 GB with the type-check skip, so the default stays `github`.
+
 ### Phase 1: Quality gate
 
 1. Add `template/scripts/ci.mjs` and the `ci` script in `package.json.template`. Unit-test the step order, stop-on-first-failure, and `.env` materialization (never overwriting an existing `.env`).
@@ -208,4 +230,5 @@ Deploy (Railway has its own path), Dependabot/Renovate, CodeQL, GitLab/Bitbucket
 ## 📝 Changelog
 
 - 2026-10-09: Skeleton, Q1–Q9 resolved, full draft.
+- 2026-10-09: Phase 0 measured (see Phase 0 results): build only fits 7 GB with Next's in-build type check skipped during `yarn ci`; no `.env` placeholders needed; a fresh app discovers 153 platform specs and 0 app-owned ones.
 - 2026-10-09: Folded in the pre-implementation analysis. Q10 (opt-in `--app-only` discovery), Q11 (post-publish canary), Q12 (real-GitHub verification deferred). Added the stub-lockfile fix, PR-only cancellation, fork-guarded runners, shared `--prepare-env`, the heap rule, Migration & BC and Integration Test Coverage sections.
