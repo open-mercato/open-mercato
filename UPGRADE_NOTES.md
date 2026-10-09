@@ -52,6 +52,120 @@ most of the patterns listed below in a user's codebase.
   keeps working. Its answer is treated as contributed, so the footer shows a neutral
   "Target". To report `isBuiltIn` yourself, also replace `resolveCapacityAsync`.
 
+### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
+
+The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so
+the command's tenant check was a no-op. `deleteCatalogProductsWithProgress`
+(`@open-mercato/core/modules/catalog/lib/bulkDelete`) now runs the command as the enqueueing user,
+bound to the job's tenant and organization, so a product from another tenant is rejected with 403.
+The bulk delete is also recorded in the action log under that user.
+
+**Action for module authors:** if you enqueue jobs on `CATALOG_PRODUCT_BULK_DELETE_QUEUE` or call
+`deleteCatalogProductsWithProgress` yourself, always pass `scope.tenantId`, `scope.organizationId`
+and `scope.userId`. A job missing any of them now fails before deleting anything instead of running
+without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
+needed if you only use the API.
+
+### Redoing an `auth.users.create` no longer restores the account's password
+
+Creating a user writes an audit entry, and that entry used to carry the credential twice: the
+plaintext `password` from the command input (persisted verbatim in `action_logs.command_payload`
+as the redo input) and the derived `password_hash` (persisted in the undo snapshot). Both are now
+withheld — the redo input is stored without `password`, and the undo snapshot without
+`passwordHash`.
+
+The operation itself stays fully undoable and redoable, and redo still restores the original row
+with its original id (#2506). What changes is that an account restored by **redo** comes back
+**without a credential** and must go through a password reset before it can sign in again. Undo is
+unaffected: it only deletes the row and never needed a secret.
+
+**Action for operators:** after redoing a user-create, send the account a password reset. The
+account is otherwise intact (same id, email, name, roles, organization, custom fields).
+
+**Action for module authors:** none, unless your own command takes a secret in its input. In that
+case set the new `redoInput` on the metadata your `buildLog` returns — a projection of the input
+with the secret removed — instead of marking the whole entry `replayable: false`:
+
+```ts
+buildLog: async ({ input, result }) => {
+  const { password: _secret, ...redoInput } = input
+  return { redoInput, /* …the rest of the metadata… */ }
+}
+```
+
+`replayable: false` suppresses the undo token as well, which removes the operator's ability to
+revert a write that may carry no secret of its own. Reach for `redoInput` first; keep
+`replayable: false` for the case where replaying genuinely cannot be made safe (an `auth.users.update`
+that changes a password still uses it, because restoring the previous credential would require
+storing it).
+
+### Module API routes answer a thrown `CrudHttpError` with its own status instead of `500`
+
+The `/api/[...slug]` dispatcher now maps a `CrudHttpError` that escapes a route handler onto that
+error's own status and body. Previously only handlers that caught it themselves produced the right
+answer; an uncaught one reached Next.js as an unhandled throw, and the caller saw
+`500 Internal Server Error` — so a deliberate 403/404/409 was indistinguishable from a crash.
+
+**Action for module authors:** none to make it work — a handler may now `throw forbidden()` /
+`notFound()` / `conflict()` without wiring its own `isCrudHttpError` catch. Review any code that
+treated a 500 from your route as the expected outcome of a guard; it now receives the real status.
+Routes that already catch `CrudHttpError` are unchanged.
+
+### `resolveAttachmentOrganizationId` is deprecated in favour of `resolveAttachmentRequestScope`
+
+`@open-mercato/core/modules/attachments/lib/requestScope` now exports
+`resolveAttachmentRequestScope(container, auth, request)`, which returns
+`{ denied, organizationId }` rather than a bare organization id. A principal whose organization
+visibility resolves to the empty set is reported as `denied`, so each route answers with the status
+its own contract documents (the file and image routes answer `404`, keeping a foreign-tenant id
+indistinguishable from a missing one).
+
+`resolveAttachmentOrganizationId` remains exported and now **throws** `forbidden()` for a denied
+scope instead of returning `null` — returning `null` there would drop the organization predicate
+entirely and read across the tenant. Migrate to `resolveAttachmentRequestScope` so the deny becomes
+a response your route chooses.
+
+### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
+
+`directory.organizations.update` (and so `PUT /api/directory/organizations` and
+`PUT /api/directory/organization-branding`) used to read an omitted `parentId` as "no parent" and an
+omitted `childIds` as "no children". Any partial update — including saving a sidebar logo — moved the
+organization to the top level and detached all of its children. Both fields are now left untouched
+when they are absent from the input, like every other field of the command.
+
+- To detach an organization from its parent send `parentId: null`; to remove its children send
+  `childIds: []`. Both worked before and still do.
+- A caller that relied on omission to clear the hierarchy must send those explicit values.
+- A request that sends `childIds` without `parentId` and lists the organization's current parent is
+  rejected with `400 Child cannot equal parent`.
+
+This does not repair trees that were already flattened. An affected `directory.organization` update
+in the audit log either lists `parentId` among its changes although only branding or name fields were
+edited, or — for a top-level organization that only lost its children — differs between the `before`
+and `after` `childParents` of its undo snapshot (the detached children get no log entry of their own).
+Re-assign the parent or the children on the organization edit page.
+
+### `SUB_WORKFLOW` output ports are validated against the child context before `outputMapping` (#6714)
+
+When a child workflow declares `definition.io.outputs`, a `SUB_WORKFLOW` step now validates and
+coerces the child's context against **every** declared output port first, and only then applies
+the parent step's `config.outputMapping` (`{ parentKey: childPath }`). Before, the mapped result
+was checked against the child's port names, so a renamed mapping (`renamedValue ← childValue`)
+failed with `Required port "childValue" is missing`. Both the inline completion and the resumed
+parent (`resume_subworkflow_parent`) use the new order. Children that declare no `io.outputs` are
+unaffected.
+
+- **Tightened:** declared ports the parent does not map are now validated too. A required port
+  missing from the child context, or a value that cannot be coerced to its declared type (for
+  example `"n/a"` in a `number` port), now fails the parent step with `OUTPUT_VALIDATION` where
+  the run previously completed.
+- **Relaxed:** callers no longer need to map every required child output port just for
+  validation to pass.
+
+**Action for workflow authors:** make each child satisfy its declared output-port contract, or
+remove or relax (`required: false`, a broader type) any port declaration that is not actually
+part of the child's contract.
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
@@ -80,6 +194,12 @@ accent-insensitive predicate — in that case build it from
 `@open-mercato/shared/lib/db/accentInsensitiveSearch` so your expression matches the index verbatim.
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
+
+`buildAccentInsensitivePatternSql()` is deprecated (#6465): `unaccent` folds fullwidth `％ ＿ ＼`
+into the ASCII LIKE metacharacters, so a pattern escaped with `escapeLikePattern` before that call
+regains live wildcards. Bind the **raw** search term to `buildAccentInsensitiveContainsPatternSql()`
+instead — it unaccents first, then escapes, and adds the surrounding `%`. The deprecated helper is
+unchanged and will be removed no earlier than 0.9.0.
 
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
@@ -111,6 +231,21 @@ round-trip through `jsonb`, so `Date` fields come back as ISO strings; pass
 `{ datePaths: ['before.<entity>.<field>'] }` (exact paths) or `{ dateFields: ['<field>'] }`
 (key name at any depth) before assigning snapshot dates to entities. Without options the
 payload is returned unchanged.
+
+### Gmail adapter no longer reads OAuth client config from `credentials._client`
+
+`GmailChannelAdapter.refreshCredentials` previously fell back to
+`credentials._client` (with a one-time deprecation warning) when
+`RefreshCredentialsInput.oauthClient` was absent. That legacy path is **removed**.
+
+**Action:** any custom caller or test fixture that refreshed Gmail tokens without
+`oauthClient` must pass `oauthClient: { clientId, clientSecret, scopes? }` —
+the same shape the `communication_channels` hub already supplies from the
+tenant-scoped `channel_gmail` integration credentials. A missing `oauthClient`
+now throws; a smuggled `_client` key on the per-user credentials blob is ignored.
+
+See #3828 and
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) (`RefreshCredentialsInput`).
 
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 
@@ -376,6 +511,89 @@ that runs a diagnostic OpenTelemetry Collector. Before this change the `app` con
 these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enabled backend,
 telemetry now starts inside the container. Check that value before upgrading. See
 [`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
+
+### The SSE event stream rejects API keys and closes connections after a bounded lifetime
+
+`GET /api/events/stream` (the DOM Event Bridge) now accepts staff cookie and Bearer authentication
+only. A request carrying `x-api-key`, `Authorization: ApiKey …`, or one that resolves to an API-key
+principal is answered `401` before the stream opens.
+
+Every open stream also re-resolves the caller's auth and organization scope from the original
+request credentials on an interval, and closes fail-closed when the scope is rejected, validation
+fails, or the user, tenant, selected organization, or roles change. Independently of that, each
+stream is closed after a maximum age so the browser reconnects through fresh authorization. The
+age is jittered by ±15% per connection so clients do not reconnect in synchronized waves.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | How often an open stream re-checks auth and organization scope |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` (5 min) | Base maximum lifetime of one stream before the server closes it (±15% jitter) |
+
+Both take positive integer milliseconds. Values below `1000`, non-numeric values, and `Infinity`
+fall back to the default; values above Node's timer maximum (`2147483647`) are capped there.
+
+**Action for integrators:** a server-side consumer that subscribed to the stream with an API key
+must switch to webhooks (or another server-to-server channel). Any non-browser client must expect
+the server to close the stream periodically and reconnect; the shipped browser bridge already does.
+
+**Action for operators:** expect one reconnect per open browser tab roughly every 4¼–5¾ minutes
+with the default max age, and one canonical auth lookup per stream every revalidation interval.
+Tune both variables if connection-level monitoring or database load requires it.
+
+### An explicitly empty organization scope now denies access everywhere
+
+When a principal's organization scope resolves to an explicitly empty set (`filterIds: []` or
+`allowedIds: []` — e.g. a user whose organization visibility list was cleared, or whose only
+organizations were deleted), every module now treats it as deny-all instead of widening it back to
+the home organization. CRUD list routes return an empty page, and routes that need a single
+organization (`resolveSingleOrganizationIdOrDeny`) answer `403`.
+
+**Action for operators:** a user who suddenly sees empty lists or `403` responses after the upgrade
+has no organization visibility; grant the intended organizations in the user's access settings.
+
+**Action for module authors:** resolve an organization through `resolveSingleOrganizationIdOrDeny`
+(or `isExplicitlyEmptyOrganizationScope` when the route must answer its own not-found), and let a
+thrown `CrudHttpError` propagate — or map it with `isCrudHttpError` — instead of turning it into a
+`500` in a generic `catch`.
+
+### Progress APIs follow the selected organization
+
+`/api/progress/*` now resolves scope through the same organization switcher as other modules. With
+a specific organization selected, the progress bar and job lists show only that organization's
+jobs; with **All organizations** selected, an unrestricted user sees every job in the tenant, and a
+new job is stored against the caller's home organization. A user with finite access and no single
+organization selected cannot create a tenant-wide job (`403`).
+
+**Action:** none. Users who expected to see jobs from other organizations in the top bar should
+switch to **All organizations**.
+
+### API interceptors match the dispatcher's canonical route identity
+
+Interceptor `targetRoute` matching now uses the route the `/api/[...slug]` dispatcher actually
+matched (authored static segments plus matched params) instead of re-parsing the caller-controlled
+URL, so case or percent-encoding aliases (`/api/EXAMPLE/todos`, `/api/%65xample/todos`) can no
+longer bypass an interceptor.
+
+- A path with a malformed percent escape fails route matching and is answered `404` before the
+  handler runs.
+- A request that carries a forged, unknown, or evicted `x-open-mercato-route-identity` header is
+  answered `400` by interceptor-aware routes instead of falling back to URL-based matching.
+
+**Action for integrators:** fix clients that send malformed percent-encoded paths, and never set
+`x-open-mercato-route-identity` yourself — it is internal. Proxies that strip or rewrite unknown
+headers are unaffected because the dispatcher sets it per request.
+
+### Run the encryption-map uniqueness migration before serving writes
+
+`Migration20261004120000_encryption_map_scope_uniqueness` (module `entities`) soft-deletes
+duplicate live encryption maps per `(entity_id, tenant_id, organization_id)` and creates the unique
+index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now uses
+`INSERT … ON CONFLICT` on that index, which PostgreSQL rejects when the index does not exist.
+
+**Action for operators:** run `yarn db:migrate` (or your deployment's migration step) **before** the
+new application version serves traffic. Until it has run, saving an encryption map in the admin UI
+or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
+migrating must migrate first.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
