@@ -31,7 +31,7 @@ import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { TagPicker, tagChipStyle } from './TagPicker'
 import { TaskPicker, type TaskPickerItem, type TaskPickerStatus } from './TaskPicker'
-import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
+import { TimeEntryProjectField } from './TimeEntryProjectField'
 import type { TimeEntryMode } from '../time-tracking/settings'
 import { slugifyProjectName } from '../time-tracking/projectCode'
 import { autoColorFromName } from '../timesheets-ui/colors'
@@ -69,6 +69,7 @@ import {
   resetIntervalState,
   readRowItems,
   readRowString,
+  mergeProjectOptions,
   resolveTimeEntryDialogMode,
   shiftIsoDate,
   todayIsoDate,
@@ -292,38 +293,6 @@ async function fetchTaskById(id: string): Promise<TaskOption | null> {
   return row ? toTaskOption(row) : null
 }
 
-const PROJECT_SEARCH_PAGE_SIZE = 50
-
-/** The project field's search: active projects the caller may log to, by name. */
-async function fetchProjectOptions(term: string): Promise<ProjectOption[]> {
-  const params = new URLSearchParams({
-    page: '1',
-    pageSize: String(PROJECT_SEARCH_PAGE_SIZE),
-    sortField: 'name',
-    sortDir: 'asc',
-    status: 'active',
-  })
-  if (term) params.set('q', term)
-  const call = await apiCall<Record<string, unknown>>(`/api/staff/timesheets/time-projects?${params.toString()}`)
-  if (!call.ok) return []
-  return readRowItems(call.result)
-    .map(toProjectOption)
-    .filter((project): project is ProjectOption => project !== null)
-}
-
-/**
- * Resolves one project by id. The route answers 404 for a project the caller
- * cannot see, which here simply means "unresolved" — never an error to flash.
- */
-async function fetchProjectById(id: string): Promise<ProjectOption | null> {
-  const call = await apiCall<Record<string, unknown>>(
-    `/api/staff/timesheets/time-projects?ids=${encodeURIComponent(id)}&pageSize=1`,
-  ).catch(() => null)
-  if (!call?.ok) return null
-  const row = readRowItems(call.result)[0]
-  return row ? toProjectOption(row) : null
-}
-
 function readErrorCode(error: unknown): string | null {
   const body = (error as { body?: { code?: unknown; error?: unknown } } | null)?.body
   if (body && typeof body.code === 'string') return body.code
@@ -432,13 +401,10 @@ function DefaultTimeEntryDialog({
 
   /** In project mode the loop starts at the project field, otherwise at the task picker. */
   const focusFirstField = React.useCallback(() => {
-    const host = mode === 'project' ? projectTriggerRef.current : null
-    const focusable = host?.querySelector('input, select, button') as HTMLElement | null
-    if (focusable) {
-      focusable.focus()
-      return true
-    }
-    return focusTaskPicker()
+    const projectInput = mode === 'project' ? projectTriggerRef.current?.querySelector<HTMLElement>('input, select, button') : null
+    if (!projectInput) return focusTaskPicker()
+    projectInput.focus()
+    return true
   }, [focusTaskPicker, mode])
 
   const seedKeyRef = React.useRef<string | null>(null)
@@ -1148,10 +1114,8 @@ function DefaultTimeEntryDialog({
   ])
 
   /**
-   * The tenant's entry mode can answer after the form was seeded (the settings
-   * request is cached, so this is the first open of a session). It is applied
-   * once per seed and only while nothing was typed, so the form never changes
-   * shape under someone who already started.
+   * The tenant's entry mode can answer after the seed (first open of a session). It is applied once
+   * per seed and only while nothing was typed, so the form never changes shape under someone who started.
    */
   React.useEffect(() => {
     if (!open || !baseline || settingsQuery.isPending) return
@@ -1179,10 +1143,8 @@ function DefaultTimeEntryDialog({
   }, [focusFirstField, locked, mode])
 
   /**
-   * In project mode a task can only come from the chosen project, so a task that
-   * names another one (a seeded `defaults.taskId`) moves the project with it.
-   * When the project was not known yet this is still the seed, so the baseline
-   * follows and the form does not open dirty.
+   * In project mode a task from another project (a seeded `defaults.taskId`) moves the project with it;
+   * when no project was known yet this is still the seed, so the baseline follows and the form stays clean.
    */
   React.useEffect(() => {
     if (mode !== 'project') return
@@ -1209,74 +1171,13 @@ function DefaultTimeEntryDialog({
   )
 
   const rememberProjects = React.useCallback((found: ProjectOption[]) => {
-    if (found.length === 0) return
-    setLookupProjects((current) => {
-      let changed = false
-      const next = new Map(current)
-      for (const project of found) {
-        if (next.has(project.id)) continue
-        next.set(project.id, project)
-        changed = true
-      }
-      return changed ? next : current
-    })
+    setLookupProjects((current) => mergeProjectOptions(current, found))
   }, [])
 
-  const loadProjectSuggestions = React.useCallback(
-    async (query?: string): Promise<ComboboxOption[]> => {
-      const found = await fetchProjectOptions((query ?? '').trim())
-      rememberProjects(found)
-      return found.map((option) => ({ value: option.id, label: option.name, description: option.customerName }))
-    },
-    [rememberProjects],
+  const projectLookupKey = React.useMemo(
+    () => [...DIALOG_QUERY_ROOT, 'project', `scope:${scopeVersion}`] as const,
+    [scopeVersion],
   )
-
-  const projectUnavailableLabel = t('staff.time_tracking.entryDialog.projectUnavailable', 'Project not available')
-
-  const loadPinnedProject = React.useCallback(
-    async (id: string): Promise<ProjectOption | null> => {
-      const found = await fetchProjectById(id)
-      if (found) rememberProjects([found])
-      return found
-    },
-    [rememberProjects],
-  )
-
-  const resolveProjectLabel = React.useCallback(
-    async (id: string): Promise<string> => {
-      const known = projectById.get(id)
-      if (known) return known.name
-      const found = await queryClient.fetchQuery({
-        queryKey: [...DIALOG_QUERY_ROOT, 'project', `scope:${scopeVersion}`, id],
-        queryFn: () => loadPinnedProject(id),
-        staleTime: 60_000,
-      })
-      return found ? found.name : projectUnavailableLabel
-    },
-    [loadPinnedProject, projectById, projectUnavailableLabel, queryClient, scopeVersion],
-  )
-
-  const unresolvedProjectId =
-    isProjectMode && projectSelection && !projectsQuery.isPending && !projectById.has(projectSelection)
-      ? projectSelection
-      : null
-
-  const pinnedProjectQuery = useQuery<ProjectOption | null>({
-    queryKey: [...DIALOG_QUERY_ROOT, 'project', `scope:${scopeVersion}`, unresolvedProjectId ?? 'none'],
-    enabled: open && !!unresolvedProjectId,
-    staleTime: 60_000,
-    queryFn: () => loadPinnedProject(unresolvedProjectId as string),
-  })
-
-  const projectSeedOptions = React.useMemo<ComboboxOption[]>(() => {
-    if (!projectSelection) return []
-    const known = projectById.get(projectSelection)
-    if (known) return [{ value: known.id, label: known.name, description: known.customerName }]
-    if (pinnedProjectQuery.isSuccess && pinnedProjectQuery.data === null) {
-      return [{ value: projectSelection, label: projectUnavailableLabel, description: null }]
-    }
-    return []
-  }, [pinnedProjectQuery.data, pinnedProjectQuery.isSuccess, projectById, projectSelection, projectUnavailableLabel])
 
   /**
    * Every way out of the dialog — Escape, the ×, the overlay, Cancel — lands
@@ -1665,40 +1566,17 @@ function DefaultTimeEntryDialog({
         ) : null}
 
         {mode === 'project' ? (
-          <div className="flex flex-col gap-1.5">
-            <Label>
-              {t('staff.time_tracking.entryDialog.project', 'Project')}
-              <span aria-hidden="true"> *</span>
-            </Label>
-            <div
-              data-testid="entry-dialog-project"
-              ref={projectTriggerRef}
-              aria-invalid={fieldIssues.project ? true : undefined}
-              aria-describedby={fieldIssues.project ? 'entry-dialog-project-message' : undefined}
-            >
-              <ComboboxInput
-                value={projectSelection ?? ''}
-                onChange={handleProjectChange}
-                placeholder={t('staff.time_tracking.entryDialog.projectPlaceholder', 'Search projects')}
-                seedOptions={projectSeedOptions}
-                loadSuggestions={loadProjectSuggestions}
-                resolveLabel={resolveProjectLabel}
-                resolveDescription={(id) => projectById.get(id)?.customerName ?? null}
-                allowCustomValues={false}
-                disabled={locked}
-              />
-            </div>
-            {fieldIssues.project ? (
-              <p
-                id="entry-dialog-project-message"
-                className="text-xs text-status-error-text"
-                role="alert"
-                data-testid="entry-dialog-project-error"
-              >
-                {fieldIssues.project}
-              </p>
-            ) : null}
-          </div>
+          <TimeEntryProjectField
+            value={projectSelection}
+            onChange={handleProjectChange}
+            knownProjects={projectById}
+            knownProjectsPending={projectsQuery.isPending}
+            onProjectsResolved={rememberProjects}
+            queryKeyPrefix={projectLookupKey}
+            error={fieldIssues.project}
+            disabled={locked}
+            triggerRef={projectTriggerRef}
+          />
         ) : null}
 
         <div className="flex flex-col gap-1.5">

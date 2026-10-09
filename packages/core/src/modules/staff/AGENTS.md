@@ -570,7 +570,9 @@ shown read-only) or a **project** (required project field over the access-scoped
 project; else the optional `mode` prop; else the tenant's `defaults.entryMode`; else task.
 The setting is applied late (once per seed, pristine form only) because the settings
 query may answer after the seed. Writes stay authorised by the command's project access
-check; the dialog adds no access logic.
+check; the dialog adds no access logic. The project field is the `TimeEntryProjectField`
+leaf; `TimeEntryDialog.tsx` is over the 300-LOC client guard under a capped exception, so new
+dialog UI goes into new leaves (decomposition: #7135).
 
 ### Contributed settings keys (EP-42 — BC surface #2, STABLE)
 

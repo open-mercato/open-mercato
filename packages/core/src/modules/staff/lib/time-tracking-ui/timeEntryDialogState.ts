@@ -416,3 +416,19 @@ export function resolveTimeEntryDialogMode(input: {
   if (input.settingMode === 'project') return 'project'
   return 'task'
 }
+
+/**
+ * Adds projects found by the project field to the ones the dialog already knows,
+ * keeping the first copy of each. Returns `current` itself when nothing is new,
+ * so a state update with it does not re-render.
+ */
+export function mergeProjectOptions(
+  current: ReadonlyMap<string, ProjectOption>,
+  found: readonly ProjectOption[],
+): ReadonlyMap<string, ProjectOption> {
+  const added = found.filter((project) => !current.has(project.id))
+  if (added.length === 0) return current
+  const next = new Map(current)
+  for (const project of added) if (!next.has(project.id)) next.set(project.id, project)
+  return next
+}
