@@ -4,6 +4,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
 import { getPaymentGatewayQueue } from '@open-mercato/core/modules/payment_gateways/lib/queue'
 import { processPaymentGatewayWebhookJob } from '@open-mercato/core/modules/payment_gateways/lib/webhook-processor'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const mockResolve = jest.fn()
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
@@ -30,6 +31,10 @@ jest.mock('@open-mercato/core/modules/payment_gateways/lib/queue', () => ({
 
 jest.mock('@open-mercato/core/modules/payment_gateways/lib/webhook-processor', () => ({
   processPaymentGatewayWebhookJob: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(),
 }))
 
 function createMockRequest(body: string, headers: Record<string, string> = {}): Request {
@@ -218,6 +223,213 @@ describe('payment gateway webhook route security', () => {
       providerKey: 'stripe',
       providerSessionId: 'sess_1',
       deletedAt: null,
+    })
+  })
+
+  describe('payment locator, candidate snapshot and ambiguity rejection', () => {
+    const paymentId = '11111111-1111-4111-8111-111111111111'
+    const otherPaymentId = '22222222-2222-4222-8222-222222222222'
+    const mockReportError = jest.fn()
+
+    function buildTransaction(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'txn_1',
+        paymentId,
+        providerSessionId: 'sess_1',
+        amount: '100.0000',
+        currencyCode: 'PLN',
+        organizationId: 'org_1',
+        tenantId: 'tenant_1',
+        gatewayMetadata: { secret: 'x' },
+        ...overrides,
+      }
+    }
+
+    function registerHandler(options: {
+      handler: jest.Mock
+      session?: string | null
+      payment?: unknown
+    }) {
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({
+        handler: options.handler,
+        ...(options.session !== undefined ? { readSessionIdHint: () => options.session } : {}),
+        ...(options.payment !== undefined ? { readPaymentIdHint: () => options.payment } : {}),
+      })
+    }
+
+    const acceptedEvent = { eventType: 'payment.captured', eventId: 'evt_1', data: {}, idempotencyKey: 'evt_1' }
+
+    beforeEach(() => {
+      mockReportError.mockReset()
+      ;(getTelemetryRuntime as jest.Mock).mockReturnValue({ reportError: mockReportError })
+      ;(processPaymentGatewayWebhookJob as jest.Mock).mockResolvedValue(undefined)
+    })
+
+    test('keeps the session-only where clause and query options unchanged', async () => {
+      registerHandler({ handler: jest.fn().mockRejectedValue(new Error('nope')), session: 'sess_1' })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+      await POST(createMockRequest('{}'), { params: { provider: 'stripe' } })
+
+      expect((findWithDecryption as jest.Mock).mock.calls[0][2]).toEqual({
+        providerKey: 'stripe',
+        providerSessionId: 'sess_1',
+        deletedAt: null,
+      })
+      expect((findWithDecryption as jest.Mock).mock.calls[0][3]).toEqual({ limit: 10, orderBy: { createdAt: 'desc' } })
+    })
+
+    test('locates candidates by payment id only', async () => {
+      registerHandler({ handler: jest.fn().mockRejectedValue(new Error('nope')), payment: paymentId })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+      await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+      expect((findWithDecryption as jest.Mock).mock.calls[0][2]).toEqual({
+        providerKey: 'mock',
+        paymentId,
+        deletedAt: null,
+      })
+      expect((findWithDecryption as jest.Mock).mock.calls[0][3]).toEqual({ limit: 10, orderBy: { createdAt: 'desc' } })
+    })
+
+    test('intersects session and payment hints when both are present', async () => {
+      registerHandler({ handler: jest.fn().mockRejectedValue(new Error('nope')), session: 'sess_1', payment: paymentId })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+      expect(response.status).toBe(401)
+      expect((findWithDecryption as jest.Mock).mock.calls[0][2]).toEqual({
+        providerKey: 'mock',
+        providerSessionId: 'sess_1',
+        paymentId,
+        deletedAt: null,
+      })
+    })
+
+    test('ignores a malformed payment id hint', async () => {
+      registerHandler({ handler: jest.fn().mockRejectedValue(new Error('nope')), session: 'sess_1', payment: 'not-a-uuid' })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+      await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+      expect((findWithDecryption as jest.Mock).mock.calls[0][2]).toEqual({
+        providerKey: 'mock',
+        providerSessionId: 'sess_1',
+        deletedAt: null,
+      })
+    })
+
+    test('does not query and rejects when no valid hint is present', async () => {
+      const handler = jest.fn()
+      registerHandler({ handler, session: '   ', payment: 'invalid' })
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: 'Webhook verification failed' })
+      expect(findWithDecryption).not.toHaveBeenCalled()
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    test('passes exactly the candidate snapshot fields to the handler', async () => {
+      const handler = jest.fn().mockResolvedValue(acceptedEvent)
+      registerHandler({ handler, payment: paymentId })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([buildTransaction({ providerSessionId: undefined })])
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+      expect(response.status).toBe(202)
+      expect(handler.mock.calls[0][0].candidate).toEqual({
+        transactionId: 'txn_1',
+        paymentId,
+        providerSessionId: null,
+        amount: '100.0000',
+        currencyCode: 'PLN',
+      })
+    })
+
+    test('continues to the next candidate when the first rejects on a snapshot mismatch', async () => {
+      const handler = jest.fn(async (input: { candidate?: { amount: string } }) => {
+        if (input.candidate?.amount !== '25.0000') throw new Error('amount mismatch')
+        return acceptedEvent
+      })
+      registerHandler({ handler, session: 'sess_1' })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([
+        buildTransaction(),
+        buildTransaction({ id: 'txn_2', amount: '25.0000', organizationId: 'org_2', tenantId: 'tenant_2' }),
+      ])
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+      expect(response.status).toBe(202)
+      expect(await response.json()).toEqual({ received: true, queued: true })
+      expect(handler).toHaveBeenCalledTimes(2)
+      expect(processPaymentGatewayWebhookJob).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          providerKey: 'mock',
+          event: acceptedEvent,
+          transactionId: 'txn_2',
+          scope: { organizationId: 'org_2', tenantId: 'tenant_2' },
+        }),
+      )
+    })
+
+    test('verifies each candidate with its own tenant credentials and selects the matching scope', async () => {
+      mockCredentialsService.resolve.mockImplementation(async (_key: string, scope: { tenantId: string }) => ({
+        secret: `secret_${scope.tenantId}`,
+      }))
+      const handler = jest.fn(async (input: { credentials: Record<string, unknown> }) => {
+        if (input.credentials.secret !== 'secret_tenant_b') throw new Error('bad signature')
+        return acceptedEvent
+      })
+      registerHandler({ handler, payment: paymentId })
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([
+        buildTransaction({ organizationId: 'org_a', tenantId: 'tenant_a' }),
+        buildTransaction({ id: 'txn_b', paymentId: otherPaymentId, organizationId: 'org_b', tenantId: 'tenant_b' }),
+      ])
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+      expect(response.status).toBe(202)
+      expect(mockCredentialsService.resolve).toHaveBeenCalledWith('gateway_mock', { organizationId: 'org_a', tenantId: 'tenant_a' })
+      expect(mockCredentialsService.resolve).toHaveBeenCalledWith('gateway_mock', { organizationId: 'org_b', tenantId: 'tenant_b' })
+      expect(processPaymentGatewayWebhookJob).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ transactionId: 'txn_b', scope: { organizationId: 'org_b', tenantId: 'tenant_b' } }),
+      )
+    })
+
+    test('fails closed when more than one candidate verifies', async () => {
+      const originalStrategy = process.env.QUEUE_STRATEGY
+      process.env.QUEUE_STRATEGY = 'async'
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        const handler = jest.fn().mockResolvedValue(acceptedEvent)
+        registerHandler({ handler, session: 'sess_1' })
+        ;(findWithDecryption as jest.Mock).mockResolvedValue([
+          buildTransaction(),
+          buildTransaction({ id: 'txn_2', organizationId: 'org_2', tenantId: 'tenant_2' }),
+        ])
+
+        const response = await POST(createMockRequest('{}'), { params: { provider: 'mock' } })
+
+        expect(response.status).toBe(401)
+        expect(await response.json()).toEqual({ error: 'Webhook verification failed' })
+        expect(handler).toHaveBeenCalledTimes(2)
+        expect(mockQueue.enqueue).not.toHaveBeenCalled()
+        expect(processPaymentGatewayWebhookJob).not.toHaveBeenCalled()
+        expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+          module: 'payment_gateways',
+          code: 'payment_gateways.webhook_ambiguous_candidates',
+        })
+      } finally {
+        errorSpy.mockRestore()
+        if (originalStrategy === undefined) delete process.env.QUEUE_STRATEGY
+        else process.env.QUEUE_STRATEGY = originalStrategy
+      }
     })
   })
 })

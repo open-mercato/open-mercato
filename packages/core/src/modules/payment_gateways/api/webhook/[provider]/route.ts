@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -16,6 +17,7 @@ import { processPaymentGatewayWebhookJob } from '../../../lib/webhook-processor'
 import { paymentGatewaysTag } from '../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { readBoundedRequestBody, readBoundedRequestBytes, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('payment_gateways').child({ component: 'webhook' })
 
@@ -25,6 +27,8 @@ export const metadata = {
 }
 
 const WEBHOOK_VERIFICATION_FAILED = 'Webhook verification failed'
+
+const paymentIdHintSchema = z.uuid()
 
 const paymentGatewayWebhookRateLimitConfig = {
   points: 60,
@@ -75,52 +79,81 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getPaymentGatewayQueue(registration.queue ?? 'payment-gateways-webhook')
   const payload = await readJsonSafe<Record<string, unknown>>(bodyText)
-  const sessionIdHint = registration.readSessionIdHint?.(payload, { rawBody, headers }) ?? null
+  const locatorContext = { rawBody, headers }
+  const sessionIdHint = normalizeSessionIdHint(registration.readSessionIdHint?.(payload, locatorContext))
+  const paymentIdHint = normalizePaymentIdHint(registration.readPaymentIdHint?.(payload, locatorContext))
 
   try {
     // The webhook endpoint is unauthenticated. Tenant/organization scope MUST come from a
     // GatewayTransaction whose per-tenant credentials successfully verify the inbound
     // signature — NEVER from attacker-controlled payload metadata. If no candidate
-    // transaction can be located by the provider-reported session id, or no candidate's
-    // credentials can verify the signature, we fail closed with 401. This prevents
-    // forged webhooks (e.g. mock gateway PoC) from mutating another tenant's payment
-    // state via `event.data.metadata.{organizationId,tenantId}`.
-    const candidates = sessionIdHint
+    // transaction can be located by the provider-reported session or payment id, or no
+    // candidate's credentials can verify the signature, we fail closed with 401. This
+    // prevents forged webhooks (e.g. mock gateway PoC) from mutating another tenant's
+    // payment state via `event.data.metadata.{organizationId,tenantId}`. When more than one
+    // candidate verifies, the scope is ambiguous and we also fail closed.
+    const candidates = sessionIdHint || paymentIdHint
       ? await findWithDecryption(
         em,
         GatewayTransaction,
         {
           providerKey,
-          providerSessionId: sessionIdHint,
+          ...(sessionIdHint ? { providerSessionId: sessionIdHint } : {}),
+          ...(paymentIdHint ? { paymentId: paymentIdHint } : {}),
           deletedAt: null,
         },
         { limit: 10, orderBy: { createdAt: 'desc' } },
       )
       : []
 
-    let transaction: GatewayTransaction | null = null
-    let matchedScope: { organizationId: string; tenantId: string } | null = null
-    let event: Awaited<ReturnType<typeof registration.handler>> | null = null
+    const verifiedMatches: Array<{
+      transaction: GatewayTransaction
+      scope: { organizationId: string; tenantId: string }
+      event: Awaited<ReturnType<typeof registration.handler>>
+    }> = []
     let lastVerificationError: unknown = null
 
     for (const candidate of candidates) {
       const candidateScope = { organizationId: candidate.organizationId, tenantId: candidate.tenantId }
       const credentials = await integrationCredentialsService.resolve(`gateway_${providerKey}`, candidateScope) ?? {}
       try {
-        event = await registration.handler({ rawBody, headers, credentials })
-        transaction = candidate
-        matchedScope = candidateScope
-        break
+        const candidateEvent = await registration.handler({
+          rawBody,
+          headers,
+          credentials,
+          candidate: {
+            transactionId: candidate.id,
+            paymentId: candidate.paymentId,
+            providerSessionId: candidate.providerSessionId ?? null,
+            amount: candidate.amount,
+            currencyCode: candidate.currencyCode,
+          },
+        })
+        verifiedMatches.push({ transaction: candidate, scope: candidateScope, event: candidateEvent })
       } catch (error: unknown) {
         lastVerificationError = error
       }
     }
 
-    if (!event || !transaction || !matchedScope) {
+    if (verifiedMatches.length > 1) {
+      logger.error('Webhook matched multiple verified candidates', {
+        providerKey,
+        candidateCount: verifiedMatches.length,
+      })
+      getTelemetryRuntime()?.reportError(
+        new Error('[internal] Webhook matched multiple verified candidates'),
+        { module: 'payment_gateways', code: 'payment_gateways.webhook_ambiguous_candidates' },
+      )
+      return NextResponse.json({ error: WEBHOOK_VERIFICATION_FAILED }, { status: 401 })
+    }
+
+    const [match] = verifiedMatches
+    if (!match) {
       throw lastVerificationError ?? new Error('Webhook verification failed: no matching transaction')
     }
 
-    const scope = matchedScope
+    const { transaction, event } = match
+    const scope = match.scope
 
     const jobPayload = markQueueJobOrigin({
       providerKey,
@@ -147,6 +180,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     logger.warn('Webhook verification failed', { providerKey, err })
     return NextResponse.json({ error: WEBHOOK_VERIFICATION_FAILED }, { status: 401 })
   }
+}
+
+function normalizeSessionIdHint(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizePaymentIdHint(value: unknown): string | null {
+  const parsed = paymentIdHintSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
 }
 
 async function checkProviderWebhookRateLimit(
