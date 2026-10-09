@@ -9138,7 +9138,7 @@ __metadata:
     pg: "npm:8.23.0"
     prosemirror-model: "npm:^1.25.9"
     prosemirror-state: "npm:^1.4.4"
-    prosemirror-view: "npm:^1.41.9"
+    prosemirror-view: "npm:^1.42.3"
     puppeteer-core: "npm:^25.3.0"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
@@ -32008,6 +32008,17 @@ __metadata:
     prosemirror-state: "npm:^1.0.0"
     prosemirror-transform: "npm:^1.1.0"
   checksum: 10/09bc9b3c1f8dd837cd5a3aa3027425be20b09dd5380081e8ad64def13929a8e905627350e37bd0d6f878b947cacca1014b181b17fe1df646aec94f76ed0f2d09
+  languageName: node
+  linkType: hard
+
+"prosemirror-view@npm:^1.42.3":
+  version: 1.42.3
+  resolution: "prosemirror-view@npm:1.42.3"
+  dependencies:
+    prosemirror-model: "npm:^1.25.8"
+    prosemirror-state: "npm:^1.0.0"
+    prosemirror-transform: "npm:^1.1.0"
+  checksum: 10/48b08dc4fa3b7d30aad2c484e659c3f66005f03091fc838a85cba63bebf0895c66b5e02f8bc466b48a165d931e8bf1772a89268379bbdfea3b3038abedfb5647
   languageName: node
   linkType: hard
 
