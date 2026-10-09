@@ -21,7 +21,7 @@
 | 1 | 1.4 | Assert no agentic generator writes under .github/workflows | dispatch | done | 9131dfc486 |
 | 1 | 1.5 | Document the quality gate and route it from the standalone AGENTS.md | dispatch | done | b20bf71742 |
 | 1 | 1.6 | Cap the cold-build heap inside yarn ci | inline | done | e76b371720 |
-| 1 | 1.7 | Make the cold yarn ci build fit 7 GB reliably | inline | todo | — |
+| 1 | 1.7 | Make the cold yarn ci build fit 7 GB reliably | inline | done | d016273d8f |
 | 1 | 1.8 | Ship the workflow templates in the published package | inline | done | 1d09a45951 |
 | 2 | 2.1 | Add opt-in app-owned spec discovery to mercato test:integration | dispatch:capable | done | ba3d7d1e3a |
 | 2 | 2.2 | Add template integration.yml workflow and its structure test | dispatch | done | b411babd3b |
