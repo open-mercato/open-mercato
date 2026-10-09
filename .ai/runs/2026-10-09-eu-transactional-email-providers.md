@@ -50,5 +50,11 @@ Ship tested Brevo and Mailjet system-email provider packages on the existing Com
 
 ### Phase 4: Verification and review
 
-- [ ] 4.1 Refresh generated artifacts and run focused validation
+- [x] 4.1 Refresh generated artifacts and run focused validation — e4c3fe1cc
 - [ ] 4.2 Run the configured validation gate and address review findings
+
+## Validation Notes
+
+- Provider typechecks and tests pass: Brevo 22/22, Mailjet 27/27.
+- Generation, package builds, app build, template sync, dependency checks, and i18n sync/usage checks pass.
+- The repository test gate passed 20,435 tests and failed two unchanged `progressService` stale-sweep tests; both failures reproduce in the isolated baseline file, whose contents match `origin/develop`.
