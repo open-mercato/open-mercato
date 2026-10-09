@@ -503,7 +503,6 @@ describe('progress service', () => {
       status: 'running',
       progressPercent: 80,
       etaSeconds: 5,
-      tenantId: baseCtx.tenantId,
     } as unknown as ProgressJob
     em.findOne.mockResolvedValue(job)
 
@@ -591,7 +590,6 @@ describe('progress service', () => {
       id: 'job-1',
       jobType: 'import',
       status: 'running',
-      tenantId: baseCtx.tenantId,
     } as unknown as ProgressJob
     em.findOne.mockResolvedValue(job)
 
