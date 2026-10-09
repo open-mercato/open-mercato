@@ -46,6 +46,20 @@ component files (e.g. `timeEntryDialogPropsSchema` from
 `@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog`). A replacement can
 import its contract instead of copying it.
 
+### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
+
+The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so
+the command's tenant check was a no-op. `deleteCatalogProductsWithProgress`
+(`@open-mercato/core/modules/catalog/lib/bulkDelete`) now runs the command as the enqueueing user,
+bound to the job's tenant and organization, so a product from another tenant is rejected with 403.
+The bulk delete is also recorded in the action log under that user.
+
+**Action for module authors:** if you enqueue jobs on `CATALOG_PRODUCT_BULK_DELETE_QUEUE` or call
+`deleteCatalogProductsWithProgress` yourself, always pass `scope.tenantId`, `scope.organizationId`
+and `scope.userId`. A job missing any of them now fails before deleting anything instead of running
+without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
+needed if you only use the API.
+
 ### Redoing an `auth.users.create` no longer restores the account's password
 
 Creating a user writes an audit entry, and that entry used to carry the credential twice: the
@@ -125,6 +139,27 @@ edited, or — for a top-level organization that only lost its children — diff
 and `after` `childParents` of its undo snapshot (the detached children get no log entry of their own).
 Re-assign the parent or the children on the organization edit page.
 
+### `SUB_WORKFLOW` output ports are validated against the child context before `outputMapping` (#6714)
+
+When a child workflow declares `definition.io.outputs`, a `SUB_WORKFLOW` step now validates and
+coerces the child's context against **every** declared output port first, and only then applies
+the parent step's `config.outputMapping` (`{ parentKey: childPath }`). Before, the mapped result
+was checked against the child's port names, so a renamed mapping (`renamedValue ← childValue`)
+failed with `Required port "childValue" is missing`. Both the inline completion and the resumed
+parent (`resume_subworkflow_parent`) use the new order. Children that declare no `io.outputs` are
+unaffected.
+
+- **Tightened:** declared ports the parent does not map are now validated too. A required port
+  missing from the child context, or a value that cannot be coerced to its declared type (for
+  example `"n/a"` in a `number` port), now fails the parent step with `OUTPUT_VALIDATION` where
+  the run previously completed.
+- **Relaxed:** callers no longer need to map every required child output port just for
+  validation to pass.
+
+**Action for workflow authors:** make each child satisfy its declared output-port contract, or
+remove or relax (`required: false`, a broader type) any port declaration that is not actually
+part of the child's contract.
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)
@@ -153,6 +188,12 @@ accent-insensitive predicate — in that case build it from
 `@open-mercato/shared/lib/db/accentInsensitiveSearch` so your expression matches the index verbatim.
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
+
+`buildAccentInsensitivePatternSql()` is deprecated (#6465): `unaccent` folds fullwidth `％ ＿ ＼`
+into the ASCII LIKE metacharacters, so a pattern escaped with `escapeLikePattern` before that call
+regains live wildcards. Bind the **raw** search term to `buildAccentInsensitiveContainsPatternSql()`
+instead — it unaccents first, then escapes, and adds the surrounding `%`. The deprecated helper is
+unchanged and will be removed no earlier than 0.9.0.
 
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
@@ -184,6 +225,21 @@ round-trip through `jsonb`, so `Date` fields come back as ISO strings; pass
 `{ datePaths: ['before.<entity>.<field>'] }` (exact paths) or `{ dateFields: ['<field>'] }`
 (key name at any depth) before assigning snapshot dates to entities. Without options the
 payload is returned unchanged.
+
+### Gmail adapter no longer reads OAuth client config from `credentials._client`
+
+`GmailChannelAdapter.refreshCredentials` previously fell back to
+`credentials._client` (with a one-time deprecation warning) when
+`RefreshCredentialsInput.oauthClient` was absent. That legacy path is **removed**.
+
+**Action:** any custom caller or test fixture that refreshed Gmail tokens without
+`oauthClient` must pass `oauthClient: { clientId, clientSecret, scopes? }` —
+the same shape the `communication_channels` hub already supplies from the
+tenant-scoped `channel_gmail` integration credentials. A missing `oauthClient`
+now throws; a smuggled `_client` key on the per-user credentials blob is ignored.
+
+See #3828 and
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) (`RefreshCredentialsInput`).
 
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 

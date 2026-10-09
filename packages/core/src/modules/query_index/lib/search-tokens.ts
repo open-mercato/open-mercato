@@ -14,6 +14,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('query_index').child({ component: 'search-tokens' })
 
 const INSERT_BATCH_SIZE = 500
+const TOKEN_EXCLUDED_ENTITY_TYPES = new Set(['audit_logs:action_log', 'audit_logs:access_log'])
 
 function chunk<T>(items: T[], size: number): T[][] {
   if (size <= 0) return [items]
@@ -200,6 +201,7 @@ function shouldIndexField(
  * rather than a clarification (#5971).
  */
 export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[] {
+  if (TOKEN_EXCLUDED_ENTITY_TYPES.has(params.entityType)) return []
   const config = params.config ?? resolveSearchConfig()
   if (!config.enabled) return []
   if (!params.doc) return []
@@ -347,6 +349,10 @@ export async function replaceSearchTokensForRecord(
   params: BuildTokenOptions,
   options?: { trx?: SearchTokenExecutor },
 ): Promise<void> {
+  if (TOKEN_EXCLUDED_ENTITY_TYPES.has(params.entityType)) {
+    await deleteSearchTokensForRecord(db, params, options)
+    return
+  }
   const guardCiphertext = params.guardCiphertext ?? shouldGuardCiphertext()
   const rows = buildSearchTokenRows({ ...params, guardCiphertext })
   const config = params.config ?? resolveSearchConfig()
@@ -464,6 +470,41 @@ export async function replaceSearchTokensForBatch(
   allPayloads: Array<BuildTokenOptions & { doc: Record<string, unknown> }>
 ): Promise<void> {
   if (!allPayloads.length) return
+  const excludedBuckets = new Map<string, {
+    entityType: string
+    organizationId: string | null
+    tenantId: string | null
+    ids: Set<string>
+  }>()
+  const indexablePayloads = allPayloads.filter((payload) => {
+    if (!TOKEN_EXCLUDED_ENTITY_TYPES.has(payload.entityType)) return true
+    const organizationId = payload.organizationId ?? null
+    const tenantId = payload.tenantId ?? null
+    const key = JSON.stringify([payload.entityType, organizationId, tenantId])
+    const bucket = excludedBuckets.get(key) ?? {
+      entityType: payload.entityType,
+      organizationId,
+      tenantId,
+      ids: new Set<string>(),
+    }
+    bucket.ids.add(String(payload.recordId))
+    excludedBuckets.set(key, bucket)
+    return false
+  })
+  if (excludedBuckets.size) {
+    await db.transaction().execute(async (trx) => {
+      for (const bucket of excludedBuckets.values()) {
+        await trx
+          .deleteFrom('search_tokens')
+          .where('entity_type', '=', bucket.entityType)
+          .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
+          .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
+          .where('entity_id', 'in', Array.from(bucket.ids))
+          .execute()
+      }
+    })
+  }
+  if (!indexablePayloads.length) return
   const config = resolveSearchConfig()
   if (!config.enabled) return
 
@@ -475,7 +516,7 @@ export async function replaceSearchTokensForBatch(
   // transient by construction: `decrypt-database` followed by a reindex rebuilds all of it.
   const guardCiphertext = shouldGuardCiphertext()
   const preservedRecordIds = new Set<string>()
-  const payloads = allPayloads.filter((payload) => {
+  const payloads = indexablePayloads.filter((payload) => {
     const ciphertextFields = ciphertextFieldsOf(payload.doc, guardCiphertext)
     if (!ciphertextFields.size) return true
     warnCiphertextSkipped(payload.entityType, payload.tenantId ?? null, ciphertextFields)

@@ -469,6 +469,12 @@ function familyRequiresAttribute(family: AkeneoFamily, attributeCode: string): b
   return Object.values(requirements).some((codes) => Array.isArray(codes) && codes.includes(attributeCode))
 }
 
+function resolvePriceVariantId(price: Pick<CatalogProductPrice, 'variant'>): string | null {
+  const variant: unknown = price.variant
+  if (typeof variant === 'string') return variant
+  return price.variant?.id ?? null
+}
+
 function parsePriceCollection(value: unknown): Array<{ currencyCode: string; amount: number }> {
   if (!Array.isArray(value)) return []
   return value
@@ -2209,6 +2215,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         CatalogProductPrice,
         {
           offer: offerId,
+          variant: params.localVariantId,
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
         },
@@ -2218,14 +2225,18 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       const desiredPriceExternalIds = new Set(offer.prices.map((price) => price.externalId))
       for (const price of offer.prices) {
         const mappedPriceId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_product_price', price.externalId, scope)
-        const existingPrice = mappedPriceId
+        const mappedPrice = mappedPriceId
           ? existingPrices.find((entry) => entry.id === mappedPriceId) ?? null
-          : existingPrices.find((entry) => (
-              (typeof entry.variant === 'string' ? entry.variant : entry.variant?.id ?? null) === price.variantId
-              && entry.channelId === price.channelId
-              && entry.currencyCode === price.currencyCode
-              && entry.kind === price.priceKindCode
-            )) ?? null
+          : null
+        const existingPrice = mappedPrice
+          ?? existingPrices.find((entry) => (
+            resolvePriceVariantId(entry) === price.variantId
+            && entry.channelId === price.channelId
+            && entry.currencyCode === price.currencyCode
+            && entry.kind === price.priceKindCode
+            && entry.minQuantity === 1
+          ))
+          ?? null
         const input = {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
@@ -2271,6 +2282,20 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
             undefined,
             scope,
           )
+          const sharedWithOtherVariants = offerPrices.some((price) => {
+            const priceVariantId = resolvePriceVariantId(price)
+            return priceVariantId !== null && priceVariantId !== params.localVariantId
+          })
+          if (sharedWithOtherVariants) {
+            for (const price of offerPrices) {
+              if (resolvePriceVariantId(price) !== params.localVariantId) continue
+              const priceExternalId = await externalIdMappingService.lookupExternalId('sync_akeneo', 'catalog_product_price', price.id, scope)
+              if (priceExternalId) {
+                await executeCommand('catalog.prices.delete', { id: price.id })
+              }
+            }
+            continue
+          }
           for (const price of offerPrices) {
             await executeCommand('catalog.prices.delete', { id: price.id })
           }

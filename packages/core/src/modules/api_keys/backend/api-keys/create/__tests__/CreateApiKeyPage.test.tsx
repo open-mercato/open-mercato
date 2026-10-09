@@ -6,8 +6,9 @@ import { act, render, waitFor } from '@testing-library/react'
 import CreateApiKeyPage from '../page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 
-const mockTranslate = (key: string, fallback?: string) => fallback ?? key
+const mockTranslate = (key: string, fallback?: unknown) => (typeof fallback === 'string' ? fallback : key)
 const mockPush = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -25,10 +26,12 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 
 type CapturedField = { id: string; loadOptions?: (query?: string) => Promise<unknown> }
 let capturedFields: CapturedField[] = []
+let capturedOnSubmit: ((values: Record<string, unknown>) => Promise<void>) | undefined
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: (props: any) => {
     capturedFields = Array.isArray(props.fields) ? props.fields : []
+    capturedOnSubmit = props.onSubmit
     return <div data-testid="crud-form-mock" />
   },
 }))
@@ -151,5 +154,39 @@ describe('CreateApiKeyPage — role selector tenant scoping (#1556)', () => {
     const recoveredLoader = findLoadRoleOptions()!
     await recoveredLoader()
     expect(fetchRoleOptions).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CreateApiKeyPage — organization inheritance (#6732)', () => {
+  const baseValues = { name: 'Key', description: null, roles: [], expiresAt: null }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    capturedOnSubmit = undefined
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: { tenantId: 'tenant-1', isSuperAdmin: false } })
+    ;(createCrud as jest.Mock).mockResolvedValue({ result: { secret: 'omk_secret', keyPrefix: 'omk_' } })
+  })
+
+  it('omits organizationId when inherit is selected so the server applies the switcher scope', async () => {
+    render(<CreateApiKeyPage />)
+    await waitFor(() => expect(capturedOnSubmit).toBeDefined())
+
+    await act(async () => {
+      await capturedOnSubmit!({ ...baseValues, organizationId: null })
+    })
+
+    const payload = (createCrud as jest.Mock).mock.calls[0][1]
+    expect(payload).not.toHaveProperty('organizationId')
+  })
+
+  it('sends organizationId when a specific organization is picked', async () => {
+    render(<CreateApiKeyPage />)
+    await waitFor(() => expect(capturedOnSubmit).toBeDefined())
+
+    await act(async () => {
+      await capturedOnSubmit!({ ...baseValues, organizationId: 'org-1' })
+    })
+
+    expect(createCrud).toHaveBeenCalledWith('api_keys/keys', expect.objectContaining({ organizationId: 'org-1' }))
   })
 })
