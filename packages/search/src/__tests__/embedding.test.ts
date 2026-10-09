@@ -1,6 +1,6 @@
 jest.mock('ai', () => ({
-  // Only `embed` is stubbed. `RetryError` comes through unmocked so the unwrap below
-  // exercises the SDK's real `isInstance` predicate rather than a stand-in of it.
+  // Only `embed` is stubbed. The real `RetryError` stays available: one case builds a
+  // genuine instance to exercise `isInstance`; the name-only fixtures cover the fallback.
   ...jest.requireActual('ai'),
   embed: jest.fn(),
 }))
@@ -9,7 +9,7 @@ jest.mock('ai-sdk-ollama', () => ({
   createOllama: jest.fn(() => ({ embedding: jest.fn(() => ({})) })),
 }))
 
-import { embed } from 'ai'
+import { embed, RetryError } from 'ai'
 import { createOllama } from 'ai-sdk-ollama'
 import { EmbeddingService } from '../vector/services/embedding'
 
@@ -197,9 +197,9 @@ describe('EmbeddingService retry budget and error classification', () => {
       },
     })
 
-  // 1 rather than the SDK's 2: the deadline is a TOTAL budget, so the second backoff alone
-  // runs it out and the caller gets the fabricated timeout instead of the provider's error.
-  // 1 keeps the one recovery that fits inside the default 3000 ms.
+  // 1 rather than the SDK's 2: the deadline is a TOTAL budget, so for a provider that keeps
+  // failing the second backoff alone runs it out and the caller gets the fabricated timeout
+  // instead of the provider's error. 1 keeps the one recovery that fits inside 3000 ms.
   it('spends at most one retry by default, so the deadline cannot pre-empt the provider error', async () => {
     mockedEmbed.mockResolvedValue({ embedding: [0.1] } as Awaited<ReturnType<typeof embed>>)
 
@@ -264,6 +264,21 @@ describe('EmbeddingService retry budget and error classification', () => {
 
     await expect(service().createEmbedding('test input')).rejects.toMatchObject({
       message: '[vector.embedding] Ollama (Local) usage quota exceeded. Please review your plan and billing.',
+      code: 'insufficient_quota',
+      status: 429,
+    })
+  })
+
+  it('classifies a provider error wrapped in a genuine SDK RetryError', async () => {
+    const wrapped = new RetryError({
+      message: 'Failed after 2 attempts.',
+      reason: 'maxRetriesExceeded',
+      errors: [quotaApiError()],
+    })
+    expect(RetryError.isInstance(wrapped)).toBe(true)
+    mockedEmbed.mockRejectedValue(wrapped)
+
+    await expect(service().createEmbedding('test input')).rejects.toMatchObject({
       code: 'insufficient_quota',
       status: 429,
     })

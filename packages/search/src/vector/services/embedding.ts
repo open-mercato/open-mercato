@@ -49,26 +49,20 @@ function resolveEmbeddingTimeoutMs(): number {
 
 // createEmbedding() races the WHOLE SDK retry loop against
 // VECTOR_EMBEDDING_TIMEOUT_MS, so the deadline is a total budget and every retry
-// spends it. The SDK default of 2 cannot fit: the second backoff alone pushes the
-// loop past the 3s default, so the deadline always won and the caller was handed
-// the fabricated timeoutError() below instead of whatever the provider said.
+// spends it. For a provider that keeps failing, the SDK default of 2 cannot fit:
+// the second backoff alone pushes the loop past the 3s default, so the deadline
+// won and the caller got the fabricated timeoutError() below instead of the
+// provider's error. A transient failure followed by success recovers after the
+// first backoff at any budget of 1 or more.
 //
-// 1 is the largest budget that fits. It keeps the one recovery that completes
-// inside the deadline - a fast transient failure then success resolves at ~2.2s -
-// while a permanent error still rejects at ~2.25s with an AI_RetryError that
-// unwrapRetryError() below turns back into the provider's own code. Operators who
-// raise VECTOR_EMBEDDING_TIMEOUT_MS can raise this alongside it.
-//
-// The residual case, stated because it is the reason 0 exists as an option: when
-// the provider sends a Retry-After larger than the remaining budget, no non-zero
-// value is diagnostic - the deadline elapses during the wait. Set 0 to make the
-// provider's own error reach the classifier unconditionally, at the cost of that
-// one recovery.
+// For a persistent failure with no Retry-After, 1 is the largest budget that
+// fits: a fast transient failure then success still resolves at ~2.2s, and a
+// permanent error rejects at ~2.25s with an AI_RetryError that unwrapRetryError()
+// turns back into the provider's own code. Raise it alongside
+// VECTOR_EMBEDDING_TIMEOUT_MS. 0 exists because a Retry-After longer than the
+// remaining budget makes every non-zero value non-diagnostic.
 const DEFAULT_EMBEDDING_MAX_RETRIES = 1
 
-// The deadline already bounds the loop, so a high value cannot run away - but an
-// operator who typed an extra digit deserves the same clamp the repo's other
-// retry knob gets (webhooks/data/validators.ts).
 const MAX_EMBEDDING_MAX_RETRIES = 30
 
 function resolveEmbeddingMaxRetries(): number {
@@ -82,17 +76,12 @@ function resolveEmbeddingMaxRetries(): number {
 }
 
 // With a non-zero retry budget the SDK wraps the provider error in an
-// AI_RetryError whose own statusCode/data are empty, so the classification below
-// falls through to its default branch and loses the provider's code. Unwrap to
-// the last real attempt first. This is load-bearing at the default budget of 1,
-// and again for any operator who raises the deadline and buys more retries back.
+// AI_RetryError whose own statusCode/data are empty; unwrap to the last real
+// attempt so the classification below sees the provider's code.
 function unwrapRetryError(err: unknown): unknown {
   const candidate = err as { name?: string; lastError?: unknown; errors?: unknown[] } | null
   if (!candidate) return err
-  // `isInstance` matches on a Symbol marker, so it survives a duplicate `ai` install
-  // where `instanceof` would not. The name check stays as a fallback for a provider
-  // package that mints the error shape without the marker.
-  if (!RetryError?.isInstance?.(err) && candidate.name !== 'AI_RetryError') return err
+  if (!RetryError.isInstance(err) && candidate.name !== 'AI_RetryError') return err
   if (candidate.lastError) return candidate.lastError
   if (Array.isArray(candidate.errors) && candidate.errors.length > 0) {
     return candidate.errors[candidate.errors.length - 1]
