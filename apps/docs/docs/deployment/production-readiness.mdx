@@ -1,0 +1,121 @@
+---
+title: Production Readiness
+description: A provider-neutral, TLS-first checklist for securely operating Open Mercato in production.
+---
+
+# Production Readiness
+
+Use this checklist before exposing an Open Mercato deployment to real users or production data. It is the shared readiness and security baseline for every hosting provider; complete it together with the provider-specific [VPS](../installation/vps) or [Railway](./railway) guide.
+
+Record the owner and evidence for each item. Do not paste secret values into tickets, deployment logs, screenshots, or this checklist.
+
+## Ordered production checklist
+
+1. **Make HTTPS, TLS, DNS, certificates, and the reverse proxy ready first.**
+
+   - [ ] Choose the final public hostname before configuring callbacks, webhooks, or application URLs.
+   - [ ] Point every required DNS record at the intended ingress and remove stale records. Check both IPv4 and IPv6 when both are published.
+   - [ ] Install a valid certificate with its complete chain, automate renewal, and alert before expiry.
+   - [ ] Redirect HTTP to HTTPS and confirm the application is not directly reachable on an unintended public port.
+   - [ ] Forward the original host, client address, and protocol through the proxy. For a self-managed host, start from the [VPS nginx example](../installation/vps#https-with-a-reverse-proxy).
+   - [ ] Keep PostgreSQL, Redis, search, and internal worker endpoints off the public internet.
+   - [ ] Set the public application URLs to the same canonical `https://` origin and test the certificate and redirect from outside the hosting network.
+
+2. **Prepare the production environment and secrets.**
+
+   - [ ] Compare the deployment's variable **names** with the tracked `.env.example` for the exact release being deployed. Do not copy development values into production.
+   - [ ] Set `NODE_ENV=production` and use production URLs, database/cache connections, and provider credentials.
+   - [ ] Generate unique high-entropy authentication and encryption secrets for this environment. Store them in the hosting platform's secret store or another access-controlled secret manager, never in Git.
+   - [ ] Give each secret an owner and rotation procedure. Document the user impact of rotating signing or encryption keys before rotating them.
+   - [ ] Restrict who can read or change production variables, and confirm logs and build output do not reveal their values.
+
+   The [installation prerequisites](../installation/prerequisites) describe baseline application variables, while [data encryption](../architecture/data-encryption) covers encryption keys and their operational constraints.
+
+3. **Review provider and module settings.**
+
+   - [ ] Enable only the modules required for this environment and re-run generation when module discovery changes.
+   - [ ] Configure every enabled external provider—such as mail, payments, shipping, AI, webhooks, and object storage—with production endpoints and credentials.
+   - [ ] Review settings stored through the application UI as well as environment variables; tenant-scoped provider configuration may not come from the process environment.
+   - [ ] Run each available provider health check and complete a safe end-to-end test using the production account or an explicitly isolated production test resource.
+   - [ ] Confirm callback and webhook URLs use the canonical HTTPS hostname.
+
+   See [modules](../framework/modules/overview) and the [Integrations user guide](../user-guide/integrations) for the two configuration layers.
+
+4. **Provision and isolate the infrastructure.**
+
+   - [ ] Size the application, database, Redis, search service, and worker capacity for expected load and peak operations such as imports or reindexing.
+   - [ ] Use durable production services and storage; do not rely on an ephemeral container filesystem for state.
+   - [ ] Put stateful services on private networking or firewall them to only the processes and operator paths that need access.
+   - [ ] Set resource limits and leave headroom for builds, migrations, background jobs, and backups.
+   - [ ] Define who applies schema migrations, ensure only one migration run occurs for a release, and verify the target database supports the required extensions.
+
+5. **Protect data and prove backups can be restored.**
+
+   - [ ] Back up PostgreSQL and every durable file or object-storage location that contains business data. Treat Redis and search indexes according to whether your topology uses them as rebuildable or durable state.
+   - [ ] Encrypt backups, restrict access, keep at least one failure-domain-separated copy, and define retention from business and regulatory requirements.
+   - [ ] Set recovery-point and recovery-time objectives, monitor backup jobs, and test a restore into an isolated environment on a schedule.
+   - [ ] Take a recoverable backup before migrations or other high-risk data operations and record the exact restore procedure for the chosen provider.
+   - [ ] Verify restored encrypted data remains readable with the restored key material; a database backup without its required keys is incomplete.
+
+   The VPS guide includes concrete [PostgreSQL backup and restore commands](../installation/vps#data-persistence). For attachments, review [Storage Hub](../user-guide/storage-hub) before selecting local or object storage.
+
+6. **Lock down operator and application access.**
+
+   - [ ] Remove or disable demo accounts, rotate bootstrap credentials, and require unique operator accounts.
+   - [ ] Grant roles and API keys the minimum features and organization scope they need. Review privileged access separately.
+   - [ ] Protect hosting, DNS, database, backup, and source-control accounts with strong authentication and recovery procedures; enable MFA where the provider supports it.
+   - [ ] Limit SSH, console, and database administration paths by identity and network, and retain an audited break-glass route.
+   - [ ] Test that ordinary users and integrations cannot reach another tenant, organization, or privileged administration surface.
+
+   Use [Users and roles](../user-guide/users-and-roles) and [API keys](../user-guide/api-keys) to review application access.
+
+7. **Run production workers and choose durable storage.**
+
+   - [ ] Use the Redis-backed async queue for multi-process production work and run separately managed worker processes for the queues your enabled modules require.
+   - [ ] Deploy the same release and compatible configuration to the web and worker processes.
+   - [ ] Confirm workers start after deploy, consume a test job, retry safely, and expose enough signals to detect a stalled or growing queue.
+   - [ ] Put uploaded files on a persistent volume or external object store, then test upload, download, deletion, quota, and backup behavior.
+   - [ ] Include scheduled jobs and event consumers in process supervision and restart policies.
+
+   Follow [Queue & Workers](../framework/events/queue-workers) for the production worker topology and [Storage Hub](../user-guide/storage-hub) for S3-compatible storage.
+
+8. **Make the deployment observable.**
+
+   - [ ] Centralize structured application and worker logs with retention, access control, and sensitive-data filtering.
+   - [ ] Add uptime and external HTTPS checks for the public application, plus internal dependency checks for the database, Redis, workers, and storage.
+   - [ ] Collect metrics and traces appropriate to the topology, and propagate alerts to an owned on-call or operations channel.
+   - [ ] Alert on certificate expiry, failed backups, repeated application errors, queue growth, worker absence, resource saturation, and disk exhaustion.
+   - [ ] Put dashboards, alert owners, and first-response runbooks in one discoverable location.
+
+   Open Mercato provides guidance for [structured logging](../framework/runtime/logging), [OTLP telemetry](../framework/runtime/telemetry), and [system-status variables](../framework/operations/system-status).
+
+9. **Validate the release before production traffic.**
+
+   - [ ] Run generation, the production build, tests, and migration checks for the exact commit or immutable artifact being released.
+   - [ ] Rehearse the release in a production-like environment using sanitized or synthetic data.
+   - [ ] Smoke-test HTTPS, sign-in, authorization boundaries, one representative read and write, file handling, background work, and every business-critical integration.
+   - [ ] Verify health checks fail when a required dependency is unavailable and recover when it returns.
+   - [ ] Record the artifact identifier, configuration revision, migration set, approver, and evidence.
+
+10. **Plan and execute a controlled rollout.**
+
+    - [ ] Define a change window, owner, communication channel, success metrics, and explicit abort thresholds.
+    - [ ] Confirm the pre-deploy backup and rollback inputs before changing the database or serving the new release.
+    - [ ] Roll out gradually when the platform supports it; otherwise use a maintenance window for changes that cannot safely overlap versions.
+    - [ ] Keep web and worker versions compatible during the transition and avoid processing new-shape jobs with old code.
+    - [ ] Watch logs, health, queues, latency, errors, and critical business flows throughout the observation window.
+
+11. **Prepare and rehearse rollback.**
+
+    - [ ] Keep the previous deployable artifact and its configuration available without rebuilding from a moving branch.
+    - [ ] Write provider-specific rollback commands and identify who is authorized to run them.
+    - [ ] Classify database changes as backward-compatible or restore-requiring; do not assume an application rollback also reverses a migration.
+    - [ ] Define how workers, scheduled jobs, and inbound traffic are paused when rolling back incompatible data or job formats.
+    - [ ] Test rollback or restore in a non-production environment, then document the decision, timing, validation, and follow-up after any real rollback.
+
+## Provider runbooks
+
+- [VPS / Docker Compose](../installation/vps) — host setup, Compose services, nginx, volumes, and host-level operations.
+- [Railway](./railway) — CLI provisioning, source modes, Railway variables, domains, volumes, and resource state.
+
+The provider runbook tells you **how** to configure that platform. This page remains the source of truth for **what** must be ready before production traffic.
