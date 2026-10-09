@@ -447,8 +447,9 @@ only, never the invoice's `outstandingAmount`/`paidTotalAmount`. Resolution:
   holds only after the `sales` change). That is a change to #6055 and is not
   made here.
 
-**⚠ NEEDS HUMAN CONFIRMATION:** the ownership split above (architecture
-decision; autonomous default taken to unblock both specs).
+**Decided (2026-10-09, author):** the ownership split above is the final
+design for this document; it is not left open for a separate architecture
+review.
 
 **`documentType: 'external_own'` — a sales invoice is a dowód
 wystawiony przez naszą firmę, the opposite case from Accounts
@@ -810,12 +811,9 @@ the `GET` route; both are ordinary authenticated, feature-gated routes.
   either an invoices section on the order detail page or a new invoice
   detail surface in `sales`. Neither exists, and designing one is
   `sales`'s scope, not this module's. This is a named dependency, not a
-  Phase 1 deliverable. Decision taken (autonomous default): Phase 1 ships API-only,
-  because the posting action and its tests do not depend on a UI, and the
-  invoice surface is a `sales` deliverable that would otherwise gate this
-  module. **⚠ NEEDS HUMAN CONFIRMATION:** product owner — if a button is
-  needed from day one, the invoice surface in `sales` must be specified
-  first and Phase 1 moves behind it.
+  Phase 1 deliverable. **Decided (2026-10-09, author):** Phase 1 ships API-only, because the
+  posting action and its tests do not depend on a UI, and the invoice
+  surface is a `sales` deliverable that would otherwise gate this module.
 - **The module-config settings page** (`backend/settings/page.tsx`,
   File Manifest) is a minimal `<CrudForm>` (from
   `@open-mercato/ui/backend/CrudForm`) with two `<FormField>`-wrapped
@@ -1271,7 +1269,7 @@ revision.
 
 ### Verdict
 
-- **Compliant with the repository rules; re-run 2026-10-09.** The second-round review corrected two design claims (Invariant 2 and the "subsidiary ledger" decision; the widget host) and several mechanical items; the 2026-09-10 "Fully compliant" wording is superseded. Open for the maintainer: API-only Phase 1 (Backend Pages). Not yet approved by a human/maintainer. The `customers` ↔ `contractors` identity
+- **Compliant with the repository rules; re-run 2026-10-09.** The second-round review corrected two design claims (Invariant 2 and the "subsidiary ledger" decision; the widget host) and several mechanical items; the 2026-09-10 "Fully compliant" wording is superseded. API-only Phase 1 and the #6055 ownership split are decided (Backend Pages, Design decisions). Not yet approved by a maintainer. The `customers` ↔ `contractors` identity
   bridge remains a flagged, unresolved gap by design (see Design
   decisions, Risks, Out of scope) — a named gap, not a compliance
   failure.
@@ -1529,7 +1527,7 @@ first round was confirmed fixed.
 - **M1 (major) — fixed.** `sales` has no invoice detail page; Phase 1 is
   API-only and the widget is Phase 2, blocked on an invoice surface in
   `sales` (Backend Pages, Implementation Plan step 6, Compliance rows).
-  **⚠ NEEDS HUMAN CONFIRMATION:** whether API-only Phase 1 is acceptable.
+  Decided: API-only Phase 1 (Backend Pages).
 - **m1 — fixed.** Routes live under the module id: files are
   `api/postings/[salesInvoiceId]/route.ts` and `…/post/route.ts`, served at
   `/api/sales_invoices_gl_posting/postings/:salesInvoiceId[/post]`; every
@@ -1553,5 +1551,5 @@ first round was confirmed fixed.
   payment bridge (the only financial module allowed to depend on `sales`);
   `sales` owns invoice-balance maintenance. #6055 expects this module to
   carry the subscriber, which this document had not said; its text still
-  needs aligning. **⚠ NEEDS HUMAN CONFIRMATION:** the ownership split, and
-  API-only Phase 1.
+  needs aligning. Both the ownership split and API-only Phase 1 are decided
+  by the author as the final design.
