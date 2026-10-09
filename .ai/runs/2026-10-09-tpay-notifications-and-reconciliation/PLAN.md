@@ -16,7 +16,7 @@
 | 1 | 1.1 | Add Tpay notification form parsing and MD5 checksum | dispatch | done | dcab00283 |
 | 1 | 1.2 | Add Tpay JWS verification with bundled per-environment trust anchors | dispatch:capable | done | c69590e84 |
 | 1 | 1.3 | Add the Tpay notification handler and webhook registration | dispatch:capable | done | f6058f8f7 |
-| 1 | 1.4 | Document Tpay notifications and update the notification spec | inline | done | self |
+| 1 | 1.4 | Document Tpay notifications and update the notification spec | inline | done | 50d4d0c76 |
 | 2 | 2.1 | Add the Tpay status reconciliation worker | dispatch | todo | — |
 | 2 | 2.2 | Register the Tpay reconciliation schedule on setup and integration state changes | dispatch:capable | todo | — |
 | 2 | 2.3 | Document Tpay reconciliation and update the reconciliation spec | inline | todo | — |

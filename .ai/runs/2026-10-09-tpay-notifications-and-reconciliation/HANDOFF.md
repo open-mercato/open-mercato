@@ -1,16 +1,16 @@
 # Handoff — 2026-10-09-tpay-notifications-and-reconciliation
 
-**Last updated:** 2026-10-09T17:52:53Z
+**Last updated:** 2026-10-09T18:06:12Z
 **Branch:** mtytula/tpay-notifications
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** (spec corrections commit)
+**PR:** https://github.com/mtytula/open-mercato/pull/3 (draft)
+**Current phase/step:** Phase 2 Step 2.1
+**Last commit:** 50d4d0c76 — docs(gateway-tpay): document tpay payment notifications
 
 ## What just happened
-- Analysis found five critical spec/system mismatches (tr_id is the title, sandbox JWS CA, scheduler ownership, scope rebuild, seedDefaults coverage); specs corrected; plan drafted.
+- Phase 1 (notification settlement) landed and passed checkpoint 1.
 
 ## Next concrete action
-- Implement Step 1.1.
+- Implement Step 2.1 (reconciliation worker).
 
 ## Blockers / open questions
 - Sandbox acceptance needs a public HTTPS tunnel (cloudflared container proposed; pending user confirmation of FWC approved tools).
