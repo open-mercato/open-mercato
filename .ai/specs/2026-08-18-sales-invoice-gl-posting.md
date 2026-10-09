@@ -22,7 +22,23 @@ actually function until #5663 (hard dependency) merges, and its
 #5955/#5962 land too. Left for the maintainer to sequence merges — see
 Risks & Impact Review.
 
+> **Second-round review (2026-10-09, `@adeptofvoltron`, head `40badbe9`).**
+> Found one blocker, one major, two minors and four nits. The blocker:
+> Invariant 2 and the "no new subsidiary ledger" decision assumed `sales`
+> keeps each invoice's `outstandingAmount` current, but payments only
+> recalculate *order* totals and invoice balances are whatever the caller
+> sends (default `0`). Invariant 2 is restated on `grandTotalGrossAmount`
+> and the subsidiary-ledger claim is withdrawn (Design decisions, "No
+> subsidiary ledger in Phase 1"; Invariants). The major: the "Post to
+> ledger" widget named an invoice detail page that does not exist in
+> `sales`; Phase 1 is now API-only and the widget is Phase 2 (Backend
+> Pages). Also: route URLs match the module id, the same-transaction
+> mechanism is named, table names are plural, dangling references are
+> linked, and out-of-date text is corrected. Changelog: 2026-10-09.
+
 ## TLDR
+## TLDR
+
 
 Posts real `sales.SalesInvoice` records to `ledger` as balanced
 `JournalEntry` postings: debit the receivable control account for the
@@ -62,11 +78,14 @@ entry, and — optionally — which verified contractor stood behind the
 sale.
 
 This document is not a full Accounts Receivable subledger. Customer
-statements, aging, dunning, and collections are not designed here —
-`sales.SalesInvoice.outstandingAmount`/`paidTotalAmount` already track
-per-invoice balances natively (see Design decisions), and this
-document's only job is making sure the *books* agree with what
-`sales` already knows.
+statements, aging, dunning, collections and **receipt posting** (the
+credit to the receivable when a customer pays) are not designed here.
+`sales.SalesInvoice` carries `outstandingAmount`/`paidTotalAmount`, but
+`sales` does not maintain them for invoices — payments recalculate the
+*order's* totals only, and an invoice's balances are whatever the caller
+wrote (see Design decisions, "No subsidiary ledger in Phase 1"). This
+document's job is the invoice-recognition posting, not the receivable
+lifecycle.
 
 ## Problem Statement
 
@@ -161,7 +180,7 @@ FK-id only, no ORM relation, the same shape
 `ledger.JournalEntryLine` without owning it.
 
 **Update (2026-09-17):** the Deferred Revenue spec
-(`.ai/specs/2026-09-17-deferred-revenue.md`) reads
+([#6193](https://github.com/open-mercato/open-mercato/pull/6193)) reads
 `SalesInvoiceLineRevenueAccount` directly rather than adding its own
 "which income account" configuration — the per-line revenue account
 this module already assigns at posting time is exactly the account a
@@ -200,8 +219,8 @@ one DR to the receivable account — not a narrower version of it.
 validates that the invoice actually balances, rather than assuming it
 does.** Checked directly against `sales`'s real, shipped code, not
 assumed (external review, 2026-09-14, independently re-verified
-against `sales/commands/documents.ts:9030-9048` and
-`sales/data/validators.ts:938-946`): `sales.invoices.create`/`.update`
+against `createInvoiceCommand` in `sales/commands/documents.ts` and
+the invoice create/update schemas in `sales/data/validators.ts`): `sales.invoices.create`/`.update`
 write every header total (`subtotalNetAmount`, `discountTotalAmount`,
 `taxTotalAmount`, `grandTotalNetAmount`, `grandTotalGrossAmount`)
 straight from caller input (`toNumericString(parsed.<field> ?? 0)`) —
@@ -289,7 +308,7 @@ Module Dependency) — multi-currency exchange-rate handling itself
 stays out of scope (see Out of scope).
 
 **Update (2026-09-17):** the Multi-Currency spec
-(`.ai/specs/2026-09-17-multi-currency.md`) proposes adding
+([#6190](https://github.com/open-mercato/open-mercato/pull/6190)) proposes adding
 `SalesInvoice.currencyId`/`exchangeRate` directly, resolved at
 invoice-creation time rather than here at posting time. Once that
 ships, this resolution step becomes redundant with a value already
@@ -357,18 +376,34 @@ populates its own lines' snapshot. When omitted (no link exists, or
 installed), the line simply has no `contractorSnapshot` — a real,
 named gap (see Risks), not a silently-guessed one.
 
-**No new subsidiary ledger — `sales.SalesInvoice.outstandingAmount`/
-`paidTotalAmount` already are one.** Accounts Payable needed its own
-`VendorInvoice`/`accounts_payable_payments` tables to track "how much
-do we owe vendor X" because it owns no other source of that data.
-`sales.SalesInvoice` already tracks `paidTotalAmount`/
-`outstandingAmount` per invoice natively (confirmed directly in
-`sales/data/entities.ts`) — collated by customer, this already is the
-receivable subsidiary ledger. This document adds no new subsidiary-
-ledger table; the control-account invariant it must hold is: the
-receivable account's `ledger` balance equals the sum of
-`outstandingAmount` across every `SalesInvoice` this module has
-posted (see Invariants).
+**No subsidiary ledger in Phase 1 — and `sales.SalesInvoice.outstandingAmount`/
+`paidTotalAmount` are not one.** (Corrected in the second-round review;
+the first draft said `SalesInvoice` "already is the receivable
+subsidiary ledger" and that Invariant 2 reconciled the control account
+against `Σ outstandingAmount`.) Checked against the code on `develop`:
+`sales/commands/payments.ts` recalculates `order.paidTotalAmount`/
+`order.outstandingAmount` only — no payment command writes the invoice's
+balances, even though a payment can carry an invoice allocation.
+`sales.invoices.create` writes `outstandingAmount` straight from caller
+input (default `0`) and `update` copies input as is, the same
+no-derivation pattern as the header totals (see "Header-level discounts
+are out of scope"). So an invoice created without an explicit `outstandingAmount`
+posts `DR receivable = gross` while its `outstandingAmount` is `0`, and
+nothing ever credits the receivable afterwards, because no receipt
+posting exists here or in a sibling spec. Consequences for this
+document:
+
+- The reconciliation the Literature section cites (Kieso Ch.7 p.7-12 fn.
+  5; UoR art. 13/16: control account versus subsidiary ledger) **cannot
+  be performed from `sales` data today**. Phase 1 does not claim it.
+- Invariant 2 is restated on what this module controls: the receivable
+  account's balance is `Σ grandTotalGrossAmount` of the invoices it has
+  posted, less receipts posted by a path that does not exist yet (see
+  Invariants).
+- Per-customer receivable balances and aging need two prerequisites,
+  both outside this document: `sales` maintaining invoice balances from
+  payment allocations, and a receipt posting into `ledger`. They are
+  named as dependencies in Out of scope, not designed here.
 
 **`documentType: 'external_own'` — a sales invoice is a dowód
 wystawiony przez naszą firmę, the opposite case from Accounts
@@ -421,17 +456,21 @@ this document's scope can fix.
    `postSalesInvoiceToLedger` call against an already-posted invoice
    is rejected, not silently re-posted.
 2. **The receivable control account's balance equals the sum of
-   `outstandingAmount` across every posted `SalesInvoice`.** Since
-   `sales` itself keeps `outstandingAmount` current as payments apply
-   (`sales.payments.create`, outside this module's scope), this
-   invariant holds only for invoices this module has posted — an
-   unposted invoice's `outstandingAmount` is not reflected anywhere in
-   `ledger`, by design (see Problem Statement).
+   `grandTotalGrossAmount` across every `SalesInvoice` this module has
+   posted, until a receipt-posting path exists.** Once receipts are
+   posted into `ledger` (a path this document does not design), the
+   balance equals that sum minus the posted receipts. It is deliberately
+   *not* compared to `outstandingAmount`: for invoices `sales` does not
+   maintain it (Design decisions, "No subsidiary ledger in Phase 1").
+   The invariant holds only for invoices this module has posted — an
+   unposted invoice is not reflected anywhere in `ledger`, by design (see
+   Problem Statement).
 3. **Every posting balances**: the debit to the receivable account
    equals the sum of the credits to revenue lines plus the credit to
-   output VAT, for every `postSalesInvoiceToLedger` call —
-   `ledger.postJournalEntry`'s own balance check enforces this
-   independently; this module never needs its own redundant check.
+   output VAT, for every `postSalesInvoiceToLedger` call. The command checks the
+   header/line identity as a precondition before building the lines
+   (Commands), and `ledger.postJournalEntry`'s own balance check
+   enforces the result independently.
 4. **A locked `FiscalPeriod` rejects the posting, full stop.** Unlike
    Posting Rules Engine (which reclassifies through a *second*,
    separate `postJournalEntry` call and therefore needs its own
@@ -451,12 +490,13 @@ this document's scope can fix.
 | An automatic subscriber on `sales.invoice.created`, mirroring Posting Rules Engine | Rejected: `sales.SalesInvoice.status` is a free-form, tenant-configurable dictionary value with no generic "this means finalized" signal — the same problem space as Accounts Payable's explicit-command choice, not Posting Rules Engine's structural-fact one (see Design decisions) |
 | Add `accountId` directly to `sales.SalesInvoiceLine`, mirroring `VendorInvoiceLine.accountId` | Not this module's table to alter — `sales` owns that entity and its migrations; a thin, additive `SalesInvoiceLineRevenueAccount` table achieves the same per-line assignment without touching `sales`'s schema |
 | Build the `customers.CustomerEntity` ↔ `contractors.Contractor` bridge as part of this document | Rejected as premature: no confirmed need for *automatic* resolution exists anywhere in this codebase yet (Contractor Registry itself only names this document as an undesigned, indirect consumer); an explicit, optional `contractorId` argument covers the one real, confirmed need (contractor snapshotting) without speculatively designing a mapping nobody has asked for |
-| A new subsidiary-ledger table for per-customer receivable balances | Unnecessary: `sales.SalesInvoice.outstandingAmount`/`paidTotalAmount` already track this natively (see Design decisions) |
+| A new subsidiary-ledger table for per-customer receivable balances | Deferred, not rejected: `sales` does not maintain invoice balances (payments update orders only), so neither `sales` nor this module can supply per-customer balances today. It needs receipt posting and invoice-balance maintenance first (see Design decisions, "No subsidiary ledger in Phase 1", and Out of scope) |
 
 ## Literature & Prior Art
 
 Per the financial-spec-writing-process. Verification trail recorded in
-full in `financial-module-knowledge-base.md` §3.
+full in §3 of the financial-module knowledge base
+([#6016](https://github.com/open-mercato/open-mercato/pull/6016)).
 
 **Cross-spec consistency (Step 1) — re-verified, no corrections
 needed.** Three of this document's own internal citations were checked
@@ -485,19 +525,20 @@ receivable side by name. Legally: **Ustawa o rachunkowości, art. 13
 ust. 1 pkt 3 and art. 16**, already established in this knowledge base
 as the stronger, directly-applicable citation for the control-
 account/subsidiary-ledger pattern generally, applies identically here —
-this document's Invariant 2 ("the receivable control account's balance
-equals the sum of `outstandingAmount` across every posted
-`SalesInvoice`") is precisely the reconciliation both sources describe,
-with `sales.SalesInvoice` itself serving as the subsidiary ledger (see
-Design decisions, "No new subsidiary ledger").
+both sources describe a control account reconciled against a
+per-party subsidiary ledger. **This document does not satisfy that
+reconciliation in Phase 1**: `sales` does not maintain invoice balances,
+so there is no subsidiary ledger to reconcile against, and Invariant 2
+is restated on `grandTotalGrossAmount` (Design decisions, "No subsidiary
+ledger in Phase 1"). The citations stay as the grounding for the control-
+account concept and for the prerequisite named in Out of scope.
 
 **Comparison against real systems (Step 3).** Checked how ERPNext
 handles the equivalent moment (docs.frappe.io/erpnext/sales-invoice,
 verified 2026-09-12): "When it is submitted, ERPNext records the
 receivable, income, and taxes in the general ledger" — debiting the
-customer's receivable account (party-scoped, the same control-account +
-per-party-subsidiary structure as this document's
-`outstandingAmount`-based one), crediting income and tax accounts. The
+customer's receivable account (party-scoped, a control-account + per-party-subsidiary structure that
+this document has no Phase 1 equivalent of), crediting income and tax accounts. The
 real divergence: ERPNext's GL posting happens **automatically, in the
 same action** as invoice submission — there is no separate posting step
 to call. This document deliberately splits that into an explicit,
@@ -643,7 +684,22 @@ before the first posting (see Migration & Deployment).
   the receivable line's `contractorSnapshot` with that contractor's
   point-in-time data (name, NIP — same shape AP already uses).
   Persists `SalesInvoiceGlPosting` and every `SalesInvoiceLineRevenueAccount`
-  row in the same transaction as the `postJournalEntry` call. Requires
+  row in the same transaction as the `postJournalEntry` call, by this
+  mechanism: the command runs inside `em.transactional(tx => …)`, writes
+  its rows through `tx`, and passes `ctx.transactionalEm = tx` to
+  `commandBus.execute('ledger.postJournalEntry', …)` (`CommandRuntimeContext.
+  transactionalEm`), so the journal entry and the posting rows commit or
+  roll back together. A plain `execute` without `transactionalEm` would
+  run in its own unit of work. Because the call is composed,
+  `postJournalEntry` does not emit `ledger.journal_entry.posted` itself
+  (#5663: the composing caller emits it); this command emits it after the
+  transaction commits, never before. **Double-click protection** rests on
+  the unique index over `(tenantId, organizationId, salesInvoiceId)`, not
+  on the "already posted?" pre-check, which is only a fast path: two
+  concurrent requests can both pass the pre-check, and the second one's
+  insert violates the index, which rolls back its whole transaction
+  *including its journal entry* and is mapped to `409 ALREADY_POSTED`,
+  never a 500. Requires
   `sales_invoices_gl_posting.invoices.post`.
 
 ### Events (`events.ts`)
@@ -689,29 +745,26 @@ in this family).
 
 ### Backend Pages
 
-**None owned by this module in Phase 1** — no page under its own route.
-Two pieces of UI, both hosted by other modules:
+**Phase 1 is API-only for the posting action; the only page is the
+module-config settings page.** (Second-round review: the first draft put
+the "Post to ledger" button in a widget on "`sales`'s own invoice detail
+page", but `sales` has no such page — `backend/sales/` contains channels,
+documents, orders and quotes, and `documents/[id]/page.tsx` handles only
+`kind: 'order' | 'quote'`, so its `documentDetail` injection spots exist
+for those two kinds only.) An accountant, integration or script posts an
+invoice by calling the `POST` route (API Contracts) and reads status from
+the `GET` route; both are ordinary authenticated, feature-gated routes.
 
-- **The posting action** is triggered from within `sales`'s own invoice
-  detail page via a widget-injection action (the third of
-  `packages/core/AGENTS.md`'s three sanctioned cross-module coupling
-  mechanisms, alongside Events and FK-id+snapshot) — already used twice
-  elsewhere in this document family (Accounts Payable's and Contractor
-  Registry's own approval-task widgets, both injected into a host
-  page's declared spot ID the same way), not a new mechanism this
-  document introduces. The action reads posting status via `apiCall`
-  against the `GET` route above and renders it with `<StatusBadge>`
-  (semantic status tokens only — `bg-status-success-bg` for "posted,"
-  no hardcoded `bg-green-*`); the "Post to ledger" trigger itself is a
-  labelled button (not icon-only, so no `aria-label` gap) wrapped in
-  `useGuardedMutation(...).runMutation(...)` against the `POST` route
-  above (see API Contracts) — `postSalesInvoiceToLedger` is reached
-  through that route's own `commandBus.execute` call, never directly
-  from the browser — with `retryLastMutation`
-  passed in the injection context, since it's a custom, non-`CrudForm`
-  write. All labels and the posted/not-posted
-  status text go through `useT()` (client-side), matching every
-  sibling module in this family — no hard-coded strings.
+- **Phase 2: a posting widget, once `sales` has a host for it.** The
+  widget (status pill via `<StatusBadge>` with semantic tokens only, a
+  labelled "Post to ledger" button wrapped in `useGuardedMutation(...)
+  .runMutation(...)` with `retryLastMutation`, text via `useT()`) needs
+  either an invoices section on the order detail page or a new invoice
+  detail surface in `sales`. Neither exists, and designing one is
+  `sales`'s scope, not this module's. This is a named dependency, not a
+  Phase 1 deliverable. **⚠ NEEDS HUMAN CONFIRMATION:** whether an API-only
+  Phase 1 is acceptable to the product owner, or whether the invoice
+  surface in `sales` should be specified first.
 - **The module-config settings page** (`backend/settings/page.tsx`,
   File Manifest) is a minimal `<CrudForm>` (from
   `@open-mercato/ui/backend/CrudForm`) with two `<FormField>`-wrapped
@@ -721,10 +774,6 @@ Two pieces of UI, both hosted by other modules:
   `vatInputAccountId`/`liabilityAccountId` settings page already uses.
   Field labels and validation errors go through `resolveTranslations()`
   server-side / `useT()` client-side.
-
-Designing the exact placement/spot ID of the widget injection is left
-to implementation; this document specifies the mechanism and the
-primitives it must use, not the pixel layout.
 
 ## Data Models
 
@@ -770,7 +819,7 @@ Migration & Deployment).
 
 ## API Contracts
 
-- `POST /api/sales-invoices-gl-posting/postings/:salesInvoiceId/post`
+- `POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`
   — the only mutating route. A custom write route, mapped to `update`
   in the mutation guard registry per `packages/core/AGENTS.md` → API
   Routes (this isn't a field edit, so it doesn't go through
@@ -783,29 +832,30 @@ Migration & Deployment).
   requireFeatures: ['sales_invoices_gl_posting.invoices.post'] }` (no
   top-level `export const requireAuth`), and is `openApi`-documented
   per File Manifest and Implementation Plan step 5. **Response 200**:
-  `{ salesInvoiceId, journalEntryId, postedAt }`. **Response 409**:
-  a `SalesInvoiceGlPosting` already exists for this invoice
-  (idempotency, Invariant 1). **Response 422**: the balance-identity
+  `{ salesInvoiceId, journalEntryId, postedAt }`. **Response 409**
+  `ALREADY_POSTED`: a `SalesInvoiceGlPosting` already exists for this
+  invoice (idempotency, Invariant 1) — whether found by the pre-check or
+  raised by the unique index under a concurrent duplicate (Commands). **Response 422**: the balance-identity
   check fails, any line's `kind` is `'discount'`/`'adjustment'`,
   `issueDate` is null, `lineAccounts` is incomplete or
   references a line not on the invoice, or
   `receivableAccountId`/`vatOutputAccountId`/`currencyId` cannot be
   resolved (see Design decisions, Commands) — one discriminated error
   code per cause, the same typed-error precedent Accounts Payable
-  sets with `FISCAL_PERIOD_LOCKED`. Called from the widget-injection
-  action (see Backend Pages) via `useGuardedMutation(...).runMutation(...)`,
-  never raw `fetch`.
-- `GET /api/sales-invoices-gl-posting/postings/:salesInvoiceId` — thin
+  sets with `FISCAL_PERIOD_LOCKED`. In Phase 1 it is called
+  by API clients only (Backend Pages); the Phase 2 widget will call it via
+  `useGuardedMutation(...).runMutation(...)`, never raw `fetch`.
+- `GET /api/sales_invoices_gl_posting/postings/:salesInvoiceId` — thin
   read route returning the `SalesInvoiceGlPosting` row (or 404) for a
-  given invoice, so `sales`'s own UI can show "posted on {date}, entry
-  #{sequenceNumber}" without a second command. The route file exports
+  given invoice, so a caller can show "posted on {postedAt}" and link the journal entry
+  by `journalEntryId` without a second command. The route file exports
   `metadata` with `GET: { requireAuth: true, requireFeatures:
   ['sales_invoices_gl_posting.invoices.post'] }` (no top-level `export
   const requireAuth`), per `packages/core/AGENTS.md` — the same feature
   the command itself requires (reading whether an invoice a user is
   allowed to post has already been posted is not a separate privilege
-  in Phase 1). Called from the widget-injection action (see Backend
-  Pages) via `apiCall`, never raw `fetch`.
+  in Phase 1). Called by API clients in Phase 1 (Backend Pages); the Phase 2 widget
+  will use `apiCall`, never raw `fetch`.
 
 **Caching:** none in Phase 1. The one read route is a point lookup
 keyed by the same unique index (`organization_id, tenant_id,
@@ -815,7 +865,7 @@ TTL are declared; see the Compliance Matrix below.
 
 ## Migration & Deployment
 
-Two new tables (`sales_invoice_gl_posting`, `sales_invoice_line_revenue_account`),
+Two new tables (`sales_invoice_gl_postings`, `sales_invoice_line_revenue_accounts`; plural per root AGENTS.md → Conventions),
 zero changes to any `sales` or `ledger` table. No seed data (see
 Module Setup) — `receivableAccountId`/`vatOutputAccountId` must be
 configured by an admin before the first `postSalesInvoiceToLedger`
@@ -833,14 +883,16 @@ configuration is in place.
 2. `data/validators.ts` for `postSalesInvoiceToLedger`'s input.
 3. `ModuleConfigService` registration for `receivableAccountId`/
    `vatOutputAccountId` + a minimal settings page.
-4. `postSalesInvoiceToLedger` command + `acl.ts` + `setup.ts`.
-5. `GET /api/sales-invoices-gl-posting/postings/:salesInvoiceId` route
-   and `POST /api/sales-invoices-gl-posting/postings/:salesInvoiceId/post`
+4. `postSalesInvoiceToLedger` command (inside `em.transactional`,
+   passing `ctx.transactionalEm`; unique-violation mapped to `409`) +
+   `acl.ts` + `setup.ts`.
+5. `GET /api/sales_invoices_gl_posting/postings/:salesInvoiceId` route
+   and `POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`
    route (dispatches `postSalesInvoiceToLedger` via `commandBus`,
    mapped to `update` in the mutation guard registry) — both with
    `openApi`, per `packages/core/AGENTS.md`.
-6. Widget-injection action on `sales`'s invoice detail page (the UI
-   entry point).
+6. *(Phase 2, not part of the first implementation PR.)* Posting widget,
+   once `sales` provides an invoice surface to host it (Backend Pages).
 7. Integration test: post a real `SalesInvoice` fixture, assert the
    `JournalEntry`, `SalesInvoiceGlPosting`, and
    `SalesInvoiceLineRevenueAccount` rows all exist and balance.
@@ -861,8 +913,8 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 | `acl.ts` | Create | One feature |
 | `setup.ts` | Create | `defaultRoleFeatures`, no seed data |
 | `index.ts` | Create | `requires: ['ledger', 'sales', 'currencies']` |
-| `api/sales-invoices-gl-posting/postings/[salesInvoiceId]/route.ts` | Create | `openApi`-documented read route |
-| `api/sales-invoices-gl-posting/postings/[salesInvoiceId]/post/route.ts` | Create | Custom write route, dispatches `postSalesInvoiceToLedger` via `commandBus`, mapped to `update` |
+| `api/postings/[salesInvoiceId]/route.ts` | Create | `openApi`-documented read route, served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId` |
+| `api/postings/[salesInvoiceId]/post/route.ts` | Create | Custom write route (served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`), dispatches `postSalesInvoiceToLedger` via `commandBus`, mapped to `update` |
 | `backend/settings/page.tsx` | Create | Minimal `receivableAccountId`/`vatOutputAccountId` config UI |
 
 ## Testing Strategy
@@ -909,16 +961,25 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   null, and separately when `currencies.Currency` has no row matching
   `{ code: invoice.currencyCode, organizationId, tenantId }`.
 - Assert the receivable account's running balance, after posting N
-  invoices, equals the sum of their `outstandingAmount` values
-  (Invariant 2).
+  invoices (including one created without an explicit
+  `outstandingAmount`), equals the sum of their `grandTotalGrossAmount`
+  values (Invariant 2, restated).
+- Assert atomicity: when `postJournalEntry` fails (e.g. locked period),
+  no `SalesInvoiceGlPosting` or `SalesInvoiceLineRevenueAccount` row is
+  left behind, and when the posting rows fail to insert, no
+  `JournalEntry` is left behind (`ctx.transactionalEm` is passed).
+- Assert double-click protection under concurrency: two simultaneous
+  `POST`s for the same invoice produce exactly one `JournalEntry`, one
+  `200` and one `409 ALREADY_POSTED` (the unique index, not the
+  pre-check), never a `500`.
 - Assert editing or deactivating a `Contractor` after a posting exists
   does not change that posting's already-written `contractorSnapshot`
   (Invariant 5 — point-in-time, not live-linked).
-- Assert `GET /api/sales-invoices-gl-posting/postings/:salesInvoiceId`
+- Assert `GET /api/sales_invoices_gl_posting/postings/:salesInvoiceId`
   returns the posting record for a posted invoice, 404 for an unposted
   one, and 403 for a caller without
   `sales_invoices_gl_posting.invoices.post`.
-- Assert `POST /api/sales-invoices-gl-posting/postings/:salesInvoiceId/post`
+- Assert `POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`
   returns 200 with `{ salesInvoiceId, journalEntryId, postedAt }` on a
   valid first call, 409 on a second call against the same invoice
   (Invariant 1), and 422 with a discriminated error code for each of
@@ -987,13 +1048,34 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   must read `sales.SalesInvoiceLine` directly, not this module's
   posting.
 
+- **The receivable only grows until a receipt-posting path exists.** This
+  module credits revenue and VAT and debits the receivable on invoice
+  recognition; nothing credits the receivable when a customer pays, and
+  `sales` does not maintain invoice balances either (Design decisions, "No
+  subsidiary ledger in Phase 1"). A tenant using only this module will see
+  an ever-growing receivable account and no way to reconcile it against
+  `sales` data. Acceptable only as a staged delivery: receipt posting and
+  invoice-balance maintenance are named prerequisites for any receivable
+  reconciliation or aging.
+- **API-only in Phase 1.** There is no UI button to post an invoice until
+  `sales` has an invoice surface (Backend Pages). Posting is done through
+  the route by an integration or an operator script.
+
 ## Out of scope
 
+
 - A full Accounts Receivable subledger (customer statements, aging,
-  dunning, collections) — `sales.SalesInvoice.outstandingAmount`/
-  `paidTotalAmount` already cover the "how much is owed" question
-  natively (see Design decisions); nothing here duplicates or extends
-  that.
+  dunning, collections) — needs two prerequisites that do not exist:
+  `sales` maintaining invoice `outstandingAmount`/`paidTotalAmount` from
+  payment allocations (today payments update orders only), and a receipt
+  posting into `ledger` (see Design decisions, "No subsidiary ledger in
+  Phase 1"). Both are named dependencies of any future receivable
+  reconciliation, not designed here.
+- **Receipt posting** (debit bank/cash, credit the receivable when a
+  customer pays) — no spec covers it yet; until one does, the receivable
+  account only grows (Invariant 2).
+- **The posting widget** — Phase 2, blocked on an invoice surface in
+  `sales` (Backend Pages).
 - Reversing or voiding a posted invoice's journal entry — a future
   `reverseSalesInvoicePosting` command would call
   `ledger.reverseJournalEntry`, symmetrically with Accounts Payable's
@@ -1101,7 +1183,7 @@ review above hasn't already covered.
 |-------------|------|--------|-------|
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | `SalesInvoiceGlPosting.salesInvoiceId`/`journalEntryId`/`contractorId` and `SalesInvoiceLineRevenueAccount.salesInvoiceLineId`/`accountId` are all plain FK-ids, explicitly "no ORM relation" (Architecture → Entities) |
 | root AGENTS.md | Filter by `organization_id` | Compliant | Both new entities are tenant/org-scoped (Data Models); the command scopes every `sales`/`ledger`/`currencies` read by `tenantId`/`organizationId` (Commands) |
-| packages/core/AGENTS.md → API Routes | API routes MUST export `openApi` | Compliant | Both routes (`GET`/`POST /api/sales-invoices-gl-posting/postings/:salesInvoiceId[/post]`) are `openApi`-documented per File Manifest and Implementation Plan step 5 |
+| packages/core/AGENTS.md → API Routes | API routes MUST export `openApi` | Compliant | Both routes (`GET`/`POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId[/post]`) are `openApi`-documented per File Manifest and Implementation Plan step 5 |
 | packages/core/AGENTS.md → API Routes | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | Both routes export `metadata` with `{ requireAuth: true, requireFeatures: ['sales_invoices_gl_posting.invoices.post'] }` on their respective method (`GET`/`POST`), no top-level `export const requireAuth` |
 | packages/core/AGENTS.md → CRUD Factory | CRUD APIs use `makeCrudRoute` | N/A | No CRUD collection in Phase 1 — the mutation is a custom write route (`POST .../post`, mapped to `update` in the mutation guard registry, mirroring Accounts Payable's own `.../post` route) dispatching `postSalesInvoiceToLedger` via `commandBus`, not a `makeCrudRoute` list/detail surface; the other route is a bespoke single-record GET |
 | packages/core/AGENTS.md | All user input validated with zod before persistence | Compliant | `postSalesInvoiceToLedger`'s input shape is validated via `data/validators.ts` before any business-rule check runs (Commands, updated this revision) |
@@ -1109,11 +1191,11 @@ review above hasn't already covered.
 | packages/core/AGENTS.md | Optimistic locking (`updatedAt`) on user-editable entities | N/A | Both entities are write-once/append-only by design — no `updatedAt` on either, matching `JournalEntry`'s own immutable-posting precedent (a correction is a new `ledger.reverseJournalEntry`, never an edit to these rows) |
 | packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | `sales`/`ledger` (hard `requires`, direct-entity-read / `commandBus`) and `contractors` (optional peer, `tryResolve`, fails open, degrades to "no `contractorSnapshot`") are all named explicitly in Cross-module integration |
 | packages/events/AGENTS.md | No direct cross-module calls; events for side effects | Compliant | No direct cross-module *service* calls; writes into `ledger` go through `commandBus.execute('ledger.postJournalEntry', ...)`; reads of `sales.SalesInvoice`/`SalesInvoiceLine` and `ledger.LedgerAccount` are the sanctioned hard-dependency direct-entity-read pattern (see Cross-module integration), not a rule violation; no events declared in Phase 1 since no downstream consumer exists yet (named explicitly, not silently skipped) |
-| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | No caching declared — the one read route is a point lookup on the same unique index backing the idempotency check (`organization_id, sales_invoice_id`), not a list/aggregate query (added explicitly to API Contracts this revision) |
-| packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | Added this revision (Backend Pages): the settings page uses `<CrudForm>`/`<FormField>`; the widget-injection posting action uses `useGuardedMutation(...).runMutation(...)` with `retryLastMutation` in the injection context |
-| packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow` (never raw `fetch`) | Compliant | The widget's status read, its posting trigger (`useGuardedMutation`, itself built on `apiCall`, against the `POST` route), and the settings page's save all go through `apiCall` — no raw `fetch` |
-| root AGENTS.md (Design System Rules) | Semantic status tokens, Tailwind text scale, shared primitives, `aria-label` on icon-only buttons | Compliant | Added this revision: `<StatusBadge>` for posted/not-posted status (semantic tokens only, e.g. `bg-status-success-bg`, never `bg-green-*`); neither new control is icon-only, so no `aria-label` gap applies |
-| checklist §5 | i18n keys planned for all user-facing strings | Compliant | Added this revision: settings-page labels/errors and the widget's status text go through `useT()` (client) / `resolveTranslations()` (server) — no hard-coded strings |
+| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | No caching declared — the one read route is a point lookup on the same unique index backing the idempotency check (`tenant_id, organization_id, sales_invoice_id`), not a list/aggregate query (added explicitly to API Contracts this revision) |
+| packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | Backend Pages: the settings page uses `<CrudForm>`/`<FormField>`; the posting widget (`useGuardedMutation(...).runMutation(...)`) is Phase 2, so Phase 1 has no non-`CrudForm` UI write |
+| packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow` (never raw `fetch`) | Compliant | The settings page's save goes through `apiCall` (the Phase 2 widget's reads and trigger will too) — no raw `fetch` |
+| root AGENTS.md (Design System Rules) | Semantic status tokens, Tailwind text scale, shared primitives, `aria-label` on icon-only buttons | N/A in Phase 1 (applies to the Phase 2 widget) | `<StatusBadge>` for posted/not-posted status (semantic tokens only, e.g. `bg-status-success-bg`, never `bg-green-*`); neither new control is icon-only, so no `aria-label` gap applies |
+| checklist §5 | i18n keys planned for all user-facing strings | Compliant | Settings-page labels/errors (and the Phase 2 widget's status text) go through `useT()` (client) / `resolveTranslations()` (server) — no hard-coded strings |
 | checklist §1.2 | Spec covers ONE independently deployable capability (fresh-context subagent check) | Compliant | **COHESIVE** verdict from an isolated, fresh-context review given only this spec file — no text in the document admits any part functions independently of the others (see narrative above) |
 
 ### Internal Consistency Check
@@ -1121,7 +1203,7 @@ review above hasn't already covered.
 | Check | Status | Notes |
 |-------|--------|-------|
 | Data models match API contracts | Pass | Every field the `GET` route returns traces to a `SalesInvoiceGlPosting` column; no field appears in one section and not the other |
-| API contracts match UI/UX section | Pass | The `GET` route (posting status) is exactly what the widget-injection status pill reads, and the `POST` route is exactly what its "Post to ledger" trigger calls via `useGuardedMutation`; the settings page maps 1:1 to the two Module Config values |
+| API contracts match UI/UX section | Pass (corrected 2026-10-09) | Phase 1 has no posting UI: the `POST`/`GET` routes are called by API clients, and the widget that would call them is Phase 2 (Backend Pages); the settings page maps 1:1 to the two Module Config values. The earlier "Pass" assumed an invoice detail page that `sales` does not have |
 | Risks cover all write operations | Pass | The sole mutating command (`postSalesInvoiceToLedger`) has named Risk entries covering wrong-account misposting, the discount rejection, post-posting `sales`-side edits desyncing the entry, and the VAT per-rate aggregation gap |
 | Commands defined for all mutations | Pass | `postSalesInvoiceToLedger` is the only mutation; both new entities are written exclusively by it, in one transaction |
 | Cache strategy covers all read APIs | N/A | No caching declared (see Compliance Matrix) |
@@ -1138,8 +1220,7 @@ revision.
 
 ### Verdict
 
-- **Fully compliant** — approved for implementation. Not yet reviewed
-  by a human/maintainer. The `customers` ↔ `contractors` identity
+- **Compliant with the repository rules; re-run 2026-10-09.** The second-round review corrected two design claims (Invariant 2 and the "subsidiary ledger" decision; the widget host) and several mechanical items; the 2026-09-10 "Fully compliant" wording is superseded. Open for the maintainer: API-only Phase 1 (Backend Pages). Not yet approved by a human/maintainer. The `customers` ↔ `contractors` identity
   bridge remains a flagged, unresolved gap by design (see Design
   decisions, Risks, Out of scope) — a named gap, not a compliance
   failure.
@@ -1245,13 +1326,13 @@ document uses "receivable control account" four times with no citation
 anywhere — added Kieso Ch.7 "Cash and Receivables," p.7-12, footnote 5
 (more directly on-point than the general Ch.3 definition, since it
 names accounts *receivable* specifically) and Ustawa o rachunkowości
-art. 13/16, both already verified in `financial-module-knowledge-base.md`.
+art. 13/16, both already verified in the financial-module knowledge base ([#6016](https://github.com/open-mercato/open-mercato/pull/6016)).
 Compared against ERPNext (docs.frappe.io — GL posting happens
 automatically on Sales Invoice submission, not a separate command;
 `SalesInvoiceGlPosting` here substitutes for the idempotency guarantee
 Frappe's own `docstatus` gives ERPNext for free). Odoo not
 independently re-verified this pass. Findings recorded in full in
-`financial-module-knowledge-base.md` §3.
+the financial-module knowledge base ([#6016](https://github.com/open-mercato/open-mercato/pull/6016)) §3.
 
 ### 2026-09-14 — External review (PR #6046) addressed: two blockers, one major, four minors, four nits
 
@@ -1263,8 +1344,8 @@ the maintainer first, then applied:
 
 - **B1 (blocker) — fixed.** "The debit and credit sides balance by
   construction" was false: independently re-verified directly against
-  `sales/commands/documents.ts:9030-9048` and
-  `sales/data/validators.ts:938-946` that `sales.invoices.create`/
+  `createInvoiceCommand` in `sales/commands/documents.ts` and
+  the invoice create/update schemas in `sales/data/validators.ts` that `sales.invoices.create`/
   `.update` write every header total straight from caller input, with
   no `calculateDocumentTotals` call and no `.superRefine` tying totals
   to line sums — so `grandTotalGrossAmount` can silently disagree with
@@ -1376,3 +1457,39 @@ content, not another dangling pointer. Once #5663/#5962/#5955 land on
 filenames — noted here for whoever does that pass, not fixed
 preemptively since the files don't exist yet to link to.
 
+### 2026-10-09 — second-round review (@adeptofvoltron, PR #6046, head `40badbe9`)
+
+One blocker, one major, two minors, four nits; every finding from the
+first round was confirmed fixed.
+
+- **B1 (blocker) — fixed.** Verified against the code on `develop`:
+  `sales/commands/payments.ts` recalculates *order* totals only, and
+  `sales.invoices.create`/`update` take `outstandingAmount` from caller
+  input (default `0`). So `Σ outstandingAmount` could not reconcile with
+  the receivable, and nothing ever credits it. Invariant 2 is restated as
+  `Σ grandTotalGrossAmount` of posted invoices (less receipts, once a
+  receipt-posting path exists); the "`SalesInvoice` already is the
+  subsidiary ledger" decision is withdrawn and the Kieso/UoR citations
+  now ground the prerequisite instead of claiming satisfaction. The
+  reconciliation test is rewritten. Receipt posting and invoice-balance
+  maintenance are named prerequisites (Out of scope, Risks). Option 1 of
+  the review's two was chosen because it describes what the code does
+  today without making this PR depend on a `sales` change.
+- **M1 (major) — fixed.** `sales` has no invoice detail page; Phase 1 is
+  API-only and the widget is Phase 2, blocked on an invoice surface in
+  `sales` (Backend Pages, Implementation Plan step 6, Compliance rows).
+  **⚠ NEEDS HUMAN CONFIRMATION:** whether API-only Phase 1 is acceptable.
+- **m1 — fixed.** Routes live under the module id: files are
+  `api/postings/[salesInvoiceId]/route.ts` and `…/post/route.ts`, served at
+  `/api/sales_invoices_gl_posting/postings/:salesInvoiceId[/post]`; every
+  URL in the document was updated.
+- **m2 — fixed.** The command runs in `em.transactional`, passes
+  `ctx.transactionalEm` to `ledger.postJournalEntry`, emits the posted event
+  after commit, and maps a unique-index violation from a concurrent
+  duplicate to `409 ALREADY_POSTED`. Atomicity and concurrency tests added.
+- **n1** dangling references now link PRs (#6193, #6190, #6016).
+  **n2** table names are plural (`sales_invoice_gl_postings`,
+  `sales_invoice_line_revenue_accounts`). **n3** Invariant 3 no longer
+  claims no own check, the `GET` description no longer promises a
+  `sequenceNumber`, the cache row carries `tenant_id`. **n4** `sales` line
+  citations replaced with function/schema names.
