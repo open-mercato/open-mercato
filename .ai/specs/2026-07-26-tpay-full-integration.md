@@ -34,7 +34,7 @@ Register a Tpay handler on the existing `/api/payment_gateways/webhook/tpay` rou
 
 | Decision | Rationale |
 | --- | --- |
-| `tr_id` plus `tr_crc` intersection | Maps signed provider session and merchant correlation to one stored candidate. |
+| `tr_crc` payment locator | `tr_crc` echoes our `hiddenDescription` (payment id). `tr_id` is the Tpay transaction title (`TR-…`), not the stored Open API `transactionId`, so it cannot locate `providerSessionId`; the handler narrows candidates by signed amount. |
 | Safe candidate snapshot | Compares signed correlation/amount/currency without provider ORM access. |
 | MD5 and JWS mandatory | MD5 binds tenant merchant fields; JWS authenticates Tpay and exact content. |
 | Notification authoritative | Settlement no longer depends on payer navigation. |
@@ -46,7 +46,7 @@ Register a Tpay handler on the existing `/api/payment_gateways/webhook/tpay` rou
 ```text
 Tpay form POST
   -> generic provider/IP rate limit + 64 KiB bounded read
-  -> raw locators: tr_id + UUID tr_crc
+  -> raw locator: UUID tr_crc (payment id)
   -> generic intersection/candidate credential loop
   -> Tpay handler(body, headers, credentials, safe snapshot)
      -> form + MD5 + JWS + stored amount/currency
@@ -69,9 +69,9 @@ The provider creates no route/worker, queries no `GatewayTransaction`, and impor
 
 ### Candidate correlation and stored validation
 
-Locators return bounded `tr_id` and canonical UUID `tr_crc`. The generic candidate capability intersects provider key, stored session/payment IDs, and `deletedAt = null`, limited to 10 newest. It resolves credentials from each stored scope and passes a safe snapshot with transaction/payment/session IDs, amount, and currency.
+The payment locator returns the canonical UUID `tr_crc`. The generic candidate capability filters provider key, stored payment ID, and `deletedAt = null`, limited to 10 newest. No session locator is registered: `tr_id` is the transaction title, while `providerSessionId` stores the Open API transaction id. It resolves credentials from each stored scope and passes a safe snapshot with transaction/payment/session IDs, amount, and currency.
 
-The handler accepts a candidate only when both signatures verify, snapshot IDs match `tr_id`/`tr_crc`, optional `tr_currency` is PLN and equals snapshot currency, `tr_amount` equals snapshot amount, and successful `tr_status` reports `tr_paid` at least equal to expected amount. Tpay does not mark `tr_currency` as always present, so absence is accepted only because the stored transaction/provider foundation is PLN-only.
+The handler accepts a candidate only when both signatures verify, the snapshot payment ID matches `tr_crc`, optional `tr_currency` is PLN and equals snapshot currency, `tr_amount` equals snapshot amount, and successful `tr_status` reports `tr_paid` at least equal to expected amount. Tpay does not mark `tr_currency` as always present, so absence is accepted only because the stored transaction/provider foundation is PLN-only.
 
 Parse canonical decimals to minor units without binary floating point. Mismatch rejects before event/idempotency creation and alerts. Overpayment settles only expected local amount and retains bounded operator metadata. Zero/multiple verified candidates fail closed. Notification-before-commit yields retryable `503 FALSE`.
 
@@ -79,16 +79,18 @@ Parse canonical decimals to minor units without binary floating point. Mismatch 
 
 - Decode the exact bounded `Buffer` once with fatal UTF-8 and parse `URLSearchParams`; never reserialize before signature verification.
 - Reject duplicate security fields, missing required fields, invalid lengths/formats, and unexpected notification type.
-- Compute lowercase hex `MD5(id + tr_id + tr_amount + tr_crc + notificationSecurityCode)` using decoded lexical values.
+- Compute lowercase hex `MD5(id + tr_id + tr_amount + tr_crc + notificationSecurityCode)` using decoded lexical values. A configured `notificationSecurityCode` is required; without it the notification fails verification.
+- `tr_status` is case-insensitive: `true` settles (`event.data.status = 'correct'`), `chargeback` refunds (`event.data.status = 'refund'`); other values fail verification and are logged.
+- `event.data` carries only `status`, `title` (`tr_id`), `trDate`, `paid`, `amount`, and `testMode`; never `tr_email`, `tr_desc`, card or token fields.
 - Compare equal-length checksum bytes timing-safely.
 - Never log raw body, `tr_email`, card/token fields, JWS bytes, credentials, or security code.
 
 ### JWS and certificate boundaries
 
 - Require three compact segments, empty detached-payload segment, and protected `alg = RS256`.
-- Require exact HTTPS `x5u` `https://secure.tpay.com/x509/notifications-jws.pem`, with no user info/query/fragment and no redirects in either API mode. Do not infer a sandbox hostname.
-- Bound certificate fetch to 2-second connect, 3-second read, and 64 KiB response.
-- Bundle reviewed root from `https://secure.tpay.com/x509/tpay-jws-root.pem`; validate leaf dates/chain.
+- Require the exact HTTPS `x5u` for the integration environment, with no user info/query/fragment and no redirects: production `https://secure.tpay.com/x509/notifications-jws.pem`, sandbox `https://secure.sandbox.tpay.com/x509/notifications-jws.pem` (sandbox notifications are signed by a separate sandbox certificate).
+- Bound certificate fetch to a 5-second total timeout and 64 KiB response.
+- Bundle reviewed trust anchors per environment from `https://secure.tpay.com/x509/tpay-jws-root.pem` (`KIP SA HA CA` + `KIP SA Root CA`) and `https://secure.sandbox.tpay.com/x509/tpay-jws-root.pem` (`KIP SA Sandbox CA` + `KIP SA Root CA`); validate leaf dates, issuer chain, and leaf CN (`notification.tpay.com` / `notification.sandbox.tpay.com`).
 - Cache verified leaf at most one hour and not beyond expiry; force one refresh after verification failure; negative-cache fetch failure 30 seconds.
 - Verify RSA-SHA256 over `base64url(protectedHeader) + '.' + base64url(exactRawBodyBytes)`.
 - Invalid evidence maps `verification_failed`; certificate dependency unavailability maps `verification_unavailable` for retryable `503 FALSE`.
@@ -138,7 +140,7 @@ Exact requirements live in `gateway_tpay` README/operator docs and tests. The st
 
 ## Internationalization
 
-Add notification URL help, verification/health state, and operator guidance to English, Polish, German, and Spanish catalogs. `TRUE`/`FALSE` are protocol tokens, not localized. Internal errors use `[internal]`.
+Add notification URL help, verification/health state, and operator guidance to English, Polish, German, Spanish, and Korean catalogs. `TRUE`/`FALSE` are protocol tokens, not localized. Internal errors use `[internal]`.
 
 ## UI/UX
 
@@ -150,7 +152,7 @@ No new component. Existing integration form shows callback help and existing pay
 | --- | --- |
 | Notification before commit | `503 FALSE`; retry settles once. |
 | Identical duplicate | `200 TRUE`; one lifecycle effect. |
-| Locators disagree | No candidate/mutation. |
+| Unknown `tr_crc` / transaction not committed yet | `503 FALSE` (`no_candidate`); Tpay retries. |
 | Signed amount/currency mismatch or underpayment | `400 FALSE`, no claim, alert. |
 | Overpayment | Settle expected amount; bounded operator metadata. |
 | Multiple candidates verify | Reject/alert ambiguity. |
@@ -280,6 +282,10 @@ None identified. All prerequisites must land before implementation.
 Fully compliant — ready for implementation after prerequisites.
 
 ## Changelog
+
+### 2026-10-09
+
+- Pre-implementation corrections (`.ai/specs/analysis/ANALYSIS-2026-07-26-tpay-notifications-and-reconciliation.md`): `tr_id` is the transaction title, so candidates are located by `tr_crc` only; per-environment JWS certificate URLs and trust anchors (sandbox uses its own CA); required security code; `tr_status` values; bounded event data; five locales.
 
 ### 2026-08-01
 

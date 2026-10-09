@@ -23,15 +23,14 @@ A verified payment can remain locally `pending` when Tpay exhausts notification 
 
 ## Proposed Solution
 
-`gateway_tpay` adds an idempotent `setup.seedDefaults` registration with the existing scheduler service:
+`gateway_tpay` registers a scoped schedule with the existing scheduler service and runs a provider-owned worker that delegates to the generic polling service:
 
-- stable schedule ID derived from `gateway_tpay:status-poller:<tenantId>:<organizationId>`;
-- organization scope and the setup-provided tenant/organization IDs;
-- interval of five minutes in UTC;
-- target queue `payment-gateways-status-poller`;
-- target payload `{ scope: { providerKey: 'tpay', organizationId, tenantId }, limit: 100 }`;
-- enabled only when the Tpay integration is configured for that scope;
-- safely skipped when `schedulerService` is unavailable, matching existing module setup patterns.
+- stable schedule ID `stableScheduleUuid('gateway_tpay:status-poller:<tenantId>:<organizationId>')`, `sourceType: 'module'`, `sourceModule: 'gateway_tpay'`;
+- organization scope; interval `5m`;
+- target queue `gateway-tpay-status-poller`, consumed by worker `gateway_tpay:status-poller` (the scheduler only dispatches module schedules to workers owned by the same module, so the core `payment-gateways-status-poller` queue cannot be targeted from `gateway_tpay`);
+- target payload `{ limit: 100 }`; the scheduler rebuilds `scope` from the schedule row, and the worker adds `providerKey: 'tpay'` itself;
+- registered/enabled when `integrations.state.updated` reports `gateway_tpay` enabled for a scope, disabled when it reports it disabled, and registered from `seedDefaults` for organizations where Tpay is already enabled (`seedDefaults` does not run for tenants created later);
+- safely skipped when `schedulerService` is unavailable.
 
 Repeated setup and overlapping deploys update/reuse the same schedule rather than registering duplicates. Disabling Tpay stops new sessions but keeps the adapter available until in-flight transactions are terminal; operators may then disable the reconciliation schedule.
 
@@ -39,10 +38,10 @@ Repeated setup and overlapping deploys update/reuse the same schedule rather tha
 
 ```text
 gateway_tpay setup
-  -> existing schedulerService registration
-  -> payment-gateways-status-poller queue every five minutes
-  -> existing status-poller worker (concurrency 2)
-  -> PaymentGatewayService.listTransactionsForStatusPolling
+  -> existing schedulerService registration (seedDefaults + integrations.state.updated subscriber)
+  -> gateway-tpay-status-poller queue every five minutes
+  -> gateway_tpay:status-poller worker (concurrency 2), providerKey 'tpay'
+  -> PaymentGatewayService.listTransactionsForStatusPolling (via DI)
   -> provider adapter getStatus
   -> canonical getPaymentStatus transition/events
 ```
@@ -57,7 +56,7 @@ Worker behavior remains unchanged:
 - a transient provider failure is isolated and logged per transaction so the rest of the batch continues;
 - the next scheduled run retries non-terminal transactions.
 
-No provider-specific backoff, dead-letter queue, freshness column, or second status worker is introduced.
+No provider-specific backoff, dead-letter queue, or freshness column is introduced. The provider worker only selects scope and delegates; filtering, ordering, transitions, and events stay in the generic service.
 
 ## Data Models
 
@@ -67,16 +66,15 @@ No PII, credential, raw provider response, or payer data is added to the schedul
 
 ## API Contracts
 
-There is no new public route or user-triggered command. The only new runtime contract is the scheduler registration targeting the existing queue with:
+There is no new public route or user-triggered command. The new runtime contracts are the scheduler registration and the provider worker:
 
 ```text
-scope.providerKey = tpay
-scope.organizationId = <setup organization>
-scope.tenantId = <setup tenant>
-limit = 100
+schedule.targetQueue = gateway-tpay-status-poller
+schedule.targetPayload = { limit: 100 }
+worker gateway_tpay:status-poller -> listTransactionsForStatusPolling({ providerKey: 'tpay', organizationId, tenantId, limit })
 ```
 
-Scope values come from trusted module setup, never from a public request. Status lookup continues through the Tpay adapter contract from `.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md`.
+Scope values come from the schedule row (rebuilt by the scheduler from trusted module setup), never from a public request. Status lookup continues through the Tpay adapter contract from `.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md`.
 
 ## Internationalization
 
@@ -109,7 +107,7 @@ No UI-rendering file changes. Existing transaction detail and payment status scr
 
 Rollback unregisters or disables only the Tpay schedule. It does not disable notifications, return-page status reads, or the Tpay adapter.
 
-Required counters and gauges:
+Operational signals (structured logs; the telemetry runtime has no counter instrument):
 
 - reconciliation runs, scanned, repaired, unchanged, and failed;
 - provider request latency and error class;
@@ -216,6 +214,10 @@ None identified.
 Fully compliant — ready for implementation after authoritative Tpay notification settlement.
 
 ## Changelog
+
+### 2026-10-09
+
+- Pre-implementation corrections: provider-owned delegating worker (scheduler module-ownership check), `providerKey` added by the worker (scheduler rebuilds `scope`), schedule (de)activation on `integrations.state.updated` plus `seedDefaults`, structured logs instead of counters.
 
 ### 2026-08-01
 
