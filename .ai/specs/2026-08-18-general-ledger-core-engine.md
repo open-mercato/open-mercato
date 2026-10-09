@@ -88,7 +88,7 @@ A new module (`ledger`) providing:
    in application code and at the database level.
 3. **Fiscal periods** with a lock flag, checked before any posting.
    Closing a year is represented as an ordinary `JournalEntry` with
-   `type: 'CLOSING'`, posted manually or by a script — there is no
+   `type: 'CLOSING'`, posted by a script or an integration through `postJournalEntry` (Phase 1 has no entry-creation UI) — there is no
    automated closing-entry generator (that stays in Out of scope).
    Opening a year's balances is the same mechanism run in reverse,
    `type: 'OPENING'` — see Design decisions.
@@ -282,8 +282,7 @@ separate "closing" subsystem.** `FiscalPeriod.isLocked` is checked in
 the `postJournalEntry` command handler before any write and blocks new
 postings into a closed period. Actually closing a period (moving
 Revenue/Expense balances to Retained Earnings) is represented as a
-normal `JournalEntry` with `type: 'CLOSING'` — posted manually or by a
-script — rather than a bespoke voucher-generation subsystem. This
+normal `JournalEntry` with `type: 'CLOSING'` — posted by a script or an integration through `postJournalEntry` — rather than a bespoke voucher-generation subsystem. This
 keeps Phase 1 scoped to the posting engine itself; an automated
 closing-entry generator is a natural, separate follow-up that this
 schema doesn't block (it stays in Out of scope). It also means a
@@ -297,7 +296,7 @@ first-entry special case.** Establishing an account's beginning-of-year
 balance (or, for a brand-new ledger, its balance at go-live) is a
 normal, balanced journal entry that debits/credits each permanent
 (balance-sheet: Asset/Liability/Equity) account for its carried-forward
-figure — posted manually or by a script, the same posture already
+figure — posted by a script or an integration through `postJournalEntry`, the same posture already
 taken for `CLOSING` above, not a bespoke initialization subsystem.
 Nominal (Revenue/Expense) accounts are not usually opened this way:
 `CLOSING` already zeroes them at the prior year-end (Design decisions
@@ -320,11 +319,7 @@ this phase does not build (see Out of scope, Balance calculation) —
 `2026-09-09-general-ledger-account-balances.md`'s Phase 2 is what makes
 that generator buildable later, not this one.
 
-**`referenceType`/`referenceId` are added now even though nothing
-populates them in this phase.** With no integration into `sales` or
-any other document type in scope here, every journal entry in this
-phase is posted directly, not generated from another module. The
-fields exist anyway: adding a nullable column to an empty table costs
+**`referenceType`/`referenceId` are added now even though no integration populates them in this phase.** With no integration into `sales` or any other document type in scope here, every journal entry in this phase is posted directly, not generated from another module. The one writer is `reverseJournalEntry`, which points a `REVERSAL` at the entry it reverses (`referenceType: 'journal_entry'`, `referenceId: <original id>`). The fields exist for every other consumer anyway: adding a nullable column to an empty table costs
 nothing; adding one to a ledger table that already has production rows
 is a real migration. The dependent `sales-invoice-gl-posting` spec
 (planned, not yet drafted) is the first real consumer, and it needs no
@@ -420,7 +415,7 @@ HTTP). `JournalEntry` stays read-only in the UI in this phase
 (`listJournalEntries` only) — nothing in the User Stories asks an
 accountant to post entries by hand through a form; every posting in
 Phase 1 comes from `postJournalEntry` called programmatically by a
-downstream integration (see Out of scope).
+downstream integration (see Out of scope). The same holds for `reverseJournalEntry`: no route, row action or form calls it in this phase (the journal-entries route is list-only, see API Contracts), so reversal is in-process only as well. An accountant-facing reverse action and a manual entry form (including for `OPENING`/`CLOSING` entries) are deferred to the phase that adds an entry-creation workflow (see Out of scope, "Entry approval / manual-entry workflow"); until then they are not a shipped capability, and no acceptance criterion in this spec relies on them.
 
 **Balance integrity is enforced twice: application and database.**
 The command layer validates that debits equal credits before
@@ -485,8 +480,7 @@ not use the generic command undo/redo mechanism to reverse a posted
 entry. Undo semantics (restoring prior state, potentially removing a
 record) are wrong for accounting data — a posted entry is immutable.
 Reversing one means posting a new `JournalEntry` with `type:
-'REVERSAL'`, linked to the original via `referenceType`/`referenceId`.
-The original stays exactly as posted.
+'REVERSAL'`, linked to the original via `referenceType`/`referenceId`. The original stays exactly as posted. A reversal cannot itself be reversed; if one was posted by mistake, the original's effect is restored by posting a fresh `NORMAL` entry carrying the same lines (with its own `operationDate`), which is what the rule against reversing a reversal means in practice.
 
 *Art. 25 ust. 2 Ustawy o rachunkowości — decided:* the Act ties the
 *obligation* to reverse (storno) rather than correct an entry directly
@@ -652,9 +646,7 @@ way to tell a deliberate rejection from an oversight:**
   in it (and unlocks it again if a correction is needed before final
   closure), seeing exactly which entry closed the year if a `CLOSING`
   entry was posted.
-- An accountant correcting a mistake posts a reversal and still sees
-  the original, unmodified entry in the ledger — nothing about a
-  posted entry's history is ever hidden or overwritten.
+- A script or integration correcting a mistake calls `reverseJournalEntry`, and an accountant reading the journal-entries list still sees the original, unmodified entry next to its reversal — nothing about a posted entry's history is ever hidden or overwritten. No UI action posts the reversal in Phase 1.
 - A future integrator (an invoice-posting flow, a legacy-data import)
   can trace a journal entry back to the record that caused it via
   `referenceType`/`referenceId`, without a schema change.
@@ -708,9 +700,11 @@ suite asserts against, not a workflow it walks through.
   has no document-producing caller yet (see Design decisions,
   "Statutory entry-content fields") — so this is not yet a hard
   invariant for those three, only for `operationDate`.
-- A `JournalEntryLine`'s `debit` and `credit` never both hold a
-  non-zero value, and never both hold zero — enforced by a check
-  constraint plus an application-level guard (see Design decisions).
+- A `JournalEntryLine`'s `debit` and `credit` never both hold a non-zero value, and never both hold zero — enforced by a check constraint plus an application-level guard (see Design decisions).
+- **Added 2026-10-09** (PR #5663 review, m1): the three check-then-act rules are serialized in the database, not left to a read-before-write that two concurrent requests can both pass under `READ COMMITTED`.
+  - *Lock vs. post.* `postJournalEntry` reads the covering `FiscalPeriod` with `for share` inside the posting transaction, and `lockFiscalPeriod`/`unlockFiscalPeriod` take `for update` on the same row. A post that read `isLocked = false` therefore holds the period row until it commits, a concurrent lock waits for it, and a post that starts after the lock commits sees `isLocked = true`. This is what makes "a locked `FiscalPeriod` rejects a post" true under concurrency.
+  - *Overlapping periods.* `createFiscalPeriod` takes a transaction-scoped Postgres advisory lock (`pg_advisory_xact_lock`) keyed on the tenant and organization before it runs the overlap check, so two concurrent creates for one organization serialize. The `btree_gist` exclusion constraint stays a Phase 2 backstop (Out of scope).
+  - *Double reversal.* A partial unique index on the reversal link (see Migration) makes "one reversal per entry" a database rule. The read-before-write check remains as the friendly error path; a concurrent second reversal fails at the index and the command translates it into the same readable error.
 
 ## Architecture
 
@@ -785,7 +779,7 @@ export const features = [
 
 `createLedgerAccount`/`updateLedgerAccount`/`createLedgerAccountType`/
 `updateLedgerAccountType` require `ledger.accounts.manage`;
-`postJournalEntry`/`reverseJournalEntry` require `ledger.entries.post`;
+`postJournalEntry`/`reverseJournalEntry` are tied to `ledger.entries.post` (declared for the route a later phase adds; the command bus does not enforce it and Phase 1 has no route to either command — see Commands, "Who authorizes a call");
 `createFiscalPeriod`/`lockFiscalPeriod`/`unlockFiscalPeriod` require
 `ledger.periods.manage`.
 
@@ -869,6 +863,16 @@ RETURNING next_value - 1`, storing the result on
 `journal_entry.sequence_number`, which carries a
 `UNIQUE (tenant_id, organization_id, sequence_number)` constraint.
 
+**Added 2026-10-09** (PR #5663 review, m1): a partial unique index makes "one reversal per entry" a database rule, not only a read-before-write check:
+
+```sql
+CREATE UNIQUE INDEX journal_entry_single_reversal_idx
+  ON journal_entry (reference_type, reference_id)
+  WHERE type = 'REVERSAL' AND reference_type = 'journal_entry' AND reference_id IS NOT NULL;
+```
+
+`reference_id` is an entry id, unique on its own, so the index does not need `organization_id`. A concurrent second `reverseJournalEntry` for the same entry fails at this index. (The implementation PR names the generated table `journal_entries` and the index `journal_entries_single_reversal_idx`.)
+
 Supporting indexes for the `journal-entries` list filters (see API
 Contracts): `(organization_id, operation_date)` on `journal_entry`
 backs the `periodId` date-range filter (**corrected 2026-09-18** — was
@@ -879,6 +883,8 @@ posted_at)` backs default post-date ordering;
 on `journal_entry` backs the `referenceType`/`referenceId` pair.
 
 ### Commands (Command Pattern, `commands/`)
+
+**Who authorizes a call to `postJournalEntry`/`reverseJournalEntry`.** The command bus does not enforce ACL features per command (`packages/shared/src/lib/commands/command-bus.ts` only resolves the caller's features to hand to interceptors); features are enforced on routes and pages. Phase 1 has no route to either command, so `ledger.entries.post` is not checked anywhere inside `ledger` in this phase — it is declared now so that the route added later, and role setup, have a stable id, not as a guard that exists today. The callers are in-process system callers: a persistent subscriber from another module (the Posting Rules Engine, Accounts Payable) or a script runs with no end user, supplies the tenant and organization scope itself, and is authorized by being code that ships in the repository, not by a feature check. The trust boundary therefore sits at the caller's own entry point: a module that lets a user trigger posting through its own route (an AP invoice-approval route, say) guards that route with its own feature before invoking the command. Whoever adds a `ledger` route that posts or reverses on behalf of a user adds the `ledger.entries.post` check there.
 
 - `postJournalEntry` — validates the `FiscalPeriod` covering
   `operationDate` is not `isLocked` (rejects before any write;
@@ -895,7 +901,7 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   persistence — **corrected 2026-09-18**, see Events below); this is
   the only way other modules (e.g. Posting Rules Engine) may react, per
   `packages/events/AGENTS.md`'s ban on direct cross-module calls.
-  Requires `ledger.entries.post`.
+  Declared permission: `ledger.entries.post` (not enforced in Phase 1, see above).
 - `reverseJournalEntry` — posts a new `REVERSAL` entry with inverted
   lines, referencing the original; does not mutate the original.
   **Corrected 2026-09-14:** also emits `ledger.journal_entry.posted`
@@ -910,8 +916,8 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   `operationDate` (the date the reversal itself is recorded), never
   the original entry's `operationDate` — otherwise a reversal of a
   closed-period entry could be keyed straight back into the locked
-  period it exists to get out of (see Design decisions). Requires
-  `ledger.entries.post`.
+  period it exists to get out of (see Design decisions). Declared
+  permission: `ledger.entries.post` (not enforced in Phase 1, see above).
 - `createFiscalPeriod` — creates a period (`startDate`, `endDate`,
   `isLocked: false`); rejects if the given range overlaps any existing
   `FiscalPeriod` for the same organization (**added 2026-09-18** — see
@@ -1018,8 +1024,9 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   pattern
   `packages/core/src/modules/resources/backend/resources/resources/page.tsx`
   already uses.
-- `journal-entries/page.tsx` — read-only `DataTable` over
-  `listJournalEntries`; no create/edit UI in Phase 1.
+- `journal-entries/page.tsx` — read-only `DataTable` over `listJournalEntries`; no create/edit UI in Phase 1.
+
+Each page's `page.meta.ts` requires one exact feature, never `ledger.*`: the list pages require the matching `view` feature (`ledger.accounts.view`, `ledger.entries.view`, `ledger.periods.view`) and the create/edit pages require `manage` (`ledger.accounts.manage`, `ledger.periods.manage`). `matchFeature(required, granted)` expands wildcards only on the granted side, so a required `ledger.*` is satisfied only by a `ledger.*` or `*` grant and would lock the `employee` role (which gets only the three `view` features) out of every page.
 
 ## API Contracts
 
@@ -1045,6 +1052,15 @@ Standard `makeCrudRoute` paginated list.
 - **Response 403**: caller lacks `ledger.entries.view`.
 - No `POST`/`PUT`/`DELETE` on this route — posting only happens
   through `postJournalEntry`/`reverseJournalEntry`.
+
+### `GET /api/ledger/account-groups`
+
+Read-only list of the `LedgerAccountGroup` rows (the zespoły seeded by `setup.ts`) for the caller's selected organization.
+
+- **Query**: `page` (default 1), `pageSize` (default 50, max 100), `search` (code or name), `jurisdiction`, `sortField` (`code`/`name`/`jurisdiction`/`createdAt`), `sortDir`, `id`/`ids`.
+- **Response 200**: `{ items: { id, jurisdiction, code, name, createdAt, organizationId, tenantId }[], total, page, pageSize, totalPages }`.
+- **Response 403**: caller lacks `ledger.accounts.view`.
+- No `POST`/`PUT`/`DELETE`: group rows are permanent reference data in Phase 1.
 
 ### `POST /api/ledger/fiscal-periods` / `GET /api/ledger/fiscal-periods`
 
@@ -1081,8 +1097,7 @@ none of it is unique to this module.
 ### FiscalPeriod
 
 One row per accounting period (`startDate`, `endDate`). `isLocked`
-starts `false`; `postJournalEntry` rejects any entry whose `postedAt`
-falls within a locked period, before any write. `updatedAt` backs the
+starts `false`; `postJournalEntry` rejects any entry whose `operationDate` falls within a locked period, or in no period at all, before any write. `updatedAt` backs the
 optimistic lock on the lock/unlock actions. `deletedAt` exists for
 column-contract consistency; no delete route is exposed for
 `FiscalPeriod` in Phase 1 (see Design decisions).
@@ -1172,13 +1187,11 @@ Queries / API).
 
 ### Phase 1: Posting engine
 
-1. Add `FiscalPeriod`, `LedgerAccountType`, `LedgerAccount`
+1. Add `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType`, `LedgerAccount`
    (including the nullable, self-referencing `parentAccountId`),
    `JournalEntry` (including `sequenceNumber` and the art. 23 ust. 2
    fields `operationDate`/`documentType`/`documentNumber`/
-   `documentDate`), `JournalEntryLine`
-   (including the nullable `contractorSnapshot` `json` column)
-   entities (with `updated_at` on the three editable ones) and their
+   `documentDate`), `JournalEntryLine` (including the nullable `contractorSnapshot` `json` column) and `JournalEntrySequence` (the per-organization counter row) entities (with `updated_at` on the three editable ones) and their
    migration, including the deferred balance-check constraint trigger
    and the per-organization `journal_entry_sequence` counter table. No
    `Currency` entity — `JournalEntry.currencyId` is a plain FK-id
@@ -1187,7 +1200,7 @@ Queries / API).
    (PII — see Design decisions) in the same step, since the column and
    its encryption declaration ship together.
 2. Add `acl.ts` (six features) and `setup.ts` (`defaultRoleFeatures`
-   for `admin`/`employee`); run `yarn mercato auth sync-role-acls`.
+   for `admin`/`employee`, plus the `seedDefaults` hook backed by `lib/seeds.ts` that seeds the Polish `LedgerAccountGroup` rows); run `yarn mercato auth sync-role-acls`.
 3. Implement `postJournalEntry`, validating the covering fiscal
    period's lock state and debit/credit balance, and atomically
    allocating the next per-organization `sequenceNumber`, before
@@ -1198,12 +1211,11 @@ Queries / API).
    `unlockFiscalPeriod` (with `enforceCommandOptimisticLock`) behind
    `ledger.periods.manage`.
 6. Implement `createLedgerAccount` / `updateLedgerAccount`,
-   `createLedgerAccountType` / `updateLedgerAccountType` (with the
-   `normalBalance`-immutability check) behind `ledger.accounts.manage`.
+   `createLedgerAccountType` / `updateLedgerAccountType` (with the immutability guards: `normalBalance` and `accountGroupId` on a type, `accountTypeId` on an account, once posted) behind `ledger.accounts.manage`.
 7. Implement `api/journal-entries/route.ts` (`listJournalEntries`,
    including the `periodId` date-range resolution and the
    `accountId` join through `JournalEntryLine`), `api/accounts/route.ts`,
-   `api/account-types/route.ts`, `api/fiscal-periods/route.ts` + the
+   `api/account-types/route.ts`, `api/account-groups/route.ts` (read-only list of the seeded groups), `api/fiscal-periods/route.ts` + the
    lock/unlock custom routes, and `api/openapi.ts` exporting `openApi`
    for every route above.
 8. Build the backend pages: `accounts/`, `account-types/`
@@ -1221,7 +1233,7 @@ Queries / API).
     `AGENTS.md:164` / `.ai/qa/AGENTS.md`.
 11. Run `yarn generate`, typecheck, focused unit + integration tests,
     and manual QA against a fresh local database (create a chart of
-    accounts, post a manual journal entry, lock a period and confirm a
+    accounts, post a journal entry from a dev script that calls `postJournalEntry` (Phase 1 has no entry-creation UI), lock a period and confirm a
     further post is rejected, confirm entries appear correctly in the
     journal entries list).
 
@@ -1229,7 +1241,7 @@ Queries / API).
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `data/entities.ts` | Create | `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType` (incl. `accountGroupId`), `LedgerAccount` (incl. `parentAccountId`), `JournalEntry` (incl. `sequenceNumber`), `JournalEntryLine` (incl. `contractorSnapshot`) |
+| `data/entities.ts` | Create | `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType` (incl. `accountGroupId`), `LedgerAccount` (incl. `parentAccountId`), `JournalEntry` (incl. `sequenceNumber`), `JournalEntryLine` (incl. `contractorSnapshot`), `JournalEntrySequence` |
 | `lib/seeds.ts` | Create | `seedPolishAccountGroups(em, { tenantId, organizationId })` — seeds tenant/org-scoped `LedgerAccountGroup` rows for `jurisdiction: 'PL'` (zespoły 0–8), called from `setup.ts`'s `seedDefaults`; other jurisdictions added later as pure data |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `ledger:journal_entry_line.contractor_snapshot` (PII duplicated from Contractor Registry — see Design decisions) |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the entities above plus the deferred balance-check constraint trigger and the per-organization `journal_entry_sequence` counter table |
@@ -1247,13 +1259,14 @@ Queries / API).
 | `api/journal-entries/route.ts` | Create | `listJournalEntries`, paginated and filterable, read-only |
 | `api/accounts/route.ts` | Create | `LedgerAccount` CRUD (`makeCrudRoute`) |
 | `api/account-types/route.ts` | Create | `LedgerAccountType` CRUD (`makeCrudRoute`) |
+| `api/account-groups/route.ts` | Create | Read-only `GET` list of the seeded `LedgerAccountGroup` rows (feature `ledger.accounts.view`, optional `jurisdiction` filter); no `POST`/`PUT`/`DELETE` — groups are system reference data seeded by `setup.ts` |
 | `api/fiscal-periods/route.ts` | Create | `FiscalPeriod` list/create (`makeCrudRoute`) |
 | `api/fiscal-periods/[id]/lock/route.ts`, `.../unlock/route.ts` | Create | Custom guarded write routes toggling `isLocked` |
 | `backend/ledger/accounts/page.tsx` (+ create/[id]) | Create | `LedgerAccount` list/create/edit UI |
 | `backend/ledger/account-types/page.tsx` (+ create/[id]) | Create | `LedgerAccountType` list/create/edit UI |
 | `backend/ledger/fiscal-periods/page.tsx` (+ create) | Create | Period list with lock/unlock row action |
 | `backend/ledger/journal-entries/page.tsx` | Create | Read-only journal entry list |
-| `backend/ledger/{accounts,account-types,fiscal-periods,journal-entries}/page.meta.ts` | Create | Sidebar registration for each list page — `pageTitle`/`pageTitleKey`, `pageGroup: 'Accounting'`/`pageGroupKey`, `pageOrder`, `icon`, `requireFeatures: ['ledger.*']` per page, the same convention `resources/backend/resources/resource-types/page.meta.ts` already uses (**added 2026-09-18** — m4: no earlier draft registered these pages in any sidebar) |
+| `backend/ledger/{accounts,account-types,fiscal-periods,journal-entries}/page.meta.ts` | Create | Sidebar registration for each list page — `pageTitle`/`pageTitleKey`, `pageGroup: 'Accounting'`/`pageGroupKey`, `pageOrder`, `icon`, `requireFeatures` with one exact feature per page (`view` on list pages, `manage` on create/edit pages — never `ledger.*`, see Backend Pages), the same exact-feature convention `resources/backend/resources/resource-types/page.meta.ts` already uses (`resources.manage_resources`) (**added 2026-09-18** — m4: no earlier draft registered these pages in any sidebar) |
 | `commands/__tests__/*` | Create | Regression coverage for all commands above |
 | `__integration__/*` | Create | Integration coverage for `journal-entries` list and `fiscal-periods` lock/unlock routes |
 
@@ -1289,6 +1302,9 @@ Queries / API).
   assert they receive different, consecutive `sequenceNumber` values
   with no gap or collision; assert a failed post (e.g. unbalanced)
   does not consume a `sequenceNumber`.
+- Lock vs. post: hold a post open inside its transaction after it read the covering period, start `lockFiscalPeriod` for that period and assert the lock waits for the post to commit; assert a post started after the lock committed is rejected as a locked period.
+- Create two overlapping `FiscalPeriod` rows concurrently for one organization and assert exactly one succeeds and the other is rejected as an overlap.
+- Reverse the same entry twice concurrently and assert exactly one `REVERSAL` row exists and the second call fails with the readable "already reversed" error.
 - Post entries for two different organizations under the same tenant
   and assert their `sequenceNumber` series are independent — each
   organization starts at 1 and neither organization's postings advance
@@ -1338,8 +1354,7 @@ that bypasses the command layer.
 
 None expected — this module has no write path into any other module's
 tables in this phase. `referenceType`/`referenceId` are stored but not
-validated against other modules' data, since nothing populates them
-in this spec — see the dependent `sales-invoice-gl-posting` spec
+validated against other modules' data, since no other module populates them in this spec (the only writer is `reverseJournalEntry`, which points at a `journal_entry` row in this same module) — see the dependent `sales-invoice-gl-posting` spec
 (planned, not yet drafted), which will be the first consumer and will
 own that failure-isolation story.
 
@@ -1429,8 +1444,7 @@ deploy independently of any other module.
 - **Automated period-closing and period-opening entry generation.**
   Both the `CLOSING` and `OPENING` `JournalEntry` types *are* in scope
   (see Proposed Solution / Design decisions) — a year-end close and a
-  new year's opening balances are each posted as an ordinary entry, by
-  hand or by a script. What stays out of scope, symmetrically for both,
+  new year's opening balances are each posted as an ordinary entry, by a script or an integration. What stays out of scope, symmetrically for both,
   is an automated generator: for `CLOSING`, one that identifies the
   result accounts, computes the transfer to Retained Earnings, and
   emits the closing entry's lines; for `OPENING`, one that reads the
@@ -1447,9 +1461,7 @@ deploy independently of any other module.
   give the same invariant a DB-level backstop, matching this engine's
   own pattern for the balance invariant (app check + deferred DB
   trigger). Deferred to a future phase: no other invariant in this
-  spec needs the `btree_gist` extension, and the app-layer check is
-  sufficient while `FiscalPeriod` rows are only ever created through
-  this module's own command.
+  spec needs the `btree_gist` extension, and the app-layer check is made safe under concurrency by the advisory lock in `createFiscalPeriod` (see Invariants), so the constraint would be a backstop, not a missing guard.
 - **Subsidiary ledgers (księgi pomocnicze).** Per-counterparty
   (kontrahent) sub-ledgers tracking receivables/payables in natural
   and monetary units (art. 13 ust. 1 pkt 3, art. 16 Ustawy o
@@ -1515,7 +1527,7 @@ deploy independently of any other module.
   own document, `2026-09-16-tax-management.md`, opened as PR #6168 —
   a small new `tax_management` module (tax code registry, GL account
   mapping, `TaxLiabilityRecord` lifecycle, posts through
-  `ledger.postJournalEntry` the same way AP already does) plus a
+  `ledger.postJournalEntry` as the Accounts Payable draft (#5962, not yet merged) proposes) plus a
   `financial_pl` implementation for Poland's VAT/CIT/PIT, following
   the Core-framework-plus-country-plugin split
   `SPEC-024-2026-02-11-financial-module.md` §10 already mandates.
@@ -2422,3 +2434,35 @@ detail still waits on `#6038`, same as before this update.
   the Final Compliance Report table was last touched 2026-09-10, before
   the 2026-09-18 M2 fix corrected that language everywhere else in the
   document. Synced the row to match Architecture → Events.
+
+### 2026-10-09 (review — @adeptofvoltron, PR #5663)
+
+- **M1.** Posting and reversal have no caller in Phase 1, and the spec
+  now says so everywhere instead of promising an accountant-facing
+  flow: User Story 4 is reworded to a script or integration calling
+  `reverseJournalEntry`, the "posted manually" wording for `OPENING`/
+  `CLOSING` is replaced, and manual QA uses a dev script. A new
+  paragraph under Commands states who authorizes in-process callers
+  and that `ledger.entries.post` is declared for the future route, not
+  enforced inside `ledger` today. A reverse route, row action and manual
+  entry form are deferred with the entry-creation workflow (Out of
+  scope).
+- **m1.** Added the concurrency story for the lock-vs-post race
+  (`for share` / `for update` on the period), overlapping periods
+  (advisory lock in `createFiscalPeriod`) and double reversal (partial
+  unique index), with tests; corrected the Out-of-scope sentence that
+  called the app-layer overlap check sufficient.
+- **m2.** Page features are one exact feature per page (`view` on
+  lists, `manage` on create/edit), not `ledger.*`.
+- **m3.** FiscalPeriod data model now says `operationDate`;
+  `referenceType`/`referenceId` text acknowledges `reverseJournalEntry`
+  as the one writer; the tax bullet no longer says AP "already" posts
+  through `ledger`; Implementation Plan and File Manifest list
+  `LedgerAccountGroup`, `JournalEntrySequence`, `lib/seeds.ts`, the
+  `accountGroupId`/`accountTypeId` guards and the read-only
+  `account-groups` route (new API contract).
+- A reversal cannot be reversed; a mistaken reversal is corrected by
+  posting the original's lines again as a new `NORMAL` entry (one
+  sentence under "Corrections are reversals, not undo").
+- Implementation guide brought in line with the `operationDate` lock
+  design (M2).
