@@ -511,6 +511,50 @@ describe('MessageComposer draft flow', () => {
     expect(composeRequest).toBeUndefined()
   })
 
+  it('keeps the inline composer open when Escape closes a nested Select dropdown (#6447)', async () => {
+    const onCancel = jest.fn()
+    const pointerCaptureTarget = Element.prototype as Element & {
+      hasPointerCapture?: (pointerId: number) => boolean
+      releasePointerCapture?: (pointerId: number) => void
+      scrollIntoView?: () => void
+    }
+    pointerCaptureTarget.hasPointerCapture ??= () => false
+    pointerCaptureTarget.releasePointerCapture ??= () => undefined
+    pointerCaptureTarget.scrollIntoView ??= () => undefined
+
+    renderWithProviders(
+      <MessageComposer
+        inline
+        variant="compose"
+        onCancel={onCancel}
+        contextObject={{ entityModule: 'sales', entityType: 'order', entityId: 'order-1' }}
+        requiredActionConfig={{
+          mode: 'required',
+          options: [{ id: 'approve', label: 'Approve order' }],
+        }}
+      />,
+      { dict: {} },
+    )
+
+    const actionTypeTrigger = await screen.findByRole('combobox', { name: 'Action type' })
+    fireEvent.pointerDown(actionTypeTrigger, { button: 0, ctrlKey: false })
+    fireEvent.click(actionTypeTrigger)
+    const option = await screen.findByRole('option', { name: 'Approve order' })
+
+    fireEvent.keyDown(option, { key: 'Escape' })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    })
+    expect(onCancel).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(screen.getByPlaceholderText('Search recipients...'), { key: 'Escape' })
+
+    await waitFor(() => {
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('uses inline cancel action for embedded reply composer', async () => {
     const onCancel = jest.fn()
 

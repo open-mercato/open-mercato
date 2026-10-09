@@ -99,6 +99,13 @@ jest.mock('../../../lib/scope', () => ({
   resolveSyncExcelConcreteScope: jest.fn((params: unknown) => mockResolveSyncExcelConcreteScope(params)),
 }))
 
+const mockRunRouteMutationGuards = jest.fn()
+const mockRunAfterSuccess = jest.fn(async () => undefined)
+
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: jest.fn((params: unknown) => mockRunRouteMutationGuards(params)),
+}))
+
 type RouteModule = typeof import('../route')
 let postHandler: RouteModule['POST']
 
@@ -114,6 +121,7 @@ describe('sync_excel import route', () => {
     mockIntegrationStateService.upsert.mockResolvedValue(undefined)
     mockUpload.status = 'uploaded'
     mockUpload.syncRunId = null
+    mockRunRouteMutationGuards.mockResolvedValue({ ok: true, runAfterSuccess: mockRunAfterSuccess })
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
       tenantId: '22222222-2222-4222-8222-222222222222',
@@ -297,5 +305,74 @@ describe('sync_excel import route', () => {
     const body = await response.json()
     expect(body).toEqual({ error: 'Failed to start sync_excel import.' })
     expect(JSON.stringify(body)).not.toContain(internalDetail)
+  })
+
+  it('blocks the import before persisting mapping or starting a run when a mutation guard rejects it', async () => {
+    mockRunRouteMutationGuards.mockResolvedValueOnce({
+      ok: false,
+      errorStatus: 423,
+      errorBody: { error: 'Record locked' },
+      response: Response.json({ error: 'Record locked' }, { status: 423 }),
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ok: true }),
+    }))
+
+    expect(response.status).toBe(423)
+    await expect(response.json()).resolves.toEqual({ error: 'Record locked' })
+    expect(mockEm.transactional).not.toHaveBeenCalled()
+    expect(mockCredentialsService.save).not.toHaveBeenCalled()
+    expect(mockIntegrationStateService.upsert).not.toHaveBeenCalled()
+    expect(mockStartDataSyncRun).not.toHaveBeenCalled()
+    expect(mockUpload.status).toBe('uploaded')
+    expect(mockRunAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('runs the mutation guard as an update on the upload and its after-success hook once the run started', async () => {
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ok: true }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockRunRouteMutationGuards).toHaveBeenCalledWith(expect.objectContaining({
+      container: mockContainer,
+      auth: {
+        userId: 'user-1',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        organizationId: '33333333-3333-4333-8333-333333333333',
+      },
+      input: expect.objectContaining({
+        resourceKind: 'sync_excel.upload',
+        resourceId: mockUpload.id,
+        operation: 'update',
+        mutationPayload: expect.objectContaining({ uploadId: mockUpload.id, entityType: 'customers.person' }),
+      }),
+    }))
+    expect(mockRunAfterSuccess).toHaveBeenCalledTimes(1)
+    expect(mockStartDataSyncRun.mock.invocationCallOrder[0]).toBeLessThan(mockRunAfterSuccess.mock.invocationCallOrder[0])
+  })
+
+  it('applies a guard-modified payload to the import', async () => {
+    mockRunRouteMutationGuards.mockResolvedValueOnce({
+      ok: true,
+      modifiedPayload: { batchSize: 10 },
+      runAfterSuccess: mockRunAfterSuccess,
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/sync_excel/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ok: true }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ batchSize: 10 }),
+    }))
   })
 })
