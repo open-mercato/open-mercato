@@ -1,6 +1,6 @@
 # Tpay Hosted PLN Payment Sessions
 
-- **Status:** planned
+- **Status:** in-progress (implemented; live sandbox acceptance outstanding)
 - **Date:** 2026-08-01
 - **Type:** OSS payment-provider foundation
 - **Provider package:** `@open-mercato/gateway-tpay` (`gateway_tpay`)
@@ -230,7 +230,7 @@ Metrics cover OAuth/session/status latency and failures, unknown statuses, inval
 | Unsupported members | `capture`/`refund`/`cancel` return 422 errors; `verifyWebhook` throws. |
 | Checkout | Submit route forwards `customerEmail`/`customerName` in session metadata. |
 | Tenant scope | Two tenants use independent encrypted credentials and cannot read each other's provider session. |
-| Integration (CI) | Self-contained API integration test under `.ai/qa/tests/` with the Tpay HTTP layer mocked: configure credentials, create a checkout session, follow redirect URL, read status to `captured`, clean up fixtures. |
+| Integration (CI) | Self-contained Playwright API tests in `packages/gateway-tpay/src/modules/gateway_tpay/__integration__/` (TC-TPAY-001..003): credential save/mask and enable, session rejection without payer data and for non-PLN currency with no transaction created. The app calls Tpay server-side, so the redirect → `captured` path is covered by unit tests with mocked `fetch`, not by integration tests. |
 | Sandbox acceptance (manual) | Sandbox hosted payment returns and reaches captured through existing status polling; evidence recorded in this spec. |
 
 Acceptance requires one sandbox hosted PLN payment to redirect and reach `captured` through the existing return-page status read, with exact payment correlation, no duplicate session on local retry, and no credential/cross-tenant leakage.
@@ -323,7 +323,20 @@ None identified.
 
 Fully compliant — ready for implementation as the Tpay provider foundation.
 
+## Implementation Notes
+
+- Package: `packages/gateway-tpay` (`@open-mercato/gateway-tpay`), adapter registered as `tpay:v1` and as the default `tpay` adapter; integration declares `apiVersions: [v1]`.
+- Errors: validation and unsupported operations throw `CrudHttpError(422)`, provider failures `CrudHttpError(502)`; bodies carry a translated `error` and a stable `code` (`gateway_tpay.errors.*`). Swallowed provider, health, preset, and translation errors are reported through the telemetry runtime (`gateway_tpay.provider_failed`, `gateway_tpay.health_check_failed`, `gateway_tpay.preset_failed`, `gateway_tpay.translation_unavailable`).
+- Amounts: Tpay types response `amount`/`payments.amountPaid` as "numeric"; the client accepts a number or a plain decimal string.
+- Labels: credential field and payment descriptor labels are plain English strings because the integrations UI renders them verbatim (same as `gateway_stripe`); module title, errors, and health messages use `gateway_tpay.*` keys.
+- Repository wiring: app and create-app template (module commented out in the template via `TEMPLATE_COMMENTED_MODULES` until sandbox acceptance), Dockerfile manifest copies, auth ACL catalog, and peer-dependency allowlist entries matching the `storage-s3` precedent. `.github/workflows/package-previews.yml` is unchanged and needs a maintainer decision before the package joins preview publishing.
+- User guide: `apps/docs/docs/user-guide/tpay-payments.mdx`.
+
 ## Changelog
+
+### 2026-10-09 (implementation)
+
+- Implemented the provider package, checkout payer metadata, repository wiring, unit and integration tests, and the user guide; status set to in-progress until live sandbox acceptance is recorded.
 
 ### 2026-10-09
 
