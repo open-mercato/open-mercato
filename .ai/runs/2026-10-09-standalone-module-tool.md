@@ -46,7 +46,7 @@ Source doc: `.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md`
 
 - [ ] 1.1 Audit routing owners and add a focused regression for standalone module tool guidance.
 - [ ] 1.2 Add the canonical standalone tool guide and route relevant module tasks to it.
-- [ ] 1.3 Document the user workflow in the framework docs and link it from module development.
+- [x] 1.3 Document the user workflow in the framework docs and link it from module development. — 30a3e19d9
 
 ### Phase 2: Verification
 
