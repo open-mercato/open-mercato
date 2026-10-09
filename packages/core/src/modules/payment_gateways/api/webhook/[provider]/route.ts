@@ -15,7 +15,7 @@ import { getPaymentGatewayQueue } from '../../../lib/queue'
 import { processPaymentGatewayWebhookJob } from '../../../lib/webhook-processor'
 import { paymentGatewaysTag } from '../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
+import { readBoundedRequestBody, readBoundedRequestBytes, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 
 const logger = createLogger('payment_gateways').child({ component: 'webhook' })
 
@@ -44,11 +44,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const rateLimitResponse = await checkProviderWebhookRateLimit(container, req, providerKey)
   if (rateLimitResponse) return rateLimitResponse
 
-  let rawBody: string
+  let rawBody: string | Buffer
+  let bodyText: string
   try {
-    rawBody = registration.maxBodyBytes === undefined
-      ? await req.text()
-      : await readBoundedRequestBody(req, { maxBytes: registration.maxBodyBytes })
+    if (registration.rawBody === 'bytes') {
+      const bytes = registration.maxBodyBytes === undefined
+        ? new Uint8Array(await req.arrayBuffer())
+        : await readBoundedRequestBytes(req, { maxBytes: registration.maxBodyBytes })
+      rawBody = Buffer.from(bytes)
+      bodyText = new TextDecoder().decode(rawBody)
+    } else {
+      bodyText = registration.maxBodyBytes === undefined
+        ? await req.text()
+        : await readBoundedRequestBody(req, { maxBytes: registration.maxBodyBytes })
+      rawBody = bodyText
+    }
   } catch (error) {
     if (error instanceof WebhookBodyTooLargeError) {
       return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 })
@@ -64,8 +74,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const em = container.resolve('em') as EntityManager
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getPaymentGatewayQueue(registration.queue ?? 'payment-gateways-webhook')
-  const payload = await readJsonSafe<Record<string, unknown>>(rawBody)
-  const sessionIdHint = registration.readSessionIdHint?.(payload) ?? null
+  const payload = await readJsonSafe<Record<string, unknown>>(bodyText)
+  const sessionIdHint = registration.readSessionIdHint?.(payload, { rawBody, headers }) ?? null
 
   try {
     // The webhook endpoint is unauthenticated. Tenant/organization scope MUST come from a

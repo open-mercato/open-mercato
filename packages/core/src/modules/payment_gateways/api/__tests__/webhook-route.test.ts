@@ -147,4 +147,77 @@ describe('payment gateway webhook route security', () => {
     expect(processPaymentGatewayWebhookJob).not.toHaveBeenCalled()
     warnSpy.mockRestore()
   })
+
+  test('passes locator context to one-argument JSON locators without changing the handler input', async () => {
+    const rawBody = '{"session":"sess_1"}'
+    const handler = jest.fn().mockRejectedValue(new Error('verification failed'))
+    const readSessionIdHint = jest.fn((payload: Record<string, unknown> | null) => String(payload?.session))
+    ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler, readSessionIdHint })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{ id: 'txn_1', organizationId: 'org_1', tenantId: 'tenant_1' }])
+
+    await POST(createMockRequest(rawBody, { 'content-type': 'application/json' }), { params: { provider: 'stripe' } })
+
+    expect(readSessionIdHint).toHaveBeenCalledWith(
+      { session: 'sess_1' },
+      expect.objectContaining({ rawBody, headers: expect.objectContaining({ 'content-type': 'application/json' }) }),
+    )
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ rawBody }))
+    expect(typeof handler.mock.calls[0][0].rawBody).toBe('string')
+  })
+
+  test('locates the session from exact bytes and hands the identical Buffer to the handler', async () => {
+    const bytes = Buffer.concat([Buffer.from('session_id=sess_9&note='), Buffer.from([0xff, 0xfe]), Buffer.from('&x=1')])
+    const handler = jest.fn().mockRejectedValue(new Error('verification failed'))
+    const readSessionIdHint = jest.fn((_payload: Record<string, unknown> | null, context?: { rawBody: string | Buffer }) => {
+      const raw = context?.rawBody
+      if (!Buffer.isBuffer(raw)) return null
+      return new URLSearchParams(raw.toString('latin1')).get('session_id')
+    })
+    ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler, readSessionIdHint, rawBody: 'bytes', maxBodyBytes: 1024 })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{ id: 'txn_1', organizationId: 'org_1', tenantId: 'tenant_1' }])
+    const request = new Request('http://localhost/api/payment_gateways/webhook/stripe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: bytes,
+    })
+
+    await POST(request, { params: { provider: 'stripe' } })
+
+    const context = readSessionIdHint.mock.calls[0][1] as { rawBody: Buffer }
+    expect(Buffer.isBuffer(context.rawBody)).toBe(true)
+    expect(context.rawBody.equals(bytes)).toBe(true)
+    expect(handler.mock.calls[0][0].rawBody).toBe(context.rawBody)
+    expect((findWithDecryption as jest.Mock).mock.calls[0][2]).toMatchObject({ providerSessionId: 'sess_9' })
+  })
+
+  test('delivers lowercase header names to the locator and handler regardless of request casing', async () => {
+    const handler = jest.fn().mockRejectedValue(new Error('verification failed'))
+    const readSessionIdHint = jest.fn(() => 'sess_1')
+    ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler, readSessionIdHint })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{ id: 'txn_1', organizationId: 'org_1', tenantId: 'tenant_1' }])
+
+    await POST(createMockRequest('{}', { 'X-Provider-Signature': 'sig' }), { params: { provider: 'stripe' } })
+
+    const context = (readSessionIdHint.mock.calls[0] as unknown[])[1] as { headers: Record<string, string> }
+    expect(context.headers['x-provider-signature']).toBe('sig')
+    expect(context.headers['X-Provider-Signature']).toBeUndefined()
+    expect(handler.mock.calls[0][0].headers).toBe(context.headers)
+  })
+
+  test('ignores tenant and organization fields in the body when querying candidates', async () => {
+    const handler = jest.fn().mockRejectedValue(new Error('verification failed'))
+    ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler, readSessionIdHint: () => 'sess_1' })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+    await POST(
+      createMockRequest('{"session":"sess_1","tenantId":"t_evil","organizationId":"o_evil"}'),
+      { params: { provider: 'stripe' } },
+    )
+
+    expect((findWithDecryption as jest.Mock).mock.calls[0][2]).toEqual({
+      providerKey: 'stripe',
+      providerSessionId: 'sess_1',
+      deletedAt: null,
+    })
+  })
 })
