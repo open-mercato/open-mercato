@@ -115,13 +115,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     }
 
     await queue.enqueue({
-      name: 'shipping-carrier-webhook',
-      payload: {
-        providerKey,
-        event,
-        shipmentId: shipment.id,
-        scope: matchedScope,
-      },
+      providerKey,
+      event,
+      shipmentId: shipment.id,
+      scope: matchedScope,
     })
 
     return NextResponse.json({ received: true, queued: true }, { status: 202 })
