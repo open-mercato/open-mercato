@@ -24,7 +24,7 @@
 | 1 | 1.8 | Add Tpay API integration tests | dispatch | done | 7b34fc735 |
 | 1 | 1.9 | Add the Tpay user guide and align the spec with the implementation | inline | done | 71a6ed1e3 |
 | 1 | 1.9-review-fix | Address om-auto-review-pr findings: underpayment guard, CLI preset errors, test cleanup checks, zod dependency | inline | done | 4b22e8e99 |
-| 2 | 2.1 | Record live Tpay sandbox acceptance and make the template module opt-in | inline | done | self |
+| 2 | 2.1 | Record live Tpay sandbox acceptance and make the template module opt-in | inline | done | bd98ad5be |
 
 ## Goal
 

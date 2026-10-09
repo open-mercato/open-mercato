@@ -1,26 +1,24 @@
 # Handoff — 2026-10-09-tpay-hosted-pln-payment-sessions
 
-**Last updated:** 2026-10-09T15:54:39Z
+**Last updated:** 2026-10-09T16:19:44Z
 **Branch:** mtytula/tpay-spec-implementation
 **PR:** https://github.com/mtytula/open-mercato/pull/1 (ready for review)
 **Current phase/step:** complete (all Tasks rows done)
-**Last commit:** 4b22e8e99 — fix(gateway-tpay): address review findings on settlement, cli errors and test cleanup
+**Last commit:** bd98ad5be — docs(gateway-tpay): record live sandbox acceptance
 
 ## What just happened
-- All Steps landed, final gate recorded, om-auto-review-pr pass approved (comment review on own PR) after fixing three minors and one nit.
+- All Steps landed, final gate recorded, review fixes applied, live Tpay sandbox acceptance passed and recorded in the spec.
 
 ## Next concrete action
-- Live Tpay sandbox acceptance (needs credentials): confirm the hosted body without `pay` and the redirect → captured path; then decide on the upstream PR to open-mercato/open-mercato.
+- Open the upstream PR to open-mercato/open-mercato (base `develop`) from this branch when the user approves.
 
 ## Blockers / open questions
-- No sandbox credentials.
-- Maintainer decisions: peer-deps allowlist entries vs own peers; `package-previews.yml` inclusion.
+- Maintainer decisions: peer-deps allowlist entries vs own peers; `package-previews.yml` inclusion; enabling the module by default in the create-app template (needs an AI-harness evaluation case).
 
 ## Environment caveats
 - Dev runtime runnable: yes via `yarn test:integration:ephemeral:start` (http://127.0.0.1:5001)
 - Browser / UI checks: not needed (no UI files)
 - Database/migration state: clean (no migrations)
-- SSH push to github.com currently fails (agent signing); pushes used HTTPS with gh credentials.
 
 ## Worktree
 - Path: /Users/marektytula/orca/workspaces/open-mercato/conger
