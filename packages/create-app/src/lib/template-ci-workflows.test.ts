@@ -5,7 +5,7 @@ import test from 'node:test'
 import { parse } from 'yaml'
 import { applyTemplatePlaceholders } from '../index.ts'
 
-type WorkflowStep = { name?: string; uses?: string; run?: string; with?: Record<string, unknown> }
+type WorkflowStep = { name?: string; uses?: string; run?: string; if?: string; with?: Record<string, unknown> }
 type WorkflowJob = {
   name?: string
   'runs-on'?: string
@@ -91,4 +91,73 @@ test('ci.yml quality-gate job keeps fork PRs on hosted runners and runs yarn ci 
   assert.ok(lockfileCheck < install, 'lockfile check must run before install')
   assert.ok(install < gate, 'install must run before the gate')
   assert.equal(gate, steps.length - 1)
+})
+
+test('integration.yml renders the ownership header and leaves GitHub expressions intact', () => {
+  const rendered = renderWorkflow('integration')
+  assertSharedContract(rendered)
+  assert.ok(
+    rendered.text.includes(
+      `\${{ ${FORK_GUARD} || vars.OM_CI_INTEGRATION_RUNS_ON || vars.OM_CI_RUNS_ON || 'ubuntu-latest' }}`,
+    ),
+  )
+})
+
+test('integration.yml triggers on pull requests and manual dispatch', () => {
+  const { workflow } = renderWorkflow('integration')
+  assert.equal(workflow.name, 'Integration')
+  assert.deepEqual(Object.keys(workflow.on ?? {}).sort(), ['pull_request', 'workflow_dispatch'])
+})
+
+test('integration.yml cancels superseded pull request runs only', () => {
+  const { workflow } = renderWorkflow('integration')
+  assert.deepEqual(workflow.concurrency, {
+    group: 'integration-${{ github.ref }}',
+    'cancel-in-progress': "${{ github.event_name == 'pull_request' }}",
+  })
+})
+
+test('integration.yml job runs the app-only suite and uploads the report on failure', () => {
+  const { workflow } = renderWorkflow('integration')
+  assert.deepEqual(Object.keys(workflow.jobs ?? {}), ['integration'])
+  const job = workflow.jobs?.['integration']
+  assert.ok(job)
+  assert.equal(job.name, 'Integration tests')
+  assert.equal(
+    job['runs-on'],
+    "${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.OM_CI_INTEGRATION_RUNS_ON || vars.OM_CI_RUNS_ON || 'ubuntu-latest' }}",
+  )
+  assert.equal(job['timeout-minutes'], 45)
+
+  const steps = job.steps ?? []
+  const setupNode = steps.find((step) => step.uses?.startsWith('actions/setup-node@'))
+  assert.equal(setupNode?.with?.['node-version'], 24)
+
+  const lockfileCheck = stepIndex(steps, (step) => step.run === 'node scripts/ci.mjs --check-lockfile', 'check-lockfile')
+  const install = stepIndex(steps, (step) => step.run === 'yarn install --immutable', 'yarn install --immutable')
+  const prepareEnv = stepIndex(steps, (step) => step.run === 'node scripts/ci.mjs --prepare-env', 'prepare-env')
+  const playwrightInstall = stepIndex(
+    steps,
+    (step) => step.run === 'npx playwright install --with-deps chromium',
+    'playwright install',
+  )
+  const runTests = stepIndex(
+    steps,
+    (step) => step.run === 'yarn test:integration:ephemeral --app-only',
+    'run integration tests',
+  )
+  const uploadReport = stepIndex(
+    steps,
+    (step) => step.uses?.startsWith('actions/upload-artifact@'),
+    'upload playwright report',
+  )
+
+  assert.ok(lockfileCheck < install, 'lockfile check must run before install')
+  assert.ok(install < prepareEnv, 'install must run before preparing the environment')
+  assert.ok(prepareEnv < playwrightInstall, 'env prep must run before installing browsers')
+  assert.ok(playwrightInstall < runTests, 'browsers must be installed before running tests')
+  assert.ok(runTests < uploadReport, 'tests must run before the report upload')
+  assert.equal(uploadReport, steps.length - 1)
+  assert.equal(steps[uploadReport].if, 'failure()')
+  assert.equal(steps[uploadReport].with?.path, '.ai/qa/test-results')
 })
