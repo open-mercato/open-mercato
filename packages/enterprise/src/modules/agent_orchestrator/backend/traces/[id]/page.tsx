@@ -933,7 +933,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 ? (run.inputTokens ?? 0) + (run.outputTokens ?? 0)
                 : null
             const tokensLabel = formatTokens(tokensTotal)
-            const cachedInputLabel = formatTokens(run.cachedInputTokens)
+            const cachedInputLabel = formatTokens(run.cachedInputTokens ?? null)
             const costLabel = formatCostMinor(run.costMinor, run.currency)
             const gated = run.humanConfirmedAt == null && run.resultKind === 'proposal'
             const runLabel = run.externalRunId ?? `RUN-${run.id.slice(0, 8)}`

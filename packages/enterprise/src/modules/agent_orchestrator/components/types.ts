@@ -105,8 +105,8 @@ export type RunView = {
   latencyMs: number | null
   costMinor: number | null
   inputTokens: number | null
-  /** Cached SUBSET of `inputTokens`; null = not reported. */
-  cachedInputTokens: number | null
+  /** Cached SUBSET of `inputTokens`; null/absent = not reported. Optional so views built before #6240 stay valid. */
+  cachedInputTokens?: number | null
   outputTokens: number | null
   currency: string | null
   agentVersion: string | null
