@@ -8,6 +8,15 @@ export type TpayNotificationErrorReason =
   | 'invalidCrc'
   | 'invalidCurrency'
   | 'invalidStatus'
+  | 'unsupportedBody'
+  | 'missingSecurityCode'
+  | 'missingSignature'
+  | 'missingCandidate'
+  | 'paymentMismatch'
+  | 'checksumMismatch'
+  | 'currencyMismatch'
+  | 'amountMismatch'
+  | 'underpaid'
 
 export class TpayNotificationError extends Error {
   readonly reason: TpayNotificationErrorReason
@@ -69,7 +78,7 @@ const SINGLE_VALUE_FIELDS = [
 const MAX_FIELD_LENGTH = 256
 const DECIMAL_PATTERN = /^(\d+)(?:\.(\d{1,2}))?$/
 const MD5_PATTERN = /^[0-9a-fA-F]{32}$/
-const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+export const TPAY_CRC_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
 function decodeBody(rawBody: Buffer): string {
   try {
@@ -106,7 +115,7 @@ export function parseTpayNotificationForm(rawBody: Buffer): TpayNotification {
   if (!MD5_PATTERN.test(md5sum)) throw new TpayNotificationError('invalidChecksumFormat')
 
   const trCrc = read('tr_crc')
-  if (!UUID_PATTERN.test(trCrc)) throw new TpayNotificationError('invalidCrc')
+  if (!TPAY_CRC_PATTERN.test(trCrc)) throw new TpayNotificationError('invalidCrc')
 
   const trAmount = read('tr_amount')
   const trPaid = read('tr_paid')
