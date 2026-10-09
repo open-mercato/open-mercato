@@ -10,6 +10,8 @@ This app supports modular features delivered as either:
 - App-level overrides under `apps/mercato/src/modules/*` (take precedence)
 - External npm packages that export the same interface
 
+In a standalone app, local modules live under `src/modules/` and are registered in `src/modules.ts`. To scaffold one, publish it as an npm package and dedicated GitHub repository, or link repository development back into the same app, see [Publishing Custom Modules](./publishing-custom-modules).
+
 ## Conventions
 - Modules: plural snake_case folder and `id` (special cases: `auth`).
 - JS/TS: camelCase for variables and fields.

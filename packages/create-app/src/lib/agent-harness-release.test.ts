@@ -918,13 +918,14 @@ test('sandbox runtime mounts collapse nested read roots before Bubblewrap applie
 
 test('Linux Bubblewrap recreates only exact merged-usr root aliases', () => {
   const expected = [
-    ['/bin', 'usr/bin'],
-    ['/sbin', 'usr/sbin'],
-    ['/lib', 'usr/lib'],
-    ['/lib64', 'usr/lib64'],
-  ].flatMap(([alias, target]) => {
+    ['/bin', ['usr/bin']],
+    ['/sbin', ['usr/sbin', 'usr/bin']],
+    ['/lib', ['usr/lib']],
+    ['/lib64', ['usr/lib64', 'usr/lib']],
+  ].flatMap(([alias, targets]) => {
     try {
-      return fs.lstatSync(alias).isSymbolicLink() && fs.readlinkSync(alias) === target
+      const target = fs.lstatSync(alias).isSymbolicLink() ? fs.readlinkSync(alias) : ''
+      return targets.includes(target)
         ? ['--symlink', target, alias]
         : []
     } catch { return [] }

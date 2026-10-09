@@ -673,12 +673,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-237', () => {
+test('deterministic evaluation enforces the case schema through OMH-238', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-237')
+    assert.equal(cases.at(-1)?.id, 'OMH-238')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3632,6 +3632,7 @@ type SpecRoutingEvaluator = {
     baseline: Map<string, string> | undefined,
     root: string,
   ) => string[]
+  routingResponseSchemaForCase: (schema: Record<string, unknown>, record: unknown) => Record<string, unknown>
 }
 
 async function loadSpecRoutingEvaluator(): Promise<SpecRoutingEvaluator> {
@@ -3643,6 +3644,19 @@ const specFirstDeclaration: SpecRoutingDeclaration = {
   requiredReasonCodes: ['NEW_CAPABILITY'],
   reasonCodeVocabulary: ['NEW_CAPABILITY', 'BOUNDED_FIX', 'EXPLICIT_SKIP_REQUESTED'],
 }
+
+test('routing response schemas expose specRouting only to cases that declare its contract', async () => {
+  const evaluator = await loadSpecRoutingEvaluator()
+  const schema = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'routing-response.schema.json'), 'utf8')) as {
+    required: string[]
+    properties: Record<string, unknown>
+  }
+  const inert = evaluator.routingResponseSchemaForCase(schema, { validators: [] }) as typeof schema
+  assert.equal(Object.hasOwn(inert.properties, 'specRouting'), false)
+  assert.equal(inert.required.includes('specRouting'), false)
+  assert.equal(Object.hasOwn(schema.properties, 'specRouting'), true)
+  assert.equal(evaluator.routingResponseSchemaForCase(schema, specRoutingCase()), schema)
+})
 
 function specRoutingCase(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -3682,11 +3696,18 @@ const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
+const outputSchema = JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'))
 for (const needle of ${JSON.stringify(prompt.mustInclude ?? [])}) {
   if (!prompt.includes(needle)) { console.error('prompt is missing: ' + needle); process.exit(9) }
 }
 for (const needle of ${JSON.stringify(prompt.mustExclude ?? [])}) {
   if (prompt.includes(needle)) { console.error('prompt unexpectedly contains: ' + needle); process.exit(9) }
+}
+if (${JSON.stringify(prompt.mustExclude ?? [])}.includes('specRouting') && outputSchema.properties.specRouting) {
+  console.error('output schema unexpectedly contains specRouting'); process.exit(9)
+}
+if (${JSON.stringify(prompt.mustInclude ?? [])}.some((needle) => needle.includes('specRouting')) && !outputSchema.properties.specRouting) {
+  console.error('output schema is missing specRouting'); process.exit(9)
 }
 fs.writeFileSync(args[args.indexOf('-o') + 1], ${JSON.stringify(JSON.stringify(structuredResponse))})
 for (const file of ['AGENTS.md', '.ai/guides/architecture.md']) {
@@ -3902,7 +3923,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 237)
+  assert.equal(cases.length, 238)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)

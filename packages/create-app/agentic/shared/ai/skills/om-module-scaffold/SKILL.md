@@ -12,6 +12,8 @@ Create the smallest working vertical slice under `src/modules/<id>/`. START at [
 - A domain brief; infer names conservatively and ask only when a choice changes public behavior or scope.
 - Optional requested phases. Without phases, deliver the complete slice needed by the brief.
 
+With terminal access, initialize a new app module with `npx create-mercato-module init <module_id>` before implementing the slice; skip `init` for existing modules. Without process execution, report that capability gap instead of claiming initialization or bypassing the tool. For publication or continued development in a dedicated repository, follow `.ai/guides/module-tool.md`.
+
 ## Workflow
 
 Route before reading: every specialist step below is conditional. Decide from the brief and the blueprint route key first, include each applicable route in the assembled route, and only then read that route's guide or skill. Never probe a specialist guide and discard its route. In particular, do not open the extension or framework-context skill as a precaution: select UMES only for an injected, overridden, enriched, or intercepted installed surface, and select framework context only after naming an unresolved exact-version detail. For an architecture-only plan, the root router's `architecture` + `module-data` exception wins: use the blueprint to name likely UI/workflow surfaces without loading their implementation guides or skills.
