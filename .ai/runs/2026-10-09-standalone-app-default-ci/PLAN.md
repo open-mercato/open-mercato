@@ -26,8 +26,8 @@
 | 2 | 2.1 | Add opt-in app-owned spec discovery to mercato test:integration | dispatch:capable | done | ba3d7d1e3a |
 | 2 | 2.2 | Add template integration.yml workflow and its structure test | dispatch | done | b411babd3b |
 | 2 | 2.3 | Document the integration workflow and the new CLI flag | dispatch | done | 4209cad690 |
-| 3 | 3.1 | Run yarn ci on a clean scaffold in snapshot.yml under a 7 GB cap | inline | todo | — |
-| 3 | 3.2 | Record implementation status and changelog in the spec | inline | todo | — |
+| 3 | 3.1 | Run yarn ci on a clean scaffold in snapshot.yml under a 7 GB cap | inline | done | fbeb07c3fa |
+| 3 | 3.2 | Record implementation status and changelog in the spec | inline | done | dda9be9db1 |
 
 ## Goal
 
