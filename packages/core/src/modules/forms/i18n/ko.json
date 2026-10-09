@@ -177,6 +177,7 @@
   "forms.errors.internal": "Something went wrong. Please try again.",
   "forms.errors.invalid_id": "That identifier is not valid.",
   "forms.errors.invalid_image": "That image could not be used.",
+  "forms.errors.invalid_key": "The key may contain only lowercase letters, digits, hyphens and underscores, and must start with a letter.",
   "forms.errors.invalid_payload": "The submitted data is not valid.",
   "forms.errors.invalid_upload": "That upload could not be accepted.",
   "forms.errors.invitation_no_email": "This invitation has no email address to send to.",
