@@ -71,6 +71,8 @@ Selection rules:
 - Verification may compare the raw signed values with snapshot amount/currency/correlation before returning an event.
 - Continue through all bounded candidates after a verification failure. Exactly one successful verifier selects its stored scope.
 - Zero successes fails closed. More than one success is an ambiguity and fails closed; never accept the first verified candidate silently.
+- Ambiguity maps to the `verification_failed` outcome (legacy JSON `401`), logs at error level with the provider key and candidate count only, and calls `reportError` with code `payment_gateways.webhook_ambiguous_candidates`.
+- `candidate.amount` is the stored `GatewayTransaction.amount` numeric string unchanged (4 decimal places, e.g. `"12.3400"`); providers compare it numerically.
 
 ## Data Models
 
@@ -103,7 +105,7 @@ No UI changes. The implementation is `skip-qa` when automated route tests cover 
 
 ## Rollout and Operations
 
-Land after raw locator context and before a provider that needs dual correlation. Existing registrations require no changes. Rollback is safe until a consumer uses the payment hint/candidate snapshot. Add counters for no candidate, malformed secondary hint, verification rejection, and verified ambiguity.
+Land after raw locator context and before a provider that needs dual correlation. Existing registrations require no changes. Rollback is safe until a consumer uses the payment hint/candidate snapshot. Record no candidate, malformed secondary hint, verification rejection, and verified ambiguity in the route's structured outcome log (stable `outcome`/`candidateCount` fields); the telemetry runtime has no counter instrument.
 
 ## Testing Strategy and Acceptance Criteria
 
@@ -185,6 +187,10 @@ None identified; protected type/route architecture approval remains required.
 Fully compliant — ready for implementation after raw locator context.
 
 ## Changelog
+
+### 2026-10-09
+
+- Pre-implementation analysis: ambiguity outcome/reporting and snapshot amount format defined; counters replaced by structured outcome logs.
 
 ### 2026-08-01
 

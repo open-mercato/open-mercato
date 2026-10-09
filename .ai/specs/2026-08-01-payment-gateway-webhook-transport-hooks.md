@@ -38,6 +38,19 @@ type WebhookHandlerRegistration = {
 
 The second parameter is optional. Existing one-argument callbacks continue compiling and receiving the same parsed JSON value.
 
+Registrations opt into exact bytes explicitly:
+
+```typescript
+type WebhookHandlerRegistration = {
+  rawBody?: 'text' | 'bytes'
+}
+```
+
+- `'text'` (default): the route keeps today's decoded string for `VerifyWebhookInput.rawBody` and passes the same string as `context.rawBody`.
+- `'bytes'`: the route reads the body as bytes (bounded by `maxBodyBytes` when set) and passes the same `Buffer` instance to `context.rawBody` and `VerifyWebhookInput.rawBody`.
+- The first locator parameter is always the JSON-safe parse of the decoded text, so JSON providers see no difference.
+- `packages/shared/src/lib/webhooks/body.ts` gains `readBoundedRequestBytes`; `readBoundedRequestBody` decodes its result and keeps identical output.
+
 ## Architecture
 
 ```text
@@ -164,6 +177,10 @@ None identified; architecture review remains required for the protected shared c
 Fully compliant — ready for implementation.
 
 ## Changelog
+
+### 2026-10-09
+
+- Pre-implementation analysis: explicit `rawBody: 'text' | 'bytes'` opt-in and a shared bounded byte reader (`.ai/specs/analysis/ANALYSIS-2026-08-01-payment-gateway-webhook-extensions.md`).
 
 ### 2026-08-01
 
