@@ -56,11 +56,11 @@
     },
     {
       "path": "packages/create-app/agentic/guides/module-tool.md",
-      "sha256": "b14d5352f7c8c3231e99ee961d6bb055a2185c25bb770be1c6f0b04f7ca6699d"
+      "sha256": "22e9f6f40737689d7fb39da92cdc8390a1a72239d5c1e8fb621f85e32af8960e"
     },
     {
       "path": "packages/create-app/agentic/shared/scripts/evaluate-agent-harness.mjs",
-      "sha256": "0ca58dcd0cf2ef5d7dcbce83be799fa5b8ed86ca556344a28ea5dbc55f8a4484"
+      "sha256": "33cbee44badcb37d61e48f62ac8229df651bee7ade774629e218d504a1ec6a6e"
     },
     {
       "path": "packages/create-app/agentic/shared/scripts/execution-sandbox.mjs",

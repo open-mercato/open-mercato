@@ -53,11 +53,11 @@ Source doc: `.ai/specs/2026-08-01-standalone-harness-knowledge-governance.md`
 
 ### Phase 2: Verification
 
-- [x] 2.1 Validate focused coverage, knowledge-change evidence, emitted assets, instruction budgets, and fresh scaffold output. — focused31/31, evaluator58/58, real base/head knowledge controller PASS, final packed four-preset OMH-238 checks PASS, classic deterministic238/238, actual isolated Codex OMH-238 and OMH-216 PASS. Adjacent evidence, manifest, sanitized controller projection, and derived validation summary record the scope and limitations.
+- [x] 2.1 Validate focused coverage, knowledge-change evidence, emitted assets, instruction budgets, and fresh scaffold output. — focused32/32, evaluator152/152, real base/head knowledge controller PASS, final packed four-preset OMH-238 checks PASS, classic deterministic238/238, actual isolated Codex OMH-238 and OMH-216 PASS. Adjacent evidence, manifest, sanitized controller projection, and derived validation summary record the scope and limitations.
 - [x] 2.2 Run the applicable repository validation gate and record any external blockers honestly. — local ordered gate passed: build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck, test, build:app. Documentation production build and agent instruction-budget check also passed.
 
 ### Phase 3: Review and delivery
 
-- [x] 3.1 Run the authoritative `om-auto-review-pr` pass, address findings, and finalize the PR with verification evidence. — full review at3f704b864 found no blocker, major, minor, or nit findings. GitHub rejected formal self-approval; the complete review is posted as a comment and independent approval remains required. PR body, labels, and run summary record verification and pending CI. No merge performed.
+- [x] 3.1 Run the authoritative `om-auto-review-pr` pass, address findings, and finalize the PR with verification evidence. — three independent review slices found an invalid local-archive command, a leaked optional spec-routing contract, and stale evidence/spec counts. All were corrected with regression coverage and regenerated current-asset proof; the final source, contract, and evidence pass found no remaining blocker, major, minor, or nit findings. GitHub cannot accept self-approval, so independent approval remains required. No merge performed.
 
 PR: #7126

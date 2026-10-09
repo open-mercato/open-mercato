@@ -7,6 +7,7 @@ const evaluator = await import(new URL('../../agentic/shared/scripts/evaluate-ag
   codexOutputSchema?: (schema: Schema) => Schema
   codexOutputPrompt?: (prompt: string, schema: Schema) => string
   normalizeCodexOutput?: (value: unknown, schema: Schema) => unknown
+  routingResponseSchemaForCase?: (schema: Schema, caseRecord: unknown) => Schema
 }
 const wireSchema = evaluator.codexOutputSchema ?? ((schema: Schema): Schema => schema)
 const normalize = evaluator.normalizeCodexOutput ?? ((value: unknown): unknown => value)
@@ -43,6 +44,16 @@ test('Codex absent optional routing fields normalize to the existing no-spec con
   const normalized = normalize(response, read('routing-response'))
   assert.deepEqual(normalized, { selectedRouter: ['architecture'], selectedSkills: [], selectedContext: [], decisions: [], violations: [] })
   assert.deepEqual(response, original)
+})
+
+test('Codex routing schemas expose specRouting only to cases that declare its contract', () => {
+  assert.ok(evaluator.routingResponseSchemaForCase)
+  const canonical = read('routing-response')
+  const inert = evaluator.routingResponseSchemaForCase(canonical, { validators: [] })
+  assert.equal(Object.hasOwn(inert.properties ?? {}, 'specRouting'), false)
+  assert.equal(inert.required?.includes('specRouting'), false)
+  assert.equal(Object.hasOwn(canonical.properties ?? {}, 'specRouting'), true)
+  assert.equal(evaluator.routingResponseSchemaForCase(canonical, { expectedSpecRouting: { decision: 'direct' } }), canonical)
 })
 
 test('Codex keeps spec decisions, required nulls and unknown fields for canonical validation', () => {
