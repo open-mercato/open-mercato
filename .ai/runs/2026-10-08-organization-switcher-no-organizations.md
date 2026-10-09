@@ -40,10 +40,12 @@ Keep the backend organization switcher expandable for a superadmin when the sele
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
+PR: #7111
+
 ### Phase 1: Restore the usable switcher menu
 
-- [ ] 1.1 Allow the top-bar popover to render when a tenant selector or all-organizations option is available without organization rows.
-- [ ] 1.2 Render the existing localized `No organizations` message inside an otherwise empty organization section and mirror the component in the standalone template.
+- [x] 1.1 Allow the top-bar popover to render when a tenant selector or all-organizations option is available without organization rows. — 1e59110b2
+- [x] 1.2 Render the existing localized `No organizations` message inside an otherwise empty organization section and mirror the component in the standalone template. — 1e59110b2
 
 ### Phase 2: Regression coverage and delivery validation
 
