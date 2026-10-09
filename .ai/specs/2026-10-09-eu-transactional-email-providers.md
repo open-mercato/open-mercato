@@ -87,7 +87,7 @@ Health checks call `GET /v3/account` with the same API key and never send email.
 | attachments | `Messages[0].Attachments[]` with `Filename`, `ContentType`, base64 `Base64Content` |
 | external message id | first successful message's `To[0].MessageID`, stringified |
 
-Mailjet uses HTTPS Basic Auth with the public API key as username and secret key as password. The adapter rejects more than 50 recipients and rejects aggregate decoded attachment content above 15 MB before calling Mailjet. Missing attachment MIME types normalize to `application/octet-stream`; messages are not split automatically because the hub contract represents one send operation. Health checks call `GET /v3/REST/myprofile`, discard its PII-bearing response body, return only allowlisted details, and never send email.
+Mailjet uses HTTPS Basic Auth with the public API key as username and secret key as password. The adapter rejects more than 50 recipients and conservatively rejects an estimated total email size above Mailjet’s 15 MB cap before calling the provider. The estimate includes the serialized sender, recipients, subject, text/HTML bodies, Reply-To, base64 attachment content, and fixed MIME/header headroom. Missing attachment MIME types normalize to `application/octet-stream`; messages are not split automatically because the hub contract represents one send operation. Health checks call `GET /v3/REST/myprofile`, discard its PII-bearing response body, return only allowlisted details, and never send email.
 
 ## Data Model
 
@@ -163,7 +163,7 @@ All user-facing metadata follows the existing provider-package pattern. No claim
 - Mailjet returns HTTP 200 with message-level `Status: error`: treat the send as failed and surface the first documented Mailjet error message.
 - Mailjet returns multiple recipient results: use the first successful message id while preserving the existing one-call/multi-recipient semantics.
 - Mailjet receives more than 50 recipients: fail before the network call; callers must split the logical notification explicitly.
-- Mailjet aggregate decoded attachment content exceeds 15 MB: fail before the network call rather than relying on a provider rejection.
+- Mailjet estimated total email size exceeds 15 MB, including body, headers, base64 attachment expansion, and fixed transport headroom: fail before the network call rather than relying on a provider rejection.
 - Unsupported or malformed attachment entries: ignore invalid entries using the existing adapter normalization pattern; Mailjet uses `application/octet-stream` when MIME type is absent, and provider rejection remains a send failure.
 - Selected provider package is absent: existing Communications Hub behavior reports that no adapter/config resolver is registered; no fallback silently transfers data to another provider.
 - Provider privacy terms change: code continues to function, while docs and issue research must be updated; the adapter itself never encodes a compliance guarantee.
@@ -224,7 +224,7 @@ Ship a complete, independently installable Brevo system-email connector with env
 
 ### Phase 2 — Mailjet provider package
 
-Ship a complete, independently installable Mailjet connector with message-level error handling, documented recipient/attachment limits, env preset, CLI, health check, docs, and tests. Acceptance gate: its package builds and tests without Brevo installed, its registry entry resolves independently, and removing it leaves existing providers unchanged.
+Ship a complete, independently installable Mailjet connector with message-level error handling, documented recipient/total-message limits, env preset, CLI, health check, docs, and tests. Acceptance gate: its package builds and tests without Brevo installed, its registry entry resolves independently, and removing it leaves existing providers unchanged.
 
 ### Phase 3 — Distribution and verification
 
@@ -235,7 +235,7 @@ Wire both packages into the three Docker build stages, package previews, monorep
 1. Add `packages/channel-brevo` by mirroring the Resend provider package structure, with provider-specific credentials, HTTP client, adapter, health check, preset, metadata, ACL, DI/setup, capabilities, build config, and tests.
 2. Prove Brevo request/response and failure mapping with mocked HTTP tests, including Reply-To and base64 attachments.
 3. Add `packages/channel-mailjet` with the same package boundaries and provider-specific Basic Auth, Send API v3.1 response narrowing, health check, env preset, and tests.
-4. Prove Mailjet HTTP-level and message-level failure handling, its 50-recipient and 15 MB aggregate attachment limits, MIME fallback, multiple recipients, Reply-To, and attachment mapping.
+4. Prove Mailjet HTTP-level and message-level failure handling, its 50-recipient and 15 MB total-message limits (including body and base64 expansion), MIME fallback, multiple recipients, Reply-To, and attachment mapping.
 5. Add provider-local `configure-from-env` commands, localized ACL metadata, and executable discovery/detail-page integration coverage.
 6. Add both workspace dependencies and module entries to all three Dockerfile package-manifest stages, package previews, the monorepo app, and the create-app template using the repository's template-sync workflow; update public email-provider documentation and env examples with the canonical `OM_INTEGRATION_*` variables.
 7. Run `yarn install`, `yarn generate`, focused package tests/typechecks, integration spec coverage, template sync checks, dependency/version checks, and the configured validation gate.
@@ -249,7 +249,7 @@ Accessed 2026-10-09:
 - Brevo API endpoints: https://developers.brevo.com/reference/sendtransacemail and https://developers.brevo.com/reference/getaccount
 - Mailjet data storage and processing: https://documentation.mailjet.com/hc/en-us/articles/360042992933-Where-is-my-data-stored and https://sinch.com/legal/data-protection-agreement/
 - Mailjet subprocessors: https://sinch.com/legal/sub-processors/
-- Mailjet Send API v3.1 and limits: https://documentation.mailjet.com/hc/en-us/articles/360043229473-How-to-send-an-email-with-Mailjet-API and https://dev.mailjet.com/email/guides/send-api-v31/
+- Mailjet Send API v3.1 and limits: https://documentation.mailjet.com/hc/en-us/articles/360043229473-How-to-send-an-email-with-Mailjet-API, https://dev.mailjet.com/email/guides/send-api-v31/, and https://documentation.mailjet.com/hc/en-us/articles/360043179773-What-is-the-size-limit-for-attachments-files-sent-via-Mailjet
 - Scaleway Transactional Email comparison: https://www.scaleway.com/en/docs/transactional-email/reference-content/tem-limits/ and https://www.scaleway.com/en/developers/api/transactional-email/
 
 ## Final Compliance Report
@@ -265,3 +265,4 @@ Accessed 2026-10-09:
 
 - 2026-10-09: Initial specification for Brevo and Mailjet system transactional-email connectors, researched from current provider documentation and scoped to the existing Communications Hub architecture.
 - 2026-10-09: Added the maintainer-requested two-provider scope exception, independent acceptance gates, distribution and executable-test surfaces, Mailjet limits, non-PII health semantics, CLI/i18n requirements, and source citations after architectural review.
+- 2026-10-09: Corrected Mailjet preflight semantics to enforce its documented 15 MB total-message limit, including bodies and base64 expansion rather than decoded attachments alone.
