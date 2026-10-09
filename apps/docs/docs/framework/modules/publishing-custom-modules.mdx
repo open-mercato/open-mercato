@@ -1,0 +1,118 @@
+---
+title: Publishing Custom Modules
+description: Create, publish, and develop a reusable module from an existing standalone Open Mercato app.
+---
+
+# Publishing Custom Modules
+
+[`create-mercato-module`](https://github.com/open-mercato/create-mercato-module) turns one custom module in a standalone Open Mercato app into an npm package and, optionally, a dedicated GitHub repository. Run it inside an installed [`create-mercato-app` application](/installation/standalone), including an Open Mercato Cloud sandbox. You need Node.js 24 or newer and a working `yarn generate` command.
+
+## Create or use a local module
+
+```bash
+cd my-app
+npx create-mercato-module init visits
+```
+
+This creates a translated, authenticated starter page at `/backend/visits`, registers `{ id: 'visits', from: '@app' }` in `src/modules.ts`, and runs generation. Build your feature under `src/modules/visits/`; see [Module authoring](/framework/modules/overview) and the [Reference Example Module](/framework/modules/reference-example-module) for framework conventions.
+
+If your module already has `src/modules/visits/index.ts`, skip `init`. The tool packages that existing module directly. It checks that it is running inside an installed Open Mercato app before changing files.
+
+## Preview and publish
+
+First inspect a real package archive without logging in or publishing:
+
+```bash
+npx create-mercato-module publish visits \
+  --package @your-name/mercato-visits \
+  --repo your-name/mercato-visits \
+  --dry-run
+```
+
+The archive contains the selected module's source, compiled code, portable type sources, translations, runtime assets, and migrations. Other modules and app configuration are excluded. Run your app's typecheck and feature tests before releasing; package compilation does not verify business behavior.
+
+For publication, authenticate and rerun without `--dry-run`:
+
+```bash
+npm login
+gh auth login
+npx create-mercato-module publish visits \
+  --package @your-name/mercato-visits \
+  --repo your-name/mercato-visits
+```
+
+Use your npm scope and a new or empty dedicated repository. The tool checks authentication early, builds the archive, displays its destinations, and asks for confirmation. It creates the repository if necessary, commits and pushes the module, then submits the npm publication. Omit `--repo` if you only want npm; GitHub login is then unnecessary. Complete npm's verification when requested.
+
+Settings are saved per module in `.mercato/module-tool.json`. Later releases reuse them and suggest the next stable patch version:
+
+```bash
+npx create-mercato-module publish visits
+```
+
+Use `--configure` to edit saved settings, `--version` to choose a version, or `--access restricted` for a private scoped package and a private new repository. Tokens can come from `NPM_TOKEN` or `NODE_AUTH_TOKEN` with `--auth token`; no token is stored in metadata. Generated repositories also include a Trusted Publishing workflow, which requires configuring the matching publisher in npm settings. See the tool's [authentication and command guide](https://github.com/open-mercato/create-mercato-module/blob/main/docs/guide.md).
+
+Ordinary publication keeps the real local module in the app. The app's Git origin and history remain unchanged, whether the app has its own Git repository or no repository at all. GitHub is updated before npm; if npm rejects publication, the Git commit may already exist. Registry processing can delay installation after a successful submission. Verify the exact version with `npm view @your-name/mercato-visits@0.1.0 version` before consuming it.
+
+## Continue development in the dedicated repository
+
+To make the module repository its source of truth while continuing to use the same app:
+
+```bash
+npx create-mercato-module link visits
+```
+
+The local module must already be enabled as `from: '@app'`, and the dedicated repository must contain the matching package created by this tool. Saved package and repository settings are reused; otherwise pass `--package` and `--repo` explicitly.
+
+The tool:
+
+1. Clones the independent repository under `.mercato/module-repos/visits/`.
+2. Preserves the original local source under `.mercato/module-backups/visits-…/`.
+3. Links `src/modules/visits` to the checkout's `src/modules/visits`.
+4. Shares the app's `node_modules` and runs `yarn generate`.
+
+Keep editing `src/modules/visits` and running your app. These edits now belong to the module checkout; registration remains `@app`. Inspect and commit them with ordinary Git commands:
+
+```bash
+git -C .mercato/module-repos/visits status
+```
+
+Use feature branches and pull requests in that repository as usual. After merging and pulling your release branch, run `publish visits` from the app for the next version. Linked publication preserves author source, tests, documentation, and workflow customizations while refreshing generated output and release metadata. Check the checkout's active branch: publication pushes that branch and does not switch branches for you.
+
+:::note Local link setup
+Keep `.mercato/` ignored by the app's Git. Replacing a tracked module directory with a symlink is a local app change; committing the symlink does not include the independent checkout or saved metadata. A fresh clone of the whole app needs its module source restored or linked on that machine. For a whole-app repository that carries all source directly, keep the default local-development workflow and export releases without `link`.
+:::
+
+## Install in another clean app
+
+Use an app with compatible framework versions and no existing module with the same ID. Generated packages record exact framework peer versions from the authoring app. A local `src/modules/visits` override takes precedence over package source; remove or move an old override and its registration deliberately before switching an existing app to a packaged module.
+
+### From npm
+
+Inside the receiving app:
+
+```bash
+yarn mercato module add @your-name/mercato-visits@0.1.0 --allow-third-party
+```
+
+This installs, registers, and generates the module. `--allow-third-party` explicitly permits packages outside `@open-mercato/*`; it does not bypass module-structure validation. See [`module add`](/cli/module-add) for version selection and source ejection.
+
+### From GitHub
+
+Select the repository commit to test, then install it with Yarn and enable its package name separately:
+
+```bash
+yarn add '@your-name/mercato-visits@github:your-name/mercato-visits#<full-commit-sha>'
+yarn mercato module enable @your-name/mercato-visits --allow-third-party
+```
+
+Replace `<full-commit-sha>` with the desired full Git commit SHA. The package's build hooks prepare compiled output during Git installation. Private repositories require Git credentials; private npm dependencies also require registry read access. The framework's `module add` accepts npm versions/tags and file locators, so use this two-step flow for GitHub locators. See [`module enable`](/cli/module-enable).
+
+Neither installation path applies database migrations automatically. Review any module migrations and apply them deliberately using your app's migration workflow.
+
+## Keep imports portable
+
+Own-module aliases such as `@/modules/visits/lib/helpers` are rewritten in generated package output. Imports of another local module, application-only helpers, or `@/.mercato/generated/...` are not portable.
+
+An error mentioning `src/modules/patients/api/addresses/route.ts` and `@/.mercato/generated/entities/patient_address` identifies the importing **route source** as the file to fix. Generated entity helpers may contain field-name constants or entity IDs rather than entity classes. Replace those imports with module-owned typed field literals, stable `module:entity` identifiers, or a supported export from the owning package. Do not move, edit, or publish `.mercato/generated`.
+
+For the complete options and repeatable clean-app npm/GitHub installation checks, see the tool's [usage guide](https://github.com/open-mercato/create-mercato-module/blob/main/docs/guide.md) and [release test scripts](https://github.com/open-mercato/create-mercato-module/blob/main/test/release-e2e/README.md).
