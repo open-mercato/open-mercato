@@ -198,6 +198,7 @@ Index: partial `(tenant_id, organization_id, customer_id, updated_at desc) WHERE
 | `category_snapshot` | jsonb, not null | `{ value, label }`. Dictionary entries are **hard-deleted**, so the label must survive on the ticket. |
 | `routed_via` | text, not null | `category` \| `fallback`. Records which rule routed the ticket. |
 | `customer_request_snapshot` | jsonb, not null, **encrypted** | `{ subject, body }` exactly as the customer submitted it. The portal reads subject and description only from here. It is immutable after creation. |
+| `unnotified_at` | timestamptz, null | Set when a support notification for this ticket reached nobody (see Notifications). Cleared when the ticket gets an assignee or a later support notification reaches someone. Backs the "Nobody notified" badge and filter. |
 | `portal_status_published` | text, null | The last `received` \| `in_progress` \| `resolved` value broadcast to the portal. The subscriber compares against it, so a broadcast fires on every path that changes the derived status. |
 
 Indexes:
@@ -298,7 +299,7 @@ Detail and sub-resources **load with** this clause, never "load, then check", fo
 
 | Surface | Change |
 |---|---|
-| `GET /api/staff/timesheets/tasks` | New filters `source`, `customerId`, `supportCategory`, `supportReference`, `portalStatus`. New response fields `source` and `customerId`, plus a `supportTicket` object (`supportReference`, `category`, `routedVia`, `portalStatus`, `customerSnapshot`, `reportedByCustomerUserId`) attached by a response enricher from the extension row. It is null for internal tasks. |
+| `GET /api/staff/timesheets/tasks` | New filters `source`, `customerId`, `supportCategory`, `supportReference`, `portalStatus`, `supportUnnotified`. New response fields `source` and `customerId`, plus a `supportTicket` object (`supportReference`, `category`, `routedVia`, `portalStatus`, `customerSnapshot`, `reportedByCustomerUserId`, `unnotifiedAt`) attached by a response enricher from the extension row. It is null for internal tasks. |
 | `POST/PUT /api/staff/timesheets/tasks` | **Unchanged behavior.** Omitted or `null` `assigneeStaffMemberId` still means "the creator" (US-C1). `source`, `customer_id` and the extension row are **read-only** through this route, so backoffice can't create `source = 'portal'` tasks. |
 | `/api/staff/timesheets/tasks/{id}/comments` | `POST` accepts an optional `visibility` (default `internal`). Responses add `visibility`, `authorKind`, `authorName`. The comment command changes as follows. **(1)** `author_kind = 'customer'` comments are refused for edit and delete **before** the `manage_all` exemption in `requireEditableComment`, which today lets a manager edit any comment. **(2)** `visibility = 'customer'` is rejected with 422 unless `task.source = 'portal'`. **(3)** Changing `customer` → `internal` is allowed, to retract a reply. |
 | `GET/POST/PUT/DELETE /api/staff/timesheets/support-routing-rules` | `makeCrudRoute`. Feature `staff.timesheets.settings.manage`. Optimistic locking default ON. Validation: the project belongs to the same org and has an `isDefault` status; `categoryValue` exists in the organization's dictionary when not null. |
@@ -349,11 +350,29 @@ All recipient lists go through one **escalation chain**, `resolveProjectWorkReci
 2. **The project's active assigners.**
 3. **The project owner.**
 4. **Holders of `staff.timesheets.projects.manage` in the event's organization.**
-   - It is sent through `notificationService.createForFeature` with `{ tenantId, organizationId }`. That service resolves holders with the wildcard-aware `getRecipientUserIdsForFeature` (`notifications/lib/notificationRecipients.ts`, tenant-scoped) and then narrows to the organization.
-   - So managers of other organizations in the same tenant are never notified.
-   - `RbacService` has no "list users by feature" method, so it is not used.
+   - **The call:** `notificationService.createForFeature({ requiredFeature: 'staff.timesheets.projects.manage', restrictRecipientsToOrganization: true, … }, { tenantId, organizationId })`.
+   - **Why the flag is required:** the service resolves holders with the wildcard-aware, **tenant-scoped** `getRecipientUserIdsForFeature`. Only `restrictRecipientsToOrganization: true` narrows them to the event's organization, by re-checking each candidate with `rbacService.userHasAllFeatures` for that organization. **Without the flag, managers in every organization of the tenant are notified.** A test pins the flag.
+   - `RbacService` has no "list users by feature" method, so it is not called directly.
+   - **When the service returns nobody:** with the flag on, it returns an empty list, logs a warning and creates no notification when:
+     - the organization id is missing;
+     - **more than 200 tenant-wide candidates** hold the feature (the service's fan-out cap);
+     - the DI container is unavailable;
+     - the RBAC check throws;
+     - nobody in the organization holds the feature.
 
-This means a ticket in the seeded fallback project is never unseen, even before anyone is assigned.
+     It does not fall back to the unrestricted tenant-wide fan-out.
+
+**When the chain ends with nobody notified.** Notifying is best-effort: the triggering write (ticket creation, a customer reply) is never rolled back or refused because nobody could be told.
+
+- **Support ticket types** (`support_ticket.created`, `support_ticket.customer_replied`):
+  - the subscriber sets `staff_support_tickets.unnotified_at` (keeping the earliest value);
+  - it logs a structured warning through the module logger, with the tenant, organization, project, ticket id, event type and the chain step that came back empty;
+  - the Support tickets page shows a **"Nobody notified"** badge and filter on the ticket;
+  - the routing settings page shows a warning for that project, asking the admin to add assigners, a default assignee or an owner.
+- **Clearing the flag:** `unnotified_at` returns to null as soon as the ticket gets an assignee (claim, manual assignment, or a later default), through the `assignee_changed` subscriber, or when a later support notification for the same ticket reaches someone.
+- **General task types** (`time_task.released`, `time_task.assigned`): only the structured warning is logged. There is no ticket row to flag, and the board's Unassigned chip already surfaces released tasks.
+
+So a ticket can go un-notified only when the project has no active assigner, no usable default assignee and no owner, **and** step 4 is empty or capped. Even then it stays visible as "Nobody notified" instead of disappearing silently.
 
 | Type | Audience (step 1) |
 |---|---|
@@ -393,7 +412,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
 - **Sidebar.** The existing "Time tracking" group (label unchanged, D1) gains a **Support tickets** page (`/backend/staff/time-tracking/support`, feature `staff.timesheets.tasks.view`).
   - The page is a `DataTable` over the tasks API with `source=portal`.
   - Columns: support reference, subject, customer, category, portal status, project, assignee, last activity.
-  - Filters: portal status, category, project, customer, assignee, and a reference search.
+  - Filters: portal status, category, project, customer, assignee, **"Nobody notified"**, and a reference search. Tickets with `unnotifiedAt` show a "Nobody notified" badge.
   - Visible projects are limited by `timeTrackingAccessResolver`.
   - It refetches on `staff.support_ticket.activity` and `assignee_changed`.
   - A row opens the existing `TaskDrawer` (`?task=`).
@@ -421,7 +440,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
      - Each override row shows a warning badge, "Falling back to <fallback project>", when it is paused, its project is unusable (completed, deleted, or has no default status), or its category no longer exists.
      - A preview column shows the project each category actually routes to right now.
      - A blocking error banner appears when the fallback project is unusable.
-     - A warning appears when the fallback project has no active assigner, no usable default assignee and no owner. In that state, new-ticket notifications go to the organization's project managers (see Notifications).
+     - A warning appears when the fallback project, or any routing target, has no active assigner, no usable default assignee and no owner. In that state, new-ticket notifications go to the organization's project managers (see Notifications). The warning escalates to "N tickets were not notified to anyone" while any ticket in that project has `unnotified_at` set.
   3. **Reference prefix**.
 
 ## 📝 Edge Cases & Failure Scenarios
@@ -446,6 +465,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
 | Two assigners claim the same task at the same time | The conditional update lets exactly one win; the other gets `409 taskAlreadyClaimed`, and the board refreshes from `assignee_changed`. |
 | The default assignee left the project, their assignment window expired, or they were deleted | New portal tickets are created unassigned, and the escalation chain notifies the assigners. The project form shows a warning. Nothing fails. |
 | A staff member creates a task on the board in a project that has a default assignee | The creator is the assignee, exactly as today (D2). The project default applies only to portal tickets. |
+| The escalation chain reaches step 4 and it returns nobody (no project manager in the organization, more than 200 tenant-wide candidates, a missing organization id, or an RBAC failure) | The ticket or reply is saved normally. `unnotified_at` is set, a structured warning is logged, the ticket shows "Nobody notified" on the Support tickets page, and the routing settings page warns on the project. The flag clears when someone is assigned. Managers of other organizations are never used as a fallback. |
 | A member's team member loses their user account while flagged as an assigner | They drop out of the recipient lists (no user to notify) and can't claim (no session). The members tab flags the row. |
 | An assigner tries to claim a task in a done status, or one that is already assigned | `422 staff.timesheets.errors.taskNotClaimable` or `409 taskAlreadyClaimed`. Taking over someone else's task is out of scope (Q11). |
 | A staff member deletes the task | The portal answers `404` for it and it drops out of the list. |
@@ -543,11 +563,12 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
    - a done task returns 422;
    - parallel claims let exactly one win;
    - release by the assignee works, and by anyone else returns 403.
-3. **2.3** `resolveProjectWorkRecipients` (the escalation chain; step 4 through `notificationService.createForFeature` with the organization), plus the `time_task.released` and `time_task.assigned` notification types, renderers and subscribers. *Test:* unit tests for:
+3. **2.3** `resolveProjectWorkRecipients` (the escalation chain; step 4 through `notificationService.createForFeature` with `restrictRecipientsToOrganization: true`), plus the `time_task.released` and `time_task.assigned` notification types, renderers and subscribers. *Test:* unit tests for:
    - each chain step;
    - actor exclusion;
    - the wildcard `projects.manage` fallback;
-   - a manager in a sibling organization of the same tenant is **not** notified;
+   - step 4 always passes `restrictRecipientsToOrganization: true`, and a manager in a sibling organization of the same tenant is **not** notified;
+   - when step 4 returns an empty list (including the more-than-200 cap), the chain reports "nobody notified" to the caller instead of throwing;
    - a `PUT` that clears the assignee sends `released`.
 4. **2.4** UI:
    - the Assigner toggle and the "Default assignee for portal tickets" select on the project;
@@ -592,9 +613,10 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
    - recipients are pinned and an empty list means no emit;
    - the payload contains no free text;
    - a retracted or deleted reply publishes;
-   - the `activity` payload holds ids only.
+   - the `activity` payload holds ids only;
+   - a support notification that reaches nobody sets `unnotified_at` and logs a warning, the ticket is still created, and a later assignment clears the flag.
 4. **3.4** Backoffice UI:
-   - the Support tickets page, with a reference search and live refresh on `activity`;
+   - the Support tickets page, with a reference search, the "Nobody notified" badge and filter, and live refresh on `activity`;
    - the drawer "Customer request" panel showing the snapshot, with the two-button composer and the "customer sees original" hint;
    - the board badge;
    - the tasks API filters, plus the `supportTicket` response enricher.
@@ -638,7 +660,7 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
 | Extend data through a separate extension entity plus `data/extensions.ts` | ✅ Helpdesk-only fields live in `staff_support_tickets`; the links are declared in `data/extensions.ts` |
 | No direct ORM relations between modules | ✅ `customers` is coupled by FK id plus snapshot, plus the `data/extensions.ts` link. `dictionaries` uses the established direct-entity pattern and is listed in `requires`. |
 | No static `customer_accounts` dependency from `staff` | ✅ Dynamic import for identity; Kysely by table name for recipients |
-| Tenant and organization scoping on every query | ✅ The ownership clause and routing resolver carry both; notification step 4 is narrowed to the organization |
+| Tenant and organization scoping on every query | ✅ The ownership clause and routing resolver carry both; notification step 4 passes `restrictRecipientsToOrganization: true`, which a test pins |
 | Portal broadcast pins recipients and skips an empty list | ✅ `portal_updated` |
 | No browser broadcast of customer identity to the whole organization | ✅ Events carrying `customerId` are server-side only; `activity` carries ids only |
 | Atomic claim (no lost update between concurrent assigners) | ✅ Conditional update plus 409; covered by TC-STAFF-ASG-002 |
@@ -684,3 +706,8 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
     - the presentational `DictionaryTable` wiring is spelled out;
     - category reading is exact-organization (D6);
     - the portal nav gets a `label` fallback.
+- **2026-10-09** — Re-review follow-up on notification step 4:
+  - the `createForFeature` call is now named with `restrictRecipientsToOrganization: true` (without it, managers in every organization of the tenant are notified);
+  - the service's empty-result cases are listed (missing organization, more than 200 tenant-wide candidates, no container, RBAC failure, nobody in the organization);
+  - **when the chain reaches nobody**, the ticket is still saved, `staff_support_tickets.unnotified_at` is set, a structured warning is logged, and the Support tickets page and routing settings surface "Nobody notified" until someone is assigned;
+  - general task notifications only log.
