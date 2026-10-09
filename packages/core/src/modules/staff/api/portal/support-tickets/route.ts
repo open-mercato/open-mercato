@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
@@ -214,6 +215,8 @@ export async function POST(req: Request) {
       { status: 201 },
     )
   } catch (err) {
+    const rejection = getCommandInterceptorHttpRejection(err)
+    if (rejection) return NextResponse.json(rejection.body, { status: rejection.status })
     return portalErrorResponse(err, 'staff portal support tickets POST failed')
   }
 }

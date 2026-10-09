@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
@@ -65,6 +66,8 @@ export async function POST(req: Request) {
     await guarded.runAfterSuccess()
     return NextResponse.json(responseSchema.parse({ ok: true, id: result.commentId, reopened: result.reopened }), { status: 201 })
   } catch (err) {
+    const rejection = getCommandInterceptorHttpRejection(err)
+    if (rejection) return NextResponse.json(rejection.body, { status: rejection.status })
     return portalErrorResponse(err, 'staff portal support message POST failed')
   }
 }
