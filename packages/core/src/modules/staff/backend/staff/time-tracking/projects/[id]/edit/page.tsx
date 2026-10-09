@@ -155,18 +155,20 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   // loader would unmount it and drop its local state — the form's unsaved
   // edits, or an access request the user has just sent. A switch between two
   // known scopes still goes through the loader, so no form outlives the scope
-  // it was loaded for.
-  const resolvedRef = React.useRef<{ projectId: string; scopeVersion: number } | null>(null)
+  // it was loaded for. The decision looks at the load this one replaces,
+  // settled or not: a version-0 load cancelled by a quick second switch must
+  // not let that switch through.
+  const lastLoadRef = React.useRef<{ projectId: string; scopeVersion: number } | null>(null)
   React.useEffect(() => {
     if (!projectId) return
     let cancelled = false
+    const replaced = lastLoadRef.current
+    lastLoadRef.current = { projectId, scopeVersion }
+    const keepScreen = replaced !== null && replaced.projectId === projectId && replaced.scopeVersion === 0
     async function load() {
-      const resolved = resolvedRef.current
-      const keepScreen = resolved !== null && resolved.projectId === projectId && resolved.scopeVersion === 0
       if (!keepScreen) setLoading(true)
       const settle = (outcome: { values?: ProjectFormValues; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
-        if (cancelled || !projectId) return
-        resolvedRef.current = { projectId, scopeVersion }
+        if (cancelled) return
         setAccessDenied(outcome.accessDenied === true)
         setIsNotFound(outcome.isNotFound === true)
         setError(outcome.error ?? null)

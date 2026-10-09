@@ -15,6 +15,8 @@ import TimesheetProjectDetailPage from '../page'
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111'
 
 let mockScopeVersion = 0
+let holdProjectLoads = false
+const heldProjectLoads: Array<() => void> = []
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
@@ -71,8 +73,11 @@ function projectRequests(): unknown[][] {
 beforeEach(() => {
   jest.clearAllMocks()
   mockScopeVersion = 0
+  holdProjectLoads = false
+  heldProjectLoads.length = 0
   apiCallMock.mockImplementation(async (url: string) => {
     if (url.startsWith('/api/staff/timesheets/time-projects?')) {
+      if (holdProjectLoads) await new Promise<void>((resolve) => { heldProjectLoads.push(resolve) })
       return { ok: false, status: 404, result: { error: 'Not found', reason: 'no_project_access' }, response: {} }
     }
     return { ok: true, status: 200, result: { items: [], granted: [] }, response: {} }
@@ -113,6 +118,26 @@ describe('project detail — access request survives a scope reload', () => {
     expect(screen.getByText('Loading project...')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Request sent' })).toBeNull()
     await waitFor(() => expect(projectRequests()).toHaveLength(2))
+    expect(await screen.findByRole('button', { name: 'Request access' })).toBeTruthy()
+  })
+
+  it('reloads through the loader when a second switch cancels the first settlement', async () => {
+    const view = await renderAndRequestAccess()
+    holdProjectLoads = true
+
+    mockScopeVersion = 1
+    view.rerender(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+    await waitFor(() => expect(projectRequests()).toHaveLength(2))
+    expect(screen.getByRole('button', { name: 'Request sent' })).toBeTruthy()
+
+    mockScopeVersion = 2
+    view.rerender(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+
+    expect(screen.getByText('Loading project...')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Request sent' })).toBeNull()
+
+    holdProjectLoads = false
+    await act(async () => { heldProjectLoads.splice(0).forEach((release) => release()) })
     expect(await screen.findByRole('button', { name: 'Request access' })).toBeTruthy()
   })
 })
