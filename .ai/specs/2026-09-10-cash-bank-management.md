@@ -716,7 +716,9 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
 
     1. **The invoice is posted.** A `JournalEntry` with
        `referenceType: 'sales:sales_invoice'` and `referenceId: invoice.id`
-       (the reference `sales_invoice_gl_posting` writes) must exist, else
+       (the reference `sales_invoice_gl_posting` writes; indexed on
+       `(organizationId, referenceType, referenceId)`) must exist and be
+       unreversed (no `REVERSAL` entry pointing at it), else
        `409 INVOICE_NOT_POSTED`. Crediting the receivable for an invoice
        that never debited it would drive the account negative. This needs
        only `ledger`, not that module's tables.
@@ -1362,6 +1364,15 @@ automatically.
   would call `ledger.reverseJournalEntry`; not designed here, no
   confirmed need yet.
 
+> **2026-10-09 note.** The report below predates the receipt-sizing and
+> overpayment changes (explicit `settledAmount`, ledger-side remaining balance,
+> `INVOICE_NOT_POSTED`, `customerOverpaymentAccountId`, the new
+> `BankStatementLine` columns and index, the advisory lock). Those were
+> checked against the repository rules they touch (module config,
+> transaction-scoped locking, scoped reads, no ORM relations across modules)
+> but the full checklist was not re-run, so the "Compliant" verdicts below are
+> not a statement about them.
+
 ## Final Compliance Report — 2026-09-10
 
 An independent, fresh-context adversarial review of the full first
@@ -1448,7 +1459,7 @@ verify scope against the Event Storming record before drafting at all
 ### Non-Compliant Items
 
 None. The two items still carrying real residual risk — the
-`sales_invoice_gl_posting` subscriber not yet existing, and that
+`sales_invoice_gl_posting` Phase 2 payment bridge not yet existing, and that
 module's `receivableAccountId` needing to be configured before a
 `sales_invoice` match can complete — are cross-module sequencing and
 operational risks, not gaps against any AGENTS.md rule this document
