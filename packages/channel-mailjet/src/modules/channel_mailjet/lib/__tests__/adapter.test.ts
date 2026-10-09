@@ -161,7 +161,7 @@ describe('MailjetChannelAdapter', () => {
   })
 
   it('fails before making a request when the encoded Mailjet message exceeds 15 MB', async () => {
-    const oversizedContent = Buffer.alloc(11_250_000).toString('base64')
+    const oversizedContent = Buffer.alloc(11_100_000).toString('base64')
     const result = await getMailjetChannelAdapter().sendMessage({
       content: { text: 'Hello' },
       credentials: { apiKey: 'public-key', secretKey: 'private-key', fromAddress: 'from@example.com' },

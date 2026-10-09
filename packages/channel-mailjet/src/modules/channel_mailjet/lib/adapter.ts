@@ -53,7 +53,14 @@ function attachmentsFromMeta(value: unknown): MailjetAttachment[] | undefined {
 }
 
 function estimatedMessageBytes(message: Record<string, unknown>): number {
-  return Buffer.byteLength(JSON.stringify(message), 'utf8') + MAILJET_MESSAGE_OVERHEAD_BYTES
+  const attachments = Array.isArray(message.Attachments) ? message.Attachments as MailjetAttachment[] : []
+  const base64LineWrappingBytes = attachments.reduce((total, attachment) => {
+    const base64Length = attachment.Base64Content.replace(/\s/g, '').length
+    return total + (Math.ceil(base64Length / 76) * 2)
+  }, 0)
+  return Buffer.byteLength(JSON.stringify(message), 'utf8')
+    + base64LineWrappingBytes
+    + MAILJET_MESSAGE_OVERHEAD_BYTES
 }
 
 function safeErrorMessage(value: unknown): string | null {

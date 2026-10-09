@@ -37,11 +37,12 @@ export function readMailjetEnvPreset(): { apiKey: string; secretKey: string; fro
   const fromAddress = normalizeEnvString(process.env.OM_INTEGRATION_MAILJET_FROM_ADDRESS)
     ?? resolveDefaultEmailFromAddress()
   if (!apiKey || !secretKey || !fromAddress) {
-    if ((apiKey || secretKey) && !fromAddress) {
-      logger.warn('Mailjet credentials are set but no from-address is configured; skipping Mailjet preset', {
-        remedy: 'set OM_INTEGRATION_MAILJET_FROM_ADDRESS, NOTIFICATIONS_EMAIL_FROM, EMAIL_FROM, or ADMIN_EMAIL',
-      })
-    }
+    const missing = [
+      ...(!apiKey ? ['OM_INTEGRATION_MAILJET_API_KEY'] : []),
+      ...(!secretKey ? ['OM_INTEGRATION_MAILJET_SECRET_KEY'] : []),
+      ...(!fromAddress ? ['OM_INTEGRATION_MAILJET_FROM_ADDRESS or a shared email sender variable'] : []),
+    ]
+    logger.warn('Mailjet env preset is incomplete; skipping provider configuration', { missing })
     return null
   }
   return { apiKey, secretKey, fromAddress }

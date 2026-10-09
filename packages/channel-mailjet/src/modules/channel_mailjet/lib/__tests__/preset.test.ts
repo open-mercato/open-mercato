@@ -1,8 +1,14 @@
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { applyMailjetEnvPreset, readMailjetEnvPreset } from '../preset'
 
+const mockWarn = jest.fn()
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({ warn: (...args: unknown[]) => mockWarn(...args) }),
 }))
 
 const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
@@ -28,6 +34,7 @@ describe('channel_mailjet env preset', () => {
       EMAIL_FROM: 'from@example.com',
     }
     mockedFindOneWithDecryption.mockReset()
+    mockWarn.mockClear()
   })
 
   afterEach(() => {
@@ -147,6 +154,11 @@ describe('channel_mailjet env preset', () => {
   it('requires the private API key', () => {
     delete process.env.OM_INTEGRATION_MAILJET_SECRET_KEY
     expect(readMailjetEnvPreset()).toBeNull()
+    expect(mockWarn).toHaveBeenCalledWith(
+      'Mailjet env preset is incomplete; skipping provider configuration',
+      { missing: ['OM_INTEGRATION_MAILJET_SECRET_KEY'] },
+    )
+    expect(JSON.stringify(mockWarn.mock.calls)).not.toContain('private-key')
   })
 
   it('uses the provider-specific sender override', () => {

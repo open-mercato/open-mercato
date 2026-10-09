@@ -36,11 +36,11 @@ export function readBrevoEnvPreset(): { apiKey: string; fromAddress: string } | 
   const fromAddress = normalizeEnvString(process.env.OM_INTEGRATION_BREVO_FROM_ADDRESS)
     ?? resolveDefaultEmailFromAddress()
   if (!apiKey || !fromAddress) {
-    if (apiKey && !fromAddress) {
-      logger.warn('Brevo API key is set but no from-address is configured; skipping Brevo preset', {
-        remedy: 'set OM_INTEGRATION_BREVO_FROM_ADDRESS, NOTIFICATIONS_EMAIL_FROM, EMAIL_FROM, or ADMIN_EMAIL',
-      })
-    }
+    const missing = [
+      ...(!apiKey ? ['OM_INTEGRATION_BREVO_API_KEY'] : []),
+      ...(!fromAddress ? ['OM_INTEGRATION_BREVO_FROM_ADDRESS or a shared email sender variable'] : []),
+    ]
+    logger.warn('Brevo env preset is incomplete; skipping provider configuration', { missing })
     return null
   }
   return { apiKey, fromAddress }
