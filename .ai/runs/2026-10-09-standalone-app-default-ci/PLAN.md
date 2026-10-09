@@ -13,7 +13,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 0 | 0.1 | Add the spec and fold in the analysis decisions | inline | todo | — |
+| 0 | 0.1 | Add the spec and fold in the analysis decisions | inline | done | 46dbf5c170 |
 | 0 | 0.2 | Measure the gate on a 7 GB / 2 vCPU container and record results in the spec | inline | todo | — |
 | 1 | 1.1 | Add template scripts/ci.mjs quality gate and the ci package script | dispatch | todo | — |
 | 1 | 1.2 | Add template ci.yml workflow and its structure test | dispatch | todo | — |
