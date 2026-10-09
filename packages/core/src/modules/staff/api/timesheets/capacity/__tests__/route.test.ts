@@ -80,6 +80,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
 }))
 
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { GET, metadata } from '../route'
 
 const getRequest = (query: string) => new Request(`http://localhost/api/staff/timesheets/capacity?${query}`)
@@ -184,5 +185,16 @@ describe('GET /api/staff/timesheets/capacity (#6934)', () => {
   it('answers 401 without a session', async () => {
     authValue = null
     expect((await GET(getRequest('from=2026-08-24&to=2026-08-24'))).status).toBe(401)
+  })
+
+  it('answers 403 when the organization scope is explicitly empty', async () => {
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValueOnce({
+      tenantId: tenantA,
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+    })
+    expect((await GET(getRequest('from=2026-08-24&to=2026-08-24'))).status).toBe(403)
+    expect(resolveCapacityAsync).not.toHaveBeenCalled()
   })
 })
