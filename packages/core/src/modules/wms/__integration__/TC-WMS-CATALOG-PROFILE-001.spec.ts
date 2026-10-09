@@ -126,6 +126,23 @@ test.describe('TC-WMS-CATALOG-PROFILE-001: product form WMS inventory profile', 
       await expect(wmsInput(page, 'wms.defaultUom')).toHaveValue('pcs')
       await expect(wmsInput(page, 'wms.reorderPoint')).toHaveValue('5')
 
+      await wmsField(page, 'wms.manageInventory').locator('[role="checkbox"]').first().click()
+      await expect(wmsField(page, 'wms.reorderPoint')).toBeHidden()
+      const removeResponse = page.waitForResponse(
+        (response) => response.url().includes('/api/catalog/products') && response.request().method() === 'PUT',
+      )
+      await page.getByRole('button', { name: 'Save changes' }).first().click()
+      expect((await removeResponse).ok()).toBeTruthy()
+
+      await expect
+        .poll(async () => (await readProductProfile(request, token, productId as string))?.profileId ?? null, { timeout: 15_000 })
+        .toBeNull()
+
+      await page.goto(`/backend/catalog/products/${productId}`)
+      await expect(page.getByText(CARD_TITLE, { exact: true }).first()).toBeVisible({ timeout: 30_000 })
+      await expect(wmsField(page, 'wms.manageInventory').locator('[role="checkbox"]').first()).toHaveAttribute('aria-checked', 'false')
+      await expect(wmsField(page, 'wms.reorderPoint')).toBeHidden()
+
       await page.goto(`/backend/catalog/products/${productId}/variants/${variantId}`)
       await expect(page.getByText(CARD_TITLE, { exact: true }).first()).toBeVisible({ timeout: 30_000 })
       await expect(wmsField(page, 'wms.manageInventory')).toBeVisible()

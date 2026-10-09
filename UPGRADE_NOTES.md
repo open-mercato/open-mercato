@@ -42,6 +42,16 @@ drop them silently.
 **Action for module authors:** if your field widget declared `eventHandlers` that were never
 called, review them before upgrading: they now run on every save of the host form.
 
+### New `wms.inventory_profile.deleted` event (#6142)
+
+Deleting a WMS inventory profile emitted no event, so the cached `_wms` product enrichment kept
+serving the deleted profile and the product form showed it as still managed. `wms.inventoryProfiles.delete`
+now emits `wms.inventory_profile.deleted` with the same payload as `.created` / `.updated`. Undoing a
+profile create, update or delete also emits the matching event, so the caches follow undo too.
+
+**Action for module authors:** none. Subscribers bound to `wms.inventory_profile.*` now also receive
+`deleted`; check that they handle it.
+
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 
 The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so
