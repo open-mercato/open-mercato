@@ -39,7 +39,7 @@ Registrations that use none of these options keep their current request handling
 
 One behavior is hardened for every provider. The route now verifies every located candidate, up to 10. When more than one stored transaction verifies the same notification, it rejects the request with the existing `401` instead of accepting the first match.
 
-**Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches.
+**Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
 
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
 

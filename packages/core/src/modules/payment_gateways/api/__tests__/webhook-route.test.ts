@@ -731,4 +731,165 @@ describe('payment gateway webhook route security', () => {
       expect(mockRateLimiterService.consume).not.toHaveBeenCalled()
     })
   })
+  describe('infrastructure failures and duplicate candidates', () => {
+    const paymentId = '6f1c2b8e-1d2a-4c3b-9e4f-5a6b7c8d9e0f'
+    const mockReportError = jest.fn()
+    let consoleSpies: jest.SpyInstance[] = []
+
+    function transaction(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'txn_1',
+        paymentId,
+        providerSessionId: 'sess_1',
+        amount: '100.0000',
+        currencyCode: 'PLN',
+        organizationId: 'org_1',
+        tenantId: 'tenant_1',
+        ...overrides,
+      }
+    }
+
+    beforeEach(() => {
+      mockReportError.mockReset()
+      ;(getTelemetryRuntime as jest.Mock).mockReturnValue({ reportError: mockReportError })
+      ;(processPaymentGatewayWebhookJob as jest.Mock).mockResolvedValue(undefined)
+      consoleSpies = (['info', 'warn', 'error'] as const).map((method) =>
+        jest.spyOn(console, method).mockImplementation(() => undefined),
+      )
+    })
+
+    afterEach(() => {
+      consoleSpies.forEach((spy) => spy.mockRestore())
+    })
+
+    test('maps a throwing locator to no_candidate and reports it', async () => {
+      const handler = jest.fn()
+      const formatResponse = jest.fn((outcome: WebhookResponseOutcome) => ({ status: 400, body: outcome }))
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({
+        handler,
+        readSessionIdHint: () => {
+          throw new Error('malformed form body')
+        },
+        formatResponse,
+      })
+
+      const response = await POST(createMockRequest('a=b'), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenCalledWith('no_candidate')
+      expect(response.status).toBe(400)
+      expect(findWithDecryption).not.toHaveBeenCalled()
+      expect(handler).not.toHaveBeenCalled()
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'payment_gateways',
+        code: 'payment_gateways.webhook_locator_failed',
+      })
+    })
+
+    test('keeps the legacy 401 when the candidate lookup fails and reports processing_failed', async () => {
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler: jest.fn(), readSessionIdHint: () => 'sess_1' })
+      ;(findWithDecryption as jest.Mock).mockRejectedValueOnce(new Error('database unavailable'))
+
+      const legacy = await POST(createMockRequest('{}'), { params: { provider: 'stripe' } })
+
+      expect(legacy.status).toBe(401)
+      expect(await legacy.json()).toEqual({ error: 'Webhook verification failed' })
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'payment_gateways',
+        code: 'payment_gateways.webhook_lookup_failed',
+      })
+
+      const formatResponse = jest.fn((outcome: WebhookResponseOutcome) => ({ status: 503, body: outcome }))
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler: jest.fn(), readSessionIdHint: () => 'sess_1', formatResponse })
+      ;(findWithDecryption as jest.Mock).mockRejectedValueOnce(new Error('database unavailable'))
+
+      const formatted = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenCalledWith('processing_failed')
+      expect(formatted.status).toBe(503)
+    })
+
+    test('skips a candidate whose credentials cannot be resolved and accepts the verified one', async () => {
+      const handler = jest.fn(async () => ({ eventType: 'payment.captured', eventId: 'evt_1', data: {}, idempotencyKey: 'evt_1', timestamp: new Date() }))
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler, readSessionIdHint: () => 'sess_1' })
+      ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([
+        transaction({ id: 'txn_other', organizationId: 'org_2', tenantId: 'tenant_2' }),
+        transaction(),
+      ])
+      mockCredentialsService.resolve
+        .mockRejectedValueOnce(new Error('decryption failed'))
+        .mockResolvedValueOnce({ secret: 'tenant_1' })
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'stripe' } })
+
+      expect(response.status).toBe(202)
+      expect(handler).toHaveBeenCalledTimes(1)
+      expect(processPaymentGatewayWebhookJob).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ transactionId: 'txn_1', scope: { organizationId: 'org_1', tenantId: 'tenant_1' } }),
+      )
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'payment_gateways',
+        code: 'payment_gateways.webhook_credentials_failed',
+      })
+    })
+
+    test('classifies credential resolution failure without a verified candidate as verification_unavailable', async () => {
+      const handler = jest.fn()
+      const formatResponse = jest.fn((outcome: WebhookResponseOutcome) => ({ status: 503, body: outcome }))
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler, readSessionIdHint: () => 'sess_1', formatResponse })
+      ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([transaction()])
+      mockCredentialsService.resolve.mockRejectedValueOnce(new Error('decryption failed'))
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(formatResponse).toHaveBeenCalledWith('verification_unavailable')
+      expect(response.status).toBe(503)
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    test('rejects two same-tenant transactions located only by payment id unless the verifier narrows them', async () => {
+      const event = { eventType: 'payment.captured', eventId: 'evt_1', data: {}, idempotencyKey: 'evt_1', timestamp: new Date() }
+      ;(findWithDecryption as jest.Mock).mockResolvedValue([
+        transaction({ id: 'txn_retry', providerSessionId: 'sess_2' }),
+        transaction(),
+      ])
+      const permissive = jest.fn(async () => event)
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler: permissive, readPaymentIdHint: () => paymentId })
+
+      const ambiguous = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(ambiguous.status).toBe(401)
+      expect(processPaymentGatewayWebhookJob).not.toHaveBeenCalled()
+
+      const narrowing = jest.fn(async (input: { candidate?: { providerSessionId: string | null } }) => {
+        if (input.candidate?.providerSessionId !== 'sess_1') throw new Error('session mismatch')
+        return event
+      })
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({ handler: narrowing, readPaymentIdHint: () => paymentId })
+
+      const accepted = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(accepted.status).toBe(202)
+      expect(processPaymentGatewayWebhookJob).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ transactionId: 'txn_1' }),
+      )
+    })
+
+    test('rejects a non-JSON media type such as text/json for an object body', async () => {
+      ;(getWebhookHandler as jest.Mock).mockReturnValue({
+        handler: jest.fn(),
+        readSessionIdHint: () => null,
+        formatResponse: () => ({ status: 400, body: { ok: false }, contentType: 'text/json' }),
+      })
+
+      const response = await POST(createMockRequest('{}'), { params: { provider: 'tpay' } })
+
+      expect(response.status).toBe(500)
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'payment_gateways',
+        code: 'payment_gateways.webhook_formatter_invalid',
+      })
+    })
+  })
 })

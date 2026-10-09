@@ -37,6 +37,7 @@ const WEBHOOK_PAYLOAD_TOO_LARGE = 'Webhook payload too large'
 const INTERNAL_SERVER_ERROR = 'Internal server error'
 const DEFAULT_TEXT_CONTENT_TYPE = 'text/plain; charset=utf-8'
 const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/
+const JSON_CONTENT_TYPE = /^application\/([\w.+-]+\+)?json(\s*;|$)/
 
 const paymentIdHintSchema = z.guid()
 
@@ -104,8 +105,15 @@ async function receiveWebhook(
   const queue = getPaymentGatewayQueue(registration.queue ?? 'payment-gateways-webhook')
   const payload = await readJsonSafe<Record<string, unknown>>(bodyText)
   const locatorContext = { rawBody, headers }
-  const sessionIdHint = normalizeSessionIdHint(registration.readSessionIdHint?.(payload, locatorContext))
-  const paymentIdHint = normalizePaymentIdHint(registration.readPaymentIdHint?.(payload, locatorContext))
+  let sessionIdHint: string | null
+  let paymentIdHint: string | null
+  try {
+    sessionIdHint = normalizeSessionIdHint(registration.readSessionIdHint?.(payload, locatorContext))
+    paymentIdHint = normalizePaymentIdHint(registration.readPaymentIdHint?.(payload, locatorContext))
+  } catch (error: unknown) {
+    reportWebhookError(error, 'payment_gateways.webhook_locator_failed')
+    return 'no_candidate'
+  }
 
   try {
     // The webhook endpoint is unauthenticated. Tenant/organization scope MUST come from a
@@ -116,19 +124,25 @@ async function receiveWebhook(
     // prevents forged webhooks (e.g. mock gateway PoC) from mutating another tenant's
     // payment state via `event.data.metadata.{organizationId,tenantId}`. When more than one
     // candidate verifies, the scope is ambiguous and we also fail closed.
-    const candidates = sessionIdHint || paymentIdHint
-      ? await findWithDecryption(
-        em,
-        GatewayTransaction,
-        {
-          providerKey,
-          ...(sessionIdHint ? { providerSessionId: sessionIdHint } : {}),
-          ...(paymentIdHint ? { paymentId: paymentIdHint } : {}),
-          deletedAt: null,
-        },
-        { limit: 10, orderBy: { createdAt: 'desc' } },
-      )
-      : []
+    let candidates: GatewayTransaction[]
+    try {
+      candidates = sessionIdHint || paymentIdHint
+        ? await findWithDecryption(
+          em,
+          GatewayTransaction,
+          {
+            providerKey,
+            ...(sessionIdHint ? { providerSessionId: sessionIdHint } : {}),
+            ...(paymentIdHint ? { paymentId: paymentIdHint } : {}),
+            deletedAt: null,
+          },
+          { limit: 10, orderBy: { createdAt: 'desc' } },
+        )
+        : []
+    } catch (error: unknown) {
+      reportWebhookError(error, 'payment_gateways.webhook_lookup_failed')
+      return 'processing_failed'
+    }
 
     if (candidates.length === 0) return 'no_candidate'
 
@@ -142,7 +156,14 @@ async function receiveWebhook(
 
     for (const candidate of candidates) {
       const candidateScope = { organizationId: candidate.organizationId, tenantId: candidate.tenantId }
-      const credentials = await integrationCredentialsService.resolve(`gateway_${providerKey}`, candidateScope) ?? {}
+      let credentials: Record<string, unknown>
+      try {
+        credentials = await integrationCredentialsService.resolve(`gateway_${providerKey}`, candidateScope) ?? {}
+      } catch (error: unknown) {
+        reportWebhookError(error, 'payment_gateways.webhook_credentials_failed')
+        verificationUnavailable = true
+        continue
+      }
       try {
         const candidateEvent = await registration.handler({
           rawBody,
@@ -264,7 +285,7 @@ function toValidatedResponse(formatted: WebhookHttpResponse): NextResponse {
   if (!isPlainObject(body)) {
     throw new Error('[internal] Webhook formatter returned an invalid body')
   }
-  if (normalizedContentType !== undefined && !normalizedContentType.includes('json')) {
+  if (normalizedContentType !== undefined && !JSON_CONTENT_TYPE.test(normalizedContentType)) {
     throw new Error('[internal] Webhook formatter returned a non-JSON content type for an object body')
   }
   const response = NextResponse.json(body, { status })
@@ -276,6 +297,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
+}
+
+function reportWebhookError(error: unknown, code: string): void {
+  getTelemetryRuntime()?.reportError(error, { module: 'payment_gateways', code })
 }
 
 function normalizeSessionIdHint(value: unknown): string | null {

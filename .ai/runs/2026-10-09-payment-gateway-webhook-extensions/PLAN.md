@@ -17,7 +17,8 @@
 | 1 | 1.2 | Pass raw locator context and optional exact bytes through the webhook route | dispatch | done | `d74e6db83` |
 | 1 | 1.3 | Add the secondary payment locator, candidate snapshot and ambiguity rejection | dispatch:capable | done | `ba928307e` |
 | 1 | 1.4 | Add typed webhook outcomes and validated provider response formatting | dispatch:capable | done | a7a16ab15 |
-| 1 | 1.5 | Document the webhook extensions and mark the specs implemented | inline | done | self |
+| 1 | 1.5 | Document the webhook extensions and mark the specs implemented | inline | done | 84060da36 |
+| 1 | 1.5-review-fix | Classify webhook infrastructure failures and document payment-only locator narrowing | inline | done | self |
 
 ## Goal
 
@@ -92,3 +93,9 @@ None.
 - `packages/create-app/agentic/shared/ai/skills/om-integration-builder/references/provider-families.md`: same options briefly.
 - `UPGRADE_NOTES.md`: opt-in options and ambiguity hardening.
 - Specs: status implemented + implementation changelog entries.
+
+#### 1.5-review-fix Classify webhook infrastructure failures and document payment-only locator narrowing
+
+- Throwing locators → `no_candidate` + `payment_gateways.webhook_locator_failed`; candidate lookup failures → `processing_failed` + `payment_gateways.webhook_lookup_failed`; per-candidate credential failures skip that candidate (`verification_unavailable` when none verified) + `payment_gateways.webhook_credentials_failed`. Legacy responses unchanged (401).
+- Formatter JSON content type must be `application/json` or `application/*+json`.
+- Docs/UPGRADE_NOTES: payment-only locators must narrow by `providerSessionId`/`amount`; raw `Buffer` is read-only.
