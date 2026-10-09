@@ -39,6 +39,10 @@ export type SendAsUserInput = {
    * derives `threadId` from the parent), so a CRM reply continues the existing
    * conversation instead of starting a new thread. Optional — omitted for new
    * threads.
+   *
+   * Not authorized here: the facade serves more than one surface, and each owns
+   * what "may reply to" means. The caller MUST have established that the actor
+   * can read this message under its own read rule before passing it.
    */
   parentMessageId?: string
   /**

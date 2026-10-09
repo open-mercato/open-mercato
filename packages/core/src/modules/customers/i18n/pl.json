@@ -1593,6 +1593,7 @@
   "customers.email.conversationShare.sharedByTeammate": "Udostępnione przez współpracownika",
   "customers.email.errors.deliveryFailed": "Dostarczanie nie powiodło się – nie wysłano",
   "customers.email.errors.flipFailed": "Aktualizacja widoczności nieudana",
+  "customers.email.errors.parentMessageNotFound": "Nie znaleziono e-maila, na który odpowiadasz",
   "customers.email.errors.sendFailed": "Wysyłanie nieudane",
   "customers.email.sync.button": "Synchronizuj",
   "customers.email.sync.failed": "Nie udało się zsynchronizować skrzynki",
