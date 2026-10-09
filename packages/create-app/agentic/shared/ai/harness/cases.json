@@ -21470,11 +21470,7 @@
         "AGENTS.md",
         ".ai/guides/production-deployment.md"
       ],
-      "allowedExtra": [
-        ".ai/guides/architecture.md",
-        ".ai/guides/integrations.md",
-        ".ai/guides/testing-debugging.md"
-      ],
+      "allowedExtra": [],
       "forbidden": [
         ".env*",
         ".git/**"

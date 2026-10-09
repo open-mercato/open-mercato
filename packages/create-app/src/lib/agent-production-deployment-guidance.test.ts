@@ -57,7 +57,7 @@ test('OMH-238 enforces the production-readiness routing and safety contract', ()
   const cases = JSON.parse(read('agentic/shared/ai/harness/cases.json')) as Array<{
     id: string
     owner: { path: string }
-    context: { required: string[]; forbidden: string[] }
+    context: { required: string[]; allowedExtra: string[]; forbidden: string[] }
     requiredDecisions: string[]
     forbiddenPatterns: string[]
   }>
@@ -65,6 +65,7 @@ test('OMH-238 enforces the production-readiness routing and safety contract', ()
   assert.ok(productionCase)
   assert.equal(productionCase.owner.path, '.ai/guides/production-deployment.md')
   assert.deepEqual(productionCase.context.required, ['AGENTS.md', '.ai/guides/production-deployment.md'])
+  assert.deepEqual(productionCase.context.allowedExtra, [])
   assert.ok(productionCase.context.forbidden.includes('.env*'))
   for (const decision of [
     'https-tls-first',
