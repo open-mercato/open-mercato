@@ -250,7 +250,14 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
   em.persist(entity)
 }
 
-async function recomputeOrderPaymentTotals(
+const NON_SETTLING_PAYMENT_STATUSES = new Set(['failed', 'canceled', 'cancelled'])
+
+export function paymentCountsTowardOrderBalance(payment: Pick<SalesPayment, 'status'>): boolean {
+  const status = typeof payment.status === 'string' ? payment.status.trim().toLowerCase() : ''
+  return !NON_SETTLING_PAYMENT_STATUSES.has(status)
+}
+
+export async function recomputeOrderPaymentTotals(
   em: EntityManager,
   order: SalesOrder,
   options?: { lock?: boolean }
@@ -282,10 +289,11 @@ async function recomputeOrderPaymentTotals(
     if (paymentId) paymentIds.add(paymentId)
   })
 
-  const payments =
+  const loadedPayments =
     paymentIds.size > 0
       ? await findWithDecryption(em, SalesPayment, { id: { $in: Array.from(paymentIds) }, deletedAt: null, ...scope }, {}, scope)
       : await findWithDecryption(em, SalesPayment, { order: orderId, deletedAt: null, ...scope }, {}, scope)
+  const payments = loadedPayments.filter(paymentCountsTowardOrderBalance)
 
   const resolvePaidAmount = (payment: SalesPayment) => {
     const captured = toNumber(payment.capturedAmount)

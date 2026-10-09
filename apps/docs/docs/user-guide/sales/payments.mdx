@@ -21,6 +21,7 @@ Payments attach financial events to orders and quotes, feeding totals and outsta
 
 - **Captured/received** amounts reduce the outstanding balance.
 - **Refunded** entries increase refunded totals and adjust outstanding accordingly.
+- **Failed** and **Canceled** payments are ignored: they never count toward the paid total or reduce the outstanding balance.
 - Each payment stores its method and status from your dictionaries so reporting stays consistent.
 
 ## Tips
