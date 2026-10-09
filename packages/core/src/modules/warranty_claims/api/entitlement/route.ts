@@ -8,6 +8,7 @@ import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-me
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type {
   WarrantyEntitlementInput,
   WarrantyEntitlementResolver,
@@ -120,7 +121,7 @@ async function resolveEntitlementContext(req: Request): Promise<EntitlementRoute
     throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required') })
   }

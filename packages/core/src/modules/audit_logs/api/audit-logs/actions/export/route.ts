@@ -15,6 +15,7 @@ import {
   deriveActionLogSource,
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 import { loadAuditLogDisplayMaps } from '../../display'
 import { requireResolvedTenantScope } from '../../readScope'
 
@@ -112,6 +113,8 @@ function formatValue(value: unknown): string {
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const canonicalAuthSubject = resolveCanonicalAuthSubject(auth)
+  if (!canonicalAuthSubject) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const tenantScopeGuard = requireResolvedTenantScope(auth)
   if (tenantScopeGuard) return tenantScopeGuard
@@ -150,7 +153,8 @@ export async function GET(req: Request) {
     }
   }
 
-  let actorUserId: string | undefined = canViewTenant ? undefined : auth.sub
+  const actorSubject = canViewTenant ? undefined : canonicalAuthSubject.subject
+  let actorUserId: string | undefined
   let actorUserIds: string[] | undefined
   if (canViewTenant && actorQuery) {
     const parsedActorUserIds = splitCsv(actorQuery)
@@ -167,6 +171,7 @@ export async function GET(req: Request) {
     entriesResult = await actionLogs.list({
       tenantId: auth.tenantId ?? undefined,
       organizationId: organizationId ?? undefined,
+      actorSubject,
       actorUserId,
       actorUserIds,
       resourceKind,
