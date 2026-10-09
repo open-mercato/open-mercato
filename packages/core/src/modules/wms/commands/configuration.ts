@@ -1532,10 +1532,13 @@ function restoreInventoryProfileFromSnapshot(em: EntityManager, before: ProductI
   record.deletedAt = null
 }
 
-type InventoryProfileEventSource = Pick<
-  ProductInventoryProfileSnapshot,
-  'id' | 'catalogProductId' | 'catalogVariantId' | 'tenantId' | 'organizationId'
->
+type InventoryProfileEventSource = {
+  id: string
+  catalogProductId: string
+  catalogVariantId?: string | null
+  tenantId: string
+  organizationId: string
+}
 
 function emitInventoryProfileEvent(
   eventId: 'wms.inventory_profile.created' | 'wms.inventory_profile.updated' | 'wms.inventory_profile.deleted',
