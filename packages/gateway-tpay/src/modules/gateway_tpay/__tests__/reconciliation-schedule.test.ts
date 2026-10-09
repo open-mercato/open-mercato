@@ -138,11 +138,12 @@ describe('gateway_tpay integration-state-updated subscriber', () => {
     expect(register).toHaveBeenCalledWith(expect.objectContaining({ organizationId: OTHER_ORG }))
   })
 
-  it('logs and reports registration failures without throwing', async () => {
+  it('logs and reports registration failures, then rethrows so the persistent delivery is retried', async () => {
     const { container } = buildContainer(jest.fn().mockRejectedValue(new Error('boom')))
+    expect(subscriberMetadata.persistent).toBe(true)
     await expect(
       handler({ integrationId: 'gateway_tpay', isEnabled: true, tenantId: TENANT, organizationId: ORG }, container),
-    ).resolves.toBeUndefined()
+    ).rejects.toThrow('boom')
     expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
       module: 'gateway_tpay',
       code: 'gateway_tpay.reconciliation_schedule_failed',

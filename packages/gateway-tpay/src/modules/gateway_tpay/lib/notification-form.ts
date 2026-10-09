@@ -75,6 +75,19 @@ const SINGLE_VALUE_FIELDS = [
   'tr_currency',
 ] as const
 
+const LENGTH_LIMITED_FIELDS = [
+  'id',
+  'tr_id',
+  'tr_date',
+  'tr_crc',
+  'tr_amount',
+  'tr_paid',
+  'tr_status',
+  'tr_currency',
+  'md5sum',
+  'test_mode',
+] as const
+
 const MAX_FIELD_LENGTH = 256
 const DECIMAL_PATTERN = /^(\d+)(?:\.(\d{1,2}))?$/
 const MD5_PATTERN = /^[0-9a-fA-F]{32}$/
@@ -105,8 +118,8 @@ export function parseTpayNotificationForm(rawBody: Buffer): TpayNotification {
   for (const field of REQUIRED_FIELDS) {
     if (!params.has(field)) throw new TpayNotificationError('missingField')
   }
-  for (const [, value] of params) {
-    if (value.length > MAX_FIELD_LENGTH) throw new TpayNotificationError('fieldTooLong')
+  for (const field of LENGTH_LIMITED_FIELDS) {
+    if ((params.get(field) ?? '').length > MAX_FIELD_LENGTH) throw new TpayNotificationError('fieldTooLong')
   }
 
   const read = (field: string): string => params.get(field) ?? ''

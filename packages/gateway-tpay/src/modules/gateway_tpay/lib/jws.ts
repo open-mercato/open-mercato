@@ -207,9 +207,16 @@ async function loadLeaf(
     if (error instanceof WebhookVerificationUnavailableError) throw error
     throw new WebhookVerificationUnavailableError('[internal] Tpay certificate fetch failed')
   }
-  negativeCache.delete(cacheKey)
   const current = now()
-  const leaf = validateLeaf(pem, trust, current)
+  let leaf: X509Certificate
+  try {
+    leaf = validateLeaf(pem, trust, current)
+  } catch (error) {
+    negativeCache.set(cacheKey, current.getTime() + TPAY_CERTIFICATE_NEGATIVE_CACHE_MS)
+    const reason = error instanceof TpayJwsError ? error.reason : 'invalidCertificate'
+    throw new WebhookVerificationUnavailableError(`[internal] Tpay certificate rejected: ${reason}`)
+  }
+  negativeCache.delete(cacheKey)
   const expiresAt = Math.min(current.getTime() + TPAY_CERTIFICATE_CACHE_TTL_MS, Date.parse(leaf.validTo))
   leafCache.set(cacheKey, { leaf, fetchedAt: current.getTime(), expiresAt })
   return leaf

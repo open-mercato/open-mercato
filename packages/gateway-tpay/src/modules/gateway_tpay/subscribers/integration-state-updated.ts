@@ -42,5 +42,6 @@ export default async function handler(
       code: 'gateway_tpay.reconciliation_schedule_failed',
     })
     logger.warn('Failed to sync Tpay reconciliation schedule', { err: error })
+    throw error
   }
 }

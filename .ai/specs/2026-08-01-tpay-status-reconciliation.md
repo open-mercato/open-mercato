@@ -177,6 +177,9 @@ Acceptance requires a missed-notification sandbox transaction to reach `captured
 - Worker `packages/gateway-tpay/src/modules/gateway_tpay/workers/status-poller.ts` (`gateway_tpay:status-poller`, queue `gateway-tpay-status-poller`, concurrency 2): scope from the scheduler payload (`scope.*` or top-level), `limit` clamped to 1..100, `providerKey: 'tpay'`, per-transaction isolation with `gateway_tpay.status_poll_failed` reporting, summary log `{ scanned, changed, failed }`.
 - Schedule `lib/reconciliation-schedule.ts`: local `stableScheduleUuid` (the payment_gateways helper is not exported), `timezone: 'UTC'`, skips when no scheduler is registered.
 - Subscriber `subscribers/integration-state-updated.ts` (`gateway_tpay:integration-state-updated`) and `setup.ts` `seedDefaults` (only when the integration is enabled); failures report `gateway_tpay.reconciliation_schedule_failed` and never break tenant setup.
+- `cli.ts` `configure-from-env` syncs the schedule with the preset's `enabled` value after a `configured` result; schedule failures report `gateway_tpay.reconciliation_schedule_failed` and exit with code 1. The persistent subscriber rethrows after reporting so the event worker retries the delivery.
+- Known limitation / follow-up: core `getPaymentStatus` updates `updatedAt`/`lastPolledAt` only on a status transition, while `listTransactionsForStatusPolling` orders by `updatedAt asc`, so more than 100 open transactions that never change starve the rest of the scope. Follow-up in core: set `lastPolledAt` on every poll and order by it (nulls first).
+- Known limitation / follow-up: tenants created outside init/onboarding while the env preset is enabled get no schedule until the integration is re-saved/enabled or `seed:defaults` runs, because `onTenantCreated` has no container to reach the scheduler.
 
 ## Implementation Plan
 

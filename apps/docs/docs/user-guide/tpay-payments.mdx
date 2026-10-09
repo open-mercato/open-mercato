@@ -55,7 +55,7 @@ After paying, the payer returns to the checkout success page, which reads the tr
 Tpay confirms each paid transaction with a server-to-server notification. Open Mercato settles the payment from that notification, so a payment is captured even when the payer closes the browser on Tpay's page.
 
 1. In the Tpay Merchant Panel, set the notification address to `https://<your-domain>/api/payment_gateways/webhook/tpay` (or fill **Notification URL** in the integration, which Tpay uses when overriding is allowed). The address must be public HTTPS on port 443, without redirects.
-2. Copy the notification security code into **Notification Security Code**.
+2. Copy the notification security code (Tpay Merchant Panel → Settings → Notifications → Security) into **Notification Security Code**. Without it every notification is rejected and the integration health check reports a degraded status.
 3. Save the integration.
 
 Each notification is checked before anything changes:
@@ -67,17 +67,17 @@ Each notification is checked before anything changes:
 | Situation | Response to Tpay | Effect |
 | --- | --- | --- |
 | Verified and processed | `200 TRUE` | Payment captured (or refunded for a chargeback) once, even if Tpay repeats the notification |
-| Transaction not found yet, certificate download failed, or processing failed | `503 FALSE` | Tpay retries later |
-| Invalid checksum or signature, amount/currency mismatch, underpayment | `400 FALSE` | Nothing changes; check the security code and the integration environment |
+| Transaction not found yet, certificate download or validation failed, or processing failed | `503 FALSE` | Tpay retries later |
+| Invalid checksum or signature, amount/currency mismatch, underpayment | `400 FALSE` | Nothing changes; Tpay keeps retrying — check the security code and the integration environment |
 
 An overpayment still captures the expected amount; the paid amount is kept in the transaction details.
 
 ## Scheduled status check
 
-When the Tpay integration is enabled for an organization, Open Mercato registers a scheduled job (**Tpay status reconciliation**, every 5 minutes) that asks Tpay for the current status of that organization's Tpay transactions that are still pending. It repairs payments whose notification never arrived, for example because the notification address was misconfigured or Tpay exhausted its retries.
+When the Tpay integration is enabled for an organization, Open Mercato registers a scheduled job (**Tpay payment status reconciliation**, every 5 minutes) that asks Tpay for the current status of that organization's Tpay transactions that are still open (pending, authorized, or partially captured). It repairs payments whose notification never arrived, for example because the notification address was misconfigured or Tpay exhausted its retries.
 
 - The job is created or re-enabled when you enable the integration and disabled when you disable it. You can also pause it in the scheduler.
-- Each run checks at most 100 of the oldest pending transactions; larger backlogs are drained over the following runs.
+- Each run checks the 100 open transactions (pending, authorized, or partially captured) that have gone longest without a change. If more than 100 open transactions never change, they can keep newer ones from being checked; Tpay's panel and the return-page check still apply to those payments.
 - It needs the scheduler module. Without it, notifications and the return-page check still work.
 
 ## Limitations

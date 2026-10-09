@@ -92,7 +92,15 @@ describe('parseTpayNotificationForm', () => {
   it('rejects invalid crc, checksum format and long fields', () => {
     expect(reasonOf(body({ ...baseFields(), tr_crc: 'not-a-uuid' }))).toBe('invalidCrc')
     expect(reasonOf(body({ ...baseFields(), md5sum: 'xyz' }))).toBe('invalidChecksumFormat')
-    expect(reasonOf(body({ ...baseFields(), tr_desc: 'a'.repeat(257) }))).toBe('fieldTooLong')
+    expect(reasonOf(body({ ...baseFields(), id: '1'.repeat(257) }))).toBe('fieldTooLong')
+    expect(reasonOf(body({ ...baseFields(), tr_date: 'a'.repeat(257) }))).toBe('fieldTooLong')
+  })
+
+  it('ignores the length of fields the handler does not read', () => {
+    const notification = parseTpayNotificationForm(
+      body({ ...baseFields(), tr_desc: 'a'.repeat(1000), tr_email: 'b'.repeat(500), unknown_field: 'c'.repeat(5000) }),
+    )
+    expect(notification.trDesc).toHaveLength(1000)
   })
 
   it('never includes field values in error messages', () => {

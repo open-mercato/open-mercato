@@ -19,7 +19,8 @@
 | 1 | 1.4 | Document Tpay notifications and update the notification spec | inline | done | 50d4d0c76 |
 | 2 | 2.1 | Add the Tpay status reconciliation worker | dispatch | done | f4729c6eb |
 | 2 | 2.2 | Register the Tpay reconciliation schedule on setup and integration state changes | dispatch:capable | done | ffcbb78b1 |
-| 2 | 2.3 | Document Tpay reconciliation and update the reconciliation spec | inline | done | self |
+| 2 | 2.3 | Document Tpay reconciliation and update the reconciliation spec | inline | done | a48659ca1 |
+| 2 | 2.3-review-fix | Address review findings on schedule activation, certificate rotation, help text, subscriber retries, and form limits | inline | done | self |
 
 ## Goal
 
@@ -97,3 +98,12 @@ Tpay notifications docs `https://docs-api.tpay.com/en/webhooks/`; certificates `
 #### 2.3 Document Tpay reconciliation and update the reconciliation spec
 
 - User guide section (what it does, cadence, enable/disable, rollback); spec implementation notes + status; run `yarn generate` check that worker/subscriber are discovered.
+
+#### 2.3-review-fix Address review findings on schedule activation, certificate rotation, help text, subscriber retries, and form limits
+
+- `cli.ts` `configure-from-env` syncs the reconciliation schedule after a `configured` preset (`enabled` from the result); failures report `gateway_tpay.reconciliation_schedule_failed`, print without secrets, exit code 1 (`__tests__/cli.test.ts`).
+- `lib/jws.ts`: a freshly fetched certificate failing chain/CN/validity checks throws `WebhookVerificationUnavailableError` (503, Tpay retries) and is negative-cached for 30 s; `TpayJwsError` stays for JWS evidence problems.
+- `integration.ts` help text/placeholder for the notification fields; `lib/health.ts` returns `degraded` with `notificationsReady: false` when the notification security code is empty (`gateway_tpay.health.notificationsDisabled` in en/pl/de/es/ko).
+- `subscribers/integration-state-updated.ts` rethrows after reporting so the persistent delivery is retried.
+- `lib/notification-form.ts` applies the 256-char limit only to the fields the handler reads.
+- User guide: accurate per-run limit, exact schedule name, open statuses, 400 row; spec Implementation Notes record the core polling-order starvation and the `onTenantCreated` schedule gap as known limitations.

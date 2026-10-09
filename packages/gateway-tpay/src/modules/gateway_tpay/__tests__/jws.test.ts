@@ -147,6 +147,17 @@ async function reasonOf(promise: Promise<void>): Promise<TpayJwsErrorReason | nu
   }
 }
 
+async function rejectedCertificateReasonOf(promise: Promise<void>): Promise<string | null> {
+  try {
+    await promise
+    return null
+  } catch (error) {
+    if (!(error instanceof WebhookVerificationUnavailableError)) throw error
+    const match = /Tpay certificate rejected: (\w+)$/.exec(error.message)
+    return match ? match[1] : null
+  }
+}
+
 describe('verifyTpayJws', () => {
   it('accepts a valid detached RS256 signature', async () => {
     const fetchCertificate = fetcherFor(pki.leafPem)
@@ -206,17 +217,19 @@ describe('verifyTpayJws', () => {
 
   it('rejects an expired leaf', async () => {
     currentTime = Date.now() + 60 * DAY_MS
-    expect(await reasonOf(run(signJws(BODY, pki.leafKey), fetcherFor(pki.leafPem)))).toBe('certificateNotValidNow')
+    expect(await rejectedCertificateReasonOf(run(signJws(BODY, pki.leafKey), fetcherFor(pki.leafPem)))).toBe(
+      'certificateNotValidNow',
+    )
   })
 
   it('rejects a leaf with an unexpected common name', async () => {
     const header = signJws(BODY, pki.wrongCnKey)
-    expect(await reasonOf(run(header, fetcherFor(pki.wrongCnPem)))).toBe('unexpectedCommonName')
+    expect(await rejectedCertificateReasonOf(run(header, fetcherFor(pki.wrongCnPem)))).toBe('unexpectedCommonName')
   })
 
   it('rejects a leaf issued by a foreign chain', async () => {
     const header = signJws(BODY, pki.foreignLeafKey)
-    expect(await reasonOf(run(header, fetcherFor(pki.foreignLeafPem)))).toBe('untrustedChain')
+    expect(await rejectedCertificateReasonOf(run(header, fetcherFor(pki.foreignLeafPem)))).toBe('untrustedChain')
   })
 
   it('rejects anchors whose root does not match the pinned fingerprint', async () => {
@@ -227,11 +240,27 @@ describe('verifyTpayJws', () => {
       { header, rawBody: BODY, environment: 'sandbox', fetchCertificate: fetcherFor(pki.leafPem) },
       { trust: pinned, now: () => new Date(currentTime) },
     )
-    expect(await reasonOf(result)).toBe('untrustedChain')
+    expect(await rejectedCertificateReasonOf(result)).toBe('untrustedChain')
   })
 
   it('rejects a certificate response without a certificate', async () => {
-    expect(await reasonOf(run(signJws(BODY, pki.leafKey), fetcherFor('not a pem')))).toBe('invalidCertificate')
+    expect(await rejectedCertificateReasonOf(run(signJws(BODY, pki.leafKey), fetcherFor('not a pem')))).toBe(
+      'invalidCertificate',
+    )
+  })
+
+  it('negative-caches a freshly fetched certificate that fails validation for 30 seconds', async () => {
+    const header = signJws(BODY, pki.leafKey)
+    const fetchCertificate = fetcherFor(pki.foreignLeafPem, pki.foreignLeafPem, pki.leafPem)
+    expect(await rejectedCertificateReasonOf(run(header, fetchCertificate))).toBe('untrustedChain')
+    await expect(run(header, fetchCertificate)).rejects.toBeInstanceOf(WebhookVerificationUnavailableError)
+    expect(fetchCertificate).toHaveBeenCalledTimes(1)
+    currentTime += 31 * 1000
+    expect(await rejectedCertificateReasonOf(run(header, fetchCertificate))).toBe('untrustedChain')
+    expect(fetchCertificate).toHaveBeenCalledTimes(2)
+    currentTime += 31 * 1000
+    await expect(run(header, fetchCertificate)).resolves.toBeUndefined()
+    expect(fetchCertificate).toHaveBeenCalledTimes(3)
   })
 
   it('reuses the cached leaf for subsequent verifications', async () => {
