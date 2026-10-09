@@ -133,7 +133,7 @@ describe('dynamic loader app tsconfig and content-addressed cache', () => {
     loadBootstrapDataInNode(appRoot)
     const after = readCacheMetadata(appRoot, 'entities')
 
-    expect(after.version).toBe(4)
+    expect(after.version).toBe(5)
     expect(after.inputHash).not.toBe(before.inputHash)
   })
 
@@ -287,6 +287,6 @@ describe('dynamic loader app tsconfig and content-addressed cache', () => {
 
     loadBootstrapDataInNode(appRoot)
 
-    expect(readCacheMetadata(appRoot, 'entities').version).toBe(4)
+    expect(readCacheMetadata(appRoot, 'entities').version).toBe(5)
   })
 })

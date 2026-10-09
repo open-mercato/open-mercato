@@ -77,9 +77,9 @@ function writeGeneratedModule(generatedDir: string, baseName: string, source: { 
   fs.writeFileSync(sourcePath, source.ts)
   fs.writeFileSync(compiledPath, source.compiled)
   fs.writeFileSync(`${compiledPath}.cache.json`, JSON.stringify({
-    version: 4,
+    version: 5,
     inputHash: hash(JSON.stringify({
-      version: 4,
+      version: 5,
       sourceHash: hash(source.ts),
       tsconfigHashes: {
         'tsconfig.json': hash(APP_TSCONFIG),

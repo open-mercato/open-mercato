@@ -16,7 +16,7 @@ import { CLIENT_ONLY_STUB_NAMESPACE, createClientOnlyStubPlugin } from './client
 import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { createRequire } from 'node:module'
+import { createRequire, isBuiltin } from 'node:module'
 import { pathToFileURL } from 'node:url'
 
 let activeBootstrapLoads = 0
@@ -77,6 +77,39 @@ class GeneratedFileNotFoundError extends Error {
   }
 }
 
+function splitBareSpecifier(specifier: string): { packageName: string; subpath: string } | null {
+  const segments = specifier.split('/')
+  const nameLength = specifier.startsWith('@') ? 2 : 1
+  if (segments.length <= nameLength || segments.slice(0, nameLength).some((segment) => !segment)) return null
+  return {
+    packageName: segments.slice(0, nameLength).join('/'),
+    subpath: segments.slice(nameLength).join('/'),
+  }
+}
+
+/**
+ * Rewrites an externalized `pkg/subpath` specifier to the file Node's ESM resolver can load
+ * when `pkg` publishes no `exports` map (#6993). Builtins, packages with `exports`, subpaths
+ * that already carry an extension and anything that fails to resolve keep the original
+ * specifier, so the bundle never gets worse than before.
+ */
+function rewriteLegacySubpathSpecifier(specifier: string, appRequire: NodeRequire): string {
+  if (isBuiltin(specifier)) return specifier
+  const parts = splitBareSpecifier(specifier)
+  if (!parts || path.posix.extname(parts.subpath)) return specifier
+  try {
+    const manifestPath = appRequire.resolve(`${parts.packageName}/package.json`)
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { exports?: unknown }
+    if (manifest.exports !== undefined) return specifier
+    const resolvedFile = appRequire.resolve(specifier)
+    const relativeFile = path.relative(path.dirname(manifestPath), resolvedFile)
+    if (!relativeFile || relativeFile.startsWith('..') || path.isAbsolute(relativeFile)) return specifier
+    return `${parts.packageName}/${relativeFile.split(path.sep).join('/')}`
+  } catch {
+    return specifier
+  }
+}
+
 /**
  * esbuild plugins for the CLI bundle, in resolution order. The client-only stub must come
  * first so it wins over the alias and external plugins for `*.client` dynamic imports.
@@ -113,6 +146,18 @@ export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugi
     },
   }
 
+  // Node's ESM resolver only maps an extensionless package subpath (`next/link`) when the
+  // package publishes an `exports` map; legacy packages need the real file path instead.
+  const appRequire = createRequire(path.join(appRoot, 'package.json'))
+  const externalSpecifierCache = new Map<string, string>()
+  const resolveExternalSpecifier = (specifier: string): string => {
+    const cached = externalSpecifierCache.get(specifier)
+    if (cached !== undefined) return cached
+    const resolved = rewriteLegacySubpathSpecifier(specifier, appRequire)
+    externalSpecifierCache.set(specifier, resolved)
+    return resolved
+  }
+
   // Plugin to mark non-JSON package imports as external
   const externalNonJsonPlugin: import('esbuild').Plugin = {
     name: 'external-non-json',
@@ -129,7 +174,7 @@ export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugi
           return null // Let esbuild handle it
         }
         // Otherwise mark as external
-        return { path: args.path, external: true }
+        return { path: resolveExternalSpecifier(args.path), external: true }
       })
     },
   }
@@ -137,7 +182,7 @@ export function createCliBundlePlugins(appRoot: string): import('esbuild').Plugi
   return [createClientOnlyStubPlugin(), aliasPlugin, externalNonJsonPlugin]
 }
 
-const DYNAMIC_LOADER_CACHE_VERSION = 4
+const DYNAMIC_LOADER_CACHE_VERSION = 5
 
 type DynamicLoaderCacheMetadata = {
   version: number
