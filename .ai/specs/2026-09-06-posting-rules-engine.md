@@ -841,11 +841,13 @@ stay `null` until an admin configures them, exactly like
   for. Idempotent: a line already reclassified no longer matches and is
   never picked up twice, and a line whose reclassification exists but
   whose `CostCenter` tag is missing is repaired by the same pass (the
-  "ensure tag" step). Lines that cannot be reclassified (no clearing
-  account, no target account resolvable, locked period) are reported in
-  the command's result by line id with their named error, not thrown,
-  so one bad line does not stop the rest. Requires
-  `posting_rules.reconcile.run`.
+  "ensure tag" step). Lines that cannot be reclassified (no target account
+  resolvable, locked period) are reported in the command's result by
+  line id with their named error, not thrown, so one bad line does not
+  stop the rest. An unset `clearingAccountId` is different: it is a
+  precondition of the whole run, so the run is rejected up front with
+  its named error (422) rather than reporting every line as failed.
+  Requires `posting_rules.reconcile.run`.
 - `lockFiscalPeriod` (this module's own, distinct from `ledger`'s) —
   the period-close guard. Calls `reconcileCostRing`'s underlying finder
   (`findUnreclassifiedEntries(periodId)`, which works at the line
@@ -1224,13 +1226,15 @@ already configured `PostingRulesSettings` and at least one
   priority hybrid).
 - Assert that when no `DefaultAccountPostingRule` matches the source
   account and `PostingRulesSettings.unallocatedCostAccountId` is also
-  unset, the subscriber and `reconcileCostRing` both reject with a
-  named error rather than posting anywhere (**added 2026-09-14** —
-  see Design Decisions, "New settings: `PostingRulesSettings`").
-- Assert both the subscriber and `reconcileCostRing` reject with a
-  named error when `PostingRulesSettings.clearingAccountId` is unset,
-  regardless of whether a `DefaultAccountPostingRule` matched (**added
-  2026-09-14**).
+  unset, nothing is posted: the subscriber logs the named error and
+  returns, and `reconcileCostRing` reports the line with that error in
+  its result (**added 2026-09-14**, restated 2026-10-09 — see Design
+  Decisions, "New settings: `PostingRulesSettings`").
+- Assert that when `PostingRulesSettings.clearingAccountId` is unset,
+  nothing is posted regardless of whether a `DefaultAccountPostingRule`
+  matched: the subscriber logs the named error and returns, and
+  `reconcileCostRing` rejects the whole run with it (**added
+  2026-09-14**, restated 2026-10-09).
 - Assert `reconcileCostRing` finds and repairs an entry whose
   subscriber-driven reclassification never happened (simulate by
   posting the source entry with the subscriber disabled), and that
