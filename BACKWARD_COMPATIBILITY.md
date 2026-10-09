@@ -556,3 +556,20 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Workflow User Tasks on Closed Runs (2026-10-01)
+
+Completing a user task whose workflow run had already ended wrote the form data into the closed run's context and drove the run onward — a cancelled run came back `PAUSED` on its next step, or the request failed with a `500`. The completion is now refused before anything is written, and cancelling a run closes its open tasks:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| HTTP response (`POST /api/workflows/tasks/{id}/complete`) | A task whose run is `COMPLETED`, `FAILED`, `CANCELLED`, `COMPENSATING` or `COMPENSATED` now answers `409 { error, code: 'WORKFLOW_NOT_ACTIVE' }`, where it previously answered `200` (after mutating the closed run) or `500`. A run cancelled after this change has no open task left, so its task answers the existing `404`; the `409` is what a task left open by an earlier cancel (nothing is backfilled) or by a failed, completed or compensated run answers. Every other answer is unchanged | ⚠️ Behaviour change for one error class only. No retained response loses a field. Regression-tested in `task-handler-closed-run.test.ts` and `taskActions.route.test.ts` |
+| HTTP response (`POST /api/workflows/portal/tasks/{id}/complete`) | The same refusal answers the portal's standard `404` body | ✓ No new status code or body |
+| Function behaviour (`completeUserTask`) | Signature unchanged. `UserTaskError.code` gains `WORKFLOW_NOT_ACTIVE`; the instance is loaded before the task is mutated, so `INSTANCE_NOT_FOUND` no longer leaves the task flushed `COMPLETED` | ✓ ADDITIVE (new error code) |
+| Function behaviour (`completeWorkflow(..., 'CANCELLED')`) | The run's `PENDING` / `IN_PROGRESS` user tasks move to `CANCELLED` (an existing `UserTaskStatus`) and one `USER_TASK_CANCELLED` workflow event (an existing event type) is logged per task. `COMPLETED` and `FAILED` leave tasks untouched | ⚠️ Behaviour change: tasks of a cancelled run leave the open-task lists |
+| Task SLA breach (`task_sla` job) | On a closed run the breach is still recorded, but the `route` and `attention` actions are skipped and logged as `onBreach: 'route_skipped_closed_run'` / `'attention_skipped_closed_run'`. Reminders, `notify` and `reassign` are unchanged | ⚠️ Behaviour change for closed runs only; two new `onBreach` values in the `USER_TASK_DEADLINE_BREACHED` event data |
+| Database schema, API route URLs, bus event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. A client that completes tasks should treat `409` with `code: 'WORKFLOW_NOT_ACTIVE'` as final — the run has ended and the task cannot be completed.
