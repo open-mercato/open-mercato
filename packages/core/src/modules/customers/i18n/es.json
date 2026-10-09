@@ -1596,6 +1596,7 @@
   "customers.email.conversationShare.sharedByTeammate": "Compartido por un compañero",
   "customers.email.errors.deliveryFailed": "Error de entrega: no enviado",
   "customers.email.errors.flipFailed": "Error al actualizar la visibilidad",
+  "customers.email.errors.parentMessageNotFound": "No se encontró el correo al que está respondiendo",
   "customers.email.errors.sendFailed": "Error al enviar",
   "customers.email.sync.button": "Sincronizar",
   "customers.email.sync.failed": "No se pudo sincronizar el buzón",

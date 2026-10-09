@@ -1596,6 +1596,7 @@
   "customers.email.conversationShare.sharedByTeammate": "Von einem Kollegen geteilt",
   "customers.email.errors.deliveryFailed": "Zustellung fehlgeschlagen – nicht gesendet",
   "customers.email.errors.flipFailed": "Aktualisierung der Sichtbarkeit fehlgeschlagen",
+  "customers.email.errors.parentMessageNotFound": "Die E-Mail, auf die Sie antworten, wurde nicht gefunden",
   "customers.email.errors.sendFailed": "Senden fehlgeschlagen",
   "customers.email.sync.button": "Synchronisieren",
   "customers.email.sync.failed": "Postfach konnte nicht synchronisiert werden",

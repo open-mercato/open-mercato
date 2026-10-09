@@ -130,6 +130,7 @@
   "messages.errors.noExternalEmail": "Bitte gib eine gültige externe E-Mail ein.",
   "messages.errors.noRecipients": "Füge mindestens einen Empfänger hinzu.",
   "messages.errors.noSubject": "Bitte Betreff eingeben.",
+  "messages.errors.parentMessageNotFound": "Die Nachricht, auf die Sie antworten, wurde nicht gefunden",
   "messages.errors.sendFailed": "Nachricht konnte nicht gesendet werden.",
   "messages.errors.senderDraftSendUnsupported": "Das Senden eines gespeicherten Entwurfs über ein verbundenes Postfach wird noch nicht unterstützt.",
   "messages.errors.senderPayloadUnsupported": "Der Versand aus dem eigenen Postfach unterstützt noch keine Anhänge oder verknüpften Datensätze.",

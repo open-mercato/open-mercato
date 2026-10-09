@@ -1596,6 +1596,7 @@
   "customers.email.conversationShare.sharedByTeammate": "Shared by a teammate",
   "customers.email.errors.deliveryFailed": "Delivery failed — not sent",
   "customers.email.errors.flipFailed": "Visibility update failed",
+  "customers.email.errors.parentMessageNotFound": "The email you are replying to was not found",
   "customers.email.errors.sendFailed": "Send failed",
   "customers.email.sync.button": "Sync",
   "customers.email.sync.failed": "Failed to sync mailbox",

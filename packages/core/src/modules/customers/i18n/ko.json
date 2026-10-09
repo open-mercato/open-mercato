@@ -1596,6 +1596,7 @@
   "customers.email.conversationShare.sharedByTeammate": "동료가 공유",
   "customers.email.errors.deliveryFailed": "전송 실패 — 발송되지 않음",
   "customers.email.errors.flipFailed": "공개 범위 업데이트 실패",
+  "customers.email.errors.parentMessageNotFound": "답장하려는 이메일을 찾을 수 없습니다",
   "customers.email.errors.sendFailed": "전송 실패",
   "customers.email.sync.button": "동기화",
   "customers.email.sync.failed": "메일함 동기화에 실패했습니다",

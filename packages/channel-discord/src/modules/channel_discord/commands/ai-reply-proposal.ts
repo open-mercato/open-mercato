@@ -5,6 +5,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message } from '@open-mercato/core/modules/messages/data/entities'
+import { resolveMessageReadAccess } from '@open-mercato/core/modules/messages/lib/routeHelpers'
 import {
   CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_COMMAND_ID,
   CHANNEL_DISCORD_AI_PROPOSAL_DISMISS_COMMAND_ID,
@@ -87,12 +88,25 @@ const approveProposalCommand: CommandHandler<ProposalActionInput, ApproveProposa
     const inbound = await findOneWithDecryption(
       em,
       Message,
-      { id: inboundMessageId, tenantId: scope.tenantId, deletedAt: null },
+      {
+        id: inboundMessageId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      },
       undefined,
       { tenantId: scope.tenantId, organizationId: scope.organizationId },
     )
     if (!inbound) {
       throw new Error('[internal] The message this proposal answers no longer exists')
+    }
+    // The send joins the answered message's thread, so the approving operator
+    // must be able to read that message — the same rule a compose naming it as
+    // its parent is held to. Access revoked after the proposal was filed refuses
+    // the send instead of posting into a conversation the operator lost.
+    const access = await resolveMessageReadAccess(ctx, scope, inbound)
+    if (!access.canRead) {
+      throw new Error('[internal] The approving operator cannot read the message this proposal answers')
     }
 
     const body = (proposal.body ?? '').trim()

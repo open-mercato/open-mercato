@@ -1,4 +1,7 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Message, MessageRecipient } from '../data/entities'
 import {
   CHANNEL_THREAD_FALLBACK_FEATURE,
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
@@ -14,6 +17,11 @@ export function hasOrganizationAccess(
     return messageOrganizationId === scopeOrganizationId
   }
   return messageOrganizationId == null
+}
+
+export type ChannelThreadCallerContext = {
+  container: { resolve: <T = unknown>(name: string) => T }
+  auth?: unknown
 }
 
 export type MessageScope = {
@@ -101,7 +109,7 @@ export async function canUseChannelThreadFallback(
  * message that is not explicitly public.
  */
 export async function hasChannelThreadReadAccess(
-  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  ctx: ChannelThreadCallerContext,
   scope: MessageScope,
   message: { id: string; threadId?: string | null; sourceEntityType?: string | null },
 ): Promise<boolean> {
@@ -114,6 +122,81 @@ export async function hasChannelThreadReadAccess(
     { userId: scope.userId, features: resolveActorFeatures(ctx.auth) },
   )
   return channelThread?.canAccess === true
+}
+
+export type MessageReadAccess = {
+  recipient: MessageRecipient | null
+  isSender: boolean
+  hasChannelThreadAccess: boolean
+  canRead: boolean
+}
+
+/**
+ * The read rule of `GET /api/messages/[id]`, for a message already loaded in the
+ * caller's scope: the sender, a recipient whose row is not deleted, or — for an
+ * explicitly public message only — a caller the channels hub lets work the
+ * channel thread. Channel access never opens an internal note.
+ *
+ * Shared by the detail read and by every write that names another message as its
+ * parent, so "may reference" can never be wider than "may read".
+ */
+export async function resolveMessageReadAccess(
+  ctx: ChannelThreadCallerContext,
+  scope: MessageScope,
+  message: Pick<Message, 'id' | 'senderUserId' | 'visibility' | 'threadId' | 'sourceEntityType'>,
+): Promise<MessageReadAccess> {
+  const em = ctx.container.resolve('em') as EntityManager
+  const recipient = await em.findOne(MessageRecipient, {
+    messageId: message.id,
+    recipientUserId: scope.userId,
+    deletedAt: null,
+  })
+  const isSender = message.senderUserId === scope.userId
+  const hasChannelThreadAccess = await hasChannelThreadReadAccess(ctx, scope, message)
+  const isParticipant = isSender || Boolean(recipient)
+  return {
+    recipient,
+    isSender,
+    hasChannelThreadAccess,
+    canRead: isParticipant || (hasChannelThreadAccess && message.visibility === 'public'),
+  }
+}
+
+export type ReplyParentResolution =
+  | { status: 'readable'; message: Message }
+  | { status: 'not_found' }
+  | { status: 'forbidden' }
+
+/**
+ * Resolve a caller-supplied parent message before a write threads onto it.
+ *
+ * The parent is looked up in exactly the scope the new message is written to —
+ * tenant, organization (null only matches null) and not deleted — so a parent
+ * that is unknown, deleted, or in another organization or tenant all answer
+ * `not_found`. A parent in scope that the caller may not read answers
+ * `forbidden`, the same distinction the detail read already makes.
+ */
+export async function resolveReplyParentMessage(
+  ctx: ChannelThreadCallerContext,
+  scope: MessageScope,
+  parentMessageId: string,
+): Promise<ReplyParentResolution> {
+  const em = ctx.container.resolve('em') as EntityManager
+  const parent = await findOneWithDecryption(
+    em,
+    Message,
+    {
+      id: parentMessageId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  if (!parent) return { status: 'not_found' }
+  const access = await resolveMessageReadAccess(ctx, scope, parent)
+  return access.canRead ? { status: 'readable', message: parent } : { status: 'forbidden' }
 }
 
 /**
