@@ -49,15 +49,16 @@ const postingRulesLockFiscalPeriodCommand: CommandHandler<PostingRulesLockFiscal
     const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
     const { translate } = await resolveTranslations()
 
-    const unreclassifiedEntryIds = await findUnreclassifiedEntries(em, scope, input.periodId)
-    if (unreclassifiedEntryIds.length > 0) {
+    const unreclassified = await findUnreclassifiedEntries(em, scope, input.periodId)
+    if (unreclassified.length > 0) {
       throw new CrudHttpError(422, {
         error: translate(
           'posting_rules.errors.periodHasUnreclassifiedEntries',
-          'This fiscal period cannot be locked: {count} zespół 4 entries have not yet been reclassified.',
-          { count: unreclassifiedEntryIds.length },
+          'This fiscal period cannot be locked: {count} zespół 4 lines have not yet been reclassified.',
+          { count: unreclassified.length },
         ),
-        unreclassifiedEntryIds,
+        unreclassifiedEntryIds: [...new Set(unreclassified.map((line) => line.entryId))],
+        unreclassifiedLines: unreclassified,
       })
     }
 

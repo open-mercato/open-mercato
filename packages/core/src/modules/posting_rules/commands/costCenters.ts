@@ -137,6 +137,24 @@ const updateCostCenterCommand: CommandHandler<CostCenterUpdateInput, { costCente
     ensureOrganizationScope(ctx, record.organizationId)
     const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
+    // The sentinel is protected by the commands, not by a flag (spec, Design
+    // Decisions, "The sentinel `CostCenter` is protected by the commands"):
+    // hybrid step (3) always needs the `UNALLOCATED` row to exist, be active
+    // and keep its well-known code.
+    const { UNALLOCATED_COST_CENTER_CODE } = await import('../lib/seedDefaults')
+    if (record.code === UNALLOCATED_COST_CENTER_CODE) {
+      if (parsed.code !== undefined && parsed.code !== record.code) {
+        throw conflict(
+          translate('posting_rules.errors.sentinelCostCenterCodeLocked', 'The code of the sentinel "UNALLOCATED" cost centre cannot be changed.'),
+        )
+      }
+      if (parsed.isActive === false) {
+        throw conflict(
+          translate('posting_rules.errors.sentinelCostCenterCannotBeDeactivated', 'The sentinel "UNALLOCATED" cost centre cannot be deactivated.'),
+        )
+      }
+    }
+
     if (parsed.code !== undefined && parsed.code !== record.code) {
       const existing = await em.findOne(CostCenter, {
         code: parsed.code,

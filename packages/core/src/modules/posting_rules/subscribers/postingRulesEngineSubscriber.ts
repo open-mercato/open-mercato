@@ -2,26 +2,34 @@
 // PostingRulesEngineSubscriber — the module's core, real-time behavior.
 // =============================================================================
 //
-// Subscribes to `ledger.journal_entry.posted` (#5663, ephemeral — see the
-// spec's Design Decisions, "Real-time, not batch — through an event, not a
-// shared transaction"). Not atomic with the source posting: a microscopic
-// window exists between the two commits, and there is no automatic retry if
-// this handler throws — `commands/reconcileCostRing.ts` is what closes that
-// gap within a bounded window (Invariant 1: "eventual, not immediate").
+// Subscribes to `ledger.journal_entry.posted` (#5663), declared
+// `persistent: true`: #5663's Events section names this subscriber as a
+// write-side, idempotent consumer that must be persistent, so delivery is
+// retried on failure. That makes idempotency this module's responsibility
+// (`reclassifyLine`: per-line advisory lock, existence check, ensure tag).
+// Errors a retry cannot fix are logged and the line is left to
+// `commands/reconcileCostRing.ts` and the period-close guard; only transient
+// errors are thrown so that delivery retries them.
 // =============================================================================
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { LedgerJournalEntryPostedPayload } from '../../ledger/events'
-import { RECLASSIFICATION_REFERENCE_TYPE, reclassifyLine, type ReclassifyCandidate } from '../lib/reclassify'
+import {
+  RECLASSIFICATION_REFERENCE_TYPE,
+  isNonRetryableError,
+  isTriggerEntryType,
+  loadCandidatesForEntry,
+  reclassifyLine,
+} from '../lib/reclassify'
+
+const logger = createLogger('posting_rules').child({ component: 'posting-rules-engine-subscriber' })
 
 export const metadata = {
   event: 'ledger.journal_entry.posted',
-  // Ephemeral, not persistent: this handler is a best-effort, in-process
-  // reaction (see Design Decisions above) — `reconcileCostRing` is the
-  // durable repair path, not at-least-once redelivery of this event.
-  persistent: false,
+  persistent: true,
   id: 'posting_rules:posting-rules-engine-subscriber',
 }
 
@@ -51,12 +59,11 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
   const organizationId = event.organizationId ?? ctx.organizationId ?? null
   if (!tenantId || !organizationId) return
 
-  // Invariant 3 — ignore this engine's own prior output before touching any
-  // line at all (Design Decisions, "The engine's own postings carry a
-  // distinct `referenceType`"). `reclassifyLine` re-checks this per line
-  // too (defense in depth for `reconcileCostRing`'s own call path), but
-  // checking once here avoids even loading account classifications for an
-  // event this handler should never have reacted to.
+  // Source set, conditions 1 and 2 — decided from the payload alone, before
+  // touching the database: only `NORMAL` and `REVERSAL` entries are
+  // reclassified (`CLOSING`/`OPENING` are skipped), and the engine's own
+  // output is ignored (Invariant 3).
+  if (!event.type || !isTriggerEntryType(event.type)) return
   if (event.referenceType === RECLASSIFICATION_REFERENCE_TYPE) return
 
   const container = resolveContainer(ctx) as AwilixContainer
@@ -64,36 +71,30 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
   const scope = { organizationId, tenantId }
   const { translate } = await resolveTranslations()
 
-  // The event payload doesn't carry `currencyId` (see
-  // `LedgerJournalEntryPostedPayload`) — re-fetch the entry's own currency
-  // once, directly, rather than guessing at a default, since every
-  // reclassification for this entry must post in the same currency as the
-  // source entry.
-  const { JournalEntry } = await import('../../ledger/data/entities')
-  const entry = await em.findOne(JournalEntry, {
-    id: event.journalEntryId,
-    organizationId,
-    tenantId,
-  })
-  if (!entry) return
+  // The payload carries neither `currencyId`, `exchangeRate` nor each line's
+  // `amountCurrency`, which a reclassification copies — load them with the
+  // same loader the sweeper uses.
+  const lineIds = event.lines.map((line) => line.id)
+  const candidates = await loadCandidatesForEntry(em, event.journalEntryId, scope, lineIds)
 
-  for (const line of event.lines) {
-    const candidate: ReclassifyCandidate = {
-      entry: {
-        id: event.journalEntryId,
-        operationDate: event.operationDate ?? '',
-        currencyId: entry.currencyId,
-        type: event.type ?? 'NORMAL',
-        referenceType: event.referenceType ?? null,
-        referenceId: event.referenceId ?? null,
-      },
-      line: {
-        id: line.id,
-        accountId: line.accountId,
-        debit: line.debit,
-        credit: line.credit,
-      },
+  let transientError: unknown = null
+  for (const candidate of candidates) {
+    try {
+      await reclassifyLine({ container, em, scope, translate }, candidate)
+    } catch (err) {
+      if (isNonRetryableError(err)) {
+        // No retry can fix this (clearing account unset, no target account,
+        // locked period). Logged with its named error; the line stays visible
+        // to `reconcileCostRing` and the period-close guard.
+        logger.warn('Reclassification skipped, left to reconcileCostRing', {
+          journalEntryId: event.journalEntryId,
+          lineId: candidate.line.id,
+          err,
+        })
+        continue
+      }
+      transientError = transientError ?? err
     }
-    await reclassifyLine({ container, em, scope, translate }, candidate)
   }
+  if (transientError) throw transientError
 }

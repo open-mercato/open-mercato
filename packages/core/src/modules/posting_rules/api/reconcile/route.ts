@@ -13,8 +13,8 @@ import type { ReconcileCostRingResult } from '../../commands/reconcileCostRing'
 
 // `/api/posting_rules/reconcile` — triggers `reconcileCostRing` on demand
 // (see the spec's API Contracts: "for an operator who doesn't want to wait
-// for the next scheduled run"). Returns the count of entries/lines
-// reconciled.
+// for the next scheduled run"). Returns the count of lines reconciled and
+// the lines that could not be, each with its named error.
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['posting_rules.reconcile.run'] },
 }
@@ -74,6 +74,7 @@ export async function POST(req: Request) {
 const reconcileResultSchema = z.object({
   entriesInspected: z.number(),
   linesReclassified: z.number(),
+  failures: z.array(z.object({ entryId: z.string(), lineId: z.string(), error: z.string() })),
 })
 const reconcileResponseSchema = z.object({ ok: z.boolean(), result: reconcileResultSchema })
 const reconcileErrorSchema = z.object({ error: z.string() })

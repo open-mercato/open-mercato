@@ -9,6 +9,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { loadLedgerAccountOptions } from '../../lib/optionLoaders'
+import { ClearingAccountBanner } from '../../../components/ClearingAccountBanner'
 
 type PostingRulesSettingsData = {
   settingsId: string
@@ -103,6 +104,7 @@ export default function PostingRulesSettingsPage() {
   return (
     <Page>
       <PageBody>
+        <ClearingAccountBanner clearingAccountId={settings.clearingAccountId} />
         <CrudForm
           title={t('posting_rules.settings.page.title', 'Posting rules settings')}
           titleHeadingLevel={1}

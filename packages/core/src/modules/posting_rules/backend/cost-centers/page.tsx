@@ -16,6 +16,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { ClearingAccountBanner } from '../../components/ClearingAccountBanner'
 
 type Row = {
   id: string
@@ -105,6 +106,7 @@ export default function CostCentersListPage() {
   return (
     <Page>
       <PageBody>
+        <ClearingAccountBanner />
         <DataTable
           title={t('posting_rules.cost_centers.list.title', 'Cost centres')}
           titleHeadingLevel={1}

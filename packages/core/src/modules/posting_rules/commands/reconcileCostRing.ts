@@ -3,37 +3,32 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { JournalEntry } from '../../ledger/data/entities'
 import { PostingRulesSettings } from '../data/entities'
 import { reconcileCostRingSchema, type ReconcileCostRingInput } from '../data/validators'
 import { findUnreclassifiedEntries } from '../lib/findUnreclassifiedEntries'
-import { reclassifyLine, selectLinesNeedingReclassification, type ReclassifyCandidate } from '../lib/reclassify'
+import { isNonRetryableError, loadCandidatesForEntry, reclassifyLine } from '../lib/reclassify'
 
-// MikroORM's `'date'`-typed columns (see `ledger.JournalEntry.operationDate`,
-// `@Property({ type: 'date' })`) come back from a fresh `em.findOne` read as a
-// driver-formatted string ("YYYY-MM-DD"), not a `Date` instance, despite the
-// entity's own TS annotation claiming `Date` -- the same caveat `ledger`'s own
-// `api/journal-entries/route.ts` already documents and guards against with an
-// identical `formatDateOnly` helper. Format defensively here too, rather than
-// assuming `.toISOString()` exists.
-const formatOperationDate = (value: Date | string): string =>
-  value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+export type ReconcileCostRingFailure = { entryId: string; lineId: string; error: string }
 
 export type ReconcileCostRingResult = {
   entriesInspected: number
   linesReclassified: number
+  /** Lines that could not be reclassified (no target account resolvable,
+   * locked period, ...), each with its named error. Reported, not thrown, so
+   * one bad line does not stop the rest. */
+  failures: ReconcileCostRingFailure[]
 }
 
 /**
  * `reconcileCostRing` — the repair sweeper (`ReconcileCostRingCommand` in
- * the spec's Design Decisions: "A repair mechanism"). Finds every zespół 4
- * `JournalEntryLine` with no corresponding reclassification and posts the
- * missing entries, reusing `reclassifyLine` — the exact same logic path the
- * subscriber uses (Implementation Plan step 6: "reusing the subscriber's
- * reclassify-one-line logic as a shared internal helper, not duplicated").
- * Idempotent: an already-reclassified line no longer matches
- * `findUnreclassifiedEntries`'s absence-based search and is never picked up
- * twice (Architecture § Commands).
+ * the spec's Design Decisions: "A repair mechanism"). Finds every source-set
+ * line with no reclassification keyed on it and posts the missing entries
+ * through `reclassifyLine` — the exact same idempotent code path the
+ * subscriber uses (advisory lock, existence check, ensure tag), so a
+ * concurrent subscriber delivery and this sweep converge on one
+ * reclassification per line. A clearing account that is not configured
+ * rejects the whole run with its named error; every other per-line failure
+ * is returned in `failures`.
  */
 const reconcileCostRingCommand: CommandHandler<ReconcileCostRingInput, ReconcileCostRingResult> = {
   id: 'posting_rules.reconcileCostRing',
@@ -59,41 +54,29 @@ const reconcileCostRingCommand: CommandHandler<ReconcileCostRingInput, Reconcile
       })
     }
 
-    const unreclassifiedEntryIds = await findUnreclassifiedEntries(em, scope, input.periodId ?? null)
+    const unreclassified = await findUnreclassifiedEntries(em, scope, input.periodId ?? null)
+    const lineIdsByEntry = new Map<string, string[]>()
+    for (const { entryId, lineId } of unreclassified) {
+      lineIdsByEntry.set(entryId, [...(lineIdsByEntry.get(entryId) ?? []), lineId])
+    }
 
     let linesReclassified = 0
-    for (const entryId of unreclassifiedEntryIds) {
-      const entry = await em.findOne(JournalEntry, {
-        id: entryId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      })
-      if (!entry) continue
-
-      const linesNeedingReclassification = await selectLinesNeedingReclassification(em, entry, scope)
-      for (const line of linesNeedingReclassification) {
-        const candidate: ReclassifyCandidate = {
-          entry: {
-            id: entry.id,
-            operationDate: formatOperationDate(entry.operationDate),
-            currencyId: entry.currencyId,
-            type: entry.type,
-            referenceType: entry.referenceType ?? null,
-            referenceId: entry.referenceId ?? null,
-          },
-          line: {
-            id: line.id,
-            accountId: line.accountId,
-            debit: line.debit,
-            credit: line.credit,
-          },
+    const failures: ReconcileCostRingFailure[] = []
+    for (const [entryId, lineIds] of lineIdsByEntry) {
+      const candidates = await loadCandidatesForEntry(em, entryId, scope, lineIds)
+      for (const candidate of candidates) {
+        try {
+          const result = await reclassifyLine({ container: ctx.container, em, scope, translate }, candidate)
+          if (result.reclassified) linesReclassified += 1
+        } catch (err) {
+          if (!isNonRetryableError(err)) throw err
+          const body = (err as CrudHttpError).body as { error?: string } | undefined
+          failures.push({ entryId, lineId: candidate.line.id, error: body?.error ?? 'Reclassification failed.' })
         }
-        const result = await reclassifyLine({ container: ctx.container, em, scope, translate }, candidate)
-        if (result.reclassified) linesReclassified += 1
       }
     }
 
-    return { entriesInspected: unreclassifiedEntryIds.length, linesReclassified }
+    return { entriesInspected: lineIdsByEntry.size, linesReclassified, failures }
   },
   buildLog: async ({ input, result, ctx }) => {
     if (!result) return null
@@ -104,7 +87,11 @@ const reconcileCostRingCommand: CommandHandler<ReconcileCostRingInput, Reconcile
       resourceId: `${input?.organizationId ?? ''}:${input?.tenantId ?? ''}`,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-      payload: { entriesInspected: result.entriesInspected, linesReclassified: result.linesReclassified },
+      payload: {
+        entriesInspected: result.entriesInspected,
+        linesReclassified: result.linesReclassified,
+        failures: result.failures.length,
+      },
     }
   },
 }

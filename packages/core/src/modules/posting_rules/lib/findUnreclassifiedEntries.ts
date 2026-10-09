@@ -2,48 +2,49 @@
 // The shared finder behind both `reconcileCostRing` (the sweeper) and
 // `posting_rules.lockFiscalPeriod` (the guard) — see the spec's Architecture
 // § Commands: "`reconcileCostRing`... Selection is defined purely by
-// absence of a matching reference... what `findUnreclassifiedEntries`
-// (shared with `lockFiscalPeriod`'s guard) already implements."
+// absence of a matching reference."
 // =============================================================================
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../../ledger/data/entities'
-import { RECLASSIFICATION_REFERENCE_TYPE } from './reclassify'
+import { PostingRulesSettings } from '../data/entities'
+import { RECLASSIFICATION_REFERENCE_TYPE, TRIGGER_ENTRY_TYPES } from './reclassify'
 
 export type ReconcileScope = { organizationId: string; tenantId: string }
 
+/** One source-set line that has no reclassification keyed on it. */
+export type UnreclassifiedLine = { entryId: string; lineId: string }
+
 /**
- * **Disclosed judgment call**: `JournalEntry.referenceId` is an entry-level
- * pointer, not a per-line one — there is no column in this schema that
- * records "line X of entry Y was reclassified". When an entry has more than
- * one zespół-4 line, this can only compare *how many* zespół-4 lines the
- * entry has against *how many* reclassification entries reference it, not
- * which specific lines are covered. This finder therefore flags an entry as
- * unreclassified whenever its reclassification-entry count is strictly less
- * than its zespół-4 line count — correct in the common (0 zespół-4 lines or
- * exactly 1) case, and conservative (never silently skips a genuinely
- * incomplete entry) in the rarer multi-line case, at the cost of
- * `reconcileCostRing` occasionally re-examining an entry that turns out, on
- * closer per-line inspection, to already be fully covered (see
- * `pickUnreclassifiedLines` in `commands/reconcileCostRing.ts`, which does
- * that closer inspection before actually posting anything).
+ * Returns every line of the *source set* that has no reclassification yet
+ * (spec, Design Decisions, "Which entries and lines the engine reacts to";
+ * Invariant 1). The predicate is at line granularity: a line is covered
+ * when an entry exists whose marker `referenceId` is that line's id. It is
+ * deliberately not a comparison of reclassification counts per source entry
+ * — an entry-level count cannot tell a fully from a partly reclassified
+ * multi-line entry, so a period could be locked with a line still missing.
+ *
+ * The source set is: lines of `NORMAL` and `REVERSAL` entries that do not
+ * carry the engine's own marker, on a zespół 4 account that is not the
+ * clearing account. The subscriber applies the same definition
+ * (`reclassifyLine`).
  */
 export async function findUnreclassifiedEntries(
   em: EntityManager,
   scope: ReconcileScope,
   periodId?: string | null,
-): Promise<string[]> {
+): Promise<UnreclassifiedLine[]> {
   const entryFilter: Record<string, unknown> = {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
+    type: { $in: [...TRIGGER_ENTRY_TYPES] },
     // `$ne` only becomes a null-safe `is not` when the *compared value*
     // is null (see @mikro-orm/sql QueryBuilderHelper's getOperatorReplacement) --
     // here the value is the reclassification marker string, so it compiles
     // to a plain SQL `<>`, which is UNKNOWN (excluded) for rows where
     // `reference_type IS NULL`. A perfectly ordinary journal entry with no
-    // external reference legitimately has `referenceType: null` (see
-    // `ledger/data/validators.ts`'s postJournalEntry schema), so the naive
-    // `$ne` would silently skip every such entry. This explicit `$or`
+    // external reference legitimately has `referenceType: null`, so the
+    // naive `$ne` would silently skip every such entry. This explicit `$or`
     // keeps null-referenceType entries in scope while still excluding
     // actual reclassification entries.
     $or: [
@@ -66,6 +67,12 @@ export async function findUnreclassifiedEntries(
 
   const entries = await em.find(JournalEntry, entryFilter as never)
   if (entries.length === 0) return []
+
+  const settings = await em.findOne(PostingRulesSettings, {
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  const clearingAccountId = settings?.clearingAccountId ?? null
 
   const entryIds = entries.map((entry) => entry.id)
   const allLines = await em.find(JournalEntryLine, {
@@ -97,30 +104,21 @@ export async function findUnreclassifiedEntries(
     accounts.filter((account) => zespol4TypeIds.has(account.accountTypeId)).map((account) => account.id),
   )
 
-  const zespol4LineCountByEntry = new Map<string, number>()
-  for (const line of allLines) {
-    if (!zespol4AccountIds.has(line.accountId)) continue
-    zespol4LineCountByEntry.set(line.journalEntryId, (zespol4LineCountByEntry.get(line.journalEntryId) ?? 0) + 1)
-  }
-  if (zespol4LineCountByEntry.size === 0) return []
+  // The clearing account is never a source (it resolves to `code: '4'`).
+  const sourceLines = allLines.filter(
+    (line) => zespol4AccountIds.has(line.accountId) && line.accountId !== clearingAccountId,
+  )
+  if (sourceLines.length === 0) return []
 
-  const candidateEntryIds = [...zespol4LineCountByEntry.keys()]
   const reclassifications = await em.find(JournalEntry, {
     referenceType: RECLASSIFICATION_REFERENCE_TYPE,
-    referenceId: { $in: candidateEntryIds },
+    referenceId: { $in: sourceLines.map((line) => line.id) },
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
   })
-  const reclassificationCountByEntry = new Map<string, number>()
-  for (const reclassification of reclassifications) {
-    const sourceId = reclassification.referenceId as string
-    reclassificationCountByEntry.set(sourceId, (reclassificationCountByEntry.get(sourceId) ?? 0) + 1)
-  }
+  const covered = new Set(reclassifications.map((entry) => entry.referenceId as string))
 
-  const unreclassified: string[] = []
-  for (const [entryId, zespol4Count] of zespol4LineCountByEntry) {
-    const reclassifiedCount = reclassificationCountByEntry.get(entryId) ?? 0
-    if (reclassifiedCount < zespol4Count) unreclassified.push(entryId)
-  }
-  return unreclassified
+  return sourceLines
+    .filter((line) => !covered.has(line.id))
+    .map((line) => ({ entryId: line.journalEntryId, lineId: line.id }))
 }

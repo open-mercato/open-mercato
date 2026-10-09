@@ -14,6 +14,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { ClearingAccountBanner } from '../../components/ClearingAccountBanner'
 import { loadLedgerAccountLabelsByIds } from '../lib/optionLoaders'
 
 type Row = {
@@ -104,6 +105,7 @@ export default function DefaultAccountPostingRulesListPage() {
   return (
     <Page>
       <PageBody>
+        <ClearingAccountBanner />
         <DataTable
           title={t('posting_rules.default_account_posting_rules.list.title', 'Default account posting rules')}
           titleHeadingLevel={1}
