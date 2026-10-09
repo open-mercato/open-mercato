@@ -80,90 +80,6 @@ function findLoadRoleOptions(): ((query?: string) => Promise<unknown>) | undefin
   return rolesField?.loadOptions
 }
 
-describe('CreateApiKeyPage — role selector tenant scoping (#1556)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-    capturedFields = []
-    announcedScope = { tenantId: null, organizationId: null }
-  })
-
-  it('returns empty options and skips fetchRoleOptions until actor-resolution completes', async () => {
-    let resolveActor: (value: any) => void = () => {}
-    const actorResolution = new Promise<any>((resolve) => {
-      resolveActor = resolve
-    })
-    ;(apiCall as jest.Mock).mockImplementation(() => actorResolution)
-    ;(fetchRoleOptions as jest.Mock).mockResolvedValue([
-      { value: 'role-a', label: 'Role A' },
-    ])
-
-    render(<CreateApiKeyPage />)
-
-    await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))
-
-    const loadRoleOptions = findLoadRoleOptions()
-    expect(typeof loadRoleOptions).toBe('function')
-
-    // Before the actor-resolution promise settles, the loader MUST return []
-    // and MUST NOT invoke fetchRoleOptions — otherwise an unscoped query could
-    // leak roles from other tenants when the real caller is a super admin.
-    const earlyResult = await loadRoleOptions!()
-    expect(earlyResult).toEqual([])
-    expect(fetchRoleOptions).not.toHaveBeenCalled()
-
-    // Resolve the actor as a non-super admin. Once the resolution finishes,
-    // the loader is allowed to hit the roles endpoint (without tenantId for
-    // non-super-admin callers, matching server-side scoping rules).
-    await act(async () => {
-      resolveActor({ ok: true, result: { tenantId: 'tenant-1', isSuperAdmin: false } })
-      await actorResolution
-    })
-
-    await waitFor(() => {
-      const latest = findLoadRoleOptions()
-      expect(latest).not.toBe(loadRoleOptions)
-    })
-
-    const resolvedLoader = findLoadRoleOptions()!
-    await resolvedLoader()
-    expect(fetchRoleOptions).toHaveBeenCalledTimes(1)
-    expect(fetchRoleOptions).toHaveBeenCalledWith(undefined)
-  })
-
-  it('still blocks the initial call when actor resolution fails (error branch sets actorResolved)', async () => {
-    let rejectActor: (reason: unknown) => void = () => {}
-    const actorResolution = new Promise<any>((_resolve, reject) => {
-      rejectActor = reject
-    })
-    ;(apiCall as jest.Mock).mockImplementation(() => actorResolution)
-    ;(fetchRoleOptions as jest.Mock).mockResolvedValue([])
-
-    render(<CreateApiKeyPage />)
-
-    await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))
-
-    const earlyLoader = findLoadRoleOptions()!
-    expect(await earlyLoader()).toEqual([])
-    expect(fetchRoleOptions).not.toHaveBeenCalled()
-
-    await act(async () => {
-      rejectActor(new Error('boom'))
-      await actorResolution.catch(() => {})
-    })
-
-    // After the finally-block flips actorResolved, a fresh loader closure
-    // must be produced and the fallback branch is allowed to run.
-    await waitFor(() => {
-      const latest = findLoadRoleOptions()
-      expect(latest).not.toBe(earlyLoader)
-    })
-
-    const recoveredLoader = findLoadRoleOptions()!
-    await recoveredLoader()
-    expect(fetchRoleOptions).toHaveBeenCalledTimes(1)
-  })
-})
-
 describe('CreateApiKeyPage — tenant sync when the scope version stays 0', () => {
   // The scope version is the cache-busting key behind `useOrganizationScopeVersion()`.
   // It used to reach 1 on every page load, because the module scope started at
@@ -247,5 +163,89 @@ describe('CreateApiKeyPage — tenant sync when the scope version stays 0', () =
     await act(async () => { await findLoadRoleOptions()!() })
 
     expect(fetchRoleOptions).toHaveBeenCalledWith(undefined, { tenantId: 'tenant-from-api' })
+  })
+})
+
+describe('CreateApiKeyPage — role selector tenant scoping (#1556)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    capturedFields = []
+    announcedScope = { tenantId: null, organizationId: null }
+  })
+
+  it('returns empty options and skips fetchRoleOptions until actor-resolution completes', async () => {
+    let resolveActor: (value: any) => void = () => {}
+    const actorResolution = new Promise<any>((resolve) => {
+      resolveActor = resolve
+    })
+    ;(apiCall as jest.Mock).mockImplementation(() => actorResolution)
+    ;(fetchRoleOptions as jest.Mock).mockResolvedValue([
+      { value: 'role-a', label: 'Role A' },
+    ])
+
+    render(<CreateApiKeyPage />)
+
+    await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))
+
+    const loadRoleOptions = findLoadRoleOptions()
+    expect(typeof loadRoleOptions).toBe('function')
+
+    // Before the actor-resolution promise settles, the loader MUST return []
+    // and MUST NOT invoke fetchRoleOptions — otherwise an unscoped query could
+    // leak roles from other tenants when the real caller is a super admin.
+    const earlyResult = await loadRoleOptions!()
+    expect(earlyResult).toEqual([])
+    expect(fetchRoleOptions).not.toHaveBeenCalled()
+
+    // Resolve the actor as a non-super admin. Once the resolution finishes,
+    // the loader is allowed to hit the roles endpoint (without tenantId for
+    // non-super-admin callers, matching server-side scoping rules).
+    await act(async () => {
+      resolveActor({ ok: true, result: { tenantId: 'tenant-1', isSuperAdmin: false } })
+      await actorResolution
+    })
+
+    await waitFor(() => {
+      const latest = findLoadRoleOptions()
+      expect(latest).not.toBe(loadRoleOptions)
+    })
+
+    const resolvedLoader = findLoadRoleOptions()!
+    await resolvedLoader()
+    expect(fetchRoleOptions).toHaveBeenCalledTimes(1)
+    expect(fetchRoleOptions).toHaveBeenCalledWith(undefined)
+  })
+
+  it('still blocks the initial call when actor resolution fails (error branch sets actorResolved)', async () => {
+    let rejectActor: (reason: unknown) => void = () => {}
+    const actorResolution = new Promise<any>((_resolve, reject) => {
+      rejectActor = reject
+    })
+    ;(apiCall as jest.Mock).mockImplementation(() => actorResolution)
+    ;(fetchRoleOptions as jest.Mock).mockResolvedValue([])
+
+    render(<CreateApiKeyPage />)
+
+    await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))
+
+    const earlyLoader = findLoadRoleOptions()!
+    expect(await earlyLoader()).toEqual([])
+    expect(fetchRoleOptions).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rejectActor(new Error('boom'))
+      await actorResolution.catch(() => {})
+    })
+
+    // After the finally-block flips actorResolved, a fresh loader closure
+    // must be produced and the fallback branch is allowed to run.
+    await waitFor(() => {
+      const latest = findLoadRoleOptions()
+      expect(latest).not.toBe(earlyLoader)
+    })
+
+    const recoveredLoader = findLoadRoleOptions()!
+    await recoveredLoader()
+    expect(fetchRoleOptions).toHaveBeenCalledTimes(1)
   })
 })
