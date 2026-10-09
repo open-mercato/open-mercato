@@ -1,7 +1,7 @@
 # Default CI for scaffolded standalone apps
 
 **Date:** 2026-10-09
-**Status:** in implementation (PR #7138) — Q1–Q12 resolved; the default-on choice still awaits core-team review
+**Status:** implemented (PR #7138); real-GitHub verification is a manual follow-up (Q12); the default-on choice still awaits core-team review
 **Scope:** OSS. Touches `packages/create-app` (template, CLI flag, tests), `packages/cli` (opt-in `mercato test:integration --app-only`), `.github/workflows/snapshot.yml`, `apps/docs`.
 
 ## 📝 TLDR
@@ -80,8 +80,8 @@ Pre-merge protection comes from unit tests in create-app: `scripts/ci.mjs` behav
 
 ```mermaid
 flowchart LR
-  A[create-mercato-app --ci github] -->|new| B[template/.github/workflows/ci.yml]
-  A -->|new| C[template/.github/workflows/integration.yml]
+  A[create-mercato-app --ci github] -->|new| B[template/github/workflows/ci.yml]
+  A -->|new| C[template/github/workflows/integration.yml]
   A -->|new| D[template/scripts/ci.mjs]
   B --> D
   E[snapshot.yml standalone job - existing] -->|new step| D
@@ -91,7 +91,7 @@ flowchart LR
 `scripts/ci.mjs` is the only place the gate is defined. The GitHub workflow and the upstream guard both call it.
 
 - **Coexistence in `.github/`:** the Copilot generator (`packages/create-app/src/setup/tools/github-copilot.ts`, `packages/cli/src/lib/agentic-setup.ts:818-820`) writes `copilot-instructions.md`, `instructions/*` and a `skills` link. The workflow files go under `.github/workflows/` and never collide with it.
-- **Template copy:** workflow files live at `packages/create-app/template/.github/workflows/*.yml`. GitHub only reads the repository-root `.github/workflows/`, so the nested copy never runs in the monorepo. Dot-directories already ship in the published `template/` (e.g. `template/.ai/`). The version header uses a `.template` suffix for placeholder substitution, the existing mechanism. `copyDirRecursive` gains a skip for `.github/workflows` when `--ci none`.
+- **Template copy:** workflow files live at `packages/create-app/template/github/workflows/*.yml.template`, and the scaffolder restores the `.github/` name when it copies the template root (as it already does for `gitignore` → `.gitignore`). A `template/.github/` directory would not ship: `yarn pack` always drops `.github` directories, even though other dot-directories such as `template/.ai/` do ship (found at resume, Step 1.8; a guard test pins the layout). Outside `.github/`, GitHub never runs the nested copy in the monorepo. The version header uses a `.template` suffix for placeholder substitution, the existing mechanism. With `--ci none`, `.github/workflows` is removed after starter presets are applied.
 - **Integration discovery in a fresh app:** `discoverIntegrationSpecFiles` (`packages/cli/src/lib/testing/integration-discovery.ts`) also walks `node_modules/@open-mercato`. Only `core`, `documents` and `enterprise` exclude `__integration__` from their published files, so packages such as `webhooks`, `search` and `checkout` ship platform specs into every app. Those specs need ~40 env vars and would run for hours on 2 vCPU. Discovery happens inside the Playwright config, after the ephemeral environment has started and the app has been built, and with zero specs a standalone app's Playwright exits 1 ("No tests found").
   - **Decision (Q10):** `mercato test:integration --app-only` (opt-in) computes the app-owned spec list in the CLI before anything starts: discovered specs outside `node_modules/` (`src/modules/**/__integration__`, plus `.ai/qa/tests/**` where the app's Playwright config discovers it). An empty list prints `No app-owned integration specs found` and exits 0 without starting Docker or building. A non-empty list is passed to Playwright explicitly, so platform specs never run. Without the flag nothing changes.
 - **Build env without `.env`:** `.env` is gitignored, so CI checkouts have none. When `.env` is absent, `scripts/ci.mjs` copies `.env.example` to `.env`. Phase 0 found that no variable needs a placeholder: `generate`, `typecheck` and `build` pass on an unmodified `.env.example` copy (`mercato generate` already performs the same copy as a side effect; `ci.mjs` makes it explicit). It never reads or prints repository secrets, and it never overwrites an existing `.env`. The same materialization is exposed as `node scripts/ci.mjs --prepare-env`, which `integration.yml` calls before the ephemeral runner builds and boots the app.
@@ -203,7 +203,7 @@ Setup: `develop` @ `352b5843d8` published to a local Verdaccio, `create-mercato-
 ### Phase 1: Quality gate
 
 1. Add `template/scripts/ci.mjs` and the `ci` script in `package.json.template`. Unit-test the step order, stop-on-first-failure, and `.env` materialization (never overwriting an existing `.env`).
-2. Add `template/.github/workflows/ci.yml.template` with the version header placeholder. Test that the YAML parses and its triggers, `runs-on` expression and `yarn ci` step are correct.
+2. Add `template/github/workflows/ci.yml.template` with the version header placeholder. Test that the YAML parses and its triggers, `runs-on` expression and `yarn ci` step are correct.
 3. Add `--ci <github|none>` parsing, `--help` text, the ready-app conflict error, and conditional copy. Test default, `none`, an invalid value, and `--app` + `--ci`.
 4. Add the ownership test: no agentic generator or `agentic:init` mode writes under `.github/workflows/`.
 5. Docs: create-app CLI page (flag, `OM_CI_RUNS_ON`, ownership, copying into existing apps) and one routing line in the template `AGENTS.md`, staying within the 12 KiB budget (`agent-instruction-budget.test.ts` must pass).
@@ -212,7 +212,7 @@ Setup: `develop` @ `352b5843d8` published to a local Verdaccio, `create-mercato-
 ### Phase 2: Integration workflow
 
 1. Add opt-in `mercato test:integration --app-only`: app-owned spec list computed in the CLI, empty list exits 0 with a clear message before the environment starts, non-empty list passed to Playwright explicitly. Defaults unchanged. Unit tests in `packages/cli`.
-2. Add `template/.github/workflows/integration.yml.template` (`--check-lockfile`, `--prepare-env`, Playwright install, `test:integration:ephemeral --app-only`, artifact upload on failure, `OM_CI_INTEGRATION_RUNS_ON` fallback chain). Add the YAML structure test.
+2. Add `template/github/workflows/integration.yml.template` (`--check-lockfile`, `--prepare-env`, Playwright install, `test:integration:ephemeral --app-only`, artifact upload on failure, `OM_CI_INTEGRATION_RUNS_ON` fallback chain). Add the YAML structure test.
 3. Docs: Docker requirement, minutes cost, and how to change the trigger.
 4. Manual follow-up (Q12): on a throwaway repo from a canary scaffold, confirm an empty suite is green and that an app-owned spec under `src/modules/<module>/__integration__/` (note that create-app's `SKIP_DIRS` strips template copies, so it is added by hand) runs and can turn the check red.
 
@@ -225,6 +225,17 @@ Setup: `develop` @ `352b5843d8` published to a local Verdaccio, `create-mercato-
 
 Deploy (Railway has its own path), Dependabot/Renovate, CodeQL, GitLab/Bitbucket templates, and updating CI in already-scaffolded apps (Q6).
 
+## 📝 Implementation status (2026-10-09)
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 | done | Measured on a 7 GB / 2 vCPU container; see Phase 0 results. |
+| 1 | done | `scripts/ci.mjs` + `yarn ci`, `ci.yml`, `--ci`, ownership tests, docs. Checkpoint fixes: 4 GB build heap (1.6), Turbopack build cache off for the gate build (1.7), workflow templates stored under `template/github/` so they survive `yarn pack` (1.8). |
+| 2 | done | `mercato test:integration --app-only`, `integration.yml`, docs. Specs under `.ai/qa/tests/` count as app-owned but run only when the app's Playwright config discovers that folder; the docs point app specs at `src/modules/<module>/__integration__/`. |
+| 3 | done | `snapshot.yml` → `standalone-integration` runs `yarn ci` on the clean scaffold under `docker run --memory=7g --memory-swap=7g --cpus=2` with `CIRCLE_NODE_TOTAL=2` (one Next worker, as on a 2-vCPU runner). The first post-merge snapshot run is its evidence. |
+
+Deferred (manual, Q12): push a canary scaffold to a throwaway GitHub repository and confirm `ci.yml` and an empty and a non-empty `integration.yml` run on hosted runners.
+
 ## 📝 Final Compliance Report
 
 - No direct changes under `apps/mercato/src/`. Template-only files have no monorepo counterpart, so `template:sync` is not affected.
@@ -234,6 +245,7 @@ Deploy (Railway has its own path), Dependabot/Renovate, CodeQL, GitLab/Bitbucket
 
 ## 📝 Changelog
 
+- 2026-10-09: Implementation complete (Phases 0–3). Workflow templates moved to `template/github/` because `yarn pack` drops `.github`; snapshot canary pins one Next worker.
 - 2026-10-09: Step 1.7: the CI build also turns off Turbopack's filesystem build cache. Fully cold `yarn ci` under 7 GB / 2 vCPU: 4 of 4 pass with it off, 2 of 2 OOM-killed with it on (colima VM, 1 Next worker). The snapshot canary passes `CIRCLE_NODE_TOTAL=2` so Next starts the single worker a 2-vCPU runner gets.
 - 2026-10-09: Skeleton, Q1–Q9 resolved, full draft.
 - 2026-10-09: Checkpoint 1: cold builds with the 8 GB heap ceiling OOM in half the runs on 7 GB; `yarn ci` now appends `--max-old-space-size=4096` through `OM_NEXT_BUILD_NODE_OPTIONS` (4 of 4 cold builds pass).
