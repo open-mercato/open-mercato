@@ -1,20 +1,19 @@
 # Handoff — 2026-10-09-tpay-notifications-and-reconciliation
 
-**Last updated:** 2026-10-09T18:06:12Z
+**Last updated:** 2026-10-09T20:50:30Z
 **Branch:** mtytula/tpay-notifications
 **PR:** https://github.com/mtytula/open-mercato/pull/3 (draft)
-**Current phase/step:** Phase 2 Step 2.1
-**Last commit:** 50d4d0c76 — docs(gateway-tpay): document tpay payment notifications
+**Current phase/step:** complete
+**Last commit:** 0e89e2e51 — docs(gateway-tpay): record tpay notification and reconciliation sandbox acceptance
 
 ## What just happened
-- Phase 1 (notification settlement) landed and passed checkpoint 1.
+- All steps, review fixes, sandbox acceptance, and final gate done.
 
 ## Next concrete action
-- Implement Step 2.1 (reconciliation worker).
+- Upstream PR for this branch (stacked on #7153 and #7154); follow core fixes (scheduler ids, webhook dedup index).
 
 ## Blockers / open questions
-- Sandbox acceptance needs a public HTTPS tunnel (cloudflared container proposed; pending user confirmation of FWC approved tools).
-- Optional: confirm whether `GET /transactions/{title}` works (needs 1Password approval) to add a session locator later.
+- Core webhook dedup index (upstream fix in progress) affects duplicate skipping for all providers.
 
 ## Environment caveats
 - Dev runtime runnable: yes (ephemeral)
