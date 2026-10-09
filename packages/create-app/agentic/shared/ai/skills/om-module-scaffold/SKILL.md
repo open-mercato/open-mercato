@@ -26,6 +26,8 @@ For a complete one-shot module or CRUD vertical slice, steps 3, 4, and 7 are man
 6. **Generate migrations/registries.** Run `yarn db:generate` as a reviewed probe when schema changed; run `yarn generate` for discovery. Never apply migrations without approval.
 7. **Verify.** Follow `references/verification.md`, including API/UI integration paths and absent-optional-module behavior.
 
+For starter creation, package publication, or continued development in a dedicated repository, read `.ai/guides/architecture.md#create-and-publish-app-modules`. Keep that workflow at its architecture owner; use this skill for the feature implementation.
+
 ## Rules
 
 - Keep tenant/organization scope, command side effects, optimistic locking, stable IDs, and generated discovery complete.

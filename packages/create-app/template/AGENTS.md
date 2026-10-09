@@ -68,6 +68,7 @@ Match every work-unit row; OPEN its skill before selection.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
+| `architecture` | Create, publish, or link an app module | `.ai/guides/architecture.md#create-and-publish-app-modules`; implementation also loads `om-module-scaffold` |
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
 | `module-data` | Business slice or multi-seam domain/API/command fix | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
 | `spec-pr` | Spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
