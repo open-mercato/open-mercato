@@ -39,7 +39,7 @@ Customer Portal users can register support tickets, follow their status, talk to
 | D1 | Module boundary (@jtomaszewski; review m2) | **Option B, hedge now.** The feature stays in `staff`, but every helpdesk-only field moves to the extension entity `staff_support_tickets` instead of new columns on `staff_time_tasks`. The display rename (old Phase 1) is dropped. The `staff` → `staff` / `time_tracking` / `projects` / `helpdesk` extraction (option A) is a separate, later spec. When it happens, `staff_support_tickets`, `lib/support/*` and the portal routes move to `helpdesk` as files; only `source` and `customer_id`, which are generic task attributes, stay with tasks. |
 | D2 | Default assignee vs creator self-assignment (review B1) | The default assignee applies **only** in `staff.support_tickets.create_from_portal`, where there is no human creator. `staff.timesheets.tasks.create` is **unchanged**: an omitted or `null` `assigneeStaffMemberId` still resolves to the creator through `resolveStaffMemberIdForUser` (`commands/timesheets-tasks.ts:517-520`), and the board's quick-add (`KanbanBoard.tsx`) and "New task" dialog (`NewTaskDialog.tsx`/`TaskBoardScreen.tsx`) keep sending the creator explicitly. No behavior change on existing surfaces. |
 | D3 | Issue #430 (review m3) | This spec **supersedes** #430 as the helpdesk design of record. #430's SLA, workload and tag scope remain valid follow-ups that build on this model (see Non-goals). #430's later discussion about building on `messages` is not adopted: the conversation lives in task comments with `visibility`. |
-| D4 | Live refresh of backoffice screens (review m1) | Add an id-only client broadcast, `staff.support_ticket.activity`, that open boards, drawers and the Support tickets page refetch on. |
+| D4 | Live refresh of backoffice screens (review m1) | Add an id-only client broadcast, `staff.support_ticket.activity_recorded`, that open boards, drawers and the Support tickets page refetch on. |
 | D5 | Claimable-work notifications outside portal tickets | Replace the general "unassigned task created" notification with **`staff.timesheets.time_task.released`**: assigners are told when a task becomes unassigned (a release, or a manager clearing the assignee). |
 | D6 | Category inheritance (review n6) | **Exact organization**, matching `loadWarrantyClaimDictionaryOptions`. Each organization is seeded with its own categories, so categories and routing rules always line up within one organization. |
 
@@ -50,9 +50,9 @@ Customer Portal users have no way to ask for help except warranty claims, and th
 ## 📝 Proposed Solution
 
 1. **Seeded defaults.** For every organization, `seedDefaults` creates:
-   - a **"Customer support"** time-tracking project with no customer, its code generated through `timeProjectCodeResolver` so it cannot collide, and the standard task statuses (`seedProjectTaskStatuses`);
-   - the **fallback rule** pointing at that project;
-   - the four default categories.
+   - the four default categories (from Phase 1);
+   - a **"Customer support"** time-tracking project with no customer, its code generated through `timeProjectCodeResolver` so it cannot collide, and the standard task statuses (`seedProjectTaskStatuses`) (from Phase 4, together with portal intake, so staff never see an empty project before tickets can arrive);
+   - the **fallback rule** pointing at that project (from Phase 4).
 
    Existing tenants get the same through the idempotent CLI `mercato staff seed-support-defaults`. Seeding never overwrites a fallback rule that already exists.
 2. **Categories** are dictionary entries in a module-owned dictionary, `staff.support_ticket_category`. It is seeded per organization in `setup.ts` `seedDefaults` with "General question", "Technical issue", "Change request" and "Billing", following `warranty_claims/lib/dictionaries.ts`. Labels are translatable through the dictionaries module.
@@ -131,7 +131,7 @@ Portal user ──► /api/staff/portal/support-tickets (customer auth, ownershi
             staff_time_tasks (source='portal', customer_id)  +  staff_support_tickets (task_id, …)
                     │ events: staff.timesheets.time_task.created (existing)
                     │         staff.support_ticket.created (new, server-side)
-                    │         staff.support_ticket.activity (new, id-only client broadcast)
+                    │         staff.support_ticket.activity_recorded (new, id-only client broadcast)
                     ▼
   Subscribers ─► staff notifications through resolveProjectWorkRecipients
   time_task.updated / .status_changed / time_task_status.updated / time_task_comment.* (portalVisible)
@@ -164,7 +164,7 @@ Portal user ──► /api/staff/portal/support-tickets (customer auth, ownershi
 **Coupling rules** (from `staff/AGENTS.md`, unchanged):
 
 - No static import of `customer_accounts`. Portal identity uses a dynamic import, and recipients are read from `customer_users` by table name through Kysely.
-- `customers` data reaches the ticket only as an FK id plus snapshot (the customer's display name at filing time). Staff already does the same for `staff_time_projects.customer_id`. `data/extensions.ts` gains a `staff_time_tasks.customer_id` → `customers:customer_entity` link, in the same form as the existing project → customer link, and a `staff:staff_time_task` → `staff:staff_support_ticket` 1:1 link.
+- `customers` data reaches the ticket only as an FK id plus snapshot (the customer's display name at filing time). Staff already does the same for `staff_time_projects.customer_id`. `data/extensions.ts` gains a `staff_time_tasks.customer_id` → `customers:customer_entity` link, in the same form as the existing project → customer link. The task → support ticket 1:1 relation is **not** declared there: both entities are in `staff`, and `data/extensions.ts` documents links to another module's entity, so the relation is a plain same-module FK (`staff_support_tickets.task_id`).
 - The portal attachment route copies the warranty-claims flow, but it MUST NOT copy that route's static `customer_accounts` import (reached through `warranty_claims/lib/portalAuthGuard.ts`). Identity goes through the dynamic import.
 - Rate limiting uses `checkRateLimit` from `@open-mercato/shared/lib/ratelimit/helpers` (the package index exports only `RateLimiterService`), not the `customer_accounts`-internal limiter.
 - `dictionaries` entities are imported directly. That is the established pattern (`staff/lib/seeds.ts`, `warranty_claims/lib/dictionaries.ts`, `sales`, `catalog`), and dictionaries is a core module, so `'dictionaries'` is added to `metadata.requires`.
@@ -326,11 +326,11 @@ Detail and sub-resources **load with** this clause, never "load, then check", fo
 |---|---|---|
 | `staff.support_ticket.created` | persistent | `{ taskId, projectId, customerId, supportReference, categoryValue }` |
 | `staff.support_ticket.customer_replied` | persistent | `{ taskId, projectId, commentId, supportReference }` |
-| `staff.support_ticket.activity` | clientBroadcast | `{ taskId, projectId, kind: 'created' \| 'customer_replied' \| 'portal_status' }`. **Ids only, no customer data.** Open boards, drawers and the Support tickets page refetch on it (D4). |
+| `staff.support_ticket.activity_recorded` | clientBroadcast | `{ taskId, projectId, kind: 'created' \| 'customer_replied' \| 'portal_status' }`. **Ids only, no customer data.** Open boards, drawers and the Support tickets page refetch on it (D4). |
 | `staff.support_ticket.portal_updated` | portalBroadcast, excludeFromTriggers | `{ ticketId, supportReference, portalStatus, kind, recipientUserIds }` |
 | `staff.timesheets.time_task.assignee_changed` | persistent, clientBroadcast | `{ taskId, projectId, previousAssigneeStaffMemberId, assigneeStaffMemberId, reason: 'default' \| 'claim' \| 'release' \| 'manual' }`. Ids only, the same shape as the existing `status_changed`. Emitted by `create_from_portal` (when the default is applied), claim, release, and any `PUT` that changes the assignee. |
 
-`support_ticket.created` and `customer_replied` carry `customerId` and are therefore **not** client-broadcast. `clientBroadcast` reaches every signed-in user of the organization with no feature or project-membership check, and staff already keeps `customerId` out of browser broadcasts (`events.ts`, `time_report.closed`). Live refresh comes from the separate id-only `activity` event. This is needed because only `time_task.status_changed` is bridged to the browser today; `time_task.created`, `time_task.updated` and `time_task_comment.*` are not.
+`support_ticket.created` and `customer_replied` carry `customerId` and are therefore **not** client-broadcast. `clientBroadcast` reaches every signed-in user of the organization with no feature or project-membership check, and staff already keeps `customerId` out of browser broadcasts (`events.ts`, `time_report.closed`). Live refresh comes from the separate id-only `activity_recorded` event. This is needed because only `time_task.status_changed` is bridged to the browser today; `time_task.created`, `time_task.updated` and `time_task_comment.*` are not.
 
 The existing `time_task_comment.created|updated|deleted` events gain an additive payload field, `portalVisible: boolean`. It is true when the comment's visibility **before or after** the change is `customer`, so retracting or deleting a reply also refreshes the portal.
 
@@ -340,11 +340,11 @@ The existing `time_task_comment.created|updated|deleted` events gain an additive
 - `time_task_status.updated` (an `isDone`/`isDefault` flag edit re-labels a whole column): fans out over the live portal tasks in that status, applying the same compare-and-publish rule. The fan-out is bounded by a batch size and runs in the persistent subscriber.
 - `time_task_comment.*` with `portalVisible = true` (`kind: 'reply'`).
 
-The same subscriber emits `activity` with `kind: 'portal_status'` whenever it publishes a status change.
+The same subscriber emits `activity_recorded` with `kind: 'portal_status'` whenever it publishes a status change.
 
 ### Notifications (staff)
 
-All recipient lists go through one **escalation chain**, `resolveProjectWorkRecipients` (new, `lib/time-tracking/workRecipients.ts`). Each step is used only when the previous one is empty, and the user who caused the event is always excluded.
+All recipient lists go through one **escalation chain**, `resolveProjectWorkRecipients` (new, `lib/time-tracking/workRecipients.ts`). Each step is used only when the previous one is empty. The user who caused the event is excluded in **steps 1–3**, where staff builds the recipient list itself. Step 4 hands recipient resolution to `createForFeature`, which has no way to exclude a user, so **step 4 may include the actor**. For example, a project manager who clears the assignee on a project with no active assigner and no owner is notified of their own `time_task.released`. Support ticket types are unaffected, because their actor is a customer user.
 
 1. **The type's own audience** (see the table below).
 2. **The project's active assigners.**
@@ -379,7 +379,7 @@ So a ticket can go un-notified only when the project has no active assigner, no 
 | `staff.support_ticket.created` | The assignee, if the default was applied, **plus** the active assigners. Ticket intake is always visible to the dispatching team. |
 | `staff.support_ticket.customer_replied` | The assignee; if the ticket is unassigned, the chain starts at step 2. |
 | `staff.timesheets.time_task.released` (**new, general**, D5) | Starts at step 2: a task in the project became unassigned (a release, or a `PUT` that cleared the assignee). It tells assigners there is claimable work. |
-| `staff.timesheets.time_task.assigned` (**new, general**) | The new assignee, when someone else assigned them or the portal default was applied. A claim is self-assignment, so it is not sent for claims. |
+| `staff.timesheets.time_task.assigned` (**new, general**) | The new assignee, when someone else assigned them through `PUT /tasks`. It is **not** sent for claims (self-assignment) and **not** sent when `create_from_portal` applies the default assignee: that person hears about the intake once, through `support_ticket.created`. |
 
 All notifications are rendered with i18n keys and link to the board drawer, which has a **Claim** action.
 
@@ -414,7 +414,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
   - Columns: support reference, subject, customer, category, portal status, project, assignee, last activity.
   - Filters: portal status, category, project, customer, assignee, **"Nobody notified"**, and a reference search. Tickets with `unnotifiedAt` show a "Nobody notified" badge.
   - Visible projects are limited by `timeTrackingAccessResolver`.
-  - It refetches on `staff.support_ticket.activity` and `assignee_changed`.
+  - It refetches on `staff.support_ticket.activity_recorded` and `assignee_changed`.
   - A row opens the existing `TaskDrawer` (`?task=`).
 - **`TaskDrawer`** for a `source = 'portal'` task:
   - A **Customer request** panel shows the customer, the reporter, the category, the support reference, the routing outcome and the portal status the customer currently sees.
@@ -422,7 +422,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
   - Customer-visible comments carry a "Visible to customer" marker, and customer-authored ones are styled as incoming.
   - A **new attachments section** (the drawer has none today), shown for portal tasks only. It lists files, marks customer-visible ones, and staff uploads include a "Share with customer" checkbox, unchecked by default.
   - Editing the task title or description shows a hint: "The customer sees their original request, not this text."
-  - It refetches on `staff.support_ticket.activity` for its task.
+  - It refetches on `staff.support_ticket.activity_recorded` for its task.
 - **Project form and members tab:**
   - an "Assigner" toggle per member, disabled with a tooltip for members without a user account;
   - a "Default assignee for portal tickets" select limited to active members;
@@ -447,7 +447,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
 
 | Scenario | Behavior |
 |---|---|
-| A fresh organization with no configuration | Seeded: the "Customer support" project, the fallback rule and four categories. The portal accepts tickets immediately. |
+| A fresh organization with no configuration | Seeded: the four categories, and (from Phase 4) the "Customer support" project and the fallback rule. The portal accepts tickets immediately. Before Phase 4 there is no project and no rule; nothing can file tickets yet, and an admin may create them early with "Create fallback project". |
 | An existing tenant upgrades | Until `mercato staff seed-support-defaults` runs, there is no fallback rule and `options.categories` is empty. The portal shows "Support requests are not available yet", and the routing page offers a "Create fallback project" action that runs the same seeding for that organization. |
 | An override's target project is completed or deleted after tickets were filed | Existing tickets stay where they are, and the portal still shows them. New tickets in that category go to the fallback project, and the routing page warns on the override. |
 | The fallback project is completed, deleted, or loses its default status | No new tickets are possible except through still-usable overrides. The routing page shows a blocking error; the portal shows "not available" for the affected categories. |
@@ -480,7 +480,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| A cross-customer leak through a shared project | High | Ownership comes from the task's `customer_id` and is written in one clause, which tests pin. The portal never selects project fields, the task reference or internal comments. Portal broadcasts always pin recipients; the browser `activity` event carries ids only. |
+| A cross-customer leak through a shared project | High | Ownership comes from the task's `customer_id` and is written in one clause, which tests pin. The portal never selects project fields, the task reference or internal comments. Portal broadcasts always pin recipients; the browser `activity_recorded` event carries ids only. |
 | An internal note shown to a customer | High | `visibility` defaults to `internal` on every existing path; the composer uses explicit buttons; the portal query filters `visibility = 'customer'` in SQL. The portal never reads the staff-editable task title or description, only the immutable `customer_request_snapshot`. |
 | The task and its extension row drift apart (an orphan or a missing row) | Medium | Both are written in one atomic flush; delete and restore cascade in the task commands; a unique index enforces 1:1. The portal clause joins both, so a missing row hides a ticket instead of exposing a half-record. A unit test covers the cascade. |
 | Personal data in plaintext customer comments and in the task title/description copy | Medium | An accepted v1 tradeoff, the same as all task comments today. The original request is encrypted; the form copy discourages secrets; comment encryption is a listed follow-up. |
@@ -493,7 +493,7 @@ All notifications are rendered with i18n keys and link to the board drawer, whic
 - **Additive:** the DB columns and the two new tables; API fields, filters and routes; event ids; notification types; portal feature ids; injection spot ids; the `requires` entry; the `portalVisible` payload field on the existing comment events.
 - **Unchanged (explicitly):** task creation's assignee rule (US-C1, omitted or `null` → creator) and the board's create flows (D2); the module's display name (D1); all ACL ids; the module id.
 - **Behavior change on an existing surface:** comment `PUT`/`DELETE` now refuses customer-authored comments even for `manage_all` holders. No such comments exist before this feature, so no existing caller is affected.
-- **Rollback:** the feature is gated by the portal features and by routing rules. With no rules, no tickets can be created. Columns and tables can stay in place; a down migration drops them.
+- **Rollback:** the off-switch is the portal features. Withholding `portal.support_tickets.view`/`.manage` from customer roles hides the pages, the nav entry and the dashboard widget and refuses every portal route. Routing rules are not an off-switch, because seeding always creates the fallback rule. Columns and tables can stay in place; a down migration drops them.
 
 ## 📋 Phasing
 
@@ -501,10 +501,10 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
 
 | Phase | Ships | Works without later phases? |
 |---|---|---|
-| 1. Data model, categories and routing admin | Migration (task columns, `staff_support_tickets`, routing rules); seeding of categories, the "Customer support" project and the fallback rule; routing rules CRUD and the settings page | Yes. Admins can configure; nothing is customer-facing yet. |
+| 1. Data model, categories and routing admin | Migration (task columns, `staff_support_tickets`, routing rules); seeding of categories; routing rules CRUD and the settings page (with the "Create fallback project" action) | Yes. Admins can configure; nothing is customer-facing yet, and no project is created unless an admin asks for one. |
 | 2. Project assigners and default assignee | `is_assigner`, the portal default-assignee setting, claim and release, `assignee_changed`, the `released`/`assigned` notifications, the recipient escalation chain, and the Unassigned chip | Yes. Useful on its own for every project. |
-| 3. Staff-side ticket handling | The ticket create command, comment visibility and guards, the drawer "Customer request" panel, the Support tickets page, staff notifications, the portal-status subscriber, the `activity` broadcast | Yes. It is inert until portal tickets exist, and tested with tickets created through the command in fixtures. |
-| 4. Portal intake and conversation | Portal API, the list/new/detail pages with two-way messages, the dashboard widget, the portal broadcast and `defaultCustomerRoleFeatures` | Yes. This is the first customer-visible release. |
+| 3. Staff-side ticket handling | The ticket create command, comment visibility and guards, the drawer "Customer request" panel, the Support tickets page, staff notifications, the portal-status subscriber, the `activity_recorded` broadcast | Yes. It is inert until portal tickets exist, and tested with tickets created through the command in fixtures. |
+| 4. Portal intake and conversation | Seeding of the "Customer support" project and the fallback rule; portal API, the list/new/detail pages with two-way messages, the dashboard widget, the portal broadcast and `defaultCustomerRoleFeatures` | Yes. This is the first customer-visible release. |
 | 5. Attachments | Portal and staff customer-visible files, including the new drawer section | Yes |
 
 ## 📋 Implementation Plan
@@ -517,19 +517,16 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
    - the comment columns;
    - the `staff_support_routing_rules` table, with a hand-written expression unique index and the snapshot reconciled;
    - `customer_request_snapshot` in `encryption.ts`;
-   - the task → customer and task → support-ticket links in `data/extensions.ts`.
+   - the task → customer link in `data/extensions.ts`, with the matching row in `entityExtensions.test.ts`.
 
    *Test:* an entity/migration unit test; an encryption-map test for the new column.
-2. **1.2** `lib/support/seedDefaults.ts` and `lib/support/dictionaries.ts`, called from `setup.ts` `seedDefaults` and from the CLI `mercato staff seed-support-defaults`. They ensure:
-   - the `staff.support_ticket_category` dictionary and its four entries, per organization;
-   - the "Customer support" project, with a resolver-generated code and the standard statuses;
-   - the fallback rule.
+2. **1.2** `lib/support/seedDefaults.ts` and `lib/support/dictionaries.ts`, called from `setup.ts` `seedDefaults` and from the CLI `mercato staff seed-support-defaults`. In this phase they ensure only the `staff.support_ticket_category` dictionary and its four entries, per organization. `lib/support/seedDefaults.ts` also exports `ensureFallbackProjectAndRule(em, scope, container)` (project with a resolver-generated code and the standard statuses, plus the fallback rule), which in this phase is called **only** by the routing page's "Create fallback project" action. It joins `seedDefaults` and the CLI in step 4.0.
 
    The category loader reads the exact organization only (D6). Add `'dictionaries'` to `requires`. *Test:* a seeding unit test:
    - running it twice creates nothing new;
-   - an existing fallback rule, even one pointing at a deleted project, is never overwritten;
+   - `ensureFallbackProjectAndRule` never overwrites an existing fallback rule, even one pointing at a deleted project;
    - a project-code collision gets a different code;
-   - a new organization ends up with a usable route;
+   - after `ensureFallbackProjectAndRule`, the organization has a usable route;
    - the loader ignores a parent organization's entries.
 3. **1.3** `lib/support/routing.ts` `resolveSupportRoute`, and `lib/support/portalStatus.ts` `derivePortalStatus`. *Test:* unit tables covering:
    - the fallback rule only;
@@ -565,7 +562,7 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
    - release by the assignee works, and by anyone else returns 403.
 3. **2.3** `resolveProjectWorkRecipients` (the escalation chain; step 4 through `notificationService.createForFeature` with `restrictRecipientsToOrganization: true`), plus the `time_task.released` and `time_task.assigned` notification types, renderers and subscribers. *Test:* unit tests for:
    - each chain step;
-   - actor exclusion;
+   - actor exclusion in steps 1–3, and that step 4 may include the actor (a manager's own `released`);
    - the wildcard `projects.manage` fallback;
    - step 4 always passes `restrictRecipientsToOrganization: true`, and a manager in a sibling organization of the same tenant is **not** notified;
    - when step 4 returns an empty list (including the more-than-200 cap), the chain reports "nobody notified" to the caller instead of throwing;
@@ -589,12 +586,13 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
    - the default status;
    - the usable default assignee, otherwise unassigned;
    - the task and extension row in one flush, with `customer_request_snapshot`;
-   - the `support_ticket.created` and `activity` events.
+   - the `support_ticket.created` and `activity_recorded` events (no `time_task.assigned` for the default assignee, so the intake is announced once).
 
    Also the delete and restore cascade in the task commands. There is no route yet; fixtures call the command. *Test:* a command unit test covering:
    - reference retry;
    - an unroutable category;
    - default assignee applied, unusable, and absent;
+   - applying the default emits `assignee_changed` but no `time_task.assigned` notification;
    - the snapshot stays immutable when the task is updated;
    - delete and restore cascade to the extension row.
 2. **3.2** Comment command and API changes:
@@ -606,17 +604,17 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
    - a client that posts without `visibility` gets `internal`;
    - a manager can't edit a customer comment;
    - a customer-visible comment on an internal task returns 422.
-3. **3.3** `subscribers/support-ticket-portal-broadcast.ts`, built on `time_task.updated`, `.status_changed`, `time_task_status.updated` (fan-out) and comment events with `portalVisible`, using compare-and-publish against `portal_status_published` and emitting `activity` alongside. Also the support notification types and renderers through the escalation chain. *Test:* subscriber unit tests:
+3. **3.3** `subscribers/support-ticket-portal-broadcast.ts`, built on `time_task.updated`, `.status_changed`, `time_task_status.updated` (fan-out) and comment events with `portalVisible`, using compare-and-publish against `portal_status_published` and emitting `activity_recorded` alongside. Also the support notification types and renderers through the escalation chain. *Test:* subscriber unit tests:
    - a `PUT` status change publishes;
    - a column flag edit fans out;
    - no change means no emit;
    - recipients are pinned and an empty list means no emit;
    - the payload contains no free text;
    - a retracted or deleted reply publishes;
-   - the `activity` payload holds ids only;
+   - the `activity_recorded` payload holds ids only;
    - a support notification that reaches nobody sets `unnotified_at` and logs a warning, the ticket is still created, and a later assignment clears the flag.
 4. **3.4** Backoffice UI:
-   - the Support tickets page, with a reference search, the "Nobody notified" badge and filter, and live refresh on `activity`;
+   - the Support tickets page, with a reference search, the "Nobody notified" badge and filter, and live refresh on `activity_recorded`;
    - the drawer "Customer request" panel showing the snapshot, with the two-button composer and the "customer sees original" hint;
    - the board badge;
    - the tasks API filters, plus the `supportTicket` response enricher.
@@ -625,6 +623,7 @@ Staff-side handling ships **before** portal intake, so customers never get a cha
 
 ### Phase 4: Portal intake and conversation
 
+0. **4.0** Turn on default seeding of the "Customer support" project and the fallback rule: `seedDefaults` and the CLI `seed-support-defaults` now call `ensureFallbackProjectAndRule`. *Test:* a fresh organization ends up with the project, the rule and a usable route; re-running is a no-op.
 1. **4.1** `lib/support/portalTickets.ts`: the ownership clause (the task joined with the extension row) and the portal identity helper (the EP-50 shape, dynamic import), plus the `checkRateLimit` wiring from `@open-mercato/shared/lib/ratelimit/helpers`. *Test:* a unit test pinning the clause, including that the project's `customer_id` is never consulted.
 2. **4.2** The portal `options`, list, create, detail and messages routes, and the `staff.support_tickets.portal_message` command (reopen on reply), plus `defaultCustomerRoleFeatures`. *Test:* integration TC-STAFF-SUP-005:
    - customers A and B file tickets into one shared project, and each sees only their own;
@@ -657,12 +656,12 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
 
 | Rule (root / staff `AGENTS.md`) | Status |
 |---|---|
-| Extend data through a separate extension entity plus `data/extensions.ts` | ✅ Helpdesk-only fields live in `staff_support_tickets`; the links are declared in `data/extensions.ts` |
+| Extend data through a separate extension entity plus `data/extensions.ts` | ✅ Helpdesk-only fields live in `staff_support_tickets` (same-module FK); the cross-module task → customer link is declared in `data/extensions.ts` |
 | No direct ORM relations between modules | ✅ `customers` is coupled by FK id plus snapshot, plus the `data/extensions.ts` link. `dictionaries` uses the established direct-entity pattern and is listed in `requires`. |
 | No static `customer_accounts` dependency from `staff` | ✅ Dynamic import for identity; Kysely by table name for recipients |
 | Tenant and organization scoping on every query | ✅ The ownership clause and routing resolver carry both; notification step 4 passes `restrictRecipientsToOrganization: true`, which a test pins |
 | Portal broadcast pins recipients and skips an empty list | ✅ `portal_updated` |
-| No browser broadcast of customer identity to the whole organization | ✅ Events carrying `customerId` are server-side only; `activity` carries ids only |
+| No browser broadcast of customer identity to the whole organization | ✅ Events carrying `customerId` are server-side only; `activity_recorded` carries ids only |
 | Atomic claim (no lost update between concurrent assigners) | ✅ Conditional update plus 409; covered by TC-STAFF-ASG-002 |
 | Optimistic locking on new user-editable entities | ✅ Routing rules (`updated_at`, CRUD default ON); tasks and comments keep their existing locks |
 | Encryption for sensitive free text | ⚠️ Partial. The original request is encrypted; comment and task text stay plaintext as an accepted, documented v1 risk with a listed follow-up |
@@ -711,3 +710,10 @@ Each phase ends with the validation gate from `.ai/agentic.config.json`.
   - the service's empty-result cases are listed (missing organization, more than 200 tenant-wide candidates, no container, RBAC failure, nobody in the organization);
   - **when the chain reaches nobody**, the ticket is still saved, `staff_support_tickets.unnotified_at` is set, a structured warning is logged, and the Support tickets page and routing settings surface "Nobody notified" until someone is assigned;
   - general task notifications only log.
+- **2026-10-09** — Re-review 2 (PR #6965):
+  - **m1:** the actor is excluded in escalation steps 1–3 only. Step 4 (`createForFeature`) has no exclusion parameter and may include the actor. Test 2.3 is narrowed to match.
+  - **n1:** applying the portal default assignee no longer also sends `time_task.assigned`; the assignee hears about the intake once, through `support_ticket.created`.
+  - **n2:** the same-module task → support ticket relation is a plain FK, not a `data/extensions.ts` link (only task → customer is declared there).
+  - **n3:** the rollback text now names the portal features as the off-switch.
+  - **n4:** seeding of the "Customer support" project and the fallback rule moves to Phase 4 (step 4.0), so staff don't see an empty project before intake ships. Phase 1 seeds categories only and offers "Create fallback project".
+  - **n5:** `staff.support_ticket.activity` is renamed `staff.support_ticket.activity_recorded`.
