@@ -520,7 +520,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 114688,
     "relatedCases": [
       "OMH-008"
     ]
@@ -1736,7 +1736,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 102400,
     "relatedCases": [
       "OMH-023"
     ]
@@ -2431,7 +2431,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 114688,
     "relatedCases": [
       "OMH-031"
     ]
@@ -4553,7 +4553,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 106496,
     "relatedCases": [
       "OMH-058"
     ],
@@ -5144,7 +5144,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 114688,
     "relatedCases": [
       "OMH-065"
     ]

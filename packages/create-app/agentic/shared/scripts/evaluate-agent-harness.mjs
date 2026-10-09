@@ -2906,13 +2906,62 @@ function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, re
   return { command: 'claude', args }
 }
 
+export function codexOutputSchema(schema) {
+  if (!isPlainObject(schema)) return schema
+  const strict = { ...schema }
+  delete strict.uniqueItems
+  if (schema.$defs) strict.$defs = Object.fromEntries(Object.entries(schema.$defs).map(([key, child]) => [key, codexOutputSchema(child)]))
+  if (schema.items) strict.items = codexOutputSchema(schema.items)
+  for (const keyword of ['anyOf', 'oneOf', 'allOf']) {
+    if (Array.isArray(schema[keyword])) strict[keyword] = schema[keyword].map(codexOutputSchema)
+  }
+  if (schema.properties) {
+    const required = new Set(schema.required ?? [])
+    strict.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, child]) => {
+      const converted = codexOutputSchema(child)
+      return [key, required.has(key) ? converted : { anyOf: [converted, { type: 'null' }] }]
+    }))
+    strict.required = Object.keys(schema.properties)
+  }
+  return strict
+}
+
+function acceptsCanonicalNull(schema, rootSchema) {
+  if (schema.$ref) {
+    const resolved = resolveJsonSchemaReference(rootSchema, schema.$ref)
+    return resolved ? acceptsCanonicalNull(resolved, rootSchema) : false
+  }
+  if (schema.anyOf && !schema.anyOf.some((child) => acceptsCanonicalNull(child, rootSchema))) return false
+  if (schema.oneOf && schema.oneOf.filter((child) => acceptsCanonicalNull(child, rootSchema)).length !== 1) return false
+  return validateJsonSchema(null, schema, '$', rootSchema).length === 0
+}
+
+export function normalizeCodexOutput(value, schema, rootSchema = schema) {
+  if (schema.$ref) {
+    const resolved = resolveJsonSchemaReference(rootSchema, schema.$ref)
+    return resolved ? normalizeCodexOutput(value, resolved, rootSchema) : value
+  }
+  if (Array.isArray(value) && schema.items) return value.map((item) => normalizeCodexOutput(item, schema.items, rootSchema))
+  if (!isPlainObject(value) || !schema.properties) return value
+  const normalized = { ...value }
+  const required = new Set(schema.required ?? [])
+  for (const [key, child] of Object.entries(schema.properties)) {
+    if (!Object.hasOwn(value, key)) continue
+    const nullable = acceptsCanonicalNull(child, rootSchema)
+    if (value[key] === null && !required.has(key) && !nullable) delete normalized[key]
+    else normalized[key] = normalizeCodexOutput(value[key], child, rootSchema)
+  }
+  return normalized
+}
+
 function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reasoningEffort, writable, allowedReads = [], allowedWrites = [], immutableRoots = [], validateResponse = validateRoutingResponse }) {
   const canonicalRoot = fs.realpathSync(root)
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-result-'))
   const outputPath = path.join(tempDir, 'structured.json')
   const isolatedSchemaPath = path.join(tempDir, 'output.schema.json')
-  fs.copyFileSync(schemaPath, isolatedSchemaPath, fs.constants.COPYFILE_EXCL)
-  fs.chmodSync(isolatedSchemaPath, 0o600)
+  const canonicalSchema = readJson(schemaPath)
+  const transportSchema = runner === 'codex' ? codexOutputSchema(canonicalSchema) : canonicalSchema
+  fs.writeFileSync(isolatedSchemaPath, `${JSON.stringify(transportSchema)}\n`, { flag: 'wx', mode: 0o600 })
   const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites, immutableRoots })
   const runnerEnv = narrowRunnerEnv(runner)
   if (runner === 'codex') {
@@ -2979,8 +3028,9 @@ function runAgentOnce({ runner, root, schemaPath, prompt, timeout, model, reason
     if (processResult.error) return { kind: 'environment-failure', durationMs, exitStatus: processResult.status, error: processResult.error.message, stdout: processResult.stdout ?? '' }
     if (processResult.status !== 0) return { kind: 'process-failure', durationMs, exitStatus: processResult.status, error: processFailureDiagnostic(runner, processResult), stdout: processResult.stdout ?? '' }
     try {
-      const rawResponse = extractJsonCandidate(processResult.stdout ?? '', outputPath, runner)
-      const schemaErrors = [...validateResponse(rawResponse), ...validateJsonSchema(rawResponse, readJson(schemaPath))]
+      const transportResponse = extractJsonCandidate(processResult.stdout ?? '', outputPath, runner)
+      const rawResponse = runner === 'codex' ? normalizeCodexOutput(transportResponse, canonicalSchema) : transportResponse
+      const schemaErrors = [...validateResponse(rawResponse), ...validateJsonSchema(rawResponse, canonicalSchema)]
       if (schemaErrors.length) return { kind: 'invalid-structured-output', durationMs, exitStatus: processResult.status, error: schemaErrors.join('; '), stdout: processResult.stdout ?? '' }
       const response = rawResponse
       for (const key of ['selectedRouter', 'selectedSkills', 'selectedContext', 'decisions', 'violations']) {
