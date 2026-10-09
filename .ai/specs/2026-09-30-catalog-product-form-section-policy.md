@@ -4,7 +4,7 @@
 
 Open Mercato already has most of this capability in separate UMES primitives: injection widgets can add grouped cards, `hiddenGroupIds` can hide a card for presentation, component handles can replace a section component, response enrichers can load extension data, and widget lifecycle handlers plus API/command interceptors can save it. What is missing is one contract that resolves those pieces together and refuses to apply a visual change when its validation and persistence behavior is unresolved.
 
-This specification adds a generic, server-resolved `CrudForm` section contract for every bound form host variant. An app can add, hide, or replace a section through `entry.overrides.forms.sections`; the UI and submit pipeline consume the same resolved descriptor list, and each operation is activated only when its exact post-override backend requirements are present. The catalog product edit form is the first high-risk adopter and the proof that hidden values, custom fields, metadata subkeys, secondary writes, optimistic locking, and configured-app browser behavior remain coherent.
+This specification adds a generic, server-resolved `CrudForm` section contract for every bound form surface. An app can add, hide, or replace a section through `entry.overrides.forms.sections`; the UI and submit pipeline consume the same resolved descriptor list, and each operation is activated only when its semantic post-override backend capabilities are present. The catalog product edit form is the first high-risk adopter and the proof that hidden values, custom fields, metadata subkeys, secondary writes, optimistic locking, widget dependencies, and configured-app browser behavior remain coherent.
 
 The original FR remains [#6686](https://github.com/open-mercato/open-mercato/issues/6686). The design is generalized because a catalog-only policy would duplicate UMES and leave every other `CrudForm` with the same unsafe gap.
 
@@ -13,8 +13,8 @@ The original FR remains [#6686](https://github.com/open-mercato/open-mercato/iss
 The capability has four layers:
 
 1. **Existing UMES contributions remain the implementation units.** Injection widgets render added/replacement sections and reuse `WidgetInjectionEventHandlers`; response enrichers load data; API/command interceptors or mutation guards own backend validation and persistence changes; `InjectionPlacement` orders contributions; `ComponentReplacementHandles.section` renders replacements.
-2. **A generic resolver composes them.** `useResolvedCrudFormSections({ hostId, formVariant, baseSections })` returns `pending | ready | failed` plus one ordered descriptor list. Rendering, local validation, payload projection, and host-owned writes all iterate that same list.
-3. **The server authorizes the composition.** Section contributions declare exact backend requirements and a `roundTripId`. The final post-override registries are checked at generation and server bootstrap. Only accepted operations reach the client manifest; unresolved operations fail closed.
+2. **A generic resolver composes them.** `useResolvedCrudFormSections({ hostId, formVariant, formOperation, resourceId, baseSections })` returns `pending | ready | failed` plus one ordered descriptor list. Rendering, local validation, payload projection, dependency checks, and host-owned writes all iterate that same list.
+3. **The server authorizes the composition.** Section contributions declare versioned semantic backend capabilities and a `roundTripId`. The final post-override registries are checked at generation and server bootstrap. Only accepted operations reach the client manifest; unresolved operations fail closed.
 4. **Hosts describe semantics, not transport.** A host owns its base section descriptors and any domain-specific payload/side-effect adapters. The framework supplies the resolver, validation projection, placement, component replacement, extension-header handshake, and the standard CRUD request-projection interceptor.
 
 When no override is configured, current rendering and submission are preserved. The existing `hiddenGroupIds` prop remains presentation-only and backward compatible; it is not silently redefined.
@@ -52,8 +52,8 @@ The general contract must handle whole-form validation, custom-field validation,
 
 - One additive contract for adding, hiding, and replacing sections on any bound grouped `CrudForm`.
 - Reuse UMES widgets, component handles, placement, lifecycle handlers, enrichers, interceptors, guards, facts, and extension headers.
-- Make UI activation contingent on an exact backend companion after all overrides are composed.
-- Give every production grouped-form invocation a resolved host, stable variant, and generated adoption status.
+- Make UI activation contingent on an exact, semantic backend capability after all overrides are composed.
+- Give every production grouped-form invocation a resolved host, stable topology variant, explicit operation when policy-enabled, and generated adoption status.
 - Keep no-override business behavior equivalent; only additive manifest/round-trip metadata and child concurrency tokens may differ.
 - Make catalog product edit the first complete adopter, including its custom save pipeline.
 
@@ -69,9 +69,9 @@ The general contract must handle whole-form validation, custom-field validation,
 
 ### 1. Canonical section identity and override shape
 
-Every eligible form reuses `CrudForm`'s existing `resolvedInjectionSpotId` precedence: explicit `injectionSpotId`, otherwise the first normalized `entityId`/`entityIds` value. It also has a stable section variant and stable section ids. The canonical override key is `<hostId>/<formVariant>/<sectionId>`.
+Every eligible form reuses `CrudForm`'s existing `resolvedInjectionSpotId` precedence: explicit `injectionSpotId`, otherwise the first normalized `entityId`/`entityIds` value. It also has a stable topology variant, explicit form mode, stable resource identity for updates, and stable section ids. The canonical surface tuple is `(hostId, formVariant, formOperation)` and the canonical override key is `<hostId>/<formVariant>/<formOperation>/<sectionId>`.
 
-`formVariant` distinguishes different section schemas sharing one widget scope, for example `crud-form:catalog.product/create` versus `crud-form:catalog.product/edit`. A grouped invocation may use `default` only when its resolved host has one authoritative base-section schema. When multiple invocations resolve to the same host with different group ids, generation requires an explicit additive `formVariant` prop and matching extension-host facts; it never guesses from a route or transient record state. The existing injection spot remains unchanged for widget compatibility.
+`formVariant` names the section topology; `formOperation: 'create' | 'update'` names the mutation semantics. They are deliberately separate: two forms can render the same sections but need different backend preservation rules, and a variant called `edit` cannot repair an incorrectly inferred create operation. A grouped invocation may use `default` only when its resolved host/operation has one authoritative base-section schema. Forms that opt into section policy pass `formOperation` explicitly; update forms also pass `resourceId`. Existing forms outside this policy retain the current `values.id`/version-history inference as a backward-compatible fallback. Generation rejects an opted-in update surface without a resource id and never guesses operation from a route, variant name, or transient form value. The existing injection spot remains unchanged for widget compatibility.
 
 ```ts
 export interface FormsOverridesShape {
@@ -117,6 +117,7 @@ export type CrudFormSectionResolution<TValues, TPayload> = {
 export type CrudFormSectionAddress = {
   hostId: string
   formVariant: string
+  formOperation: 'create' | 'update'
   sectionId: string
 }
 
@@ -130,6 +131,8 @@ export type CrudFormSectionDescriptor<TValues, TPayload> = {
   validation?: CrudFormSectionValidation<TValues>
   payload?: CrudFormSectionPayload<TValues, TPayload>
   mutationSurfaces?: readonly CrudFormSectionMutationSurface[]
+  dependencies?: CrudFormSectionDependencies
+  providesDataContracts?: readonly string[]
   lifecycle?: Pick<
     WidgetInjectionEventHandlers<CrudFormSectionContext<TValues>, TValues>,
     'onBeforeSave' | 'onSave' | 'onAfterSave'
@@ -140,6 +143,7 @@ export type CrudFormSectionContribution<TValues, TPayload> = {
   id: string
   hostId: string
   formVariant: string
+  formOperation: 'create' | 'update'
   sectionId: string
   operation: 'add' | 'hide' | 'replace'
   descriptor?: CrudFormSectionDescriptor<TValues, TPayload>
@@ -151,17 +155,55 @@ export type CrudFormSectionMutationSurface = {
   kind: 'api' | 'command'
   target: string
   operations: readonly {
-    operation: string
+    requestOperation: string
     optimisticLock: 'entity-version' | 'not-applicable'
   }[]
 }
+
+export type CrudFormMutationBinding = {
+  mutationSurfaceId: string
+  requestOperation: string
+  resourceId?: string
+  expectedUpdatedAt?: string
+}
+
+export interface CrudFormMutationClient {
+  apiCall: typeof apiCall
+  apiCallOrThrow: typeof apiCallOrThrow
+  readApiResultOrThrow: typeof readApiResultOrThrow
+  createCrud: typeof createCrud
+  updateCrud: typeof updateCrud
+  deleteCrud: typeof deleteCrud
+  forMutation: (binding: CrudFormMutationBinding) => CrudFormMutationClient
+}
+
+export type CrudFormSectionMutationRunner = <TResult>(
+  input: CrudFormMutationBinding,
+  mutation: (client: CrudFormMutationClient) => Promise<TResult>,
+) => Promise<TResult>
+
+export type CrudFormSectionDependencies = {
+  readsFieldPaths?: readonly string[]
+  requiresSectionIds?: readonly string[]
+  requiresDataContracts?: readonly string[]
+}
 ```
 
-`useResolvedCrudFormSections({ hostId, formVariant, baseSections })` returns the only section list a host variant may consume. `CrudForm` renders `descriptor.group`; validation iterates descriptor validation; payload projection merges descriptor contributions; host-owned before/after writes use the existing widget lifecycle dispatcher. Contributed UI uses the existing injection widget definition, and the group component resolves a variant-qualified `ComponentReplacementHandles.section(hostId, formVariant, sectionId)` through `useRegisteredComponent` while retaining the existing unqualified handle as a compatibility fallback for forms with one `default` variant.
+`useResolvedCrudFormSections({ hostId, formVariant, formOperation, resourceId, baseSections })` returns the only section list a host surface may consume. `CrudForm` renders `descriptor.group`; validation iterates descriptor validation; payload projection merges descriptor contributions; host-owned before/after writes use the existing widget lifecycle dispatcher. Contributed UI uses the existing injection widget definition, and the group component resolves an operation-qualified `ComponentReplacementHandles.section(hostId, formVariant, formOperation, sectionId)` through `useRegisteredComponent` while retaining the existing unqualified handle as a compatibility fallback for forms not opted into policy.
 
 Simple forms derive `ownedFieldIds` from `CrudFormGroup.fields` and use the standard CRUD payload projector. Custom-component groups or hosts with derived payloads/secondary writes provide explicit descriptors. This keeps easy forms easy without pretending that catalog/sales/workflow side effects are inferable.
 
-`mutationSurfaces` is data-only metadata for actions initiated inside a section but outside the parent form submit, such as an option-schema dialog or variant create/delete button. Those actions keep their existing components and guarded CRUD helpers; the descriptor makes their exact entity/route/command operations and optimistic-lock expectations visible to generation, backend requirement matching, replacement compatibility, and tests. Hiding a section removes its action controls but is not an authorization revocation for the underlying endpoint.
+`mutationSurfaces` is data-only metadata for actions initiated inside a section but outside the parent form submit, such as an option-schema dialog or variant create/delete button. Those actions keep their existing components and guarded CRUD helpers; the descriptor makes their exact entity/route/command operations and optimistic-lock expectations visible to generation, capability matching, replacement compatibility, and tests. Hiding a section removes its action controls but is not an authorization revocation for the underlying endpoint.
+
+`formOperation` is the stable form mode (`create` or `update`); `requestOperation` is the individual mutation (`create`, `update`, `delete`, or a declared domain action). `CrudForm` additively exposes `runSectionMutation` through both built-in `CrudFormGroupComponentProps` and contributed widget context. A group/button calls it with the declared surface id, request operation, target resource id, and expected child version around its existing guarded mutation. The callback receives an immutable `CrudFormMutationClient`: thin bound versions of the existing API/CRUD helpers that merge the operation/resource policy header directly into each request's `init.headers`. The runner verifies the surface is active before creating that client. It does **not** hold `withScopedApiRequestHeaders` open across an async callback; the current module-global stack cannot isolate overlapping promises.
+
+Parent submit uses the same request-local design. `CrudFormSubmitContext` additively exposes a client bound to request operation `create` or `update` after `onBeforeSave` has contributed its headers. A policy-enabled standard projector or domain adapter must perform every policy-covered request through that client; generator/test coverage rejects an adapter that calls unbound helpers. Domain adapters call `requestClient.forMutation(...)` for declared secondary child writes. Existing non-policy forms and the legacy scoped-header API remain backward compatible, but section-policy tokens never enter the ambient stack. Parent submit and independent actions share one header builder/server parser without cross-form state.
+
+Delete is explicit, not inferred from the edit surface. A policy-enabled update form with `onDelete` declares the parent `delete` request operation in its host/backend capability. `CrudForm` runs the existing `onBeforeDelete` lifecycle first, then creates `CrudFormDeleteContext.requestClient` from those delete-specific headers, the same `formOperation: 'update'`, `requestOperation: 'delete'`, the deleted resource id, and its expected version. It never reuses `onBeforeSave` headers. If delete is not declared compatible, the delete action is unavailable under that policy; the server never accepts an update request action on a DELETE call.
+
+Header merging has two explicit classes. Section-policy/round-trip headers are protected, always applied last, and cannot be supplied or overridden through request init; an attempt fails locally before any request. The optimistic-lock header is resource-specific: the parent version is the default only for the parent mutation, while `expectedUpdatedAt` on `forMutation`/`runSectionMutation` replaces it for that child request. An `entity-version` update/delete request operation requires both `resourceId` and `expectedUpdatedAt`; create requires no prior version and rejects an accidental expected version. Ordinary non-protected request headers continue to merge normally.
+
+`dependencies` makes cross-section and injection-widget reads explicit. The resolver evaluates the final section list and final widget registry together. A hide/replace fails closed when an active section or widget still requires a removed field, section, or named data contract, unless the same policy disables that widget through `overrides.widgets.injection` or the replacement declares the compatible provided contract. Existing widget `requiredFields` facts are projected into this graph rather than re-declared.
 
 ### 3. Add and replace reuse UMES
 
@@ -173,30 +215,57 @@ No new render-widget or lifecycle system is introduced.
 
 ### 4. Backend pairing is mandatory and fail-closed
 
-Every operation contribution declares exact requirements. Even a visual-only `hide` is represented by a headless contribution so the override must name the backend behavior that makes omission safe:
+Every operation contribution declares semantic requirements. Even a visual-only `hide` is represented by a headless contribution so the override must name an actual server-registered capability that makes the operation safe:
 
 ```ts
 export type CrudFormSectionBackendRequirements = {
   roundTripId: string
-  read?: readonly FormSectionBackendRequirement[]
-  write: readonly FormSectionBackendRequirement[]
+  capabilities: readonly FormSectionBackendCapabilityRequirement[]
 }
 
-export type FormSectionBackendRequirement =
-  | { kind: 'response-enricher'; id: string; targetEntity: string }
-  | { kind: 'api-interceptor'; id: string; route: string; methods: readonly string[] }
-  | { kind: 'command-interceptor'; id: string; targetCommand: string }
-  | { kind: 'mutation-guard'; id: string; entityId: string; operations: readonly string[] }
+export type FormSectionBackendCapabilityRequirement = {
+  capabilityId: string
+  protocol: 'crud-form-sections/v1'
+  modes: readonly (
+    | 'read-enrichment'
+    | 'omit-preserves'
+    | 'merge-server-leaves'
+    | 'domain-adapter'
+    | 'independent-action'
+    | 'display-only'
+  )[]
+  payloadPaths?: readonly string[]
+  mutationSurfaces?: readonly CrudFormSectionMutationSurface[]
+}
+
+export type RegisteredFormSectionBackendCapability =
+  FormSectionBackendCapabilityRequirement & {
+    hostId: string
+    formVariant: string
+    formOperation: 'create' | 'update'
+    roundTripId: string
+    provider:
+      | { kind: 'section-policy'; id: string; mode: 'display-only' }
+      | { kind: 'response-enricher'; id: string; targetEntity: string }
+      | { kind: 'api-interceptor'; id: string; route: string; methods: readonly string[] }
+      | { kind: 'command-interceptor'; id: string; targetCommand: string }
+      | { kind: 'mutation-guard'; id: string; entityId: string; operations: readonly string[] }
+  }
 ```
 
 Rules:
 
-1. **A write-side requirement is mandatory for hide and replace.** A response enricher alone cannot prove validation/save coherence. Standard `makeCrudRoute` forms may explicitly name one shared form-section request-projection interceptor plus host data in the resolved manifest; complex hosts name a domain interceptor/guard that owns their extra writes. There is no implicit pairing based only on matching names.
-2. **A writable addition also requires a write-side contribution; an addition/replacement that needs extension data additionally requires a response enricher.** Its widget `onSave` may persist through its own API, but that endpoint still needs a declared interceptor or mutation guard and the same `roundTripId`. A declared display-only addition is the only operation that may have no write requirement.
-3. **Match section-local actions too.** When `mutationSurfaces` is non-empty, add/replace contributions must resolve compatible backend requirements for every action they expose, including operation and optimistic-lock semantics. Hide removes controls but does not weaken the endpoint's existing auth or lock guard.
-4. **Validate the final registries, not source declarations.** Generation checks static facts; server bootstrap checks `getEnrichersForEntity`, API/command interceptor registries, and mutation guards after unified overrides. A disabled/replaced backend contribution therefore invalidates its section operation.
-5. **Publish only accepted operations.** The client receives a data-only resolved manifest and fingerprint. A missing/mismatched companion retains the base section for hide/replace or omits an addition; it never applies a UI-only mutation.
-6. **Bind the request to the resolved policy.** Existing `onBeforeSave.requestHeaders`, `withScopedApiRequestHeaders`, `buildExtensionHeader`, and interceptor/guard header parsing carry the policy fingerprint/round-trip token. The server rejects a stale or unrecognized token instead of accepting a differently evaluated client policy.
+1. **A server-published capability is mandatory for every hide and replace.** A response enricher alone cannot prove validation/save coherence. Payload-owning sections require `omit-preserves`, `merge-server-leaves`, or `domain-adapter`; action-only/display-only sections still require an interceptor/guard capability that acknowledges the exact surface and operation, but do not invent a payload rewrite. Standard `makeCrudRoute` forms may use one shared projection interceptor; complex hosts use a domain interceptor/guard. There is no implicit pairing based only on ids, routes, or methods.
+2. **A writable addition also requires a server capability; an addition/replacement that needs extension data additionally requires `read-enrichment` from a registered response enricher.** Its widget `onSave` may persist through its own API, but that endpoint still needs `independent-action`, the same `roundTripId`, and matching optimistic-lock semantics. A static display-only **addition** may use a declarative `section-policy` provider validated by server bootstrap; it has no mutation/payload modes and cannot satisfy hide, replace, enrichment, or action requirements. This gives every activated addition a server-known companion without inventing a no-op interceptor/guard.
+3. **Capabilities prove behavior, not mere presence.** The actual interceptor/guard publishes protocol version, host, topology variant, form operation, owned payload paths, preservation mode, the complete semantic action contracts, and `roundTripId`. The section requirement is satisfied only by a compatible post-override capability. A registry entry with the right id/route/method but different projection or preservation semantics does not match.
+4. **Match section-local actions structurally.** When `mutationSurfaces` is non-empty, add/replace contributions must resolve `independent-action` capabilities whose full `kind`, `target`, operation set, and per-operation optimistic-lock mode equal the descriptor contracts. Matching surface ids alone is invalid. Generation validates those contracts against the actual registered routes/commands/guards; their canonical serialization participates in the manifest fingerprint. Hide removes controls but does not weaken the endpoint's existing auth or lock guard.
+5. **Validate the final registries, not source declarations.** Generation checks static facts; server bootstrap checks the declarative display-policy registry, `getEnrichersForEntity`, API/command interceptor registries, and mutation guards after unified overrides. A disabled/replaced backend contribution therefore invalidates its section operation.
+6. **Publish only accepted operations.** The client receives a data-only resolved manifest and fingerprint. A missing/mismatched companion or dependency retains the base section for hide/replace or omits an addition; it never applies a UI-only mutation.
+7. **Bind each request to the resolved policy.** The bound request client merges the applicable lifecycle headers (`onBeforeSave` or `onBeforeDelete`), `buildExtensionHeader` output, policy fingerprint/round-trip token, and optimistic-lock header explicitly into each request. Interceptor/guard parsing derives the accepted active policy from the server manifest and locked current record; it never trusts client omission as proof that a field should be preserved. A stale, unrecognized, or form-mode/request-operation/resource-mismatched token is rejected.
+8. **Scope independent actions through one runner.** Built-in and contributed group actions use `runSectionMutation` and its bound client; direct unbound calls are a coverage failure for a declared mutation surface. The server verifies the action contract and action resource binding independently from the parent form resource, while existing endpoint auth, mutation guards, and optimistic-lock headers remain authoritative.
+9. **Protect policy headers; rebind entity versions.** Bound clients reject caller-supplied section-policy header keys. A child `entity-version` update/delete must bind its own resource id and `expectedUpdatedAt`, replacing—not merging with—the parent lock for only that request. Creates carry no version. Provider/action facts determine whether those inputs are required. Parent delete uses an update form mode plus a distinct delete request operation and delete lifecycle headers.
+
+A presentation-compatible replacement may name the base section's already-registered capability when it preserves the same fields, actions, and semantics; it does not register a duplicate backend handler. A behavioral replacement must name its own compatible capability. Thus every hide/replace has an explicit server companion while common projection/interceptor code remains shared.
 
 This is the enforcement point requested by this revision: an app author cannot hide or replace a section without a resolvable backend validation/save contribution.
 
@@ -206,7 +275,7 @@ The authoring path stays small. An app module registers one section contribution
 overrides: {
   forms: {
     sections: {
-      'crud-form:catalog.product/edit/compliance': {
+      'crud-form:catalog.product/edit/update/compliance': {
         operation: 'hide',
         contributionId: 'services.hide-product-compliance',
       },
@@ -215,7 +284,7 @@ overrides: {
 }
 ```
 
-The `services.hide-product-compliance` contribution fact carries the `roundTripId` and exact API/command interceptor or mutation-guard target. Generation fails if that handler is absent; server bootstrap omits the operation if it is disabled after overrides. The app author never wires a second client store or manually coordinates render and submit callbacks.
+The `services.hide-product-compliance` contribution fact carries the `roundTripId` and required capability id. Its registered interceptor publishes the matching payload paths and `omit-preserves` semantics. Generation fails if that capability is absent; server bootstrap omits the operation if the provider is disabled or semantically incompatible after overrides. The app author never wires a second client store or manually coordinates render and submit callbacks.
 
 ### 5. Bootstrap readiness
 
@@ -238,13 +307,17 @@ Payload contributions are key-path aware and deep-merged. Conflicting writes to 
 
 ### 7. Catalog product edit — first adopter
 
+The first adopter is only the product **update** surface: `hostId = 'crud-form:catalog.product'`, `formVariant = 'edit'`, `formOperation = 'update'`, and `resourceId = product.id`. The page passes the operation and resource id explicitly because its current initial values omit `id`; policy resolution must not inherit the current incorrect injection-context inference of `operation: 'create'`.
+
+Product create remains `formVariant = 'create'`, `formOperation = 'create'`, and fail-closed for section overrides in this phase. It has a different two-card topology plus a compound workflow spanning product creation, conversions, variants, prices, attachment transfer, inbox completion, and cleanup. It may adopt this mechanism only after a separate domain adapter describes that entire workflow. An edit policy can never resolve on create, even when both retain the legacy `crud-form:catalog.product` widget spot.
+
 The catalog keeps ten stable ids:
 
 `details`, `dimensions`, `metadata`, `options`, `product-uom`, `compliance`, `variants`, `meta`, `categorize`, `custom-fields`.
 
 | Section | Active validation/payload/write ownership |
 |---|---|
-| `details` | title validation; title/description/media payload; `metadata.__useMarkdown`; variant-media fallback |
+| `details` | title validation; title/description/media payload; `metadata.__useMarkdown`; variant-media fallback; provides the title/description data contract used by the SEO widget |
 | `dimensions` | dimensions and weight payload |
 | `metadata` | user metadata leaves excluding reserved `__useMarkdown` and other framework-reserved keys |
 | `options` | option schema definition/id in the product payload; reads the full stored title when details is hidden; declares independent `catalog/option-schemas` create/update/delete mutation surfaces and their entity-version locks |
@@ -255,16 +328,28 @@ The catalog keeps ten stable ids:
 | `categorize` | category/tag/offer payload, offer deletion, and offer snapshot merge; it may read full details values |
 | `custom-fields` | custom-field definition validation, `customFieldsetCode`, and custom field payload |
 
+Cross-section facts are explicit rather than inferred from component source:
+
+| Consumer | Declared dependency | Resolution rule |
+|---|---|---|
+| injected SEO widget | writable `catalog.product.title-description` from `details` | Hiding/replacing details requires disabling SEO or providing the compatible contract |
+| `meta` title-to-handle behavior | read-only `catalog.product.loaded-title` | The host supplies the stored title independently of active payload fields; hiding details stops title writes but does not erase the read contract |
+| `categorize` offer fallback | read-only `catalog.product.offer-fallbacks` from the locked current record | Domain adapter uses server/current values when details is hidden; never stale restored browser fields |
+| `options` | read-only `catalog.product.loaded-title` | Template actions remain independent and guarded; hiding details cannot make title an active payload field |
+| `variants` | `catalog.product.option-schema` | Base/full loaded values may satisfy read-only display; a replacement that changes the schema must provide the same contract, otherwise resolution fails |
+
 Specific invariants:
 
 - hidden compliance does not parse or submit its values, so a server-valid/client-invalid stored quantity cannot block a title edit;
 - hidden custom fields are excluded before definition validation and omitted from payload;
-- visible details plus hidden metadata updates only `metadata.__useMarkdown` and preserves every hidden user metadata leaf;
-- visible metadata plus hidden details preserves the stored `__useMarkdown` value;
+- visible details plus hidden metadata updates only `metadata.__useMarkdown` and preserves every hidden user metadata leaf through a server-side `merge-server-leaves` capability;
+- visible metadata plus hidden details preserves the stored `__useMarkdown` value through the same server-owned leaf merge;
+- the server reads the tenant/organization-scoped current product under optimistic lock and merges only authorized visible metadata leaves; the client never sends restored hidden metadata as a preservation mechanism, so a stale parent version conflicts and a current-version request preserves the latest hidden leaves rather than overwriting them from a browser snapshot;
 - hidden UoM runs no conversion synchronization;
 - hidden categorize runs no offer deletion/update;
 - offer deletes and conversion updates/deletes keep their existing child versions; existing-offer upserts add `id` plus `updatedAt` to the nested product payload and the product command enforces each offer version before mutation; creates require no prior version; the product update keeps the product version;
 - hiding an action-bearing section removes its controls, while an addition/replacement that exposes equivalent actions must declare compatible backend mutation surfaces and requirements;
+- the active `catalog.injection.product-seo` widget declares its title/description field reads and required details data contract; hiding/replacing details fails closed unless the policy also disables that widget or the replacement provides the compatible contract, so its `onBeforeSave` cannot validate stale/absent inputs;
 - with no override configured, the current business-field payload and write ordering are preserved; only declared manifest/round-trip metadata and existing-offer concurrency fields are additive.
 
 ## 📝 Architecture and Contract Surfaces
@@ -272,19 +357,20 @@ Specific invariants:
 | Area | Change |
 |---|---|
 | `packages/shared/src/modules/overrides.ts` | Add `forms.sections` and compose it with existing override helpers |
-| `packages/shared/src/modules/widgets/injection.ts` | Add `InjectionPlacement` fields to group placement; add optional section requirement metadata |
-| `packages/shared/src/modules/widgets/extension-points.ts` | Add optional host variants and project exact section/round-trip requirements into additive contribution facts |
-| `packages/ui/src/backend/CrudForm.tsx` | Reuse `resolvedInjectionSpotId`, accept optional stable `formVariant`, resolve descriptors once, gate readiness, and use active validation/custom-field/payload projections |
+| `packages/shared/src/modules/widgets/injection.ts` | Add `InjectionPlacement` fields to group placement; add optional section dependency/capability metadata |
+| `packages/shared/src/modules/widgets/extension-points.ts` | Add optional host variants/operations and project semantic versioned section capabilities, dependencies, and round-trip requirements into additive contribution facts |
+| `packages/ui/src/backend/CrudForm.tsx` | Reuse `resolvedInjectionSpotId`, accept optional stable `formVariant`, `formOperation`, and `resourceId`, resolve descriptors once, gate readiness, use active validation/custom-field/payload projections, and expose request-bound clients to submit/delete/group/widget mutation contexts |
+| `packages/ui/src/backend/utils/` | Add immutable header-bound wrappers over existing API/CRUD helpers; keep legacy ambient scopes compatible but exclude section-policy tokens from them |
 | `packages/ui/src/backend/injection/` | Generic resolver and section component adapter built on current widget/component registries |
 | server bootstrap + interceptor registries | Validate post-override requirements and publish accepted manifest/fingerprint |
-| CLI module facts/generators | Emit host variants/sections, override keys, requirements, diagnostics, and per-invocation coverage failures |
+| CLI module facts/generators | Emit host variants/operations/sections, override keys, semantic capabilities/dependencies, diagnostics, and per-invocation coverage failures |
 | docs/create-app harness | Document and prove the app-module recipe |
-| catalog product edit | Domain descriptors and first full adoption |
+| catalog product routes | Bounded identity wiring in existing client roots; pure route-local descriptor/capability module; edit-only first full adoption |
 
 Additive stable surfaces:
 
 - `ModuleOverrides.forms.sections`;
-- canonical host/variant/section keys and the optional additive `CrudForm.formVariant` prop;
+- canonical host/variant/operation/section keys and optional additive `CrudForm.formVariant`, `CrudForm.formOperation`, and `CrudForm.resourceId` props;
 - `CrudFormSectionDescriptor` and resolver result;
 - optional placement/requirement fact fields;
 - catalog product section ids, already protected as built-in group ids.
@@ -293,11 +379,11 @@ Nothing is removed or renamed. Existing `CrudForm` props, spot ids, component ha
 
 ### Migration & Backward Compatibility
 
-This is an additive contract. Existing forms need no migration and continue to use their current `groups`, `hiddenGroupIds`, injection widgets, validation, and submit callbacks until they opt into section descriptors. Existing injection-widget disablement remains under `overrides.widgets.injection`; it is not translated into `forms.sections`. Catalog's nested offer input additively accepts optional `id`/`updatedAt`; legacy callers that omit them retain the current channel-matching behavior, while the product edit adopter always sends and enforces them for existing offers.
+This is an additive contract. Existing forms need no migration and continue to use their current `groups`, `hiddenGroupIds`, injection widgets, validation, operation inference, and submit callbacks until they opt into section descriptors. Existing injection-widget disablement remains under `overrides.widgets.injection`; it is not translated into `forms.sections`. Catalog's nested offer input additively accepts optional `id`/`updatedAt`; legacy callers that omit them retain the current channel-matching behavior, while the product edit adopter always sends and enforces them for existing offers.
 
-Newly published host ids, form variants, built-in section ids, contribution ids, `roundTripId` values, and documented imports become stable extension surfaces. They cannot later be renamed or removed without the repository deprecation protocol, an `UPGRADE_NOTES.md` bridge, and dual acceptance for at least one minor release. Optional fields may be added to descriptors, facts, manifests, and override objects, but existing required fields and operation meanings cannot be narrowed.
+Newly published host ids, form variants, form operations, built-in section ids, contribution/capability ids, `roundTripId` values, and documented imports become stable extension surfaces. They cannot later be renamed or removed without the repository deprecation protocol, an `UPGRADE_NOTES.md` bridge, and dual acceptance for at least one minor release. Optional fields may be added to descriptors, facts, manifests, and override objects, but existing required fields and operation meanings cannot be narrowed.
 
-Adoption is fail-closed rather than flag-day: generation inventories every grouped invocation, but only unambiguous host variants with complete descriptors and validated backend requirements advertise add/hide/replace support. A custom invocation that is not ready continues to render and save exactly as before. No stored setting, database migration, or data rewrite is involved, so rollback restores the complete base form without transforming records.
+Adoption is fail-closed rather than flag-day: generation inventories every grouped invocation, but only unambiguous host/variant/operation surfaces with complete descriptors, compatible dependencies, and validated backend capabilities advertise add/hide/replace support. A custom invocation that is not ready continues to render and save exactly as before. No stored setting, database migration, or data rewrite is involved, so rollback restores the complete base form without transforming records.
 
 ## 📝 Data Models
 
@@ -305,16 +391,18 @@ No database entity, column, relation, index, migration, or tenant-owned setting 
 
 - base and contributed section descriptors;
 - the composed override map;
-- generated extension facts and diagnostics;
+- generated extension facts, dependency graphs, capability manifests, and diagnostics;
 - the server-approved data-only manifest and fingerprint.
 
-The manifest contains host id, form variant, section/contribution ids, placement, supported operations, exact backend requirement identities, and a content fingerprint. It contains no functions, record values, credentials, tenant data, or user data. Widget components and backend handlers continue to load from their existing registries.
+The manifest contains host id, form variant, form operation, section/contribution ids, placement, supported operations, semantic capability/dependency facts, and a content fingerprint. It contains no functions, resource ids, record values, credentials, tenant data, or user data. Widget components and backend handlers continue to load from their existing registries. The per-request resource id is bound only in the signed/validated round-trip context.
 
 ## 📝 API Contracts
 
 No endpoint URL or response changes shape. The product-update request schema additively accepts `offers[].id` and `offers[].updatedAt`; when supplied, `syncOffers` resolves that exact tenant/organization-scoped offer and enforces its version before mutation. The catalog product form supplies both for every existing offer. Omitted versions keep the current legacy behavior for backward compatibility rather than silently making the new form unversioned.
 
-The platform bootstrap contract additively exposes the approved section manifest/fingerprint to the client, and mutated requests carry one existing `x-om-ext-*` extension header containing the resolved round-trip identity. The shared projection interceptor or host-specific guard verifies that identity before request validation/save logic proceeds.
+The platform bootstrap contract additively exposes the approved section manifest/fingerprint to the client, and mutated requests carry one existing `x-om-ext-*` extension header containing the resolved round-trip identity, form mode, request operation, and resource binding. An immutable request-bound client adds that header directly to every API/CRUD request rather than relying on the ambient scoped-header stack. The shared projection interceptor or host-specific guard verifies that identity before request validation/save logic proceeds. For merge-owned objects such as catalog metadata, the server then reads the locked current record and merges only capability-authorized visible leaves; omission alone never directs preservation.
+
+A missing, stale, wrong-form-mode, wrong-request-operation, wrong-resource, or undeclared-action policy token returns HTTP `409` with the stable machine code `extension_policy_mismatch` and no mutation. The response includes a reload/retry hint but does not echo fingerprints or registry internals. Existing auth/permission/version conflicts retain their current status and error codes, so clients can distinguish stale section policy from record-version conflict. Independent actions receive the same policy fingerprint plus their action surface/request-operation/resource binding through `runSectionMutation`; they do not reuse the parent resource binding or parent version as the target entity identity.
 
 The header is not an authorization credential. Authentication, feature guards, tenant/organization scoping, optimistic locking, route schemas, and command invariants remain authoritative. A valid user cannot activate a policy the server did not resolve for the current application build.
 
@@ -327,6 +415,70 @@ The header is not an authorization credential. Authentication, feature guards, t
 - Unknown/stale ids never white-screen the page and never silently activate.
 
 No new design-system primitive or user-facing configuration UI is introduced. Developer diagnostics use structured logging; public documentation and generated facts are the authoring interface.
+
+## 📝 Frontend Architecture Contract
+
+### Server/client boundary map
+
+| Surface | Server owner | Client island | Data/decision owner |
+|---|---|---|---|
+| Generic backend form route | Existing host loader/server root where present; no boundary change required | Existing `CrudForm` island | Host supplies base values, explicit surface identity, and descriptors |
+| Section-policy bootstrap | Server bootstrap and final backend registries | Existing bootstrap provider, with a small section-manifest reader | Server owns accepted capabilities/fingerprint; client may only consume the accepted manifest |
+| Section render/submit | None added at page-root level | Existing `CrudForm`, injection widget leaves, and registered replacement leaves | One resolved descriptor list owns UI, active validation, projection, lifecycle, and dependency status |
+| Catalog product create | Existing client `create/page.tsx` root | Existing `CrudForm`/`ProductBuilder` tree | Page wires create identity only; create remains policy-ineligible until its compound adapter exists |
+| Catalog product edit | Existing client `[id]/page.tsx` root | Existing form and current local section components | Page wires update identity only; extracted catalog descriptor/domain modules own metadata merge, conversions, offers, and action facts |
+
+### `"use client"` ledger
+
+| File | Reason | Imported by | Heavy dependencies | Cleanup/hydration risk | Alternative rejected |
+|---|---|---|---|---|---|
+| `packages/ui/src/backend/CrudForm.tsx` (existing) | Stateful form, browser interaction, and lifecycle dispatch | Backend form client leaves | Existing form stack only; none added | Policy registry subscription must clean up under Strict Mode and cannot flash an editable base form | A server component cannot own interactive form state |
+| `packages/ui/src/backend/injection/useResolvedCrudFormSections.ts` (new) | Reads the delivered manifest and reactive UMES registries | `CrudForm` | None; no domain/UI module imports | Target under 200 LOC; stable snapshot and unsubscribe required | Copying resolution into each host duplicates precedence and safety checks |
+| `packages/core/src/modules/catalog/backend/catalog/products/create/page.tsx` (existing root) | Existing compound product-builder state and browser interactions | Next.js route | Existing route dependencies; none added | At most 20 net LOC of identity prop wiring; no descriptors/capabilities or new effects inline | Converting this existing large page in the same feature would broaden scope; new policy remains disabled here |
+| `packages/core/src/modules/catalog/backend/catalog/products/[id]/page.tsx` (existing root) | Existing product-edit state, dialogs, and browser interactions | Next.js route | Existing route dependencies; none added | At most 20 net LOC of identity/descriptor import wiring; no capability tables or resolver logic inline | Full server-boundary migration is separate work; bounded wiring avoids growing the existing client blob |
+| `packages/core/src/modules/catalog/backend/catalog/products/components/productFormSections.ts` (new pure route-local module) | No `"use client"`; holds descriptors, dependency facts, and capability references | Catalog edit page and server/generator facts | No React or browser dependencies | Pure deterministic exports; separately unit tested | Defining these hundreds of lines inline in `[id]/page.tsx` would grow the client root |
+| Existing injection/replacement component leaves | Route/module-owned interactivity | Generated/local widget registry | Whatever the existing local leaf owns; never promoted globally | Existing lifecycle cleanup remains authoritative | Eager import by the shared resolver would couple every form bundle to every adopter |
+
+No page changes client/server classification: existing client roots remain client, and existing server roots remain server. Global providers gain no route-specific import.
+
+### Client blob guardrail
+
+- Zero new production dependencies, page-root client boundaries, or route-specific imports in global providers.
+- The generic resolver/hook stays under 200 net LOC; descriptor/capability types and pure composition live in shared/server-safe modules. An exception requires a split before merge.
+- Existing catalog create/edit client roots each accept at most 20 net LOC of prop/import wiring. All descriptor, dependency, and capability declarations live in the extracted pure route-local module; no new effects or inline policy tables enter either page root.
+- Empty policy is an allocation-light identity path: no subscription, manifest fetch, or descriptor cloning beyond current group normalization.
+- Resolution is linear in base sections + contributions + active widget dependencies; no nested scan across the repository registry.
+- Catalog product create/edit bundle boundaries stay unchanged. The edit-only adopter must not pull edit components into the create route or vice versa.
+
+### Budgets
+
+| Budget | Target |
+|---|---|
+| Generated/backend page-root `"use client"` | 0 new unallowlisted |
+| New client page/root files over 300 LOC | 0 |
+| Existing oversized catalog create/edit client roots | At most 20 net LOC each, wiring only |
+| Existing `CrudForm` growth | At most 80 net LOC because resolution is extracted |
+| New resolver hook | At most 200 net LOC |
+| Heavy browser libraries at page/provider root | 0 |
+| Catalog create/edit route gzip delta | At most 10 KiB each without explicit split/waiver |
+| Attributable dev-runtime RSS delta after create → edit | At most 25 MiB without maintainer waiver and tracked follow-up |
+| Per-route hydration smoke | Required for catalog create and edit |
+
+### Provider/bootstrap scope
+
+| Provider/bootstrap | Global? | Scope | Why | Exit criteria to narrow |
+|---|---|---|---|---|
+| Existing extension/bootstrap provider | Existing global boundary | Stores only the small data-only accepted manifest/fingerprint | Any `CrudForm` can be an extension host | Split by runtime surface if measured manifest/subscription cost exceeds the declared budgets |
+| Section resolver | No | Per mounted `CrudForm` | Combines that form's base descriptors with the accepted manifest and active registries | Unmount unsubscribes; empty policy uses identity fast path |
+| Catalog descriptors/widgets | No | Catalog product edit route/module | Domain ownership and action dependencies are catalog-specific | Never become global; loaded only through existing route-local UMES registrations |
+
+### Hydration, interactivity, and performance evidence
+
+- `yarn check:client-boundaries` must pass and show no new page-root client exception, heavy global import, or oversized client root.
+- `yarn build:app`/bundle output must show no new shared chunk containing catalog section components and no material route-chunk regression; a >10 KiB gzip increase on either catalog product route requires an explained split or explicit waiver.
+- Playwright covers server render → pending bootstrap → ready hydration without a flash of the editable base form, early-submit blocking, settled-failure base fallback, create/edit policy isolation, and keyboard submit after readiness.
+- Unit tests cover empty-policy identity, linear dependency resolution, registry update cleanup, and Strict Mode remount without duplicate lifecycle execution.
+- Before merge, record the client-boundary report, changed route bundle deltas, and one dev-runtime RSS sample after opening product create then edit. No regression above 25 MiB attributable RSS is accepted without a documented follow-up and maintainer waiver.
 
 ## 📝 System-wide CrudForm Adoption Audit
 
@@ -341,7 +493,7 @@ Audit scope: production TSX under `apps/mercato/src/modules`, `packages/*/src/mo
 Coverage is per JSX invocation, not per file. Every grouped invocation is checked by generation and classified as:
 
 - **standard:** group field ids plus a single CRUD mutation; it can use the shared projection interceptor;
-- **custom:** custom group components, derived payloads, multiple API calls, or secondary writes; it must supply explicit descriptors and domain backend requirements;
+- **custom:** custom group components, derived payloads, multiple API calls, or secondary writes; it must supply explicit descriptors and domain backend capabilities;
 - **unbound:** no `resolvedInjectionSpotId`; overrides are unavailable until an explicit spot is added;
 - **ambiguous variant:** the host resolves, but another invocation at that host declares a different base-section set without a stable `formVariant`; overrides are unavailable until variants are declared.
 
@@ -418,9 +570,9 @@ The exact 41 unbound invocations are:
 
 Five previously listed customer/staff forms already resolve through `entityIds`; adding new spot ids there would duplicate the current UMES identity. Conversely, one source file can contain multiple invocations: both grouped entity-editor forms above are unbound, and the warranty detail page's grouped claim-line form is distinct from its two ungrouped dialogs.
 
-Resolved does not imply unambiguous. Catalog product create/edit share `crud-form:catalog.product` but expose different group sets; `TodoForm` create/edit likewise share one entity-derived spot while exposing `tips` versus `actions`. Generator facts therefore key base sections by `(resolvedInjectionSpotId, formVariant)` and reject a host whose differing schemas still collide on `default`.
+Resolved does not imply unambiguous. Catalog product create/edit share `crud-form:catalog.product` but expose different group sets and operations; `TodoForm` create/edit likewise share one entity-derived spot while exposing `tips` versus `actions`. Generator facts therefore key base sections by `(resolvedInjectionSpotId, formVariant, formOperation)` and reject a host/operation whose differing schemas still collide on `default`.
 
-The implementation must generate the exact invocation/host/variant/section inventory so this hand-written snapshot cannot silently drift. New grouped invocations without a resolved spot, new collisions without variants, or missing section facts fail the repository coverage test.
+The implementation must generate the exact invocation/host/variant/operation/section inventory so this hand-written snapshot cannot silently drift. New grouped invocations without a resolved spot, policy-enabled invocations without explicit operation/resource identity, new collisions without variants, or missing section facts fail the repository coverage test.
 
 ## 📝 Edge Cases & Failure Scenarios
 
@@ -432,14 +584,22 @@ The implementation must generate the exact invocation/host/variant/section inven
 | Client and server manifests differ | Server rejects the round-trip token; no mutation |
 | Unknown host/section/contribution id | Ignore operation, keep base, emit actionable diagnostic with valid ids |
 | Two invocations share a host but expose different groups | Require distinct stable `formVariant` values; reject both override surfaces while ambiguous |
+| Update surface omits explicit operation/resource identity | Reject section-policy activation; existing non-policy behavior keeps legacy inference |
+| Edit-form delete | Keep `formOperation: update`, bind `requestOperation: delete` after `onBeforeDelete`, and require declared delete capability/resource version; never reuse submit headers |
+| Create and edit share one injection spot | Match the full host/variant/operation tuple; an edit policy cannot resolve on create |
 | Two modules replace one section | Existing precedence applies; warn with both module ids |
 | Added widget is disabled through widget overrides | Section contribution becomes unresolved and is omitted with its handlers |
+| Active widget/section reads a hidden dependency | Retain the base section unless the same policy disables the consumer or the replacement provides the named data contract |
+| Section-local action bypasses the scoped runner | Server rejects the missing/action-mismatched policy token; coverage flags direct unscoped mutation calls |
+| Two section actions/forms overlap in time | Each callback receives a distinct immutable request-bound client; every request gets only that client's explicit headers, with no ambient stack or cross-form leakage |
+| Child update/delete uses the parent version | Binding validation requires the child resource id/version and replaces the default lock for only that request; server child guard remains authoritative |
+| Caller tries to replace a policy header | Bound client rejects before I/O; protected headers are applied last from the accepted manifest |
 | Hidden section owns required custom fields | Definitions are excluded before validation; values omitted and preserved server-side |
-| One object has leaves owned by two sections | Deep-merge non-conflicting leaves; preserve hidden leaves; collision fails tests/dev resolution |
+| One object has leaves owned by two sections | Server deep-merges capability-authorized leaves into the locked current record; preserve hidden leaves; collision fails tests/dev resolution |
 | Create form hides a server-required field | Operation rejected unless its write interceptor supplies/derives a valid value for `create` |
 | All sections hidden | Form body may render empty, but submit is disabled unless the resolved backend contract explicitly permits a no-op mutation |
 | Secondary child writes | Descriptor controls whether submit-coupled writes run; update/delete operations enforce each child's own version, including nested offer upserts |
-| Section-local immediate actions | Descriptor facts list their exact mutation surfaces; hide removes controls, and add/replace activates only with compatible backend requirements |
+| Section-local immediate actions | Descriptor facts list their exact mutation surfaces; hide removes controls, and add/replace activates only with compatible backend capabilities |
 
 ## 📝 Risks & Impact Review
 
@@ -447,10 +607,15 @@ The implementation must generate the exact invocation/host/variant/section inven
 |---|---|---|---|---|
 | Default behavior regresses across 98 grouped invocations | High | All grouped `CrudForm` rendering/submission | Resolver empty-policy identity fast path, behavior-equivalence tests, generated invocation inventory, phased verification | Undetected host-specific callback coupling; constrained by per-family tests and fail-closed enablement |
 | Two schemas share one injection spot | High | Create/edit and multi-dialog hosts | Stable `formVariant`, variant-qualified facts/keys/handles, and generation failure on differing `default` schemas | Authors must preserve variants as public ids after publication |
+| Operation is inferred incorrectly from missing `values.id` | High | Existing edit forms, including catalog product edit | Add explicit `formOperation`/`resourceId`; require them for policy-enabled updates; preserve legacy inference only outside policy | Unmigrated hosts remain safely ineligible for overrides |
 | UI/backend module gating diverges | High | Validation and persistence | Server-resolved manifest, final-registry validation, fingerprint header, base fallback | In-flight deploy skew can reject a save; rejection is safer than silent corruption and is retryable after refresh |
+| A handler exists but does not preserve the declared data | High | Hidden/replaced payload sections | Versioned semantic capabilities with modes, paths, operation, and action facts published by the actual provider | Provider implementation still needs integration tests against the real command |
 | Field/payload ownership is incomplete | High | Host schemas and mutation payloads | Generated group-field coverage, explicit custom-component ownership, leaf-collision diagnostics, per-host tests | Cross-section derived reads still require domain review |
-| Side effects run for hidden sections | High | Complex hosts with multiple writes | Explicit domain descriptors and backend requirements; never classify detected multiple-write hosts as standard | Runtime-indirect writes may evade static classification; those hosts remain unsupported until explicitly audited |
-| Section-local dialog/button mutations are absent from host facts | High | Action-bearing custom groups | Descriptor `mutationSurfaces`, exact backend matching, and configured replacement action tests | New indirect actions still require generator coverage and domain review |
+| Active widget reads a removed section | High | SEO and other injection lifecycle handlers | Generated dependency graph; fail closed or require widget disable/compatible replacement contract | Dynamic undeclared reads require module-owner audit |
+| Client boundary expands through generic adoption | Medium | Shared `CrudForm`, bootstrap, catalog routes | Frontend Architecture Contract, focused hook budget, boundary check, route bundle/RSS evidence | Future adopters must repeat their route-specific evidence |
+| Side effects run for hidden sections | High | Complex hosts with multiple writes | Explicit domain descriptors and semantic backend capabilities; never classify detected multiple-write hosts as standard | Runtime-indirect writes may evade static classification; those hosts remain unsupported until explicitly audited |
+| Section-local dialog/button mutations are absent from host facts | High | Action-bearing custom groups | Descriptor `mutationSurfaces`, semantic capability matching, and configured replacement action tests | New indirect actions still require generator coverage and domain review |
+| Policy header leaks across submits/actions | High | Concurrently mounted forms and action-bearing groups | Immutable request-bound API/CRUD clients, per-call action/resource binding, no ambient policy scope, overlap/unmount tests | Custom code can bypass the bound client; coverage and server rejection keep that fail-closed |
 | Nested offer upserts overwrite concurrent edits | High | Catalog product/channel offers | Product form sends offer `id`/`updatedAt`; command enforces supplied child versions; regression tests cover conflict and create | Legacy API callers without the additive version remain on existing behavior until a separately deprecated tightening |
 | Public override/section ids drift | Medium | Third-party modules | Stable facts, docs, compatibility tests, deprecation protocol | Intentional future migrations still require a bridge release |
 | Adoption becomes a flag-day migration | Medium | Delivery scope and module owners | Bind/inventory all hosts, enable catalog first, keep other complex hosts fail-closed until adapters land | Some forms remain non-customizable initially, but retain current safe behavior |
@@ -459,13 +624,13 @@ Rollback removes the forms override resolver and catalog adopter. There is no mi
 
 ## 📋 Phasing
 
-1. **Framework contract and server resolution.** Types, override composition, facts, post-override backend checks, resolved manifest, fingerprint header.
-2. **CrudForm integration.** One resolver/list for render and submit, readiness gating, validation/custom-field/payload projection, UMES add/replace adapters.
+1. **Framework contract and server resolution.** Types, override composition, semantic capability/dependency facts, post-override checks, resolved manifest, fingerprint header.
+2. **CrudForm integration.** Explicit operation/resource identity, one resolver/list for render and submit, readiness gating, validation/custom-field/payload projection, UMES add/replace adapters.
 3. **Invocation inventory and canonical bindings.** Generated coverage for all 98 grouped invocations; bind the 41 genuinely unbound invocations, declare variants for shared-host schema collisions, and classify standard vs custom without enabling unsafe hide/replace.
 4. **Catalog product first adopter.** Ten domain descriptors, corrected validation/payload ownership, side-effect control.
 5. **Configured-app proof, docs, and standalone harness.** Real build-time override through browser and backend.
 
-Each phase leaves the default application working. A host cannot advertise add/hide/replace readiness until its backend requirements pass.
+Each phase leaves the default application working. A host surface cannot advertise add/hide/replace readiness until its backend capabilities and dependency graph pass.
 
 ## 📋 Implementation Plan
 
@@ -473,49 +638,49 @@ Each phase leaves the default application working. A host cannot advertise add/h
 
 1. Add `forms.sections` to `ModuleOverrides` and the domain union. Compose with existing store/array helpers; preserve `null` as “disable this customization and restore base” plus existing precedence.
 2. Extend injection group placement with `position`/`relativeTo`; reuse `insertByInjectionPlacement`.
-3. Add form-variant, section, action-surface, and backend-requirement fields to extension contribution facts, including `roundTripId` and exact targets.
-4. Add generator validation that every section operation resolves a UI contribution and mandatory write-side backend contribution after overrides; add static diagnostics and coverage tests.
-5. Add server bootstrap validation against final enricher/interceptor/guard registries and expose only the accepted data-only manifest plus fingerprint.
-6. Carry the fingerprint via existing injection request-header aggregation and reject unknown/stale values in the standard projection interceptor/host guard.
+3. Add form-variant, form-operation, section, dependency, action-surface, and versioned semantic capability fields to extension contribution facts, including `roundTripId`, payload paths/modes, and provider targets.
+4. Add generator validation that every section operation resolves a UI contribution, mandatory server capability, and compatible post-policy dependency graph; add static diagnostics and coverage tests.
+5. Add server bootstrap validation against capabilities published by the final enricher/interceptor/guard registries and expose only the accepted data-only manifest plus fingerprint.
+6. Carry the fingerprint via existing injection request-header aggregation and reject unknown/stale values in the standard projection interceptor/host guard. Add one shared section-policy header builder/parser plus immutable bound wrappers over existing API/CRUD helpers; protect policy keys, support explicit per-child lock replacement, and do not place policy tokens on the module-global scoped-header stack.
 
 ### Phase 2 — CrudForm integration
 
-7. Implement `useResolvedCrudFormSections` with `hostId`, `formVariant`, `pending | ready | failed`, no separate global store, and an empty-policy identity fast path.
-8. Resolve group UI through existing injection widgets and `ComponentReplacementHandles.section`; add an error-boundary fallback only for already-authorized replacements.
+7. Add optional `formOperation`/`resourceId` props and implement `useResolvedCrudFormSections` with `hostId`, `formVariant`, explicit operation/resource identity, `pending | ready | failed`, no separate global store, and an empty-policy identity fast path. Preserve current inference for non-policy callers only.
+8. Resolve group UI through existing injection widgets and `ComponentReplacementHandles.section`; add an error-boundary fallback only for already-authorized replacements. Add the bound request client to submit/delete contexts and `runSectionMutation` to built-in group props/widget context. Test explicit-header merging with existing API/CRUD helpers.
 9. Derive active field/custom-field definitions and validate only active sections. Keep full values read-only for cross-section reads.
 10. Deep-merge active payload contributions; fail on duplicate leaf ownership; run section lifecycle through existing widget event dispatch.
-11. Add framework tests: add/before/after, hide, replace, widget disable, missing companion, override precedence, delayed bootstrap, settled failure, manifest mismatch, custom fields, all-hidden, shared-host variant isolation/collision, and no-override behavior equivalence.
+11. Add framework tests: add/before/after, static display-only add without a fake handler, rejection of that provider for hide/replace, widget disable, missing/semantically incompatible capability, dependency mismatch, override precedence, delayed bootstrap, settled failure, form-mode/request-operation/resource/action mismatch, manifest mismatch, concurrent parent/action requests receiving only their own explicit headers, exact emitted headers for parent update, parent delete after `onBeforeDelete`, child update/delete, create without version, and attempted policy-header override, unmount, direct-unbound-call rejection, custom fields, all-hidden, shared-host variant/operation isolation and collision, and no-override behavior equivalence.
 
 ### Phase 3 — all host discovery
 
 12. Generate the 98-invocation inventory and add canonical extension declarations for every grouped form. Reuse the 57 existing resolved spots (including `entityIds`), add explicit spots only to the 41 unbound invocations listed above, add stable variants where one spot has differing group schemas, and mirror template-owned app files where required.
 13. Auto-classify only single-mutation field-group forms as standard. Require explicit domain descriptors for custom components, derived payloads, multiple API calls, or secondary writes; coverage fails if such a host is marked standard.
-14. Emit module facts with exact host ids, stable form variants and section ids, supported operations, backend requirements, source invocation, and diagnostics. Refresh the standalone framework facts.
+14. Emit module facts with exact host ids, stable form variants/form operations and section ids, dependencies, supported override operations, semantic backend capabilities, source invocation, and diagnostics. Refresh the standalone framework facts.
 
 ### Phase 4 — catalog product edit
 
-15. Create catalog product section descriptors using the corrected ownership table, including option-schema and variant immediate-action mutation surfaces. Keep current group components in place; do not perform the previously proposed 1,400-line component move.
-16. Split client validation by active section. Add the server-valid/client-invalid `minOrderQty=100000001` regression and hidden required-custom-field regression.
-17. Implement key-path payload contribution and nested metadata merging. Test details-visible/metadata-hidden and metadata-visible/details-hidden save/reload cases.
-18. Move conversion sync, offer deletion/payload, and other submit-coupled writes behind their owning descriptors. Retain current per-child headers for offer deletes and conversion updates/deletes; add optional `id`/`updatedAt` to the nested offer input, have this form send both, and enforce each supplied version against the scoped offer inside `syncOffers` while preserving legacy unversioned callers. Add action-surface/lock tests for option-schema and variant create/update/delete operations without moving those immediate actions into form submit.
+15. Create catalog product edit descriptors in the pure route-local `components/productFormSections.ts`, including option-schema and variant immediate-action mutation surfaces. Limit existing create/edit client roots to at most 20 net LOC each of imports/prop wiring. Pass `formVariant="edit"`, `formOperation="update"`, and `resourceId={product.id}` explicitly. Declare create as `formVariant="create"`/`formOperation="create"` but ineligible until its compound domain adapter exists. Keep current group components in place; do not perform the previously proposed 1,400-line component move.
+16. Split client validation by active section. Add one projection/preservation case for each of the ten edit groups, including the server-valid/client-invalid `minOrderQty=100000001` regression and hidden required-custom-field regression.
+17. Implement key-path payload contribution and server-owned nested metadata merging against the scoped, optimistically locked current product. Test details-visible/metadata-hidden, metadata-visible/details-hidden, and a concurrent hidden metadata-leaf change that the browser must not overwrite.
+18. Move conversion sync, offer deletion/payload, and other submit-coupled writes behind their owning descriptors. Retain current per-child headers for offer deletes and conversion updates/deletes; add optional `id`/`updatedAt` to the nested offer input, have this form send both, and enforce each supplied version against the scoped offer inside `syncOffers` while preserving legacy unversioned callers. Test details/meta/categorize and options/variants dependency combinations. Add action-surface permission/lock/reload and policy-header propagation tests for option-schema and variant create/update/delete operations without moving those immediate actions into form submit.
 19. Prove the no-policy path produces the same product business-field payload and child-write order as the pre-refactor implementation, apart from declared section round-trip metadata and nested existing-offer `updatedAt` tokens.
 
 ### Phase 5 — configured build and docs
 
-20. Add a self-contained configured fixture app/module whose `modules.ts` hides compliance/UoM, replaces an action-bearing built-in section (`options` or `variants`), adds one section, and disables an injected widget through `overrides.widgets.injection`.
-21. In Playwright against that built fixture, assert absent/replaced/added cards, action controls supplied only by the authorized replacement, one replacement action reaching its declared guarded target, delayed-bootstrap submit blocking, visible-field save, preservation of compliance/conversions/custom fields, metadata leaf behavior, disabled widget handlers, and manifest-mismatch rejection. Create and clean up all records.
-22. Add API/integration tests for omission-preserves vs explicit-null-clears and exact round-trip enforcement.
+20. Add a self-contained configured fixture app/module whose `modules.ts` hides compliance/UoM, replaces an action-bearing built-in section (`options` or `variants`), adds one section, and disables the SEO injection widget when its details dependency is removed.
+21. In Playwright against that built fixture, assert absent/replaced/added cards, edit-only policy isolation from create, explicit update operation/resource identity despite initial values omitting `id`, action controls supplied only by the authorized replacement, one replacement action reaching its declared guarded target, delayed-bootstrap submit blocking, visible-field save, preservation of compliance/conversions/custom fields, concurrent metadata leaf preservation, dependency-mismatch fallback, disabled widget handlers, and manifest-mismatch rejection. Create and clean up all records.
+22. Add API/integration tests for omission-preserves vs explicit-null-clears, capability mode/path mismatches, and exact round-trip enforcement, including the `409 extension_policy_mismatch` response without leaked registry details.
 23. Document the generic recipe, form variants, requirement pairing, failure behavior, stable catalog ids, and the distinction among `hiddenGroupIds`, `forms.sections`, and `widgets.injection`.
-24. Update `BACKWARD_COMPATIBILITY.md`, the unified-overrides status table, package guidance, template mirrors, and run the standalone-harness refresh with a failure-first case.
+24. Update `BACKWARD_COMPATIBILITY.md`, the unified-overrides status table, package guidance, template mirrors, and run the standalone-harness refresh with a failure-first case. Record the Frontend Architecture Contract evidence: client-boundary output, create/edit route bundle deltas, hydration coverage, and dev RSS sample.
 
 ## 📋 Acceptance Criteria
 
 | # | Criterion |
 |---|---|
-| AC1 | Every production grouped `CrudForm` invocation appears in generated facts with a resolved host and unambiguous stable variant, or an explicit blocking diagnostic. |
+| AC1 | Every production grouped `CrudForm` invocation appears in generated facts with a resolved host and unambiguous stable variant/operation, or an explicit blocking diagnostic. |
 | AC2 | An app can add, hide, and replace sections without copying a host page. |
 | AC3 | Add/replace reuse injection widgets, section component handles, placement, and lifecycle primitives; no parallel widget system exists. |
-| AC4 | Hide/replace never activates without an exact write-side interceptor/command-interceptor/mutation-guard requirement; additions needing data also require an enricher. |
+| AC4 | Hide/replace never activates without a versioned semantic capability published by an actual interceptor/command-interceptor/mutation guard; additions needing data also require an enricher capability. |
 | AC5 | Missing or mismatched backend contributions keep the base UI and block the custom policy rather than applying client-only behavior. |
 | AC6 | Rendering, validation, payload projection, and side effects consume one resolved descriptor list. |
 | AC7 | Pending bootstrap cannot expose or submit the unmodified form; settled failure shows the complete base form. |
@@ -525,8 +690,12 @@ Each phase leaves the default application working. A host cannot advertise add/h
 | AC11 | A policy-configured fixture build exercises the real `modules.ts` → client UI → backend interceptor/guard round trip in Playwright. |
 | AC12 | With no override configured, rendering, business fields, write order, and current tests remain behavior-equivalent; differences are limited to declared section round-trip metadata and child concurrency tokens. |
 | AC13 | Existing `hiddenGroupIds` and `overrides.widgets.injection` behavior remains unchanged and documented. |
-| AC14 | Action-bearing sections publish exact mutation surfaces; add/replace actions activate only with compatible backend requirements, while hide removes controls without weakening endpoint authorization. |
+| AC14 | Action-bearing sections and actual providers publish structurally equal mutation contracts (kind, target, request operations, lock modes); parent submit/delete and built-in/contributed actions use immutable request-bound clients with the correct lifecycle headers, protected policy headers, and per-child version replacement, with no ambient leakage; hide removes controls without weakening endpoint authorization. |
 | AC15 | Catalog product edits carry and enforce the version of every existing nested offer they upsert; conflict and legacy-compatibility behavior are both tested. |
+| AC16 | Section-enabled forms use explicit create/update and resource identity; catalog edit resolves as update despite omitted `initialValues.id`, and its policy never affects catalog create. |
+| AC17 | Backend matching verifies preservation/projection modes, payload paths, actions, operation, and protocol—not only registry ids/routes/methods—and the server merges hidden metadata leaves from the locked current record. |
+| AC18 | A hide/replace that breaks an active section/widget dependency fails closed unless the consumer is disabled or the replacement provides the compatible data contract; catalog SEO is the first regression case. |
+| AC19 | The Frontend Architecture Contract passes: no new page-root boundary/global host import, focused resolver budget, client-boundary check, hydration coverage, route bundle evidence, and RSS evidence. |
 
 ## Resolved assumptions (autonomous defaults)
 
@@ -534,11 +703,13 @@ Each phase leaves the default application working. A host cannot advertise add/h
 |---|---|---|---|
 | Q1 | New client policy store or UMES composition? | Compose existing UMES/override registries. | Smaller surface and prevents two precedence/bootstrap models. |
 | Q2 | Can UI-only hide/replace be allowed with a warning? | No; fail closed and retain base. | A warning cannot prevent validation/data divergence. |
-| Q3 | Is an enricher alone enough? | No for writes. Hide/replace require a write-side interceptor/guard; an enricher is additionally required when data loading changes. | Read enrichment cannot override validation or persistence. |
+| Q3 | Is an enricher alone enough? | No for writes. Hide/replace require a semantic capability from an interceptor/guard; an enricher capability is additionally required when data loading changes. | Read enrichment cannot override validation or persistence. |
 | Q4 | Parse restored hidden values through the host schema? | No. Validate the active projection; expose full loaded values only for cross-section reads. | Fixes server-valid/client-invalid invisible values while keeping server authority. |
 | Q5 | Replace the whole catalog page or extract all inline components? | Neither. Add descriptors around current groups and resolve their section handles. | Avoids page coupling and an unrelated 1,400-line move. |
-| Q6 | Enable every complex host immediately? | Bind and inventory all; enable only when explicit backend requirements resolve. | Universal mechanism with fail-closed incremental adoption is safer than guessed side-effect ownership. |
-| Q7 | Use a new section host id or the existing injection identity? | Reuse `resolvedInjectionSpotId`; add `formVariant` only to distinguish different section schemas at one spot. | Preserves UMES widget scope, respects `entityIds`, and prevents create/edit collisions without redundant ids. |
+| Q6 | Enable every complex host immediately? | Bind and inventory all; enable only when explicit backend capabilities and dependencies resolve. | Universal mechanism with fail-closed incremental adoption is safer than guessed side-effect ownership. |
+| Q7 | Use a new section host id or the existing injection identity? | Reuse `resolvedInjectionSpotId`; add topology `formVariant` plus explicit `formOperation` and update `resourceId`. | Preserves UMES widget scope and `entityIds` while preventing topology, operation, and record-identity collisions. |
+| Q8 | Is matching a registered handler id/route/method enough? | No; match a versioned semantic capability published by the final provider. | Presence does not prove omission, leaf merge, domain-write, action, or locking behavior. |
+| Q9 | Can catalog create inherit edit customization because the widget spot is shared? | No; the first adopter is update-only and create stays fail-closed until its compound adapter exists. | Create spans additional transactions and cleanup that the edit descriptors do not own. |
 
 ## 🔍 Prior Review Finding Disposition
 
@@ -561,19 +732,38 @@ Each phase leaves the default application working. A host cannot advertise add/h
 | Existing `entityIds` host resolution was ignored | Canonical identity now reuses `resolvedInjectionSpotId`; 57 are resolved and only 41 need a new spot |
 | One spot can expose multiple section schemas | Added stable `formVariant` to addresses, facts, manifests, handles, diagnostics, coverage, and tests |
 
+### Independent Catalog Runtime Audit Disposition
+
+| Finding | Resolution in this revision |
+|---|---|
+| Catalog edit is currently inferred as create because initial values omit `id` | Added explicit `formOperation`/`resourceId`; policy-enabled updates require both and catalog edit has a dedicated regression |
+| Edit policy could affect the compound create workflow | Canonical surface includes topology + operation; first adopter is update-only and create remains fail-closed until its domain adapter exists |
+| Registry id/route/method does not prove preservation semantics | Replaced identity-only matching with provider-published `crud-form-sections/v1` capabilities covering modes, paths, action surfaces, operation, and round trip |
+| Product command replaces the complete metadata object | Required server-side authorized-leaf merge against the scoped locked record, including a concurrent hidden-leaf preservation test |
+| SEO widget remains active when details is hidden | Added generated dependency/data-contract facts and fail-closed resolution unless the widget is disabled or the replacement satisfies its contract |
+| Shared `CrudForm`/bootstrap change lacked frontend boundary controls | Added the required server/client map, `"use client"` ledger, provider/blob guardrails, budgets, hydration tests, boundary check, bundle delta, and RSS evidence |
+| Independent actions could still match only by surface id | Capability now embeds the full action contract; generation checks it against the actual provider and fingerprints its canonical form |
+| Catalog create/edit roots were incorrectly described as server components | Corrected both as existing client roots, added ledger rows, capped each at 20 LOC of wiring, and extracted descriptors/capabilities into a pure route-local module |
+| Independent actions had no way to propagate the policy token | Added `runSectionMutation` plus immutable bound API/CRUD clients to group/widget context, with action/resource binding, server rejection, and concurrency tests |
+| Static display-only additions would need a fake backend handler | Added a bootstrap-validated declarative `section-policy` provider limited to display-only additions; it cannot satisfy hide/replace/write/read/action modes |
+| Existing scoped-header stack merges overlapping async scopes | Section-policy tokens never use ambient scope; submit/delete/action callbacks receive distinct immutable request-bound clients and overlap tests assert request isolation |
+| Parent/child lock and protected-policy header precedence was ambiguous | Defined two-class merging: policy keys are immutable/applied last; a declared child binding replaces the parent lock for only that request; exact emitted headers are tested |
+| Delete conflicted with a create/update-only form mode | Separated stable `formOperation` from per-request operation; delete is constructed after `onBeforeDelete` with its own declared capability, resource/version, and bound client |
+
 ## 📋 Final Compliance Report — 2026-10-09
 
 | Area | Status | Evidence |
 |---|---|---|
 | Canonical mechanisms | ✅ | Reuses UMES widget/component/placement/lifecycle, unified overrides, facts, enrichers/interceptors/guards, and extension headers. |
-| Backend coherence | ✅ | Mandatory exact requirements, post-override server validation, manifest fingerprint, fail-closed base fallback. |
+| Backend coherence | ✅ | Mandatory semantic provider capabilities, post-override server validation, operation/resource-bound fingerprint, fail-closed base fallback. |
 | Validation/data safety | ✅ | Active validation/custom-field projection, key-path payload ownership, domain secondary-write/action-surface descriptors, and nested offer version enforcement. |
 | Backward compatibility | ✅ | Additive types/props/facts; no existing prop, handle, spot, id, or override behavior changes. |
 | System coverage | ✅ | AST-audited 124 renderer files / 132 invocations and all 98 grouped invocations; 57 resolve through current UMES inputs, 41 unbound invocations and shared-host variant collisions are explicitly routed. |
-| Integration coverage | ✅ | Configured build-time policy, UI, save, persistence, widget-disable, readiness, mismatch, and cleanup are required. |
+| Integration coverage | ✅ | Configured build-time policy, create/edit isolation, UI, save, metadata concurrency preservation, widget dependencies/disablement, readiness, mismatch, and cleanup are required. |
+| Frontend architecture | ✅ | Server/client map, client ledger, focused resolver/provider scope, hard budgets, boundary/build/bundle/RSS evidence, and hydration tests are specified. |
 | Scope cohesion | ✅ | One capability: coherent section composition. Catalog is the first adopter/proof, not a parallel mechanism. |
 
 ## 📋 Changelog
 
-- **2026-10-09 — Review/autofix generalization.** Reframed the catalog-only hidden policy as a generic add/hide/replace `CrudForm` contract built from existing UMES primitives. Added mandatory backend requirements and fail-closed server resolution, active validation/custom-field projection, nested payload ownership, bootstrap readiness, configured-app browser coverage, an AST audit of all 98 grouped invocations, host variants for shared widget scopes, catalog action surfaces/nested-offer locking, and explicit disposition of every prior review finding.
+- **2026-10-09 — Review/autofix generalization.** Reframed the catalog-only hidden policy as a generic add/hide/replace `CrudForm` contract built from existing UMES primitives. Added mandatory semantic backend capabilities and fail-closed server resolution, explicit operation/resource identity, active validation/custom-field projection, server-owned nested payload preservation, widget dependency graphs, bootstrap readiness, the Frontend Architecture Contract, configured-app browser coverage, an AST audit of all 98 grouped invocations, host variants for shared widget scopes, catalog action surfaces/nested-offer locking, and explicit disposition of every review finding.
 - **2026-09-30 — Initial specification.** Proposed a catalog product hidden-section policy and corrected the original component-extraction and unconfigured-browser-test assumptions.
