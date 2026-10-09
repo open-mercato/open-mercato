@@ -57,4 +57,4 @@ Ship tested Brevo and Mailjet system-email provider packages on the existing Com
 
 - Provider typechecks and tests pass: Brevo 22/22, Mailjet 27/27.
 - Generation, package builds, app build, template sync, dependency checks, and i18n sync/usage checks pass.
-- The repository test gate passed 20,435 tests and failed two unchanged `progressService` stale-sweep tests; both failures reproduce in the isolated baseline file, whose contents match `origin/develop`.
+- The repository test gate exposed two baseline `progressService` fixtures that omitted the tenant scope now enforced by the service. The fixtures were corrected; the focused suite passes 102/102 before the full gate rerun.

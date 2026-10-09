@@ -2097,6 +2097,7 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
       totalCount: 100,
       cancellable: true,
       meta: {},
+      tenantId: baseCtx.tenantId,
     } as unknown as ProgressJob
     em.findOneOrFail.mockResolvedValue(job)
     em.findOne.mockResolvedValue(job)
@@ -2135,6 +2136,7 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
       totalCount: 100,
       cancellable: true,
       meta: {},
+      tenantId: baseCtx.tenantId,
     } as unknown as ProgressJob
     // Stands in for the database row. Every read returns a fresh copy the way
     // disableIdentityMap does, so a payload built from the pre-flush copy is
