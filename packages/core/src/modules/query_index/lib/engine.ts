@@ -1309,12 +1309,14 @@ export class HybridQueryEngine implements QueryEngine {
         if (encSvc?.decryptEntityPayload) {
           const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
             entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
+            options?: { em?: EntityManager },
           ) => Promise<Record<string, unknown>>
           try {
             const decrypted = await decrypt(
               entity, next,
               (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
               (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
+              { em: this.em },
             )
             next = { ...next, ...decrypted }
           } catch (err) {

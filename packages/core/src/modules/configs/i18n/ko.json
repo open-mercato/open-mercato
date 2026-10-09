@@ -149,6 +149,8 @@
   "configs.systemStatus.variables.cacheStrategy.label": "캐시 전략",
   "configs.systemStatus.variables.cacheTtl.description": "기본 캐시 유효 시간(밀리초)입니다.",
   "configs.systemStatus.variables.cacheTtl.label": "캐시 TTL",
+  "configs.systemStatus.variables.databaseUrl.description": "자격 증명이 가려진 데이터베이스 연결 URL입니다.",
+  "configs.systemStatus.variables.databaseUrl.label": "데이터베이스 URL",
   "configs.systemStatus.variables.enableCrudApiCache.description": "CRUD API 응답 캐시 계층을 활성화합니다.",
   "configs.systemStatus.variables.enableCrudApiCache.label": "CRUD API 캐시",
   "configs.systemStatus.variables.entitiesBackcompatEav.description": "커스텀 엔터티 쓰기를 레거시 EAV 테이블에 미러링합니다.",

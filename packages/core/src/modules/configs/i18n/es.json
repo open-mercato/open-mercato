@@ -149,6 +149,8 @@
   "configs.systemStatus.variables.cacheStrategy.label": "Estrategia de caché",
   "configs.systemStatus.variables.cacheTtl.description": "Tiempo de vida predeterminado del caché en milisegundos.",
   "configs.systemStatus.variables.cacheTtl.label": "TTL del caché",
+  "configs.systemStatus.variables.databaseUrl.description": "URL de conexión a la base de datos con las credenciales ocultas.",
+  "configs.systemStatus.variables.databaseUrl.label": "URL de la base de datos",
   "configs.systemStatus.variables.enableCrudApiCache.description": "Habilitar la capa de caché de respuestas de la API CRUD.",
   "configs.systemStatus.variables.enableCrudApiCache.label": "Caché de API CRUD",
   "configs.systemStatus.variables.entitiesBackcompatEav.description": "Replicar escrituras de entidades personalizadas en las tablas EAV heredadas.",

@@ -6,10 +6,9 @@ import type { CrudCtx } from "@open-mercato/shared/lib/crud/factory";
 import { buildScopedWhere } from "@open-mercato/shared/lib/api/crud";
 import { parseBooleanFlag } from "@open-mercato/shared/lib/boolean";
 import { sanitizeSearchTerm } from "@open-mercato/shared/lib/query/sanitizeSearchTerm";
-import { escapeLikePattern } from "@open-mercato/shared/lib/db/escapeLikePattern";
 import { findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import { warnOnEncryptedLikeFilter } from "@open-mercato/shared/lib/encryption/likeFilterWarning";
-import { buildAccentInsensitivePatternSql } from "@open-mercato/shared/lib/db/accentInsensitiveSearch";
+import { buildAccentInsensitiveContainsPatternSql } from "@open-mercato/shared/lib/db/accentInsensitiveSearch";
 import { createLogger } from "@open-mercato/shared/lib/logger";
 import { fieldsetCodeRegex } from "@open-mercato/core/modules/entities/data/validators";
 import { E } from "#generated/entities.ids.generated";
@@ -182,7 +181,6 @@ export async function buildProductFilters(
   // => empty result" behavior.
   const searchTask = async (): Promise<string[] | null> => {
     if (!term) return null;
-    const like = `%${escapeLikePattern(term)}%`;
     // The predicate hides behind a raw() symbol key, which the filter walker in
     // findWithDecryption cannot see (Object.entries skips symbols), so the
     // encrypted-ILIKE diagnostic is raised here with the field list instead.
@@ -198,7 +196,7 @@ export async function buildProductFilters(
           ...scopeWhere,
           ...(query.withDeleted ? {} : { deletedAt: null }),
           [raw(PRODUCT_SEARCH_EXPRESSION_SQL)]: {
-            $ilike: raw(buildAccentInsensitivePatternSql(), [like]),
+            $ilike: raw(buildAccentInsensitiveContainsPatternSql(), [term]),
           },
         },
         { fields: ["id"] },
