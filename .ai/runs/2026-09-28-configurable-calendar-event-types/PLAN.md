@@ -43,7 +43,7 @@ The source PR was revised on 2026-09-29 after the original execution plan and St
 | 3 | 3.2 | Document the frozen extension contract and refresh standalone coverage | group:D:capable | done | 437dbcace |
 | 3 | 3.3 | Verify live UI flows and publish screenshot evidence to the PR | group:D:capable | done | 2ebe740d7 |
 | 4 | 4.1 | Fix Customers status dictionaries on mobile and cover the responsive layout | group:C:capable | done | 414b010b1 |
-| 4 | 4.2 | Audit and complete the Example Visit availability E2E matrix | group:D:capable | todo | — |
+| 4 | 4.2 | Audit and complete the Example Visit availability E2E matrix | group:D:capable | done | 20ae0721b |
 | 4 | 4.3 | Run the configured validation, review, and refreshed mobile QA evidence | group:D:capable | todo | — |
 
 ## Progress
@@ -77,7 +77,7 @@ The source PR was revised on 2026-09-29 after the original execution plan and St
 ### Phase 4: Mobile dictionary follow-up and Visit coverage audit
 
 - [x] 4.1 Fix Customers status dictionaries on mobile and cover the responsive layout — 414b010b1
-- [ ] 4.2 Audit and complete the Example Visit availability E2E matrix
+- [x] 4.2 Audit and complete the Example Visit availability E2E matrix — 20ae0721b
 - [ ] 4.3 Run the configured validation, review, and refreshed mobile QA evidence
 
 ## Goal
