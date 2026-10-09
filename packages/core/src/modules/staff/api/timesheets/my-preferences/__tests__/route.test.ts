@@ -146,6 +146,15 @@ describe('staff timesheets my-preferences route', () => {
       expect(mockLoadTimesheetPreference).not.toHaveBeenCalled()
     })
 
+    it('answers 403 when the organization scope is explicitly empty', async () => {
+      mockResolveOrganizationScope.mockResolvedValueOnce({ tenantId: 'tenant-1', selectedId: null, filterIds: [], allowedIds: [] })
+
+      const response = await getHandler(buildGetRequest())
+
+      expect(response.status).toBe(403)
+      expect(mockLoadTimesheetPreference).not.toHaveBeenCalled()
+    })
+
     it('resolves the staff member inside the requested organization scope', async () => {
       await getHandler(buildGetRequest())
 
