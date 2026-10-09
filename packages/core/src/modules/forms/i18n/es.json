@@ -177,6 +177,7 @@
   "forms.errors.internal": "Algo ha ido mal. Inténtelo de nuevo.",
   "forms.errors.invalid_id": "Ese identificador no es válido.",
   "forms.errors.invalid_image": "No se pudo usar esa imagen.",
+  "forms.errors.invalid_key": "La clave solo puede contener letras minúsculas, dígitos, guiones y guiones bajos, y debe empezar por una letra.",
   "forms.errors.invalid_payload": "Los datos enviados no son válidos.",
   "forms.errors.invalid_upload": "No se pudo aceptar esa carga.",
   "forms.errors.invitation_no_email": "Esta invitación no tiene una dirección de correo a la que enviar.",

@@ -177,6 +177,7 @@
   "forms.errors.internal": "Coś poszło nie tak. Spróbuj ponownie.",
   "forms.errors.invalid_id": "Ten identyfikator jest nieprawidłowy.",
   "forms.errors.invalid_image": "Nie można użyć tego obrazu.",
+  "forms.errors.invalid_key": "Klucz może zawierać tylko małe litery, cyfry, myślniki i podkreślenia oraz musi zaczynać się od litery.",
   "forms.errors.invalid_payload": "Przesłane dane są nieprawidłowe.",
   "forms.errors.invalid_upload": "Nie można przyjąć tego pliku.",
   "forms.errors.invitation_no_email": "To zaproszenie nie ma adresu e-mail do wysyłki.",

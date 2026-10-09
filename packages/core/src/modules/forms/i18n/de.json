@@ -177,6 +177,7 @@
   "forms.errors.internal": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
   "forms.errors.invalid_id": "Diese Kennung ist ungültig.",
   "forms.errors.invalid_image": "Dieses Bild konnte nicht verwendet werden.",
+  "forms.errors.invalid_key": "Der Schlüssel darf nur Kleinbuchstaben, Ziffern, Bindestriche und Unterstriche enthalten und muss mit einem Buchstaben beginnen.",
   "forms.errors.invalid_payload": "Die übermittelten Daten sind ungültig.",
   "forms.errors.invalid_upload": "Dieser Upload konnte nicht angenommen werden.",
   "forms.errors.invitation_no_email": "Diese Einladung hat keine E-Mail-Adresse zum Versenden.",
