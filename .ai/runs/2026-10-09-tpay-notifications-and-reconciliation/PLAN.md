@@ -22,7 +22,7 @@
 | 2 | 2.3 | Document Tpay reconciliation and update the reconciliation spec | inline | done | a48659ca1 |
 | 2 | 2.3-review-fix | Address review findings on schedule activation, certificate rotation, help text, subscriber retries, and form limits | inline | done | 46daa24f6 |
 | 2 | 2.4 | Add the Tpay notification route integration test | inline | done | a06438701 |
-| 2 | 2.4-review-fix | Derive an RFC 4122 schedule id so the scheduler trigger API accepts it | inline | done | self |
+| 2 | 2.4-review-fix | Derive an RFC 4122 schedule id so the scheduler trigger API accepts it | inline | done | 2285077d1 |
 
 ## Goal
 

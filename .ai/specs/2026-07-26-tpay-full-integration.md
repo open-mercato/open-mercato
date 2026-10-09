@@ -1,6 +1,6 @@
 # Tpay Authoritative Transaction Notification Settlement
 
-- **Status:** in-progress (implemented; live sandbox acceptance outstanding)
+- **Status:** implemented (sandbox acceptance passed 2026-10-09; awaiting upstream merge)
 - **Date:** 2026-07-26
 - **Type:** OSS payment-provider settlement capability
 - **Provider package:** `@open-mercato/gateway-tpay` (`gateway_tpay`)
@@ -230,6 +230,14 @@ Acceptance requires notification-only sandbox capture, tampered MD5/JWS/amount r
 - Existing routes, adapter signatures, events, queues, DI keys, database fields, and registries stay stable.
 - Existing hosted sessions remain status-readable; no migration/backfill; enable per tenant after callback setup.
 
+## Sandbox Acceptance — 2026-10-09
+
+Live Tpay sandbox merchant account, ephemeral Open Mercato app reached through a temporary HTTPS tunnel (`cloudflare/cloudflared:2026.9.3` quick tunnel), notification URL override enabled:
+
+- Hosted payment through the checkout pay page with the return to the shop blocked in the browser: the transaction reached `captured` from the notification alone (`gatewayStatus: tpay.transaction.settled`, `lastWebhookAt` set), seconds after the simulator payment.
+- Health check `healthy` with `notificationsReady: true`; probe through the tunnel to an unknown `tr_crc` returned `503 FALSE`.
+- Tpay resent the same notification from the merchant panel: identical idempotency key (`tpay:transaction:<tr_id>:true:<tr_date>`); no second status transition. The duplicate was processed instead of skipped because the core unique index `gateway_webhook_events_idempotency_unique` is a plain index in the database (historical migration `Migration20260313222043` has up/down swapped) — core fix tracked separately upstream; Tpay's idempotency key is correct and deterministic.
+
 ## Implementation Notes
 
 - Files: `packages/gateway-tpay/src/modules/gateway_tpay/lib/{notification-form,checksum,jws,webhook-handler,webhook-response}.ts`, `lib/certificates/{production,sandbox,index}.ts`, registration in `di.ts`; the adapter's `verifyWebhook` delegates to the same handler.
@@ -291,6 +299,10 @@ None identified. All prerequisites must land before implementation.
 Fully compliant — ready for implementation after prerequisites.
 
 ## Changelog
+
+### 2026-10-09 (sandbox acceptance)
+
+- Recorded notification-only capture and duplicate resend behaviour; noted the core webhook dedup index defect found during acceptance.
 
 ### 2026-10-09 (implementation)
 

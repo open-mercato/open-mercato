@@ -1,6 +1,6 @@
 # Tpay Scheduled Payment Status Reconciliation
 
-- **Status:** in-progress (implemented; sandbox repair acceptance outstanding)
+- **Status:** implemented (sandbox repair acceptance passed 2026-10-09; awaiting upstream merge)
 - **Date:** 2026-08-01
 - **Type:** OSS payment-provider recovery capability
 - **Provider package:** `@open-mercato/gateway-tpay` (`gateway_tpay`)
@@ -172,6 +172,13 @@ Acceptance requires a missed-notification sandbox transaction to reach `captured
 - Disabling the schedule cleanly restores the previous notification/return-poll behavior.
 - If implementation needs a shared/core change beyond existing scheduler and worker contracts, update this specification and run the compatibility review before coding it.
 
+## Sandbox Acceptance — 2026-10-09
+
+- Enabling the integration through the state API registered the schedule automatically (`Tpay payment status reconciliation`, `5m`, queue `gateway-tpay-status-poller`, `sourceModule: gateway_tpay`).
+- A sandbox payment was completed with its notification deliberately sent to an unknown provider path (`404`, so Tpay stopped retrying) and the shop return blocked: the transaction stayed `pending`.
+- One job on `gateway-tpay-status-poller` with the schedule's payload/scope (enqueued directly into the local queue, because the ephemeral test environment runs without the scheduler and manual triggers require the async strategy) moved it to `captured` within 10 s (`lastPolledAt` set, no webhook).
+- Found during acceptance and fixed in this PR: the hash-shaped schedule id was rejected by the scheduler trigger API (`z.uuid()`); the id now carries RFC version/variant bits. The core scheduler validators are being relaxed separately upstream; `mercato scheduler run` failing with `Could not resolve 'queueService'` is a separate pre-existing core issue.
+
 ## Implementation Notes
 
 - Worker `packages/gateway-tpay/src/modules/gateway_tpay/workers/status-poller.ts` (`gateway_tpay:status-poller`, queue `gateway-tpay-status-poller`, concurrency 2): scope from the scheduler payload (`scope.*` or top-level), `limit` clamped to 1..100, `providerKey: 'tpay'`, per-transaction isolation with `gateway_tpay.status_poll_failed` reporting, summary log `{ scanned, changed, failed }`.
@@ -223,6 +230,10 @@ None identified.
 Fully compliant — ready for implementation after authoritative Tpay notification settlement.
 
 ## Changelog
+
+### 2026-10-09 (sandbox acceptance)
+
+- Recorded automatic schedule registration and a poller repair of a payment whose notification was suppressed.
 
 ### 2026-10-09 (implementation)
 
