@@ -61,8 +61,9 @@ User edits injected field and clicks Save (Cmd+Enter)
 - Insert fields into specified groups at specified positions using `InjectionPlacement`
 - Populate injected field initial values from enriched response data via dot-path accessor
 - Exclude injected field values from core Zod schema validation
-- Trigger `onBeforeSave`/`onSave`/`onAfterSave` on widget event handlers (existing mechanism)
-- **Group fallback**: if `field.group` references a group that doesn't exist in the CrudForm, the field is appended to the last group. A dev-mode console warning is logged: `[CrudForm] Injected field "${field.id}" targets group "${field.group}" which does not exist. Appended to last group.`
+- Trigger `onBeforeSave`/`onSave`/`onAfterSave` on widget event handlers (existing mechanism) — field widgets' `eventHandlers` are dispatched alongside the form's component widgets (#6142)
+- **Group card**: if `field.group` references a group that doesn't exist in the CrudForm and the injection-table entry maps the widget with `kind: 'group'`, the field renders in its own card built from the entry's `groupLabel`/`groupDescription`/`column` (#6142)
+- **Group fallback**: otherwise, if `field.group` references a group that doesn't exist in the CrudForm, the field is appended to the last group that renders plain fields (never a `kind: 'customFields'` or `bare` group, which ignore `group.fields`). A dev-mode console warning is logged: `[CrudForm] Injected field "${field.id}" targets group "${field.group}" which does not exist. Appended to last group.`
 - **Dirty tracking**: injected fields participate in CrudForm's dirty tracking via the shared `values` state (same `onChange` callback). When an injected field changes, the form's unsaved-changes guard triggers normally
 
 ### 2. `InjectedField` Component
